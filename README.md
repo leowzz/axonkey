@@ -18,6 +18,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 本地按键映�
 - 内置“输入文本并回车”行为：粘贴文本 -> 等待 30 ms -> Enter。
 - 修改后自动保存并立即应用，无需为普通映射变更重启 Windows。
 - 只处理匹配 VID/PID 的目标设备，不修改普通键盘的按键行为。
+- 首次使用引导可安装并检查 VB-Audio VB-CABLE 虚拟麦克风驱动。
 
 ## 支持范围与限制
 
@@ -45,7 +46,8 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 本地按键映�
 - 64 位 Windows 10 或 Windows 11；
 - 已通过 Windows 蓝牙设置配对的 RC003；
 - Interception v1.0.1 输入驱动；
-- 首次安装或卸载驱动时需要管理员权限，并需要重启 Windows 一次。
+- 需要虚拟麦克风时安装 VB-Audio VB-CABLE Pack45；
+- 首次安装或卸载上述驱动时需要管理员权限，并需要重启 Windows 一次。
 
 Axonkey 使用 x64 Interception 运行库，因此不支持 32 位 Windows。
 
@@ -53,11 +55,11 @@ Axonkey 使用 x64 Interception 运行库，因此不支持 32 位 Windows。
 
 1. 在 Windows 蓝牙设置中配对并唤醒 RC003。
 2. 启动 Axonkey，按照首次使用引导检查设备和驱动。
-3. 安装 Interception 输入驱动。安装程序会请求管理员权限，完成后重启 Windows。
+3. 在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
 4. 重新打开 Axonkey，选择遥控器按键及触发方式，然后设置目标行为。
 5. 打开“启用自定义按键功能”开关。
 
-驱动只需安装一次。之后添加、删除或修改映射不需要再次重启。
+两个驱动都只需安装一次。之后添加、删除或修改映射不需要再次重启。
 
 从源码目录或解压后的发行目录也可以手动运行安装脚本：
 
@@ -66,6 +68,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-driver.ps1
 ```
 
 脚本会校验随项目提供的 Interception 安装程序和运行库，说明系统变更，要求输入 `INSTALL` 确认，然后申请管理员权限。
+
+也可以手动启动仓库中经过校验的 VB-CABLE 安装流程：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\vbcable-driver.ps1 -Action install
+```
+
+该脚本校验未修改的官方 Pack45 ZIP、x64 安装器哈希和发布者签名，随后申请管理员权限并打开 VB-Audio 官方安装窗口。安装完成后需要重启 Windows，录音设备列表中会出现 `CABLE Output (VB-Audio Virtual Cable)`。
 
 ## 卸载输入驱动
 
@@ -149,6 +159,12 @@ RC003 HID 键盘
 Interception 是独立的第三方组件，并采用双重许可。其上游许可允许在所列 LGPL 条款下进行非商业使用；商业分发需要向 Interception 作者取得单独授权。在取得相应许可前，请勿将包含 Interception 资源的 Axonkey 用于商业分发。
 
 具体版本、文件哈希、许可文本和上游链接见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) 与 [vendor/interception/SOURCE.md](./vendor/interception/SOURCE.md)。
+
+## VB-CABLE 许可
+
+VB-CABLE 是 VB-Audio Software 提供的 Donationware。Axonkey 原样携带官方 Pack45 ZIP，并在引导中明确展示其来源；如果你认为 VB-CABLE 有用或将其用于专业场景，请通过 [VB-Audio 官方页面](https://vb-audio.com/Cable/) 捐赠或购买许可。
+
+版本、哈希和分发说明见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) 与 [vendor/vbcable/SOURCE.md](./vendor/vbcable/SOURCE.md)。
 
 ## 相关项目
 

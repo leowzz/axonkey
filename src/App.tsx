@@ -14,6 +14,7 @@ import {
   Command,
   Copy,
   Download,
+  ExternalLink,
   GripVertical,
   Home,
   Info,
@@ -673,23 +674,16 @@ function App() {
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
     updateSetup((current) => beginDriverAction(current, driver, action))
-    if (driver === 'audio') {
-      updateSetup((current) => finishDriverAction(current, driver, action, {
-        success: true,
-        status: action === 'install' ? 'installed' : 'missing',
-        message: action === 'install' ? '已由用户确认安装。' : '已标记为手动卸载；系统驱动仍需在 Windows 中移除。',
-      }))
-      return
-    }
     try {
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
+      const driverName = driver === 'audio' ? 'VB-CABLE' : '按键驱动'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
-        status: 'restartRequired',
+        status: action === 'install' ? 'restartRequired' : 'missing',
         restartRequired: true,
         message: action === 'install'
-          ? `驱动安装已完成，请重启 Windows。日志：${result.logPath}`
-          : `驱动卸载已完成，请重启 Windows。日志：${result.logPath}`,
+          ? `${driverName} 安装已完成，请重启 Windows。日志：${result.logPath}`
+          : `${driverName} 卸载已完成，请重启 Windows。日志：${result.logPath}`,
       }))
     } catch (error) {
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
@@ -706,6 +700,15 @@ function App() {
       await invoke('open_windows_settings', { page })
     } catch {
       setToast('浏览器预览无法打开 Windows 设置')
+      window.setTimeout(() => setToast(''), 2200)
+    }
+  }
+
+  const openExternalPage = async (page: 'vbcable') => {
+    try {
+      await invoke('open_external_page', { page })
+    } catch {
+      setToast('无法打开 VB-Audio 官方页面')
       window.setTimeout(() => setToast(''), 2200)
     }
   }
@@ -752,11 +755,11 @@ function App() {
   const probeAudioState = async () => {
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
-    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在后台检查音频设备，不影响其他操作…' }))
+    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在检查 VB-CABLE 虚拟麦克风…' }))
     try {
       const available = await invoke<boolean>('probe_audio_available')
       updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
-        message: available ? 'Windows 音频设备工作正常。' : '未检测到可用的 Windows 音频设备。',
+        message: available ? '已检测到 VB-Audio Virtual Cable（CABLE Output）。' : '未检测到 VB-CABLE 虚拟麦克风驱动。',
       }))
     } catch (error) {
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
@@ -808,7 +811,7 @@ function App() {
   }, [setupOpen])
 
   useEffect(() => {
-    if (setupOpen && setupState.currentStep === 'audioDriver') void probeAudioState()
+    if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
   }, [setupOpen, setupState.currentStep])
 
   useEffect(() => {
@@ -1031,9 +1034,9 @@ function App() {
         onReset={() => setSetupState(resetSetup())}
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
         onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
-        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, driver === 'input' ? 'restartRequired' : 'installed', { restartRequired: driver === 'input', message: driver === 'input' ? '已确认安装，重启 Windows 后驱动生效。' : '已由用户确认安装。' }))}
-        onMarkDriverRemoved={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'missing', { restartRequired: driver === 'input', message: driver === 'input' ? '已确认卸载，重启 Windows 后完成移除。' : '已由用户确认卸载。' }))}
+        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装，重启 Windows 后驱动生效。' }))}
         onOpenWindowsSettings={(page) => void openWindowsSettings(page)}
+        onOpenExternalPage={(page) => void openExternalPage(page)}
         onCheckDevice={checkDeviceConnection}
         onMarkDeviceConnected={() => updateSetup((current) => setDeviceConnection(current, { status: 'connected', name: '小米遥控器 RC003', message: '设备已由用户确认连接。' }))}
         onFinish={() => { updateSetup((current) => completeSetupStep(current, 'complete')); setSetupOpen(false) }}
@@ -1412,8 +1415,8 @@ type SetupDialogProps = {
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkDriverInstalled: (driver: DriverKind) => void
-  onMarkDriverRemoved: (driver: DriverKind) => void
   onOpenWindowsSettings: (page: 'bluetooth' | 'sound') => void
+  onOpenExternalPage: (page: 'vbcable') => void
   onCheckDevice: () => void
   onMarkDeviceConnected: () => void
   onFinish: () => void
@@ -1421,13 +1424,12 @@ type SetupDialogProps = {
 
 const setupStepLabels: Record<SetupStepId, string> = {
   welcome: '开始',
-  inputDriver: '按键驱动',
-  audioDriver: '音频驱动',
+  inputDriver: '驱动安装',
   deviceConnection: '连接设备',
   complete: '完成',
 }
 
-function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onMarkDriverRemoved, onOpenWindowsSettings, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onOpenWindowsSettings, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   return <div className="setup-backdrop" role="presentation">
     <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
@@ -1436,7 +1438,8 @@ function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, o
         <div className="setup-step-list">
           {(Object.keys(setupStepLabels) as SetupStepId[]).map((stepId, index) => {
             const status = state.steps[stepId].status
-            return <button type="button" key={stepId} className={`setup-step ${step === stepId ? 'active' : ''} ${status}`} onClick={() => onOpenStep(stepId)}>
+            const statusClass = status === 'complete' || status === 'skipped' ? status : ''
+            return <button type="button" key={stepId} className={`setup-step ${step === stepId ? 'active' : ''} ${statusClass}`} onClick={() => onOpenStep(stepId)}>
               <span className="setup-step-index">{status === 'complete' ? <Check size={12} /> : index + 1}</span>
               <span>{setupStepLabels[stepId]}</span>
               {status === 'skipped' && <small>已跳过</small>}
@@ -1450,35 +1453,24 @@ function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, o
         {step === 'welcome' && <div className="setup-screen">
           <span className="setup-hero-icon"><Settings2 size={24} /></span>
           <span className="section-kicker">FIRST RUN</span>
-          <h2 id="setup-title">准备好按键驱动与遥控器</h2>
-          <p className="setup-lead">整个过程只在本机完成。按键拦截驱动需要管理员权限并在安装后重启一次；音频依赖是可选项，每一步都可以跳过。</p>
+          <h2 id="setup-title">准备好驱动与遥控器</h2>
+          <p className="setup-lead">整个过程只在本机完成。两个驱动将在同一页依次安装，全部完成后只需重启 Windows 一次。</p>
           <div className="setup-summary-grid">
             <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
-            <div><AudioLines size={18} /><strong>音频依赖</strong><span>可选，可稍后手动配置</span></div>
+            <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
             <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
           </div>
           <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onCompleteStep}>开始设置 <ChevronRight size={15} /></button></div>
         </div>}
-        {step === 'inputDriver' && <DriverSetupScreen
-          kind="input"
+        {step === 'inputDriver' && <DriversSetupScreen
           state={state}
           onAction={onDriverAction}
           onSkipAction={onSkipDriverAction}
           onMarkInstalled={onMarkDriverInstalled}
-          onMarkRemoved={onMarkDriverRemoved}
-          onContinue={onCompleteStep}
-          onSkip={onSkipStep}
-        />}
-        {step === 'audioDriver' && <DriverSetupScreen
-          kind="audio"
-          state={state}
-          onAction={onDriverAction}
-          onSkipAction={onSkipDriverAction}
-          onMarkInstalled={onMarkDriverInstalled}
-          onMarkRemoved={onMarkDriverRemoved}
           onContinue={onCompleteStep}
           onSkip={onSkipStep}
           onOpenSettings={() => onOpenWindowsSettings('sound')}
+          onOpenVendorPage={() => onOpenExternalPage('vbcable')}
         />}
         {step === 'deviceConnection' && <div className="setup-screen">
           <span className="setup-hero-icon"><Bluetooth size={24} /></span>
@@ -1496,7 +1488,7 @@ function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, o
           <p className="setup-lead">映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里安装、卸载驱动或检查 RC003 连接。</p>
           <div className="setup-result-list">
             <span><Keyboard size={15} /> 按键驱动：{driverStatusLabel(state.drivers.input.status)}</span>
-            <span><AudioLines size={15} /> 音频驱动：{driverStatusLabel(state.drivers.audio.status)}</span>
+            <span><AudioLines size={15} /> CABLE 麦克风：{driverStatusLabel(state.drivers.audio.status)}</span>
             <span><Bluetooth size={15} /> RC003：{state.device.status === 'connected' ? '已连接' : '稍后连接'}</span>
           </div>
           <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onFinish}>进入按键映射</button></div>
@@ -1506,16 +1498,15 @@ function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, o
   </div>
 }
 
-type DriverSetupScreenProps = {
-  kind: DriverKind
+type DriversSetupScreenProps = {
   state: SetupState
   onAction: (driver: DriverKind, action: DriverActionKind) => void
   onSkipAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkInstalled: (driver: DriverKind) => void
-  onMarkRemoved: (driver: DriverKind) => void
   onContinue: () => void
   onSkip: () => void
-  onOpenSettings?: () => void
+  onOpenSettings: () => void
+  onOpenVendorPage: () => void
 }
 
 function driverStatusLabel(status: SetupState['drivers']['input']['status']) {
@@ -1523,27 +1514,62 @@ function driverStatusLabel(status: SetupState['drivers']['input']['status']) {
   return labels[status]
 }
 
-function DriverSetupScreen({ kind, state, onAction, onSkipAction, onMarkInstalled, onMarkRemoved, onContinue, onSkip, onOpenSettings }: DriverSetupScreenProps) {
+function isDriverInstalled(state: SetupState, kind: DriverKind) {
+  const status = state.drivers[kind].status
+  return status === 'installed' || status === 'restartRequired'
+}
+
+type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onMarkInstalled' | 'onOpenSettings' | 'onOpenVendorPage'> & {
+  kind: DriverKind
+  disabled: boolean
+}
+
+function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
   const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
-  const installed = driver.status === 'installed' || driver.status === 'restartRequired'
-  return <div className="setup-screen">
-    <span className="setup-hero-icon">{kind === 'input' ? <Keyboard size={24} /> : <AudioLines size={24} />}</span>
-    <span className="section-kicker">{kind === 'input' ? 'REQUIRED DRIVER' : 'OPTIONAL DRIVER'}</span>
-    <h2 id="setup-title">{definition.title}</h2>
-    <p className="setup-lead">{definition.description}</p>
-    <div className={`setup-status-panel ${driver.status}`}><span className="setup-status-dot" /><div><strong>{driverStatusLabel(driver.status)}</strong><span>{driver.action.error ?? driver.message ?? (kind === 'input' ? '安装脚本会先校验文件，然后请求管理员权限。' : '当前安装包不包含音频驱动，可通过系统设置手动处理。')}</span></div></div>
-    <div className="driver-notice">{kind === 'input' ? <><Download size={16} /><div><strong>安装与卸载需要 Windows 管理员权限</strong><span>点击后只会显示系统 UAC 授权，驱动操作在后台完成；完成后需要重启 Windows。卸载前请先关闭其他使用 Interception 的工具。</span></div></> : <><AudioLines size={16} /><div><strong>这是可选依赖</strong><span>按键映射、组合键和粘贴文本不依赖音频驱动，可以直接跳过。</span></div></>}</div>
-    <div className="setup-inline-actions">
-      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={running} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '正在安装…' : '安装驱动'}</button>}
-      {kind === 'input' && installed && <button type="button" className="dialog-secondary danger" disabled={running} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> 卸载驱动</button>}
-      {kind === 'input' && driver.action.kind === 'uninstall' && driver.action.status === 'succeeded' && <button type="button" className="dialog-secondary" onClick={() => onMarkRemoved(kind)}><Check size={14} /> 卸载已完成</button>}
-      {kind === 'audio' && <button type="button" className="dialog-secondary" onClick={onOpenSettings}><Settings2 size={14} /> 打开声音设置</button>}
-      {!installed && <button type="button" className="dialog-secondary" onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
-      {installed && kind === 'audio' && <button type="button" className="dialog-secondary danger" onClick={() => onMarkRemoved(kind)}><Trash2 size={14} /> 标记已卸载</button>}
+  const installed = isDriverInstalled(state, kind)
+  const message = driver.action.error ?? driver.message ?? (kind === 'input'
+    ? '经过校验的 Interception 驱动，仅用于识别 RC003 按键。'
+    : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
+  return <section className={`driver-setup-item ${driver.status}`}>
+    <div className="driver-setup-heading">
+      <span className="driver-setup-icon">{kind === 'input' ? <Keyboard size={18} /> : <AudioLines size={18} />}</span>
+      <div><h3>{definition.title}</h3><p>{definition.description}</p></div>
+      <span className="driver-status-chip"><span className="setup-status-dot" /> {driverStatusLabel(driver.status)}</span>
     </div>
-    <div className="setup-actions"><button type="button" className="setup-text-button" onClick={() => { onSkipAction(kind, installed ? 'uninstall' : 'install'); onSkip() }}>跳过此项</button><button type="button" className="button primary setup-primary" onClick={onContinue}>{installed ? '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
+    <p className="driver-setup-message">{message}</p>
+    <div className="driver-setup-actions">
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装驱动'}</button>}
+      {installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '卸载 VB-CABLE' : '卸载驱动'}</button>}
+      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
+      {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenSettings}><Settings2 size={14} /> 声音设置</button>}
+      {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenVendorPage}><ExternalLink size={14} /> VB-Audio 官网</button>}
+    </div>
+  </section>
+}
+
+function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, onContinue, onSkip, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+  const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
+  const allInstalled = (['input', 'audio'] as const).every((kind) => isDriverInstalled(state, kind))
+  const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
+  const skipDrivers = () => {
+    for (const kind of ['input', 'audio'] as const) {
+      if (!isDriverInstalled(state, kind)) onSkipAction(kind, 'install')
+    }
+    onSkip()
+  }
+  return <div className="setup-screen drivers-setup-screen">
+    <span className="setup-hero-icon"><Download size={24} /></span>
+    <span className="section-kicker">DRIVERS</span>
+    <h2 id="setup-title">一次完成两个驱动</h2>
+    <p className="setup-lead">依次完成按键驱动和 CABLE 虚拟麦克风安装。两个安装器都结束后再重启 Windows，避免重复重启。</p>
+    <div className="driver-setup-list">
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+    </div>
+    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>两个驱动安装完成后统一重启一次</strong><span>重启前可以先完成剩余引导；驱动将在下一次进入 Windows 后生效。</span></div></div>
+    <div className="setup-actions"><button type="button" className="setup-text-button" disabled={anyRunning} onClick={skipDrivers}>稍后安装</button><button type="button" className="button primary setup-primary" disabled={anyRunning} onClick={onContinue}>{allInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
   </div>
 }
 

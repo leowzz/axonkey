@@ -19,6 +19,8 @@ local utility rather than a general keyboard automation platform.
 - Apply saved changes immediately without a reboot.
 - Run in the notification area and optionally at sign-in.
 - Store all settings and diagnostics locally.
+- Guide the user through installing and detecting the optional VB-Audio
+  VB-CABLE virtual microphone endpoint.
 
 The RC003 Back and independent Volume +/- buttons are not shown because Windows
 does not reliably associate those events with their source input device. Axonkey

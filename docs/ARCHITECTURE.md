@@ -22,3 +22,11 @@ Windows reboot is involved in a mapping edit.
 Interception is a required runtime and driver dependency. Installing or
 removing its class filter requires administrator access and a Windows reboot.
 Normal Axonkey execution uses the current user's privileges.
+
+The first-run guide presents Interception and VB-CABLE on one driver setup page
+so both installers can finish before the user reboots Windows once. It can
+launch the official VB-Audio VB-CABLE installer.
+The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
+the archive hash, extracted x64 installer hash, and Authenticode publisher
+signature before requesting elevation. Driver readiness is detected from the
+`VBAudioVACMME` Windows service rather than from unrelated sound devices.

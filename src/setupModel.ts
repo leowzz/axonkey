@@ -12,7 +12,6 @@ export const setupStorageKey = 'axonkey.setup.v1'
 export const setupStepIds = [
   'welcome',
   'inputDriver',
-  'audioDriver',
   'deviceConnection',
   'complete',
 ] as const
@@ -29,7 +28,6 @@ export type SetupStepDefinition = {
 
 export const skippableSetupStepIds = [
   'inputDriver',
-  'audioDriver',
   'deviceConnection',
 ] as const satisfies readonly SetupStepId[]
 
@@ -44,14 +42,8 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
   },
   {
     id: 'inputDriver',
-    title: '按键拦截驱动',
-    description: '检查 Interception 驱动，让 Axonkey 只处理 RC003 的按键。',
-    skippable: true,
-  },
-  {
-    id: 'audioDriver',
-    title: '音频驱动',
-    description: '确认音量和媒体控制所需的音频设备依赖。',
+    title: '安装驱动',
+    description: '依次安装 Interception 与 VB-CABLE，完成后统一重启 Windows。',
     skippable: true,
   },
   {
@@ -158,13 +150,13 @@ export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
   },
   audio: {
     kind: 'audio',
-    title: '音频驱动',
-    description: '用于音量和媒体控制的音频设备依赖，可在没有设备时稍后处理。',
+    title: 'CABLE 虚拟麦克风',
+    description: '安装 VB-Audio VB-CABLE，使 Windows 出现 CABLE Output 虚拟录音设备。',
     required: false,
-    installScript: null,
-    uninstallScript: null,
-    rebootAfterInstall: false,
-    rebootAfterUninstall: false,
+    installScript: 'scripts/vbcable-driver.ps1',
+    uninstallScript: 'scripts/vbcable-driver.ps1',
+    rebootAfterInstall: true,
+    rebootAfterUninstall: true,
   },
 }
 
@@ -193,7 +185,6 @@ export function createDefaultSetupState(): SetupState {
     steps: {
       welcome: createStepState('active'),
       inputDriver: createStepState('pending'),
-      audioDriver: createStepState('pending'),
       deviceConnection: createStepState('pending'),
       complete: createStepState('pending'),
     },
@@ -212,6 +203,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSetupStepId(value: unknown): value is SetupStepId {
   return typeof value === 'string' && (setupStepIds as readonly string[]).includes(value)
+}
+
+function normalizeCurrentStep(value: unknown): SetupStepId {
+  if (value === 'audioDriver') return 'inputDriver'
+  return isSetupStepId(value) ? value : 'welcome'
 }
 
 function isDriverKind(value: unknown): value is DriverKind {
@@ -275,6 +271,22 @@ function normalizeStep(value: unknown, fallback: SetupStepState): SetupStepState
   return { status, visited: value.visited === true || status !== 'pending' }
 }
 
+function normalizeDriverSetupStep(rawSteps: Record<string, unknown>, fallback: SetupStepState): SetupStepState {
+  const input = normalizeStep(rawSteps.inputDriver, fallback)
+  if (!('audioDriver' in rawSteps)) return input
+
+  const audio = normalizeStep(rawSteps.audioDriver, createStepState('pending'))
+  const terminal = (step: SetupStepState) => step.status === 'complete' || step.status === 'skipped'
+  if (terminal(input) && terminal(audio)) {
+    return {
+      status: input.status === 'skipped' && audio.status === 'skipped' ? 'skipped' : 'complete',
+      visited: true,
+    }
+  }
+  if (input.visited || audio.visited) return { status: 'active', visited: true }
+  return fallback
+}
+
 function normalizeDevice(value: unknown, fallback: DeviceConnectionState): DeviceConnectionState {
   if (!isRecord(value)) return { ...fallback }
   return {
@@ -304,9 +316,14 @@ export function parseStoredSetup(value: unknown): SetupState {
 
   const rawSteps = isRecord(parsed.steps) ? parsed.steps : {}
   const rawDrivers = isRecord(parsed.drivers) ? parsed.drivers : {}
-  const currentStep = isSetupStepId(parsed.currentStep) ? parsed.currentStep : fallback.currentStep
+  const currentStep = normalizeCurrentStep(parsed.currentStep)
   const steps = Object.fromEntries(
-    setupStepIds.map((id) => [id, normalizeStep(rawSteps[id], fallback.steps[id])]),
+    setupStepIds.map((id) => [
+      id,
+      id === 'inputDriver'
+        ? normalizeDriverSetupStep(rawSteps, fallback.steps.inputDriver)
+        : normalizeStep(rawSteps[id], fallback.steps[id]),
+    ]),
   ) as Record<SetupStepId, SetupStepState>
 
   const state: SetupState = {

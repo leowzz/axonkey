@@ -157,8 +157,8 @@ async fn launch_driver_action(
         tauri::async_runtime::spawn_blocking(move || {
             run_driver_action(&driver, &action, &resource_dir)
         })
-            .await
-            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
+        .await
+        .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
     }
 
     #[cfg(not(target_os = "windows"))]

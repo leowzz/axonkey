@@ -270,11 +270,28 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .setup-status-panel.installed .setup-status-dot, .setup-status-panel.connected .setup-status-dot { background: #3da052; box-shadow: 0 0 0 3px #d8efdd; }
 .setup-status-panel.restartRequired .setup-status-dot { background: #e28c24; box-shadow: 0 0 0 3px #f7e6d1; }
 .setup-status-panel.error .setup-status-dot, .setup-status-panel.disconnected .setup-status-dot { background: #d45555; box-shadow: 0 0 0 3px #f4dddd; }
-.driver-notice { display: flex; gap: 11px; width: 100%; margin-top: 12px; padding: 12px 14px; border-left: 3px solid #83a9ce; color: #66717b; background: #eef2f5; }
-.driver-notice svg { flex: 0 0 auto; margin-top: 1px; }
-.driver-notice > div { display: flex; flex-direction: column; gap: 4px; }
-.driver-notice strong { color: #44505a; font-size: 10px; }
-.driver-notice span { font-size: 9px; line-height: 1.6; }
+.drivers-setup-screen .setup-hero-icon { width: 40px; height: 40px; margin-bottom: 10px; }
+.drivers-setup-screen h2 { margin-top: 4px; font-size: 22px; }
+.drivers-setup-screen .setup-lead { margin-top: 6px; line-height: 1.55; }
+.driver-setup-list { display: flex; width: 100%; flex-direction: column; gap: 8px; margin-top: 13px; }
+.driver-setup-item { width: 100%; padding: 11px 12px; border: 1px solid #d7dce0; border-radius: 8px; background: #f1f3f4; }
+.driver-setup-heading { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+.driver-setup-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 7px; color: #4d7398; background: #dde8f2; }
+.driver-setup-heading h3 { color: #343b41; font-size: 12px; }
+.driver-setup-heading p { margin-top: 2px; overflow: hidden; color: #7b838a; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.driver-status-chip { display: inline-flex; min-width: 78px; min-height: 27px; align-items: center; justify-content: center; gap: 7px; padding: 0 8px; border: 1px solid #d5d9dc; border-radius: 7px; color: #657079; background: #f8f9fa; font-size: 9px; white-space: nowrap; }
+.driver-status-chip .setup-status-dot { margin-top: 0; }
+.driver-setup-item.installed .setup-status-dot { background: #3da052; box-shadow: 0 0 0 3px #d8efdd; }
+.driver-setup-item.restartRequired .setup-status-dot { background: #e28c24; box-shadow: 0 0 0 3px #f7e6d1; }
+.driver-setup-item.error .setup-status-dot { background: #d45555; box-shadow: 0 0 0 3px #f4dddd; }
+.driver-setup-message { max-width: calc(100% - 44px); margin: 8px 0 0 44px; overflow: hidden; color: #69737c; font-size: 9px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.driver-setup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 0 44px; }
+.driver-setup-actions .dialog-secondary { height: 30px; padding: 0 10px; font-size: 9px; }
+.driver-restart-notice { display: flex; gap: 10px; width: 100%; margin-top: 9px; padding: 9px 12px; border-left: 3px solid #83a9ce; color: #66717b; background: #eef2f5; }
+.driver-restart-notice svg { flex: 0 0 auto; margin-top: 1px; }
+.driver-restart-notice > div { display: flex; flex-direction: column; gap: 2px; }
+.driver-restart-notice strong { color: #44505a; font-size: 10px; }
+.driver-restart-notice span { font-size: 9px; line-height: 1.4; }
 .setup-inline-actions { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; margin-top: 18px; }
 .dialog-secondary.danger { color: #b34b4b; }
 .dialog-secondary.danger:hover { border-color: #d9a7a7; color: #a52e2e; background: #fff7f7; }
@@ -283,6 +300,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .setup-primary:disabled { cursor: default; opacity: .45; }
 .setup-text-button { padding: 8px; border: 0; color: #818990; background: transparent; font-size: 10px; }
 .setup-text-button:hover { color: #4e5963; }
+.setup-text-button:disabled { cursor: default; opacity: .45; }
 .setup-complete { align-items: center; text-align: center; }
 .setup-complete .setup-lead { max-width: 500px; }
 .setup-result-list { display: flex; width: min(430px, 100%); flex-direction: column; gap: 8px; margin-top: 24px; }
