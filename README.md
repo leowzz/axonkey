@@ -4,27 +4,31 @@
   <img src="./public/rc003-remote.png" width="180" alt="小米 RC003 蓝牙遥控器">
 </p>
 
-Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 与 macOS 本地按键映射工具。Windows 版通过 Interception 驱动识别指定物理设备（`VID 0x2717` / `PID 0x32B8`）；macOS 版通过 IOKit 读取同一设备的原始 HID 报告，并用 CoreGraphics 发送映射后的输入。两个平台都只处理目标遥控器，普通键盘不会进入映射流程。
+Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 与 macOS 本地按键映射工具。Windows 版通过 Interception 驱动识别指定物理设备（`VID 0x2717` / `PID 0x32B8`）；macOS 版通过 IOKit 读取同一设备的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入。两个平台的用户态映射都只处理目标遥控器，普通键盘不会进入映射流程。
 
 项目目前专注于一个设备和一件事：让 RC003 成为可靠、易配置的快捷键控制器。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
+
+> **已确认的 Windows 驱动阻断问题：** Interception 1.0.1 无法可靠处理 RC003 的蓝牙 HID 断开重连。故障发生后，Windows 仍可显示设备正常，但所有按键都没有输入；退出 Axonkey 也无法恢复。当前 Windows 输入架构不应视为可发布的稳定方案。完整证据、恢复步骤和替代要求见 [Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。macOS 原生后端不使用 Interception，不受此问题影响。
 
 ## 主要功能
 
 - 识别 RC003 的连接状态与输入后端状态；Windows 版同时读取电量。
 - 为每个可识别按键分别配置单击、双击和长按行为。
 - 直接选择常用行为，包括保留原按键、禁用、导航编辑和媒体控制。
-- 支持单个按键、键盘录入、组合键，以及左/右 Alt 等单独修饰键。
+- 支持单个按键、键盘录入、组合键和单独修饰键；macOS 界面会按系统习惯显示 Command 与 Option。
 - 支持按顺序执行多个步骤，例如粘贴文本、等待和按下 Enter。
 - 内置“输入文本并回车”行为：粘贴文本 -> 等待 30 ms -> Enter。
-- 修改后自动保存并立即应用，无需为普通映射变更重启 Windows。
+- 修改后自动保存并立即应用，无需为普通映射变更重启应用或系统。
 - 只处理匹配 VID/PID 的目标设备，不修改普通键盘的按键行为。
-- Windows 首次引导可安装并检查 Interception 与 VB-Audio VB-CABLE；macOS 首次引导检查输入监控和辅助功能权限。
+- Windows 首次引导可安装并检查 Interception 与 VB-Audio VB-CABLE；macOS 首次引导精简为系统权限和设备连接两步。
+- macOS 授权时提供置顶小窗，可直接打开对应设置、在 Finder 中定位当前 `Axonkey.app` 并重新检测权限。
+- 关闭主窗口后继续常驻 Windows 系统托盘或 macOS 菜单栏，可从托盘菜单重新显示或完全退出。
 
 ## 支持范围与限制
 
-当前只支持小米 RC003 蓝牙遥控器。可配置的实体按键包括语音、电源、方向、确认、主页、菜单和 TV 键。
+当前只支持小米 RC003 蓝牙遥控器。macOS 可以配置全部 13 个已识别实体按键：语音、电源、四向、确认、返回、音量 `+ / -`、主页、菜单和 TV 键。返回键默认保持 Delete（退格）行为，音量键默认保持 macOS 系统音量行为与连续按压节奏，也可以改成其他单击、双击或长按映射。
 
-返回键和遥控器上的独立音量 `+ / -` 键暂时不能作为映射触发键。Windows 无法可靠区分这些按键事件来自哪台输入设备；macOS 原生后端虽然能从 RC003 HID 报告识别它们，但当前编辑器仍保持与 Windows 相同的十键范围，并原样转发这些系统按键。其他可识别按键仍然可以映射为系统音量增大、减小或静音。
+Windows 编辑器只开放其中 10 个按键，不提供返回键和独立音量 `+ / -` 作为映射触发键。Windows 无法可靠区分这些原始事件来自哪台输入设备，强制拦截可能影响其他键盘或遥控器。可配置按键仍然可以映射为系统音量增大、减小或静音。
 
 当前版本不计划支持：
 
@@ -37,9 +41,9 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 与 macOS 本地�
 
 | RC003 按键 | 单击行为 |
 | --- | --- |
-| 语音键 | 右 Alt（`RAlt`） |
+| 语音键 | 右 Alt（`RAlt`，macOS 界面显示为右 Option） |
 | 电源键 | Escape（`Esc`） |
-| 方向、确认、主页、菜单和 TV 键 | 保留原按键 |
+| 其他可配置按键 | 保留原按键 |
 
 ## 系统要求
 
@@ -47,11 +51,13 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 与 macOS 本地�
 
 - 64 位 Windows 10 或 Windows 11；
 - 已通过 Windows 蓝牙设置配对的 RC003；
-- Interception v1.0.1 输入驱动；
+- Interception v1.0.1 输入驱动（仅建议用于隔离测试，见下方阻断说明）；
 - 需要虚拟麦克风时安装 VB-Audio VB-CABLE Pack45；
 - 首次安装或卸载上述驱动时需要管理员权限，并需要重启 Windows 一次。
 
 Axonkey 使用 x64 Interception 运行库，因此不支持 32 位 Windows。
+
+Interception 当前仅保留为已有实现依赖，不代表推荐安装。RC003 会周期性重建蓝牙 HID 键盘节点，该驱动存在已确认的热插拔故障，可能让遥控器在重连后彻底失去输入，直到卸载驱动并重启。
 
 ### macOS
 
@@ -63,13 +69,15 @@ macOS 不需要安装输入驱动。未启用自定义映射，或两项权限�
 
 ## Windows 首次使用
 
+> 在替代输入驱动完成前，以下 Interception 安装步骤仅用于隔离测试环境。日常使用的 Windows 系统应跳过输入驱动安装；此时 Axonkey 的自定义按键映射不可用，但不会引入已确认的重连失效风险。
+
 1. 在 Windows 蓝牙设置中配对并唤醒 RC003。
 2. 启动 Axonkey，按照首次使用引导检查设备和驱动。
-3. 在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
+3. 仅在隔离测试环境中，在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
 4. 重新打开 Axonkey，选择遥控器按键及触发方式，然后设置目标行为。
 5. 打开“启用自定义按键功能”开关。
 
-两个驱动都只需安装一次。之后添加、删除或修改映射不需要再次重启。
+VB-CABLE 只需安装一次。Interception 安装说明仅保留用于复现和迁移验证，不应作为当前生产安装建议。之后添加、删除或修改映射不需要再次重启。
 
 从源码目录或解压后的发行目录也可以手动运行安装脚本：
 
@@ -89,12 +97,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\vbcable-driver.ps1 -Action in
 
 ## macOS 首次使用
 
-1. 在 macOS 蓝牙设置中配对并唤醒 RC003。
-2. 启动 Axonkey，在首次引导中依次请求“输入监控”和“辅助功能”权限。
-3. 返回 Axonkey 并重新检测权限；如果“输入监控”没有立即生效，请重新启动应用。
-4. 配置目标行为，然后启用“自定义按键功能”。
+1. 打开 DMG，将 `Axonkey.app` 拖入“应用程序”，再从“应用程序”启动它。不要长期直接运行 DMG 中的副本，否则后续授权可能指向临时挂载路径。
+2. 在 macOS 蓝牙设置中配对 RC003，并按任意键将遥控器唤醒。
+3. 首次引导只有“系统权限”和“连接设备”两步。先点击“输入监控”的“开始授权”，Axonkey 会打开“隐私与安全性”中的对应列表，并缩成屏幕右上角的置顶授权小窗。
+4. 如果系统列表中没有 Axonkey，点击小窗中的“在 Finder 中显示”，将高亮的 `Axonkey.app` 拖入授权列表并打开开关；随后以相同方式完成“辅助功能”。小窗与主界面会自动重新检测权限，也可以手动点击“重新检测”。
+5. 返回完整窗口，确认 RC003 已连接，配置目标行为并打开“启用自定义按键功能”。
 
-退出 Axonkey 或关闭自定义映射会释放 HID 访问并停止事件过滤器，遥控器恢复由 macOS 直接处理。
+输入监控用于读取 RC003 的原始 HID 报告，辅助功能用于过滤原始系统事件并发送映射后的按键、快捷键或文本。权限跟应用的代码签名身份关联：频繁安装不同 ad-hoc 本地构建时，如果界面仍显示“待授权”，请在系统设置中移除旧 Axonkey 条目，再通过 Finder 重新添加当前 `Axonkey.app`；如果系统明确要求退出并重新打开应用，请按提示操作。
+
+点击窗口左上角关闭按钮只会隐藏主窗口，Axonkey 仍常驻 macOS 菜单栏并继续处理映射。从菜单栏图标选择“显示 Axonkey”可恢复窗口；关闭“自定义按键功能”或选择“退出 Axonkey”才会释放 HID 捕获和事件过滤，让遥控器恢复由 macOS 直接处理。
 
 ## 卸载输入驱动
 
@@ -108,26 +119,28 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-driver.ps1
 
 ## 本地开发
 
-开发环境需要 Node.js 与 Rust stable。Windows 还需要 MSVC 构建工具和 WebView2；macOS 需要 Xcode Command Line Tools。安装依赖并启动 Tauri 桌面应用：
+开发环境需要 Node.js 与 Rust stable。Windows 还需要 MSVC 构建工具和 WebView2；macOS 需要 Xcode Command Line Tools。macOS/Linux shell 中安装依赖并启动 Tauri 桌面应用：
 
-```powershell
-Copy-Item .env.example .env
+```bash
+cp .env.example .env
 npm install
 npm run tauri dev
 ```
+
+Windows PowerShell 使用 `Copy-Item .env.example .env` 创建本地版本文件，其余命令相同。
 
 `.env` 是本机版本来源并被 Git 忽略，只允许包含一行 `version=vX.Y.Z`。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本。
 
 检查前端生产构建和 Rust 测试：
 
-```powershell
+```bash
 npm run build
-cargo test --manifest-path .\src-tauri\Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 项目也提供 Makefile：
 
-```powershell
+```bash
 make dev
 make build
 make build-macos
@@ -183,7 +196,7 @@ macOS Action 支持以下 Repository Secrets：
 
 ```text
 Windows: RC003 -> Interception -> 扫描码 -> 行为状态机 -> 同设备发送
-macOS:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CGEvent 发送
+macOS:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CoreGraphics / AppKit 发送
 ```
 
 输入服务只为识别出的 RC003 设备设置过滤条件。设置更新采用本地快照，界面保存后会直接替换输入服务中的当前配置。
@@ -195,7 +208,8 @@ macOS:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CGEvent 发送
 - Axonkey 不需要账号，不上传映射、输入历史或诊断信息。
 - 映射配置保存在本机应用数据中。
 - Windows 驱动安装和卸载日志位于 `%LOCALAPPDATA%\Axonkey\logs`。
-- 如果映射出现问题，退出 Axonkey 会释放 Windows Interception 上下文或 macOS HID 访问与事件过滤器，原始输入将恢复正常传递。
+- Windows 中退出 Axonkey 会释放用户态 Interception 上下文，但无法修复驱动热插拔故障。若 RC003 重连后完全没有输入，需要卸载 Interception、重启 Windows 并重新配对。
+- macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
 ## Interception 许可
 
