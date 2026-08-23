@@ -9,13 +9,16 @@ fn ping() -> &'static str {
 
 #[cfg(target_os = "windows")]
 fn find_driver_script(
+    driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
-    let file_name = match action {
-        "install" => "install-driver.ps1",
-        "uninstall" => "uninstall-driver.ps1",
-        _ => return Err("Unsupported driver action".into()),
+    let file_name = match (driver, action) {
+        ("input", "install") => "install-driver.ps1",
+        ("input", "uninstall") => "uninstall-driver.ps1",
+        ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
+        ("input" | "audio", _) => return Err("Unsupported driver action".into()),
+        _ => return Err("Unsupported driver kind".into()),
     };
 
     let mut roots = vec![resource_dir.to_path_buf()];
@@ -49,7 +52,7 @@ struct DriverActionResult {
 }
 
 #[cfg(target_os = "windows")]
-fn driver_log_path(action: &str) -> Result<std::path::PathBuf, String> {
+fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, String> {
     let local_app_data = std::env::var_os("LOCALAPPDATA")
         .ok_or_else(|| "Cannot locate the Windows local application data directory".to_string())?;
     let directory = std::path::PathBuf::from(local_app_data)
@@ -57,11 +60,17 @@ fn driver_log_path(action: &str) -> Result<std::path::PathBuf, String> {
         .join("logs");
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
-    Ok(directory.join(format!("driver-{action}.log")))
+    let file_name = if driver == "audio" {
+        format!("vbcable-{action}.log")
+    } else {
+        format!("driver-{action}.log")
+    };
+    Ok(directory.join(file_name))
 }
 
 #[cfg(target_os = "windows")]
 fn run_driver_action(
+    driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
 ) -> Result<DriverActionResult, String> {
@@ -69,19 +78,20 @@ fn run_driver_action(
     use std::process::Stdio;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let log_path = driver_log_path(action)?;
+    let log_path = driver_log_path(driver, action)?;
     let started = format!(
-        "Axonkey driver {action} requested: {:?}\r\n",
+        "Axonkey {driver} driver {action} requested: {:?}\r\n",
         std::time::SystemTime::now()
     );
     std::fs::write(&log_path, started)
         .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
 
-    let script = find_driver_script(action, resource_dir).map_err(|error| {
+    let script = find_driver_script(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
         format!("{error}. Log: {}", log_path.display())
     })?;
-    let status = std::process::Command::new("powershell.exe")
+    let mut command = std::process::Command::new("powershell.exe");
+    command
         .creation_flags(CREATE_NO_WINDOW)
         .arg("-NoProfile")
         .arg("-NonInteractive")
@@ -90,7 +100,11 @@ fn run_driver_action(
         .arg("-ExecutionPolicy")
         .arg("Bypass")
         .arg("-File")
-        .arg(script)
+        .arg(script);
+    if driver == "audio" {
+        command.arg("-Action").arg(action);
+    }
+    let status = command
         .arg("-Confirmed")
         .arg("-LogPath")
         .arg(&log_path)
@@ -125,8 +139,11 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if driver != "input" {
-        return Err("Only the Interception input driver has a bundled installer".into());
+    if !matches!(driver.as_str(), "input" | "audio") {
+        return Err("Unsupported driver kind".into());
+    }
+    if !matches!(action.as_str(), "install" | "uninstall") {
+        return Err("Unsupported driver action".into());
     }
 
     #[cfg(target_os = "windows")]
@@ -137,7 +154,9 @@ async fn launch_driver_action(
             .path()
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
-        tauri::async_runtime::spawn_blocking(move || run_driver_action(&action, &resource_dir))
+        tauri::async_runtime::spawn_blocking(move || {
+            run_driver_action(&driver, &action, &resource_dir)
+        })
             .await
             .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
     }
@@ -173,6 +192,32 @@ fn open_windows_settings(page: String) -> Result<(), String> {
     {
         let _ = uri;
         Err("Windows settings are only available on Windows".into())
+    }
+}
+
+#[tauri::command]
+fn open_external_page(page: String) -> Result<(), String> {
+    let url = match page.as_str() {
+        "vbcable" => "https://vb-audio.com/Cable/",
+        _ => return Err("Unsupported external page".into()),
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg(url)
+            .spawn()
+            .map_err(|error| format!("Cannot open the external page: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = url;
+        Err("External pages are only supported on Windows".into())
     }
 }
 
@@ -308,7 +353,7 @@ async fn probe_audio_available() -> bool {
     {
         tauri::async_runtime::spawn_blocking(|| {
             powershell_probe(
-                r#"if (@(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' }).Count -gt 0) { '1' } else { '0' }"#,
+                r#"if (Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\VBAudioVACMME') { '1' } else { '0' }"#,
             )
         })
         .await
@@ -406,6 +451,7 @@ pub fn run() {
             ping,
             launch_driver_action,
             open_windows_settings,
+            open_external_page,
             probe_system_state,
             probe_audio_available,
             probe_rc003_connected,

@@ -32,12 +32,15 @@
     "resources": {
       "../scripts/install-driver.ps1": "scripts/install-driver.ps1",
       "../scripts/uninstall-driver.ps1": "scripts/uninstall-driver.ps1",
+      "../scripts/vbcable-driver.ps1": "scripts/vbcable-driver.ps1",
       "../vendor/interception/interception.dll": "vendor/interception/interception.dll",
       "../vendor/interception/install-interception.exe": "vendor/interception/install-interception.exe",
       "../vendor/interception/LICENSE-LGPL-3.0.txt": "vendor/interception/LICENSE-LGPL-3.0.txt",
       "../vendor/interception/SOURCE.md": "vendor/interception/SOURCE.md",
       "../vendor/interception/licenses/Interception.pdf": "vendor/interception/licenses/Interception.pdf",
       "../vendor/interception/licenses/Interception API.pdf": "vendor/interception/licenses/Interception API.pdf",
+      "../vendor/vbcable/VBCABLE_Driver_Pack45.zip": "vendor/vbcable/VBCABLE_Driver_Pack45.zip",
+      "../vendor/vbcable/SOURCE.md": "vendor/vbcable/SOURCE.md",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "windows": {

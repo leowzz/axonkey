@@ -1,10 +1,4 @@
-[Bb]in/
-[Oo]bj/
-[Dd]ist/
-*.user
-*.suo
 *.log
-.vs/
 node_modules/
 web-dist/
 src-tauri/target/
