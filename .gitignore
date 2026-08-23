@@ -5,3 +5,9 @@
 *.suo
 *.log
 .vs/
+node_modules/
+web-dist/
+src-tauri/target/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
