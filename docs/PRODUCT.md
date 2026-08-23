@@ -37,8 +37,9 @@ can be added later if a stable hardware event is observed.
 - The main window answers three questions without opening another page:
   whether the driver is ready, whether RC003 is connected, and what each
   button currently does.
-- Editing a mapping starts from a list of common behaviors. Key and shortcut
-  capture share one entry, and no extra add confirmation is required.
+- Editing a mapping starts from a tabbed, directly visible list of common
+  behaviors. Key and shortcut capture share one entry, and no extra add
+  confirmation is required.
 - Invalid custom shortcuts cannot be saved.
 - Missing devices and missing drivers have different messages and remedies.
 - A mapping failure must not leave a replacement modifier held down.

@@ -322,6 +322,31 @@ async fn probe_audio_available() -> bool {
 }
 
 #[tauri::command]
+async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
+    use tauri::Manager;
+
+    if app.state::<InputService>().status().device_connected {
+        return Ok(true);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            powershell_probe(
+                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
+            )
+        })
+        .await
+        .map_err(|error| format!("Device probe task failed unexpectedly: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
@@ -337,24 +362,15 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let (input_driver_installed, pnp_connected) = tauri::async_runtime::spawn_blocking(|| {
-            let windows =
-                std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-            let driver_installed = std::path::PathBuf::from(windows)
-                .join("System32")
-                .join("drivers")
-                .join("keyboard.sys")
-                .is_file();
-            let device_connected = powershell_probe(
-                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
-            );
-            (driver_installed, device_connected)
-        })
-        .await
-        .map_err(|error| format!("System probe task failed unexpectedly: {error}"))?;
+        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+        let input_driver_installed = std::path::PathBuf::from(windows)
+            .join("System32")
+            .join("drivers")
+            .join("keyboard.sys")
+            .is_file();
         Ok(SystemProbe {
             input_driver_installed,
-            rc003_connected: input_status.device_connected || pnp_connected,
+            rc003_connected: input_status.device_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
@@ -383,6 +399,7 @@ pub fn run() {
             open_windows_settings,
             probe_system_state,
             probe_audio_available,
+            probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
         ])

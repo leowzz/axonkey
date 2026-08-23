@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   AudioLines,
+  Ban,
   BatteryMedium,
   Bluetooth,
   Check,
@@ -25,6 +26,11 @@ import {
   Target,
   Trash2,
   Clock3,
+  ClipboardPaste,
+  Play,
+  Volume1,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react'
 import {
@@ -57,6 +63,7 @@ import appPackage from '../package.json'
 import {
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
+  ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -158,6 +165,17 @@ type CommonBehaviorPreset =
   | 'escape'
   | 'enter'
   | 'space'
+  | 'tab'
+  | 'backspace'
+  | 'delete'
+  | 'keyHome'
+  | 'keyEnd'
+  | 'pageUp'
+  | 'pageDown'
+  | 'arrowUp'
+  | 'arrowDown'
+  | 'arrowLeft'
+  | 'arrowRight'
   | 'volumeUp'
   | 'volumeDown'
   | 'volumeMute'
@@ -337,6 +355,8 @@ function App() {
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
+  const deviceProbeRunningRef = useRef(false)
+  const batteryProbeRunningRef = useRef(false)
   const [connectors, setConnectors] = useState<Connector[]>([])
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
@@ -421,21 +441,23 @@ function App() {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     let active = true
     const refreshBattery = async () => {
+      if (batteryProbeRunningRef.current) return
+      batteryProbeRunningRef.current = true
       try {
         const level = await invoke<number | null>('probe_rc003_battery_level')
         if (active) setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
       } catch {
         if (active) setBatteryLevel(null)
+      } finally {
+        batteryProbeRunningRef.current = false
       }
     }
-    const handleFocus = () => void refreshBattery()
-    void refreshBattery()
+    const initialTimer = window.setTimeout(refreshBattery, 10_000)
     const interval = window.setInterval(refreshBattery, 60_000)
-    window.addEventListener('focus', handleFocus)
     return () => {
       active = false
+      window.clearTimeout(initialTimer)
       window.clearInterval(interval)
-      window.removeEventListener('focus', handleFocus)
     }
   }, [])
 
@@ -548,6 +570,17 @@ function App() {
       case 'escape': return replaceWithKey('Esc', 'Esc')
       case 'enter': return replaceWithKey('Enter', 'Enter')
       case 'space': return replaceWithKey('Space', 'Space')
+      case 'tab': return replaceWithKey('Tab', 'Tab')
+      case 'backspace': return replaceWithKey('Backspace', 'Backspace')
+      case 'delete': return replaceWithKey('Delete', 'Delete')
+      case 'keyHome': return replaceWithKey('Home', 'Home')
+      case 'keyEnd': return replaceWithKey('End', 'End')
+      case 'pageUp': return replaceWithKey('PageUp', 'Page Up')
+      case 'pageDown': return replaceWithKey('PageDown', 'Page Down')
+      case 'arrowUp': return replaceWithKey('Up', '方向上')
+      case 'arrowDown': return replaceWithKey('Down', '方向下')
+      case 'arrowLeft': return replaceWithKey('Left', '方向左')
+      case 'arrowRight': return replaceWithKey('Right', '方向右')
       case 'volumeUp': return replaceWithKey('VolumeUp', '增大音量')
       case 'volumeDown': return replaceWithKey('VolumeDown', '减小音量')
       case 'volumeMute': return replaceWithKey('VolumeMute', '静音')
@@ -728,9 +761,32 @@ function App() {
     }
   }
 
+  const probeDeviceConnection = async () => {
+    if (deviceProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    deviceProbeRunningRef.current = true
+    updateSetup((current) => setDeviceConnection(current, { status: 'checking', message: '正在后台检查 RC003…' }))
+    try {
+      const connected = await invoke<boolean>('probe_rc003_connected')
+      updateSetup((current) => setDeviceConnection(current, connected
+        ? {
+          status: 'connected',
+          name: '小米遥控器 RC003',
+          hardwareId: current.device.hardwareId,
+          message: current.device.hardwareId
+            ? 'Interception 输入服务已识别并接管 RC003。'
+            : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
+        }
+        : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
+    } catch (error) {
+      updateSetup((current) => setDeviceConnection(current, { status: 'error', message: `设备检测失败：${String(error)}` }))
+    } finally {
+      deviceProbeRunningRef.current = false
+    }
+  }
+
   const checkDeviceConnection = () => {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      void probeSystemState()
+      void probeDeviceConnection()
       return
     }
     updateSetup((current) => setDeviceConnection(current, { status: 'checking', message: '正在检查 RC003…' }))
@@ -747,6 +803,10 @@ function App() {
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'audioDriver') void probeAudioState()
+  }, [setupOpen, setupState.currentStep])
+
+  useEffect(() => {
+    if (setupOpen && setupState.currentStep === 'deviceConnection') void probeDeviceConnection()
   }, [setupOpen, setupState.currentStep])
 
   const handleHotspotPointerDown = (button: RemoteButton, event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1049,7 +1109,25 @@ type BehaviorEditorProps = {
   onEditBehavior: (behaviorId: string) => void
 }
 
+type BehaviorEditorTab = 'common' | 'navigation' | 'media' | 'advanced'
+
+type BehaviorActionButtonProps = {
+  icon: ReactNode
+  label: string
+  detail: string
+  onClick: () => void
+}
+
+function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionButtonProps) {
+  return <button type="button" className="behavior-action-button" onClick={onClick}>
+    <span className="behavior-action-icon">{icon}</span>
+    <span className="behavior-action-copy"><strong>{label}</strong><small>{detail}</small></span>
+  </button>
+}
+
 function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
+  const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
+  const tabId = `behavior-${button.id}-${trigger}`
   return <section className="behavior-editor" aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
     <div className="behavior-editor-head">
       <div className="behavior-editor-title">
@@ -1060,7 +1138,7 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
     </div>
     <div className="behavior-editor-body">
       <div className="behavior-list">
-        {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
+        {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从下方直接更改行为' : '这个触发方式尚未设置，可从下方直接选择行为'}</div>}
         {behaviors.map((behavior, index) => <BehaviorItem
           key={behavior.id}
           behavior={behavior}
@@ -1071,52 +1149,68 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
           onEdit={onEditBehavior}
         />)}
       </div>
-      <aside className="behavior-side">
-        <div className="behavior-side-heading">
-          <span className="behavior-side-label">常用行为</span>
+      <section className="behavior-actions" aria-label="选择行为">
+        <div className="behavior-tabs-row">
+          <div className="behavior-tabs" role="tablist" aria-label="行为分类">
+            {([
+              ['common', '常用'],
+              ['navigation', '导航编辑'],
+              ['media', '媒体控制'],
+              ['advanced', '追加步骤'],
+            ] as const).map(([id, label]) => <button
+              key={id}
+              id={`${tabId}-${id}-tab`}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === id}
+              aria-controls={`${tabId}-${id}-panel`}
+              className={activeTab === id ? 'active' : ''}
+              onClick={() => setActiveTab(id)}
+            >{label}</button>)}
+          </div>
           {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
         </div>
-        <select className="behavior-preset-select" aria-label="选择常用行为" defaultValue="" onChange={(event) => {
-          const preset = event.currentTarget.value as CommonBehaviorPreset
-          if (preset) onApplyCommonBehavior(preset)
-          event.currentTarget.value = ''
-        }}>
-          <option value="" disabled>直接选择行为</option>
-          <optgroup label="按键处理">
-            <option value="original">{trigger === 'click' ? '保留原按键' : '清除这个触发方式'}</option>
-            <option value="disabled">禁用按键</option>
-          </optgroup>
-          <optgroup label="常用按键">
-            <option value="escape">Esc</option>
-            <option value="enter">Enter</option>
-            <option value="space">Space</option>
-          </optgroup>
-          <optgroup label="媒体控制">
-            <option value="mediaPlayPause">播放 / 暂停</option>
-            <option value="volumeUp">增大音量</option>
-            <option value="volumeDown">减小音量</option>
-            <option value="volumeMute">静音</option>
-          </optgroup>
-          <optgroup label="输入与自定义">
-            <option value="textAndEnter">输入文本并回车</option>
-            <option value="customKey">其他按键 / 组合键</option>
-          </optgroup>
-        </select>
-        <p className="behavior-tip">选择后直接替换当前触发方式；“输入文本并回车”会生成粘贴、等待 30 ms 和 Enter 三个步骤。</p>
-        <details className="behavior-advanced">
-          <summary>添加后续步骤</summary>
-          <select aria-label="选择要添加的后续步骤" defaultValue="" onChange={(event) => {
-            const type = event.currentTarget.value as AdvancedBehaviorType
-            if (type) onAddAdvancedBehavior(type)
-            event.currentTarget.value = ''
-          }}>
-            <option value="" disabled>选择单个步骤</option>
-            <option value="key">按键 / 组合键</option>
-            <option value="paste">粘贴文本</option>
-            <option value="delay">等待</option>
-          </select>
-        </details>
-      </aside>
+        <div
+          id={`${tabId}-${activeTab}-panel`}
+          role="tabpanel"
+          aria-labelledby={`${tabId}-${activeTab}-tab`}
+          className="behavior-action-grid"
+        >
+          {activeTab === 'common' && <>
+            <BehaviorActionButton icon={<RotateCcw size={17} />} label={trigger === 'click' ? '保留原按键' : '清除触发方式'} detail={trigger === 'click' ? '使用遥控器原始输入' : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
+            <BehaviorActionButton icon={<Ban size={17} />} label="禁用按键" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
+            <BehaviorActionButton icon={<kbd>Esc</kbd>} label="Escape" detail="返回或关闭" onClick={() => onApplyCommonBehavior('escape')} />
+            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="Enter" detail="确认或提交" onClick={() => onApplyCommonBehavior('enter')} />
+            <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" detail="空格键" onClick={() => onApplyCommonBehavior('space')} />
+            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="粘贴 · 30 ms · Enter" onClick={() => onApplyCommonBehavior('textAndEnter')} />
+            <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
+          </>}
+          {activeTab === 'navigation' && <>
+            <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" detail="Up" onClick={() => onApplyCommonBehavior('arrowUp')} />
+            <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" detail="Down" onClick={() => onApplyCommonBehavior('arrowDown')} />
+            <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" detail="Left" onClick={() => onApplyCommonBehavior('arrowLeft')} />
+            <BehaviorActionButton icon={<kbd>→</kbd>} label="方向右" detail="Right" onClick={() => onApplyCommonBehavior('arrowRight')} />
+            <BehaviorActionButton icon={<kbd>Tab</kbd>} label="Tab" detail="切换焦点" onClick={() => onApplyCommonBehavior('tab')} />
+            <BehaviorActionButton icon={<kbd>Back</kbd>} label="Backspace" detail="向前删除" onClick={() => onApplyCommonBehavior('backspace')} />
+            <BehaviorActionButton icon={<kbd>Del</kbd>} label="Delete" detail="向后删除" onClick={() => onApplyCommonBehavior('delete')} />
+            <BehaviorActionButton icon={<kbd>Home</kbd>} label="Home" detail="跳到开头" onClick={() => onApplyCommonBehavior('keyHome')} />
+            <BehaviorActionButton icon={<kbd>End</kbd>} label="End" detail="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
+            <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="Page Up" detail="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
+            <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="Page Down" detail="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
+          </>}
+          {activeTab === 'media' && <>
+            <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" detail="媒体播放控制" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
+            <BehaviorActionButton icon={<Volume2 size={17} />} label="增大音量" detail="系统音量 +" onClick={() => onApplyCommonBehavior('volumeUp')} />
+            <BehaviorActionButton icon={<Volume1 size={17} />} label="减小音量" detail="系统音量 -" onClick={() => onApplyCommonBehavior('volumeDown')} />
+            <BehaviorActionButton icon={<VolumeX size={17} />} label="静音" detail="切换系统静音" onClick={() => onApplyCommonBehavior('volumeMute')} />
+          </>}
+          {activeTab === 'advanced' && <>
+            <BehaviorActionButton icon={<Keyboard size={17} />} label="按键 / 组合键" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('key')} />
+            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="粘贴文本" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('paste')} />
+            <BehaviorActionButton icon={<Clock3 size={17} />} label="等待" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('delay')} />
+          </>}
+        </div>
+      </section>
     </div>
   </section>
 }
