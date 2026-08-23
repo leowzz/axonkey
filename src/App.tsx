@@ -211,7 +211,7 @@ const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = [
     ],
   },
   {
-    label: '修饰键',
+    label: '单独修饰键',
     options: [
       { value: 'Ctrl', label: 'Ctrl' }, { value: 'Shift', label: 'Shift' }, { value: 'Alt', label: 'Alt' },
       { value: 'LAlt', label: '左 Alt' }, { value: 'RAlt', label: '右 Alt' },
@@ -250,6 +250,11 @@ const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = [
 ]
 
 const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
+const standaloneModifierKeys = ['Ctrl', 'Shift', 'Alt', 'LAlt', 'RAlt', 'Win']
+
+function isStandaloneModifierKey(key: string) {
+  return standaloneModifierKeys.includes(key)
+}
 
 function behaviorSummary(behavior: Behavior) {
   switch (behavior.type) {
@@ -1257,7 +1262,7 @@ type BehaviorEditDialogProps = {
 }
 
 function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
-  const groups = includeModifiers ? manualKeyGroups : manualKeyGroups.filter((group) => group.label !== '修饰键')
+  const groups = includeModifiers ? manualKeyGroups : manualKeyGroups.filter((group) => group.label !== '单独修饰键')
   const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
   return <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
     <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
@@ -1269,14 +1274,15 @@ function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { 
 
 function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   const captureValue = behavior.type === 'shortcut' ? behavior.keys.join(' + ') : behavior.type === 'key' ? behavior.key : ''
-  const currentKeys = behavior.type === 'shortcut'
-    ? behavior.keys
-    : behavior.type === 'key'
-      ? behavior.key.split('+').filter(Boolean)
-      : []
-  const shortcutBase = currentKeys.find((key) => !shortcutModifiers.includes(key)) ?? 'C'
+  const shortcutKeys = behavior.type === 'shortcut' ? behavior.keys : []
+  const selectedShortcutModifiers = shortcutModifiers.filter((modifier) => shortcutKeys.includes(modifier))
+  const shortcutBase = behavior.type === 'key'
+    ? behavior.key
+    : shortcutKeys.find((key) => !shortcutModifiers.includes(key))
+      ?? (shortcutKeys.length === 1 && isStandaloneModifierKey(shortcutKeys[0]) ? shortcutKeys[0] : 'C')
+  const standaloneBase = isStandaloneModifierKey(shortcutBase)
   const setShortcut = (modifiers: string[], base: string) => {
-    const selectedModifiers = modifiers.filter((modifier) => modifier !== base)
+    const selectedModifiers = isStandaloneModifierKey(base) ? [] : modifiers.filter((modifier) => modifier !== base)
     onUpdate((current) => current.type === 'key' || current.type === 'shortcut'
       ? selectedModifiers.length > 0
         ? { id: current.id, enabled: current.enabled, type: 'shortcut', keys: [...selectedModifiers, base] }
@@ -1312,14 +1318,14 @@ function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = fals
             </button>
           </div>
           <div className="behavior-manual-section">
-            <div className="behavior-field-title"><strong>手动选择</strong><span>录入不到时直接从列表设置</span></div>
-            <div className="shortcut-manual-builder">
+            <div className="behavior-field-title"><strong>手动选择</strong><span>{standaloneBase ? '当前仅发送这个按键' : '录入不到时直接从列表设置'}</span></div>
+            <div className={`shortcut-manual-builder ${standaloneBase ? 'standalone' : ''}`}>
               <div className="shortcut-modifiers">
                 {shortcutModifiers.map((modifier) => {
-                  const selected = currentKeys.includes(modifier)
-                  return <button key={modifier} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => {
+                  const selected = selectedShortcutModifiers.includes(modifier)
+                  return <button key={modifier} type="button" disabled={standaloneBase} className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => {
                     onCancelCapture()
-                    const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : currentKeys.includes(item))
+                    const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : selectedShortcutModifiers.includes(item))
                     setShortcut(modifiers, shortcutBase)
                   }}>{modifier}</button>
                 })}
@@ -1327,8 +1333,8 @@ function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = fals
               <span className="shortcut-plus">+</span>
               <ManualKeySelect
                 value={shortcutBase}
-                label="手动选择组合键的基础按键"
-                onChange={(base) => { onCancelCapture(); setShortcut(shortcutModifiers.filter((modifier) => currentKeys.includes(modifier)), base) }}
+                label="选择主按键或单独修饰键"
+                onChange={(base) => { onCancelCapture(); setShortcut(isStandaloneModifierKey(base) ? [] : selectedShortcutModifiers, base) }}
               />
             </div>
           </div>

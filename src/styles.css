@@ -213,6 +213,8 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .shortcut-modifiers { display: flex; flex-wrap: wrap; gap: 5px; }
 .shortcut-modifiers button { min-width: 44px; height: 34px; padding: 0 8px; border: 1px solid #cfd5da; border-radius: 6px; color: #66717a; background: #fff; font-size: 10px; }
 .shortcut-modifiers button.selected { border-color: #71a9e7; color: #176fcf; background: #e8f3ff; }
+.shortcut-manual-builder.standalone .shortcut-modifiers, .shortcut-manual-builder.standalone .shortcut-plus { opacity: .38; }
+.shortcut-modifiers button:disabled { cursor: default; }
 .behavior-dialog-field { display: flex; flex-direction: column; gap: 8px; }
 .behavior-dialog-field .behavior-paste-input { min-height: 150px; margin-top: 0; }
 .behavior-dialog-field .behavior-delay-row { margin-top: 0; }
