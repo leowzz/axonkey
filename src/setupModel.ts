@@ -252,7 +252,9 @@ function normalizeAction(value: unknown): DriverActionState {
 
 function normalizeDriver(value: unknown, fallback: DriverState): DriverState {
   if (!isRecord(value)) return { ...fallback, action: { ...fallback.action } }
-  const status = isStatus(value.status, driverStatuses) ? value.status : fallback.status
+  let status = isStatus(value.status, driverStatuses) ? value.status : fallback.status
+  const interruptedCheck = status === 'checking'
+  if (interruptedCheck) status = 'unknown'
   const action = normalizeAction(value.action)
   return {
     status,
@@ -261,7 +263,7 @@ function normalizeDriver(value: unknown, fallback: DriverState): DriverState {
     uninstallSkipped: value.uninstallSkipped === true,
     restartRequired: value.restartRequired === true || status === 'restartRequired',
     checkedAt: cleanTime(value.checkedAt),
-    message: cleanText(value.message),
+    message: interruptedCheck ? undefined : cleanText(value.message),
   }
 }
 
