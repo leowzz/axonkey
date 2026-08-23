@@ -21,7 +21,10 @@ const WAIT_TIMEOUT_MS: u32 = 50;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
-const CONTEXT_RETRY_DELAY: Duration = Duration::from_millis(250);
+const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
+const CR_SUCCESS: u32 = 0;
+const CM_GETIDLIST_FILTER_PRESENT: u32 = 0x0000_0100;
 
 type Context = *mut c_void;
 type DevicePredicate = unsafe extern "C" fn(i32) -> i32;
@@ -381,15 +384,25 @@ fn worker_loop(shared: Arc<Shared>) {
             return;
         }
     };
+    {
+        let mut status = shared.status.lock().unwrap();
+        status.backend_ready = true;
+        status.error = None;
+    }
+
     let mut last_target_seen_at = None;
     while !shared.stop.load(Ordering::Relaxed) {
+        if !wait_for_stable_target(&shared, &mut last_target_seen_at) {
+            break;
+        }
+
         let context = unsafe { (api.create_context)() };
         if context.is_null() {
             let mut status = shared.status.lock().unwrap();
             status.backend_ready = false;
             status.error = Some("Interception could not create an input context".into());
             drop(status);
-            thread::sleep(CONTEXT_RETRY_DELAY);
+            thread::sleep(DEVICE_POLL_INTERVAL);
             continue;
         }
 
@@ -402,11 +415,34 @@ fn worker_loop(shared: Arc<Shared>) {
         run_context(&api, context, &shared, &mut last_target_seen_at);
         clear_keyboard_filters(&api, context);
         unsafe { (api.destroy_context)(context) };
-
-        if !shared.stop.load(Ordering::Relaxed) {
-            thread::sleep(CONTEXT_RETRY_DELAY);
-        }
     }
+}
+
+fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Instant>) -> bool {
+    let mut stable_since = None;
+    while !shared.stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+        let hardware_id = rc003_keyboard_device_id();
+        let target_present = hardware_id.is_some();
+        update_device_status(shared, hardware_id, last_target_seen_at, now);
+
+        let mapping_enabled = shared
+            .settings
+            .read()
+            .map(|settings| settings.enabled)
+            .unwrap_or(false);
+        if target_present && mapping_enabled {
+            let first_stable = *stable_since.get_or_insert(now);
+            if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
+                return true;
+            }
+        } else {
+            stable_since = None;
+        }
+
+        thread::sleep(DEVICE_POLL_INTERVAL);
+    }
+    false
 }
 
 fn run_context(
@@ -416,23 +452,25 @@ fn run_context(
     last_target_seen_at: &mut Option<Instant>,
 ) {
     let mut target_device = 0;
-    let mut target_filtered = false;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let filter_target = shared
+            let mapping_enabled = shared
                 .settings
                 .read()
                 .map(|settings| settings.enabled)
                 .unwrap_or(false);
+            let hardware_id = rc003_keyboard_device_id();
+            update_device_status(shared, hardware_id.clone(), last_target_seen_at, now);
+            if !mapping_enabled || hardware_id.is_none() {
+                return;
+            }
             let next_target = probe_devices(
                 api,
                 context,
                 target_device,
-                target_filtered,
-                filter_target,
                 *last_target_seen_at,
                 now,
                 shared,
@@ -451,10 +489,9 @@ fn run_context(
                 return;
             }
             target_device = next_target;
-            target_filtered = filter_target;
             next_probe = now + Duration::from_secs(1);
         }
-        if target_device != 0 && target_filtered {
+        if target_device != 0 {
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
@@ -470,11 +507,7 @@ fn run_context(
             send_stroke(api, context, device, stroke);
             continue;
         }
-        if target_filtered {
-            process_target_stroke(api, context, device, shared, &mut button_states, stroke);
-        } else {
-            send_stroke(api, context, device, stroke);
-        }
+        process_target_stroke(api, context, device, shared, &mut button_states, stroke);
     }
 
     if target_device != 0 {
@@ -486,8 +519,6 @@ fn probe_devices(
     api: &InterceptionApi,
     context: Context,
     old_target: i32,
-    old_target_filtered: bool,
-    filter_target: bool,
     last_target_seen_at: Option<Instant>,
     now: Instant,
     shared: &Shared,
@@ -511,20 +542,9 @@ fn probe_devices(
         if old_target != 0 {
             set_device_filter(api, context, old_target, FILTER_KEY_NONE);
         }
-        if found != 0 && filter_target {
+        if found != 0 {
             set_device_filter(api, context, found, FILTER_KEY_ALL);
         }
-    } else if found != 0 && old_target_filtered != filter_target {
-        set_device_filter(
-            api,
-            context,
-            found,
-            if filter_target {
-                FILTER_KEY_ALL
-            } else {
-                FILTER_KEY_NONE
-            },
-        );
     }
     let mut status = shared.status.lock().unwrap();
     status.backend_ready = true;
@@ -540,6 +560,63 @@ fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: In
     found
         || last_seen_at.is_some_and(|last_seen| {
             now.saturating_duration_since(last_seen) < DEVICE_DISCONNECT_GRACE
+        })
+}
+
+fn update_device_status(
+    shared: &Shared,
+    hardware_id: Option<String>,
+    last_target_seen_at: &mut Option<Instant>,
+    now: Instant,
+) {
+    let found = hardware_id.is_some();
+    if found {
+        *last_target_seen_at = Some(now);
+    }
+    let connected = device_connection_visible(found, *last_target_seen_at, now);
+    let mut status = shared.status.lock().unwrap();
+    status.backend_ready = true;
+    status.device_connected = connected;
+    if found || !connected {
+        status.hardware_id = hardware_id;
+    }
+    status.error = None;
+}
+
+fn rc003_keyboard_device_id() -> Option<String> {
+    for _ in 0..3 {
+        let mut length = 0;
+        if unsafe {
+            cm_get_device_id_list_size(&mut length, std::ptr::null(), CM_GETIDLIST_FILTER_PRESENT)
+        } != CR_SUCCESS
+            || !(2..=1_000_000).contains(&length)
+        {
+            return None;
+        }
+
+        let mut buffer = vec![0u16; length as usize];
+        if unsafe {
+            cm_get_device_id_list(
+                std::ptr::null(),
+                buffer.as_mut_ptr(),
+                length,
+                CM_GETIDLIST_FILTER_PRESENT,
+            )
+        } == CR_SUCCESS
+        {
+            return rc003_keyboard_id_from_multisz(&buffer);
+        }
+    }
+    None
+}
+
+fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
+    buffer
+        .split(|value| *value == 0)
+        .take_while(|value| !value.is_empty())
+        .map(String::from_utf16_lossy)
+        .find(|value| {
+            value.to_ascii_uppercase().starts_with("HID\\") && is_target_hardware_id(value)
         })
 }
 
@@ -1109,6 +1186,19 @@ extern "system" {
     fn SendInput(input_count: u32, inputs: *const Input, input_size: i32) -> u32;
 }
 
+#[link(name = "cfgmgr32")]
+extern "system" {
+    #[link_name = "CM_Get_Device_ID_List_SizeW"]
+    fn cm_get_device_id_list_size(length: *mut u32, filter: *const u16, flags: u32) -> u32;
+    #[link_name = "CM_Get_Device_ID_ListW"]
+    fn cm_get_device_id_list(
+        filter: *const u16,
+        buffer: *mut u16,
+        buffer_length: u32,
+        flags: u32,
+    ) -> u32;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1136,6 +1226,23 @@ mod tests {
             now.checked_sub(Duration::from_secs(8)),
             now
         ));
+    }
+
+    #[test]
+    fn selects_only_the_rc003_keyboard_from_present_device_ids() {
+        let ids = [
+            "BTHLEDEVICE\\SERVICE_DEV_VID&012717_PID&32B8",
+            "HID\\OTHER_DEV_VID&012717_PID&0001",
+            "HID\\RC003_DEV_VID&012717_PID&32B8",
+        ]
+        .join("\0")
+            + "\0\0";
+        let buffer = ids.encode_utf16().collect::<Vec<_>>();
+
+        assert_eq!(
+            rc003_keyboard_id_from_multisz(&buffer).as_deref(),
+            Some("HID\\RC003_DEV_VID&012717_PID&32B8")
+        );
     }
 
     #[test]
