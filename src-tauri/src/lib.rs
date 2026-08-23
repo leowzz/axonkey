@@ -10,8 +10,8 @@ fn ping() -> &'static str {
 #[cfg(target_os = "windows")]
 fn find_driver_script(action: &str) -> Result<std::path::PathBuf, String> {
     let file_name = match action {
-        "install" => "install-driver.cmd",
-        "uninstall" => "uninstall-driver.cmd",
+        "install" => "install-driver.ps1",
+        "uninstall" => "uninstall-driver.ps1",
         _ => return Err("Unsupported driver action".into()),
     };
 
@@ -49,12 +49,23 @@ fn launch_driver_action(driver: String, action: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let script = find_driver_script(&action)?;
-        std::process::Command::new("cmd")
-            .arg("/C")
-            .arg("start")
-            .arg("")
+        let mut command = std::process::Command::new("powershell.exe");
+        command
+            .creation_flags(CREATE_NO_WINDOW)
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-WindowStyle")
+            .arg("Hidden")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
             .arg(script)
+            .arg("-Confirmed");
+        command
             .spawn()
             .map_err(|error| format!("Cannot launch driver script: {error}"))?;
         Ok(())

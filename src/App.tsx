@@ -509,7 +509,7 @@ function App() {
         success: true,
         status: action === 'install' ? 'missing' : 'installed',
         restartRequired: false,
-        message: action === 'install' ? '安装窗口已打开；完成安装后请在这里确认。' : '卸载窗口已打开；完成卸载后请在这里确认。',
+        message: action === 'install' ? '已请求管理员权限；批准后驱动将在后台安装，完成后请重启 Windows。' : '已请求管理员权限；批准后驱动将在后台卸载，完成后请重启 Windows。',
       }))
     } catch (error) {
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
@@ -1147,9 +1147,9 @@ function DriverSetupScreen({ kind, state, onAction, onSkipAction, onMarkInstalle
     <h2 id="setup-title">{definition.title}</h2>
     <p className="setup-lead">{definition.description}</p>
     <div className={`setup-status-panel ${driver.status}`}><span className="setup-status-dot" /><div><strong>{driverStatusLabel(driver.status)}</strong><span>{driver.action.error ?? driver.message ?? (kind === 'input' ? '安装脚本会先校验文件，然后请求管理员权限。' : '当前安装包不包含音频驱动，可通过系统设置手动处理。')}</span></div></div>
-    <div className="driver-notice">{kind === 'input' ? <><Download size={16} /><div><strong>安装与卸载都需要明确确认</strong><span>安装程序会在独立窗口运行；完成后需要重启 Windows。卸载前请先关闭其他使用 Interception 的工具。</span></div></> : <><AudioLines size={16} /><div><strong>这是可选依赖</strong><span>按键映射、组合键和粘贴文本不依赖音频驱动，可以直接跳过。</span></div></>}</div>
+    <div className="driver-notice">{kind === 'input' ? <><Download size={16} /><div><strong>安装与卸载需要 Windows 管理员权限</strong><span>点击后只会显示系统 UAC 授权，驱动操作在后台完成；完成后需要重启 Windows。卸载前请先关闭其他使用 Interception 的工具。</span></div></> : <><AudioLines size={16} /><div><strong>这是可选依赖</strong><span>按键映射、组合键和粘贴文本不依赖音频驱动，可以直接跳过。</span></div></>}</div>
     <div className="setup-inline-actions">
-      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={running} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '正在打开…' : '打开安装程序'}</button>}
+      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={running} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '正在请求授权…' : '安装驱动'}</button>}
       {kind === 'input' && installed && <button type="button" className="dialog-secondary danger" disabled={running} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> 卸载驱动</button>}
       {kind === 'input' && driver.action.kind === 'uninstall' && driver.action.status === 'succeeded' && <button type="button" className="dialog-secondary" onClick={() => onMarkRemoved(kind)}><Check size={14} /> 卸载已完成</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" onClick={onOpenSettings}><Settings2 size={14} /> 打开声音设置</button>}

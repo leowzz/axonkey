@@ -81,6 +81,8 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
 if (-not $isAdmin) {
     $arguments = @(
         '-NoProfile',
+        '-NonInteractive',
+        '-WindowStyle', 'Hidden',
         '-ExecutionPolicy', 'Bypass',
         '-File', ('"{0}"' -f $PSCommandPath),
         '-Elevated',
