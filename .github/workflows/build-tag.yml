@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-tag-${{ github.ref }}
@@ -29,6 +29,7 @@ jobs:
           persist-credentials: false
 
       - name: Verify release branch and version tag
+        id: release_metadata
         shell: pwsh
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -49,7 +50,9 @@ jobs:
           if ($env:TAG_NAME -notmatch '^v(?<Version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$') {
             throw "Tag '$env:TAG_NAME' is invalid. Expected vMAJOR.MINOR.PATCH, for example v1.2.3."
           }
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "APP_VERSION=$($Matches.Version)" -Encoding utf8
+          $version = $Matches.Version
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "APP_VERSION=$version" -Encoding utf8
+          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
@@ -86,12 +89,42 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
           Set-Content -LiteralPath "$installerPath.sha256" -Value "$hash  $installerName" -Encoding ascii
 
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create $env:TAG_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --title "Axonkey $env:TAG_NAME" `
+            --generate-notes `
+            --verify-tag
+
+      - name: Upload binaries to GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          APP_VERSION: ${{ steps.release_metadata.outputs.version }}
+        run: |
+          $bundleDirectory = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle\nsis'
+          $installerName = "Axonkey_$($env:APP_VERSION)_x64-setup.exe"
+          $installerPath = Join-Path $bundleDirectory $installerName
+          $checksumPath = "$installerPath.sha256"
+
+          gh release upload $env:TAG_NAME `
+            $installerPath `
+            $checksumPath `
+            --repo $env:GITHUB_REPOSITORY `
+            --clobber
+
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: Axonkey-v${{ env.APP_VERSION }}-windows-x64
+          name: Axonkey-v${{ steps.release_metadata.outputs.version }}-windows-x64
           path: |
-            src-tauri/target/release/bundle/nsis/Axonkey_${{ env.APP_VERSION }}_x64-setup.exe
-            src-tauri/target/release/bundle/nsis/Axonkey_${{ env.APP_VERSION }}_x64-setup.exe.sha256
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sha256
           if-no-files-found: error
           retention-days: 30
