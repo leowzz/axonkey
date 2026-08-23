@@ -338,6 +338,8 @@ struct PressState {
     started_at: Instant,
     original: KeyStroke,
     long_fired: bool,
+    passthrough_long: bool,
+    held_outputs: Vec<KeyStroke>,
 }
 
 struct PendingClick {
@@ -380,6 +382,9 @@ fn worker_loop(shared: Arc<Shared>) {
         if now >= next_probe {
             let next_target = probe_devices(&api, context, target_device, &shared);
             if next_target != target_device {
+                if target_device != 0 {
+                    release_all_held_outputs(&api, context, target_device, &mut button_states);
+                }
                 button_states.clear();
             }
             target_device = next_target;
@@ -412,6 +417,7 @@ fn worker_loop(shared: Arc<Shared>) {
     }
 
     if target_device != 0 {
+        release_all_held_outputs(&api, context, target_device, &mut button_states);
         set_device_filter(&api, context, target_device, FILTER_KEY_NONE);
     }
     unsafe { (api.destroy_context)(context) };
@@ -499,6 +505,12 @@ fn process_target_stroke(
         .cloned()
         .unwrap_or_default();
     if !settings.enabled || !has_custom_behavior(&triggers) {
+        if let Some(state) = states.get_mut(source.id) {
+            if let Some(press) = state.pressed.take() {
+                release_chord(api, context, device, &press.held_outputs);
+            }
+            state.pending_click = None;
+        }
         send_stroke(api, context, device, stroke);
         return;
     }
@@ -506,11 +518,28 @@ fn process_target_stroke(
     let state = states.entry(source.id).or_default();
     let key_up = stroke.state & KEY_UP != 0;
     if !key_up {
-        if state.pressed.is_none() {
+        if let Some(press) = state.pressed.as_mut() {
+            if let Some(repeat) = press.held_outputs.last().copied() {
+                send_stroke(api, context, device, repeat);
+            } else if press.passthrough_long {
+                send_stroke(api, context, device, stroke);
+            } else if !has_enabled(&triggers.long_press)
+                && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS)
+            {
+                send_original_down(api, context, device, press.original);
+                press.passthrough_long = true;
+                send_stroke(api, context, device, stroke);
+            }
+        } else {
+            let held_outputs = continuous_click_chord(&triggers)
+                .map(|keys| press_chord(api, context, device, &keys))
+                .unwrap_or_default();
             state.pressed = Some(PressState {
                 started_at: Instant::now(),
                 original: stroke,
                 long_fired: false,
+                passthrough_long: false,
+                held_outputs,
             });
         }
         return;
@@ -519,12 +548,25 @@ fn process_target_stroke(
     let Some(press) = state.pressed.take() else {
         return;
     };
+    if !press.held_outputs.is_empty() {
+        release_chord(api, context, device, &press.held_outputs);
+        return;
+    }
+    if press.passthrough_long {
+        send_stroke(api, context, device, stroke);
+        return;
+    }
     if press.long_fired {
         return;
     }
     let long_enabled = has_enabled(&triggers.long_press);
     if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
         execute_behaviors(api, context, device, &triggers.long_press);
+        return;
+    }
+    if !long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
+        send_original_down(api, context, device, press.original);
+        send_stroke(api, context, device, stroke);
         return;
     }
     if has_enabled(&triggers.double_click) {
@@ -555,6 +597,7 @@ fn process_timers(
         .map(|settings| settings.clone())
         .unwrap_or_default();
     if !settings.enabled {
+        release_all_held_outputs(api, context, device, states);
         states.clear();
         return;
     }
@@ -568,12 +611,20 @@ fn process_timers(
             .cloned()
             .unwrap_or_default();
         if let Some(press) = state.pressed.as_mut() {
-            if !press.long_fired
-                && has_enabled(&triggers.long_press)
-                && now.duration_since(press.started_at) >= Duration::from_millis(LONG_PRESS_MS)
+            let reached_long_press =
+                now.duration_since(press.started_at) >= Duration::from_millis(LONG_PRESS_MS);
+            if press.held_outputs.is_empty()
+                && !press.long_fired
+                && !press.passthrough_long
+                && reached_long_press
             {
-                execute_behaviors(api, context, device, &triggers.long_press);
-                press.long_fired = true;
+                if has_enabled(&triggers.long_press) {
+                    execute_behaviors(api, context, device, &triggers.long_press);
+                    press.long_fired = true;
+                } else {
+                    send_original_down(api, context, device, press.original);
+                    press.passthrough_long = true;
+                }
                 state.pending_click = None;
             }
         }
@@ -598,6 +649,19 @@ fn has_custom_behavior(triggers: &TriggerBehaviors) -> bool {
         || has_enabled(&triggers.long_press)
 }
 
+fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<u16>> {
+    if has_enabled(&triggers.double_click) || has_enabled(&triggers.long_press) {
+        return None;
+    }
+
+    let mut enabled_clicks = triggers.click.iter().filter(|behavior| behavior.enabled());
+    let behavior = enabled_clicks.next()?;
+    if enabled_clicks.next().is_some() {
+        return None;
+    }
+    behavior_chord(behavior)
+}
+
 fn execute_click_or_original(
     api: &InterceptionApi,
     context: Context,
@@ -616,6 +680,16 @@ fn execute_click_or_original(
     }
 }
 
+fn send_original_down(
+    api: &InterceptionApi,
+    context: Context,
+    device: i32,
+    mut original: KeyStroke,
+) {
+    original.state &= !KEY_UP;
+    send_stroke(api, context, device, original);
+}
+
 fn execute_behaviors(
     api: &InterceptionApi,
     context: Context,
@@ -624,23 +698,10 @@ fn execute_behaviors(
 ) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
-            NativeBehavior::Key { key, .. } => {
-                if let Some(keys) = parse_chord(key) {
-                    tap_chord(api, context, device, &keys);
+            NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
+                if let Some(chord) = behavior_chord(behavior) {
+                    tap_chord(api, context, device, &chord);
                 }
-            }
-            NativeBehavior::Shortcut { keys, .. } => {
-                let chord = keys
-                    .iter()
-                    .filter_map(|key| parse_chord(key))
-                    .flatten()
-                    .fold(Vec::new(), |mut result, key| {
-                        if !result.contains(&key) {
-                            result.push(key);
-                        }
-                        result
-                    });
-                tap_chord(api, context, device, &chord);
             }
             NativeBehavior::Paste { text, .. } => send_unicode_text(text),
             NativeBehavior::Delay { ms, .. } => {
@@ -650,7 +711,32 @@ fn execute_behaviors(
     }
 }
 
-fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16]) {
+fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
+    match behavior {
+        NativeBehavior::Key { key, .. } => parse_chord(key),
+        NativeBehavior::Shortcut { keys, .. } => {
+            let chord = keys
+                .iter()
+                .filter_map(|key| parse_chord(key))
+                .flatten()
+                .fold(Vec::new(), |mut result, key| {
+                    if !result.contains(&key) {
+                        result.push(key);
+                    }
+                    result
+                });
+            (!chord.is_empty()).then_some(chord)
+        }
+        NativeBehavior::Paste { .. } | NativeBehavior::Delay { .. } => None,
+    }
+}
+
+fn press_chord(
+    api: &InterceptionApi,
+    context: Context,
+    device: i32,
+    keys: &[u16],
+) -> Vec<KeyStroke> {
     let mut pressed = Vec::new();
     for key in keys {
         if let Some(stroke) = output_stroke(*key, false) {
@@ -659,9 +745,32 @@ fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16])
             }
         }
     }
-    for mut stroke in pressed.into_iter().rev() {
+    pressed
+}
+
+fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: &[KeyStroke]) {
+    for mut stroke in pressed.iter().copied().rev() {
         stroke.state |= KEY_UP;
         send_stroke(api, context, device, stroke);
+    }
+}
+
+fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16]) {
+    let pressed = press_chord(api, context, device, keys);
+    release_chord(api, context, device, &pressed);
+}
+
+fn release_all_held_outputs(
+    api: &InterceptionApi,
+    context: Context,
+    device: i32,
+    states: &mut HashMap<&'static str, ButtonState>,
+) {
+    for state in states.values_mut() {
+        if let Some(press) = state.pressed.as_mut() {
+            release_chord(api, context, device, &press.held_outputs);
+            press.held_outputs.clear();
+        }
     }
 }
 
@@ -914,5 +1023,51 @@ mod tests {
         })
         .unwrap();
         assert_eq!(source.id, "confirm");
+    }
+
+    #[test]
+    fn holds_a_single_click_key_when_no_other_gesture_is_configured() {
+        let mut triggers = TriggerBehaviors::default();
+        triggers.click.push(NativeBehavior::Key {
+            enabled: true,
+            key: "RAlt".into(),
+        });
+
+        assert_eq!(continuous_click_chord(&triggers), Some(vec![0xa5]));
+
+        triggers.long_press.push(NativeBehavior::Key {
+            enabled: true,
+            key: "Escape".into(),
+        });
+        assert_eq!(continuous_click_chord(&triggers), None);
+    }
+
+    #[test]
+    fn keeps_gesture_detection_for_double_clicks_and_action_sequences() {
+        let key = NativeBehavior::Key {
+            enabled: true,
+            key: "RAlt".into(),
+        };
+        let mut with_double_click = TriggerBehaviors {
+            click: vec![key.clone()],
+            ..TriggerBehaviors::default()
+        };
+        with_double_click.double_click.push(NativeBehavior::Key {
+            enabled: true,
+            key: "Escape".into(),
+        });
+        assert_eq!(continuous_click_chord(&with_double_click), None);
+
+        let action_sequence = TriggerBehaviors {
+            click: vec![
+                key,
+                NativeBehavior::Delay {
+                    enabled: true,
+                    ms: 10,
+                },
+            ],
+            ..TriggerBehaviors::default()
+        };
+        assert_eq!(continuous_click_chord(&action_sequence), None);
     }
 }

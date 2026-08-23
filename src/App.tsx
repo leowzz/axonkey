@@ -19,6 +19,7 @@ import {
   Menu,
   Mic,
   Minus,
+  Pencil,
   Power,
   Plus,
   RotateCcw,
@@ -152,6 +153,61 @@ const behaviorTypeLabels: Record<BehaviorType, string> = {
   delay: '延迟',
 }
 
+type ManualKeyOption = { value: string; label: string }
+
+const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = [
+  {
+    label: '常用按键',
+    options: [
+      { value: 'Esc', label: 'Esc' }, { value: 'Enter', label: 'Enter' }, { value: 'Space', label: 'Space' },
+      { value: 'Tab', label: 'Tab' }, { value: 'Backspace', label: 'Backspace' }, { value: 'Delete', label: 'Delete' },
+      { value: 'Insert', label: 'Insert' }, { value: 'Home', label: 'Home' }, { value: 'End', label: 'End' },
+      { value: 'PageUp', label: 'Page Up' }, { value: 'PageDown', label: 'Page Down' },
+      { value: 'Up', label: '方向上' }, { value: 'Down', label: '方向下' },
+      { value: 'Left', label: '方向左' }, { value: 'Right', label: '方向右' },
+    ],
+  },
+  {
+    label: '修饰键',
+    options: [
+      { value: 'Ctrl', label: 'Ctrl' }, { value: 'Shift', label: 'Shift' }, { value: 'Alt', label: 'Alt' },
+      { value: 'LAlt', label: '左 Alt' }, { value: 'RAlt', label: '右 Alt' },
+      { value: 'Win', label: 'Windows' },
+    ],
+  },
+  {
+    label: '标点符号',
+    options: [
+      { value: '[', label: '[  左方括号' }, { value: ']', label: ']  右方括号' },
+      { value: '\\', label: '\\  反斜杠' }, { value: ';', label: ';  分号' },
+      { value: "'", label: "'  单引号" }, { value: ',', label: ',  逗号' },
+      { value: '.', label: '.  句点' }, { value: '/', label: '/  斜杠' },
+      { value: '-', label: '-  减号' }, { value: '=', label: '=  等号' },
+      { value: '`', label: '`  反引号' },
+    ],
+  },
+  {
+    label: '媒体按键',
+    options: [
+      { value: 'VolumeUp', label: '增大音量' }, { value: 'VolumeDown', label: '减小音量' },
+      { value: 'VolumeMute', label: '静音' }, { value: 'MediaPlayPause', label: '播放 / 暂停' },
+    ],
+  },
+  {
+    label: '字母与数字',
+    options: [
+      ...[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((value) => ({ value, label: value })),
+      ...[...'0123456789'].map((value) => ({ value, label: value })),
+    ],
+  },
+  {
+    label: '功能键',
+    options: Array.from({ length: 24 }, (_, index) => ({ value: `F${index + 1}`, label: `F${index + 1}` })),
+  },
+]
+
+const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
+
 function behaviorSummary(behavior: Behavior) {
   switch (behavior.type) {
     case 'key': return behavior.key || '未录入'
@@ -178,7 +234,7 @@ async function windowCommand(command: 'minimize' | 'toggleMaximize' | 'close') {
   }
 }
 
-function formatCapturedKey(event: KeyboardEvent<HTMLInputElement>) {
+function formatCapturedKey(event: KeyboardEvent<HTMLElement>) {
   const keyMap: Record<string, string> = {
     ' ': 'Space', Escape: 'Esc', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete',
     ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right', Meta: 'Win', Control: 'Ctrl',
@@ -231,6 +287,7 @@ function App() {
   const [toast, setToast] = useState('')
   const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
+  const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [newBehaviorType, setNewBehaviorType] = useState<BehaviorType>('key')
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
@@ -371,11 +428,14 @@ function App() {
     setActiveId(buttonId)
     setSelectedBehavior({ buttonId, trigger })
     setCapturingBehaviorId(null)
+    setEditingBehaviorId(null)
   }
 
   const addBehavior = () => {
     const behavior = createBehavior({ type: newBehaviorType })
     updateSelectedBehaviorList((list) => [...list, behavior])
+    setEditingBehaviorId(behavior.id)
+    setCapturingBehaviorId(null)
     setToast(`${behaviorTypeLabels[newBehaviorType]}行为已添加`)
     window.setTimeout(() => setToast(''), 1600)
   }
@@ -383,6 +443,7 @@ function App() {
   const removeBehavior = (behaviorId: string) => {
     updateSelectedBehaviorList((list) => list.filter((behavior) => behavior.id !== behaviorId))
     if (capturingBehaviorId === behaviorId) setCapturingBehaviorId(null)
+    if (editingBehaviorId === behaviorId) setEditingBehaviorId(null)
   }
 
   const moveSelectedBehavior = (behaviorId: string, direction: -1 | 1) => {
@@ -396,7 +457,7 @@ function App() {
     updateSelectedBehaviorList((list) => list.map((behavior) => behavior.id === behaviorId ? update(behavior) : behavior))
   }
 
-  const captureBehaviorKey = (behavior: Behavior, event: KeyboardEvent<HTMLInputElement>) => {
+  const captureBehaviorKey = (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => {
     const captured = formatCapturedKey(event)
     if (!captured) return
     event.preventDefault()
@@ -574,6 +635,10 @@ function App() {
     window.setTimeout(() => setToast(''), 2200)
   }
 
+  const editingBehavior = editingBehaviorId
+    ? behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find((behavior) => behavior.id === editingBehaviorId) ?? null
+    : null
+
   return (
     <div className="app-shell">
       <main className="main-content">
@@ -671,15 +736,12 @@ function App() {
           button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
           trigger={selectedBehavior.trigger}
           behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
-          capturingBehaviorId={capturingBehaviorId}
           newBehaviorType={newBehaviorType}
           onNewBehaviorType={setNewBehaviorType}
           onAddBehavior={addBehavior}
           onRemoveBehavior={removeBehavior}
           onMoveBehavior={moveSelectedBehavior}
-          onUpdateBehavior={updateBehavior}
-          onCaptureBehavior={(behaviorId) => setCapturingBehaviorId(behaviorId)}
-          onCaptureKey={captureBehaviorKey}
+          onEditBehavior={setEditingBehaviorId}
         />
         <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
       </main>
@@ -692,6 +754,17 @@ function App() {
           <div className="coordinate-dialog-actions"><button type="button" className="dialog-secondary" onClick={() => coordinateTextRef.current?.select()}><Copy size={14} /> 全选坐标</button><button type="button" className="button primary" onClick={() => setCoordinateSnippet('')}>完成</button></div>
         </section>
       </div>}
+      {editingBehavior && <BehaviorEditDialog
+        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        trigger={selectedBehavior.trigger}
+        behavior={editingBehavior}
+        capturing={capturingBehaviorId === editingBehavior.id}
+        onStartCapture={() => setCapturingBehaviorId(editingBehavior.id)}
+        onCancelCapture={() => setCapturingBehaviorId(null)}
+        onCaptureKey={captureBehaviorKey}
+        onUpdate={(update) => updateBehavior(editingBehavior.id, update)}
+        onClose={() => { setEditingBehaviorId(null); setCapturingBehaviorId(null) }}
+      />}
       {setupOpen && <SetupDialog
         state={setupState}
         onClose={() => setSetupOpen(false)}
@@ -781,18 +854,15 @@ type BehaviorEditorProps = {
   button: RemoteButton
   trigger: TriggerType
   behaviors: Behavior[]
-  capturingBehaviorId: string | null
   newBehaviorType: BehaviorType
   onNewBehaviorType: (type: BehaviorType) => void
   onAddBehavior: () => void
   onRemoveBehavior: (behaviorId: string) => void
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
-  onUpdateBehavior: (behaviorId: string, update: (behavior: Behavior) => Behavior) => void
-  onCaptureBehavior: (behaviorId: string) => void
-  onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLInputElement>) => void
+  onEditBehavior: (behaviorId: string) => void
 }
 
-function BehaviorEditor({ button, trigger, behaviors, capturingBehaviorId, newBehaviorType, onNewBehaviorType, onAddBehavior, onRemoveBehavior, onMoveBehavior, onUpdateBehavior, onCaptureBehavior, onCaptureKey }: BehaviorEditorProps) {
+function BehaviorEditor({ button, trigger, behaviors, newBehaviorType, onNewBehaviorType, onAddBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
   return <section className="behavior-editor" aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
     <div className="behavior-editor-head">
       <div className="behavior-editor-title">
@@ -809,12 +879,9 @@ function BehaviorEditor({ button, trigger, behaviors, capturingBehaviorId, newBe
           behavior={behavior}
           index={index}
           total={behaviors.length}
-          capturing={capturingBehaviorId === behavior.id}
           onRemove={onRemoveBehavior}
           onMove={onMoveBehavior}
-          onUpdate={onUpdateBehavior}
-          onCapture={onCaptureBehavior}
-          onCaptureKey={onCaptureKey}
+          onEdit={onEditBehavior}
         />)}
       </div>
       <aside className="behavior-side">
@@ -828,7 +895,7 @@ function BehaviorEditor({ button, trigger, behaviors, capturingBehaviorId, newBe
           </select>
           <button type="button" className="button primary" onClick={onAddBehavior}><Plus size={14} /> 添加</button>
         </div>
-        <p className="behavior-tip"><strong>录入识别：</strong>添加按键或组合键后，点击录入框并直接按下目标按键。行为会按列表顺序连续执行。</p>
+        <p className="behavior-tip">新增后在弹窗中编辑，所有更改都会自动保存并立即生效。</p>
       </aside>
     </div>
   </section>
@@ -838,67 +905,114 @@ type BehaviorItemProps = {
   behavior: Behavior
   index: number
   total: number
-  capturing: boolean
   onRemove: (behaviorId: string) => void
   onMove: (behaviorId: string, direction: -1 | 1) => void
-  onUpdate: (behaviorId: string, update: (behavior: Behavior) => Behavior) => void
-  onCapture: (behaviorId: string) => void
-  onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLInputElement>) => void
+  onEdit: (behaviorId: string) => void
 }
 
-function BehaviorItem({ behavior, index, total, capturing, onRemove, onMove, onUpdate, onCapture, onCaptureKey }: BehaviorItemProps) {
-  const captureValue = behavior.type === 'shortcut' ? behavior.keys.join(' + ') : behavior.type === 'key' ? behavior.key : ''
-  const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
-  const shortcutBase = behavior.type === 'shortcut' ? behavior.keys.find((key) => !shortcutModifiers.includes(key)) ?? 'C' : ''
-  const setShortcut = (modifiers: string[], base: string) => {
-    onUpdate(behavior.id, (current) => current.type === 'shortcut' ? { ...current, keys: [...modifiers, base] } : current)
-  }
+function BehaviorItem({ behavior, index, total, onRemove, onMove, onEdit }: BehaviorItemProps) {
   return <div className="behavior-item">
     <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
-    <div className="behavior-item-main">
-      <div className="behavior-item-head"><span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span><span className="behavior-type-note">{behavior.type === 'delay' ? '等待后继续' : behavior.type === 'paste' ? '写入文本' : '录入识别'}</span></div>
-      {behavior.type === 'key' || behavior.type === 'shortcut' ? <>
-        <div className={`behavior-capture-input ${capturing ? 'capturing' : ''}`}>
-          <Keyboard size={14} />
-          <input
-            readOnly
-            value={capturing ? '按下目标按键…' : captureValue}
-            placeholder={behavior.type === 'shortcut' ? '点击后按下组合键' : '点击后按下按键'}
-            aria-label={`${behaviorTypeLabels[behavior.type]}录入`}
-            onFocus={() => onCapture(behavior.id)}
-            onClick={() => onCapture(behavior.id)}
-            onKeyDown={(event) => onCaptureKey(behavior, event)}
-          />
-        </div>
-        {behavior.type === 'shortcut' && <div className="shortcut-builder">
-          <span>或选择</span>
-          {shortcutModifiers.map((modifier) => {
-            const selected = behavior.keys.includes(modifier)
-            return <button key={modifier} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => {
-              const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : behavior.keys.includes(item))
-              setShortcut(modifiers, shortcutBase)
-            }}>{modifier}</button>
-          })}
-          <span className="shortcut-plus">+</span>
-          <select aria-label="选择基础按键" value={shortcutBase} onChange={(event) => setShortcut(shortcutModifiers.filter((modifier) => behavior.keys.includes(modifier)), event.target.value)}>
-            {[...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((key) => <option key={key} value={key}>{key}</option>)}
-            {Array.from({ length: 12 }, (_, item) => `F${item + 1}`).map((key) => <option key={key} value={key}>{key}</option>)}
-            {['Enter', 'Space', 'Tab', 'Esc', 'Up', 'Down', 'Left', 'Right'].map((key) => <option key={key} value={key}>{key}</option>)}
-          </select>
-        </div>}
-      </> : behavior.type === 'paste' ? <textarea
-        className="behavior-paste-input"
-        value={behavior.text}
-        aria-label="粘贴文本内容"
-        placeholder="输入要粘贴的文本"
-        onChange={(event) => onUpdate(behavior.id, (current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
-      /> : <div className="behavior-delay-row"><Clock3 size={14} /><span>等待</span><input className="behavior-delay-input" type="number" min="0" max="300000" step="50" value={behavior.ms} aria-label="延迟毫秒数" onChange={(event) => onUpdate(behavior.id, (current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div>}
-    </div>
+    <button type="button" className="behavior-item-summary" onClick={() => onEdit(behavior.id)}>
+      <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
+      <strong>{behaviorSummary(behavior)}</strong>
+      <span className="behavior-type-note">点击编辑</span>
+    </button>
     <div className="behavior-item-actions">
+      <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>
       <button type="button" className="icon-button" title="上移" aria-label="上移行为" disabled={index === 0} onClick={() => onMove(behavior.id, -1)}><ArrowUp size={14} /></button>
       <button type="button" className="icon-button" title="下移" aria-label="下移行为" disabled={index === total - 1} onClick={() => onMove(behavior.id, 1)}><ArrowDown size={14} /></button>
       <button type="button" className="icon-button" title="删除" aria-label="删除行为" onClick={() => onRemove(behavior.id)}><Trash2 size={14} /></button>
     </div>
+  </div>
+}
+
+type BehaviorEditDialogProps = {
+  button: RemoteButton
+  trigger: TriggerType
+  behavior: Behavior
+  capturing: boolean
+  onStartCapture: () => void
+  onCancelCapture: () => void
+  onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => void
+  onUpdate: (update: (behavior: Behavior) => Behavior) => void
+  onClose: () => void
+}
+
+function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
+  const groups = includeModifiers ? manualKeyGroups : manualKeyGroups.filter((group) => group.label !== '修饰键')
+  const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
+  return <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
+    <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
+    {groups.map((group) => <optgroup key={group.label} label={group.label}>
+      {group.options.map((option) => <option key={`${group.label}-${option.value}`} value={option.value}>{option.label}</option>)}
+    </optgroup>)}
+  </select>
+}
+
+function BehaviorEditDialog({ button, trigger, behavior, capturing, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose }: BehaviorEditDialogProps) {
+  const captureValue = behavior.type === 'shortcut' ? behavior.keys.join(' + ') : behavior.type === 'key' ? behavior.key : ''
+  const shortcutBase = behavior.type === 'shortcut' ? behavior.keys.find((key) => !shortcutModifiers.includes(key)) ?? 'C' : 'C'
+  const setShortcut = (modifiers: string[], base: string) => {
+    onUpdate((current) => current.type === 'shortcut' ? { ...current, keys: [...modifiers, base] } : current)
+  }
+  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section
+      className="behavior-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="behavior-dialog-title"
+      onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
+    >
+      <header className="behavior-dialog-head">
+        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="behavior-dialog-title">编辑{behaviorTypeLabels[behavior.type]}行为</h2></div>
+        <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
+      </header>
+      <div className="behavior-dialog-body">
+        {behavior.type === 'key' || behavior.type === 'shortcut' ? <>
+          <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
+          <div className="behavior-record-row">
+            <button type="button" className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : onStartCapture}>
+              <Keyboard size={17} />
+              <span><strong>{capturing ? '等待按键输入…' : '开始录入'}</strong><small>{capturing ? '现在按下目标按键或组合键' : '仅在点击后监听下一次按键'}</small></span>
+            </button>
+          </div>
+          <div className="behavior-manual-section">
+            <div className="behavior-field-title"><strong>手动选择</strong><span>录入不到时直接从列表设置</span></div>
+            {behavior.type === 'key' ? <ManualKeySelect
+              value={behavior.key}
+              label="手动选择按键"
+              onChange={(key) => { onCancelCapture(); onUpdate((current) => current.type === 'key' ? { ...current, key } : current) }}
+            /> : <div className="shortcut-manual-builder">
+              <div className="shortcut-modifiers">
+                {shortcutModifiers.map((modifier) => {
+                  const selected = behavior.keys.includes(modifier)
+                  return <button key={modifier} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => {
+                    onCancelCapture()
+                    const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : behavior.keys.includes(item))
+                    setShortcut(modifiers, shortcutBase)
+                  }}>{modifier}</button>
+                })}
+              </div>
+              <span className="shortcut-plus">+</span>
+              <ManualKeySelect
+                value={shortcutBase}
+                label="手动选择组合键的基础按键"
+                includeModifiers={false}
+                onChange={(base) => { onCancelCapture(); setShortcut(shortcutModifiers.filter((modifier) => behavior.keys.includes(modifier)), base) }}
+              />
+            </div>}
+          </div>
+        </> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
+          id="behavior-paste-text"
+          className="behavior-paste-input"
+          value={behavior.text}
+          placeholder="输入要粘贴的文本"
+          onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
+        /></div> : <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">延迟时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" type="number" min="0" max="300000" step="50" value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div>}
+      </div>
+      <footer className="behavior-dialog-actions"><span><Check size={13} /> 更改会自动保存</span><button type="button" className="button primary" onClick={onClose}>完成</button></footer>
+    </section>
   </div>
 }
 
