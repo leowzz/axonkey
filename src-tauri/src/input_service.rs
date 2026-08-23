@@ -21,6 +21,7 @@ const WAIT_TIMEOUT_MS: u32 = 50;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
+const CONTEXT_RETRY_DELAY: Duration = Duration::from_millis(250);
 
 type Context = *mut c_void;
 type DevicePredicate = unsafe extern "C" fn(i32) -> i32;
@@ -36,6 +37,10 @@ static FILTER_TARGET: AtomicI32 = AtomicI32::new(0);
 
 unsafe extern "C" fn selected_device(device: i32) -> i32 {
     i32::from(device == FILTER_TARGET.load(Ordering::Relaxed))
+}
+
+unsafe extern "C" fn keyboard_device(device: i32) -> i32 {
+    i32::from((1..=MAX_KEYBOARD).contains(&device))
 }
 
 #[repr(C)]
@@ -376,55 +381,81 @@ fn worker_loop(shared: Arc<Shared>) {
             return;
         }
     };
-    let context = unsafe { (api.create_context)() };
-    if context.is_null() {
-        shared.status.lock().unwrap().error =
-            Some("Interception could not create an input context".into());
-        return;
-    }
-
-    {
-        let mut status = shared.status.lock().unwrap();
-        status.backend_ready = true;
-        status.error = None;
-    }
-
-    let mut target_device = 0;
     let mut last_target_seen_at = None;
+    while !shared.stop.load(Ordering::Relaxed) {
+        let context = unsafe { (api.create_context)() };
+        if context.is_null() {
+            let mut status = shared.status.lock().unwrap();
+            status.backend_ready = false;
+            status.error = Some("Interception could not create an input context".into());
+            drop(status);
+            thread::sleep(CONTEXT_RETRY_DELAY);
+            continue;
+        }
+
+        {
+            let mut status = shared.status.lock().unwrap();
+            status.backend_ready = true;
+            status.error = None;
+        }
+
+        run_context(&api, context, &shared, &mut last_target_seen_at);
+        clear_keyboard_filters(&api, context);
+        unsafe { (api.destroy_context)(context) };
+
+        if !shared.stop.load(Ordering::Relaxed) {
+            thread::sleep(CONTEXT_RETRY_DELAY);
+        }
+    }
+}
+
+fn run_context(
+    api: &InterceptionApi,
+    context: Context,
+    shared: &Shared,
+    last_target_seen_at: &mut Option<Instant>,
+) {
+    let mut target_device = 0;
+    let mut target_filtered = false;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
+            let filter_target = shared
+                .settings
+                .read()
+                .map(|settings| settings.enabled)
+                .unwrap_or(false);
             let next_target = probe_devices(
-                &api,
+                api,
                 context,
                 target_device,
-                last_target_seen_at,
+                target_filtered,
+                filter_target,
+                *last_target_seen_at,
                 now,
-                &shared,
+                shared,
             );
             if next_target != 0 {
-                last_target_seen_at = Some(now);
+                *last_target_seen_at = Some(now);
             }
             if next_target != target_device {
                 if target_device != 0 {
-                    release_all_held_outputs(&api, context, target_device, &mut button_states);
+                    release_all_held_outputs(api, context, target_device, &mut button_states);
                 }
                 button_states.clear();
             }
+            if next_target == 0 {
+                // Contexts keep fixed device handles; rebuild after hot removal or re-pairing.
+                return;
+            }
             target_device = next_target;
+            target_filtered = filter_target;
             next_probe = now + Duration::from_secs(1);
         }
-        if target_device != 0 {
-            process_timers(
-                &api,
-                context,
-                target_device,
-                &shared,
-                &mut button_states,
-                now,
-            );
+        if target_device != 0 && target_filtered {
+            process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
         let device = unsafe { (api.wait_with_timeout)(context, WAIT_TIMEOUT_MS) };
@@ -436,23 +467,27 @@ fn worker_loop(shared: Arc<Shared>) {
             continue;
         }
         if device != target_device {
-            send_stroke(&api, context, device, stroke);
+            send_stroke(api, context, device, stroke);
             continue;
         }
-        process_target_stroke(&api, context, device, &shared, &mut button_states, stroke);
+        if target_filtered {
+            process_target_stroke(api, context, device, shared, &mut button_states, stroke);
+        } else {
+            send_stroke(api, context, device, stroke);
+        }
     }
 
     if target_device != 0 {
-        release_all_held_outputs(&api, context, target_device, &mut button_states);
-        set_device_filter(&api, context, target_device, FILTER_KEY_NONE);
+        release_all_held_outputs(api, context, target_device, &mut button_states);
     }
-    unsafe { (api.destroy_context)(context) };
 }
 
 fn probe_devices(
     api: &InterceptionApi,
     context: Context,
     old_target: i32,
+    old_target_filtered: bool,
+    filter_target: bool,
     last_target_seen_at: Option<Instant>,
     now: Instant,
     shared: &Shared,
@@ -476,9 +511,20 @@ fn probe_devices(
         if old_target != 0 {
             set_device_filter(api, context, old_target, FILTER_KEY_NONE);
         }
-        if found != 0 {
+        if found != 0 && filter_target {
             set_device_filter(api, context, found, FILTER_KEY_ALL);
         }
+    } else if found != 0 && old_target_filtered != filter_target {
+        set_device_filter(
+            api,
+            context,
+            found,
+            if filter_target {
+                FILTER_KEY_ALL
+            } else {
+                FILTER_KEY_NONE
+            },
+        );
     }
     let mut status = shared.status.lock().unwrap();
     status.backend_ready = true;
@@ -500,6 +546,11 @@ fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: In
 fn set_device_filter(api: &InterceptionApi, context: Context, device: i32, filter: u16) {
     FILTER_TARGET.store(device, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, selected_device, filter) };
+}
+
+fn clear_keyboard_filters(api: &InterceptionApi, context: Context) {
+    FILTER_TARGET.store(0, Ordering::Relaxed);
+    unsafe { (api.set_filter)(context, keyboard_device, FILTER_KEY_NONE) };
 }
 
 fn hardware_ids(api: &InterceptionApi, context: Context, device: i32) -> String {
