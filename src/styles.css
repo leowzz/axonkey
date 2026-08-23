@@ -312,6 +312,77 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .setup-result-list { display: flex; width: min(430px, 100%); flex-direction: column; gap: 8px; margin-top: 24px; }
 .setup-result-list span { display: flex; align-items: center; gap: 9px; padding: 10px 12px; border: 1px solid #d9dde1; border-radius: 7px; color: #5e6871; background: #f1f3f4; font-size: 10px; text-align: left; }
 
+.mac-permission-screen .section-kicker { letter-spacing: 0; }
+.mac-permission-screen h2 { font-size: 23px; }
+.mac-permission-screen .setup-lead { max-width: 620px; margin-top: 8px; color: #5f6972; font-size: 13px; line-height: 1.55; }
+.permission-progress-summary { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; margin-top: 18px; padding: 13px 15px; border: 1px solid #77ace8; border-radius: 8px; background: #e8f3ff; box-shadow: 0 4px 14px rgba(34, 104, 180, .08); }
+.permission-progress-summary.ready { border-color: #8cc49a; background: #edf8f0; }
+.permission-progress-icon { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 8px; color: #fff; background: #1478e8; }
+.permission-progress-summary.ready .permission-progress-icon { background: #3b9b53; }
+.permission-progress-summary > div { display: flex; min-width: 0; flex-direction: column; gap: 3px; }
+.permission-progress-summary strong { color: #263646; font-size: 14px; }
+.permission-progress-summary > div span { color: #657789; font-size: 11px; line-height: 1.45; }
+.permission-progress-count { color: #176fcf; font-family: 'DM Mono', monospace; font-size: 18px; font-weight: 700; }
+.permission-progress-summary.ready .permission-progress-count { color: #37844a; }
+.mac-permission-list { display: flex; width: 100%; flex-direction: column; gap: 9px; margin-top: 13px; }
+.mac-permission-step { display: grid; grid-template-columns: 30px 40px minmax(0, 1fr) auto; min-height: 80px; align-items: center; gap: 11px; padding: 11px 13px; border: 1px solid #d5dae0; border-radius: 8px; background: #f2f4f6; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.mac-permission-step.current { border-color: #4b96e8; background: #f7fbff; box-shadow: 0 0 0 3px rgba(20, 120, 232, .1); }
+.mac-permission-step.granted { border-color: #b8d9c0; background: #f1f8f3; }
+.mac-permission-step.waiting { color: #8c949b; background: #f1f2f3; }
+.permission-step-number { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; color: #fff; background: #1478e8; font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 700; }
+.mac-permission-step.granted .permission-step-number { background: #3b9b53; }
+.mac-permission-step.waiting .permission-step-number { color: #818990; background: #dfe2e5; }
+.permission-step-icon { display: grid; width: 40px; height: 40px; place-items: center; border-radius: 8px; color: #3975ad; background: #dfeaf5; }
+.mac-permission-step.granted .permission-step-icon { color: #3d8250; background: #deeee2; }
+.mac-permission-step.waiting .permission-step-icon { color: #8c949a; background: #e3e5e7; }
+.permission-step-copy { min-width: 0; }
+.permission-step-copy > div { display: flex; align-items: center; gap: 8px; }
+.permission-step-copy h3 { color: #30383f; font-size: 13px; }
+.permission-step-copy p { margin-top: 3px; color: #707a83; font-size: 11px; line-height: 1.4; }
+.permission-status-label { color: #176fcf; font-size: 10px; font-weight: 700; }
+.mac-permission-step.granted .permission-status-label { color: #3a8650; }
+.mac-permission-step.waiting .permission-status-label { color: #90979d; }
+.permission-request-button { height: 38px; min-width: 112px; font-size: 12px; }
+.permission-complete-icon { color: #3b9b53; }
+.permission-waiting-label { max-width: 92px; color: #92999f; font-size: 10px; line-height: 1.35; text-align: right; }
+.permission-drag-note { display: flex; align-items: flex-start; gap: 9px; width: 100%; margin-top: 10px; padding: 9px 11px; border-left: 3px solid #e49b39; color: #756244; background: #fbf5eb; }
+.permission-drag-note svg { flex: 0 0 auto; margin-top: 1px; color: #c98225; }
+.permission-drag-note > div { display: flex; flex-direction: column; gap: 2px; }
+.permission-drag-note strong { color: #685536; font-size: 11px; }
+.permission-drag-note span { font-size: 10px; line-height: 1.45; }
+
+body.permission-helper-mode { min-width: 0; overflow: hidden; background: #f6f7f8; }
+body.permission-helper-mode #root { min-height: 100vh; }
+.permission-helper-shell { display: flex; min-height: 100vh; max-height: 100vh; flex-direction: column; overflow: auto; color: #263039; background: #f7f8f9; }
+.permission-helper-header { display: flex; min-height: 62px; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #d9dde1; background: #f0f2f4; }
+.permission-helper-header .setup-brand { padding: 0; }
+.permission-helper-header .setup-brand span:last-child { font-size: 10px; }
+.permission-helper-content { display: flex; flex: 1; flex-direction: column; padding: 20px 20px 14px; }
+.permission-helper-content .section-kicker { color: #64798e; font-family: 'DM Mono', monospace; font-size: 10px; letter-spacing: 0; }
+.permission-helper-content h1 { margin-top: 7px; color: #20282f; font-size: 21px; line-height: 1.25; }
+.permission-helper-lead { margin-top: 8px; color: #67727c; font-size: 12px; line-height: 1.5; }
+.permission-helper-status { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 14px; }
+.permission-helper-status > span { display: grid; min-width: 0; min-height: 56px; grid-template-columns: 20px minmax(0, 1fr); align-items: center; gap: 4px 7px; padding: 8px 9px; border: 1px solid #d8dde1; border-radius: 7px; color: #64707a; background: #f0f2f4; font-size: 11px; }
+.permission-helper-status > span svg { grid-row: 1 / 3; color: #71808d; }
+.permission-helper-status > span strong { color: #818a91; font-size: 10px; }
+.permission-helper-status > span.active { border-color: #559be7; color: #285f99; background: #ebf5ff; }
+.permission-helper-status > span.active svg, .permission-helper-status > span.active strong { color: #176fcf; }
+.permission-helper-status > span.granted { border-color: #abd1b4; color: #3e764b; background: #edf7ef; }
+.permission-helper-status > span.granted svg, .permission-helper-status > span.granted strong { color: #37844a; }
+.permission-drag-guide { margin-top: 13px; padding: 12px; border: 1px dashed #9aafc4; border-radius: 8px; background: #f1f6fa; }
+.permission-drag-visual { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px; color: #6b7e90; }
+.permission-app-tile, .permission-settings-tile { display: flex; min-height: 42px; align-items: center; justify-content: center; gap: 7px; border: 1px solid #d2dbe3; border-radius: 7px; color: #3f5263; background: #fff; font-size: 11px; font-weight: 700; }
+.permission-app-tile .brand-mark { width: 24px; height: 24px; border-radius: 6px; font-size: 13px; }
+.permission-settings-tile svg { color: #4d7ba5; }
+.permission-drag-guide ol { margin: 10px 0 0; padding-left: 20px; color: #607181; font-size: 11px; line-height: 1.55; }
+.permission-helper-actions { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 11px; }
+.permission-helper-actions .button, .permission-helper-actions .dialog-secondary { width: 100%; height: 37px; font-size: 11px; }
+.permission-helper-footer { display: flex; min-height: 62px; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px; border-top: 1px solid #d9dde1; background: #f0f2f4; }
+.permission-helper-footer .button { min-height: 36px; padding: 0 13px; font-size: 11px; }
+.permission-refresh-button { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; }
+.permission-return-button { border: 1px solid #cbd2d8; color: #55616b; background: #fff; }
+.permission-return-button:hover { border-color: #9baab7; color: #2f5f8d; }
+
 @media (max-width: 1300px) {
   .workspace { gap: 12px; width: calc(100% - 32px); grid-template-columns: minmax(300px, 1fr) minmax(190px, 220px) minmax(300px, 1fr); }
   .topbar { padding-right: 20px; padding-left: 20px; }

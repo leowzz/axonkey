@@ -15,6 +15,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FolderOpen,
   GripVertical,
   Home,
   Info,
@@ -25,6 +26,7 @@ import {
   Power,
   RotateCcw,
   Settings2,
+  ShieldCheck,
   Target,
   Trash2,
   Undo2,
@@ -105,6 +107,8 @@ type MacPermissions = {
   accessibility: boolean
   captureActive: boolean
 }
+
+type MacPermissionKind = 'inputMonitoring' | 'accessibility'
 
 const detectBrowserPlatform = (): Platform => {
   if (typeof navigator === 'undefined') return 'windows'
@@ -422,6 +426,7 @@ function App() {
     accessibility: false,
     captureActive: false,
   })
+  const [permissionHelperKind, setPermissionHelperKind] = useState<MacPermissionKind | null>(null)
   const [activeId, setActiveId] = useState<ButtonId>('voice')
   const [behaviors, setBehaviors] = useState<BehaviorMap>(() => getStoredSettings().behaviors)
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
@@ -846,27 +851,66 @@ function App() {
     }
   }
 
-  const requestMacPermission = async (kind: 'inputMonitoring' | 'accessibility') => {
+  const requestMacPermission = async (kind: MacPermissionKind) => {
     const permissionName = kind === 'inputMonitoring' ? '输入监控' : '辅助功能'
-    setToast(`正在请求${permissionName}权限…`)
+    setPermissionHelperKind(kind)
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      try {
+        await invoke('set_permission_helper_mode', { enabled: true })
+      } catch (error) {
+        setToast(`无法切换授权小窗：${String(error)}`)
+      }
+    }
+
+    setToast(`正在打开${permissionName}授权…`)
+    let granted = false
     try {
-      const granted = await invoke<boolean>('request_macos_permission', { kind })
+      granted = await invoke<boolean>('request_macos_permission', { kind })
       if (granted) {
         setToast(`${permissionName}权限已授权`)
       } else {
         const opened = await openSystemSettings(kind)
-        if (opened) setToast(kind === 'accessibility'
-          ? '若开关已开启，请移除旧 Axonkey 条目后重新添加当前应用'
-          : `请在系统设置中允许 Axonkey 使用${permissionName}`)
+        if (opened) setToast(`已打开${permissionName}设置`)
       }
-      window.setTimeout(() => {
-        setToast('')
-        void probeSystemState()
-      }, kind === 'accessibility' && !granted ? 4200 : 2200)
     } catch (error) {
-      setToast(`无法请求系统权限：${String(error)}`)
-      window.setTimeout(() => setToast(''), 2600)
+      const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
+      if (browserPreview) {
+        setToast('浏览器预览不会打开系统设置')
+      } else {
+        setToast(`无法请求系统权限：${String(error)}`)
+        await openSystemSettings(kind)
+      }
     }
+    window.setTimeout(() => setToast(''), granted ? 1800 : 2600)
+    window.setTimeout(() => void probeSystemState(false), 900)
+  }
+
+  const closePermissionHelper = async (continueSetup = false) => {
+    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
+      try {
+        await invoke('set_permission_helper_mode', { enabled: false })
+      } catch (error) {
+        setToast(`无法恢复主窗口：${String(error)}`)
+      }
+    }
+    setPermissionHelperKind(null)
+    void probeSystemState(false)
+    if (continueSetup) {
+      updateSetup((current) => current.currentStep === 'inputDriver'
+        ? completeSetupStep(current, 'inputDriver')
+        : current)
+    }
+  }
+
+  const revealCurrentApp = async () => {
+    try {
+      await invoke('reveal_current_app')
+      setToast('已在 Finder 中定位 Axonkey')
+    } catch (error) {
+      const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
+      setToast(browserPreview ? '桌面版会在 Finder 中定位 Axonkey' : `无法定位 Axonkey：${String(error)}`)
+    }
+    window.setTimeout(() => setToast(''), 2400)
   }
 
   const openExternalPage = async (page: 'vbcable') => {
@@ -1031,6 +1075,18 @@ function App() {
   }, [setupOpen])
 
   useEffect(() => {
+    if (!setupOpen || platform !== 'macos' || setupState.currentStep !== 'welcome') return
+    updateSetup((current) => current.currentStep === 'welcome'
+      ? completeSetupStep(current, 'welcome')
+      : current)
+  }, [platform, setupOpen, setupState.currentStep])
+
+  useEffect(() => {
+    document.body.classList.toggle('permission-helper-mode', permissionHelperKind !== null)
+    return () => document.body.classList.remove('permission-helper-mode')
+  }, [permissionHelperKind])
+
+  useEffect(() => {
     if (!setupOpen || platform !== 'macos') return
     const refreshPermissions = () => void probeSystemState()
     const refreshVisiblePermissions = () => {
@@ -1124,6 +1180,24 @@ function App() {
     : null
   const canUndoCommonBehavior = commonBehaviorUndo?.buttonId === selectedBehavior.buttonId
     && commonBehaviorUndo.trigger === selectedBehavior.trigger
+
+  if (permissionHelperKind) {
+    const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
+    const activePermission = !macPermissions.inputMonitoring
+      ? 'inputMonitoring'
+      : !macPermissions.accessibility ? 'accessibility' : permissionHelperKind
+    return <>
+      <MacPermissionHelperWindow
+        activePermission={activePermission}
+        permissions={macPermissions}
+        onOpenSettings={(kind) => void openSystemSettings(kind)}
+        onRevealApp={() => void revealCurrentApp()}
+        onRefresh={() => void probeSystemState(false)}
+        onClose={() => void closePermissionHelper(permissionsReady)}
+      />
+      {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+    </>
+  }
 
   return (
     <div className="app-shell">
@@ -1295,7 +1369,15 @@ function App() {
         onOpenExternalPage={(page) => void openExternalPage(page)}
         onCheckDevice={checkDeviceConnection}
         onMarkDeviceConnected={() => updateSetup((current) => setDeviceConnection(current, { status: 'connected', name: '小米遥控器 RC003', message: '设备已由用户确认连接。' }))}
-        onFinish={() => { updateSetup((current) => completeSetupStep(current, 'complete')); setSetupOpen(false) }}
+        onFinish={() => {
+          updateSetup((current) => {
+            const next = current.currentStep === 'complete'
+              ? current
+              : completeSetupStep(current, current.currentStep)
+            return completeSetupStep(next, 'complete')
+          })
+          setSetupOpen(false)
+        }}
       />}
     </div>
   )
@@ -1688,8 +1770,8 @@ type SetupDialogProps = {
   onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkDriverInstalled: (driver: DriverKind) => void
   onProbeAudio: () => void
-  onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => void
-  onRequestMacPermission: (kind: 'inputMonitoring' | 'accessibility') => void
+  onOpenSystemSettings: (page: 'bluetooth' | 'sound' | MacPermissionKind) => void
+  onRequestMacPermission: (kind: MacPermissionKind) => void
   onOpenExternalPage: (page: 'vbcable') => void
   onCheckDevice: () => void
   onMarkDeviceConnected: () => void
@@ -1708,15 +1790,19 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
   inputDriver: '系统权限',
 }
 
+const windowsSetupSteps: SetupStepId[] = ['welcome', 'inputDriver', 'deviceConnection', 'complete']
+const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
+
 function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onProbeAudio, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
+  const visibleSteps = platform === 'macos' ? macSetupSteps : windowsSetupSteps
   return <div className="setup-backdrop" role="presentation">
     <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
       <aside className="setup-progress">
-        <div className="setup-brand"><span className="brand-mark">A</span><div><strong>Axonkey</strong><span>首次使用设置</span></div></div>
+        <div className="setup-brand"><span className="brand-mark">A</span><div><strong>Axonkey</strong><span>{platform === 'macos' ? '2 步完成设置' : '首次使用设置'}</span></div></div>
         <div className="setup-step-list">
-          {(Object.keys(setupStepLabels) as SetupStepId[]).map((stepId, index) => {
+          {visibleSteps.map((stepId, index) => {
             const status = state.steps[stepId].status
             const statusClass = status === 'complete' || status === 'skipped' ? status : ''
             return <button type="button" key={stepId} className={`setup-step ${step === stepId ? 'active' : ''} ${statusClass}`} onClick={() => onOpenStep(stepId)}>
@@ -1754,7 +1840,6 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
           ? <MacPermissionsSetupScreen
             permissions={macPermissions}
             onRequest={onRequestMacPermission}
-            onOpenSettings={onOpenSystemSettings}
             onContinue={onCompleteStep}
             onSkip={onSkipStep}
           />
@@ -1776,7 +1861,7 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
           <p className="setup-lead">先在{platform === 'macos' ? '系统' : ' Windows'}蓝牙设置中完成配对，再按遥控器任意按键将它唤醒。Axonkey 只处理 VID 2717 / PID 32B8 的目标设备。</p>
           <div className={`setup-status-panel ${state.device.status}`}><span className="setup-status-dot" /><div><strong>{state.device.status === 'connected' ? 'RC003 已连接' : state.device.status === 'checking' ? '正在检查设备' : '尚未确认连接'}</strong><span>{state.device.message ?? '打开系统设置完成蓝牙配对，然后返回这里检查。'}</span></div></div>
           <div className="setup-inline-actions"><button type="button" className="dialog-secondary" onClick={() => onOpenSystemSettings('bluetooth')}><Bluetooth size={14} /> 打开蓝牙设置</button><button type="button" className="dialog-secondary" onClick={onCheckDevice}><RotateCcw size={14} /> 重新检测</button><button type="button" className="dialog-secondary" onClick={onMarkDeviceConnected}><Check size={14} /> 我已连接</button></div>
-          <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkipStep}>稍后连接</button><button type="button" className="button primary setup-primary" disabled={state.device.status !== 'connected'} onClick={onCompleteStep}>继续 <ChevronRight size={15} /></button></div>
+          <div className="setup-actions"><button type="button" className="setup-text-button" onClick={platform === 'macos' ? () => { onSkipStep(); onFinish() } : onSkipStep}>稍后连接</button><button type="button" className="button primary setup-primary" disabled={state.device.status !== 'connected'} onClick={platform === 'macos' ? onFinish : onCompleteStep}>{platform === 'macos' ? '完成设置' : '继续'} <ChevronRight size={15} /></button></div>
         </div>}
         {step === 'complete' && <div className="setup-screen setup-complete">
           <span className="setup-hero-icon success"><Check size={26} /></span>
@@ -1802,14 +1887,17 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
 
 type MacPermissionsSetupScreenProps = {
   permissions: MacPermissions
-  onRequest: (kind: 'inputMonitoring' | 'accessibility') => void
-  onOpenSettings: (page: 'inputMonitoring' | 'accessibility') => void
+  onRequest: (kind: MacPermissionKind) => void
   onContinue: () => void
   onSkip: () => void
 }
 
-function MacPermissionsSetupScreen({ permissions, onRequest, onOpenSettings, onContinue, onSkip }: MacPermissionsSetupScreenProps) {
+function MacPermissionsSetupScreen({ permissions, onRequest, onContinue, onSkip }: MacPermissionsSetupScreenProps) {
   const ready = permissions.inputMonitoring && permissions.accessibility
+  const grantedCount = Number(permissions.inputMonitoring) + Number(permissions.accessibility)
+  const activeKind: MacPermissionKind | null = !permissions.inputMonitoring
+    ? 'inputMonitoring'
+    : !permissions.accessibility ? 'accessibility' : null
   const items = [
     {
       kind: 'inputMonitoring' as const,
@@ -1826,27 +1914,81 @@ function MacPermissionsSetupScreen({ permissions, onRequest, onOpenSettings, onC
       icon: <Command size={18} />,
     },
   ]
-  return <div className="setup-screen drivers-setup-screen">
-    <span className="setup-hero-icon"><Settings2 size={24} /></span>
-    <span className="section-kicker">PERMISSIONS</span>
-    <h2 id="setup-title">授予两项系统权限</h2>
-    <p className="setup-lead">只有两项权限同时可用时，Axonkey 才会接管 RC003、拦截原始按键并执行自定义映射。</p>
-    <div className="driver-setup-list">
-      {items.map((item) => <section key={item.kind} className={`driver-setup-item ${item.granted ? 'installed' : 'missing'}`}>
-        <div className="driver-setup-heading">
-          <span className="driver-setup-icon">{item.icon}</span>
-          <div><h3>{item.title}</h3><p>{item.description}</p></div>
-          <span className="driver-status-chip"><span className="setup-status-dot" /> {item.granted ? '已授权' : '待授权'}</span>
-        </div>
-        <div className="driver-setup-actions">
-          {!item.granted && <button type="button" className="dialog-secondary" onClick={() => onRequest(item.kind)}><Check size={14} /> 请求授权</button>}
-          <button type="button" className="dialog-secondary" onClick={() => onOpenSettings(item.kind)}><Settings2 size={14} /> 打开系统设置</button>
-        </div>
-      </section>)}
+  return <div className="setup-screen mac-permission-screen">
+    <span className="section-kicker">SYSTEM ACCESS</span>
+    <h2 id="setup-title">先完成两项必要授权</h2>
+    <p className="setup-lead">按顺序操作即可。每次授权都会打开对应的系统设置，并保留一个置顶小窗协助完成添加。</p>
+
+    <div className={`permission-progress-summary ${ready ? 'ready' : ''}`} aria-live="polite">
+      <span className="permission-progress-icon"><ShieldCheck size={24} /></span>
+      <div><strong>{ready ? '系统权限已就绪' : `已完成 ${grantedCount} / 2`}</strong><span>{ready ? 'Axonkey 可以拦截原始按键并执行你的映射。' : '只突出当前需要完成的一项，授权后会自动刷新。'}</span></div>
+      <span className="permission-progress-count">{grantedCount}/2</span>
     </div>
-    <div className={`driver-restart-notice ${ready ? 'ready' : ''}`}><Info size={16} /><div><strong>{ready ? '原生输入权限已就绪' : '授权后返回 Axonkey'}</strong><span>{ready ? '启用自定义按键功能后，RC003 的原始按键会被 Axonkey 拦截并替换。' : '状态会自动刷新；若输入监控未立即生效，请重新启动 Axonkey。'}</span></div></div>
+
+    <div className="mac-permission-list">
+      {items.map((item, index) => {
+        const current = activeKind === item.kind
+        const waiting = !item.granted && !current
+        return <section key={item.kind} className={`mac-permission-step ${item.granted ? 'granted' : current ? 'current' : 'waiting'}`}>
+          <div className="permission-step-number">{item.granted ? <Check size={16} /> : index + 1}</div>
+          <span className="permission-step-icon">{item.icon}</span>
+          <div className="permission-step-copy"><div><h3>{item.title}</h3><span className="permission-status-label">{item.granted ? '已授权' : current ? '现在完成' : '下一步'}</span></div><p>{item.description}</p></div>
+          {current && <button type="button" className="button primary permission-request-button" onClick={() => onRequest(item.kind)}>开始授权 <ExternalLink size={15} /></button>}
+          {item.granted && <CheckCircle2 className="permission-complete-icon" size={21} />}
+          {waiting && <span className="permission-waiting-label">完成上一步后继续</span>}
+        </section>
+      })}
+    </div>
+
+    {!ready && <div className="permission-drag-note"><Info size={17} /><div><strong>系统列表中没有 Axonkey？</strong><span>授权小窗可以在 Finder 中定位当前应用，再将 Axonkey.app 拖入系统设置列表。</span></div></div>}
     <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkip}>稍后授权</button><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续 <ChevronRight size={15} /></button></div>
   </div>
+}
+
+type MacPermissionHelperWindowProps = {
+  activePermission: MacPermissionKind
+  permissions: MacPermissions
+  onOpenSettings: (kind: MacPermissionKind) => void
+  onRevealApp: () => void
+  onRefresh: () => void
+  onClose: () => void
+}
+
+function MacPermissionHelperWindow({ activePermission, permissions, onOpenSettings, onRevealApp, onRefresh, onClose }: MacPermissionHelperWindowProps) {
+  const ready = permissions.inputMonitoring && permissions.accessibility
+  const activeTitle = activePermission === 'inputMonitoring' ? '输入监控' : '辅助功能'
+  return <main className="permission-helper-shell">
+    <header className="permission-helper-header">
+      <div className="setup-brand"><span className="brand-mark">A</span><div><strong>Axonkey</strong><span>授权助手 · 保持置顶</span></div></div>
+      <button type="button" className="dialog-close" aria-label="返回完整窗口" onClick={onClose}><X size={17} /></button>
+    </header>
+
+    <section className="permission-helper-content">
+      <span className="section-kicker">{ready ? 'PERMISSIONS READY' : `CURRENT · ${activePermission === 'inputMonitoring' ? '1 / 2' : '2 / 2'}`}</span>
+      <h1>{ready ? '两项权限都已打开' : `在系统设置中允许${activeTitle}`}</h1>
+      <p className="permission-helper-lead">{ready ? '状态已自动刷新，可以返回引导继续连接遥控器。' : '若列表中已有 Axonkey，直接打开右侧开关；没有时按下面两步添加。'}</p>
+
+      <div className="permission-helper-status" aria-live="polite">
+        <span className={permissions.inputMonitoring ? 'granted' : activePermission === 'inputMonitoring' ? 'active' : ''}><Keyboard size={15} /> 输入监控 <strong>{permissions.inputMonitoring ? '已授权' : '待授权'}</strong></span>
+        <span className={permissions.accessibility ? 'granted' : activePermission === 'accessibility' ? 'active' : ''}><Command size={15} /> 辅助功能 <strong>{permissions.accessibility ? '已授权' : '待授权'}</strong></span>
+      </div>
+
+      {!ready && <div className="permission-drag-guide">
+        <div className="permission-drag-visual" aria-hidden="true"><span className="permission-app-tile"><span className="brand-mark">A</span>Axonkey.app</span><ChevronRight size={18} /><span className="permission-settings-tile"><Settings2 size={18} />系统设置</span></div>
+        <ol><li>点击“在 Finder 中显示”，找到高亮的 Axonkey.app。</li><li>将它拖到已打开的系统授权列表，再打开开关。</li></ol>
+      </div>}
+
+      <div className="permission-helper-actions">
+        {!ready && <button type="button" className="button primary" onClick={onRevealApp}><FolderOpen size={16} /> 在 Finder 中显示</button>}
+        {!ready && <button type="button" className="dialog-secondary" onClick={() => onOpenSettings(activePermission)}><ExternalLink size={15} /> 再次打开系统设置</button>}
+      </div>
+    </section>
+
+    <footer className="permission-helper-footer">
+      <button type="button" className="setup-text-button permission-refresh-button" onClick={onRefresh}><RotateCcw size={14} /> 重新检测</button>
+      <button type="button" className={`button ${ready ? 'primary' : 'permission-return-button'}`} onClick={onClose}>{ready ? '继续连接遥控器' : '返回引导'} <ChevronRight size={15} /></button>
+    </footer>
+  </main>
 }
 
 type DriversSetupScreenProps = {

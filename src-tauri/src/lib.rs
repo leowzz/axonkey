@@ -1,11 +1,121 @@
 mod input_service;
 
 use input_service::{InputService, NativeSettings};
-use tauri::Manager;
+use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray-show";
 const TRAY_QUIT_ID: &str = "tray-quit";
+const PERMISSION_HELPER_WIDTH: f64 = 430.0;
+const PERMISSION_HELPER_HEIGHT: f64 = 520.0;
+
+#[derive(Clone, Copy)]
+struct WindowGeometry {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    resizable: bool,
+    always_on_top: bool,
+}
+
+#[derive(Default)]
+struct PermissionHelperWindowState(std::sync::Mutex<Option<WindowGeometry>>);
+
+fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    executable
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .map(std::path::Path::to_path_buf)
+}
+
+#[cfg(target_os = "macos")]
+fn apply_permission_helper_mode(
+    window: &tauri::WebviewWindow,
+    state: &PermissionHelperWindowState,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled {
+        let geometry = WindowGeometry {
+            position: window
+                .outer_position()
+                .map_err(|error| format!("Cannot read window position: {error}"))?,
+            size: window
+                .outer_size()
+                .map_err(|error| format!("Cannot read window size: {error}"))?,
+            resizable: window
+                .is_resizable()
+                .map_err(|error| format!("Cannot read resizable state: {error}"))?,
+            always_on_top: window
+                .is_always_on_top()
+                .map_err(|error| format!("Cannot read always-on-top state: {error}"))?,
+        };
+        let mut saved = state
+            .0
+            .lock()
+            .map_err(|_| "Permission helper window state is unavailable".to_string())?;
+        if saved.is_none() {
+            *saved = Some(geometry);
+        }
+        drop(saved);
+
+        let helper_size =
+            tauri::LogicalSize::new(PERMISSION_HELPER_WIDTH, PERMISSION_HELPER_HEIGHT);
+        window
+            .set_min_size(Some(helper_size))
+            .map_err(|error| format!("Cannot set helper minimum size: {error}"))?;
+        window
+            .set_resizable(false)
+            .map_err(|error| format!("Cannot lock helper size: {error}"))?;
+        window
+            .set_size(helper_size)
+            .map_err(|error| format!("Cannot resize permission helper: {error}"))?;
+        window
+            .set_always_on_top(true)
+            .map_err(|error| format!("Cannot keep permission helper visible: {error}"))?;
+
+        if let Some(monitor) = window
+            .current_monitor()
+            .map_err(|error| format!("Cannot read current monitor: {error}"))?
+        {
+            let scale = monitor.scale_factor();
+            let work_area = monitor.work_area();
+            let width = (PERMISSION_HELPER_WIDTH * scale).round() as i32;
+            let margin = (20.0 * scale).round() as i32;
+            let x = work_area.position.x + work_area.size.width as i32 - width - margin;
+            let y = work_area.position.y + margin;
+            window
+                .set_position(PhysicalPosition::new(x, y))
+                .map_err(|error| format!("Cannot position permission helper: {error}"))?;
+        }
+        window
+            .set_focus()
+            .map_err(|error| format!("Cannot focus permission helper: {error}"))?;
+        return Ok(());
+    }
+
+    let geometry = state
+        .0
+        .lock()
+        .map_err(|_| "Permission helper window state is unavailable".to_string())?
+        .take();
+    if let Some(geometry) = geometry {
+        window
+            .set_min_size(Some(tauri::LogicalSize::new(980.0, 680.0)))
+            .map_err(|error| format!("Cannot restore minimum window size: {error}"))?;
+        window
+            .set_size(geometry.size)
+            .map_err(|error| format!("Cannot restore window size: {error}"))?;
+        window
+            .set_position(geometry.position)
+            .map_err(|error| format!("Cannot restore window position: {error}"))?;
+        window
+            .set_resizable(geometry.resizable)
+            .map_err(|error| format!("Cannot restore resizable state: {error}"))?;
+        window
+            .set_always_on_top(geometry.always_on_top)
+            .map_err(|error| format!("Cannot restore always-on-top state: {error}"))?;
+    }
+    Ok(())
+}
 
 fn show_main_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
@@ -296,7 +406,7 @@ fn open_system_settings(page: String) -> Result<(), String> {
             .arg(uri)
             .spawn()
             .map_err(|error| format!("Cannot open macOS System Settings: {error}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -304,6 +414,50 @@ fn open_system_settings(page: String) -> Result<(), String> {
         let _ = page;
         Err("System settings are not supported on this platform".into())
     }
+}
+
+#[tauri::command]
+fn set_permission_helper_mode(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PermissionHelperWindowState>,
+    enabled: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let window = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "Main window is unavailable".to_string())?;
+        apply_permission_helper_mode(&window, &state, enabled)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        let _ = state;
+        let _ = enabled;
+        Err("Permission helper mode is only available on macOS".into())
+    }
+}
+
+#[tauri::command]
+fn reveal_current_app() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Cannot locate the current executable: {error}"))?;
+        let app_bundle = app_bundle_for_executable(&executable).ok_or_else(|| {
+            "Axonkey.app was not found. Install or open the packaged app first.".to_string()
+        })?;
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(app_bundle)
+            .spawn()
+            .map_err(|error| format!("Cannot reveal Axonkey.app in Finder: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Err("Revealing the current app is only available on macOS".into())
 }
 
 #[tauri::command]
@@ -603,6 +757,7 @@ pub fn run() {
             show_main_window(app);
         }))
         .manage(InputService::start())
+        .manage(PermissionHelperWindowState::default())
         .setup(|app| {
             use tauri::Manager;
 
@@ -631,6 +786,8 @@ pub fn run() {
             launch_driver_action,
             open_windows_settings,
             open_system_settings,
+            set_permission_helper_mode,
+            reveal_current_app,
             open_external_page,
             request_macos_permission,
             probe_system_state,
@@ -645,7 +802,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_battery_level;
+    use super::{app_bundle_for_executable, parse_battery_level};
 
     #[test]
     fn parses_valid_battery_percentages_only() {
@@ -654,5 +811,18 @@ mod tests {
         assert_eq!(parse_battery_level("100"), Some(100));
         assert_eq!(parse_battery_level("101"), None);
         assert_eq!(parse_battery_level("unknown"), None);
+    }
+
+    #[test]
+    fn finds_the_packaged_app_bundle_from_its_executable() {
+        let executable = std::path::Path::new("/Applications/Axonkey.app/Contents/MacOS/axonkey");
+        assert_eq!(
+            app_bundle_for_executable(executable),
+            Some(std::path::PathBuf::from("/Applications/Axonkey.app"))
+        );
+        assert_eq!(
+            app_bundle_for_executable(std::path::Path::new("/tmp/axonkey")),
+            None
+        );
     }
 }
