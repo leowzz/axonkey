@@ -1,11 +1,10 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-
+export const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 export const versionFiles = [
+  '.env.example',
   'package.json',
   'package-lock.json',
   'src-tauri/Cargo.toml',
@@ -13,98 +12,205 @@ export const versionFiles = [
   'src-tauri/tauri.conf.json',
 ]
 
-function readJson(path) {
-  return JSON.parse(readFileSync(join(repositoryRoot, path), 'utf8'))
+const tagVersionPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+
+function absolutePath(root, path) {
+  return isAbsolute(path) ? path : join(root, path)
 }
 
-function writeJson(path, value) {
-  writeFileSync(join(repositoryRoot, path), `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+function readJson(root, path) {
+  try {
+    return JSON.parse(readFileSync(absolutePath(root, path), 'utf8'))
+  } catch (error) {
+    throw new Error(`${path}: invalid or missing JSON`, { cause: error })
+  }
 }
 
-function extractVersion(source, pattern, path) {
-  const match = source.match(pattern)
-  if (!match) throw new Error(`Cannot find the Axonkey version in ${path}`)
-  return match[1]
+function jsonContent(value) {
+  return `${JSON.stringify(value, null, 2)}\n`
 }
 
-export function readVersions() {
-  const packageJson = readJson('package.json')
-  const packageLock = readJson('package-lock.json')
-  const tauriConfig = readJson('src-tauri/tauri.conf.json')
-  const cargoToml = readFileSync(join(repositoryRoot, 'src-tauri/Cargo.toml'), 'utf8')
-  const cargoLock = readFileSync(join(repositoryRoot, 'src-tauri/Cargo.lock'), 'utf8')
+function linesWithEndings(source) {
+  return source.match(/[^\n]*\n|[^\n]+$/g) ?? []
+}
+
+function lineValue(line) {
+  return line.replace(/\r?\n$/, '')
+}
+
+function findTomlSectionVersion(source, header, path) {
+  const lines = linesWithEndings(source)
+  const sections = lines
+    .map((line, index) => [lineValue(line).trim(), index])
+    .filter(([line]) => line === header)
+  if (sections.length !== 1) throw new Error(`${path}: expected exactly one ${header} section`)
+
+  const start = sections[0][1] + 1
+  const end = lines.findIndex((line, index) => index >= start && /^\s*\[/.test(lineValue(line)))
+  const sectionEnd = end === -1 ? lines.length : end
+  const versions = []
+  for (let index = start; index < sectionEnd; index += 1) {
+    if (/^\s*version\s*=\s*"[^"]+"\s*$/.test(lineValue(lines[index]))) versions.push(index)
+  }
+  if (versions.length !== 1) throw new Error(`${path}: expected exactly one version field in ${header}`)
+  return { lines, index: versions[0] }
+}
+
+function findCargoLockPackageVersion(source, packageName, path) {
+  const lines = linesWithEndings(source)
+  const starts = lines
+    .map((line, index) => [lineValue(line).trim(), index])
+    .filter(([line]) => line === '[[package]]')
+    .map(([, index]) => index)
+  const candidates = []
+
+  for (let position = 0; position < starts.length; position += 1) {
+    const start = starts[position] + 1
+    const end = starts[position + 1] ?? lines.length
+    const names = []
+    const versions = []
+    for (let index = start; index < end; index += 1) {
+      const line = lineValue(lines[index])
+      if (/^name\s*=\s*"[^"]+"\s*$/.test(line)) names.push(line.match(/"([^"]+)"/)?.[1])
+      if (/^version\s*=\s*"[^"]+"\s*$/.test(line)) versions.push(index)
+    }
+    if (names.length === 1 && names[0] === packageName) candidates.push({ versions })
+  }
+
+  if (candidates.length !== 1) throw new Error(`${path}: expected exactly one ${packageName} package`)
+  if (candidates[0].versions.length !== 1) {
+    throw new Error(`${path}: expected exactly one version field for ${packageName}`)
+  }
+  return { lines, index: candidates[0].versions[0] }
+}
+
+function quotedVersion(line) {
+  const value = lineValue(line).match(/"([^"]+)"/)?.[1]
+  if (!value) throw new Error('Version field is missing a quoted value')
+  return value
+}
+
+function updatedTomlSection(source, header, version, path) {
+  const { lines, index } = findTomlSectionVersion(source, header, path)
+  const indent = lineValue(lines[index]).match(/^\s*/)?.[0] ?? ''
+  lines[index] = `${indent}version = "${version}"\n`
+  return lines.join('')
+}
+
+function updatedCargoLockPackage(source, packageName, version, path) {
+  const { lines, index } = findCargoLockPackageVersion(source, packageName, path)
+  lines[index] = `version = "${version}"\n`
+  return lines.join('')
+}
+
+export function validateTagVersion(value) {
+  const match = tagVersionPattern.exec(value)
+  if (!match) throw new Error(`Invalid version "${value}". Expected vMAJOR.MINOR.PATCH, for example v0.2.6.`)
+  return value
+}
+
+export function numericVersion(tag) {
+  return validateTagVersion(tag).slice(1)
+}
+
+export function nextPatchTag(tag) {
+  const match = tagVersionPattern.exec(validateTagVersion(tag))
+  const [major, minor, patch] = match.slice(1).map(Number)
+  return `v${major}.${minor}.${patch + 1}`
+}
+
+export function readEnvVersion(root = repositoryRoot, envFile = '.env') {
+  let source
+  try {
+    source = readFileSync(absolutePath(root, envFile), 'utf8')
+  } catch (error) {
+    throw new Error(`Missing ${envFile}; run: cp .env.example .env (PowerShell: Copy-Item .env.example .env)`, {
+      cause: error,
+    })
+  }
+  const normalized = source.replace(/\r\n/g, '\n').replace(/\n$/, '')
+  const lines = normalized.split('\n')
+  if (lines.length !== 1 || !lines[0].startsWith('version=')) {
+    throw new Error(`${envFile} must contain exactly one version=vX.Y.Z line`)
+  }
+  return validateTagVersion(lines[0].slice('version='.length))
+}
+
+export function readVersions(root = repositoryRoot) {
+  const packageJson = readJson(root, 'package.json')
+  const packageLock = readJson(root, 'package-lock.json')
+  const tauriConfig = readJson(root, 'src-tauri/tauri.conf.json')
+  if (typeof packageJson?.version !== 'string') throw new Error('package.json: root version must be a string')
+  if (typeof packageLock?.version !== 'string') throw new Error('package-lock.json: root version must be a string')
+  if (typeof packageLock?.packages?.['']?.version !== 'string') {
+    throw new Error('package-lock.json: packages root version must be a string')
+  }
+  if (typeof tauriConfig?.version !== 'string') {
+    throw new Error('src-tauri/tauri.conf.json: root version must be a string')
+  }
+  const cargoTomlPath = 'src-tauri/Cargo.toml'
+  const cargoLockPath = 'src-tauri/Cargo.lock'
+  const cargoToml = readFileSync(absolutePath(root, cargoTomlPath), 'utf8')
+  const cargoLock = readFileSync(absolutePath(root, cargoLockPath), 'utf8')
+  const cargoManifestVersion = findTomlSectionVersion(cargoToml, '[package]', cargoTomlPath)
+  const cargoPackageVersion = findCargoLockPackageVersion(cargoLock, 'axonkey', cargoLockPath)
+
   return {
-    'package.json': packageJson.version,
-    'package-lock.json': packageLock.version,
-    'package-lock.json root package': packageLock.packages?.['']?.version,
-    'src-tauri/tauri.conf.json': tauriConfig.version,
-    'src-tauri/Cargo.toml': extractVersion(cargoToml, /^version\s*=\s*"([^"]+)"/m, 'src-tauri/Cargo.toml'),
-    'src-tauri/Cargo.lock': extractVersion(
-      cargoLock,
-      /\[\[package\]\]\r?\nname = "axonkey"\r?\nversion = "([^"]+)"/,
-      'src-tauri/Cargo.lock',
-    ),
+    '.env.example': numericVersion(readEnvVersion(root, '.env.example')),
+    'package.json': packageJson?.version,
+    'package-lock.json': packageLock?.version,
+    'package-lock.json root package': packageLock?.packages?.['']?.version,
+    'src-tauri/Cargo.toml': quotedVersion(cargoManifestVersion.lines[cargoManifestVersion.index]),
+    'src-tauri/Cargo.lock': quotedVersion(cargoPackageVersion.lines[cargoPackageVersion.index]),
+    'src-tauri/tauri.conf.json': tauriConfig?.version,
   }
 }
 
-export function assertVersionsMatch() {
-  const versions = readVersions()
-  const unique = new Set(Object.values(versions))
-  if (unique.size !== 1 || unique.has(undefined)) {
-    const detail = Object.entries(versions).map(([path, version]) => `  ${path}: ${version ?? 'missing'}`).join('\n')
-    throw new Error(`Version files are out of sync:\n${detail}`)
+export function checkVersions(expectedTag, root = repositoryRoot) {
+  const envTag = readEnvVersion(root)
+  const targetTag = expectedTag ? validateTagVersion(expectedTag) : envTag
+  const targetVersion = numericVersion(targetTag)
+  const versions = readVersions(root)
+  const mismatches = Object.entries(versions)
+    .filter(([, version]) => version !== targetVersion)
+    .map(([path, version]) => `${path}=${version ?? 'missing'}`)
+  if (envTag !== targetTag) mismatches.unshift(`.env=${envTag}`)
+  if (mismatches.length > 0) {
+    throw new Error(`Repository version ${targetTag} mismatch: ${mismatches.join(', ')}`)
   }
-  return Object.values(versions)[0]
+  return targetTag
 }
 
-export function parseVersion(value) {
-  const match = value.match(versionPattern)
-  if (!match) throw new Error(`Invalid version "${value}". Expected MAJOR.MINOR.PATCH, for example 0.2.6.`)
-  return match.slice(1).map(Number)
-}
+export function updateVersions(tag, root = repositoryRoot) {
+  const version = numericVersion(tag)
 
-export function compareVersions(left, right) {
-  const a = parseVersion(left)
-  const b = parseVersion(right)
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index]
-  }
-  return 0
-}
+  readEnvVersion(root)
+  readVersions(root)
 
-export function nextPatchVersion(current) {
-  const [major, minor, patch] = parseVersion(current)
-  return `${major}.${minor}.${patch + 1}`
-}
-
-function replaceVersion(path, pattern, replacement) {
-  const absolutePath = join(repositoryRoot, path)
-  const source = readFileSync(absolutePath, 'utf8')
-  if (!pattern.test(source)) throw new Error(`Cannot update the Axonkey version in ${path}`)
-  writeFileSync(absolutePath, source.replace(pattern, replacement), 'utf8')
-}
-
-export function updateVersions(version) {
-  parseVersion(version)
-
-  const packageJson = readJson('package.json')
+  const packageJson = readJson(root, 'package.json')
   packageJson.version = version
-  writeJson('package.json', packageJson)
 
-  const packageLock = readJson('package-lock.json')
+  const packageLock = readJson(root, 'package-lock.json')
+  if (!packageLock?.packages?.['']) throw new Error('package-lock.json: packages root entry is required')
   packageLock.version = version
-  if (!packageLock.packages?.['']) throw new Error('package-lock.json does not contain the root package')
   packageLock.packages[''].version = version
-  writeJson('package-lock.json', packageLock)
 
-  const tauriConfig = readJson('src-tauri/tauri.conf.json')
+  const tauriConfig = readJson(root, 'src-tauri/tauri.conf.json')
   tauriConfig.version = version
-  writeJson('src-tauri/tauri.conf.json', tauriConfig)
 
-  replaceVersion('src-tauri/Cargo.toml', /^version\s*=\s*"[^"]+"/m, `version = "${version}"`)
-  replaceVersion(
-    'src-tauri/Cargo.lock',
-    /(\[\[package\]\]\r?\nname = "axonkey"\r?\nversion = ")[^"]+("\r?\n)/,
-    `$1${version}$2`,
-  )
+  const cargoTomlPath = 'src-tauri/Cargo.toml'
+  const cargoLockPath = 'src-tauri/Cargo.lock'
+  const cargoToml = readFileSync(absolutePath(root, cargoTomlPath), 'utf8')
+  const cargoLock = readFileSync(absolutePath(root, cargoLockPath), 'utf8')
+  const contents = new Map([
+    ['.env', `version=${tag}\n`],
+    ['.env.example', `version=${tag}\n`],
+    ['package.json', jsonContent(packageJson)],
+    ['package-lock.json', jsonContent(packageLock)],
+    [cargoTomlPath, updatedTomlSection(cargoToml, '[package]', version, cargoTomlPath)],
+    [cargoLockPath, updatedCargoLockPackage(cargoLock, 'axonkey', version, cargoLockPath)],
+    ['src-tauri/tauri.conf.json', jsonContent(tauriConfig)],
+  ])
+
+  for (const [path, content] of contents) writeFileSync(absolutePath(root, path), content, 'utf8')
 }

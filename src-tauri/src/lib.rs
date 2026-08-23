@@ -1,6 +1,72 @@
 mod input_service;
 
 use input_service::{InputService, NativeSettings};
+use tauri::Manager;
+
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_SHOW_ID: &str = "tray-show";
+const TRAY_QUIT_ID: &str = "tray-quit";
+
+fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::{
+        menu::{Menu, MenuItem},
+        tray::TrayIconBuilder,
+    };
+
+    let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示 Axonkey", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出 Axonkey", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let tray = TrayIconBuilder::with_id("axonkey-tray")
+        .icon(tauri::include_image!("./icons/32x32.png"))
+        .tooltip("Axonkey")
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+            if event.id() == TRAY_SHOW_ID {
+                show_main_window(app);
+            } else if event.id() == TRAY_QUIT_ID {
+                app.exit(0);
+            }
+        });
+
+    #[cfg(target_os = "windows")]
+    let tray = {
+        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+
+        tray.show_menu_on_left_click(false)
+            .on_tray_icon_event(|tray, event| {
+                if matches!(
+                    event,
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    }
+                ) {
+                    show_main_window(tray.app_handle());
+                }
+            })
+    };
+
+    tray.build(app)?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn install_tray(_app: &tauri::App) -> tauri::Result<()> {
+    Ok(())
+}
 
 #[tauri::command]
 fn ping() -> &'static str {
@@ -534,13 +600,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::Manager;
-
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }))
         .manage(InputService::start())
         .setup(|app| {
@@ -548,7 +608,22 @@ pub fn run() {
 
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
+            install_tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != MAIN_WINDOW_LABEL {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+
+                #[cfg(target_os = "macos")]
+                let _ = window
+                    .app_handle()
+                    .set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             ping,

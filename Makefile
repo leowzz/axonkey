@@ -1,13 +1,23 @@
-.PHONY: dev build build-macos uninstall-driver
+.PHONY: dev version-check build build-macos test-release release uninstall-driver
 
 dev:
 	npm run tauri dev
 
-build:
-	node ./scripts/release-build.mjs "$(V)"
+version-check:
+	node ./scripts/repo-version.mjs check
 
-build-macos:
+build: version-check
+	npm run tauri build
+
+build-macos: version-check
 	node ./scripts/build-macos.mjs
+
+test-release:
+	npm run test:release
+
+# Bump patch in .env and create an annotated tag. Override with: make release V=v1.2.3
+release:
+	@V="$(V)" bash ./scripts/release.sh
 
 uninstall-driver:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"

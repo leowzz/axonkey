@@ -1,4 +1,5 @@
 *.log
+.env
 node_modules/
 web-dist/
 src-tauri/target/

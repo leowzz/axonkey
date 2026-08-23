@@ -111,9 +111,12 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-driver.ps1
 开发环境需要 Node.js 与 Rust stable。Windows 还需要 MSVC 构建工具和 WebView2；macOS 需要 Xcode Command Line Tools。安装依赖并启动 Tauri 桌面应用：
 
 ```powershell
+Copy-Item .env.example .env
 npm install
 npm run tauri dev
 ```
+
+`.env` 是本机版本来源并被 Git 忽略，只允许包含一行 `version=vX.Y.Z`。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本。
 
 检查前端生产构建和 Rust 测试：
 
@@ -128,16 +131,18 @@ cargo test --manifest-path .\src-tauri\Cargo.toml
 make dev
 make build
 make build-macos
-make build V=0.2.6
+make test-release
+make release
+make release V=v0.2.6
 ```
 
-`make build` 要求 Git 工作区干净。它会同步版本号、创建发布提交和带注释的 Git 标签，然后生成 NSIS 安装程序：
+`make build` 只校验 `.env` 与仓库版本是否一致，然后调用 Tauri 构建当前平台安装包；它不会修改文件、提交或创建 Git 标签。Windows NSIS 输出为：
 
 ```text
 src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
 ```
 
-`make build-macos` 直接生成当前架构的 `.app` 与 `.dmg`，不会创建版本提交或标签：
+`make build-macos` 使用同一版本校验，并生成当前架构的 `.app` 与 `.dmg`：
 
 ```text
 src-tauri/target/release/bundle/macos/Axonkey.app
@@ -148,21 +153,31 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 
 面向外部用户分发时必须使用稳定的 Developer ID Application 身份并配置 Apple 公证凭据，不能把 ad-hoc CI 产物作为可延续系统权限的正式安装包。
 
+`make release` 要求 Git 工作区完全干净。未传 `V` 时，它从 `.env` 递增 patch；也可以用 `V=vX.Y.Z` 指定版本。命令会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建 `chore: release vX.Y.Z` 提交，再在该提交上创建 annotated tag。它不会构建、推送或发布远端 Release。
+
 ## GitHub Tag 自动构建
 
-向 GitHub 推送指向 `main` 分支历史的版本 Tag 会自动构建 Windows 安装包。Tag 必须采用
-`vMAJOR.MINOR.PATCH` 格式，例如 `v0.2.6`；去掉开头 `v` 后的值会在构建时同步为所有应用清单中的版本号。
+先在 `main` 的干净工作区运行 `make release`，再推送 release commit 和 annotated tag：
 
-```powershell
+```bash
 git checkout main
-git tag -a v0.2.6 -m "Axonkey 0.2.6"
-git push origin v0.2.6
+make release V=v0.2.6
+git push origin main --follow-tags
 ```
 
-构建完成后，工作流会创建对应的 GitHub Release，并上传带版本号的 Windows NSIS 安装程序及其
-SHA-256 校验文件。Windows 安装程序和 macOS Universal DMG 及各自校验文件也会作为 GitHub
-Actions Artifact 保留。如果 Tag 指向的提交不属于 `main` 历史，工作流会拒绝构建。目标分支可
-通过工作流中的 `RELEASE_BRANCH` 修改。
+Tag 必须采用 `vMAJOR.MINOR.PATCH` 格式并指向 `main` 历史。GitHub Action 会从 `.env.example` 初始化 CI 的 `.env`，然后校验 Tag、`.env.example` 和所有已提交清单版本完全一致；CI 不会临时重写版本。
+
+两个平台都构建成功且 SHA-256 校验通过后，工作流才会创建或更新对应的 GitHub Release，并上传
+Windows NSIS、macOS Universal DMG 及各自的校验文件。相同文件也会作为 GitHub Actions Artifact
+保留 30 天。如果 Tag 指向的提交不属于 `main` 历史，工作流会拒绝构建。目标分支可通过工作流中的
+`RELEASE_BRANCH` 修改。
+
+macOS Action 支持以下 Repository Secrets：
+
+- Developer ID 签名：`APPLE_CERTIFICATE`（Base64 编码的 `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`；
+- Apple 公证：`APPLE_ID`、`APPLE_PASSWORD`（App 专用密码）、`APPLE_TEAM_ID`。
+
+签名或公证凭据必须按组完整配置。六项全部配置时，工作流会先签名 App 和 DMG，再对移除隐藏卷图标后的最终 DMG 执行公证和 stapling。未配置时仍可生成 ad-hoc 签名的测试 DMG，但 GitHub Actions 会给出警告，该产物不适合作为正式外部分发包。
 
 ## 工作原理
 
