@@ -1147,19 +1147,28 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
       <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
     </div>
     <div className="behavior-editor-body">
-      <div className="behavior-list">
-        {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从下方直接更改行为' : '这个触发方式尚未设置，可从下方直接选择行为'}</div>}
-        {behaviors.map((behavior, index) => <BehaviorItem
-          key={behavior.id}
-          behavior={behavior}
-          index={index}
-          total={behaviors.length}
-          onRemove={onRemoveBehavior}
-          onMove={onMoveBehavior}
-          onEdit={onEditBehavior}
-        />)}
-      </div>
+      <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
+        <div className="behavior-column-heading">
+          <h3 id={`${tabId}-current-title`}>现有行为</h3>
+        </div>
+        <div className="behavior-list">
+          {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
+          {behaviors.map((behavior, index) => <BehaviorItem
+            key={behavior.id}
+            behavior={behavior}
+            index={index}
+            total={behaviors.length}
+            onRemove={onRemoveBehavior}
+            onMove={onMoveBehavior}
+            onEdit={onEditBehavior}
+          />)}
+        </div>
+      </section>
       <section className="behavior-actions" aria-label="选择行为">
+        <div className="behavior-column-heading">
+          <h3>推荐行为</h3>
+          {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
+        </div>
         <div className="behavior-tabs-row">
           <div className="behavior-tabs" role="tablist" aria-label="行为分类">
             {([
@@ -1178,7 +1187,6 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
               onClick={() => setActiveTab(id)}
             >{label}</button>)}
           </div>
-          {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
         </div>
         <div
           id={`${tabId}-${activeTab}-panel`}
