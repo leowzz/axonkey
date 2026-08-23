@@ -3,12 +3,18 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Axonkey
 {
     internal sealed class MainForm : Form
     {
+        private const uint RedrawInvalidate = 0x0001;
+        private const uint RedrawErase = 0x0004;
+        private const uint RedrawAllChildren = 0x0080;
+        private const uint RedrawUpdateNow = 0x0100;
+
         private readonly AppSettings _settings;
         private readonly SettingsStore _settingsStore;
         private readonly InterceptionInputService _inputService;
@@ -138,10 +144,10 @@ namespace Axonkey
             mappingsTitle.Text = "按键映射";
             Controls.Add(mappingsTitle);
 
-            TableLayoutPanel mappingsTable = BuildMappingsTable();
-            mappingsTable.Location = new Point(28, 190);
-            mappingsTable.Size = new Size(692, 444);
-            Controls.Add(mappingsTable);
+            Panel mappingsGrid = BuildMappingsGrid();
+            mappingsGrid.Location = new Point(28, 190);
+            mappingsGrid.Size = new Size(692, 434);
+            Controls.Add(mappingsGrid);
 
             Panel footer = new Panel();
             footer.BackColor = Color.White;
@@ -202,6 +208,10 @@ namespace Axonkey
             {
                 BeginInvoke(new Action(HideToTray));
             }
+            else
+            {
+                BeginInvoke(new Action(ForceFullRepaint));
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -225,80 +235,113 @@ namespace Axonkey
             base.OnFormClosed(e);
         }
 
-        private TableLayoutPanel BuildMappingsTable()
+        private Panel BuildMappingsGrid()
         {
-            TableLayoutPanel table = new TableLayoutPanel();
-            table.BackColor = Color.White;
-            table.CellBorderStyle = TableLayoutPanelCellBorderStyle.Single;
-            table.ColumnCount = 4;
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 205F));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 328F));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 83F));
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
-            table.RowCount = KeyCatalog.Sources.Count + 1;
-            table.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
-            for (int index = 0; index < KeyCatalog.Sources.Count; index++)
-                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 40F));
+            Panel grid = new Panel();
+            grid.BackColor = Color.White;
+            grid.BorderStyle = BorderStyle.FixedSingle;
 
-            table.Controls.Add(CreateHeaderLabel("遥控器按键"), 0, 0);
-            table.Controls.Add(CreateHeaderLabel("执行动作"), 1, 0);
-            table.Controls.Add(CreateHeaderLabel("快捷键"), 2, 0);
-            table.Controls.Add(CreateHeaderLabel("启用"), 3, 0);
+            Panel header = new Panel();
+            header.BackColor = Color.FromArgb(246, 248, 250);
+            header.Location = Point.Empty;
+            header.Size = new Size(690, 33);
+            header.AccessibleName = "遥控器按键，执行动作，快捷键，启用";
+            header.Paint += DrawGridHeader;
+            AddGridDividers(header, 32);
+            grid.Controls.Add(header);
 
-            int row = 1;
+            int rowIndex = 0;
             foreach (SourceKeyDefinition source in KeyCatalog.Sources)
             {
+                Panel row = new Panel();
+                row.BackColor = Color.White;
+                row.Location = new Point(0, 32 + (rowIndex * 40));
+                row.Size = new Size(690, 41);
+                row.Tag = source.Id;
+                AddGridDividers(row, 40);
+
                 Label sourceLabel = new Label();
                 sourceLabel.AutoEllipsis = true;
-                sourceLabel.Dock = DockStyle.Fill;
-                sourceLabel.Margin = new Padding(12, 0, 6, 0);
+                sourceLabel.BackColor = Color.White;
+                sourceLabel.Location = new Point(12, 1);
+                sourceLabel.Size = new Size(185, 38);
                 sourceLabel.Text = source.DisplayName + "   " + source.NativeName;
                 sourceLabel.TextAlign = ContentAlignment.MiddleLeft;
-                table.Controls.Add(sourceLabel, 0, row);
+                row.Controls.Add(sourceLabel);
 
                 ComboBox selector = new ComboBox();
-                selector.Dock = DockStyle.Fill;
                 selector.DropDownStyle = ComboBoxStyle.DropDownList;
-                selector.Margin = new Padding(10, 7, 10, 6);
+                selector.Location = new Point(215, 7);
+                selector.Size = new Size(308, 25);
                 selector.Tag = source.Id;
+                selector.AccessibleName = source.DisplayName + "执行动作";
                 selector.SelectedIndexChanged += ActionSelectorSelectedIndexChanged;
                 _actionSelectors[source.Id] = selector;
-                table.Controls.Add(selector, 1, row);
+                row.Controls.Add(selector);
 
                 Button captureButton = new Button();
-                captureButton.Dock = DockStyle.Fill;
-                captureButton.FlatStyle = FlatStyle.System;
-                captureButton.Margin = new Padding(8, 6, 8, 5);
+                captureButton.FlatStyle = FlatStyle.Standard;
+                captureButton.Location = new Point(541, 5);
+                captureButton.Size = new Size(67, 30);
                 captureButton.Tag = source.Id;
                 captureButton.Text = "录入";
+                captureButton.AccessibleName = source.DisplayName + "录入快捷键";
                 captureButton.Click += CaptureButtonClick;
-                table.Controls.Add(captureButton, 2, row);
+                row.Controls.Add(captureButton);
 
                 CheckBox mappingToggle = new CheckBox();
                 mappingToggle.CheckAlign = ContentAlignment.MiddleCenter;
-                mappingToggle.Dock = DockStyle.Fill;
-                mappingToggle.Margin = Padding.Empty;
+                mappingToggle.Location = new Point(637, 8);
+                mappingToggle.Size = new Size(32, 24);
                 mappingToggle.Tag = source.Id;
+                mappingToggle.AccessibleName = "启用" + source.DisplayName + "映射";
                 mappingToggle.CheckedChanged += MappingToggleCheckedChanged;
                 _mappingToggles[source.Id] = mappingToggle;
-                table.Controls.Add(mappingToggle, 3, row);
-                row++;
+                row.Controls.Add(mappingToggle);
+
+                grid.Controls.Add(row);
+                rowIndex++;
             }
-            return table;
+            return grid;
         }
 
-        private static Label CreateHeaderLabel(string text)
+        private static void AddGridDividers(Control parent, int bottom)
         {
-            Label label = new Label();
-            label.BackColor = Color.FromArgb(246, 248, 250);
-            label.Dock = DockStyle.Fill;
-            label.Font = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold);
-            label.ForeColor = Color.FromArgb(87, 96, 106);
-            label.Margin = Padding.Empty;
-            label.Padding = new Padding(10, 0, 0, 0);
-            label.Text = text;
-            label.TextAlign = ContentAlignment.MiddleLeft;
-            return label;
+            int[] verticalPositions = new int[] { 204, 532, 615 };
+            foreach (int x in verticalPositions)
+            {
+                Panel divider = new Panel();
+                divider.BackColor = Color.FromArgb(209, 213, 218);
+                divider.Location = new Point(x, 0);
+                divider.Size = new Size(1, bottom);
+                parent.Controls.Add(divider);
+            }
+
+            Panel bottomDivider = new Panel();
+            bottomDivider.BackColor = Color.FromArgb(209, 213, 218);
+            bottomDivider.Location = new Point(0, bottom);
+            bottomDivider.Size = new Size(690, 1);
+            parent.Controls.Add(bottomDivider);
+        }
+
+        private static void DrawGridHeader(object sender, PaintEventArgs e)
+        {
+            Color color = Color.FromArgb(87, 96, 106);
+            TextFormatFlags flags = TextFormatFlags.Left |
+                TextFormatFlags.VerticalCenter |
+                TextFormatFlags.SingleLine |
+                TextFormatFlags.NoPadding;
+            using (Font headerFont = new Font("Microsoft YaHei UI", 8.5F, FontStyle.Bold))
+            {
+                TextRenderer.DrawText(e.Graphics, "遥控器按键", headerFont,
+                    new Rectangle(10, 0, 194, 32), color, flags);
+                TextRenderer.DrawText(e.Graphics, "执行动作", headerFont,
+                    new Rectangle(215, 0, 317, 32), color, flags);
+                TextRenderer.DrawText(e.Graphics, "快捷键", headerFont,
+                    new Rectangle(543, 0, 72, 32), color, flags);
+                TextRenderer.DrawText(e.Graphics, "启用", headerFont,
+                    new Rectangle(626, 0, 64, 32), color, flags);
+            }
         }
 
         private void LoadSettingsIntoControls()
@@ -606,5 +649,23 @@ namespace Axonkey
             }
             action();
         }
+
+        private void ForceFullRepaint()
+        {
+            if (IsDisposed || Disposing || !IsHandleCreated) return;
+            RedrawWindow(
+                Handle,
+                IntPtr.Zero,
+                IntPtr.Zero,
+                RedrawInvalidate | RedrawErase | RedrawAllChildren | RedrawUpdateNow);
+        }
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool RedrawWindow(
+            IntPtr window,
+            IntPtr updateRectangle,
+            IntPtr updateRegion,
+            uint flags);
     }
 }
