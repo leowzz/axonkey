@@ -411,22 +411,31 @@ async fn probe_rc003_battery_level() -> Option<u8> {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn vbcable_service_installed() -> Result<bool, String> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
+    match hklm.open_subkey("SYSTEM\\CurrentControlSet\\Services\\VBAudioVACMME") {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!(
+            "Cannot read the VB-CABLE driver registry key: {error}"
+        )),
+    }
+}
+
 #[tauri::command]
-async fn probe_audio_available() -> bool {
+fn probe_audio_available() -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        tauri::async_runtime::spawn_blocking(|| {
-            powershell_probe(
-                r#"if (Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\VBAudioVACMME') { '1' } else { '0' }"#,
-            )
-        })
-        .await
-        .unwrap_or_default()
+        vbcable_service_installed()
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        false
+        Ok(false)
     }
 }
 
@@ -442,7 +451,7 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
     {
         tauri::async_runtime::spawn_blocking(|| {
             powershell_probe(
-                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
+                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match '(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' }).Count -gt 0) { '1' } else { '0' }"#,
             )
         })
         .await
@@ -534,6 +543,13 @@ pub fn run() {
             }
         }))
         .manage(InputService::start())
+        .setup(|app| {
+            use tauri::Manager;
+
+            app.state::<InputService>()
+                .set_event_app(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ping,
             get_platform,

@@ -1,4 +1,5 @@
 use super::{InputServiceStatus, NativeBehavior, NativeSettings, TriggerBehaviors};
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     ffi::c_void,
@@ -10,6 +11,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use tauri::Emitter;
 
 const EVENT_BACKEND_READY: i32 = 1;
 const EVENT_DEVICE_CONNECTED: i32 = 2;
@@ -48,6 +50,7 @@ extern "C" {
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
+    event_app: RwLock<Option<tauri::AppHandle>>,
     stop: AtomicBool,
     restart: AtomicBool,
 }
@@ -62,6 +65,7 @@ impl InputService {
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
             status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
         });
@@ -112,6 +116,12 @@ impl InputService {
         status.input_monitoring_granted = Some(Self::input_monitoring_granted());
         status.accessibility_granted = Some(Self::accessibility_granted());
         status
+    }
+
+    pub fn set_event_app(&self, app: tauri::AppHandle) {
+        if let Ok(mut event_app) = self.shared.event_app.write() {
+            *event_app = Some(app);
+        }
     }
 
     pub fn input_monitoring_granted() -> bool {
@@ -515,11 +525,13 @@ impl MacInputState {
 
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
+                emit_remote_key_event(shared, source.id, true);
                 self.press_source(shared, source);
             }
         }
         for usage in released {
             if let Some(source) = source_for_usage(usage) {
+                emit_remote_key_event(shared, source.id, false);
                 self.release_source(shared, source);
             }
         }
@@ -696,6 +708,24 @@ impl MacInputState {
             state.pending_click = None;
         }
         self.active_usages.clear();
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteKeyEvent {
+    button: &'static str,
+    pressed: bool,
+}
+
+fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
+    let app = shared
+        .event_app
+        .read()
+        .ok()
+        .and_then(|event_app| event_app.clone());
+    if let Some(app) = app {
+        let _ = app.emit("axonkey-remote-key", RemoteKeyEvent { button, pressed });
     }
 }
 

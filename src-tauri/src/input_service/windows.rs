@@ -1,4 +1,5 @@
 use super::{InputServiceStatus, NativeBehavior, NativeSettings, TriggerBehaviors};
+use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
@@ -10,6 +11,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use tauri::Emitter;
 
 const MAX_KEYBOARD: i32 = 10;
 const FILTER_KEY_NONE: u16 = 0x0000;
@@ -19,6 +21,11 @@ const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
+const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
+const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
+const CR_SUCCESS: u32 = 0;
+const CM_GETIDLIST_FILTER_PRESENT: u32 = 0x0000_0100;
 
 type Context = *mut c_void;
 type DevicePredicate = unsafe extern "C" fn(i32) -> i32;
@@ -34,6 +41,10 @@ static FILTER_TARGET: AtomicI32 = AtomicI32::new(0);
 
 unsafe extern "C" fn selected_device(device: i32) -> i32 {
     i32::from(device == FILTER_TARGET.load(Ordering::Relaxed))
+}
+
+unsafe extern "C" fn keyboard_device(device: i32) -> i32 {
+    i32::from((1..=MAX_KEYBOARD).contains(&device))
 }
 
 #[repr(C)]
@@ -134,6 +145,7 @@ fn interception_dll_candidates() -> Vec<PathBuf> {
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
+    event_app: RwLock<Option<tauri::AppHandle>>,
     stop: AtomicBool,
 }
 
@@ -147,6 +159,7 @@ impl InputService {
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
             status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
@@ -171,6 +184,12 @@ impl InputService {
             .write()
             .map_err(|_| "Input settings lock is unavailable")? = settings;
         Ok(())
+    }
+
+    pub fn set_event_app(&self, app: tauri::AppHandle) {
+        if let Ok(mut event_app) = self.shared.event_app.write() {
+            *event_app = Some(app);
+        }
     }
 
     pub fn status(&self) -> InputServiceStatus {
@@ -291,44 +310,115 @@ fn worker_loop(shared: Arc<Shared>) {
             return;
         }
     };
-    let context = unsafe { (api.create_context)() };
-    if context.is_null() {
-        shared.status.lock().unwrap().error =
-            Some("Interception could not create an input context".into());
-        return;
-    }
-
     {
         let mut status = shared.status.lock().unwrap();
         status.backend_ready = true;
         status.error = None;
     }
 
+    let mut last_target_seen_at = None;
+    while !shared.stop.load(Ordering::Relaxed) {
+        if !wait_for_stable_target(&shared, &mut last_target_seen_at) {
+            break;
+        }
+
+        let context = unsafe { (api.create_context)() };
+        if context.is_null() {
+            let mut status = shared.status.lock().unwrap();
+            status.backend_ready = false;
+            status.error = Some("Interception could not create an input context".into());
+            drop(status);
+            thread::sleep(DEVICE_POLL_INTERVAL);
+            continue;
+        }
+
+        {
+            let mut status = shared.status.lock().unwrap();
+            status.backend_ready = true;
+            status.error = None;
+        }
+
+        run_context(&api, context, &shared, &mut last_target_seen_at);
+        clear_keyboard_filters(&api, context);
+        unsafe { (api.destroy_context)(context) };
+    }
+}
+
+fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Instant>) -> bool {
+    let mut stable_since = None;
+    while !shared.stop.load(Ordering::Relaxed) {
+        let now = Instant::now();
+        let hardware_id = rc003_keyboard_device_id();
+        let target_present = hardware_id.is_some();
+        update_device_status(shared, hardware_id, last_target_seen_at, now);
+
+        let mapping_enabled = shared
+            .settings
+            .read()
+            .map(|settings| settings.enabled)
+            .unwrap_or(false);
+        if target_present && mapping_enabled {
+            let first_stable = *stable_since.get_or_insert(now);
+            if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
+                return true;
+            }
+        } else {
+            stable_since = None;
+        }
+
+        thread::sleep(DEVICE_POLL_INTERVAL);
+    }
+    false
+}
+
+fn run_context(
+    api: &InterceptionApi,
+    context: Context,
+    shared: &Shared,
+    last_target_seen_at: &mut Option<Instant>,
+) {
     let mut target_device = 0;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let next_target = probe_devices(&api, context, target_device, &shared);
+            let mapping_enabled = shared
+                .settings
+                .read()
+                .map(|settings| settings.enabled)
+                .unwrap_or(false);
+            let hardware_id = rc003_keyboard_device_id();
+            update_device_status(shared, hardware_id.clone(), last_target_seen_at, now);
+            if !mapping_enabled || hardware_id.is_none() {
+                return;
+            }
+            let next_target = probe_devices(
+                api,
+                context,
+                target_device,
+                *last_target_seen_at,
+                now,
+                shared,
+            );
+            if next_target != 0 {
+                *last_target_seen_at = Some(now);
+            }
             if next_target != target_device {
                 if target_device != 0 {
-                    release_all_held_outputs(&api, context, target_device, &mut button_states);
+                    release_all_held_outputs(api, context, target_device, &mut button_states);
                 }
                 button_states.clear();
+            }
+            if next_target == 0 {
+                // Contexts keep fixed device handles; rebuild after hot removal or re-pairing.
+                return;
             }
             target_device = next_target;
             next_probe = now + Duration::from_secs(1);
         }
         if target_device != 0 {
-            process_timers(
-                &api,
-                context,
-                target_device,
-                &shared,
-                &mut button_states,
-                now,
-            );
+            process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
         let device = unsafe { (api.wait_with_timeout)(context, WAIT_TIMEOUT_MS) };
@@ -340,20 +430,25 @@ fn worker_loop(shared: Arc<Shared>) {
             continue;
         }
         if device != target_device {
-            send_stroke(&api, context, device, stroke);
+            send_stroke(api, context, device, stroke);
             continue;
         }
-        process_target_stroke(&api, context, device, &shared, &mut button_states, stroke);
+        process_target_stroke(api, context, device, shared, &mut button_states, stroke);
     }
 
     if target_device != 0 {
-        release_all_held_outputs(&api, context, target_device, &mut button_states);
-        set_device_filter(&api, context, target_device, FILTER_KEY_NONE);
+        release_all_held_outputs(api, context, target_device, &mut button_states);
     }
-    unsafe { (api.destroy_context)(context) };
 }
 
-fn probe_devices(api: &InterceptionApi, context: Context, old_target: i32, shared: &Shared) -> i32 {
+fn probe_devices(
+    api: &InterceptionApi,
+    context: Context,
+    old_target: i32,
+    last_target_seen_at: Option<Instant>,
+    now: Instant,
+    shared: &Shared,
+) -> i32 {
     let mut found = 0;
     let mut found_id = None;
     for device in 1..=MAX_KEYBOARD {
@@ -379,15 +474,92 @@ fn probe_devices(api: &InterceptionApi, context: Context, old_target: i32, share
     }
     let mut status = shared.status.lock().unwrap();
     status.backend_ready = true;
-    status.device_connected = found != 0;
-    status.hardware_id = found_id;
+    status.device_connected = device_connection_visible(found != 0, last_target_seen_at, now);
+    if found_id.is_some() || !status.device_connected {
+        status.hardware_id = found_id;
+    }
     status.error = None;
     found
+}
+
+fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: Instant) -> bool {
+    found
+        || last_seen_at.is_some_and(|last_seen| {
+            now.saturating_duration_since(last_seen) < DEVICE_DISCONNECT_GRACE
+        })
+}
+
+fn update_device_status(
+    shared: &Shared,
+    hardware_id: Option<String>,
+    last_target_seen_at: &mut Option<Instant>,
+    now: Instant,
+) {
+    let found = hardware_id.is_some();
+    if found {
+        *last_target_seen_at = Some(now);
+    }
+    let connected = device_connection_visible(found, *last_target_seen_at, now);
+    let mut status = shared.status.lock().unwrap();
+    status.backend_ready = true;
+    status.device_connected = connected;
+    if found || !connected {
+        status.hardware_id = hardware_id;
+    }
+    status.error = None;
+}
+
+#[cfg(target_os = "windows")]
+fn rc003_keyboard_device_id() -> Option<String> {
+    for _ in 0..3 {
+        let mut length = 0;
+        if unsafe {
+            cm_get_device_id_list_size(&mut length, std::ptr::null(), CM_GETIDLIST_FILTER_PRESENT)
+        } != CR_SUCCESS
+            || !(2..=1_000_000).contains(&length)
+        {
+            return None;
+        }
+
+        let mut buffer = vec![0u16; length as usize];
+        if unsafe {
+            cm_get_device_id_list(
+                std::ptr::null(),
+                buffer.as_mut_ptr(),
+                length,
+                CM_GETIDLIST_FILTER_PRESENT,
+            )
+        } == CR_SUCCESS
+        {
+            return rc003_keyboard_id_from_multisz(&buffer);
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn rc003_keyboard_device_id() -> Option<String> {
+    None
+}
+
+fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
+    buffer
+        .split(|value| *value == 0)
+        .take_while(|value| !value.is_empty())
+        .map(String::from_utf16_lossy)
+        .find(|value| {
+            value.to_ascii_uppercase().starts_with("HID\\") && is_target_hardware_id(value)
+        })
 }
 
 fn set_device_filter(api: &InterceptionApi, context: Context, device: i32, filter: u16) {
     FILTER_TARGET.store(device, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, selected_device, filter) };
+}
+
+fn clear_keyboard_filters(api: &InterceptionApi, context: Context) {
+    FILTER_TARGET.store(0, Ordering::Relaxed);
+    unsafe { (api.set_filter)(context, keyboard_device, FILTER_KEY_NONE) };
 }
 
 fn hardware_ids(api: &InterceptionApi, context: Context, device: i32) -> String {
@@ -424,6 +596,8 @@ fn process_target_stroke(
         send_stroke(api, context, device, stroke);
         return;
     };
+    let key_up = stroke.state & KEY_UP != 0;
+    emit_remote_key_event(shared, source.id, !key_up);
     let settings = shared
         .settings
         .read()
@@ -446,7 +620,6 @@ fn process_target_stroke(
     }
 
     let state = states.entry(source.id).or_default();
-    let key_up = stroke.state & KEY_UP != 0;
     if !key_up {
         if let Some(press) = state.pressed.as_mut() {
             if let Some(repeat) = press.held_outputs.last().copied() {
@@ -510,6 +683,24 @@ fn process_target_stroke(
         }
     } else {
         execute_click_or_original(api, context, device, &triggers.click, press.original);
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteKeyEvent {
+    button: &'static str,
+    pressed: bool,
+}
+
+fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
+    let app = shared
+        .event_app
+        .read()
+        .ok()
+        .and_then(|event_app| event_app.clone());
+    if let Some(app) = app {
+        let _ = app.emit("axonkey-remote-key", RemoteKeyEvent { button, pressed });
     }
 }
 
@@ -940,6 +1131,20 @@ unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) 
     0
 }
 
+#[cfg(target_os = "windows")]
+#[link(name = "cfgmgr32")]
+extern "system" {
+    #[link_name = "CM_Get_Device_ID_List_SizeW"]
+    fn cm_get_device_id_list_size(length: *mut u32, filter: *const u16, flags: u32) -> u32;
+    #[link_name = "CM_Get_Device_ID_ListW"]
+    fn cm_get_device_id_list(
+        filter: *const u16,
+        buffer: *mut u16,
+        buffer_length: u32,
+        flags: u32,
+    ) -> u32;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -951,6 +1156,39 @@ mod tests {
             "HID\\{GUID}_DEV_VID&012717_PID&32B8_REV&00A4"
         ));
         assert!(!is_target_hardware_id("USB\\VID_2717&PID_D002"));
+    }
+
+    #[test]
+    fn keeps_short_ble_hid_disconnects_out_of_the_visible_status() {
+        let now = Instant::now();
+        assert!(device_connection_visible(true, None, now));
+        assert!(device_connection_visible(
+            false,
+            now.checked_sub(Duration::from_secs(7)),
+            now
+        ));
+        assert!(!device_connection_visible(
+            false,
+            now.checked_sub(Duration::from_secs(8)),
+            now
+        ));
+    }
+
+    #[test]
+    fn selects_only_the_rc003_keyboard_from_present_device_ids() {
+        let ids = [
+            "BTHLEDEVICE\\SERVICE_DEV_VID&012717_PID&32B8",
+            "HID\\OTHER_DEV_VID&012717_PID&0001",
+            "HID\\RC003_DEV_VID&012717_PID&32B8",
+        ]
+        .join("\0")
+            + "\0\0";
+        let buffer = ids.encode_utf16().collect::<Vec<_>>();
+
+        assert_eq!(
+            rc003_keyboard_id_from_multisz(&buffer).as_deref(),
+            Some("HID\\RC003_DEV_VID&012717_PID&32B8")
+        );
     }
 
     #[test]

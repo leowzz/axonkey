@@ -159,9 +159,10 @@ git tag -a v0.2.6 -m "Axonkey 0.2.6"
 git push origin v0.2.6
 ```
 
-构建完成后，可以从对应的 GitHub Actions 运行中下载带版本号的 Windows NSIS 安装程序、macOS Universal DMG 及各自的 SHA-256 校验文件。
-如果 Tag 指向的提交不属于 `main` 历史，工作流会拒绝构建。目标分支可通过工作流中的
-`RELEASE_BRANCH` 修改。
+构建完成后，工作流会创建对应的 GitHub Release，并上传带版本号的 Windows NSIS 安装程序及其
+SHA-256 校验文件。Windows 安装程序和 macOS Universal DMG 及各自校验文件也会作为 GitHub
+Actions Artifact 保留。如果 Tag 指向的提交不属于 `main` 历史，工作流会拒绝构建。目标分支可
+通过工作流中的 `RELEASE_BRANCH` 修改。
 
 ## 工作原理
 

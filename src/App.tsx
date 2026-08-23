@@ -62,6 +62,7 @@ import {
 } from './setupModel'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import appPackage from '../package.json'
 import {
   KeyboardEvent,
@@ -110,8 +111,27 @@ const detectBrowserPlatform = (): Platform => {
   return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? 'macos' : 'windows'
 }
 
+type RemoteKeyEvent = {
+  button: ButtonId
+  pressed: boolean
+}
+
 type DriverActionResult = {
   logPath: string
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: number | undefined
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(message)), timeoutMs)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer)
+  }
 }
 
 const buttons: RemoteButton[] = [
@@ -420,6 +440,7 @@ function App() {
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
+  const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
@@ -428,8 +449,10 @@ function App() {
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
+  const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
+  const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const [connectors, setConnectors] = useState<Connector[]>([])
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
@@ -540,6 +563,44 @@ function App() {
       active = false
       window.clearTimeout(initialTimer)
       window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let mounted = true
+    let unlisten: (() => void) | undefined
+    const clearPressed = () => {
+      if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
+      pressedClearTimerRef.current = undefined
+      setPressedId(null)
+    }
+    const handleRemoteKey = (event: { payload: RemoteKeyEvent }) => {
+      if (!document.hasFocus() || !buttons.some((button) => button.id === event.payload.button)) return
+      if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
+      pressedClearTimerRef.current = undefined
+      if (event.payload.pressed) {
+        setPressedId(event.payload.button)
+        return
+      }
+      // Keep a quick tap visible long enough for the eye to catch it.
+      pressedClearTimerRef.current = window.setTimeout(() => {
+        pressedClearTimerRef.current = undefined
+        setPressedId((current) => current === event.payload.button ? null : current)
+      }, 180)
+    }
+    void listen<RemoteKeyEvent>('axonkey-remote-key', handleRemoteKey).then((cleanup) => {
+      if (mounted) unlisten = cleanup
+      else cleanup()
+    })
+    window.addEventListener('blur', clearPressed)
+    document.addEventListener('visibilitychange', clearPressed)
+    return () => {
+      mounted = false
+      unlisten?.()
+      window.removeEventListener('blur', clearPressed)
+      document.removeEventListener('visibilitychange', clearPressed)
+      clearPressed()
     }
   }, [])
 
@@ -817,12 +878,15 @@ function App() {
     }
   }
 
-  const probeSystemState = async () => {
-    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
-    updateSetup((current) => {
-      const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
-      return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
-    })
+  const probeSystemState = async (showChecking = true) => {
+    if (systemProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
+    systemProbeRunningRef.current = true
+    if (showChecking) {
+      updateSetup((current) => {
+        const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
+      })
+    }
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
@@ -832,6 +896,32 @@ function App() {
         captureActive: probe.capture_active,
       })
       updateSetup((current) => {
+        const connectedDevice = {
+          status: 'connected' as const,
+          name: '小米遥控器 RC003',
+          hardwareId: probe.device_hardware_id ?? undefined,
+          message: probe.platform === 'macos'
+            ? probe.capture_active
+              ? 'IOKit 已识别 RC003，原始按键已被拦截。'
+              : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
+            : probe.device_hardware_id
+              ? 'Interception 输入服务已识别并接管 RC003。'
+              : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
+        }
+        const disconnectedDevice = {
+          status: 'disconnected' as const,
+          name: undefined,
+          hardwareId: undefined,
+          message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。',
+        }
+        const device = probe.rc003_connected ? connectedDevice : disconnectedDevice
+        if (!showChecking) {
+          const unchanged = current.device.status === device.status
+            && current.device.name === device.name
+            && current.device.hardwareId === device.hardwareId
+            && current.device.message === device.message
+          return unchanged ? current : setDeviceConnection(current, device)
+        }
         const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
         const inputStatus = probe.platform === 'macos'
           ? !macPermissionsReady
@@ -856,28 +946,19 @@ function App() {
                 ? 'Interception 按键服务工作正常。'
                 : '已检测到 Interception 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
-        return setDeviceConnection(next, probe.rc003_connected
-          ? {
-            status: 'connected',
-            name: '小米遥控器 RC003',
-            hardwareId: probe.device_hardware_id ?? undefined,
-            message: probe.platform === 'macos'
-              ? probe.capture_active
-                ? 'IOKit 已识别 RC003，原始按键已被拦截。'
-                : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
-              : probe.device_hardware_id
-                ? 'Interception 输入服务已识别并接管 RC003。'
-                : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
-          }
-          : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' })
+        return setDeviceConnection(next, device)
       })
       return true
     } catch (error) {
-      updateSetup((current) => {
-        const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
-        return setDeviceConnection(next, { status: 'error', message: String(error) })
-      })
+      if (showChecking) {
+        updateSetup((current) => {
+          const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
+          return setDeviceConnection(next, { status: 'error', message: String(error) })
+        })
+      }
       return false
+    } finally {
+      systemProbeRunningRef.current = false
     }
   }
 
@@ -887,13 +968,18 @@ function App() {
     audioProbeRunningRef.current = true
     updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在检查 VB-CABLE 虚拟麦克风…' }))
     try {
-      const available = await invoke<boolean>('probe_audio_available')
+      const available = await withTimeout(
+        invoke<boolean>('probe_audio_available'),
+        5_000,
+        '检测超时，请点击“重新检测”再试',
+      )
       updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
         message: available ? '已检测到 VB-Audio Virtual Cable（CABLE Output）。' : '未检测到 VB-CABLE 虚拟麦克风驱动。',
       }))
     } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
-        message: `音频检测失败，不影响按键映射：${String(error)}`,
+        message: `音频检测失败：${detail}。可点击“重新检测”，不影响按键映射。`,
       }))
     } finally {
       audioProbeRunningRef.current = false
@@ -957,6 +1043,16 @@ function App() {
       document.removeEventListener('visibilitychange', refreshVisiblePermissions)
     }
   }, [setupOpen, platform])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    const initialTimer = window.setTimeout(() => void probeSystemState(false), 1_200)
+    const interval = window.setInterval(() => void probeSystemState(false), 3_000)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'inputDriver' && platform === 'windows') void probeAudioState()
@@ -1060,6 +1156,7 @@ function App() {
             buttons={editableButtons.filter((button) => button.side === 'left')}
             behaviors={behaviors}
             activeId={activeId}
+            pressedId={pressedId}
             selectedBehavior={selectedBehavior}
             rowRefs={rowRefs}
             selectBehaviorTarget={selectBehaviorTarget}
@@ -1076,7 +1173,7 @@ function App() {
                     ref={(node) => { if (node) markerRefs.current[button.id] = node }}
                     type="button"
                     aria-label={button.label}
-                    className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
+                    className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
                     style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
                     onClick={() => selectBehaviorTarget(button.id, 'click')}
                     onPointerDown={(event) => handleHotspotPointerDown(button, event)}
@@ -1096,6 +1193,7 @@ function App() {
             buttons={editableButtons.filter((button) => button.side === 'right')}
             behaviors={behaviors}
             activeId={activeId}
+            pressedId={pressedId}
             selectedBehavior={selectedBehavior}
             rowRefs={rowRefs}
             selectBehaviorTarget={selectBehaviorTarget}
@@ -1104,10 +1202,11 @@ function App() {
           <svg className="connector-layer" aria-hidden="true">
             {connectors.map((line) => {
               const selected = line.id === activeId
+              const pressed = line.id === pressedId
               const elbow = line.side === 'left'
                 ? Math.min(line.x1 - 34, line.x2 + 32)
                 : Math.max(line.x1 + 34, line.x2 - 32)
-              return <g key={line.id} className={selected ? 'connector selected' : 'connector'}>
+              return <g key={line.id} className={`connector ${selected ? 'selected' : ''} ${pressed ? 'pressed' : ''}`}>
                 <path d={`M ${line.x1} ${line.y1} C ${elbow} ${line.y1}, ${elbow} ${line.y2}, ${line.x2} ${line.y2}`} />
                 <circle cx={line.x1} cy={line.y1} r={selected ? 4 : 2.5} />
                 <circle cx={line.x2} cy={line.y2} r={selected ? 3.5 : 2} />
@@ -1190,6 +1289,7 @@ function App() {
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
         onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
         onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装，重启 Windows 后驱动生效。' }))}
+        onProbeAudio={() => void probeAudioState()}
         onOpenSystemSettings={(page) => void openSystemSettings(page)}
         onRequestMacPermission={(kind) => void requestMacPermission(kind)}
         onOpenExternalPage={(page) => void openExternalPage(page)}
@@ -1207,12 +1307,13 @@ type MappingSideProps = {
   buttons: RemoteButton[]
   behaviors: BehaviorMap
   activeId: ButtonId
+  pressedId: ButtonId | null
   selectedBehavior: { buttonId: ButtonId; trigger: TriggerType }
   rowRefs: { current: Partial<Record<ButtonId, HTMLDivElement>> }
   selectBehaviorTarget: (buttonId: ButtonId, trigger: TriggerType) => void
 }
 
-function MappingSide({ platform, side, buttons: sideButtons, behaviors, activeId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
+function MappingSide({ platform, side, buttons: sideButtons, behaviors, activeId, pressedId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
   return <section className={`mapping-side panel-surface ${side}`}>
     <div className="mapping-list">
       {sideButtons.map((button) => (
@@ -1222,6 +1323,7 @@ function MappingSide({ platform, side, buttons: sideButtons, behaviors, activeId
           button={button}
           behaviors={behaviors[button.id]}
           active={activeId === button.id}
+          pressed={pressedId === button.id}
           selectedTrigger={selectedBehavior.buttonId === button.id ? selectedBehavior.trigger : null}
           rowRef={(node) => { if (node) rowRefs.current[button.id] = node }}
           onSelect={() => selectBehaviorTarget(button.id, 'click')}
@@ -1237,16 +1339,17 @@ type MappingRowProps = {
   button: RemoteButton
   behaviors: Record<TriggerType, Behavior[]>
   active: boolean
+  pressed: boolean
   selectedTrigger: TriggerType | null
   rowRef: (node: HTMLDivElement | null) => void
   onSelect: () => void
   onSelectTrigger: (trigger: TriggerType) => void
 }
 
-function MappingRow({ platform, button, behaviors, active, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
+function MappingRow({ platform, button, behaviors, active, pressed, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
   const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
   const hasBehavior = triggerOrder.some((trigger) => behaviors[trigger].length > 0)
-  return <article ref={rowRef} className={`mapping-card ${active ? 'active' : ''}`} onClick={onSelect}>
+  return <article ref={rowRef} className={`mapping-card ${active ? 'active' : ''} ${pressed ? 'pressed' : ''}`} onClick={onSelect}>
     <div className="mapping-card-title"><span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span><strong>{button.label}</strong><span className="card-status">{hasBehavior ? '已设置' : '默认'}</span></div>
     <div className="action-slots">
       {triggerOrder.map((trigger) => {
@@ -1584,6 +1687,7 @@ type SetupDialogProps = {
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkDriverInstalled: (driver: DriverKind) => void
+  onProbeAudio: () => void
   onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => void
   onRequestMacPermission: (kind: 'inputMonitoring' | 'accessibility') => void
   onOpenExternalPage: (page: 'vbcable') => void
@@ -1604,7 +1708,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
   inputDriver: '系统权限',
 }
 
-function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onProbeAudio, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   return <div className="setup-backdrop" role="presentation">
@@ -1659,6 +1763,7 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
             onAction={onDriverAction}
             onSkipAction={onSkipDriverAction}
             onMarkInstalled={onMarkDriverInstalled}
+            onProbeAudio={onProbeAudio}
             onContinue={onCompleteStep}
             onSkip={onSkipStep}
             onOpenSettings={() => onOpenSystemSettings('sound')}
@@ -1749,6 +1854,7 @@ type DriversSetupScreenProps = {
   onAction: (driver: DriverKind, action: DriverActionKind) => void
   onSkipAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkInstalled: (driver: DriverKind) => void
+  onProbeAudio: () => void
   onContinue: () => void
   onSkip: () => void
   onOpenSettings: () => void
@@ -1765,12 +1871,12 @@ function isDriverInstalled(state: SetupState, kind: DriverKind) {
   return status === 'installed' || status === 'restartRequired'
 }
 
-type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onMarkInstalled' | 'onOpenSettings' | 'onOpenVendorPage'> & {
+type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onMarkInstalled' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
   kind: DriverKind
   disabled: boolean
 }
 
-function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
+function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
   const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
@@ -1789,13 +1895,14 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onOpenSetting
       {!installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装驱动'}</button>}
       {installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '卸载 VB-CABLE' : '卸载驱动'}</button>}
       {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
+      {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenSettings}><Settings2 size={14} /> 声音设置</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenVendorPage}><ExternalLink size={14} /> VB-Audio 官网</button>}
     </div>
   </section>
 }
 
-function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, onContinue, onSkip, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, onProbeAudio, onContinue, onSkip, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
   const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
   const allInstalled = (['input', 'audio'] as const).every((kind) => isDriverInstalled(state, kind))
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
@@ -1811,8 +1918,8 @@ function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, on
     <h2 id="setup-title">一次完成两个驱动</h2>
     <p className="setup-lead">依次完成按键驱动和 CABLE 虚拟麦克风安装。两个安装器都结束后再重启 Windows，避免重复重启。</p>
     <div className="driver-setup-list">
-      <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
-      <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
     <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>两个驱动安装完成后统一重启一次</strong><span>重启前可以先完成剩余引导；驱动将在下一次进入 Windows 后生效。</span></div></div>
     <div className="setup-actions"><button type="button" className="setup-text-button" disabled={anyRunning} onClick={skipDrivers}>稍后安装</button><button type="button" className="button primary setup-primary" disabled={anyRunning} onClick={onContinue}>{allInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
