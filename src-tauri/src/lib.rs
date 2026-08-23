@@ -456,6 +456,13 @@ pub fn run() {
             }
         }))
         .manage(InputService::start())
+        .setup(|app| {
+            use tauri::Manager;
+
+            app.state::<InputService>()
+                .set_event_app(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ping,
             launch_driver_action,

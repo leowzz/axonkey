@@ -61,6 +61,7 @@ import {
 } from './setupModel'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import appPackage from '../package.json'
 import {
   KeyboardEvent,
@@ -89,6 +90,11 @@ type SystemProbe = {
   input_backend_ready: boolean
   input_backend_error?: string | null
   device_hardware_id?: string | null
+}
+
+type RemoteKeyEvent = {
+  button: ButtonId
+  pressed: boolean
 }
 
 type DriverActionResult = {
@@ -368,6 +374,7 @@ function App() {
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
+  const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
@@ -379,6 +386,7 @@ function App() {
   const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
+  const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const [connectors, setConnectors] = useState<Connector[]>([])
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
@@ -480,6 +488,44 @@ function App() {
       active = false
       window.clearTimeout(initialTimer)
       window.clearInterval(interval)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let mounted = true
+    let unlisten: (() => void) | undefined
+    const clearPressed = () => {
+      if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
+      pressedClearTimerRef.current = undefined
+      setPressedId(null)
+    }
+    const handleRemoteKey = (event: { payload: RemoteKeyEvent }) => {
+      if (!document.hasFocus() || !buttons.some((button) => button.id === event.payload.button)) return
+      if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
+      pressedClearTimerRef.current = undefined
+      if (event.payload.pressed) {
+        setPressedId(event.payload.button)
+        return
+      }
+      // Keep a quick tap visible long enough for the eye to catch it.
+      pressedClearTimerRef.current = window.setTimeout(() => {
+        pressedClearTimerRef.current = undefined
+        setPressedId((current) => current === event.payload.button ? null : current)
+      }, 180)
+    }
+    void listen<RemoteKeyEvent>('axonkey-remote-key', handleRemoteKey).then((cleanup) => {
+      if (mounted) unlisten = cleanup
+      else cleanup()
+    })
+    window.addEventListener('blur', clearPressed)
+    document.addEventListener('visibilitychange', clearPressed)
+    return () => {
+      mounted = false
+      unlisten?.()
+      window.removeEventListener('blur', clearPressed)
+      document.removeEventListener('visibilitychange', clearPressed)
+      clearPressed()
     }
   }, [])
 
@@ -961,6 +1007,7 @@ function App() {
             buttons={buttons.filter((button) => button.side === 'left')}
             behaviors={behaviors}
             activeId={activeId}
+            pressedId={pressedId}
             selectedBehavior={selectedBehavior}
             rowRefs={rowRefs}
             selectBehaviorTarget={selectBehaviorTarget}
@@ -977,7 +1024,7 @@ function App() {
                     ref={(node) => { if (node) markerRefs.current[button.id] = node }}
                     type="button"
                     aria-label={button.label}
-                    className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
+                    className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
                     style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
                     onClick={() => selectBehaviorTarget(button.id, 'click')}
                     onPointerDown={(event) => handleHotspotPointerDown(button, event)}
@@ -996,6 +1043,7 @@ function App() {
             buttons={buttons.filter((button) => button.side === 'right')}
             behaviors={behaviors}
             activeId={activeId}
+            pressedId={pressedId}
             selectedBehavior={selectedBehavior}
             rowRefs={rowRefs}
             selectBehaviorTarget={selectBehaviorTarget}
@@ -1004,10 +1052,11 @@ function App() {
           <svg className="connector-layer" aria-hidden="true">
             {connectors.map((line) => {
               const selected = line.id === activeId
+              const pressed = line.id === pressedId
               const elbow = line.side === 'left'
                 ? Math.min(line.x1 - 34, line.x2 + 32)
                 : Math.max(line.x1 + 34, line.x2 - 32)
-              return <g key={line.id} className={selected ? 'connector selected' : 'connector'}>
+              return <g key={line.id} className={`connector ${selected ? 'selected' : ''} ${pressed ? 'pressed' : ''}`}>
                 <path d={`M ${line.x1} ${line.y1} C ${elbow} ${line.y1}, ${elbow} ${line.y2}, ${line.x2} ${line.y2}`} />
                 <circle cx={line.x1} cy={line.y1} r={selected ? 4 : 2.5} />
                 <circle cx={line.x2} cy={line.y2} r={selected ? 3.5 : 2} />
@@ -1101,12 +1150,13 @@ type MappingSideProps = {
   buttons: RemoteButton[]
   behaviors: BehaviorMap
   activeId: ButtonId
+  pressedId: ButtonId | null
   selectedBehavior: { buttonId: ButtonId; trigger: TriggerType }
   rowRefs: { current: Partial<Record<ButtonId, HTMLDivElement>> }
   selectBehaviorTarget: (buttonId: ButtonId, trigger: TriggerType) => void
 }
 
-function MappingSide({ side, buttons: sideButtons, behaviors, activeId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
+function MappingSide({ side, buttons: sideButtons, behaviors, activeId, pressedId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
   return <section className={`mapping-side panel-surface ${side}`}>
     <div className="mapping-list">
       {sideButtons.map((button) => (
@@ -1115,6 +1165,7 @@ function MappingSide({ side, buttons: sideButtons, behaviors, activeId, selected
           button={button}
           behaviors={behaviors[button.id]}
           active={activeId === button.id}
+          pressed={pressedId === button.id}
           selectedTrigger={selectedBehavior.buttonId === button.id ? selectedBehavior.trigger : null}
           rowRef={(node) => { if (node) rowRefs.current[button.id] = node }}
           onSelect={() => selectBehaviorTarget(button.id, 'click')}
@@ -1129,16 +1180,17 @@ type MappingRowProps = {
   button: RemoteButton
   behaviors: Record<TriggerType, Behavior[]>
   active: boolean
+  pressed: boolean
   selectedTrigger: TriggerType | null
   rowRef: (node: HTMLDivElement | null) => void
   onSelect: () => void
   onSelectTrigger: (trigger: TriggerType) => void
 }
 
-function MappingRow({ button, behaviors, active, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
+function MappingRow({ button, behaviors, active, pressed, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
   const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
   const hasBehavior = triggerOrder.some((trigger) => behaviors[trigger].length > 0)
-  return <article ref={rowRef} className={`mapping-card ${active ? 'active' : ''}`} onClick={onSelect}>
+  return <article ref={rowRef} className={`mapping-card ${active ? 'active' : ''} ${pressed ? 'pressed' : ''}`} onClick={onSelect}>
     <div className="mapping-card-title"><span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span><strong>{button.label}</strong><span className="card-status">{hasBehavior ? '已设置' : '默认'}</span></div>
     <div className="action-slots">
       {triggerOrder.map((trigger) => {

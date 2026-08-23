@@ -10,6 +10,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+use tauri::Emitter;
 
 const MAX_KEYBOARD: i32 = 10;
 const FILTER_KEY_NONE: u16 = 0x0000;
@@ -210,6 +211,7 @@ impl NativeBehavior {
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
+    event_app: RwLock<Option<tauri::AppHandle>>,
     stop: AtomicBool,
 }
 
@@ -223,6 +225,7 @@ impl InputService {
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
             status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
@@ -247,6 +250,12 @@ impl InputService {
             .write()
             .map_err(|_| "Input settings lock is unavailable")? = settings;
         Ok(())
+    }
+
+    pub fn set_event_app(&self, app: tauri::AppHandle) {
+        if let Ok(mut event_app) = self.shared.event_app.write() {
+            *event_app = Some(app);
+        }
     }
 
     pub fn status(&self) -> InputServiceStatus {
@@ -527,6 +536,8 @@ fn process_target_stroke(
         send_stroke(api, context, device, stroke);
         return;
     };
+    let key_up = stroke.state & KEY_UP != 0;
+    emit_remote_key_event(shared, source.id, !key_up);
     let settings = shared
         .settings
         .read()
@@ -549,7 +560,6 @@ fn process_target_stroke(
     }
 
     let state = states.entry(source.id).or_default();
-    let key_up = stroke.state & KEY_UP != 0;
     if !key_up {
         if let Some(press) = state.pressed.as_mut() {
             if let Some(repeat) = press.held_outputs.last().copied() {
@@ -613,6 +623,24 @@ fn process_target_stroke(
         }
     } else {
         execute_click_or_original(api, context, device, &triggers.click, press.original);
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteKeyEvent {
+    button: &'static str,
+    pressed: bool,
+}
+
+fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
+    let app = shared
+        .event_app
+        .read()
+        .ok()
+        .and_then(|event_app| event_app.clone());
+    if let Some(app) = app {
+        let _ = app.emit("axonkey-remote-key", RemoteKeyEvent { button, pressed });
     }
 }
 
