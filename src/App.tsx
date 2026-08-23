@@ -1,5 +1,4 @@
 import {
-  BarChart3,
   BatteryMedium,
   Check,
   CheckCircle2,
@@ -10,16 +9,12 @@ import {
   Command,
   Copy,
   Home,
-  Info,
   Keyboard,
-  Link2,
   Menu,
   Mic,
   Minus,
   Power,
   RotateCcw,
-  Save,
-  Shield,
   Square,
   Target,
   Tv,
@@ -73,6 +68,29 @@ const defaultMappings: Record<ButtonId, string> = {
   home: 'original',
   menu: 'original',
   tv: 'original',
+}
+
+const settingsStorageKey = 'axonkey.settings.v1'
+
+type StoredSettings = {
+  mappings: Record<ButtonId, string>
+  enabled: boolean
+}
+
+function getStoredSettings(): StoredSettings {
+  const fallback = { mappings: defaultMappings, enabled: false }
+  if (typeof window === 'undefined') return fallback
+  try {
+    const stored = window.localStorage.getItem(settingsStorageKey)
+    if (!stored) return fallback
+    const parsed = JSON.parse(stored) as Partial<StoredSettings>
+    return {
+      mappings: { ...defaultMappings, ...(parsed.mappings ?? {}) },
+      enabled: parsed.enabled === true,
+    }
+  } catch {
+    return fallback
+  }
 }
 
 const actionOptions = [
@@ -164,25 +182,26 @@ function getStoredHitPositions() {
 
 function App() {
   const [activeId, setActiveId] = useState<ButtonId>('voice')
-  const [mappings, setMappings] = useState(defaultMappings)
+  const [mappings, setMappings] = useState<Record<ButtonId, string>>(() => getStoredSettings().mappings)
   const [capturing, setCapturing] = useState<ButtonId | null>(null)
-  const [enabled, setEnabled] = useState(false)
+  const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [debugMode, setDebugMode] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
   const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
   const [coordinateSnippet, setCoordinateSnippet] = useState('')
-  const [saved, setSaved] = useState(true)
+  const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving'>('saved')
   const [toast, setToast] = useState('')
   const workspaceRef = useRef<HTMLDivElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
   const rowRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
+  const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const [connectors, setConnectors] = useState<Connector[]>([])
 
   const updateMapping = useCallback((id: ButtonId, value: string) => {
     setMappings((current) => ({ ...current, [id]: value }))
-    setSaved(false)
+    setAutoSaveState('saving')
   }, [])
 
   const measureConnectors = useCallback(() => {
@@ -228,6 +247,11 @@ function App() {
   }, [hitPositions])
 
   useEffect(() => {
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ mappings, enabled }))
+    setAutoSaveState('saved')
+  }, [mappings, enabled])
+
+  useEffect(() => {
     if (!coordinateSnippet || !coordinateTextRef.current) return
     coordinateTextRef.current.focus()
     coordinateTextRef.current.select()
@@ -245,17 +269,32 @@ function App() {
     return () => window.removeEventListener('keydown', handleOutsideKey)
   }, [capturing])
 
-  const saveMappings = () => {
-    setSaved(true)
-    setToast('映射已保存')
+  const resetMappings = () => {
+    setMappings(defaultMappings)
+    setAutoSaveState('saving')
+    setToast('已恢复默认映射，将自动保存')
     window.setTimeout(() => setToast(''), 2200)
   }
 
-  const resetMappings = () => {
-    setMappings(defaultMappings)
-    setSaved(false)
-    setToast('已恢复默认映射，请点击保存')
-    window.setTimeout(() => setToast(''), 2200)
+  const toggleEnabled = () => {
+    setEnabled((value) => !value)
+    setAutoSaveState('saving')
+  }
+
+  const handleBrandClick = () => {
+    const now = Date.now()
+    const clickState = brandClickRef.current
+    if (now - clickState.lastAt > 1200) clickState.count = 0
+    clickState.count += 1
+    clickState.lastAt = now
+    if (clickState.count < 5) return
+    clickState.count = 0
+    setDebugMode((current) => {
+      const next = !current
+      setToast(next ? '调试模式已开启' : '调试模式已关闭')
+      window.setTimeout(() => setToast(''), 2200)
+      return next
+    })
   }
 
   const connectedCount = Object.values(mappings).filter((value) => value !== 'original').length
@@ -319,26 +358,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand-lockup compact">
-          <div className="brand-mark">A</div>
-          <div>
-            <div className="brand-name">axonkey</div>
-            <div className="brand-version">RC003 控制台 <span>0.1</span></div>
-          </div>
-        </div>
-
-        <nav className="side-nav" aria-label="主导航">
-          <button className="side-nav-item" type="button"><Link2 size={24} /><span>连接</span></button>
-          <button className="side-nav-item selected" type="button"><Keyboard size={24} /><span>按键</span></button>
-          <button className="side-nav-item" type="button"><BarChart3 size={24} /><span>统计</span></button>
-          <button className="side-nav-item" type="button"><Shield size={24} /><span>权限</span></button>
-          <button className="side-nav-item" type="button"><Info size={24} /><span>关于</span></button>
-        </nav>
-
-        <div className="sidebar-bottom"><span className="sidebar-build">AXONKEY / LOCAL</span></div>
-      </aside>
-
       <main className="main-content">
         <header className="topbar">
           <div className="native-controls" aria-label="窗口控制">
@@ -346,16 +365,25 @@ function App() {
             <button type="button" aria-label="最大化" title="最大化" onClick={() => void windowCommand('toggleMaximize')}><Square size={13} /></button>
             <button className="close-control" type="button" aria-label="退出" title="退出" onClick={() => void windowCommand('close')}><CloseIcon size={15} /></button>
           </div>
-          <div className="title-row"><h1>按键映射</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
+          <div className="topbar-left">
+            <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={handleBrandClick}>
+              <span className="brand-mark">A</span>
+              <span>
+                <span className="brand-name">axonkey</span>
+                <span className="brand-version">RC003 控制台 <span>0.1</span></span>
+              </span>
+            </button>
+            <div className="title-row"><h1>按键映射</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
+          </div>
           <div className="header-actions">
-            <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={() => setEnabled((value) => !value)}><span /></button></label>
+            <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={toggleEnabled}><span /></button></label>
             <div className="device-card"><div className="device-card-head"><strong>小米遥控器</strong><CheckCircle2 size={19} /></div><div className="device-card-meta"><span className="device-state-dot" /> <span>{enabled ? '已连接' : '未连接'}</span><BatteryMedium size={17} /><span className="device-meta-separator" /><span>电源正常</span></div></div>
           </div>
         </header>
 
         <div className="toolbar-row">
           <div className="toolbar-context"><span className="toolbar-context-mark" /> 选择按键，设置不同的触发行为</div>
-          <div className="toolbar-meta"><span>{connectedCount} 个自定义动作</span><span className="toolbar-divider" /><button className={`debug-toggle ${debugMode ? 'on' : ''}`} type="button" aria-pressed={debugMode} onClick={() => setDebugMode((value) => !value)}><Target size={13} /> 调试模式 <span className="mini-switch"><span /></span></button>{debugMode && <><span className="debug-hint">拖动图上的点调整连线起点</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><button className="button primary compact-save" type="button" onClick={saveMappings}><Save size={14} /> 保存</button></div>
+          <div className="toolbar-meta"><span>{connectedCount} 个自定义动作</span><span className="toolbar-divider" /><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已自动保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><span className="debug-hint">拖动图上的点调整连线起点</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
         </div>
 
         <div className={`workspace ${debugMode ? 'debug-mode' : ''}`} ref={workspaceRef}>
