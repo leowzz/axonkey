@@ -16,6 +16,7 @@ import {
   Download,
   GripVertical,
   Home,
+  Info,
   Keyboard,
   Menu,
   Mic,
@@ -960,6 +961,10 @@ function App() {
               </g>
             })}
           </svg>
+        </div>
+        <div className="mapping-limit-note" role="note">
+          <Info size={12} aria-hidden="true" />
+          <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
         </div>
         <BehaviorEditor
           button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}

@@ -121,6 +121,8 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .connector circle { fill: #b6b9bd; r: 1.5; }
 .connector.selected path { stroke: var(--blue); stroke-width: 2.4; }
 .connector.selected circle { fill: var(--blue); r: 2.5; }
+.mapping-limit-note { display: flex; width: min(1560px, calc(100% - 60px)); align-items: center; gap: 6px; margin: 8px auto 0; color: #8b9197; font-size: 9px; line-height: 1.5; }
+.mapping-limit-note svg { flex: 0 0 auto; color: #7f8992; }
 .main-footer { display: flex; align-items: center; justify-content: space-between; width: min(1560px, calc(100% - 84px)); margin: 10px auto 0; padding-bottom: 18px; color: #999da2; font-size: 9px; }
 .footer-key { display: inline-flex; align-items: center; gap: 5px; color: #898e94; font-family: 'DM Mono', monospace; }
 .toast { position: fixed; right: 31px; bottom: 27px; z-index: 20; display: flex; align-items: center; gap: 7px; padding: 10px 14px; border: 1px solid #b8d1ed; border-radius: 7px; color: #246bbd; background: #eff6ff; box-shadow: 0 7px 22px rgba(30, 74, 120, .12); font-size: 11px; }
@@ -290,6 +292,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
   .enable-control { font-size: 12px; }
   .action-slots { gap: 5px; }
   .action-slot { padding-right: 4px; padding-left: 4px; }
+  .mapping-limit-note { width: calc(100% - 32px); }
   .behavior-editor { width: calc(100% - 32px); }
   .behavior-action-grid { gap: 6px; }
 }
