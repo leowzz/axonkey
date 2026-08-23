@@ -8,6 +8,8 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 本地按键映�
 
 项目目前专注于一个设备和一件事：让 RC003 在 Windows 上成为可靠、易配置的快捷键控制器。Axonkey 不依赖 AutoHotkey 或 AutoHotInterception，配置和诊断数据均保存在本机。
 
+> **已确认的驱动阻断问题：** Interception 1.0.1 无法可靠处理 RC003 的蓝牙 HID 断开重连。故障发生后，Windows 仍可显示设备正常，但所有按键都没有输入；退出 Axonkey 也无法恢复。当前输入架构不应视为可发布的稳定方案。完整证据、恢复步骤和替代要求见 [Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+
 ## 主要功能
 
 - 识别 RC003 的连接状态、电量和输入驱动状态。
@@ -51,15 +53,19 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 本地按键映�
 
 Axonkey 使用 x64 Interception 运行库，因此不支持 32 位 Windows。
 
+Interception 当前仅保留为已有实现依赖，不代表推荐安装。RC003 会周期性重建蓝牙 HID 键盘节点，该驱动存在已确认的热插拔故障，可能让遥控器在重连后彻底失去输入，直到卸载驱动并重启。
+
 ## 首次使用
+
+> 在替代输入驱动完成前，以下 Interception 安装步骤仅用于隔离测试环境。日常使用的 Windows 系统应跳过输入驱动安装；此时 Axonkey 的自定义按键映射不可用，但不会引入已确认的重连失效风险。
 
 1. 在 Windows 蓝牙设置中配对并唤醒 RC003。
 2. 启动 Axonkey，按照首次使用引导检查设备和驱动。
-3. 在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
+3. 仅在隔离测试环境中，在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
 4. 重新打开 Axonkey，选择遥控器按键及触发方式，然后设置目标行为。
 5. 打开“启用自定义按键功能”开关。
 
-两个驱动都只需安装一次。之后添加、删除或修改映射不需要再次重启。
+VB-CABLE 只需安装一次。Interception 安装说明仅保留用于复现和迁移验证，不应作为当前生产安装建议。之后添加、删除或修改映射不需要再次重启。
 
 从源码目录或解压后的发行目录也可以手动运行安装脚本：
 
@@ -152,7 +158,7 @@ RC003 HID 键盘
 - Axonkey 不需要账号，不上传映射、输入历史或诊断信息。
 - 映射配置保存在本机应用数据中。
 - 驱动安装和卸载日志位于 `%LOCALAPPDATA%\Axonkey\logs`。
-- 如果映射出现问题，退出 Axonkey 会释放 Interception 上下文，普通按键输入将恢复正常传递。
+- 退出 Axonkey 会释放用户态 Interception 上下文，但无法修复驱动热插拔故障。若 RC003 重连后完全没有输入，需要卸载 Interception、重启 Windows 并重新配对。
 
 ## Interception 许可
 

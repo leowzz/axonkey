@@ -1,5 +1,10 @@
 # Architecture
 
+> **Confirmed blocker:** Interception 1.0.1 can leave a reconnected Bluetooth
+> HID keyboard present but unable to produce input, even when Axonkey is not
+> running. The current input architecture is not production-safe for RC003.
+> See [Interception hot-plug incident](./INTERCEPTION_HOTPLUG_INCIDENT.md).
+
 ```text
 RC003 HID keyboard
   -> Interception keyboard class filter driver
@@ -19,9 +24,12 @@ Settings are immutable snapshots from the input thread's perspective. The UI
 saves a normalized copy and swaps the service snapshot; no process restart or
 Windows reboot is involved in a mapping edit.
 
-Interception is a required runtime and driver dependency. Installing or
+The current implementation depends on Interception, but that dependency must be
+replaced before the input path can be considered reliable. Installing or
 removing its class filter requires administrator access and a Windows reboot.
-Normal Axonkey execution uses the current user's privileges.
+Normal Axonkey execution uses the current user's privileges. User-mode context
+cleanup cannot recover an Interception device that failed during PnP
+re-enumeration.
 
 The first-run guide presents Interception and VB-CABLE on one driver setup page
 so both installers can finish before the user reboots Windows once. It can

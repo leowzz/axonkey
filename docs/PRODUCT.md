@@ -1,5 +1,9 @@
 # Axonkey Product Scope
 
+> The current Interception-based input path has a confirmed Bluetooth HID
+> reconnect blocker and does not yet satisfy this product scope. See
+> [Interception hot-plug incident](./INTERCEPTION_HOTPLUG_INCIDENT.md).
+
 ## Purpose
 
 Axonkey gives one specific physical product, the Xiaomi RC003 Bluetooth
@@ -47,6 +51,8 @@ event path is validated.
 - Invalid custom shortcuts cannot be saved.
 - Missing devices and missing drivers have different messages and remedies.
 - A mapping failure must not leave a replacement modifier held down.
+- Installing, closing, or uninstalling Axonkey must not prevent RC003's original
+  input after a Bluetooth HID reconnect.
 
 ## Non-goals for the first release
 
