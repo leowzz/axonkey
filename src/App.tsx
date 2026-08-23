@@ -20,7 +20,6 @@ import {
   Mic,
   Pencil,
   Power,
-  Plus,
   RotateCcw,
   Settings2,
   Target,
@@ -54,6 +53,7 @@ import {
 } from './setupModel'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
+import appPackage from '../package.json'
 import {
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -76,11 +76,14 @@ type RemoteButton = {
 
 type SystemProbe = {
   input_driver_installed: boolean
-  audio_available: boolean
   rc003_connected: boolean
   input_backend_ready: boolean
   input_backend_error?: string | null
   device_hardware_id?: string | null
+}
+
+type DriverActionResult = {
+  logPath: string
 }
 
 const buttons: RemoteButton[] = [
@@ -142,10 +145,37 @@ const triggerLabels: Record<TriggerType, string> = {
 }
 
 const behaviorTypeLabels: Record<BehaviorType, string> = {
-  key: '按键',
-  shortcut: '组合键',
+  key: '按键 / 组合键',
+  shortcut: '按键 / 组合键',
   paste: '粘贴文本',
-  delay: '延迟',
+  delay: '等待',
+  disabled: '禁用按键',
+}
+
+type CommonBehaviorPreset =
+  | 'original'
+  | 'disabled'
+  | 'escape'
+  | 'enter'
+  | 'space'
+  | 'volumeUp'
+  | 'volumeDown'
+  | 'volumeMute'
+  | 'mediaPlayPause'
+  | 'textAndEnter'
+  | 'customKey'
+
+type AdvancedBehaviorType = 'key' | 'paste' | 'delay'
+
+type DraftBehaviorState = {
+  behavior: Behavior
+  mode: 'replace' | 'append'
+}
+
+type CommonBehaviorUndo = {
+  buttonId: ButtonId
+  trigger: TriggerType
+  behaviors: Behavior[]
 }
 
 type ManualKeyOption = { value: string; label: string }
@@ -209,7 +239,21 @@ function behaviorSummary(behavior: Behavior) {
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
     case 'delay': return `等待 ${behavior.ms} ms`
+    case 'disabled': return '不发送任何按键'
   }
+}
+
+function textAndEnterValue(list: Behavior[]) {
+  if (list.length !== 3) return null
+  const [paste, delay, enter] = list
+  if (paste.type !== 'paste' || delay.type !== 'delay' || delay.ms !== 30 || enter.type !== 'key' || enter.key !== 'Enter') return null
+  return paste.text
+}
+
+function cloneBehaviorList(list: Behavior[]) {
+  return list.map((behavior) => behavior.type === 'shortcut'
+    ? { ...behavior, keys: [...behavior.keys] }
+    : { ...behavior })
 }
 
 function triggerSummary(list: Behavior[], trigger: TriggerType) {
@@ -228,6 +272,13 @@ function formatCapturedKey(event: KeyboardEvent<HTMLElement>) {
   if (['Ctrl', 'Shift', 'Alt', 'Win'].includes(key)) return ''
   const modifiers = [event.ctrlKey ? 'Ctrl' : '', event.shiftKey ? 'Shift' : '', event.altKey ? 'Alt' : '', event.metaKey ? 'Win' : ''].filter(Boolean)
   return [...modifiers, key].join('+')
+}
+
+function behaviorFromCapturedKey(captured: string, id?: string) {
+  const keys = captured.split('+')
+  return keys.length > 1
+    ? createBehavior({ type: 'shortcut', keys, id })
+    : createBehavior({ type: 'key', key: captured, id })
 }
 
 type Connector = { id: ButtonId; side: 'left' | 'right'; x1: number; y1: number; x2: number; y2: number }
@@ -272,7 +323,9 @@ function App() {
   const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
-  const [newBehaviorType, setNewBehaviorType] = useState<BehaviorType>('key')
+  const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
+  const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
+  const [commonBehaviorUndo, setCommonBehaviorUndo] = useState<CommonBehaviorUndo | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
@@ -283,16 +336,19 @@ function App() {
   const rowRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
+  const audioProbeRunningRef = useRef(false)
   const [connectors, setConnectors] = useState<Connector[]>([])
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
     setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
   }, [])
 
   const updateSelectedBehaviorList = useCallback((update: (list: Behavior[]) => Behavior[]) => {
     setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, update))
     setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
   }, [selectedBehavior])
 
   const measureConnectors = useCallback(() => {
@@ -404,6 +460,7 @@ function App() {
   const resetMappings = () => {
     setBehaviors(createDefaultBehaviorMap())
     setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
     setToast('已恢复默认映射，将自动保存')
     window.setTimeout(() => setToast(''), 2200)
   }
@@ -436,15 +493,91 @@ function App() {
     setSelectedBehavior({ buttonId, trigger })
     setCapturingBehaviorId(null)
     setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
   }
 
-  const addBehavior = () => {
-    const behavior = createBehavior({ type: newBehaviorType })
-    updateSelectedBehaviorList((list) => [...list, behavior])
-    setEditingBehaviorId(behavior.id)
-    setCapturingBehaviorId(null)
-    setToast(`${behaviorTypeLabels[newBehaviorType]}行为已添加`)
+  const showBehaviorToast = (message: string) => {
+    setToast(message)
     window.setTimeout(() => setToast(''), 1600)
+  }
+
+  const replaceWithCommonBehavior = (next: Behavior[]) => {
+    const target = { ...selectedBehavior }
+    const original = cloneBehaviorList(behaviors[target.buttonId][target.trigger])
+    setCommonBehaviorUndo((current) => current?.buttonId === target.buttonId && current.trigger === target.trigger
+      ? current
+      : { ...target, behaviors: original })
+    setBehaviors((current) => updateBehaviorList(current, target.buttonId, target.trigger, () => next))
+    setAutoSaveState('saving')
+  }
+
+  const undoCommonBehavior = () => {
+    if (!commonBehaviorUndo) return
+    const snapshot = commonBehaviorUndo
+    setBehaviors((current) => updateBehaviorList(current, snapshot.buttonId, snapshot.trigger, () => cloneBehaviorList(snapshot.behaviors)))
+    setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
+    showBehaviorToast('已恢复原始行为')
+  }
+
+  const replaceWithKey = (key: string, label: string) => {
+    replaceWithCommonBehavior([createBehavior({ type: 'key', key })])
+    showBehaviorToast(`已设置为${label}`)
+  }
+
+  const beginBehaviorDraft = (type: AdvancedBehaviorType, mode: DraftBehaviorState['mode']) => {
+    const behavior = type === 'key'
+      ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
+      : createBehavior(type === 'paste' ? { type, text: '' } : { type, ms: 300 })
+    setEditingBehaviorId(null)
+    setDraftBehavior({ behavior, mode })
+    setCapturingBehaviorId(type === 'key' ? behavior.id : null)
+  }
+
+  const applyCommonBehavior = (preset: CommonBehaviorPreset) => {
+    switch (preset) {
+      case 'original':
+        replaceWithCommonBehavior([])
+        showBehaviorToast(selectedBehavior.trigger === 'click' ? '已保留原按键' : '已清除此触发方式')
+        return
+      case 'disabled':
+        replaceWithCommonBehavior([createBehavior({ type: 'disabled' })])
+        showBehaviorToast('已禁用这个触发方式')
+        return
+      case 'escape': return replaceWithKey('Esc', 'Esc')
+      case 'enter': return replaceWithKey('Enter', 'Enter')
+      case 'space': return replaceWithKey('Space', 'Space')
+      case 'volumeUp': return replaceWithKey('VolumeUp', '增大音量')
+      case 'volumeDown': return replaceWithKey('VolumeDown', '减小音量')
+      case 'volumeMute': return replaceWithKey('VolumeMute', '静音')
+      case 'mediaPlayPause': return replaceWithKey('MediaPlayPause', '播放 / 暂停')
+      case 'customKey':
+        beginBehaviorDraft('key', 'replace')
+        return
+      case 'textAndEnter':
+        setTextInputDraft(textAndEnterValue(behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]) ?? '')
+    }
+  }
+
+  const commitDraftBehavior = (behavior = draftBehavior?.behavior) => {
+    if (!draftBehavior || !behavior) return
+    if (draftBehavior.mode === 'replace') replaceWithCommonBehavior([behavior])
+    else updateSelectedBehaviorList((list) => [...list, behavior])
+    setDraftBehavior(null)
+    setCapturingBehaviorId(null)
+    showBehaviorToast(draftBehavior.mode === 'replace' ? '行为已更新' : '步骤已添加')
+  }
+
+  const commitTextInputPreset = () => {
+    if (textInputDraft === null || !textInputDraft.trim()) return
+    replaceWithCommonBehavior([
+      createBehavior({ type: 'paste', text: textInputDraft }),
+      createBehavior({ type: 'delay', ms: 30 }),
+      createBehavior({ type: 'key', key: 'Enter' }),
+    ])
+    setTextInputDraft(null)
+    showBehaviorToast('已设置输入文本并回车')
   }
 
   const removeBehavior = (behaviorId: string) => {
@@ -468,12 +601,18 @@ function App() {
     const captured = formatCapturedKey(event)
     if (!captured) return
     event.preventDefault()
-    updateBehavior(behavior.id, (current) => current.type === 'shortcut'
-      ? { ...current, keys: captured.split('+') }
-      : current.type === 'key'
-        ? { ...current, key: captured }
-        : current)
+    updateBehavior(behavior.id, (current) => current.type === 'key' || current.type === 'shortcut'
+      ? { ...behaviorFromCapturedKey(captured, current.id), enabled: current.enabled }
+      : current)
     setCapturingBehaviorId(null)
+    setEditingBehaviorId(null)
+  }
+
+  const captureDraftBehaviorKey = (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => {
+    const captured = formatCapturedKey(event)
+    if (!captured) return
+    event.preventDefault()
+    commitDraftBehavior(behaviorFromCapturedKey(captured, behavior.id))
   }
 
   const updateSetup = (update: (current: SetupState) => SetupState) => {
@@ -504,18 +643,20 @@ function App() {
       return
     }
     try {
-      await invoke('launch_driver_action', { driver, action })
+      const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
-        status: action === 'install' ? 'missing' : 'installed',
-        restartRequired: false,
-        message: action === 'install' ? '已请求管理员权限；批准后驱动将在后台安装，完成后请重启 Windows。' : '已请求管理员权限；批准后驱动将在后台卸载，完成后请重启 Windows。',
+        status: 'restartRequired',
+        restartRequired: true,
+        message: action === 'install'
+          ? `驱动安装已完成，请重启 Windows。日志：${result.logPath}`
+          : `驱动卸载已完成，请重启 Windows。日志：${result.logPath}`,
       }))
     } catch (error) {
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: false,
-        status: current.drivers[driver].status,
+        status: 'error',
         error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
       }))
     }
@@ -533,8 +674,7 @@ function App() {
   const probeSystemState = async () => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
     updateSetup((current) => {
-      let next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
-      next = setDriverStatus(next, 'audio', 'checking', { message: '正在检查音频设备…' })
+      const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
       return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
     })
     try {
@@ -548,8 +688,7 @@ function App() {
             : probe.input_backend_ready
               ? 'Interception 按键服务工作正常。'
               : '已检测到 Interception 按键驱动，输入服务正在启动。'
-        let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
-        next = setDriverStatus(next, 'audio', probe.audio_available ? 'installed' : 'missing', { message: probe.audio_available ? 'Windows 音频设备工作正常。' : '未检测到可用的 Windows 音频设备。' })
+        const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         return setDeviceConnection(next, probe.rc003_connected
           ? {
             status: 'connected',
@@ -563,8 +702,29 @@ function App() {
       })
       return true
     } catch (error) {
-      updateSetup((current) => setDeviceConnection(current, { status: 'error', message: String(error) }))
+      updateSetup((current) => {
+        const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
+        return setDeviceConnection(next, { status: 'error', message: String(error) })
+      })
       return false
+    }
+  }
+
+  const probeAudioState = async () => {
+    if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    audioProbeRunningRef.current = true
+    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在后台检查音频设备，不影响其他操作…' }))
+    try {
+      const available = await invoke<boolean>('probe_audio_available')
+      updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
+        message: available ? 'Windows 音频设备工作正常。' : '未检测到可用的 Windows 音频设备。',
+      }))
+    } catch (error) {
+      updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
+        message: `音频检测失败，不影响按键映射：${String(error)}`,
+      }))
+    } finally {
+      audioProbeRunningRef.current = false
     }
   }
 
@@ -584,6 +744,10 @@ function App() {
   useEffect(() => {
     if (setupOpen) void probeSystemState()
   }, [setupOpen])
+
+  useEffect(() => {
+    if (setupOpen && setupState.currentStep === 'audioDriver') void probeAudioState()
+  }, [setupOpen, setupState.currentStep])
 
   const handleHotspotPointerDown = (button: RemoteButton, event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!debugMode || !remoteArtRef.current) return
@@ -645,6 +809,8 @@ function App() {
   const editingBehavior = editingBehaviorId
     ? behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find((behavior) => behavior.id === editingBehaviorId) ?? null
     : null
+  const canUndoCommonBehavior = commonBehaviorUndo?.buttonId === selectedBehavior.buttonId
+    && commonBehaviorUndo.trigger === selectedBehavior.trigger
 
   return (
     <div className="app-shell">
@@ -655,7 +821,7 @@ function App() {
               <span className="brand-mark">A</span>
               <span>
                 <span className="brand-name">axonkey</span>
-                <span className="brand-version">RC003 控制台 <span>0.1</span></span>
+                <span className="brand-version">RC003 控制台 <span>{appPackage.version}</span></span>
               </span>
             </button>
             <div className="title-row"><h1>按键映射</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
@@ -734,9 +900,10 @@ function App() {
           button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
           trigger={selectedBehavior.trigger}
           behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
-          newBehaviorType={newBehaviorType}
-          onNewBehaviorType={setNewBehaviorType}
-          onAddBehavior={addBehavior}
+          canUndoCommonBehavior={canUndoCommonBehavior}
+          onApplyCommonBehavior={applyCommonBehavior}
+          onUndoCommonBehavior={undoCommonBehavior}
+          onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
           onRemoveBehavior={removeBehavior}
           onMoveBehavior={moveSelectedBehavior}
           onEditBehavior={setEditingBehaviorId}
@@ -762,6 +929,27 @@ function App() {
         onCaptureKey={captureBehaviorKey}
         onUpdate={(update) => updateBehavior(editingBehavior.id, update)}
         onClose={() => { setEditingBehaviorId(null); setCapturingBehaviorId(null) }}
+      />}
+      {draftBehavior && <BehaviorEditDialog
+        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        trigger={selectedBehavior.trigger}
+        behavior={draftBehavior.behavior}
+        capturing={capturingBehaviorId === draftBehavior.behavior.id}
+        draft
+        onStartCapture={() => setCapturingBehaviorId(draftBehavior.behavior.id)}
+        onCancelCapture={() => setCapturingBehaviorId(null)}
+        onCaptureKey={captureDraftBehaviorKey}
+        onUpdate={(update) => setDraftBehavior((current) => current ? { ...current, behavior: update(current.behavior) } : null)}
+        onClose={() => { setDraftBehavior(null); setCapturingBehaviorId(null) }}
+        onSave={() => commitDraftBehavior()}
+      />}
+      {textInputDraft !== null && <TextInputPresetDialog
+        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        trigger={selectedBehavior.trigger}
+        value={textInputDraft}
+        onChange={setTextInputDraft}
+        onClose={() => setTextInputDraft(null)}
+        onSave={commitTextInputPreset}
       />}
       {setupOpen && <SetupDialog
         state={setupState}
@@ -852,15 +1040,16 @@ type BehaviorEditorProps = {
   button: RemoteButton
   trigger: TriggerType
   behaviors: Behavior[]
-  newBehaviorType: BehaviorType
-  onNewBehaviorType: (type: BehaviorType) => void
-  onAddBehavior: () => void
+  canUndoCommonBehavior: boolean
+  onApplyCommonBehavior: (preset: CommonBehaviorPreset) => void
+  onUndoCommonBehavior: () => void
+  onAddAdvancedBehavior: (type: AdvancedBehaviorType) => void
   onRemoveBehavior: (behaviorId: string) => void
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
   onEditBehavior: (behaviorId: string) => void
 }
 
-function BehaviorEditor({ button, trigger, behaviors, newBehaviorType, onNewBehaviorType, onAddBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
+function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
   return <section className="behavior-editor" aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
     <div className="behavior-editor-head">
       <div className="behavior-editor-title">
@@ -871,7 +1060,7 @@ function BehaviorEditor({ button, trigger, behaviors, newBehaviorType, onNewBeha
     </div>
     <div className="behavior-editor-body">
       <div className="behavior-list">
-        {behaviors.length === 0 && <div className="behavior-empty">这个触发方式暂时保留原按键，点击右侧添加第一个行为</div>}
+        {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
         {behaviors.map((behavior, index) => <BehaviorItem
           key={behavior.id}
           behavior={behavior}
@@ -883,17 +1072,50 @@ function BehaviorEditor({ button, trigger, behaviors, newBehaviorType, onNewBeha
         />)}
       </div>
       <aside className="behavior-side">
-        <span className="behavior-side-label">添加行为</span>
-        <div className="behavior-add-row">
-          <select aria-label="选择行为类型" value={newBehaviorType} onChange={(event) => onNewBehaviorType(event.target.value as BehaviorType)}>
-            <option value="key">按键</option>
-            <option value="shortcut">组合键</option>
-            <option value="paste">粘贴文本</option>
-            <option value="delay">延迟</option>
-          </select>
-          <button type="button" className="button primary" onClick={onAddBehavior}><Plus size={14} /> 添加</button>
+        <div className="behavior-side-heading">
+          <span className="behavior-side-label">常用行为</span>
+          {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
         </div>
-        <p className="behavior-tip">新增后在弹窗中编辑，所有更改都会自动保存并立即生效。</p>
+        <select className="behavior-preset-select" aria-label="选择常用行为" defaultValue="" onChange={(event) => {
+          const preset = event.currentTarget.value as CommonBehaviorPreset
+          if (preset) onApplyCommonBehavior(preset)
+          event.currentTarget.value = ''
+        }}>
+          <option value="" disabled>直接选择行为</option>
+          <optgroup label="按键处理">
+            <option value="original">{trigger === 'click' ? '保留原按键' : '清除这个触发方式'}</option>
+            <option value="disabled">禁用按键</option>
+          </optgroup>
+          <optgroup label="常用按键">
+            <option value="escape">Esc</option>
+            <option value="enter">Enter</option>
+            <option value="space">Space</option>
+          </optgroup>
+          <optgroup label="媒体控制">
+            <option value="mediaPlayPause">播放 / 暂停</option>
+            <option value="volumeUp">增大音量</option>
+            <option value="volumeDown">减小音量</option>
+            <option value="volumeMute">静音</option>
+          </optgroup>
+          <optgroup label="输入与自定义">
+            <option value="textAndEnter">输入文本并回车</option>
+            <option value="customKey">其他按键 / 组合键</option>
+          </optgroup>
+        </select>
+        <p className="behavior-tip">选择后直接替换当前触发方式；“输入文本并回车”会生成粘贴、等待 30 ms 和 Enter 三个步骤。</p>
+        <details className="behavior-advanced">
+          <summary>添加后续步骤</summary>
+          <select aria-label="选择要添加的后续步骤" defaultValue="" onChange={(event) => {
+            const type = event.currentTarget.value as AdvancedBehaviorType
+            if (type) onAddAdvancedBehavior(type)
+            event.currentTarget.value = ''
+          }}>
+            <option value="" disabled>选择单个步骤</option>
+            <option value="key">按键 / 组合键</option>
+            <option value="paste">粘贴文本</option>
+            <option value="delay">等待</option>
+          </select>
+        </details>
       </aside>
     </div>
   </section>
@@ -909,15 +1131,16 @@ type BehaviorItemProps = {
 }
 
 function BehaviorItem({ behavior, index, total, onRemove, onMove, onEdit }: BehaviorItemProps) {
+  const editable = behavior.type !== 'disabled'
   return <div className="behavior-item">
     <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
-    <button type="button" className="behavior-item-summary" onClick={() => onEdit(behavior.id)}>
+    <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
       <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
       <strong>{behaviorSummary(behavior)}</strong>
-      <span className="behavior-type-note">点击编辑</span>
+      <span className="behavior-type-note">{editable ? '点击编辑' : '不发送输入'}</span>
     </button>
     <div className="behavior-item-actions">
-      <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>
+      {editable && <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>}
       <button type="button" className="icon-button" title="上移" aria-label="上移行为" disabled={index === 0} onClick={() => onMove(behavior.id, -1)}><ArrowUp size={14} /></button>
       <button type="button" className="icon-button" title="下移" aria-label="下移行为" disabled={index === total - 1} onClick={() => onMove(behavior.id, 1)}><ArrowDown size={14} /></button>
       <button type="button" className="icon-button" title="删除" aria-label="删除行为" onClick={() => onRemove(behavior.id)}><Trash2 size={14} /></button>
@@ -930,11 +1153,13 @@ type BehaviorEditDialogProps = {
   trigger: TriggerType
   behavior: Behavior
   capturing: boolean
+  draft?: boolean
   onStartCapture: () => void
   onCancelCapture: () => void
   onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => void
   onUpdate: (update: (behavior: Behavior) => Behavior) => void
   onClose: () => void
+  onSave?: () => void
 }
 
 function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
@@ -948,12 +1173,29 @@ function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { 
   </select>
 }
 
-function BehaviorEditDialog({ button, trigger, behavior, capturing, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose }: BehaviorEditDialogProps) {
+function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   const captureValue = behavior.type === 'shortcut' ? behavior.keys.join(' + ') : behavior.type === 'key' ? behavior.key : ''
-  const shortcutBase = behavior.type === 'shortcut' ? behavior.keys.find((key) => !shortcutModifiers.includes(key)) ?? 'C' : 'C'
+  const currentKeys = behavior.type === 'shortcut'
+    ? behavior.keys
+    : behavior.type === 'key'
+      ? behavior.key.split('+').filter(Boolean)
+      : []
+  const shortcutBase = currentKeys.find((key) => !shortcutModifiers.includes(key)) ?? 'C'
   const setShortcut = (modifiers: string[], base: string) => {
-    onUpdate((current) => current.type === 'shortcut' ? { ...current, keys: [...modifiers, base] } : current)
+    const selectedModifiers = modifiers.filter((modifier) => modifier !== base)
+    onUpdate((current) => current.type === 'key' || current.type === 'shortcut'
+      ? selectedModifiers.length > 0
+        ? { id: current.id, enabled: current.enabled, type: 'shortcut', keys: [...selectedModifiers, base] }
+        : { id: current.id, enabled: current.enabled, type: 'key', key: base }
+      : current)
   }
+  const canSave = behavior.type === 'key'
+    ? Boolean(behavior.key)
+    : behavior.type === 'shortcut'
+      ? behavior.keys.length > 0
+      : behavior.type === 'paste'
+        ? Boolean(behavior.text.trim())
+        : true
   return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section
       className="behavior-dialog"
@@ -963,31 +1205,27 @@ function BehaviorEditDialog({ button, trigger, behavior, capturing, onStartCaptu
       onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
     >
       <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="behavior-dialog-title">编辑{behaviorTypeLabels[behavior.type]}行为</h2></div>
+        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="behavior-dialog-title">{draft ? '添加' : '编辑'}{behaviorTypeLabels[behavior.type]}行为</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
         {behavior.type === 'key' || behavior.type === 'shortcut' ? <>
           <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
           <div className="behavior-record-row">
-            <button type="button" className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : onStartCapture}>
+            <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : onStartCapture}>
               <Keyboard size={17} />
               <span><strong>{capturing ? '等待按键输入…' : '开始录入'}</strong><small>{capturing ? '现在按下目标按键或组合键' : '仅在点击后监听下一次按键'}</small></span>
             </button>
           </div>
           <div className="behavior-manual-section">
             <div className="behavior-field-title"><strong>手动选择</strong><span>录入不到时直接从列表设置</span></div>
-            {behavior.type === 'key' ? <ManualKeySelect
-              value={behavior.key}
-              label="手动选择按键"
-              onChange={(key) => { onCancelCapture(); onUpdate((current) => current.type === 'key' ? { ...current, key } : current) }}
-            /> : <div className="shortcut-manual-builder">
+            <div className="shortcut-manual-builder">
               <div className="shortcut-modifiers">
                 {shortcutModifiers.map((modifier) => {
-                  const selected = behavior.keys.includes(modifier)
+                  const selected = currentKeys.includes(modifier)
                   return <button key={modifier} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => {
                     onCancelCapture()
-                    const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : behavior.keys.includes(item))
+                    const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : currentKeys.includes(item))
                     setShortcut(modifiers, shortcutBase)
                   }}>{modifier}</button>
                 })}
@@ -996,20 +1234,56 @@ function BehaviorEditDialog({ button, trigger, behavior, capturing, onStartCaptu
               <ManualKeySelect
                 value={shortcutBase}
                 label="手动选择组合键的基础按键"
-                includeModifiers={false}
-                onChange={(base) => { onCancelCapture(); setShortcut(shortcutModifiers.filter((modifier) => behavior.keys.includes(modifier)), base) }}
+                onChange={(base) => { onCancelCapture(); setShortcut(shortcutModifiers.filter((modifier) => currentKeys.includes(modifier)), base) }}
               />
-            </div>}
+            </div>
           </div>
         </> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
           id="behavior-paste-text"
           className="behavior-paste-input"
+          autoFocus={draft}
           value={behavior.text}
           placeholder="输入要粘贴的文本"
           onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
-        /></div> : <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">延迟时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" type="number" min="0" max="300000" step="50" value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div>}
+        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step="10" value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
       </div>
-      <footer className="behavior-dialog-actions"><span><Check size={13} /> 更改会自动保存</span><button type="button" className="button primary" onClick={onClose}>完成</button></footer>
+      <footer className="behavior-dialog-actions">
+        <span><Check size={13} /> {draft ? '保存后立即生效' : '更改会自动保存'}</span>
+        {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!canSave} onClick={onSave}>保存</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
+      </footer>
+    </section>
+  </div>
+}
+
+type TextInputPresetDialogProps = {
+  button: RemoteButton
+  trigger: TriggerType
+  value: string
+  onChange: (value: string) => void
+  onClose: () => void
+  onSave: () => void
+}
+
+function TextInputPresetDialog({ button, trigger, value, onChange, onClose, onSave }: TextInputPresetDialogProps) {
+  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className="behavior-dialog text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="text-input-dialog-title">
+      <header className="behavior-dialog-head">
+        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="text-input-dialog-title">输入文本并回车</h2></div>
+        <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}><X size={17} /></button>
+      </header>
+      <div className="behavior-dialog-body">
+        <div className="text-input-sequence" aria-label="粘贴文本，等待 30 毫秒，然后按下 Enter">
+          <span>粘贴文本</span><ChevronRight size={14} /><span>等待 30 ms</span><ChevronRight size={14} /><span>Enter</span>
+        </div>
+        <div className="behavior-dialog-field text-input-field">
+          <label htmlFor="text-input-preset-value">文本内容</label>
+          <textarea id="text-input-preset-value" className="behavior-paste-input" autoFocus value={value} placeholder="输入要发送的文本" onChange={(event) => onChange(event.target.value)} />
+        </div>
+      </div>
+      <footer className="behavior-dialog-actions">
+        <span><Check size={13} /> 三个步骤会一起保存</span>
+        <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!value.trim()} onClick={onSave}>应用行为</button></div>
+      </footer>
     </section>
   </div>
 }
@@ -1149,7 +1423,7 @@ function DriverSetupScreen({ kind, state, onAction, onSkipAction, onMarkInstalle
     <div className={`setup-status-panel ${driver.status}`}><span className="setup-status-dot" /><div><strong>{driverStatusLabel(driver.status)}</strong><span>{driver.action.error ?? driver.message ?? (kind === 'input' ? '安装脚本会先校验文件，然后请求管理员权限。' : '当前安装包不包含音频驱动，可通过系统设置手动处理。')}</span></div></div>
     <div className="driver-notice">{kind === 'input' ? <><Download size={16} /><div><strong>安装与卸载需要 Windows 管理员权限</strong><span>点击后只会显示系统 UAC 授权，驱动操作在后台完成；完成后需要重启 Windows。卸载前请先关闭其他使用 Interception 的工具。</span></div></> : <><AudioLines size={16} /><div><strong>这是可选依赖</strong><span>按键映射、组合键和粘贴文本不依赖音频驱动，可以直接跳过。</span></div></>}</div>
     <div className="setup-inline-actions">
-      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={running} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '正在请求授权…' : '安装驱动'}</button>}
+      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={running} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '正在安装…' : '安装驱动'}</button>}
       {kind === 'input' && installed && <button type="button" className="dialog-secondary danger" disabled={running} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> 卸载驱动</button>}
       {kind === 'input' && driver.action.kind === 'uninstall' && driver.action.status === 'succeeded' && <button type="button" className="dialog-secondary" onClick={() => onMarkRemoved(kind)}><Check size={14} /> 卸载已完成</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" onClick={onOpenSettings}><Settings2 size={14} /> 打开声音设置</button>}

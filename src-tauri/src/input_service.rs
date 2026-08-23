@@ -184,6 +184,10 @@ enum NativeBehavior {
         #[serde(default)]
         ms: u64,
     },
+    Disabled {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+    },
 }
 
 fn enabled_by_default() -> bool {
@@ -196,7 +200,8 @@ impl NativeBehavior {
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
             | Self::Paste { enabled, .. }
-            | Self::Delay { enabled, .. } => *enabled,
+            | Self::Delay { enabled, .. }
+            | Self::Disabled { enabled } => *enabled,
         }
     }
 }
@@ -707,6 +712,7 @@ fn execute_behaviors(
             NativeBehavior::Delay { ms, .. } => {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
+            NativeBehavior::Disabled { .. } => {}
         }
     }
 }
@@ -727,7 +733,9 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
                 });
             (!chord.is_empty()).then_some(chord)
         }
-        NativeBehavior::Paste { .. } | NativeBehavior::Delay { .. } => None,
+        NativeBehavior::Paste { .. }
+        | NativeBehavior::Delay { .. }
+        | NativeBehavior::Disabled { .. } => None,
     }
 }
 
@@ -1069,5 +1077,16 @@ mod tests {
             ..TriggerBehaviors::default()
         };
         assert_eq!(continuous_click_chord(&action_sequence), None);
+    }
+
+    #[test]
+    fn disabled_behavior_suppresses_passthrough_without_holding_a_key() {
+        let triggers = TriggerBehaviors {
+            click: vec![NativeBehavior::Disabled { enabled: true }],
+            ..TriggerBehaviors::default()
+        };
+
+        assert!(has_custom_behavior(&triggers));
+        assert_eq!(continuous_click_chord(&triggers), None);
     }
 }

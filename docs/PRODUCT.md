@@ -14,6 +14,8 @@ local utility rather than a general keyboard automation platform.
 - Show only remote buttons that produce stable Windows keyboard events.
 - Replace a button with a single key or a chord of up to four keys.
 - Let the user preserve the original event or disable the button.
+- Offer a curated "input text and press Enter" behavior, implemented as paste,
+  a 30 ms wait, and Enter.
 - Apply saved changes immediately without a reboot.
 - Run in the notification area and optionally at sign-in.
 - Store all settings and diagnostics locally.
@@ -35,8 +37,8 @@ can be added later if a stable hardware event is observed.
 - The main window answers three questions without opening another page:
   whether the driver is ready, whether RC003 is connected, and what each
   button currently does.
-- Editing a mapping is a direct row action. No modes or programming syntax are
-  required for common actions.
+- Editing a mapping starts from a list of common behaviors. Key and shortcut
+  capture share one entry, and no extra add confirmation is required.
 - Invalid custom shortcuts cannot be saved.
 - Missing devices and missing drivers have different messages and remedies.
 - A mapping failure must not leave a replacement modifier held down.
@@ -47,4 +49,5 @@ can be added later if a stable hardware event is observed.
 - Cloud accounts, configuration sync, telemetry, or remote control over a
   network.
 - Mac or Linux support.
-- Macro scripts, application-specific profiles, or multi-step automation.
+- User-authored macro scripts, application-specific profiles, or a general
+  automation editor. Curated multi-step behaviors may still be provided.

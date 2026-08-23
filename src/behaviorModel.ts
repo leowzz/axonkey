@@ -23,7 +23,7 @@ export type ButtonId = (typeof buttonIds)[number]
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'paste', 'delay'] as const
+export const behaviorTypes = ['key', 'shortcut', 'paste', 'delay', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 
 type BehaviorBase = {
@@ -51,7 +51,11 @@ export type DelayBehavior = BehaviorBase & {
   ms: number
 }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | PasteBehavior | DelayBehavior
+export type DisabledBehavior = BehaviorBase & {
+  type: 'disabled'
+}
+
+export type Behavior = KeyBehavior | ShortcutBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<ButtonId, TriggerBehaviors>
@@ -61,6 +65,7 @@ export type CreateBehaviorOptions =
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
+  | { type: 'disabled'; enabled?: boolean; id?: string }
 
 const maxDelayMs = 300_000
 
@@ -107,6 +112,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { id, enabled, type: 'paste', text: typeof options.text === 'string' ? options.text : '' }
     case 'delay':
       return { id, enabled, type: 'delay', ms: finiteDelay(options.ms) }
+    case 'disabled':
+      return { id, enabled, type: 'disabled' }
   }
 }
 
@@ -164,6 +171,8 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return typeof value.text === 'string' ? { id, enabled, type, text: value.text } : null
     case 'delay':
       return { id, enabled, type, ms: finiteDelay(value.ms) }
+    case 'disabled':
+      return { id, enabled, type }
   }
   return null
 }

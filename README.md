@@ -45,29 +45,28 @@ immediately.
 
 ## Build and test
 
-Axonkey uses the .NET Framework 4.8 compiler included with Windows on this
-development machine. No .NET SDK restore and no AutoHotkey installation are
-required.
+Development uses the Tauri, TypeScript, React, and Rust toolchain. Start the
+local desktop app with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\build.ps1
-powershell -ExecutionPolicy Bypass -File .\scripts\test.ps1
+make dev
 ```
 
-The build creates `dist` with:
-
-- `Axonkey.exe` and the x64 `interception.dll` runtime;
-- the reviewed Interception driver installer;
-- explicit install/uninstall scripts;
-- license, source provenance, and third-party notices.
-
-Run Axonkey with:
+Release builds require a clean Git worktree. The build command increments the
+patch version, synchronizes all package manifests, creates a release commit and
+an annotated Git tag, then produces the versioned NSIS installer:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run.ps1
+make build
 ```
 
-or launch `dist\Axonkey.exe` directly.
+Specify an exact newer version when needed:
+
+```powershell
+make build V=0.2.6
+```
+
+Installers are written to `src-tauri\target\release\bundle\nsis`.
 
 ## Driver removal
 

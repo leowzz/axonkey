@@ -8,14 +8,17 @@ fn ping() -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn find_driver_script(action: &str) -> Result<std::path::PathBuf, String> {
+fn find_driver_script(
+    action: &str,
+    resource_dir: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
     let file_name = match action {
         "install" => "install-driver.ps1",
         "uninstall" => "uninstall-driver.ps1",
         _ => return Err("Unsupported driver action".into()),
     };
 
-    let mut roots = Vec::new();
+    let mut roots = vec![resource_dir.to_path_buf()];
     if let Ok(current) = std::env::current_dir() {
         roots.push(current.clone());
         if let Some(parent) = current.parent() {
@@ -31,9 +34,7 @@ fn find_driver_script(action: &str) -> Result<std::path::PathBuf, String> {
     for root in roots {
         for candidate in [root.join(file_name), root.join("scripts").join(file_name)] {
             if candidate.is_file() {
-                return candidate
-                    .canonicalize()
-                    .map_err(|error| format!("Cannot resolve driver script: {error}"));
+                return Ok(candidate);
             }
         }
     }
@@ -41,34 +42,104 @@ fn find_driver_script(action: &str) -> Result<std::path::PathBuf, String> {
     Err(format!("Driver script was not found: {file_name}"))
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DriverActionResult {
+    log_path: String,
+}
+
+#[cfg(target_os = "windows")]
+fn driver_log_path(action: &str) -> Result<std::path::PathBuf, String> {
+    let local_app_data = std::env::var_os("LOCALAPPDATA")
+        .ok_or_else(|| "Cannot locate the Windows local application data directory".to_string())?;
+    let directory = std::path::PathBuf::from(local_app_data)
+        .join("Axonkey")
+        .join("logs");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
+    Ok(directory.join(format!("driver-{action}.log")))
+}
+
+#[cfg(target_os = "windows")]
+fn run_driver_action(
+    action: &str,
+    resource_dir: &std::path::Path,
+) -> Result<DriverActionResult, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let log_path = driver_log_path(action)?;
+    let started = format!(
+        "Axonkey driver {action} requested: {:?}\r\n",
+        std::time::SystemTime::now()
+    );
+    std::fs::write(&log_path, started)
+        .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
+
+    let script = find_driver_script(action, resource_dir).map_err(|error| {
+        let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
+        format!("{error}. Log: {}", log_path.display())
+    })?;
+    let status = std::process::Command::new("powershell.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-WindowStyle")
+        .arg("Hidden")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-File")
+        .arg(script)
+        .arg("-Confirmed")
+        .arg("-LogPath")
+        .arg(&log_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| {
+            let message = format!("Cannot launch the driver script: {error}");
+            let _ = std::fs::write(&log_path, format!("ERROR: {message}\r\n"));
+            format!("{message}. Log: {}", log_path.display())
+        })?;
+
+    if !status.success() {
+        let exit_code = status
+            .code()
+            .map_or_else(|| "unknown".to_string(), |code| code.to_string());
+        return Err(format!(
+            "Driver {action} failed with exit code {exit_code}. Log: {}",
+            log_path.display()
+        ));
+    }
+
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+    })
+}
+
 #[tauri::command]
-fn launch_driver_action(driver: String, action: String) -> Result<(), String> {
+async fn launch_driver_action(
+    app: tauri::AppHandle,
+    driver: String,
+    action: String,
+) -> Result<DriverActionResult, String> {
     if driver != "input" {
         return Err("Only the Interception input driver has a bundled installer".into());
     }
 
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
+        use tauri::Manager;
 
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        let script = find_driver_script(&action)?;
-        let mut command = std::process::Command::new("powershell.exe");
-        command
-            .creation_flags(CREATE_NO_WINDOW)
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-WindowStyle")
-            .arg("Hidden")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(script)
-            .arg("-Confirmed");
-        command
-            .spawn()
-            .map_err(|error| format!("Cannot launch driver script: {error}"))?;
-        Ok(())
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        tauri::async_runtime::spawn_blocking(move || run_driver_action(&action, &resource_dir))
+            .await
+            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -108,7 +179,6 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 #[derive(serde::Serialize)]
 struct SystemProbe {
     input_driver_installed: bool,
-    audio_available: bool,
     rc003_connected: bool,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
@@ -218,15 +288,36 @@ try {
 }
 
 #[tauri::command]
-fn probe_rc003_battery_level() -> Option<u8> {
+async fn probe_rc003_battery_level() -> Option<u8> {
     #[cfg(target_os = "windows")]
     {
-        rc003_battery_level()
+        tauri::async_runtime::spawn_blocking(rc003_battery_level)
+            .await
+            .unwrap_or_default()
     }
 
     #[cfg(not(target_os = "windows"))]
     {
         None
+    }
+}
+
+#[tauri::command]
+async fn probe_audio_available() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            powershell_probe(
+                r#"if (@(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' }).Count -gt 0) { '1' } else { '0' }"#,
+            )
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
     }
 }
 
@@ -239,43 +330,46 @@ fn update_input_settings(
 }
 
 #[tauri::command]
-fn probe_system_state(input_service: tauri::State<'_, InputService>) -> SystemProbe {
+async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String> {
+    use tauri::Manager;
+
+    let input_status = app.state::<InputService>().status();
+
     #[cfg(target_os = "windows")]
     {
-        let input_status = input_service.status();
-        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        let input_driver_installed = std::path::PathBuf::from(windows)
-            .join("System32")
-            .join("drivers")
-            .join("keyboard.sys")
-            .is_file();
-        let audio_available = powershell_probe(
-            r#"if (@(Get-CimInstance Win32_SoundDevice -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' }).Count -gt 0) { '1' } else { '0' }"#,
-        );
-        let pnp_connected = powershell_probe(
-            r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
-        );
-        SystemProbe {
+        let (input_driver_installed, pnp_connected) = tauri::async_runtime::spawn_blocking(|| {
+            let windows =
+                std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+            let driver_installed = std::path::PathBuf::from(windows)
+                .join("System32")
+                .join("drivers")
+                .join("keyboard.sys")
+                .is_file();
+            let device_connected = powershell_probe(
+                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
+            );
+            (driver_installed, device_connected)
+        })
+        .await
+        .map_err(|error| format!("System probe task failed unexpectedly: {error}"))?;
+        Ok(SystemProbe {
             input_driver_installed,
-            audio_available,
             rc003_connected: input_status.device_connected || pnp_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
-        }
+        })
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        let input_status = input_service.status();
-        SystemProbe {
+        Ok(SystemProbe {
             input_driver_installed: false,
-            audio_available: false,
             rc003_connected: false,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
-        }
+        })
     }
 }
 
@@ -288,6 +382,7 @@ pub fn run() {
             launch_driver_action,
             open_windows_settings,
             probe_system_state,
+            probe_audio_available,
             probe_rc003_battery_level,
             update_input_settings,
         ])

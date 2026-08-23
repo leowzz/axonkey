@@ -1,11 +1,42 @@
 [CmdletBinding()]
 param(
     [switch]$Elevated,
-    [switch]$Confirmed
+    [switch]$Confirmed,
+    [string]$LogPath
 )
 
 $ErrorActionPreference = 'Stop'
-$packageRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($LogPath)) {
+    $LogPath = Join-Path $env:LOCALAPPDATA 'Axonkey\logs\driver-install.log'
+}
+$logDirectory = Split-Path -Parent $LogPath
+New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
+if ($Elevated) {
+    "Elevated install process started: $(Get-Date -Format o)" | Add-Content -LiteralPath $LogPath -Encoding UTF8
+} else {
+    "Interception install started: $(Get-Date -Format o)" | Set-Content -LiteralPath $LogPath -Encoding UTF8
+}
+
+function Write-DriverLog {
+    param([Parameter(Mandatory)][string]$Message)
+    "$(Get-Date -Format o) $Message" | Add-Content -LiteralPath $LogPath -Encoding UTF8
+}
+
+trap {
+    Write-DriverLog "ERROR: $($_ | Out-String)"
+    exit 1
+}
+
+$scriptRoot = $PSScriptRoot
+$scriptPath = $PSCommandPath
+if ($scriptRoot.StartsWith('\\?\')) {
+    $scriptRoot = $scriptRoot.Substring(4)
+}
+if ($scriptPath.StartsWith('\\?\')) {
+    $scriptPath = $scriptPath.Substring(4)
+}
+$packageRoot = Split-Path -Parent $scriptRoot
+Write-DriverLog "Package root: $packageRoot"
 $candidates = @(
     (Join-Path $packageRoot 'vendor\interception\install-interception.exe'),
     (Join-Path $packageRoot 'driver\install-interception.exe')
@@ -57,6 +88,7 @@ $actualRuntimeHash = (Get-FileHash -LiteralPath $runtime -Algorithm SHA256).Hash
 if ($actualRuntimeHash -ne $expectedRuntimeHash) {
     throw "Runtime hash mismatch. Refusing to install alongside an unreviewed native library: $runtime"
 }
+Write-DriverLog 'Driver package validation completed.'
 
 if (-not $Confirmed) {
     Write-Host 'Axonkey uses the Interception keyboard filter driver.' -ForegroundColor Yellow
@@ -79,28 +111,32 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($identity)
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
+    Write-DriverLog 'Requesting administrator permission.'
     $arguments = @(
         '-NoProfile',
         '-NonInteractive',
         '-WindowStyle', 'Hidden',
         '-ExecutionPolicy', 'Bypass',
-        '-File', ('"{0}"' -f $PSCommandPath),
+        '-File', ('"{0}"' -f $scriptPath),
         '-Elevated',
-        '-Confirmed'
+        '-Confirmed',
+        '-LogPath', ('"{0}"' -f $LogPath)
     )
     $process = Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+    Write-DriverLog "Elevated process exited with code $($process.ExitCode)."
     exit $process.ExitCode
 }
 
-$logPath = Join-Path $env:TEMP ('axonkey-interception-install-{0}.log' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
-"Interception install started: $(Get-Date -Format o)" | Set-Content -LiteralPath $logPath -Encoding Unicode
-& $installer /install 2>&1 | Tee-Object -FilePath $logPath -Append
+Write-DriverLog "Launching installer: $installer /install"
+& $installer /install 2>&1 | Tee-Object -FilePath $LogPath -Append
 $exitCode = $LASTEXITCODE
+Write-DriverLog "Installer exited with code $exitCode."
 if ($exitCode -ne 0) {
-    throw "Interception installer failed with exit code $exitCode. Log: $logPath"
+    throw "Interception installer failed with exit code $exitCode. Log: $LogPath"
 }
+Write-DriverLog 'Interception installation completed successfully. Reboot is required.'
 
 Write-Host ''
 Write-Host 'Interception was installed. Reboot Windows once before starting Axonkey.' -ForegroundColor Green
 Write-Host 'Later mapping changes do not require a reboot.'
-Write-Host "Log: $logPath"
+Write-Host "Log: $LogPath"
