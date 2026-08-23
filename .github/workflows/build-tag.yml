@@ -1,0 +1,97 @@
+name: Build tagged app
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-tag-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_BRANCH: main
+
+jobs:
+  build-windows:
+    name: Build Windows installer
+    runs-on: windows-2022
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release branch and version tag
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          git show-ref --verify --quiet "refs/remotes/origin/$env:RELEASE_BRANCH"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Release branch '$env:RELEASE_BRANCH' was not found in the checkout."
+          }
+
+          git merge-base --is-ancestor HEAD "refs/remotes/origin/$env:RELEASE_BRANCH"
+          if ($LASTEXITCODE -eq 1) {
+            throw "Tag '$env:TAG_NAME' does not point to a commit on '$env:RELEASE_BRANCH'."
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Unable to verify the tagged commit against the release branch.'
+          }
+
+          if ($env:TAG_NAME -notmatch '^v(?<Version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$') {
+            throw "Tag '$env:TAG_NAME' is invalid. Expected vMAJOR.MINOR.PATCH, for example v1.2.3."
+          }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "APP_VERSION=$($Matches.Version)" -Encoding utf8
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Select stable Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply tag as app version
+        shell: pwsh
+        run: node ./scripts/set-version.mjs $env:APP_VERSION
+
+      - name: Build NSIS installer
+        run: npm run tauri build -- --bundles nsis
+
+      - name: Create SHA-256 checksum
+        shell: pwsh
+        run: |
+          $bundleDirectory = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle\nsis'
+          $installerName = "Axonkey_$($env:APP_VERSION)_x64-setup.exe"
+          $installerPath = Join-Path $bundleDirectory $installerName
+          if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
+            throw "Expected installer was not produced: $installerPath"
+          }
+
+          $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          Set-Content -LiteralPath "$installerPath.sha256" -Value "$hash  $installerName" -Encoding ascii
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Axonkey-v${{ env.APP_VERSION }}-windows-x64
+          path: |
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ env.APP_VERSION }}_x64-setup.exe
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ env.APP_VERSION }}_x64-setup.exe.sha256
+          if-no-files-found: error
+          retention-days: 30

@@ -20,9 +20,11 @@ local utility rather than a general keyboard automation platform.
 - Run in the notification area and optionally at sign-in.
 - Store all settings and diagnostics locally.
 
-The RC003 Back and independent Volume +/- buttons are not shown because the
-validated Windows Bluetooth input path does not report events for them. They
-can be added later if a stable hardware event is observed.
+The RC003 Back and independent Volume +/- buttons are not shown because Windows
+does not reliably associate those events with their source input device. Axonkey
+therefore cannot prove that an event came from the RC003 without risking input
+from another keyboard or remote. They can be added later if a device-specific
+event path is validated.
 
 ## Defaults
 
