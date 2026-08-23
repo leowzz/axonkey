@@ -19,6 +19,7 @@ const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
+const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
 
 type Context = *mut c_void;
 type DevicePredicate = unsafe extern "C" fn(i32) -> i32;
@@ -380,12 +381,23 @@ fn worker_loop(shared: Arc<Shared>) {
     }
 
     let mut target_device = 0;
+    let mut last_target_seen_at = None;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let next_target = probe_devices(&api, context, target_device, &shared);
+            let next_target = probe_devices(
+                &api,
+                context,
+                target_device,
+                last_target_seen_at,
+                now,
+                &shared,
+            );
+            if next_target != 0 {
+                last_target_seen_at = Some(now);
+            }
             if next_target != target_device {
                 if target_device != 0 {
                     release_all_held_outputs(&api, context, target_device, &mut button_states);
@@ -428,7 +440,14 @@ fn worker_loop(shared: Arc<Shared>) {
     unsafe { (api.destroy_context)(context) };
 }
 
-fn probe_devices(api: &InterceptionApi, context: Context, old_target: i32, shared: &Shared) -> i32 {
+fn probe_devices(
+    api: &InterceptionApi,
+    context: Context,
+    old_target: i32,
+    last_target_seen_at: Option<Instant>,
+    now: Instant,
+    shared: &Shared,
+) -> i32 {
     let mut found = 0;
     let mut found_id = None;
     for device in 1..=MAX_KEYBOARD {
@@ -454,10 +473,19 @@ fn probe_devices(api: &InterceptionApi, context: Context, old_target: i32, share
     }
     let mut status = shared.status.lock().unwrap();
     status.backend_ready = true;
-    status.device_connected = found != 0;
-    status.hardware_id = found_id;
+    status.device_connected = device_connection_visible(found != 0, last_target_seen_at, now);
+    if found_id.is_some() || !status.device_connected {
+        status.hardware_id = found_id;
+    }
     status.error = None;
     found
+}
+
+fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: Instant) -> bool {
+    found
+        || last_seen_at.is_some_and(|last_seen| {
+            now.saturating_duration_since(last_seen) < DEVICE_DISCONNECT_GRACE
+        })
 }
 
 fn set_device_filter(api: &InterceptionApi, context: Context, device: i32, filter: u16) {
@@ -1013,6 +1041,22 @@ mod tests {
             "HID\\{GUID}_DEV_VID&012717_PID&32B8_REV&00A4"
         ));
         assert!(!is_target_hardware_id("USB\\VID_2717&PID_D002"));
+    }
+
+    #[test]
+    fn keeps_short_ble_hid_disconnects_out_of_the_visible_status() {
+        let now = Instant::now();
+        assert!(device_connection_visible(true, None, now));
+        assert!(device_connection_visible(
+            false,
+            now.checked_sub(Duration::from_secs(7)),
+            now
+        ));
+        assert!(!device_connection_visible(
+            false,
+            now.checked_sub(Duration::from_secs(8)),
+            now
+        ));
     }
 
     #[test]

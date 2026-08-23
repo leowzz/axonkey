@@ -387,7 +387,7 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
     {
         tauri::async_runtime::spawn_blocking(|| {
             powershell_probe(
-                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match 'VID(?:_|&)0*2717.*PID(?:_|&)32B8' }).Count -gt 0) { '1' } else { '0' }"#,
+                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match '(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' }).Count -gt 0) { '1' } else { '0' }"#,
             )
         })
         .await

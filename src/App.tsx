@@ -376,6 +376,7 @@ function App() {
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
+  const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const [connectors, setConnectors] = useState<Connector[]>([])
@@ -727,15 +728,40 @@ function App() {
     }
   }
 
-  const probeSystemState = async () => {
-    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
-    updateSetup((current) => {
-      const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
-      return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
-    })
+  const probeSystemState = async (showChecking = true) => {
+    if (systemProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
+    systemProbeRunningRef.current = true
+    if (showChecking) {
+      updateSetup((current) => {
+        const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
+      })
+    }
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       updateSetup((current) => {
+        const connectedDevice = {
+          status: 'connected' as const,
+          name: '小米遥控器 RC003',
+          hardwareId: probe.device_hardware_id ?? undefined,
+          message: probe.device_hardware_id
+            ? 'Interception 输入服务已识别并接管 RC003。'
+            : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
+        }
+        const disconnectedDevice = {
+          status: 'disconnected' as const,
+          name: undefined,
+          hardwareId: undefined,
+          message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。',
+        }
+        const device = probe.rc003_connected ? connectedDevice : disconnectedDevice
+        if (!showChecking) {
+          const unchanged = current.device.status === device.status
+            && current.device.name === device.name
+            && current.device.hardwareId === device.hardwareId
+            && current.device.message === device.message
+          return unchanged ? current : setDeviceConnection(current, device)
+        }
         const inputStatus = !probe.input_driver_installed ? 'missing' : probe.input_backend_error ? 'error' : 'installed'
         const inputMessage = !probe.input_driver_installed
           ? '未检测到 Interception 按键驱动。'
@@ -745,24 +771,19 @@ function App() {
               ? 'Interception 按键服务工作正常。'
               : '已检测到 Interception 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
-        return setDeviceConnection(next, probe.rc003_connected
-          ? {
-            status: 'connected',
-            name: '小米遥控器 RC003',
-            hardwareId: probe.device_hardware_id ?? undefined,
-            message: probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
-              : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
-          }
-          : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' })
+        return setDeviceConnection(next, device)
       })
       return true
     } catch (error) {
-      updateSetup((current) => {
-        const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
-        return setDeviceConnection(next, { status: 'error', message: String(error) })
-      })
+      if (showChecking) {
+        updateSetup((current) => {
+          const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
+          return setDeviceConnection(next, { status: 'error', message: String(error) })
+        })
+      }
       return false
+    } finally {
+      systemProbeRunningRef.current = false
     }
   }
 
@@ -828,6 +849,16 @@ function App() {
   useEffect(() => {
     if (setupOpen) void probeSystemState()
   }, [setupOpen])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    const initialTimer = window.setTimeout(() => void probeSystemState(false), 1_200)
+    const interval = window.setInterval(() => void probeSystemState(false), 3_000)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(interval)
+    }
+  }, [])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
