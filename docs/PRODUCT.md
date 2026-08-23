@@ -10,7 +10,7 @@ local utility rather than a general keyboard automation platform.
 
 - Recognize only HID devices with Xiaomi vendor `0x2717` and product `0x32B8`.
 - Keep the user's normal keyboard isolated from every RC003 mapping.
-- Show the same stable ten-button editing surface on Windows and macOS.
+- Show ten editable RC003 buttons on Windows and thirteen on macOS.
 - Replace a button with a single key or a chord of up to four keys.
 - Let the user preserve the original event or disable the button.
 - Offer a curated "input text and press Enter" behavior, implemented as paste,
@@ -21,12 +21,12 @@ local utility rather than a general keyboard automation platform.
 - Guide Windows users through Interception and optional VB-CABLE setup, and
   macOS users through Input Monitoring and Accessibility permissions.
 
-The RC003 Back and independent Volume +/- buttons are not shown because Windows
-does not reliably associate those events with their source input device. Axonkey
-therefore cannot prove that an event came from the RC003 without risking input
-from another keyboard or remote. They can be added later if a device-specific
-event path is validated. The macOS backend can identify these raw usages and
-forwards their native behavior, but does not expose platform-only editor rows.
+The RC003 Back and independent Volume +/- buttons are not shown on Windows because
+Windows does not reliably associate those events with their source input device.
+Axonkey therefore cannot prove that an event came from the RC003 without risking
+input from another keyboard or remote. The macOS backend can identify these raw
+usages, so macOS exposes them as platform-specific editor rows with native behavior
+as their defaults.
 
 ## Defaults
 
@@ -34,7 +34,7 @@ forwards their native behavior, but does not expose platform-only editor rows.
 | --- | --- |
 | Voice / F5 | Right Alt |
 | Power / extended `0x015E` | Escape |
-| Home, TV, Menu, Enter and directions | Preserve original key |
+| Back, Volume +/-, Home, TV, Menu, Enter and directions | Preserve original key |
 
 ## Usability rules
 

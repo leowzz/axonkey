@@ -21,7 +21,8 @@ const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 const REPEAT_INITIAL_MS: u64 = 500;
 const REPEAT_INTERVAL_MS: u64 = 50;
-const PASSTHROUGH_REPEAT_INITIAL_MS: u64 = 350;
+const MEDIA_REPEAT_INITIAL_MS: u64 = 350;
+const MEDIA_REPEAT_INTERVAL_MS: u64 = 100;
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
@@ -333,59 +334,70 @@ struct SourceKey {
     id: &'static str,
     usage: u16,
     original: MacKey,
+    repeat_initial_ms: u64,
+    repeat_interval_ms: u64,
 }
 
-const SOURCE_KEYS: [SourceKey; 10] = [
-    SourceKey {
-        id: "voice",
-        usage: 0x3e,
-        original: MacKey::keyboard(96),
-    },
-    SourceKey {
-        id: "power",
-        usage: 0x66,
-        original: MacKey::keyboard(90),
-    },
-    SourceKey {
-        id: "home",
-        usage: 0x4a,
-        original: MacKey::keyboard(115),
-    },
-    SourceKey {
-        id: "tv",
-        usage: 0x35,
-        original: MacKey::keyboard(10),
-    },
-    SourceKey {
-        id: "menu",
-        usage: 0x65,
-        original: MacKey::keyboard(110),
-    },
-    SourceKey {
-        id: "confirm",
-        usage: 0x28,
-        original: MacKey::keyboard(36),
-    },
-    SourceKey {
-        id: "up",
-        usage: 0x52,
-        original: MacKey::keyboard(126),
-    },
-    SourceKey {
-        id: "down",
-        usage: 0x51,
-        original: MacKey::keyboard(125),
-    },
-    SourceKey {
-        id: "left",
-        usage: 0x50,
-        original: MacKey::keyboard(123),
-    },
-    SourceKey {
-        id: "right",
-        usage: 0x4f,
-        original: MacKey::keyboard(124),
-    },
+impl SourceKey {
+    const fn new(id: &'static str, usage: u16, original: MacKey) -> Self {
+        Self {
+            id,
+            usage,
+            original,
+            repeat_initial_ms: REPEAT_INITIAL_MS,
+            repeat_interval_ms: REPEAT_INTERVAL_MS,
+        }
+    }
+
+    const fn with_repeat(
+        id: &'static str,
+        usage: u16,
+        original: MacKey,
+        repeat_initial_ms: u64,
+        repeat_interval_ms: u64,
+    ) -> Self {
+        Self {
+            id,
+            usage,
+            original,
+            repeat_initial_ms,
+            repeat_interval_ms,
+        }
+    }
+}
+
+const SOURCE_KEYS: [SourceKey; 13] = [
+    SourceKey::new("voice", 0x3e, MacKey::keyboard(96)),
+    SourceKey::new("power", 0x66, MacKey::keyboard(90)),
+    SourceKey::new("home", 0x4a, MacKey::keyboard(115)),
+    SourceKey::new("tv", 0x35, MacKey::keyboard(10)),
+    SourceKey::new("menu", 0x65, MacKey::keyboard(110)),
+    SourceKey::new("confirm", 0x28, MacKey::keyboard(36)),
+    SourceKey::new("up", 0x52, MacKey::keyboard(126)),
+    SourceKey::new("down", 0x51, MacKey::keyboard(125)),
+    SourceKey::new("left", 0x50, MacKey::keyboard(123)),
+    SourceKey::new("right", 0x4f, MacKey::keyboard(124)),
+    SourceKey::with_repeat(
+        "back",
+        0xf1,
+        MacKey::keyboard(51),
+        MEDIA_REPEAT_INITIAL_MS,
+        REPEAT_INTERVAL_MS,
+    ),
+    SourceKey::with_repeat(
+        "volumeUp",
+        0x80,
+        MacKey::system(0),
+        MEDIA_REPEAT_INITIAL_MS,
+        MEDIA_REPEAT_INTERVAL_MS,
+    ),
+    SourceKey::with_repeat(
+        "volumeDown",
+        0x81,
+        MacKey::system(1),
+        MEDIA_REPEAT_INITIAL_MS,
+        MEDIA_REPEAT_INTERVAL_MS,
+    ),
 ];
 
 fn source_for_usage(usage: u16) -> Option<SourceKey> {
@@ -393,23 +405,6 @@ fn source_for_usage(usage: u16) -> Option<SourceKey> {
         .iter()
         .copied()
         .find(|source| source.usage == usage)
-}
-
-fn passthrough_key_for_usage(usage: u16) -> Option<MacKey> {
-    match usage {
-        0xf1 => Some(MacKey::keyboard(51)),
-        0x80 => Some(MacKey::system(0)),
-        0x81 => Some(MacKey::system(1)),
-        _ => None,
-    }
-}
-
-fn passthrough_repeat_interval_ms(usage: u16) -> Option<u64> {
-    match usage {
-        0xf1 => Some(50),
-        0x80 | 0x81 => Some(100),
-        _ => None,
-    }
 }
 
 struct PressedChord {
@@ -485,17 +480,12 @@ struct PressState {
     passthrough: bool,
     held_outputs: PressedChord,
     next_repeat_at: Instant,
+    repeat_interval_ms: u64,
 }
 
 struct PendingClick {
     due_at: Instant,
     original: MacKey,
-}
-
-struct PassthroughPress {
-    key: MacKey,
-    next_repeat_at: Instant,
-    repeat_interval_ms: Option<u64>,
 }
 
 #[derive(Default)]
@@ -508,7 +498,6 @@ struct ButtonState {
 struct MacInputState {
     active_usages: HashSet<u16>,
     button_states: HashMap<&'static str, ButtonState>,
-    passthrough_usages: HashMap<u16, PassthroughPress>,
 }
 
 impl MacInputState {
@@ -527,24 +516,11 @@ impl MacInputState {
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
                 self.press_source(shared, source);
-            } else if let Some(key) = passthrough_key_for_usage(usage) {
-                post_key(key, true, 0, false);
-                self.passthrough_usages.insert(
-                    usage,
-                    PassthroughPress {
-                        key,
-                        next_repeat_at: Instant::now()
-                            + Duration::from_millis(PASSTHROUGH_REPEAT_INITIAL_MS),
-                        repeat_interval_ms: passthrough_repeat_interval_ms(usage),
-                    },
-                );
             }
         }
         for usage in released {
             if let Some(source) = source_for_usage(usage) {
                 self.release_source(shared, source);
-            } else if let Some(press) = self.passthrough_usages.remove(&usage) {
-                post_key(press.key, false, 0, false);
             }
         }
     }
@@ -581,7 +557,8 @@ impl MacInputState {
                 long_fired: false,
                 passthrough: true,
                 held_outputs: PressedChord { keys: Vec::new() },
-                next_repeat_at: now + Duration::from_millis(REPEAT_INITIAL_MS),
+                next_repeat_at: now + Duration::from_millis(source.repeat_initial_ms),
+                repeat_interval_ms: source.repeat_interval_ms,
             });
             return;
         }
@@ -595,7 +572,8 @@ impl MacInputState {
             long_fired: false,
             passthrough: false,
             held_outputs,
-            next_repeat_at: now + Duration::from_millis(REPEAT_INITIAL_MS),
+            next_repeat_at: now + Duration::from_millis(source.repeat_initial_ms),
+            repeat_interval_ms: source.repeat_interval_ms,
         });
     }
 
@@ -684,7 +662,8 @@ impl MacInputState {
                     } else {
                         post_key(press.original, true, 0, false);
                         press.passthrough = true;
-                        press.next_repeat_at = now + Duration::from_millis(REPEAT_INTERVAL_MS);
+                        press.next_repeat_at =
+                            now + Duration::from_millis(press.repeat_interval_ms);
                     }
                     state.pending_click = None;
                 }
@@ -694,20 +673,12 @@ impl MacInputState {
                     } else if press.passthrough {
                         post_key(press.original, true, 0, true);
                     }
-                    press.next_repeat_at = now + Duration::from_millis(REPEAT_INTERVAL_MS);
+                    press.next_repeat_at = now + Duration::from_millis(press.repeat_interval_ms);
                 }
             }
             if pending_click_is_due(state, now) {
                 let pending = state.pending_click.take().unwrap();
                 execute_click_or_original(&triggers.click, pending.original);
-            }
-        }
-        for press in self.passthrough_usages.values_mut() {
-            if let Some(interval_ms) = press.repeat_interval_ms {
-                if now >= press.next_repeat_at {
-                    post_key(press.key, true, 0, true);
-                    press.next_repeat_at = now + Duration::from_millis(interval_ms);
-                }
             }
         }
     }
@@ -723,9 +694,6 @@ impl MacInputState {
                 }
             }
             state.pending_click = None;
-        }
-        for (_, press) in self.passthrough_usages.drain() {
-            post_key(press.key, false, 0, false);
         }
         self.active_usages.clear();
     }
@@ -1041,14 +1009,37 @@ mod tests {
             source_for_usage(0x4f).map(|source| source.id),
             Some("right")
         );
-        assert!(source_for_usage(0x80).is_none());
         assert_eq!(
             source_for_usage(0x66).map(|source| source.original),
             Some(MacKey::keyboard(90))
         );
-        assert_eq!(passthrough_key_for_usage(0xf1), Some(MacKey::keyboard(51)));
-        assert_eq!(passthrough_repeat_interval_ms(0xf1), Some(50));
-        assert_eq!(passthrough_repeat_interval_ms(0x80), Some(100));
+        assert_eq!(
+            source_for_usage(0xf1).map(|source| (
+                source.id,
+                source.original,
+                source.repeat_initial_ms,
+                source.repeat_interval_ms,
+            )),
+            Some(("back", MacKey::keyboard(51), 350, 50))
+        );
+        assert_eq!(
+            source_for_usage(0x80).map(|source| (
+                source.id,
+                source.original,
+                source.repeat_initial_ms,
+                source.repeat_interval_ms,
+            )),
+            Some(("volumeUp", MacKey::system(0), 350, 100))
+        );
+        assert_eq!(
+            source_for_usage(0x81).map(|source| (
+                source.id,
+                source.original,
+                source.repeat_initial_ms,
+                source.repeat_interval_ms,
+            )),
+            Some(("volumeDown", MacKey::system(1), 350, 100))
+        );
     }
 
     #[test]
@@ -1104,6 +1095,7 @@ mod tests {
             passthrough: false,
             held_outputs: PressedChord { keys: Vec::new() },
             next_repeat_at: now,
+            repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
         assert!(!pending_click_is_due(&state, now));
     }

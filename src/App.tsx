@@ -27,6 +27,7 @@ import {
   Settings2,
   Target,
   Trash2,
+  Undo2,
   Clock3,
   ClipboardPaste,
   Play,
@@ -69,6 +70,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react'
@@ -80,7 +82,7 @@ type RemoteButton = {
   side: 'left' | 'right'
   x: number
   y: number
-  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'home' | 'menu' | 'tv'
+  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv'
 }
 
 type SystemProbe = {
@@ -120,10 +122,15 @@ const buttons: RemoteButton[] = [
   { id: 'confirm', label: '确认键', short: '确认', side: 'right', x: 42.23, y: 37.07, icon: 'center' },
   { id: 'right', label: '方向右', short: '右', side: 'right', x: 71.70, y: 36.07, icon: 'right' },
   { id: 'down', label: '方向下', short: '下', side: 'right', x: 40.61, y: 49.02, icon: 'down' },
+  { id: 'back', label: '返回键', short: '返回', side: 'left', x: 20.42, y: 61.09, icon: 'back' },
+  { id: 'volumeUp', label: '音量加', short: '音量 +', side: 'right', x: 60.42, y: 61.09, icon: 'volumeUp' },
   { id: 'home', label: '主页键', short: '主页', side: 'left', x: 22.80, y: 75.72, icon: 'home' },
+  { id: 'volumeDown', label: '音量减', short: '音量 -', side: 'right', x: 60.42, y: 76.85, icon: 'volumeDown' },
   { id: 'menu', label: '功能键', short: '功能', side: 'left', x: 21.18, y: 90.79, icon: 'menu' },
   { id: 'tv', label: '电视键', short: '电视', side: 'right', x: 60.69, y: 91.91, icon: 'tv' },
 ]
+
+const macOSOnlyButtonIds = new Set<ButtonId>(['back', 'volumeUp', 'volumeDown'])
 
 const settingsStorageKey = 'axonkey.settings.v1'
 
@@ -157,6 +164,9 @@ const iconFor = (kind: RemoteButton['icon'], size = 16) => {
     case 'left': return <ChevronLeft {...props} />
     case 'right': return <ChevronRight {...props} />
     case 'down': return <ChevronDown {...props} />
+    case 'back': return <Undo2 {...props} />
+    case 'volumeUp': return <Volume2 {...props} />
+    case 'volumeDown': return <Volume1 {...props} />
     case 'home': return <Home {...props} />
     case 'menu': return <Menu {...props} />
     case 'tv': return <span className="tv-button-glyph" aria-hidden="true">TV</span>
@@ -360,7 +370,10 @@ const initialHitPositions: Record<ButtonId, HitPosition> = {
   confirm: { x: 42.23, y: 37.07 },
   right: { x: 71.70, y: 36.07 },
   down: { x: 40.61, y: 49.02 },
+  back: { x: 20.42, y: 61.09 },
+  volumeUp: { x: 60.42, y: 61.09 },
   home: { x: 22.80, y: 75.72 },
+  volumeDown: { x: 60.42, y: 76.85 },
   menu: { x: 21.18, y: 90.79 },
   tv: { x: 60.69, y: 91.91 },
 }
@@ -380,6 +393,10 @@ function getStoredHitPositions() {
 
 function App() {
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
+  const editableButtons = useMemo(
+    () => buttons.filter((button) => platform === 'macos' || !macOSOnlyButtonIds.has(button.id)),
+    [platform],
+  )
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
     inputMonitoring: false,
     accessibility: false,
@@ -430,7 +447,7 @@ function App() {
   const measureConnectors = useCallback(() => {
     if (!workspaceRef.current) return
     const workspace = workspaceRef.current.getBoundingClientRect()
-    const next = buttons.flatMap((button) => {
+    const next = editableButtons.flatMap((button) => {
       const marker = markerRefs.current[button.id]
       const row = rowRefs.current[button.id]
       if (!marker || !row) return []
@@ -448,7 +465,7 @@ function App() {
       }]
     })
     setConnectors(next)
-  }, [])
+  }, [editableButtons])
 
   useLayoutEffect(() => {
     measureConnectors()
@@ -577,7 +594,7 @@ function App() {
     })
   }
 
-  const connectedCount = Object.values(behaviors).reduce((count, triggers) => count + Object.values(triggers).reduce((total, list) => total + list.length, 0), 0)
+  const connectedCount = editableButtons.reduce((count, button) => count + Object.values(behaviors[button.id]).reduce((total, list) => total + list.length, 0), 0)
 
   const selectBehaviorTarget = (buttonId: ButtonId, trigger: TriggerType) => {
     setActiveId(buttonId)
@@ -972,7 +989,7 @@ function App() {
   }
 
   const copyHitPositions = async () => {
-    const lines = buttons.map((button) => `  ${button.id}: { x: ${hitPositions[button.id].x.toFixed(2)}, y: ${hitPositions[button.id].y.toFixed(2)} },`)
+    const lines = editableButtons.map((button) => `  ${button.id}: { x: ${hitPositions[button.id].x.toFixed(2)}, y: ${hitPositions[button.id].y.toFixed(2)} },`)
     const snippet = `const initialHitPositions: Record<ButtonId, HitPosition> = {\n${lines.join('\n')}\n}`
     setCoordinateSnippet(snippet)
     let copied = false
@@ -1040,7 +1057,7 @@ function App() {
           <MappingSide
             platform={platform}
             side="left"
-            buttons={buttons.filter((button) => button.side === 'left')}
+            buttons={editableButtons.filter((button) => button.side === 'left')}
             behaviors={behaviors}
             activeId={activeId}
             selectedBehavior={selectedBehavior}
@@ -1053,7 +1070,7 @@ function App() {
             <div className="remote-stage">
               <div className="remote-art" ref={remoteArtRef}>
                 <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
-                {buttons.map((button) => (
+                {editableButtons.map((button) => (
                   <button
                     key={button.id}
                     ref={(node) => { if (node) markerRefs.current[button.id] = node }}
@@ -1076,7 +1093,7 @@ function App() {
           <MappingSide
             platform={platform}
             side="right"
-            buttons={buttons.filter((button) => button.side === 'right')}
+            buttons={editableButtons.filter((button) => button.side === 'right')}
             behaviors={behaviors}
             activeId={activeId}
             selectedBehavior={selectedBehavior}
@@ -1098,15 +1115,13 @@ function App() {
             })}
           </svg>
         </div>
-        <div className="mapping-limit-note" role="note">
+        {platform !== 'macos' && <div className="mapping-limit-note" role="note">
           <Info size={12} aria-hidden="true" />
-          <span>{platform === 'macos'
-            ? '返回键和独立音量 + / - 键暂不在编辑范围；macOS 原生后端会保持这些按键的系统行为。'
-            : '返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。'}</span>
-        </div>
+          <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
+        </div>}
         <BehaviorEditor
           platform={platform}
-          button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+          button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
           trigger={selectedBehavior.trigger}
           behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
           canUndoCommonBehavior={canUndoCommonBehavior}
@@ -1130,7 +1145,7 @@ function App() {
       </div>}
       {editingBehavior && <BehaviorEditDialog
         platform={platform}
-        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
         trigger={selectedBehavior.trigger}
         behavior={editingBehavior}
         capturing={capturingBehaviorId === editingBehavior.id}
@@ -1142,7 +1157,7 @@ function App() {
       />}
       {draftBehavior && <BehaviorEditDialog
         platform={platform}
-        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
         trigger={selectedBehavior.trigger}
         behavior={draftBehavior.behavior}
         capturing={capturingBehaviorId === draftBehavior.behavior.id}
@@ -1155,7 +1170,7 @@ function App() {
         onSave={() => commitDraftBehavior()}
       />}
       {textInputDraft !== null && <TextInputPresetDialog
-        button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
+        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
         trigger={selectedBehavior.trigger}
         value={textInputDraft}
         onChange={setTextInputDraft}

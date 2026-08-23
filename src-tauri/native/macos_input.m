@@ -206,6 +206,7 @@ static bool axonkey_native_event_for_usage(uint16_t usage, int *kind, int *code)
         case 0x51: *code = 125; return true;
         case 0x50: *code = 123; return true;
         case 0x4f: *code = 124; return true;
+        case 0xf1: *code = 51; return true;
         case 0x80:
             *kind = AXONKEY_NATIVE_EVENT_SYSTEM;
             *code = 0;
