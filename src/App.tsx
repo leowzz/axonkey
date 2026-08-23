@@ -232,9 +232,10 @@ const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = [
   {
     label: '单独修饰键',
     options: [
-      { value: 'Ctrl', label: 'Ctrl' }, { value: 'Shift', label: 'Shift' }, { value: 'Alt', label: 'Alt' },
+      { value: 'Ctrl', label: 'Ctrl' }, { value: 'RCtrl', label: '右 Ctrl' },
+      { value: 'Shift', label: 'Shift' }, { value: 'RShift', label: '右 Shift' }, { value: 'Alt', label: 'Alt' },
       { value: 'LAlt', label: '左 Alt' }, { value: 'RAlt', label: '右 Alt' },
-      { value: 'Win', label: 'Windows' },
+      { value: 'Win', label: 'Windows' }, { value: 'RWin', label: '右 Windows' },
     ],
   },
   {
@@ -272,10 +273,13 @@ function keyDisplayName(key: string, platform: Platform) {
   if (platform !== 'macos') return key
   const labels: Record<string, string> = {
     Ctrl: 'Control',
+    RCtrl: '右 Control',
+    RShift: '右 Shift',
     Alt: 'Option',
     LAlt: '左 Option',
     RAlt: '右 Option',
     Win: 'Command',
+    RWin: '右 Command',
   }
   return labels[key] ?? key
 }
@@ -291,7 +295,7 @@ function keyGroupsForPlatform(platform: Platform) {
 }
 
 const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
-const standaloneModifierKeys = ['Ctrl', 'Shift', 'Alt', 'LAlt', 'RAlt', 'Win']
+const standaloneModifierKeys = ['Ctrl', 'RCtrl', 'Shift', 'RShift', 'Alt', 'LAlt', 'RAlt', 'Win', 'RWin']
 
 function isStandaloneModifierKey(key: string) {
   return standaloneModifierKeys.includes(key)
