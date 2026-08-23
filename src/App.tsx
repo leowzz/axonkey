@@ -18,19 +18,16 @@ import {
   Keyboard,
   Menu,
   Mic,
-  Minus,
   Pencil,
   Power,
   Plus,
   RotateCcw,
   Settings2,
-  Square,
   Target,
   Trash2,
   Clock3,
   Tv,
   X,
-  X as CloseIcon,
 } from 'lucide-react'
 import {
   createBehavior,
@@ -57,7 +54,6 @@ import {
   skipSetupStep,
 } from './setupModel'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import {
   KeyboardEvent,
@@ -223,17 +219,6 @@ function triggerSummary(list: Behavior[], trigger: TriggerType) {
   return list.length > 1 ? `${summary} +${list.length - 1}` : summary
 }
 
-async function windowCommand(command: 'minimize' | 'toggleMaximize' | 'close') {
-  try {
-    const currentWindow = getCurrentWindow()
-    if (command === 'minimize') await currentWindow.minimize()
-    if (command === 'toggleMaximize') await currentWindow.toggleMaximize()
-    if (command === 'close') await currentWindow.close()
-  } catch {
-    // The browser demo has no native window; Tauri handles these commands in the desktop shell.
-  }
-}
-
 function formatCapturedKey(event: KeyboardEvent<HTMLElement>) {
   const keyMap: Record<string, string> = {
     ' ': 'Space', Escape: 'Esc', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete',
@@ -289,6 +274,7 @@ function App() {
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [newBehaviorType, setNewBehaviorType] = useState<BehaviorType>('key')
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const workspaceRef = useRef<HTMLDivElement>(null)
@@ -375,6 +361,28 @@ function App() {
   useEffect(() => {
     saveSetupState(setupState)
   }, [setupState])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let active = true
+    const refreshBattery = async () => {
+      try {
+        const level = await invoke<number | null>('probe_rc003_battery_level')
+        if (active) setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
+      } catch {
+        if (active) setBatteryLevel(null)
+      }
+    }
+    const handleFocus = () => void refreshBattery()
+    void refreshBattery()
+    const interval = window.setInterval(refreshBattery, 60_000)
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
 
   useEffect(() => {
     if (!coordinateSnippet || !coordinateTextRef.current) return
@@ -643,11 +651,6 @@ function App() {
     <div className="app-shell">
       <main className="main-content">
         <header className="topbar">
-          <div className="native-controls" aria-label="窗口控制">
-            <button type="button" aria-label="最小化" title="最小化" onClick={() => void windowCommand('minimize')}><Minus size={15} /></button>
-            <button type="button" aria-label="最大化" title="最大化" onClick={() => void windowCommand('toggleMaximize')}><Square size={13} /></button>
-            <button className="close-control" type="button" aria-label="退出" title="退出" onClick={() => void windowCommand('close')}><CloseIcon size={15} /></button>
-          </div>
           <div className="topbar-left">
             <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={handleBrandClick}>
               <span className="brand-mark">A</span>
@@ -660,7 +663,6 @@ function App() {
           </div>
           <div className="header-actions">
             <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={toggleEnabled}><span /></button></label>
-            <button type="button" className="device-card" onClick={() => openSetupStep('deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={19} /> : <Bluetooth className="device-icon" size={19} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={17} /><span className="device-meta-separator" /><span>设备与驱动</span></div></button>
           </div>
         </header>
 
@@ -681,10 +683,7 @@ function App() {
           />
 
           <section className="remote-panel panel-surface">
-            <div className="panel-heading">
-              <div><span className="section-kicker">REMOTE</span><h2>遥控器位置</h2></div>
-              <span className="mini-status"><span className="live-dot" /> 在线</span>
-            </div>
+            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep('deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>设备与驱动</span></div></button>
             <div className="remote-stage">
               <div className="remote-art" ref={remoteArtRef}>
                 <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
