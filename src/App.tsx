@@ -26,7 +26,6 @@ import {
   Target,
   Trash2,
   Clock3,
-  Tv,
   X,
 } from 'lucide-react'
 import {
@@ -131,7 +130,7 @@ const iconFor = (kind: RemoteButton['icon'], size = 16) => {
     case 'down': return <ChevronDown {...props} />
     case 'home': return <Home {...props} />
     case 'menu': return <Menu {...props} />
-    case 'tv': return <Tv {...props} />
+    case 'tv': return <span className="tv-button-glyph" aria-hidden="true">TV</span>
     default: return <Command {...props} />
   }
 }

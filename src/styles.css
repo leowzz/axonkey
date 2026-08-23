@@ -84,6 +84,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .card-status { margin-left: auto; color: #747b84; font-size: 10px; }
 .row-icon { display: grid; place-items: center; width: 24px; height: 24px; flex: 0 0 auto; border-radius: 6px; color: #5e6c79; background: #d9e1e9; }
 .icon-power, .icon-mic { color: #59636d; background: #e2e4e7; }
+.tv-button-glyph { display: inline-grid; place-items: center; width: 18px; height: 14px; border: 1.5px solid currentColor; border-radius: 3px; font-family: Arial, sans-serif; font-size: 7px; font-weight: 700; line-height: 1; letter-spacing: 0; }
 .action-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
 .action-slot { display: flex; min-width: 0; min-height: 50px; align-items: center; justify-content: center; padding: 4px 6px; border: 1px solid transparent; border-radius: 6px; color: #22262a; background: #d9dadd; flex-direction: column; gap: 1px; }
 .action-slot.muted { color: #6c7176; }
@@ -102,7 +103,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .remote-art { position: relative; width: min(158px, 78%); filter: drop-shadow(9px 12px 10px rgba(24, 28, 28, .17)); }
 .remote-art img { display: block; width: 100%; height: auto; }
 .hotspot { position: absolute; display: grid; place-items: center; width: 46px; height: 46px; padding: 0; transform: translate(-50%, -50%); border: 0; border-radius: 50%; color: transparent; background: transparent; box-shadow: none; transition: background .16s ease; z-index: 5; }
-.hotspot svg, .hotspot .center-dot { opacity: 0; }
+.hotspot svg, .hotspot .center-dot, .hotspot .tv-button-glyph { opacity: 0; }
 .hotspot:hover { background: rgba(20, 120, 232, .035); }
 .hotspot.active { background: rgba(20, 120, 232, .055); }
 .hotspot.mapped:not(.active) { background: transparent; }
@@ -110,7 +111,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .center-dot { width: 5px; height: 5px; border: 0; border-radius: 50%; }
 .workspace.debug-mode .hotspot { cursor: grab; border: 1px dashed rgba(20, 120, 232, .52); background: rgba(20, 120, 232, .15); }
 .workspace.debug-mode .hotspot:hover, .workspace.debug-mode .hotspot.active { background: rgba(20, 120, 232, .26); box-shadow: 0 0 0 3px rgba(20, 120, 232, .13); }
-.workspace.debug-mode .hotspot svg { opacity: .35; color: var(--blue); }
+.workspace.debug-mode .hotspot svg, .workspace.debug-mode .hotspot .tv-button-glyph { opacity: .35; color: var(--blue); }
 .workspace.debug-mode .hotspot.dragging { cursor: grabbing; background: rgba(20, 120, 232, .4); }
 .debug-hint { color: #75808a; font-size: 10px; }
 .remote-caption { display: none; }
