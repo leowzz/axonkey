@@ -7,6 +7,16 @@ fn ping() -> &'static str {
     "ok"
 }
 
+#[tauri::command]
+fn get_platform() -> &'static str {
+    #[cfg(target_os = "windows")]
+    return "windows";
+    #[cfg(target_os = "macos")]
+    return "macos";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return "unsupported";
+}
+
 #[cfg(target_os = "windows")]
 fn find_driver_script(
     driver: &str,
@@ -163,6 +173,7 @@ async fn launch_driver_action(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = app;
         let _ = action;
         Err("Driver installation is only supported on Windows".into())
     }
@@ -196,6 +207,54 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_system_settings(page: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return open_windows_settings(page);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let uri = match page.as_str() {
+            "bluetooth" => "x-apple.systempreferences:com.apple.BluetoothSettings",
+            "sound" => "x-apple.systempreferences:com.apple.Sound-Settings.extension",
+            "inputMonitoring" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
+            "accessibility" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            _ => return Err("Unsupported settings page".into()),
+        };
+        std::process::Command::new("open")
+            .arg(uri)
+            .spawn()
+            .map_err(|error| format!("Cannot open macOS System Settings: {error}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = page;
+        Err("System settings are not supported on this platform".into())
+    }
+}
+
+#[tauri::command]
+fn request_macos_permission(kind: String) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        InputService::request_permission(&kind)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        Err("macOS permissions are only available on macOS".into())
+    }
+}
+
+#[tauri::command]
 fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
@@ -223,11 +282,15 @@ fn open_external_page(page: String) -> Result<(), String> {
 
 #[derive(serde::Serialize)]
 struct SystemProbe {
+    platform: &'static str,
     input_driver_installed: bool,
     rc003_connected: bool,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
     device_hardware_id: Option<String>,
+    input_monitoring_granted: Option<bool>,
+    accessibility_granted: Option<bool>,
+    capture_active: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -257,6 +320,7 @@ fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn parse_battery_level(value: &str) -> Option<u8> {
     value
         .trim()
@@ -414,22 +478,45 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             .join("keyboard.sys")
             .is_file();
         Ok(SystemProbe {
+            platform: "windows",
             input_driver_installed,
             rc003_connected: input_status.device_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: None,
+            accessibility_granted: None,
+            capture_active: input_status.capture_active,
         })
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         Ok(SystemProbe {
+            platform: "macos",
+            input_driver_installed: true,
+            rc003_connected: input_status.device_connected,
+            input_backend_ready: input_status.backend_ready,
+            input_backend_error: input_status.error,
+            device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: input_status.input_monitoring_granted,
+            accessibility_granted: input_status.accessibility_granted,
+            capture_active: input_status.capture_active,
+        })
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Ok(SystemProbe {
+            platform: "unsupported",
             input_driver_installed: false,
             rc003_connected: false,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: None,
+            accessibility_granted: None,
+            capture_active: false,
         })
     }
 }
@@ -449,9 +536,12 @@ pub fn run() {
         .manage(InputService::start())
         .invoke_handler(tauri::generate_handler![
             ping,
+            get_platform,
             launch_driver_action,
             open_windows_settings,
+            open_system_settings,
             open_external_page,
+            request_macos_permission,
             probe_system_state,
             probe_audio_available,
             probe_rc003_connected,

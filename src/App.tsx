@@ -84,11 +84,28 @@ type RemoteButton = {
 }
 
 type SystemProbe = {
+  platform: Platform
   input_driver_installed: boolean
   rc003_connected: boolean
   input_backend_ready: boolean
   input_backend_error?: string | null
   device_hardware_id?: string | null
+  input_monitoring_granted?: boolean | null
+  accessibility_granted?: boolean | null
+  capture_active: boolean
+}
+
+type Platform = 'windows' | 'macos' | 'unsupported'
+
+type MacPermissions = {
+  inputMonitoring: boolean
+  accessibility: boolean
+  captureActive: boolean
+}
+
+const detectBrowserPlatform = (): Platform => {
+  if (typeof navigator === 'undefined') return 'windows'
+  return /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? 'macos' : 'windows'
 }
 
 type DriverActionResult = {
@@ -251,6 +268,28 @@ const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = [
   },
 ]
 
+function keyDisplayName(key: string, platform: Platform) {
+  if (platform !== 'macos') return key
+  const labels: Record<string, string> = {
+    Ctrl: 'Control',
+    Alt: 'Option',
+    LAlt: '左 Option',
+    RAlt: '右 Option',
+    Win: 'Command',
+  }
+  return labels[key] ?? key
+}
+
+function keyGroupsForPlatform(platform: Platform) {
+  if (platform !== 'macos') return manualKeyGroups
+  return manualKeyGroups.map((group) => group.label !== '单独修饰键'
+    ? group
+    : {
+      ...group,
+      options: group.options.map((option) => ({ ...option, label: keyDisplayName(option.value, platform) })),
+    })
+}
+
 const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
 const standaloneModifierKeys = ['Ctrl', 'Shift', 'Alt', 'LAlt', 'RAlt', 'Win']
 
@@ -258,10 +297,10 @@ function isStandaloneModifierKey(key: string) {
   return standaloneModifierKeys.includes(key)
 }
 
-function behaviorSummary(behavior: Behavior) {
+function behaviorSummary(behavior: Behavior, platform: Platform) {
   switch (behavior.type) {
-    case 'key': return behavior.key || '未录入'
-    case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.join(' + ') : '未录入'
+    case 'key': return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
+    case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
     case 'delay': return `等待 ${behavior.ms} ms`
     case 'disabled': return '不发送任何按键'
@@ -281,9 +320,9 @@ function cloneBehaviorList(list: Behavior[]) {
     : { ...behavior })
 }
 
-function triggerSummary(list: Behavior[], trigger: TriggerType) {
+function triggerSummary(list: Behavior[], trigger: TriggerType, platform: Platform) {
   if (list.length === 0) return trigger === 'click' ? '保留原按键' : '未设置'
-  const summary = behaviorSummary(list[0])
+  const summary = behaviorSummary(list[0], platform)
   return list.length > 1 ? `${summary} +${list.length - 1}` : summary
 }
 
@@ -336,6 +375,12 @@ function getStoredHitPositions() {
 }
 
 function App() {
+  const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
+  const [macPermissions, setMacPermissions] = useState<MacPermissions>({
+    inputMonitoring: false,
+    accessibility: false,
+    captureActive: false,
+  })
   const [activeId, setActiveId] = useState<ButtonId>('voice')
   const [behaviors, setBehaviors] = useState<BehaviorMap>(() => getStoredSettings().behaviors)
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
@@ -421,6 +466,15 @@ function App() {
   }, [hitPositions])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    let active = true
+    void invoke<Platform>('get_platform').then((detected) => {
+      if (active) setPlatform(detected)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
     window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
@@ -495,6 +549,10 @@ function App() {
   }
 
   const toggleEnabled = () => {
+    if (!enabled && platform === 'macos' && (!macPermissions.inputMonitoring || !macPermissions.accessibility)) {
+      updateSetup((current) => setCurrentSetupStep(current, 'inputDriver'))
+      setSetupOpen(true)
+    }
     setEnabled((value) => !value)
     setAutoSaveState('saving')
   }
@@ -695,12 +753,37 @@ function App() {
     }
   }
 
-  const openWindowsSettings = async (page: 'bluetooth' | 'sound') => {
+  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => {
     try {
-      await invoke('open_windows_settings', { page })
+      await invoke('open_system_settings', { page })
+      return true
     } catch {
-      setToast('浏览器预览无法打开 Windows 设置')
+      setToast(`浏览器预览无法打开${platform === 'macos' ? '系统设置' : 'Windows 设置'}`)
       window.setTimeout(() => setToast(''), 2200)
+      return false
+    }
+  }
+
+  const requestMacPermission = async (kind: 'inputMonitoring' | 'accessibility') => {
+    const permissionName = kind === 'inputMonitoring' ? '输入监控' : '辅助功能'
+    setToast(`正在请求${permissionName}权限…`)
+    try {
+      const granted = await invoke<boolean>('request_macos_permission', { kind })
+      if (granted) {
+        setToast(`${permissionName}权限已授权`)
+      } else {
+        const opened = await openSystemSettings(kind)
+        if (opened) setToast(kind === 'accessibility'
+          ? '若开关已开启，请移除旧 Axonkey 条目后重新添加当前应用'
+          : `请在系统设置中允许 Axonkey 使用${permissionName}`)
+      }
+      window.setTimeout(() => {
+        setToast('')
+        void probeSystemState()
+      }, kind === 'accessibility' && !granted ? 4200 : 2200)
+    } catch (error) {
+      setToast(`无法请求系统权限：${String(error)}`)
+      window.setTimeout(() => setToast(''), 2600)
     }
   }
 
@@ -721,24 +804,49 @@ function App() {
     })
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
+      setPlatform(probe.platform)
+      setMacPermissions({
+        inputMonitoring: probe.input_monitoring_granted === true,
+        accessibility: probe.accessibility_granted === true,
+        captureActive: probe.capture_active,
+      })
       updateSetup((current) => {
-        const inputStatus = !probe.input_driver_installed ? 'missing' : probe.input_backend_error ? 'error' : 'installed'
-        const inputMessage = !probe.input_driver_installed
-          ? '未检测到 Interception 按键驱动。'
-          : probe.input_backend_error
-            ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
-            : probe.input_backend_ready
-              ? 'Interception 按键服务工作正常。'
-              : '已检测到 Interception 按键驱动，输入服务正在启动。'
+        const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
+        const inputStatus = probe.platform === 'macos'
+          ? !macPermissionsReady
+            ? 'missing'
+            : probe.input_backend_error
+              ? 'error'
+              : probe.input_backend_ready ? 'installed' : 'checking'
+          : !probe.input_driver_installed ? 'missing' : probe.input_backend_error ? 'error' : 'installed'
+        const inputMessage = probe.platform === 'macos'
+          ? !macPermissionsReady
+            ? '需要授予输入监控和辅助功能权限。'
+            : probe.input_backend_error
+              ? `原生输入服务启动失败：${probe.input_backend_error}`
+              : probe.capture_active
+                ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
+                : 'macOS 原生输入服务已就绪。'
+          : !probe.input_driver_installed
+            ? '未检测到 Interception 按键驱动。'
+            : probe.input_backend_error
+              ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
+              : probe.input_backend_ready
+                ? 'Interception 按键服务工作正常。'
+                : '已检测到 Interception 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         return setDeviceConnection(next, probe.rc003_connected
           ? {
             status: 'connected',
             name: '小米遥控器 RC003',
             hardwareId: probe.device_hardware_id ?? undefined,
-            message: probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
-              : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
+            message: probe.platform === 'macos'
+              ? probe.capture_active
+                ? 'IOKit 已识别 RC003，原始按键已被拦截。'
+                : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
+              : probe.device_hardware_id
+                ? 'Interception 输入服务已识别并接管 RC003。'
+                : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
           }
           : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' })
       })
@@ -753,6 +861,7 @@ function App() {
   }
 
   const probeAudioState = async () => {
+    if (platform !== 'windows') return
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
     updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在检查 VB-CABLE 虚拟麦克风…' }))
@@ -781,9 +890,13 @@ function App() {
           status: 'connected',
           name: '小米遥控器 RC003',
           hardwareId: current.device.hardwareId,
-          message: current.device.hardwareId
-            ? 'Interception 输入服务已识别并接管 RC003。'
-            : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
+          message: platform === 'macos'
+            ? macPermissions.captureActive
+              ? 'IOKit 已识别 RC003，原始按键已被拦截。'
+              : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
+            : current.device.hardwareId
+              ? 'Interception 输入服务已识别并接管 RC003。'
+              : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
     } catch (error) {
@@ -811,8 +924,22 @@ function App() {
   }, [setupOpen])
 
   useEffect(() => {
-    if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
-  }, [setupOpen, setupState.currentStep])
+    if (!setupOpen || platform !== 'macos') return
+    const refreshPermissions = () => void probeSystemState()
+    const refreshVisiblePermissions = () => {
+      if (document.visibilityState === 'visible') refreshPermissions()
+    }
+    window.addEventListener('focus', refreshPermissions)
+    document.addEventListener('visibilitychange', refreshVisiblePermissions)
+    return () => {
+      window.removeEventListener('focus', refreshPermissions)
+      document.removeEventListener('visibilitychange', refreshVisiblePermissions)
+    }
+  }, [setupOpen, platform])
+
+  useEffect(() => {
+    if (setupOpen && setupState.currentStep === 'inputDriver' && platform === 'windows') void probeAudioState()
+  }, [setupOpen, setupState.currentStep, platform])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'deviceConnection') void probeDeviceConnection()
@@ -864,7 +991,7 @@ function App() {
       copied = document.execCommand('copy')
       fallback.remove()
     }
-    setToast(copied ? '坐标已复制，也可以从弹窗中手动复制' : '请在弹窗文本框中按 Ctrl+C 复制坐标')
+    setToast(copied ? '坐标已复制，也可以从弹窗中手动复制' : `请在弹窗文本框中按 ${platform === 'macos' ? 'Command' : 'Ctrl'}+C 复制坐标`)
     window.setTimeout(() => setToast(''), 2600)
   }
 
@@ -907,6 +1034,7 @@ function App() {
 
         <div className={`workspace ${debugMode ? 'debug-mode' : ''}`} ref={workspaceRef}>
           <MappingSide
+            platform={platform}
             side="left"
             buttons={buttons.filter((button) => button.side === 'left')}
             behaviors={behaviors}
@@ -917,7 +1045,7 @@ function App() {
           />
 
           <section className="remote-panel panel-surface">
-            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep('deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>设备与驱动</span></div></button>
+            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep('deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
             <div className="remote-stage">
               <div className="remote-art" ref={remoteArtRef}>
                 <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
@@ -942,6 +1070,7 @@ function App() {
           </section>
 
           <MappingSide
+            platform={platform}
             side="right"
             buttons={buttons.filter((button) => button.side === 'right')}
             behaviors={behaviors}
@@ -967,9 +1096,12 @@ function App() {
         </div>
         <div className="mapping-limit-note" role="note">
           <Info size={12} aria-hidden="true" />
-          <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
+          <span>{platform === 'macos'
+            ? '返回键和独立音量 + / - 键暂不在编辑范围；macOS 原生后端会保持这些按键的系统行为。'
+            : '返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。'}</span>
         </div>
         <BehaviorEditor
+          platform={platform}
           button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
           trigger={selectedBehavior.trigger}
           behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
@@ -987,12 +1119,13 @@ function App() {
       {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
         <section className="coordinate-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinate-title">
           <div className="coordinate-dialog-head"><div><span className="section-kicker">DEBUG POSITION</span><h2 id="coordinate-title">坐标已生成</h2></div><button type="button" className="dialog-close" aria-label="关闭" onClick={() => setCoordinateSnippet('')}><X size={16} /></button></div>
-          <p>文本框已经自动选中，按 Ctrl+C 后粘贴发给我，或替换 App.tsx 中的 initialHitPositions。</p>
+          <p>文本框已经自动选中，按 {platform === 'macos' ? 'Command' : 'Ctrl'}+C 后粘贴发给我，或替换 App.tsx 中的 initialHitPositions。</p>
           <textarea ref={coordinateTextRef} value={coordinateSnippet} readOnly aria-label="定位坐标代码" />
           <div className="coordinate-dialog-actions"><button type="button" className="dialog-secondary" onClick={() => coordinateTextRef.current?.select()}><Copy size={14} /> 全选坐标</button><button type="button" className="button primary" onClick={() => setCoordinateSnippet('')}>完成</button></div>
         </section>
       </div>}
       {editingBehavior && <BehaviorEditDialog
+        platform={platform}
         button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
         trigger={selectedBehavior.trigger}
         behavior={editingBehavior}
@@ -1004,6 +1137,7 @@ function App() {
         onClose={() => { setEditingBehaviorId(null); setCapturingBehaviorId(null) }}
       />}
       {draftBehavior && <BehaviorEditDialog
+        platform={platform}
         button={buttons.find((button) => button.id === selectedBehavior.buttonId) ?? buttons[0]}
         trigger={selectedBehavior.trigger}
         behavior={draftBehavior.behavior}
@@ -1025,6 +1159,8 @@ function App() {
         onSave={commitTextInputPreset}
       />}
       {setupOpen && <SetupDialog
+        platform={platform}
+        macPermissions={macPermissions}
         state={setupState}
         onClose={() => setSetupOpen(false)}
         onOpenStep={openSetupStep}
@@ -1035,7 +1171,8 @@ function App() {
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
         onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
         onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装，重启 Windows 后驱动生效。' }))}
-        onOpenWindowsSettings={(page) => void openWindowsSettings(page)}
+        onOpenSystemSettings={(page) => void openSystemSettings(page)}
+        onRequestMacPermission={(kind) => void requestMacPermission(kind)}
         onOpenExternalPage={(page) => void openExternalPage(page)}
         onCheckDevice={checkDeviceConnection}
         onMarkDeviceConnected={() => updateSetup((current) => setDeviceConnection(current, { status: 'connected', name: '小米遥控器 RC003', message: '设备已由用户确认连接。' }))}
@@ -1046,6 +1183,7 @@ function App() {
 }
 
 type MappingSideProps = {
+  platform: Platform
   side: 'left' | 'right'
   buttons: RemoteButton[]
   behaviors: BehaviorMap
@@ -1055,12 +1193,13 @@ type MappingSideProps = {
   selectBehaviorTarget: (buttonId: ButtonId, trigger: TriggerType) => void
 }
 
-function MappingSide({ side, buttons: sideButtons, behaviors, activeId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
+function MappingSide({ platform, side, buttons: sideButtons, behaviors, activeId, selectedBehavior, rowRefs, selectBehaviorTarget }: MappingSideProps) {
   return <section className={`mapping-side panel-surface ${side}`}>
     <div className="mapping-list">
       {sideButtons.map((button) => (
         <MappingRow
           key={button.id}
+          platform={platform}
           button={button}
           behaviors={behaviors[button.id]}
           active={activeId === button.id}
@@ -1075,6 +1214,7 @@ function MappingSide({ side, buttons: sideButtons, behaviors, activeId, selected
 }
 
 type MappingRowProps = {
+  platform: Platform
   button: RemoteButton
   behaviors: Record<TriggerType, Behavior[]>
   active: boolean
@@ -1084,7 +1224,7 @@ type MappingRowProps = {
   onSelectTrigger: (trigger: TriggerType) => void
 }
 
-function MappingRow({ button, behaviors, active, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
+function MappingRow({ platform, button, behaviors, active, selectedTrigger, rowRef, onSelect, onSelectTrigger }: MappingRowProps) {
   const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
   const hasBehavior = triggerOrder.some((trigger) => behaviors[trigger].length > 0)
   return <article ref={rowRef} className={`mapping-card ${active ? 'active' : ''}`} onClick={onSelect}>
@@ -1102,7 +1242,7 @@ function MappingRow({ button, behaviors, active, selectedTrigger, rowRef, onSele
         >
           <span className="slot-label">{triggerLabels[trigger]}</span>
           <Keyboard size={14} className="slot-icon" />
-          <strong>{triggerSummary(list, trigger)}</strong>
+          <strong>{triggerSummary(list, trigger, platform)}</strong>
         </button>
       })}
     </div>
@@ -1110,6 +1250,7 @@ function MappingRow({ button, behaviors, active, selectedTrigger, rowRef, onSele
 }
 
 type BehaviorEditorProps = {
+  platform: Platform
   button: RemoteButton
   trigger: TriggerType
   behaviors: Behavior[]
@@ -1138,7 +1279,7 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   </button>
 }
 
-function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
+function BehaviorEditor({ platform, button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return <section className="behavior-editor" aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
@@ -1157,6 +1298,7 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
         <div className="behavior-list">
           {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
           {behaviors.map((behavior, index) => <BehaviorItem
+            platform={platform}
             key={behavior.id}
             behavior={behavior}
             index={index}
@@ -1237,6 +1379,7 @@ function BehaviorEditor({ button, trigger, behaviors, canUndoCommonBehavior, onA
 }
 
 type BehaviorItemProps = {
+  platform: Platform
   behavior: Behavior
   index: number
   total: number
@@ -1245,13 +1388,13 @@ type BehaviorItemProps = {
   onEdit: (behaviorId: string) => void
 }
 
-function BehaviorItem({ behavior, index, total, onRemove, onMove, onEdit }: BehaviorItemProps) {
+function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEdit }: BehaviorItemProps) {
   const editable = behavior.type !== 'disabled'
   return <div className="behavior-item">
     <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
     <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
       <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
-      <strong>{behaviorSummary(behavior)}</strong>
+      <strong>{behaviorSummary(behavior, platform)}</strong>
       <span className="behavior-type-note">{editable ? '点击编辑' : '不发送输入'}</span>
     </button>
     <div className="behavior-item-actions">
@@ -1264,6 +1407,7 @@ function BehaviorItem({ behavior, index, total, onRemove, onMove, onEdit }: Beha
 }
 
 type BehaviorEditDialogProps = {
+  platform: Platform
   button: RemoteButton
   trigger: TriggerType
   behavior: Behavior
@@ -1277,8 +1421,9 @@ type BehaviorEditDialogProps = {
   onSave?: () => void
 }
 
-function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
-  const groups = includeModifiers ? manualKeyGroups : manualKeyGroups.filter((group) => group.label !== '单独修饰键')
+function ManualKeySelect({ platform, value, onChange, label, includeModifiers = true }: { platform: Platform; value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
+  const platformGroups = keyGroupsForPlatform(platform)
+  const groups = includeModifiers ? platformGroups : platformGroups.filter((group) => group.label !== '单独修饰键')
   const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
   return <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
     <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
@@ -1288,8 +1433,10 @@ function ManualKeySelect({ value, onChange, label, includeModifiers = true }: { 
   </select>
 }
 
-function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
-  const captureValue = behavior.type === 'shortcut' ? behavior.keys.join(' + ') : behavior.type === 'key' ? behavior.key : ''
+function BehaviorEditDialog({ platform, button, trigger, behavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+  const captureValue = behavior.type === 'shortcut'
+    ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ')
+    : behavior.type === 'key' ? keyDisplayName(behavior.key, platform) : ''
   const shortcutKeys = behavior.type === 'shortcut' ? behavior.keys : []
   const selectedShortcutModifiers = shortcutModifiers.filter((modifier) => shortcutKeys.includes(modifier))
   const shortcutBase = behavior.type === 'key'
@@ -1343,11 +1490,12 @@ function BehaviorEditDialog({ button, trigger, behavior, capturing, draft = fals
                     onCancelCapture()
                     const modifiers = shortcutModifiers.filter((item) => item === modifier ? !selected : selectedShortcutModifiers.includes(item))
                     setShortcut(modifiers, shortcutBase)
-                  }}>{modifier}</button>
+                  }}>{keyDisplayName(modifier, platform)}</button>
                 })}
               </div>
               <span className="shortcut-plus">+</span>
               <ManualKeySelect
+                platform={platform}
                 value={shortcutBase}
                 label="选择主按键或单独修饰键"
                 onChange={(base) => { onCancelCapture(); setShortcut(isStandaloneModifierKey(base) ? [] : selectedShortcutModifiers, base) }}
@@ -1405,6 +1553,8 @@ function TextInputPresetDialog({ button, trigger, value, onChange, onClose, onSa
 }
 
 type SetupDialogProps = {
+  platform: Platform
+  macPermissions: MacPermissions
   state: SetupState
   onClose: () => void
   onOpenStep: (step: SetupStepId) => void
@@ -1415,22 +1565,29 @@ type SetupDialogProps = {
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onMarkDriverInstalled: (driver: DriverKind) => void
-  onOpenWindowsSettings: (page: 'bluetooth' | 'sound') => void
+  onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => void
+  onRequestMacPermission: (kind: 'inputMonitoring' | 'accessibility') => void
   onOpenExternalPage: (page: 'vbcable') => void
   onCheckDevice: () => void
   onMarkDeviceConnected: () => void
   onFinish: () => void
 }
 
-const setupStepLabels: Record<SetupStepId, string> = {
+const windowsSetupStepLabels: Record<SetupStepId, string> = {
   welcome: '开始',
   inputDriver: '驱动安装',
   deviceConnection: '连接设备',
   complete: '完成',
 }
 
-function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onOpenWindowsSettings, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+const macSetupStepLabels: Record<SetupStepId, string> = {
+  ...windowsSetupStepLabels,
+  inputDriver: '系统权限',
+}
+
+function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
+  const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   return <div className="setup-backdrop" role="presentation">
     <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
       <aside className="setup-progress">
@@ -1453,48 +1610,118 @@ function SetupDialog({ state, onClose, onOpenStep, onCompleteStep, onSkipStep, o
         {step === 'welcome' && <div className="setup-screen">
           <span className="setup-hero-icon"><Settings2 size={24} /></span>
           <span className="section-kicker">FIRST RUN</span>
-          <h2 id="setup-title">准备好驱动与遥控器</h2>
-          <p className="setup-lead">整个过程只在本机完成。两个驱动将在同一页依次安装，全部完成后只需重启 Windows 一次。</p>
+          <h2 id="setup-title">{platform === 'macos' ? '准备好权限与遥控器' : '准备好驱动与遥控器'}</h2>
+          <p className="setup-lead">{platform === 'macos'
+            ? '整个过程只在本机完成。Axonkey 需要读取 RC003 输入并向当前应用发送映射后的按键。'
+            : '整个过程只在本机完成。两个驱动将在同一页依次安装，全部完成后只需重启 Windows 一次。'}</p>
           <div className="setup-summary-grid">
-            <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
-            <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
-            <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
+            {platform === 'macos' ? <>
+              <div><Keyboard size={18} /><strong>输入监控</strong><span>仅监听目标 RC003 的 HID 报告</span></div>
+              <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
+              <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
+            </> : <>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
+              <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
+              <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
+            </>}
           </div>
           <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onCompleteStep}>开始设置 <ChevronRight size={15} /></button></div>
         </div>}
-        {step === 'inputDriver' && <DriversSetupScreen
-          state={state}
-          onAction={onDriverAction}
-          onSkipAction={onSkipDriverAction}
-          onMarkInstalled={onMarkDriverInstalled}
-          onContinue={onCompleteStep}
-          onSkip={onSkipStep}
-          onOpenSettings={() => onOpenWindowsSettings('sound')}
-          onOpenVendorPage={() => onOpenExternalPage('vbcable')}
-        />}
+        {step === 'inputDriver' && (platform === 'macos'
+          ? <MacPermissionsSetupScreen
+            permissions={macPermissions}
+            onRequest={onRequestMacPermission}
+            onOpenSettings={onOpenSystemSettings}
+            onContinue={onCompleteStep}
+            onSkip={onSkipStep}
+          />
+          : <DriversSetupScreen
+            state={state}
+            onAction={onDriverAction}
+            onSkipAction={onSkipDriverAction}
+            onMarkInstalled={onMarkDriverInstalled}
+            onContinue={onCompleteStep}
+            onSkip={onSkipStep}
+            onOpenSettings={() => onOpenSystemSettings('sound')}
+            onOpenVendorPage={() => onOpenExternalPage('vbcable')}
+          />)}
         {step === 'deviceConnection' && <div className="setup-screen">
           <span className="setup-hero-icon"><Bluetooth size={24} /></span>
           <span className="section-kicker">DEVICE</span>
           <h2 id="setup-title">连接小米遥控器 RC003</h2>
-          <p className="setup-lead">先在 Windows 蓝牙设置中完成配对，再按遥控器任意按键将它唤醒。Axonkey 只处理 VID 2717 / PID 32B8 的目标设备。</p>
+          <p className="setup-lead">先在{platform === 'macos' ? '系统' : ' Windows'}蓝牙设置中完成配对，再按遥控器任意按键将它唤醒。Axonkey 只处理 VID 2717 / PID 32B8 的目标设备。</p>
           <div className={`setup-status-panel ${state.device.status}`}><span className="setup-status-dot" /><div><strong>{state.device.status === 'connected' ? 'RC003 已连接' : state.device.status === 'checking' ? '正在检查设备' : '尚未确认连接'}</strong><span>{state.device.message ?? '打开系统设置完成蓝牙配对，然后返回这里检查。'}</span></div></div>
-          <div className="setup-inline-actions"><button type="button" className="dialog-secondary" onClick={() => onOpenWindowsSettings('bluetooth')}><Bluetooth size={14} /> 打开蓝牙设置</button><button type="button" className="dialog-secondary" onClick={onCheckDevice}><RotateCcw size={14} /> 重新检测</button><button type="button" className="dialog-secondary" onClick={onMarkDeviceConnected}><Check size={14} /> 我已连接</button></div>
+          <div className="setup-inline-actions"><button type="button" className="dialog-secondary" onClick={() => onOpenSystemSettings('bluetooth')}><Bluetooth size={14} /> 打开蓝牙设置</button><button type="button" className="dialog-secondary" onClick={onCheckDevice}><RotateCcw size={14} /> 重新检测</button><button type="button" className="dialog-secondary" onClick={onMarkDeviceConnected}><Check size={14} /> 我已连接</button></div>
           <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkipStep}>稍后连接</button><button type="button" className="button primary setup-primary" disabled={state.device.status !== 'connected'} onClick={onCompleteStep}>继续 <ChevronRight size={15} /></button></div>
         </div>}
         {step === 'complete' && <div className="setup-screen setup-complete">
           <span className="setup-hero-icon success"><Check size={26} /></span>
           <span className="section-kicker">READY</span>
           <h2 id="setup-title">基本设置已完成</h2>
-          <p className="setup-lead">映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里安装、卸载驱动或检查 RC003 连接。</p>
+          <p className="setup-lead">映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里检查{platform === 'macos' ? '系统权限' : '驱动'}或 RC003 连接。</p>
           <div className="setup-result-list">
-            <span><Keyboard size={15} /> 按键驱动：{driverStatusLabel(state.drivers.input.status)}</span>
-            <span><AudioLines size={15} /> CABLE 麦克风：{driverStatusLabel(state.drivers.audio.status)}</span>
+            {platform === 'macos' ? <>
+              <span><Keyboard size={15} /> 输入监控：{macPermissions.inputMonitoring ? '已授权' : '稍后授权'}</span>
+              <span><Command size={15} /> 辅助功能：{macPermissions.accessibility ? '已授权' : '稍后授权'}</span>
+            </> : <>
+              <span><Keyboard size={15} /> 按键驱动：{driverStatusLabel(state.drivers.input.status)}</span>
+              <span><AudioLines size={15} /> CABLE 麦克风：{driverStatusLabel(state.drivers.audio.status)}</span>
+            </>}
             <span><Bluetooth size={15} /> RC003：{state.device.status === 'connected' ? '已连接' : '稍后连接'}</span>
           </div>
           <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onFinish}>进入按键映射</button></div>
         </div>}
       </div>
     </section>
+  </div>
+}
+
+type MacPermissionsSetupScreenProps = {
+  permissions: MacPermissions
+  onRequest: (kind: 'inputMonitoring' | 'accessibility') => void
+  onOpenSettings: (page: 'inputMonitoring' | 'accessibility') => void
+  onContinue: () => void
+  onSkip: () => void
+}
+
+function MacPermissionsSetupScreen({ permissions, onRequest, onOpenSettings, onContinue, onSkip }: MacPermissionsSetupScreenProps) {
+  const ready = permissions.inputMonitoring && permissions.accessibility
+  const items = [
+    {
+      kind: 'inputMonitoring' as const,
+      title: '输入监控',
+      description: '允许 IOKit 读取目标 RC003 的原始 HID 按键报告。',
+      granted: permissions.inputMonitoring,
+      icon: <Keyboard size={18} />,
+    },
+    {
+      kind: 'accessibility' as const,
+      title: '辅助功能',
+      description: '允许 CoreGraphics 发送映射后的按键、快捷键和文本。',
+      granted: permissions.accessibility,
+      icon: <Command size={18} />,
+    },
+  ]
+  return <div className="setup-screen drivers-setup-screen">
+    <span className="setup-hero-icon"><Settings2 size={24} /></span>
+    <span className="section-kicker">PERMISSIONS</span>
+    <h2 id="setup-title">授予两项系统权限</h2>
+    <p className="setup-lead">只有两项权限同时可用时，Axonkey 才会接管 RC003、拦截原始按键并执行自定义映射。</p>
+    <div className="driver-setup-list">
+      {items.map((item) => <section key={item.kind} className={`driver-setup-item ${item.granted ? 'installed' : 'missing'}`}>
+        <div className="driver-setup-heading">
+          <span className="driver-setup-icon">{item.icon}</span>
+          <div><h3>{item.title}</h3><p>{item.description}</p></div>
+          <span className="driver-status-chip"><span className="setup-status-dot" /> {item.granted ? '已授权' : '待授权'}</span>
+        </div>
+        <div className="driver-setup-actions">
+          {!item.granted && <button type="button" className="dialog-secondary" onClick={() => onRequest(item.kind)}><Check size={14} /> 请求授权</button>}
+          <button type="button" className="dialog-secondary" onClick={() => onOpenSettings(item.kind)}><Settings2 size={14} /> 打开系统设置</button>
+        </div>
+      </section>)}
+    </div>
+    <div className={`driver-restart-notice ${ready ? 'ready' : ''}`}><Info size={16} /><div><strong>{ready ? '原生输入权限已就绪' : '授权后返回 Axonkey'}</strong><span>{ready ? '启用自定义按键功能后，RC003 的原始按键会被 Axonkey 拦截并替换。' : '状态会自动刷新；若输入监控未立即生效，请重新启动 Axonkey。'}</span></div></div>
+    <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkip}>稍后授权</button><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续 <ChevronRight size={15} /></button></div>
   </div>
 }
 
