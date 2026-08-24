@@ -3,6 +3,9 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
+const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const tagVersionPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const envVersionPattern = /^version=(v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/
 export const versionFiles = [
   '.env.example',
   'package.json',
@@ -11,8 +14,6 @@ export const versionFiles = [
   'src-tauri/Cargo.lock',
   'src-tauri/tauri.conf.json',
 ]
-
-const tagVersionPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
 
 function absolutePath(root, path) {
   return isAbsolute(path) ? path : join(root, path)
@@ -113,27 +114,61 @@ export function numericVersion(tag) {
   return validateTagVersion(tag).slice(1)
 }
 
+export function parseVersion(value) {
+  const match = versionPattern.exec(value)
+  if (!match) throw new Error(`Invalid version "${value}". Expected MAJOR.MINOR.PATCH, for example 0.2.6.`)
+  return match.slice(1).map(Number)
+}
+
+export function compareVersions(left, right) {
+  const a = parseVersion(left)
+  const b = parseVersion(right)
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index]
+  }
+  return 0
+}
+
+export function nextPatchVersion(current) {
+  const [major, minor, patch] = parseVersion(current)
+  return `${major}.${minor}.${patch + 1}`
+}
+
 export function nextPatchTag(tag) {
   const match = tagVersionPattern.exec(validateTagVersion(tag))
   const [major, minor, patch] = match.slice(1).map(Number)
   return `v${major}.${minor}.${patch + 1}`
 }
 
-export function readEnvVersion(root = repositoryRoot, envFile = '.env') {
+function resolveEnvArguments(rootOrPath, envFile) {
+  if (envFile !== undefined) return { root: rootOrPath ?? repositoryRoot, envFile }
+  if (rootOrPath === undefined) return { root: repositoryRoot, envFile: '.env' }
+  if (isAbsolute(rootOrPath)) return { root: repositoryRoot, envFile: rootOrPath }
+  if (rootOrPath === '.env' || rootOrPath.startsWith('.env') || rootOrPath.endsWith('.env')) {
+    return { root: repositoryRoot, envFile: rootOrPath }
+  }
+  return { root: rootOrPath, envFile: '.env' }
+}
+
+export function readEnvVersion(rootOrPath, envFile) {
+  const resolved = resolveEnvArguments(rootOrPath, envFile)
   let source
   try {
-    source = readFileSync(absolutePath(root, envFile), 'utf8')
+    source = readFileSync(absolutePath(resolved.root, resolved.envFile), 'utf8')
   } catch (error) {
-    throw new Error(`Missing ${envFile}; run: cp .env.example .env (PowerShell: Copy-Item .env.example .env)`, {
+    throw new Error(`Missing ${resolved.envFile}; run: cp .env.example .env (PowerShell: Copy-Item .env.example .env)`, {
       cause: error,
     })
   }
   const normalized = source.replace(/\r\n/g, '\n').replace(/\n$/, '')
   const lines = normalized.split('\n')
-  if (lines.length !== 1 || !lines[0].startsWith('version=')) {
-    throw new Error(`${envFile} must contain exactly one version=vX.Y.Z line`)
+  const match = lines.length === 1 ? lines[0].match(envVersionPattern) : null
+  if (!match) {
+    throw new Error(
+      `${resolved.envFile} must contain exactly one version=vX.Y.Z line (Expected vMAJOR.MINOR.PATCH, for example v0.2.6.)`,
+    )
   }
-  return validateTagVersion(lines[0].slice('version='.length))
+  return match[1]
 }
 
 export function readVersions(root = repositoryRoot) {
@@ -167,7 +202,7 @@ export function readVersions(root = repositoryRoot) {
 }
 
 export function checkVersions(expectedTag, root = repositoryRoot) {
-  const envTag = readEnvVersion(root)
+  const envTag = readEnvVersion(root, '.env')
   const targetTag = expectedTag ? validateTagVersion(expectedTag) : envTag
   const targetVersion = numericVersion(targetTag)
   const versions = readVersions(root)
@@ -181,10 +216,32 @@ export function checkVersions(expectedTag, root = repositoryRoot) {
   return targetTag
 }
 
-export function updateVersions(tag, root = repositoryRoot) {
+export function assertVersionsMatch(envFile = '.env') {
+  const envTag = readEnvVersion(repositoryRoot, envFile)
+  const targetVersion = numericVersion(envTag)
+  const versions = readVersions(repositoryRoot)
+  const mismatches = Object.entries(versions)
+    .filter(([, version]) => version !== targetVersion)
+    .map(([path, version]) => `  ${path}: ${version ?? 'missing'}`)
+  if (mismatches.length > 0) throw new Error(`Version files are out of sync:\n${mismatches.join('\n')}`)
+  return targetVersion
+}
+
+function updateArguments(rootOrEnvFile) {
+  if (rootOrEnvFile === undefined) return { root: repositoryRoot, envFile: '.env' }
+  if (isAbsolute(rootOrEnvFile)) return { root: rootOrEnvFile, envFile: '.env' }
+  if (rootOrEnvFile === '.env' || rootOrEnvFile.startsWith('.env') || rootOrEnvFile.endsWith('.env')) {
+    return { root: repositoryRoot, envFile: rootOrEnvFile }
+  }
+  return { root: rootOrEnvFile, envFile: '.env' }
+}
+
+export function updateVersions(requestedVersion, rootOrEnvFile) {
+  const { root, envFile } = updateArguments(rootOrEnvFile)
+  const tag = requestedVersion.startsWith('v') ? validateTagVersion(requestedVersion) : `v${requestedVersion}`
   const version = numericVersion(tag)
 
-  readEnvVersion(root)
+  readEnvVersion(root, envFile)
   readVersions(root)
 
   const packageJson = readJson(root, 'package.json')
@@ -203,7 +260,7 @@ export function updateVersions(tag, root = repositoryRoot) {
   const cargoToml = readFileSync(absolutePath(root, cargoTomlPath), 'utf8')
   const cargoLock = readFileSync(absolutePath(root, cargoLockPath), 'utf8')
   const contents = new Map([
-    ['.env', `version=${tag}\n`],
+    [envFile, `version=${tag}\n`],
     ['.env.example', `version=${tag}\n`],
     ['package.json', jsonContent(packageJson)],
     ['package-lock.json', jsonContent(packageLock)],

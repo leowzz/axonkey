@@ -30,8 +30,12 @@ function main() {
     return
   }
   if (command === 'check') {
-    if (args.length > 1) throw new Error('Usage: repo-version.mjs check [vX.Y.Z]')
-    checkVersions(args[0])
+    const envFile = optionValue(args, '--env-file')
+    const expectedTag = args.find((arg, index) => arg !== '--env-file' && args[index - 1] !== '--env-file')
+    if (args.filter((arg) => arg !== '--env-file' && arg !== envFile).length > 1) {
+      throw new Error('Usage: repo-version.mjs check [vX.Y.Z] [--env-file PATH]')
+    }
+    checkVersions(expectedTag, undefined, envFile ?? '.env')
     return
   }
   throw new Error('Usage: repo-version.mjs <get|set|check>')

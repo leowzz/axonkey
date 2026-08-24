@@ -321,7 +321,7 @@ fn run_driver_action(
 
 #[tauri::command]
 async fn launch_driver_action(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
@@ -336,7 +336,7 @@ async fn launch_driver_action(
     {
         use tauri::Manager;
 
-        let resource_dir = app
+        let resource_dir = _app
             .path()
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
@@ -349,7 +349,7 @@ async fn launch_driver_action(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = app;
+        let _ = _app;
         let _ = action;
         Err("Driver installation is only supported on Windows".into())
     }
