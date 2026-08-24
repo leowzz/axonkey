@@ -1,9 +1,12 @@
-.PHONY: dev version-check build build-macos build-macos-audio test-release release uninstall-driver
+.PHONY: dev kill version-check build build-macos build-macos-audio test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
 dev:
 	npm run tauri dev
+
+kill:
+	pkill -x axonkey || true
 
 build:
 	ENV_FILE="$(ENV_FILE)" node ./scripts/build.mjs
