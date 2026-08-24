@@ -70,6 +70,7 @@ import {
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
   ReactNode,
+  RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -447,6 +448,7 @@ function App() {
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const workspaceRef = useRef<HTMLDivElement>(null)
+  const behaviorEditorRef = useRef<HTMLElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
@@ -458,7 +460,9 @@ function App() {
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
+  const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [connectors, setConnectors] = useState<Connector[]>([])
+  const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
@@ -546,6 +550,12 @@ function App() {
   useEffect(() => {
     saveSetupState(setupState)
   }, [setupState])
+
+  useEffect(() => () => {
+    if (behaviorAttentionTimerRef.current !== undefined) {
+      window.clearTimeout(behaviorAttentionTimerRef.current)
+    }
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -662,6 +672,36 @@ function App() {
 
   const connectedCount = editableButtons.reduce((count, button) => count + Object.values(behaviors[button.id]).reduce((total, list) => total + list.length, 0), 0)
 
+  const revealBehaviorEditor = () => {
+    window.requestAnimationFrame(() => {
+      const editor = behaviorEditorRef.current
+      if (!editor) return
+      const rect = editor.getBoundingClientRect()
+      const editorFullyVisible = rect.top >= 8 && rect.bottom <= window.innerHeight - 8
+      if (!editorFullyVisible) {
+        const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        editor.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
+      }
+
+      setBehaviorEditorAttention(false)
+      window.requestAnimationFrame(() => setBehaviorEditorAttention(true))
+      if (behaviorAttentionTimerRef.current !== undefined) {
+        window.clearTimeout(behaviorAttentionTimerRef.current)
+      }
+      behaviorAttentionTimerRef.current = window.setTimeout(() => {
+        behaviorAttentionTimerRef.current = undefined
+        setBehaviorEditorAttention(false)
+      }, 900)
+    })
+  }
+
+  const returnToSelectedMapping = () => {
+    const selectedRow = rowRefs.current[selectedBehavior.buttonId]
+    if (!selectedRow) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    selectedRow.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  }
+
   const selectBehaviorTarget = (buttonId: ButtonId, trigger: TriggerType) => {
     setActiveId(buttonId)
     setSelectedBehavior({ buttonId, trigger })
@@ -669,6 +709,7 @@ function App() {
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
+    revealBehaviorEditor()
   }
 
   const showBehaviorToast = (message: string) => {
@@ -1293,6 +1334,8 @@ function App() {
           <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
         </div>}
         <BehaviorEditor
+          editorRef={behaviorEditorRef}
+          attention={behaviorEditorAttention}
           platform={platform}
           button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
           trigger={selectedBehavior.trigger}
@@ -1304,6 +1347,7 @@ function App() {
           onRemoveBehavior={removeBehavior}
           onMoveBehavior={moveSelectedBehavior}
           onEditBehavior={setEditingBehaviorId}
+          onReturnToMappings={returnToSelectedMapping}
         />
         <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
       </main>
@@ -1454,6 +1498,8 @@ function MappingRow({ platform, button, behaviors, active, pressed, selectedTrig
 }
 
 type BehaviorEditorProps = {
+  editorRef: RefObject<HTMLElement>
+  attention: boolean
   platform: Platform
   button: RemoteButton
   trigger: TriggerType
@@ -1465,6 +1511,7 @@ type BehaviorEditorProps = {
   onRemoveBehavior: (behaviorId: string) => void
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
   onEditBehavior: (behaviorId: string) => void
+  onReturnToMappings: () => void
 }
 
 type BehaviorEditorTab = 'common' | 'navigation' | 'media' | 'advanced'
@@ -1483,16 +1530,19 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   </button>
 }
 
-function BehaviorEditor({ platform, button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior }: BehaviorEditorProps) {
+function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
-  return <section className="behavior-editor" aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
+  return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
     <div className="behavior-editor-head">
       <div className="behavior-editor-title">
         <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
         <div><h2>{button.label} · {triggerLabels[trigger]}</h2><p>按顺序执行下面的行为，支持连续组合</p></div>
       </div>
-      <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
+      <div className="behavior-editor-tools">
+        <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
+        <button type="button" className="icon-button behavior-return-button" title="返回按键总览" aria-label="返回按键总览" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+      </div>
     </div>
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
