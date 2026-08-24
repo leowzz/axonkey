@@ -161,7 +161,10 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     uint8_t _sessionID;
     NSUInteger _frameSize;
     NSUInteger _connectionGeneration;
-    NSUInteger _audioGeneration;
+    NSUInteger _pendingAudioBuffers;
+    NSUInteger _drainGeneration;
+    BOOL _drainRequested;
+    CFAbsoluteTime _lastVoiceStopTime;
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
@@ -426,8 +429,10 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)beginVoiceSession {
-    _audioGeneration += 1;
     if (!_streaming) {
+        _drainRequested = NO;
+        _drainGeneration += 1;
+        _lastVoiceStopTime = 0;
         _streaming = YES;
         [self emitEvent:AKAudioEventSessionStart data:nil value1:0 value2:0];
     }
@@ -446,13 +451,20 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     if (_capabilitiesConfirmed) {
         [self setState:AKAudioStateReady error:nil];
     }
-    _audioGeneration += 1;
-    NSUInteger generation = _audioGeneration;
+    _lastVoiceStopTime = CFAbsoluteTimeGetCurrent();
+    _drainRequested = YES;
+    _drainGeneration += 1;
+    NSUInteger generation = _drainGeneration;
+    if (_pendingAudioBuffers == 0) {
+        [self stopAudioOutput];
+        return;
+    }
     dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(350 * NSEC_PER_MSEC)),
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
         dispatch_get_main_queue(),
         ^{
-            if (self->_audioGeneration == generation && !self->_streaming) {
+            if (self->_drainRequested && self->_drainGeneration == generation &&
+                !self->_streaming) {
                 [self stopAudioOutput];
             }
         }
@@ -530,6 +542,10 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         return;
     }
     if (!_streaming) {
+        if (_lastVoiceStopTime > 0 &&
+            CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3) {
+            return;
+        }
         [self beginVoiceSession];
     }
     [self emitEvent:AKAudioEventPacket
@@ -608,12 +624,37 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         channel[index] = (float)samples[index] / (float)INT16_MAX;
     }
     buffer.frameLength = (AVAudioFrameCount)count;
-    [_player scheduleBuffer:buffer completionHandler:nil];
+    _pendingAudioBuffers += 1;
+    __weak AKMacAudioBridge *weakSelf = self;
+    [_player scheduleBuffer:buffer
+                     atTime:nil
+                     options:0
+      completionCallbackType:AVAudioPlayerNodeCompletionDataPlayedBack
+           completionHandler:^(AVAudioPlayerNodeCompletionCallbackType callbackType) {
+               if (callbackType != AVAudioPlayerNodeCompletionDataPlayedBack) {
+                   return;
+               }
+               dispatch_async(dispatch_get_main_queue(), ^{
+                   AKMacAudioBridge *strongSelf = weakSelf;
+                   if (strongSelf == nil) {
+                       return;
+                   }
+                   if (strongSelf->_pendingAudioBuffers > 0) {
+                       strongSelf->_pendingAudioBuffers -= 1;
+                   }
+                   if (strongSelf->_pendingAudioBuffers == 0 &&
+                       strongSelf->_drainRequested && !strongSelf->_streaming) {
+                       [strongSelf stopAudioOutput];
+                   }
+               });
+           }];
     return YES;
 }
 
 - (void)stopAudioOutput {
-    _audioGeneration += 1;
+    _drainGeneration += 1;
+    _drainRequested = NO;
+    _pendingAudioBuffers = 0;
     [_player stop];
     [_engine stop];
     _player = nil;
