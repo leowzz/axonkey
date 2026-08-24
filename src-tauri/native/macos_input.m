@@ -220,6 +220,18 @@ static bool axonkey_native_event_for_usage(uint16_t usage, int *kind, int *code)
     }
 }
 
+static void axonkey_arm_usage_events(AxonkeyInputState *state, uint16_t usage, bool down) {
+    int kind = 0;
+    int code = 0;
+    if (axonkey_native_event_for_usage(usage, &kind, &code)) {
+        axonkey_arm_native_event(state, kind, code, down);
+    }
+    if (usage == 0x66) {
+        // The RC003 power usage is Escape unless another app remaps it to F20.
+        axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 53, down);
+    }
+}
+
 static bool axonkey_usage_contains(const uint16_t *usages, size_t count, uint16_t usage) {
     for (size_t index = 0; index < count; index += 1) {
         if (usages[index] == usage) {
@@ -256,20 +268,12 @@ static void axonkey_arm_report_events(
     }
     for (size_t index = 0; index < usage_count; index += 1) {
         if (!axonkey_usage_contains(state->active_usages, state->active_usage_count, usages[index])) {
-            int kind = 0;
-            int code = 0;
-            if (axonkey_native_event_for_usage(usages[index], &kind, &code)) {
-                axonkey_arm_native_event(state, kind, code, true);
-            }
+            axonkey_arm_usage_events(state, usages[index], true);
         }
     }
     for (size_t index = 0; index < state->active_usage_count; index += 1) {
         if (!axonkey_usage_contains(usages, usage_count, state->active_usages[index])) {
-            int kind = 0;
-            int code = 0;
-            if (axonkey_native_event_for_usage(state->active_usages[index], &kind, &code)) {
-                axonkey_arm_native_event(state, kind, code, false);
-            }
+            axonkey_arm_usage_events(state, state->active_usages[index], false);
         }
     }
     memcpy(state->active_usages, usages, usage_count * sizeof(uint16_t));
@@ -744,7 +748,7 @@ bool axonkey_macos_post_key(
     if (autorepeat) {
         CGEventSetIntegerValueField(event, kCGKeyboardEventAutorepeat, 1);
     }
-    CGEventPost(kCGHIDEventTap, event);
+    CGEventPost(modifier ? kCGSessionEventTap : kCGHIDEventTap, event);
     CFRelease(event);
     return true;
 }
