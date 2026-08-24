@@ -3,6 +3,7 @@
 node_modules/
 web-dist/
 src-tauri/target/
+src-tauri/gen/schemas/macOS-schema.json
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
