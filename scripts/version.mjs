@@ -1,17 +1,57 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const tagVersionPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+const envVersionPattern = /^version=(v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/
 
 export const versionFiles = [
+  '.env.example',
   'package.json',
   'package-lock.json',
   'src-tauri/Cargo.toml',
   'src-tauri/Cargo.lock',
   'src-tauri/tauri.conf.json',
 ]
+
+function resolveRepositoryPath(path) {
+  return isAbsolute(path) ? path : join(repositoryRoot, path)
+}
+
+export function readEnvVersion(path = '.env') {
+  let source
+  try {
+    source = readFileSync(resolveRepositoryPath(path), 'utf8')
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw new Error(
+        `Missing ${path}; run: cp .env.example .env (PowerShell: Copy-Item .env.example .env)`,
+      )
+    }
+    throw error
+  }
+
+  const line = source.endsWith('\r\n')
+    ? source.slice(0, -2)
+    : source.endsWith('\n')
+      ? source.slice(0, -1)
+      : source
+  const match = line.match(envVersionPattern)
+  if (!match) {
+    throw new Error(`${path} must contain exactly one version=vX.Y.Z line`)
+  }
+  return match[1]
+}
+
+export function numericVersion(tag) {
+  const match = tag.match(tagVersionPattern)
+  if (!match) {
+    throw new Error(`Invalid version "${tag}". Expected vMAJOR.MINOR.PATCH, for example v0.2.6.`)
+  }
+  return tag.slice(1)
+}
 
 function readJson(path) {
   return JSON.parse(readFileSync(join(repositoryRoot, path), 'utf8'))
@@ -27,13 +67,15 @@ function extractVersion(source, pattern, path) {
   return match[1]
 }
 
-export function readVersions() {
+export function readVersions(envFile = '.env') {
   const packageJson = readJson('package.json')
   const packageLock = readJson('package-lock.json')
   const tauriConfig = readJson('src-tauri/tauri.conf.json')
   const cargoToml = readFileSync(join(repositoryRoot, 'src-tauri/Cargo.toml'), 'utf8')
   const cargoLock = readFileSync(join(repositoryRoot, 'src-tauri/Cargo.lock'), 'utf8')
   return {
+    [envFile]: numericVersion(readEnvVersion(envFile)),
+    '.env.example': numericVersion(readEnvVersion('.env.example')),
     'package.json': packageJson.version,
     'package-lock.json': packageLock.version,
     'package-lock.json root package': packageLock.packages?.['']?.version,
@@ -47,8 +89,8 @@ export function readVersions() {
   }
 }
 
-export function assertVersionsMatch() {
-  const versions = readVersions()
+export function assertVersionsMatch(envFile = '.env') {
+  const versions = readVersions(envFile)
   const unique = new Set(Object.values(versions))
   if (unique.size !== 1 || unique.has(undefined)) {
     const detail = Object.entries(versions).map(([path, version]) => `  ${path}: ${version ?? 'missing'}`).join('\n')
@@ -84,8 +126,12 @@ function replaceVersion(path, pattern, replacement) {
   writeFileSync(absolutePath, source.replace(pattern, replacement), 'utf8')
 }
 
-export function updateVersions(version) {
+export function updateVersions(version, envFile = '.env') {
   parseVersion(version)
+
+  const envLine = `version=v${version}\n`
+  writeFileSync(resolveRepositoryPath(envFile), envLine, 'utf8')
+  writeFileSync(join(repositoryRoot, '.env.example'), envLine, 'utf8')
 
   const packageJson = readJson('package.json')
   packageJson.version = version

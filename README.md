@@ -98,6 +98,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-driver.ps1
 开发环境需要 Node.js、Rust stable、Windows MSVC 构建工具和 WebView2。安装依赖并启动 Tauri 桌面应用：
 
 ```powershell
+Copy-Item .env.example .env
 npm install
 npm run tauri dev
 ```
@@ -114,14 +115,20 @@ cargo test --manifest-path .\src-tauri\Cargo.toml
 ```powershell
 make dev
 make build
-make build V=0.2.6
+make release
+make release V=v0.2.6
 ```
 
-`make build` 要求 Git 工作区干净。它会同步版本号、创建发布提交和带注释的 Git 标签，然后生成 NSIS 安装程序：
+`.env` 不纳入 Git，且只包含一行 `version=vX.Y.Z`。`make build` 只校验 `.env` 与 npm、Cargo、Tauri
+版本一致，然后构建 NSIS 安装程序，不修改版本文件或 Git 状态：
 
 ```text
 src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
 ```
+
+`make release` 要求 Git 工作区干净；默认从 `.env` 读取当前版本并递增 patch，也可以通过
+`V=vX.Y.Z` 指定版本。它会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建发布提交和带注释的
+Git 标签，但不会构建或推送。
 
 ## GitHub Tag 自动构建
 
@@ -130,7 +137,8 @@ src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
 
 ```powershell
 git checkout main
-git tag -a v0.2.6 -m "Axonkey 0.2.6"
+make release V=v0.2.6
+git push origin main
 git push origin v0.2.6
 ```
 
