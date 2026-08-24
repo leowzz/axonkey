@@ -51,3 +51,12 @@ test('runtime installation and forwarding do not reference the reference reposit
   assert.match(nativeAudio, /MiRemoteV2ch_UID/)
   assert.doesNotMatch(`${backend}\n${nativeAudio}`, /remote-mic-app/)
 })
+
+test('macOS battery reporting reuses the RC003 audio peripheral', () => {
+  const nativeAudio = read('src-tauri/native/macos_audio.m')
+  assert.match(nativeAudio, /AKBatteryServiceUUIDString = @"180F"/)
+  assert.match(nativeAudio, /AKBatteryLevelUUIDString = @"2A19"/)
+  assert.match(nativeAudio, /discoverServices:@\[_serviceUUID, _batteryServiceUUID\]/)
+  assert.match(nativeAudio, /readValueForCharacteristic:characteristic/)
+  assert.match(nativeAudio, /axonkey_macos_audio_battery_level/)
+})

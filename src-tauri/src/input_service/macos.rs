@@ -27,6 +27,10 @@ const REPEAT_INITIAL_MS: u64 = 500;
 const REPEAT_INTERVAL_MS: u64 = 50;
 const MEDIA_REPEAT_INITIAL_MS: u64 = 350;
 const MEDIA_REPEAT_INTERVAL_MS: u64 = 100;
+const DENIED_RETRY_MS: u64 = 2_000;
+const IO_RETURN_NOT_PERMITTED: i32 = 0xe00002e2_u32 as i32;
+const STALE_INPUT_MONITORING_ERROR: &str =
+    "macOS Input Monitoring authorization is stale for this build; remove the old Axonkey entry and add the current Axonkey.app again";
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
@@ -121,7 +125,10 @@ impl InputService {
                 error: Some("Input status lock is unavailable".into()),
                 ..InputServiceStatus::default()
             });
-        status.input_monitoring_granted = Some(Self::input_monitoring_granted());
+        status.input_monitoring_granted = Some(effective_input_monitoring_granted(
+            Self::input_monitoring_granted(),
+            &status,
+        ));
         status.accessibility_granted = Some(Self::accessibility_granted());
         status
     }
@@ -189,11 +196,43 @@ fn permission_error(shared: &Shared) -> Option<String> {
     None
 }
 
+fn effective_input_monitoring_granted(
+    preflight_granted: bool,
+    status: &InputServiceStatus,
+) -> bool {
+    preflight_granted && !status.input_monitoring_open_denied
+}
+
+fn prepare_backend_attempt(status: &mut InputServiceStatus, permission_error: Option<String>) {
+    status.backend_ready = false;
+    if !status.input_monitoring_open_denied {
+        status.device_connected = false;
+        status.hardware_id = None;
+    }
+    status.capture_active = false;
+    status.error = if status.input_monitoring_open_denied {
+        Some(STALE_INPUT_MONITORING_ERROR.into())
+    } else {
+        permission_error
+    };
+}
+
+fn record_backend_error(status: &mut InputServiceStatus, code: i32) {
+    status.capture_active = false;
+    if code == IO_RETURN_NOT_PERMITTED {
+        status.input_monitoring_open_denied = true;
+        status.error = Some(STALE_INPUT_MONITORING_ERROR.into());
+    } else {
+        status.error = Some(format!("macOS HID backend stopped with IOKit error {code}"));
+    }
+}
+
 struct WorkerContext {
     shared: Arc<Shared>,
     capture: bool,
     voice_right_control_requested: bool,
     voice_right_control_active: bool,
+    device_seen: bool,
     input: MacInputState,
     next_permission_check: Instant,
 }
@@ -203,11 +242,7 @@ fn worker_loop(shared: Arc<Shared>) {
         shared.restart.store(false, Ordering::Release);
         let capture = desired_capture(&shared);
         if let Ok(mut status) = shared.status.lock() {
-            status.backend_ready = false;
-            status.device_connected = false;
-            status.hardware_id = None;
-            status.capture_active = false;
-            status.error = permission_error(&shared);
+            prepare_backend_attempt(&mut status, permission_error(&shared));
         }
 
         let mut context = WorkerContext {
@@ -220,6 +255,7 @@ fn worker_loop(shared: Arc<Shared>) {
                     .map(|settings| wants_hardware_voice_right_control(&settings))
                     .unwrap_or(false),
             voice_right_control_active: false,
+            device_seen: false,
             input: MacInputState::default(),
             next_permission_check: Instant::now() + Duration::from_millis(250),
         };
@@ -234,14 +270,27 @@ fn worker_loop(shared: Arc<Shared>) {
         context.input.release_all();
         if let Ok(mut status) = shared.status.lock() {
             status.capture_active = false;
-            if result != 0 && status.error.is_none() {
-                status.error = Some(format!(
-                    "macOS HID backend stopped with IOKit error {result}"
-                ));
+            if result != 0 {
+                record_backend_error(&mut status, result);
+                if status.input_monitoring_open_denied && !context.device_seen {
+                    status.device_connected = false;
+                    status.hardware_id = None;
+                }
             }
         }
         if !shared.stop.load(Ordering::Acquire) && !shared.restart.load(Ordering::Acquire) {
-            thread::sleep(Duration::from_millis(150));
+            let retry_ms = shared
+                .status
+                .lock()
+                .map(|status| {
+                    if status.input_monitoring_open_denied {
+                        DENIED_RETRY_MS
+                    } else {
+                        150
+                    }
+                })
+                .unwrap_or(150);
+            thread::sleep(Duration::from_millis(retry_ms));
         }
     }
 }
@@ -279,13 +328,19 @@ unsafe extern "C" fn event_callback(
         EVENT_BACKEND_READY => {
             if let Ok(mut status) = context.shared.status.lock() {
                 status.backend_ready = true;
-                status.error = permission_error(&context.shared);
+                if !status.input_monitoring_open_denied {
+                    status.error = permission_error(&context.shared);
+                }
             }
         }
         EVENT_DEVICE_CONNECTED => {
             let capture_mode = code & CAPTURE_MODE_MASK;
+            context.device_seen = true;
             context.voice_right_control_active = code & CAPTURE_VOICE_RIGHT_CONTROL != 0;
             if let Ok(mut status) = context.shared.status.lock() {
+                if context.capture && capture_mode != 0 {
+                    status.input_monitoring_open_denied = false;
+                }
                 status.device_connected = true;
                 status.hardware_id = Some("HID\\VID_2717&PID_32B8".into());
                 status.capture_active = context.capture && capture_mode != 0;
@@ -321,8 +376,7 @@ unsafe extern "C" fn event_callback(
         }
         EVENT_BACKEND_ERROR => {
             if let Ok(mut status) = context.shared.status.lock() {
-                status.error = Some(format!("macOS HID device error {code}"));
-                status.capture_active = false;
+                record_backend_error(&mut status, code);
             }
         }
         EVENT_TICK if context.capture => context.input.process_timers(&context.shared),
@@ -1266,5 +1320,26 @@ mod tests {
             repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
         assert!(!pending_click_is_due(&state, now));
+    }
+
+    #[test]
+    fn tcc_denial_preserves_detected_device_and_invalidates_stale_preflight() {
+        let mut status = InputServiceStatus {
+            backend_ready: false,
+            device_connected: true,
+            hardware_id: Some("HID\\VID_2717&PID_32B8".into()),
+            ..InputServiceStatus::default()
+        };
+
+        record_backend_error(&mut status, IO_RETURN_NOT_PERMITTED);
+        prepare_backend_attempt(&mut status, None);
+
+        assert!(status.device_connected);
+        assert_eq!(
+            status.hardware_id.as_deref(),
+            Some("HID\\VID_2717&PID_32B8")
+        );
+        assert!(!effective_input_monitoring_granted(true, &status));
+        assert_eq!(status.error.as_deref(), Some(STALE_INPUT_MONITORING_ERROR));
     }
 }

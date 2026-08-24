@@ -7,6 +7,7 @@ pub struct AudioServiceStatus {
     pub state: String,
     pub bluetooth_connected: bool,
     pub forwarding: bool,
+    pub battery_level: Option<u8>,
     pub error: Option<String>,
 }
 

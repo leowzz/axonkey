@@ -97,6 +97,7 @@ type SystemProbe = {
   input_backend_error?: string | null
   device_hardware_id?: string | null
   input_monitoring_granted?: boolean | null
+  input_authorization_stale?: boolean | null
   accessibility_granted?: boolean | null
   capture_active: boolean
 }
@@ -1021,14 +1022,18 @@ function App() {
         }
         const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
         const inputStatus = probe.platform === 'macos'
-          ? !macPermissionsReady
+          ? probe.input_authorization_stale
+            ? 'error'
+            : !macPermissionsReady
             ? 'missing'
             : probe.input_backend_error
               ? 'error'
               : probe.input_backend_ready ? 'installed' : 'checking'
           : !probe.input_driver_installed ? 'missing' : probe.input_backend_error ? 'error' : 'installed'
         const inputMessage = probe.platform === 'macos'
-          ? !macPermissionsReady
+          ? probe.input_authorization_stale
+            ? '当前构建的输入监控授权已失效。请在系统设置中移除旧 Axonkey，重新添加当前 Axonkey.app 并打开开关。'
+            : !macPermissionsReady
             ? '需要授予输入监控和辅助功能权限。'
             : probe.input_backend_error
               ? `原生输入服务启动失败：${probe.input_backend_error}`
@@ -2007,6 +2012,9 @@ function MacPermissionsSetupScreen({ permissions, state, onRequest, onAudioActio
     },
   ]
   const audio = state.drivers.audio
+  const inputAuthorizationError = state.drivers.input.status === 'error'
+    ? state.drivers.input.message
+    : null
   const audioInstalled = isDriverInstalled(state, 'audio')
   const audioRunning = audio.action.status === 'running'
   return <div className="setup-screen mac-permission-screen">
@@ -2049,7 +2057,9 @@ function MacPermissionsSetupScreen({ permissions, state, onRequest, onAudioActio
       </div>
     </section>
 
-    {!ready && <div className="permission-drag-note"><Info size={17} /><div><strong>系统列表中没有 Axonkey？</strong><span>授权小窗可以在 Finder 中定位当前应用，再将 Axonkey.app 拖入系统设置列表。</span></div></div>}
+    {inputAuthorizationError
+      ? <div className="permission-drag-note"><Info size={17} /><div><strong>需要重新授权当前构建</strong><span>{inputAuthorizationError}</span></div></div>
+      : !ready && <div className="permission-drag-note"><Info size={17} /><div><strong>系统列表中没有 Axonkey？</strong><span>授权小窗可以在 Finder 中定位当前应用，再将 Axonkey.app 拖入系统设置列表。</span></div></div>}
     <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkip}>稍后授权</button><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续 <ChevronRight size={15} /></button></div>
   </div>
 }

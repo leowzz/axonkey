@@ -619,6 +619,7 @@ struct SystemProbe {
     input_backend_error: Option<String>,
     device_hardware_id: Option<String>,
     input_monitoring_granted: Option<bool>,
+    input_authorization_stale: Option<bool>,
     accessibility_granted: Option<bool>,
     capture_active: bool,
 }
@@ -727,16 +728,25 @@ try {
 }
 
 #[tauri::command]
-async fn probe_rc003_battery_level() -> Option<u8> {
+async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
     #[cfg(target_os = "windows")]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(rc003_battery_level)
             .await
             .unwrap_or_default()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        use tauri::Manager;
+
+        app.state::<AudioService>().status().battery_level
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = app;
         None
     }
 }
@@ -849,6 +859,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: None,
+            input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: input_status.capture_active,
         })
@@ -864,6 +875,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: input_status.input_monitoring_granted,
+            input_authorization_stale: Some(input_status.input_monitoring_open_denied),
             accessibility_granted: input_status.accessibility_granted,
             capture_active: input_status.capture_active,
         })
@@ -879,6 +891,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: None,
+            input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: false,
         })

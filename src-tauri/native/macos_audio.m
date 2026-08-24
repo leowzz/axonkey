@@ -43,6 +43,16 @@ static NSString *const AKServiceUUIDString = @"AB5E0001-5A21-4F05-BC7D-AF01F617B
 static NSString *const AKTransmitUUIDString = @"AB5E0002-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKAudioUUIDString = @"AB5E0003-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKControlUUIDString = @"AB5E0004-5A21-4F05-BC7D-AF01F617B664";
+static NSString *const AKBatteryServiceUUIDString = @"180F";
+static NSString *const AKBatteryLevelUUIDString = @"2A19";
+
+static int AKParseBatteryLevel(NSData *data) {
+    if (data.length < 1) {
+        return -1;
+    }
+    const uint8_t *bytes = data.bytes;
+    return bytes[0] <= 100 ? bytes[0] : -1;
+}
 
 static void AKOnMainSync(dispatch_block_t block) {
     if ([NSThread isMainThread]) {
@@ -136,6 +146,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (int)currentState;
 - (BOOL)isBluetoothConnected;
 - (BOOL)isForwarding;
+- (int)currentBatteryLevel;
 - (NSString *)currentError;
 @end
 
@@ -146,10 +157,13 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     CBCharacteristic *_transmitCharacteristic;
     CBCharacteristic *_audioCharacteristic;
     CBCharacteristic *_controlCharacteristic;
+    CBCharacteristic *_batteryLevelCharacteristic;
     CBUUID *_serviceUUID;
     CBUUID *_transmitUUID;
     CBUUID *_audioUUID;
     CBUUID *_controlUUID;
+    CBUUID *_batteryServiceUUID;
+    CBUUID *_batteryLevelUUID;
     NSMutableSet<CBUUID *> *_subscribedUUIDs;
     BOOL _shouldRun;
     BOOL _capabilitiesRequested;
@@ -165,6 +179,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     NSUInteger _drainGeneration;
     BOOL _drainRequested;
     CFAbsoluteTime _lastVoiceStopTime;
+    int _batteryLevel;
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
@@ -182,10 +197,13 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _transmitUUID = [CBUUID UUIDWithString:AKTransmitUUIDString];
         _audioUUID = [CBUUID UUIDWithString:AKAudioUUIDString];
         _controlUUID = [CBUUID UUIDWithString:AKControlUUIDString];
+        _batteryServiceUUID = [CBUUID UUIDWithString:AKBatteryServiceUUIDString];
+        _batteryLevelUUID = [CBUUID UUIDWithString:AKBatteryLevelUUIDString];
         _subscribedUUIDs = [NSMutableSet set];
         _protocolVersion = 0x0100;
         _selectedCodec = 0x02;
         _frameSize = 120;
+        _batteryLevel = -1;
         _state = AKAudioStateStopped;
         _sourceFormat = [[AVAudioFormat alloc]
             initWithCommonFormat:AVAudioPCMFormatFloat32
@@ -224,6 +242,18 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (BOOL)isForwarding {
     @synchronized (self) {
         return _streaming && _engine.isRunning && _player.isPlaying;
+    }
+}
+
+- (int)currentBatteryLevel {
+    @synchronized (self) {
+        return _batteryLevel;
+    }
+}
+
+- (void)setBatteryLevel:(int)batteryLevel {
+    @synchronized (self) {
+        _batteryLevel = batteryLevel;
     }
 }
 
@@ -302,6 +332,8 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     _transmitCharacteristic = nil;
     _audioCharacteristic = nil;
     _controlCharacteristic = nil;
+    _batteryLevelCharacteristic = nil;
+    [self setBatteryLevel:-1];
     [_subscribedUUIDs removeAllObjects];
     _capabilitiesRequested = NO;
     _capabilitiesConfirmed = NO;
@@ -708,7 +740,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         return;
     }
     peripheral.delegate = self;
-    [peripheral discoverServices:@[_serviceUUID]];
+    [peripheral discoverServices:@[_serviceUUID, _batteryServiceUUID]];
     NSUInteger generation = _connectionGeneration;
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)),
@@ -767,10 +799,12 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         return;
     }
     CBService *voiceService = nil;
+    CBService *batteryService = nil;
     for (CBService *service in peripheral.services) {
         if ([service.UUID isEqual:_serviceUUID]) {
             voiceService = service;
-            break;
+        } else if ([service.UUID isEqual:_batteryServiceUUID]) {
+            batteryService = service;
         }
     }
     if (voiceService == nil) {
@@ -780,12 +814,39 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
     [peripheral discoverCharacteristics:@[_transmitUUID, _audioUUID, _controlUUID]
                              forService:voiceService];
+    if (batteryService != nil) {
+        [peripheral discoverCharacteristics:@[_batteryLevelUUID] forService:batteryService];
+    }
 }
 
 - (void)peripheral:(CBPeripheral *)peripheral
  didDiscoverCharacteristicsForService:(CBService *)service
               error:(NSError *)error {
-    if (peripheral != _peripheral || ![service.UUID isEqual:_serviceUUID]) {
+    if (peripheral != _peripheral) {
+        return;
+    }
+    if ([service.UUID isEqual:_batteryServiceUUID]) {
+        if (error != nil) {
+            [self setBatteryLevel:-1];
+            return;
+        }
+        for (CBCharacteristic *characteristic in service.characteristics) {
+            if (![characteristic.UUID isEqual:_batteryLevelUUID]) {
+                continue;
+            }
+            _batteryLevelCharacteristic = characteristic;
+            [peripheral readValueForCharacteristic:characteristic];
+            CBCharacteristicProperties properties = characteristic.properties;
+            if ((properties & CBCharacteristicPropertyNotify) != 0 ||
+                (properties & CBCharacteristicPropertyIndicate) != 0) {
+                [peripheral setNotifyValue:YES forCharacteristic:characteristic];
+            }
+            return;
+        }
+        [self setBatteryLevel:-1];
+        return;
+    }
+    if (![service.UUID isEqual:_serviceUUID]) {
         return;
     }
     if (error != nil) {
@@ -816,6 +877,10 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (void)peripheral:(CBPeripheral *)peripheral
  didUpdateNotificationStateForCharacteristic:(CBCharacteristic *)characteristic
               error:(NSError *)error {
+    if (peripheral == _peripheral &&
+        [characteristic.UUID isEqual:_batteryLevelUUID]) {
+        return;
+    }
     if (peripheral != _peripheral || error != nil || !characteristic.isNotifying) {
         if (error != nil) {
             [self setState:AKAudioStateError error:error.localizedDescription];
@@ -839,6 +904,11 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (void)peripheral:(CBPeripheral *)peripheral
  didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
               error:(NSError *)error {
+    if (peripheral == _peripheral &&
+        [characteristic.UUID isEqual:_batteryLevelUUID]) {
+        [self setBatteryLevel:error == nil ? AKParseBatteryLevel(characteristic.value) : -1];
+        return;
+    }
     if (peripheral != _peripheral || error != nil || characteristic.value == nil) {
         return;
     }
@@ -925,6 +995,16 @@ bool axonkey_macos_audio_forwarding(void *rawBridge) {
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ forwarding = [bridge isForwarding]; });
     return forwarding;
+}
+
+int axonkey_macos_audio_battery_level(void *rawBridge) {
+    if (rawBridge == NULL) {
+        return -1;
+    }
+    __block int batteryLevel = -1;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ batteryLevel = [bridge currentBatteryLevel]; });
+    return batteryLevel;
 }
 
 size_t axonkey_macos_audio_copy_error(void *rawBridge, char *buffer, size_t capacity) {

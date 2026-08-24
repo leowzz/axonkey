@@ -30,6 +30,7 @@ extern "C" {
     fn axonkey_macos_audio_state(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_bluetooth_connected(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_forwarding(bridge: *mut c_void) -> bool;
+    fn axonkey_macos_audio_battery_level(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_copy_error(
         bridge: *mut c_void,
         buffer: *mut c_char,
@@ -110,6 +111,9 @@ impl AudioService {
             state: state_name(state_code).into(),
             bluetooth_connected: unsafe { axonkey_macos_audio_bluetooth_connected(bridge) },
             forwarding: unsafe { axonkey_macos_audio_forwarding(bridge) },
+            battery_level: battery_level_from_native(unsafe {
+                axonkey_macos_audio_battery_level(bridge)
+            }),
             error: native_error(bridge),
         }
     }
@@ -143,6 +147,10 @@ fn state_name(code: i32) -> &'static str {
         7 => "error",
         _ => "unknown",
     }
+}
+
+fn battery_level_from_native(level: i32) -> Option<u8> {
+    u8::try_from(level).ok().filter(|level| *level <= 100)
 }
 
 fn native_error(bridge: *mut c_void) -> Option<String> {
@@ -296,7 +304,15 @@ fn smooth(mut samples: Vec<i16>) -> Vec<i16> {
 
 #[cfg(test)]
 mod tests {
-    use super::{smooth, AtvvDecoder};
+    use super::{battery_level_from_native, smooth, AtvvDecoder};
+
+    #[test]
+    fn accepts_only_valid_native_battery_percentages() {
+        assert_eq!(battery_level_from_native(-1), None);
+        assert_eq!(battery_level_from_native(0), Some(0));
+        assert_eq!(battery_level_from_native(100), Some(100));
+        assert_eq!(battery_level_from_native(101), None);
+    }
 
     #[test]
     fn decoder_uses_rc003_high_nibble_order() {
