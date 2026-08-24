@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use super::{InputServiceStatus, NativeBehavior, NativeSettings, TriggerBehaviors};
+use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
@@ -139,81 +140,6 @@ fn interception_dll_candidates() -> Vec<PathBuf> {
         candidates.push(root.join("resources").join("interception.dll"));
     }
     candidates
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct InputServiceStatus {
-    pub backend_ready: bool,
-    pub device_connected: bool,
-    pub hardware_id: Option<String>,
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-pub struct NativeSettings {
-    #[serde(default)]
-    enabled: bool,
-    #[serde(default)]
-    behaviors: HashMap<String, TriggerBehaviors>,
-}
-
-#[derive(Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TriggerBehaviors {
-    #[serde(default)]
-    click: Vec<NativeBehavior>,
-    #[serde(default)]
-    double_click: Vec<NativeBehavior>,
-    #[serde(default)]
-    long_press: Vec<NativeBehavior>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase")]
-enum NativeBehavior {
-    Key {
-        #[serde(default = "enabled_by_default")]
-        enabled: bool,
-        key: String,
-    },
-    Shortcut {
-        #[serde(default = "enabled_by_default")]
-        enabled: bool,
-        #[serde(default)]
-        keys: Vec<String>,
-    },
-    Paste {
-        #[serde(default = "enabled_by_default")]
-        enabled: bool,
-        #[serde(default)]
-        text: String,
-    },
-    Delay {
-        #[serde(default = "enabled_by_default")]
-        enabled: bool,
-        #[serde(default)]
-        ms: u64,
-    },
-    Disabled {
-        #[serde(default = "enabled_by_default")]
-        enabled: bool,
-    },
-}
-
-fn enabled_by_default() -> bool {
-    true
-}
-
-impl NativeBehavior {
-    fn enabled(&self) -> bool {
-        match self {
-            Self::Key { enabled, .. }
-            | Self::Shortcut { enabled, .. }
-            | Self::Paste { enabled, .. }
-            | Self::Delay { enabled, .. }
-            | Self::Disabled { enabled } => *enabled,
-        }
-    }
 }
 
 struct Shared {
@@ -583,6 +509,7 @@ fn update_device_status(
     status.error = None;
 }
 
+#[cfg(target_os = "windows")]
 fn rc003_keyboard_device_id() -> Option<String> {
     for _ in 0..3 {
         let mut length = 0;
@@ -607,6 +534,11 @@ fn rc003_keyboard_device_id() -> Option<String> {
             return rc003_keyboard_id_from_multisz(&buffer);
         }
     }
+    None
+}
+
+#[cfg(not(target_os = "windows"))]
+fn rc003_keyboard_device_id() -> Option<String> {
     None
 }
 
@@ -1180,12 +1112,26 @@ fn send_unicode_text(text: &str) {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[link(name = "user32")]
 extern "system" {
     fn MapVirtualKeyW(code: u32, map_type: u32) -> u32;
     fn SendInput(input_count: u32, inputs: *const Input, input_size: i32) -> u32;
 }
 
+#[cfg(not(target_os = "windows"))]
+#[allow(non_snake_case)]
+unsafe fn MapVirtualKeyW(_code: u32, _map_type: u32) -> u32 {
+    0
+}
+
+#[cfg(not(target_os = "windows"))]
+#[allow(non_snake_case)]
+unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) -> u32 {
+    0
+}
+
+#[cfg(target_os = "windows")]
 #[link(name = "cfgmgr32")]
 extern "system" {
     #[link_name = "CM_Get_Device_ID_List_SizeW"]

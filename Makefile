@@ -1,4 +1,4 @@
-.PHONY: dev build release uninstall-driver
+.PHONY: dev version-check build build-macos test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -10,6 +10,15 @@ build:
 
 release:
 	ENV_FILE="$(ENV_FILE)" node ./scripts/release.mjs "$(V)"
+
+version-check:
+	node ./scripts/repo-version.mjs check --env-file "$(ENV_FILE)"
+
+build-macos: version-check
+	node ./scripts/build-macos.mjs
+
+test-release:
+	npm run test:release
 
 uninstall-driver:
 	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"

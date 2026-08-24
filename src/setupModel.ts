@@ -42,14 +42,14 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
   },
   {
     id: 'inputDriver',
-    title: '安装驱动',
-    description: '依次安装 Interception 与 VB-CABLE，完成后统一重启 Windows。',
+    title: '配置输入环境',
+    description: '按当前系统安装 Windows 驱动或授予 macOS 原生输入权限。',
     skippable: true,
   },
   {
     id: 'deviceConnection',
     title: '连接遥控器',
-    description: '在 Windows 蓝牙设置中配对并唤醒 Xiaomi RC003。',
+    description: '在系统蓝牙设置中配对并唤醒 Xiaomi RC003。',
     skippable: true,
   },
   {

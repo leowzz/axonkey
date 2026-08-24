@@ -1,8 +1,8 @@
 # Interception hot-plug incident
 
-Status: confirmed release blocker  
-Observed on: Windows 11 x64, Axonkey 0.1.4 and 0.1.5  
-Recorded: 2026-08-24
+- Status: confirmed release blocker
+- Observed on: Windows 11 x64, Axonkey 0.1.4 and 0.1.5
+- Recorded: 2026-08-24
 
 ## Summary
 

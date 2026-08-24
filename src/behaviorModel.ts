@@ -13,7 +13,10 @@ export const buttonIds = [
   'confirm',
   'right',
   'down',
+  'back',
+  'volumeUp',
   'home',
+  'volumeDown',
   'menu',
   'tv',
 ] as const

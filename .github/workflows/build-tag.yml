@@ -20,6 +20,8 @@ jobs:
     name: Build Windows installer
     runs-on: windows-2022
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.release_metadata.outputs.version }}
 
     steps:
       - name: Check out tagged commit
@@ -60,6 +62,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Verify repository version
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          Copy-Item -LiteralPath '.env.example' -Destination '.env'
+          node ./scripts/repo-version.mjs check $env:TAG_NAME
+
       - name: Select stable Rust toolchain
         shell: pwsh
         run: |
@@ -68,10 +78,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Apply tag as app version
-        shell: pwsh
-        run: node ./scripts/set-version.mjs $env:APP_VERSION
 
       - name: Build NSIS installer
         run: npm run tauri build -- --bundles nsis
@@ -89,36 +95,6 @@ jobs:
           $hash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
           Set-Content -LiteralPath "$installerPath.sha256" -Value "$hash  $installerName" -Encoding ascii
 
-      - name: Create GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          gh release create $env:TAG_NAME `
-            --repo $env:GITHUB_REPOSITORY `
-            --title "Axonkey $env:TAG_NAME" `
-            --generate-notes `
-            --verify-tag
-
-      - name: Upload binaries to GitHub Release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
-          APP_VERSION: ${{ steps.release_metadata.outputs.version }}
-        run: |
-          $bundleDirectory = Join-Path $env:GITHUB_WORKSPACE 'src-tauri\target\release\bundle\nsis'
-          $installerName = "Axonkey_$($env:APP_VERSION)_x64-setup.exe"
-          $installerPath = Join-Path $bundleDirectory $installerName
-          $checksumPath = "$installerPath.sha256"
-
-          gh release upload $env:TAG_NAME `
-            $installerPath `
-            $checksumPath `
-            --repo $env:GITHUB_REPOSITORY `
-            --clobber
-
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
@@ -128,3 +104,251 @@ jobs:
             src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sha256
           if-no-files-found: error
           retention-days: 30
+
+  build-macos:
+    name: Build macOS universal DMG
+    runs-on: macos-14
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.release_metadata.outputs.version }}
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release branch and version tag
+        id: release_metadata
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if ! git show-ref --verify --quiet "refs/remotes/origin/$RELEASE_BRANCH"; then
+            echo "Release branch '$RELEASE_BRANCH' was not found in the checkout." >&2
+            exit 1
+          fi
+
+          if git merge-base --is-ancestor HEAD "refs/remotes/origin/$RELEASE_BRANCH"; then
+            :
+          else
+            status=$?
+            if [[ "$status" -eq 1 ]]; then
+              echo "Tag '$TAG_NAME' does not point to a commit on '$RELEASE_BRANCH'." >&2
+            else
+              echo "Unable to verify the tagged commit against the release branch." >&2
+            fi
+            exit 1
+          fi
+
+          if [[ ! "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Tag '$TAG_NAME' is invalid. Expected vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          version="${TAG_NAME#v}"
+          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate Apple packaging credentials
+        id: apple_credentials
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          signing_names=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY)
+          notarization_names=(APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
+          signing_count=0
+          notarization_count=0
+
+          for name in "${signing_names[@]}"; do
+            [[ -n "${!name:-}" ]] && signing_count=$((signing_count + 1))
+          done
+          for name in "${notarization_names[@]}"; do
+            [[ -n "${!name:-}" ]] && notarization_count=$((notarization_count + 1))
+          done
+
+          if (( signing_count != 0 && signing_count != ${#signing_names[@]} )); then
+            echo "Configure all Apple signing secrets or leave all of them unset: ${signing_names[*]}" >&2
+            exit 1
+          fi
+          if (( notarization_count != 0 && notarization_count != ${#notarization_names[@]} )); then
+            echo "Configure all Apple notarization secrets or leave all of them unset: ${notarization_names[*]}" >&2
+            exit 1
+          fi
+          if (( notarization_count > 0 && signing_count == 0 )); then
+            echo "Apple notarization requires the Developer ID signing secrets." >&2
+            exit 1
+          fi
+
+          if (( signing_count == ${#signing_names[@]} )); then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Apple signing secrets are not configured; the DMG will use ad-hoc signing."
+          fi
+
+          if (( notarization_count == ${#notarization_names[@]} )); then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Apple notarization secrets are not configured; the DMG will not be notarized."
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify repository version
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          cp .env.example .env
+          node ./scripts/repo-version.mjs check "$TAG_NAME"
+
+      - name: Select stable Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build signed universal DMG
+        if: steps.apple_credentials.outputs.signed == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
+
+      - name: Build ad-hoc universal DMG
+        if: steps.apple_credentials.outputs.signed != 'true'
+        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
+
+      - name: Notarize and staple DMG
+        if: steps.apple_credentials.outputs.notarize == 'true'
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          bundle_directory="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+          shopt -s nullglob
+          dmg_files=("$bundle_directory"/*.dmg)
+          if (( ${#dmg_files[@]} != 1 )); then
+            echo "Expected exactly one DMG in $bundle_directory, found ${#dmg_files[@]}." >&2
+            exit 1
+          fi
+
+          dmg="${dmg_files[0]}"
+          xcrun notarytool submit "$dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+
+      - name: Create SHA-256 checksum
+        shell: bash
+        run: |
+          bundle_directory="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+          shopt -s nullglob
+          dmg_files=("$bundle_directory"/*.dmg)
+          if (( ${#dmg_files[@]} != 1 )); then
+            echo "Expected exactly one DMG in $bundle_directory, found ${#dmg_files[@]}." >&2
+            exit 1
+          fi
+
+          asset="${dmg_files[0]}"
+          asset_name="$(basename "$asset")"
+          checksum="$(shasum -a 256 "$asset" | awk '{print $1}')"
+          printf '%s  %s\n' "$checksum" "$asset_name" > "$asset.sha256"
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: Axonkey-v${{ env.APP_VERSION }}-macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-release:
+    name: Publish GitHub Release
+    needs:
+      - build-windows
+      - build-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Verify build versions
+        shell: bash
+        env:
+          WINDOWS_VERSION: ${{ needs.build-windows.outputs.version }}
+          MACOS_VERSION: ${{ needs.build-macos.outputs.version }}
+        run: |
+          if [[ -z "$WINDOWS_VERSION" || "$WINDOWS_VERSION" != "$MACOS_VERSION" ]]; then
+            echo "Build version mismatch: Windows='$WINDOWS_VERSION', macOS='$MACOS_VERSION'." >&2
+            exit 1
+          fi
+
+      - name: Download Windows installer
+        uses: actions/download-artifact@v7
+        with:
+          name: Axonkey-v${{ needs.build-windows.outputs.version }}-windows-x64
+          path: release-assets
+
+      - name: Download macOS installer
+        uses: actions/download-artifact@v7
+        with:
+          name: Axonkey-v${{ needs.build-macos.outputs.version }}-macos-universal
+          path: release-assets
+
+      - name: Verify release assets and checksums
+        shell: bash
+        run: |
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if (( ${#assets[@]} != 4 )); then
+            echo "Expected four release assets, found ${#assets[@]}." >&2
+            printf '  %s\n' "${assets[@]}" >&2
+            exit 1
+          fi
+          (
+            cd release-assets
+            sed -i 's/\r$//' ./*.sha256
+            sha256sum --check ./*.sha256
+          )
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if ! gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Axonkey $TAG_NAME" \
+              --generate-notes \
+              --verify-tag
+          fi
+
+          gh release upload "$TAG_NAME" release-assets/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber

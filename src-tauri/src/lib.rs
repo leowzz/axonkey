@@ -1,50 +1,196 @@
-#[cfg(target_os = "windows")]
 mod input_service;
 
-#[cfg(not(target_os = "windows"))]
-mod input_service {
-    use serde::{Deserialize, Serialize};
+use input_service::{InputService, NativeSettings};
+use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
-    #[derive(Clone, Default, Deserialize)]
-    pub struct NativeSettings {
-        #[serde(default, rename = "enabled")]
-        _enabled: bool,
-        #[serde(default, rename = "behaviors")]
-        _behaviors: serde_json::Value,
+const MAIN_WINDOW_LABEL: &str = "main";
+const TRAY_SHOW_ID: &str = "tray-show";
+const TRAY_QUIT_ID: &str = "tray-quit";
+const PERMISSION_HELPER_WIDTH: f64 = 430.0;
+const PERMISSION_HELPER_HEIGHT: f64 = 520.0;
+
+#[derive(Clone, Copy)]
+struct WindowGeometry {
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    resizable: bool,
+    always_on_top: bool,
+}
+
+#[derive(Default)]
+struct PermissionHelperWindowState(std::sync::Mutex<Option<WindowGeometry>>);
+
+fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
+    executable
+        .ancestors()
+        .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        .map(std::path::Path::to_path_buf)
+}
+
+#[cfg(target_os = "macos")]
+fn apply_permission_helper_mode(
+    window: &tauri::WebviewWindow,
+    state: &PermissionHelperWindowState,
+    enabled: bool,
+) -> Result<(), String> {
+    if enabled {
+        let geometry = WindowGeometry {
+            position: window
+                .outer_position()
+                .map_err(|error| format!("Cannot read window position: {error}"))?,
+            size: window
+                .outer_size()
+                .map_err(|error| format!("Cannot read window size: {error}"))?,
+            resizable: window
+                .is_resizable()
+                .map_err(|error| format!("Cannot read resizable state: {error}"))?,
+            always_on_top: window
+                .is_always_on_top()
+                .map_err(|error| format!("Cannot read always-on-top state: {error}"))?,
+        };
+        let mut saved = state
+            .0
+            .lock()
+            .map_err(|_| "Permission helper window state is unavailable".to_string())?;
+        if saved.is_none() {
+            *saved = Some(geometry);
+        }
+        drop(saved);
+
+        let helper_size =
+            tauri::LogicalSize::new(PERMISSION_HELPER_WIDTH, PERMISSION_HELPER_HEIGHT);
+        window
+            .set_min_size(Some(helper_size))
+            .map_err(|error| format!("Cannot set helper minimum size: {error}"))?;
+        window
+            .set_resizable(false)
+            .map_err(|error| format!("Cannot lock helper size: {error}"))?;
+        window
+            .set_size(helper_size)
+            .map_err(|error| format!("Cannot resize permission helper: {error}"))?;
+        window
+            .set_always_on_top(true)
+            .map_err(|error| format!("Cannot keep permission helper visible: {error}"))?;
+
+        if let Some(monitor) = window
+            .current_monitor()
+            .map_err(|error| format!("Cannot read current monitor: {error}"))?
+        {
+            let scale = monitor.scale_factor();
+            let work_area = monitor.work_area();
+            let width = (PERMISSION_HELPER_WIDTH * scale).round() as i32;
+            let margin = (20.0 * scale).round() as i32;
+            let x = work_area.position.x + work_area.size.width as i32 - width - margin;
+            let y = work_area.position.y + margin;
+            window
+                .set_position(PhysicalPosition::new(x, y))
+                .map_err(|error| format!("Cannot position permission helper: {error}"))?;
+        }
+        window
+            .set_focus()
+            .map_err(|error| format!("Cannot focus permission helper: {error}"))?;
+        return Ok(());
     }
 
-    #[derive(Clone, Default, Serialize)]
-    pub struct InputServiceStatus {
-        pub backend_ready: bool,
-        pub device_connected: bool,
-        pub hardware_id: Option<String>,
-        pub error: Option<String>,
+    let geometry = state
+        .0
+        .lock()
+        .map_err(|_| "Permission helper window state is unavailable".to_string())?
+        .take();
+    if let Some(geometry) = geometry {
+        window
+            .set_min_size(Some(tauri::LogicalSize::new(980.0, 680.0)))
+            .map_err(|error| format!("Cannot restore minimum window size: {error}"))?;
+        window
+            .set_size(geometry.size)
+            .map_err(|error| format!("Cannot restore window size: {error}"))?;
+        window
+            .set_position(geometry.position)
+            .map_err(|error| format!("Cannot restore window position: {error}"))?;
+        window
+            .set_resizable(geometry.resizable)
+            .map_err(|error| format!("Cannot restore resizable state: {error}"))?;
+        window
+            .set_always_on_top(geometry.always_on_top)
+            .map_err(|error| format!("Cannot restore always-on-top state: {error}"))?;
     }
+    Ok(())
+}
 
-    pub struct InputService;
+fn show_main_window(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
-    impl InputService {
-        pub fn start() -> Self {
-            Self
-        }
-
-        pub fn update_settings(&self, _settings: NativeSettings) -> Result<(), String> {
-            Err("Input mapping is only supported on Windows".into())
-        }
-
-        pub fn status(&self) -> InputServiceStatus {
-            InputServiceStatus::default()
-        }
-
-        pub fn set_event_app(&self, _app: tauri::AppHandle) {}
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
     }
 }
 
-use input_service::{InputService, NativeSettings};
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn install_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::{
+        menu::{Menu, MenuItem},
+        tray::TrayIconBuilder,
+    };
+
+    let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示 Axonkey", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出 Axonkey", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let tray = TrayIconBuilder::with_id("axonkey-tray")
+        .icon(tauri::include_image!("./icons/32x32.png"))
+        .tooltip("Axonkey")
+        .menu(&menu)
+        .on_menu_event(|app, event| {
+            if event.id() == TRAY_SHOW_ID {
+                show_main_window(app);
+            } else if event.id() == TRAY_QUIT_ID {
+                app.exit(0);
+            }
+        });
+
+    #[cfg(target_os = "windows")]
+    let tray = {
+        use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+
+        tray.show_menu_on_left_click(false)
+            .on_tray_icon_event(|tray, event| {
+                if matches!(
+                    event,
+                    TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    }
+                ) {
+                    show_main_window(tray.app_handle());
+                }
+            })
+    };
+
+    tray.build(app)?;
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+fn install_tray(_app: &tauri::App) -> tauri::Result<()> {
+    Ok(())
+}
 
 #[tauri::command]
 fn ping() -> &'static str {
     "ok"
+}
+
+#[tauri::command]
+fn get_platform() -> &'static str {
+    #[cfg(target_os = "windows")]
+    return "windows";
+    #[cfg(target_os = "macos")]
+    return "macos";
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    return "unsupported";
 }
 
 #[cfg(target_os = "windows")]
@@ -203,6 +349,7 @@ async fn launch_driver_action(
 
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = _app;
         let _ = action;
         Err("Driver installation is only supported on Windows".into())
     }
@@ -236,6 +383,98 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_system_settings(page: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        return open_windows_settings(page);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let uri = match page.as_str() {
+            "bluetooth" => "x-apple.systempreferences:com.apple.BluetoothSettings",
+            "sound" => "x-apple.systempreferences:com.apple.Sound-Settings.extension",
+            "inputMonitoring" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+            }
+            "accessibility" => {
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            }
+            _ => return Err("Unsupported settings page".into()),
+        };
+        std::process::Command::new("open")
+            .arg(uri)
+            .spawn()
+            .map_err(|error| format!("Cannot open macOS System Settings: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = page;
+        Err("System settings are not supported on this platform".into())
+    }
+}
+
+#[tauri::command]
+fn set_permission_helper_mode(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, PermissionHelperWindowState>,
+    enabled: bool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let window = app
+            .get_webview_window(MAIN_WINDOW_LABEL)
+            .ok_or_else(|| "Main window is unavailable".to_string())?;
+        apply_permission_helper_mode(&window, &state, enabled)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        let _ = state;
+        let _ = enabled;
+        Err("Permission helper mode is only available on macOS".into())
+    }
+}
+
+#[tauri::command]
+fn reveal_current_app() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Cannot locate the current executable: {error}"))?;
+        let app_bundle = app_bundle_for_executable(&executable).ok_or_else(|| {
+            "Axonkey.app was not found. Install or open the packaged app first.".to_string()
+        })?;
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(app_bundle)
+            .spawn()
+            .map_err(|error| format!("Cannot reveal Axonkey.app in Finder: {error}"))?;
+        Ok(())
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    Err("Revealing the current app is only available on macOS".into())
+}
+
+#[tauri::command]
+fn request_macos_permission(kind: String) -> Result<bool, String> {
+    #[cfg(target_os = "macos")]
+    {
+        InputService::request_permission(&kind)
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        Err("macOS permissions are only available on macOS".into())
+    }
+}
+
+#[tauri::command]
 fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
@@ -263,11 +502,15 @@ fn open_external_page(page: String) -> Result<(), String> {
 
 #[derive(serde::Serialize)]
 struct SystemProbe {
+    platform: &'static str,
     input_driver_installed: bool,
     rc003_connected: bool,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
     device_hardware_id: Option<String>,
+    input_monitoring_granted: Option<bool>,
+    accessibility_granted: Option<bool>,
+    capture_active: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -464,22 +707,45 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             .join("keyboard.sys")
             .is_file();
         Ok(SystemProbe {
+            platform: "windows",
             input_driver_installed,
             rc003_connected: input_status.device_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: None,
+            accessibility_granted: None,
+            capture_active: input_status.capture_active,
         })
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
         Ok(SystemProbe {
+            platform: "macos",
+            input_driver_installed: true,
+            rc003_connected: input_status.device_connected,
+            input_backend_ready: input_status.backend_ready,
+            input_backend_error: input_status.error,
+            device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: input_status.input_monitoring_granted,
+            accessibility_granted: input_status.accessibility_granted,
+            capture_active: input_status.capture_active,
+        })
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        Ok(SystemProbe {
+            platform: "unsupported",
             input_driver_installed: false,
             rc003_connected: false,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
+            input_monitoring_granted: None,
+            accessibility_granted: None,
+            capture_active: false,
         })
     }
 }
@@ -488,27 +754,42 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            use tauri::Manager;
-
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
+            show_main_window(app);
         }))
         .manage(InputService::start())
+        .manage(PermissionHelperWindowState::default())
         .setup(|app| {
             use tauri::Manager;
 
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
+            install_tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != MAIN_WINDOW_LABEL {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+
+                #[cfg(target_os = "macos")]
+                let _ = window
+                    .app_handle()
+                    .set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            get_platform,
             launch_driver_action,
             open_windows_settings,
+            open_system_settings,
+            set_permission_helper_mode,
+            reveal_current_app,
             open_external_page,
+            request_macos_permission,
             probe_system_state,
             probe_audio_available,
             probe_rc003_connected,
@@ -521,7 +802,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_battery_level;
+    use super::{app_bundle_for_executable, parse_battery_level};
 
     #[test]
     fn parses_valid_battery_percentages_only() {
@@ -530,5 +811,18 @@ mod tests {
         assert_eq!(parse_battery_level("100"), Some(100));
         assert_eq!(parse_battery_level("101"), None);
         assert_eq!(parse_battery_level("unknown"), None);
+    }
+
+    #[test]
+    fn finds_the_packaged_app_bundle_from_its_executable() {
+        let executable = std::path::Path::new("/Applications/Axonkey.app/Contents/MacOS/axonkey");
+        assert_eq!(
+            app_bundle_for_executable(executable),
+            Some(std::path::PathBuf::from("/Applications/Axonkey.app"))
+        );
+        assert_eq!(
+            app_bundle_for_executable(std::path::Path::new("/tmp/axonkey")),
+            None
+        );
     }
 }
