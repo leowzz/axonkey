@@ -1,0 +1,20 @@
+#!/bin/zsh
+set -euo pipefail
+
+TARGET_VOLUME="${3:-/}"
+DESTINATION="${TARGET_VOLUME%/}/Library/Audio/Plug-Ins/HAL/MiRemoteV2ch.driver"
+PLIST="$DESTINATION/Contents/Info.plist"
+BINARY="$DESTINATION/Contents/MacOS/MiRemoteV2ch"
+
+test -f "$PLIST"
+test -x "$BINARY"
+test "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$PLIST")" = \
+  "com.hd838a.MiRemoteV2ch"
+/usr/sbin/chown -R root:wheel "$DESTINATION"
+/usr/bin/find "$DESTINATION" -type d -exec /bin/chmod 755 {} \;
+/usr/bin/find "$DESTINATION" -type f -exec /bin/chmod 644 {} \;
+/bin/chmod 755 "$BINARY"
+/usr/bin/codesign --verify --deep --strict "$DESTINATION"
+if [[ "$TARGET_VOLUME" == "/" ]]; then
+  /usr/bin/killall coreaudiod
+fi

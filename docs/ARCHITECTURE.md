@@ -24,6 +24,12 @@ macOS
     -> exclusive capture, or CGEventTap suppression fallback
     -> mapping snapshot and gesture state
     -> CoreGraphics keyboard/unicode events or AppKit system-key events
+
+  RC003 ATVV voice service
+    -> CoreBluetooth control and audio notifications
+    -> Rust frame accumulator and 16 kHz IMA ADPCM decoder
+    -> AVAudioEngine bound to MiRemoteV 2ch output
+    -> MiRemoteV 2ch input selected by the consuming application
 ```
 
 The input service opens every keyboard control slot reported by OpenInputBridge,
@@ -66,10 +72,19 @@ keys before opening protocol-compatible control paths, then requires the OIB-onl
 identity response. A residual Interception installation is therefore reported
 as unsupported rather than used as a fallback.
 
-The macOS backend is compiled from `native/macos_input.m` and links only Apple
-system frameworks: IOKit, CoreFoundation, ApplicationServices and AppKit. It
-does not install a driver. Input Monitoring authorizes raw HID reports;
-Accessibility authorizes event filtering and generated keyboard events.
+The macOS backend is compiled from `native/macos_input.m` and
+`native/macos_audio.m` and links only Apple system frameworks. Input Monitoring
+authorizes raw HID reports; Accessibility authorizes event filtering and
+generated keyboard events; the Bluetooth usage description covers the separate
+ATVV voice connection. macOS needs no input driver. Its optional virtual audio
+driver is a pinned BlackHole derivative built and packaged by Axonkey as
+`MiRemoteV2ch.driver`.
+
+`AudioService` is the application-facing audio module. Rust owns frame
+accumulation and ADPCM decoding; the Objective-C adapter hides CoreBluetooth,
+ATVV session control, AVAudioEngine device binding, reconnect timeouts and
+sleep-safe audio-engine lifetime. The service starts with the app, but opens
+Core Audio IO only while RC003 is sending voice data.
 
 The first-run guide presents OpenInputBridge and VB-CABLE on one driver setup page
 so both installers can finish before the user reboots Windows once. It can
@@ -82,5 +97,8 @@ The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
 the archive hash, extracted x64 installer hash, and Authenticode publisher
 signature before requesting elevation. Driver readiness is detected from the
 `VBAudioVACMME` Windows service rather than from unrelated sound devices.
-Windows-only resources live in `tauri.windows.conf.json`; macOS bundles exclude
-them through `tauri.macos.conf.json`.
+Platform resources remain split between `tauri.windows.conf.json` and
+`tauri.macos.conf.json`. macOS builds generate signed install/uninstall PKGs
+from the pinned source before Tauri embeds them; the app invokes the macOS
+Installer engine with explicit administrator authorization and refreshes the
+audio service afterward.

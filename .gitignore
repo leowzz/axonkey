@@ -1,8 +1,11 @@
 *.log
 .env
+.build/
 node_modules/
 web-dist/
 src-tauri/target/
+src-tauri/resources/macos/*.driver/
+src-tauri/resources/macos/*.pkg
 src-tauri/gen/schemas/macOS-schema.json
 *.tsbuildinfo
 vite.config.js

@@ -55,6 +55,11 @@ function buildTarget() {
 function build(version) {
   const target = buildTarget()
   if (process.platform === 'win32') assertOpenInputBridgePackage(repositoryRoot)
+  if (process.platform === 'darwin') {
+    const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim()
+    if (signingIdentity && signingIdentity !== '-') process.env.REQUIRE_SIGNED_INSTALLER = '1'
+    run(join(repositoryRoot, 'scripts', 'build-macos-audio-package.sh'), [])
+  }
   run('npm', ['run', 'tauri', 'build', '--', '--bundles', target.bundle])
   const artifactDirectory = join(repositoryRoot, 'src-tauri', 'target', 'release', 'bundle', target.directory)
   const artifact = join(artifactDirectory, target.artifact(version))

@@ -7,7 +7,22 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const inputArgs = process.argv.slice(2)
 const buildArgs = inputArgs.length > 0 ? inputArgs : ['--bundles', 'app,dmg']
 const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim()
+const signedRelease = Boolean(signingIdentity && signingIdentity !== '-')
 const tauriArgs = ['run', 'tauri', '--', 'build', ...buildArgs]
+
+const audioPackage = spawnSync(
+  join(root, 'scripts', 'build-macos-audio-package.sh'),
+  [],
+  {
+    cwd: root,
+    env: {
+      ...process.env,
+      REQUIRE_SIGNED_INSTALLER: signedRelease ? '1' : (process.env.REQUIRE_SIGNED_INSTALLER ?? '0'),
+    },
+    stdio: 'inherit',
+  },
+)
+if (audioPackage.status !== 0) process.exit(audioPackage.status ?? 1)
 
 if (signingIdentity) {
   tauriArgs.push('--config', JSON.stringify({

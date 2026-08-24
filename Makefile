@@ -1,4 +1,4 @@
-.PHONY: dev version-check build build-macos test-release release uninstall-driver
+.PHONY: dev version-check build build-macos build-macos-audio test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -16,6 +16,9 @@ version-check:
 
 build-macos: version-check
 	node ./scripts/build-macos.mjs
+
+build-macos-audio:
+	./scripts/build-macos-audio-package.sh
 
 test-release:
 	npm run test:release

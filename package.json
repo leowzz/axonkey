@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test:release": "node --test test/version-release.test.mjs test/openinputbridge-package.test.mjs",
+    "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
+    "test:release": "node --test test/version-release.test.mjs test/openinputbridge-package.test.mjs test/macos-audio-package.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

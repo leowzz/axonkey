@@ -5,7 +5,7 @@
   "identifier": "com.axonkey.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:tauri",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../web-dist"
   },
