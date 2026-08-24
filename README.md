@@ -31,7 +31,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 本地按键映�
 当前版本不计划支持：
 
 - 其他遥控器或普通键盘型号；
-- macOS 或 Linux；
+- Linux；macOS 可以生成 DMG，但 RC003 输入拦截和驱动管理功能仍仅支持 Windows；
 - 云端账号、配置同步或遥测；
 - 任意脚本、应用专属配置或通用自动化编辑器。
 
@@ -120,10 +120,11 @@ make release V=v0.2.6
 ```
 
 `.env` 不纳入 Git，且只包含一行 `version=vX.Y.Z`。`make build` 只校验 `.env` 与 npm、Cargo、Tauri
-版本一致，然后构建 NSIS 安装程序，不修改版本文件或 Git 状态：
+版本一致，然后根据当前平台构建安装包，不修改版本文件或 Git 状态。Windows 生成 NSIS 安装程序，macOS 生成 DMG：
 
 ```text
-src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
+Windows: src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
+macOS:   src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 ```
 
 `make release` 要求 Git 工作区干净；默认从 `.env` 读取当前版本并递增 patch，也可以通过

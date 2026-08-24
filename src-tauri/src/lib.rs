@@ -1,4 +1,44 @@
+#[cfg(target_os = "windows")]
 mod input_service;
+
+#[cfg(not(target_os = "windows"))]
+mod input_service {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Default, Deserialize)]
+    pub struct NativeSettings {
+        #[serde(default, rename = "enabled")]
+        _enabled: bool,
+        #[serde(default, rename = "behaviors")]
+        _behaviors: serde_json::Value,
+    }
+
+    #[derive(Clone, Default, Serialize)]
+    pub struct InputServiceStatus {
+        pub backend_ready: bool,
+        pub device_connected: bool,
+        pub hardware_id: Option<String>,
+        pub error: Option<String>,
+    }
+
+    pub struct InputService;
+
+    impl InputService {
+        pub fn start() -> Self {
+            Self
+        }
+
+        pub fn update_settings(&self, _settings: NativeSettings) -> Result<(), String> {
+            Err("Input mapping is only supported on Windows".into())
+        }
+
+        pub fn status(&self) -> InputServiceStatus {
+            InputServiceStatus::default()
+        }
+
+        pub fn set_event_app(&self, _app: tauri::AppHandle) {}
+    }
+}
 
 use input_service::{InputService, NativeSettings};
 
@@ -135,7 +175,7 @@ fn run_driver_action(
 
 #[tauri::command]
 async fn launch_driver_action(
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
@@ -150,7 +190,7 @@ async fn launch_driver_action(
     {
         use tauri::Manager;
 
-        let resource_dir = app
+        let resource_dir = _app
             .path()
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
@@ -257,6 +297,7 @@ fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
 }
 
+#[cfg(any(target_os = "windows", test))]
 fn parse_battery_level(value: &str) -> Option<u8> {
     value
         .trim()

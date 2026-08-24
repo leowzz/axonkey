@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -23,21 +23,43 @@ function run(name, args) {
   }
 }
 
+function buildTarget() {
+  if (process.platform === 'win32') {
+    return {
+      bundle: 'nsis',
+      directory: 'nsis',
+      artifact: (version) => `Axonkey_${version}_x64-setup.exe`,
+      label: 'Installer',
+    }
+  }
+  if (process.platform === 'darwin') {
+    return {
+      bundle: 'dmg',
+      directory: 'dmg',
+      artifact: (version) => {
+        const prefix = `Axonkey_${version}_`
+        const candidates = readdirSync(join(repositoryRoot, 'src-tauri', 'target', 'release', 'bundle', 'dmg'))
+          .filter((name) => name.startsWith(prefix) && name.endsWith('.dmg'))
+        if (candidates.length !== 1) {
+          throw new Error(`Expected exactly one macOS DMG matching ${prefix}*.dmg, found ${candidates.length}`)
+        }
+        return candidates[0]
+      },
+      label: 'DMG',
+    }
+  }
+  throw new Error(`Unsupported build platform: ${process.platform}`)
+}
+
 function build(version) {
-  run('npm', ['run', 'tauri', 'build', '--', '--bundles', 'nsis'])
-  const artifact = join(
-    repositoryRoot,
-    'src-tauri',
-    'target',
-    'release',
-    'bundle',
-    'nsis',
-    `Axonkey_${version}_x64-setup.exe`,
-  )
-  if (!existsSync(artifact)) throw new Error(`Build completed but the expected installer was not found: ${artifact}`)
+  const target = buildTarget()
+  run('npm', ['run', 'tauri', 'build', '--', '--bundles', target.bundle])
+  const artifactDirectory = join(repositoryRoot, 'src-tauri', 'target', 'release', 'bundle', target.directory)
+  const artifact = join(artifactDirectory, target.artifact(version))
+  if (!existsSync(artifact)) throw new Error(`Build completed but the expected ${target.label} was not found: ${artifact}`)
   const sha256 = createHash('sha256').update(readFileSync(artifact)).digest('hex').toUpperCase()
-  console.log(`\nAxonkey v${version} built successfully.`)
-  console.log(`Installer: ${artifact}`)
+  console.log(`\nAxonkey v${version} built successfully for ${process.platform}.`)
+  console.log(`${target.label}: ${artifact}`)
   console.log(`SHA256: ${sha256}`)
 }
 
