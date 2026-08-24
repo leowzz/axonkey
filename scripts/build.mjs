@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { assertOpenInputBridgePackage } from './openinputbridge-package.mjs'
 import { assertVersionsMatch } from './version.mjs'
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -53,6 +54,7 @@ function buildTarget() {
 
 function build(version) {
   const target = buildTarget()
+  if (process.platform === 'win32') assertOpenInputBridgePackage(repositoryRoot)
   run('npm', ['run', 'tauri', 'build', '--', '--bundles', target.bundle])
   const artifactDirectory = join(repositoryRoot, 'src-tauri', 'target', 'release', 'bundle', target.directory)
   const artifact = join(artifactDirectory, target.artifact(version))

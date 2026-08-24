@@ -200,8 +200,7 @@ fn find_driver_script(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("input", "install") => "install-driver.ps1",
-        ("input", "uninstall") => "uninstall-driver.ps1",
+        ("input", "install" | "uninstall") => "openinputbridge-driver.ps1",
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -287,9 +286,7 @@ fn run_driver_action(
         .arg("Bypass")
         .arg("-File")
         .arg(script);
-    if driver == "audio" {
-        command.arg("-Action").arg(action);
-    }
+    command.arg("-Action").arg(action);
     let status = command
         .arg("-Confirmed")
         .arg("-LogPath")
@@ -632,6 +629,24 @@ async fn probe_rc003_battery_level() -> Option<u8> {
 }
 
 #[cfg(target_os = "windows")]
+fn oib_driver_installed() -> Result<bool, String> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let services = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey("SYSTEM\\CurrentControlSet\\Services")
+        .map_err(|error| format!("Cannot inspect Windows input drivers: {error}"))?;
+    for service in ["OpenInputBridgeKeyboard", "OpenInputBridgeMouse"] {
+        match services.open_subkey(service) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(format!("Cannot inspect {service}: {error}")),
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(target_os = "windows")]
 fn vbcable_service_installed() -> Result<bool, String> {
     use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
@@ -700,12 +715,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        let input_driver_installed = std::path::PathBuf::from(windows)
-            .join("System32")
-            .join("drivers")
-            .join("keyboard.sys")
-            .is_file();
+        let input_driver_installed = oib_driver_installed()?;
         Ok(SystemProbe {
             platform: "windows",
             input_driver_installed,

@@ -990,7 +990,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -1024,12 +1024,12 @@ function App() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Interception 按键驱动。'
+            ? '未检测到完整的 OpenInputBridge 按键驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Interception 按键服务工作正常。'
-                : '已检测到 Interception 按键驱动，输入服务正在启动。'
+                ? 'OpenInputBridge 按键服务工作正常。'
+                : '已检测到 OpenInputBridge 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         return setDeviceConnection(next, device)
       })
@@ -1087,7 +1087,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -1879,7 +1879,7 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 OpenInputBridge 驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -2074,7 +2074,7 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const message = driver.action.error ?? driver.message ?? (kind === 'input'
-    ? '经过校验的 Interception 驱动，仅用于识别 RC003 按键。'
+    ? '经过校验的 OpenInputBridge 驱动，仅用于识别 RC003 按键。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">

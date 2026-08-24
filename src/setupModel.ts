@@ -141,10 +141,10 @@ export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
   input: {
     kind: 'input',
     title: '按键拦截驱动',
-    description: 'Interception 过滤驱动，用于只拦截 RC003 的按键事件。',
+    description: 'OpenInputBridge 过滤驱动，用于只拦截 RC003 的按键事件。',
     required: true,
-    installScript: 'scripts/install-driver.ps1',
-    uninstallScript: 'scripts/uninstall-driver.ps1',
+    installScript: 'scripts/openinputbridge-driver.ps1',
+    uninstallScript: 'scripts/openinputbridge-driver.ps1',
     rebootAfterInstall: true,
     rebootAfterUninstall: true,
   },

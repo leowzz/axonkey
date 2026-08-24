@@ -7,7 +7,7 @@
 
 ## 结论
 
-满足 Axonkey 全部核心语义的路线只有两条：
+达到 Axonkey 生产门槛的候选路线只有两条：
 
 1. **优先验证 OpenInputBridge 1.00 的 WHQL 包。** 它兼容现有 Interception
    用户态协议，迁移代码量最小；源码也确实使用 KMDF 的每设备 PnP
@@ -20,7 +20,11 @@
    心跳超时立即恢复透传。这条路线能把攻击面和 PnP 状态限定到一个产品，但必须承担
    WDK 开发、HLK/WHQL、安装器、升级/卸载和长期内核兼容维护成本。
 
-Raw Input、`WH_KEYBOARD_LL`/`SendInput`（包括 Kanata `winIOv2`）、Windows
+另有一条适合快速证伪的实验路线：`kbdaddid` 给输入事件写入设备标识，再由
+`WH_KEYBOARD_LL` 只吞 RC003。但其 1.00 上游说明明确承认 Bluetooth 设备可能因初始化时序
+拿不到标识，因此不能把它算作已经满足 R1/R3 的生产候选。
+
+Raw Input、普通 `WH_KEYBOARD_LL`/`SendInput`（包括 Kanata `winIOv2`）、Windows
 Keyboard Filter、HidHide、PowerToys、KMonad、KeyMagic 等用户态或通用方案均不能同时
 做到“知道是 RC003”与“只吞掉 RC003 原事件”。**不存在满足当前硬要求的纯用户态方案。**
 
@@ -49,13 +53,14 @@ Keyboard Filter、HidHide、PowerToys、KMonad、KeyMagic 等用户态或通用�
 
 | 方案 | R1 单设备 | R2 只吞目标 | R3 PnP | R4 失败透传 | R5 Secure Boot | 集成量 | 分发/许可证 | 结论 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **OpenInputBridge 1.00 WHQL** | 是，硬件 ID + 临时槽位 | 是，按槽位设过滤 | 设计满足；RC003 压测未知 | 进程关闭/崩溃满足；卡死无 watchdog | WHQL 包声称满足；Win10 正式支持未知 | **低** | 源码 MIT、兼容库 LGPL；WHQL 包付费，再分发权未知 | **优先验证** |
+| **OpenInputBridge 1.00 WHQL** | 是，硬件 ID + 临时槽位 | 是，按槽位设过滤 | 设计满足；RC003 压测未知 | 源码在 file-close 时清理；卡死无 watchdog | WHQL 包声称满足；Win10 正式支持未知 | **低** | 源码 MIT、兼容库 LGPL；WHQL 包付费，再分发权未知 | **优先验证** |
 | **Axonkey 专用 KMDF 设备过滤驱动** | 是，INF/运行时双重限定 | 是 | WDF 设计可满足；需自行验证 | 可设计为 fail-open + lease | 完成 HLK/WHQL 后满足 | **高** | 自有代码；若复用微软样例需遵守 MS-PL | **战略后备/长期最可控** |
 | Raw Input | 是，`hDevice`/设备路径/VID/PID | **否** | 是，有到达/移除通知 | 是 | 是 | 低 | Windows API | 只适合监控、连接状态和诊断 |
 | `WH_KEYBOARD_LL` + `SendInput` / Kanata `winIOv2` | **否** | 能吞事件，但无法判定来源 | 用户态，无设备 PnP 状态 | 退出后恢复 | 是 | 低 | Kanata LGPL-3.0-only | 不满足 |
+| **kbdaddid + `WH_KEYBOARD_LL` + `SendInput`** | 条件满足；事件携带 16-bit UniqID | 标识非零时可只吞目标 | **Bluetooth 标识可能为 0**；RC003 未测 | 驱动只打标，用户态 hook 移除后透传 | 付费 WHQL 包仅声明 Win11 24H2 | 中 | 源码 MIT；公开付费包限一台 PC 且禁止转让/销售 | **仅作快速实验** |
 | Raw Input + 低层 hook 时间相关联 | 不可靠 | 不可靠 | 不可靠 | 是 | 是 | 中 | 自有代码 | 无文档保证，禁止作为生产方案 |
 | Windows 内置 Keyboard Filter (WEKF) | **否** | 按键/组合全局屏蔽 | 系统功能 | 是 | 是 | 低 | 仅特定 Windows 版本/版本 SKU | 不满足 |
-| HidHide + Raw Input | 可选设备实例 | **否：不能保证阻断系统键盘路径** | 通用 HID 设备重连支持，RC003 未知 | 配置错误风险较大 | 有签名发布 | 中 | MIT | 不适用于键盘 class 输入替换 |
+| HidHide + Raw Input | 可选设备实例 | **否：不能保证阻断系统键盘路径** | RC003/键盘重连行为未知 | 配置错误风险较大 | 有签名发布 | 中 | MIT | 不适用于键盘 class 输入替换 |
 | keymapper（Windows） | 仅装 Interception 后支持 | 仅装 Interception 后支持 | 继承 Interception 缺陷 | 继承后端 | 继承后端 | 中 | GPL-3.0 | 明确被上游判定不安全 |
 | KMonad（Windows） | **否** | 全局 hook | 用户态 | 是 | 是 | 中 | MIT | 不满足 |
 | KeyMagic 3 / TSF IME | **否** | 处理文本输入，不是物理设备过滤 | 不相关 | 是 | 是 | 高且方向错误 | GPL-2.0 | 不满足 |
@@ -181,7 +186,35 @@ Windows 默认 LLHOOK 不能区分键盘设备，见
 Kanata `winIOv2` 可以做“所有键盘统一映射”的快速演示，不能作为 Axonkey 后端；
 `wintercept` 则完整继承当前故障。Kanata 本体使用 LGPL-3.0-only，但许可证不是这里的主要阻断。
 
-### 4. 自研 KMDF 设备过滤驱动
+### 4. kbdaddid：给低层 hook 补设备身份
+
+#### 已确认
+
+Applet LLC 的 [`addid`](https://github.com/Applet-LLC/addid) 是一个 keyboard/mouse class
+filter。它不捕获输入，而是把由设备标识计算出的 16-bit `UniqID` 写入
+`KEYBOARD_INPUT_DATA.ExtraInformation` 的高 16 位；该值随后出现在
+`KBDLLHOOKSTRUCT.dwExtraInfo`。这样 Axonkey 可以继续使用 `WH_KEYBOARD_LL`，按 `UniqID`
+判断事件是否来自 RC003，对目标事件返回非零，并用 `SendInput` 输出映射结果。源码 MIT，另有
+付费 WHQL 包。一个非官方
+[PowerToys Keyboard Manager 分支](https://github.com/Applet-LLC/PowerToys-KeyboardManager-MultiKeyboard)
+已经实现了这种 capture backend，可作为集成参考。
+
+这条路线比 OpenInputBridge 更接近 fail-open：驱动始终把原输入向上传递，只由用户态 hook
+决定是否吞键；应用退出或 hook 被移除后，键盘自然恢复原行为。但它仍安装 class filter，且输出
+仍受 `SendInput` 的 UIPI 限制，低层 hook 还必须满足 Microsoft 文档规定的回调时限。
+
+#### 对 RC003 的决定性限制
+
+官方 [1.00 release](https://github.com/Applet-LLC/addid/releases/tag/1.00) 明确写明：部分设备可能
+无法获得 `UniqID`，Bluetooth 设备会因初始化时序出现 ID 一直为 0 的情况，并且不保证总能赋值。
+这正好落在 RC003 的连接形态上。其公开付费包只声明 Windows 11 24H2，公开许可还限定驱动文件
+只用于一台 PC，禁止转让或销售，不能视作 Axonkey 的 OEM 再分发授权。
+
+**结论：只值得做一个短实验。** 在改 Axonkey 主路径前，先用上游 DriverTestApp 连续观察 RC003
+的首次连接、100 次 idle 重连、forget/pair 和 sleep/wake；任何一次 `UniqID == 0` 或身份变化即淘汰。
+即使实机通过，也仍需单独取得 OEM 授权并补齐 Windows 10/11、hook 超时和高完整性窗口测试。
+
+### 5. 自研 KMDF 设备过滤驱动
 
 #### 已确认的 Windows 支持路径
 
@@ -246,7 +279,7 @@ Axonkey service
 **成本判断：** 代码本身是中等规模；真正高成本在 Windows HLK 矩阵、签名供应链、安装/升级/卸载
 恢复、Driver Verifier、蓝牙/Modern Standby 实机兼容和长期维护。
 
-### 5. Windows 内置 Keyboard Filter (WEKF)
+### 6. Windows 内置 Keyboard Filter (WEKF)
 
 Windows Keyboard Filter 可以按 virtual key 或 scan code 屏蔽键和组合，但它会跨硬件键盘、屏幕键盘、
 触摸键盘合并判断，甚至支持组合键来自多个键盘。这个特性反向证明它不是 per-device API。它还只在
@@ -256,7 +289,7 @@ IoT Enterprise、Enterprise/LTSC、Education 等特定版本提供，不覆盖�
 
 **结论：** 适合 kiosk 锁定，不适合 RC003 单设备映射。
 
-### 6. HidHide / ViGEm 生态
+### 7. HidHide / ViGEm 生态
 
 HidHide 是 MIT 的签名 HID/XInput “device firewall”，能按设备实例阻止传统 Win32 进程打开 HID，并给
 白名单 feeder 放行，见上游
@@ -274,7 +307,7 @@ ViGEmBus 只创建虚拟游戏控制器，不创建系统键盘，也不负责�
 
 **结论：** 不作为 RC003 键盘后端；引入两个通用驱动反而扩大安装和恢复风险。
 
-### 7. 其他现成 remapper 的后端审计
+### 8. 其他现成 remapper 的后端审计
 
 - **keymapper：** 上游明确写明 Windows `device`/`device-id` 过滤必须安装 Interception，并直接警告
   其断开多次后设备停止工作的严重缺陷；无驱动时仅用全局 hooks。见
@@ -288,6 +321,11 @@ ViGEmBus 只创建虚拟游戏控制器，不创建系统键盘，也不负责�
 - **PowerToys Keyboard Manager：** 使用全局 low-level hook；其设计文档反而指出只有驱动方案才有机会
   区分键盘，并因系统级副作用放弃该方向。见
   [PowerToys design](https://github.com/microsoft/PowerToys/blob/main/doc/devdocs/modules/keyboardmanager/keyboardmanager.md)。
+- **PowerToys-KeyboardManager-MultiKeyboard：** 非官方分支已接通 OIB 与 kbdaddid，适合作为直接
+  IOCTL 客户端和 capture backend 的参考；但其 README 明确标注“每个键盘使用不同映射规则”尚未实现，
+  且不负责安装或授权驱动，因此不是可直接交付的替代品。
+- **Nodoka：** 是独立的完整 remapper；其多键盘识别依赖另售的 `kbdaddid.sys`，因此继承上述
+  Bluetooth 身份和分发限制，也不能作为 Axonkey 的无驱动 SDK 直接嵌入。
 - **DeviceMapper：** README 宣称 per-device `block`，但固定提交源码注册 Raw Input 时仅使用
   `RIDEV_INPUTSINK | RIDEV_PAGEONLY | RIDEV_DEVNOTIFY`，没有拦截驱动或 keyboard hook；所谓 ignored/
   mapped 只是在自身 callback 返回，Windows 原事件早已沿正常路径送出。见
