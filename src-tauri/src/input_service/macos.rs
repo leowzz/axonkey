@@ -19,6 +19,8 @@ const EVENT_DEVICE_DISCONNECTED: i32 = 3;
 const EVENT_INPUT_REPORT: i32 = 4;
 const EVENT_BACKEND_ERROR: i32 = 5;
 const EVENT_TICK: i32 = 6;
+const CAPTURE_MODE_MASK: i32 = 0x03;
+const CAPTURE_VOICE_RIGHT_CONTROL: i32 = 0x04;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 const REPEAT_INITIAL_MS: u64 = 500;
@@ -37,18 +39,16 @@ struct NativeCallbacks {
 }
 
 extern "C" {
-    fn axonkey_macos_input_run(callbacks: *const NativeCallbacks, capture: bool) -> i32;
+    fn axonkey_macos_input_run(
+        callbacks: *const NativeCallbacks,
+        capture: bool,
+        voice_right_control: bool,
+    ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
     fn axonkey_macos_request_input_monitoring() -> bool;
     fn axonkey_macos_request_accessibility() -> bool;
-    fn axonkey_macos_post_key(
-        code: u16,
-        down: bool,
-        flags: u64,
-        autorepeat: bool,
-        modifier: bool,
-    ) -> bool;
+    fn axonkey_macos_post_key(code: u16, down: bool, flags: u64, autorepeat: bool) -> bool;
     fn axonkey_macos_post_system_key(kind: i32, down: bool) -> bool;
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
@@ -91,19 +91,21 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
-        let old_enabled = self
+        let old_settings = self
             .shared
             .settings
             .read()
             .map_err(|_| "Input settings lock is unavailable")?
-            .enabled;
-        let new_enabled = settings.enabled;
+            .clone();
+        let should_restart = old_settings.enabled != settings.enabled
+            || wants_hardware_voice_right_control(&old_settings)
+                != wants_hardware_voice_right_control(&settings);
         *self
             .shared
             .settings
             .write()
             .map_err(|_| "Input settings lock is unavailable")? = settings;
-        if old_enabled != new_enabled {
+        if should_restart {
             self.shared.restart.store(true, Ordering::Release);
         }
         Ok(())
@@ -190,6 +192,8 @@ fn permission_error(shared: &Shared) -> Option<String> {
 struct WorkerContext {
     shared: Arc<Shared>,
     capture: bool,
+    voice_right_control_requested: bool,
+    voice_right_control_active: bool,
     input: MacInputState,
     next_permission_check: Instant,
 }
@@ -209,6 +213,13 @@ fn worker_loop(shared: Arc<Shared>) {
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),
             capture,
+            voice_right_control_requested: capture
+                && shared
+                    .settings
+                    .read()
+                    .map(|settings| wants_hardware_voice_right_control(&settings))
+                    .unwrap_or(false),
+            voice_right_control_active: false,
             input: MacInputState::default(),
             next_permission_check: Instant::now() + Duration::from_millis(250),
         };
@@ -217,7 +228,9 @@ fn worker_loop(shared: Arc<Shared>) {
             should_stop: should_stop_callback,
             on_event: event_callback,
         };
-        let result = unsafe { axonkey_macos_input_run(&callbacks, capture) };
+        let result = unsafe {
+            axonkey_macos_input_run(&callbacks, capture, context.voice_right_control_requested)
+        };
         context.input.release_all();
         if let Ok(mut status) = shared.status.lock() {
             status.capture_active = false;
@@ -270,12 +283,19 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_DEVICE_CONNECTED => {
+            let capture_mode = code & CAPTURE_MODE_MASK;
+            context.voice_right_control_active = code & CAPTURE_VOICE_RIGHT_CONTROL != 0;
             if let Ok(mut status) = context.shared.status.lock() {
                 status.device_connected = true;
                 status.hardware_id = Some("HID\\VID_2717&PID_32B8".into());
-                status.capture_active = context.capture && code != 0;
-                if context.capture && code == 0 {
+                status.capture_active = context.capture && capture_mode != 0;
+                if context.capture && capture_mode == 0 {
                     status.error = Some("RC003 could not be captured or filtered on macOS".into());
+                } else if context.voice_right_control_requested
+                    && !context.voice_right_control_active
+                {
+                    status.error =
+                        Some("RC003 Right Control hardware mapping could not be applied".into());
                 } else if context.capture {
                     status.error = None;
                 }
@@ -292,7 +312,11 @@ unsafe extern "C" fn event_callback(
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
             let report = std::slice::from_raw_parts(bytes, length);
             if let Some(usages) = parse_hid_report(report_id, report) {
-                context.input.process_report(&context.shared, usages);
+                context.input.process_report(
+                    &context.shared,
+                    usages,
+                    context.voice_right_control_requested,
+                );
             }
         }
         EVENT_BACKEND_ERROR => {
@@ -344,6 +368,7 @@ const FLAG_SHIFT: u64 = 1 << 17;
 const FLAG_CONTROL: u64 = 1 << 18;
 const FLAG_OPTION: u64 = 1 << 19;
 const FLAG_COMMAND: u64 = 1 << 20;
+const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
 
 #[derive(Clone, Copy)]
 struct SourceKey {
@@ -487,9 +512,7 @@ impl PressedChord {
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
     unsafe {
         match key {
-            MacKey::Keyboard { code, modifier } => {
-                axonkey_macos_post_key(code, down, flags, autorepeat, modifier != 0)
-            }
+            MacKey::Keyboard { code, .. } => axonkey_macos_post_key(code, down, flags, autorepeat),
             MacKey::System { kind } => axonkey_macos_post_system_key(kind, down),
         }
     }
@@ -528,7 +551,12 @@ struct MacInputState {
 }
 
 impl MacInputState {
-    fn process_report(&mut self, shared: &Shared, usages: HashSet<u16>) {
+    fn process_report(
+        &mut self,
+        shared: &Shared,
+        usages: HashSet<u16>,
+        voice_right_control_is_hardware_mapped: bool,
+    ) {
         let pressed = usages
             .difference(&self.active_usages)
             .copied()
@@ -543,13 +571,17 @@ impl MacInputState {
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
                 emit_remote_key_event(shared, source.id, true);
-                self.press_source(shared, source);
+                if source.id != "voice" || !voice_right_control_is_hardware_mapped {
+                    self.press_source(shared, source);
+                }
             }
         }
         for usage in released {
             if let Some(source) = source_for_usage(usage) {
                 emit_remote_key_event(shared, source.id, false);
-                self.release_source(shared, source);
+                if source.id != "voice" || !voice_right_control_is_hardware_mapped {
+                    self.release_source(shared, source);
+                }
             }
         }
     }
@@ -797,6 +829,20 @@ fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<MacKey>> {
     behavior_chord(behavior)
 }
 
+fn wants_hardware_voice_right_control(settings: &NativeSettings) -> bool {
+    if !settings.enabled {
+        return false;
+    }
+    let Some(triggers) = settings.behaviors.get("voice") else {
+        return false;
+    };
+    continuous_click_chord(triggers)
+        == Some(vec![MacKey::modifier(
+            62,
+            FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+        )])
+}
+
 fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
     if has_enabled(behaviors) {
         execute_behaviors(behaviors);
@@ -878,7 +924,10 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
     let upper = value.to_ascii_uppercase();
     let named = match upper.as_str() {
         "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(59, FLAG_CONTROL)),
-        "RCTRL" => Some(MacKey::modifier(62, FLAG_CONTROL)),
+        "RCTRL" => Some(MacKey::modifier(
+            62,
+            FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+        )),
         "SHIFT" | "LSHIFT" => Some(MacKey::modifier(56, FLAG_SHIFT)),
         "RSHIFT" => Some(MacKey::modifier(60, FLAG_SHIFT)),
         "ALT" | "LALT" | "OPTION" | "LOPTION" => Some(MacKey::modifier(58, FLAG_OPTION)),
@@ -1108,12 +1157,21 @@ mod tests {
     #[test]
     fn modifier_press_includes_its_state_flag() {
         assert_eq!(
-            press_flags(&[MacKey::modifier(62, FLAG_CONTROL)]),
-            vec![FLAG_CONTROL]
+            press_flags(&[MacKey::modifier(
+                62,
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+            )]),
+            vec![FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL]
         );
         assert_eq!(
-            press_flags(&[MacKey::modifier(62, FLAG_CONTROL), MacKey::keyboard(8),]),
-            vec![FLAG_CONTROL, FLAG_CONTROL]
+            press_flags(&[
+                MacKey::modifier(62, FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL),
+                MacKey::keyboard(8),
+            ]),
+            vec![
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+            ]
         );
     }
 
@@ -1133,6 +1191,57 @@ mod tests {
             key: "Escape".into(),
         });
         assert_eq!(continuous_click_chord(&triggers), None);
+    }
+
+    #[test]
+    fn uses_hardware_mapping_only_for_standalone_voice_right_control() {
+        let mut settings = NativeSettings {
+            enabled: true,
+            ..NativeSettings::default()
+        };
+        settings.behaviors.insert(
+            "voice".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "RCtrl".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        assert!(wants_hardware_voice_right_control(&settings));
+
+        settings
+            .behaviors
+            .get_mut("voice")
+            .unwrap()
+            .long_press
+            .push(NativeBehavior::Key {
+                enabled: true,
+                key: "Space".into(),
+            });
+        assert!(!wants_hardware_voice_right_control(&settings));
+    }
+
+    #[test]
+    fn does_not_use_hardware_mapping_for_other_voice_keys() {
+        let mut settings = NativeSettings {
+            enabled: true,
+            ..NativeSettings::default()
+        };
+        settings.behaviors.insert(
+            "voice".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "Space".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        assert!(!wants_hardware_voice_right_control(&settings));
+        settings.enabled = false;
+        assert!(!wants_hardware_voice_right_control(&settings));
     }
 
     #[test]
