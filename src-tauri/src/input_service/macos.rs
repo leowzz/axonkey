@@ -42,7 +42,13 @@ extern "C" {
     fn axonkey_macos_accessibility_granted() -> bool;
     fn axonkey_macos_request_input_monitoring() -> bool;
     fn axonkey_macos_request_accessibility() -> bool;
-    fn axonkey_macos_post_key(code: u16, down: bool, flags: u64, autorepeat: bool) -> bool;
+    fn axonkey_macos_post_key(
+        code: u16,
+        down: bool,
+        flags: u64,
+        autorepeat: bool,
+        modifier: bool,
+    ) -> bool;
     fn axonkey_macos_post_system_key(kind: i32, down: bool) -> bool;
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
@@ -421,12 +427,21 @@ struct PressedChord {
     keys: Vec<MacKey>,
 }
 
+fn press_flags(keys: &[MacKey]) -> Vec<u64> {
+    let mut flags = 0;
+    keys.iter()
+        .map(|key| {
+            flags |= key.modifier_flag();
+            flags
+        })
+        .collect()
+}
+
 impl PressedChord {
     fn press(keys: &[MacKey]) -> Self {
-        let mut flags = 0;
+        let flags = press_flags(keys);
         let mut pressed = Vec::new();
-        for key in keys {
-            flags |= key.modifier_flag();
+        for (key, flags) in keys.iter().zip(flags) {
             if post_key(*key, true, flags, false) {
                 pressed.push(*key);
             }
@@ -472,7 +487,9 @@ impl PressedChord {
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
     unsafe {
         match key {
-            MacKey::Keyboard { code, .. } => axonkey_macos_post_key(code, down, flags, autorepeat),
+            MacKey::Keyboard { code, modifier } => {
+                axonkey_macos_post_key(code, down, flags, autorepeat, modifier != 0)
+            }
             MacKey::System { kind } => axonkey_macos_post_system_key(kind, down),
         }
     }
@@ -1086,6 +1103,18 @@ mod tests {
             ])
         );
         assert_eq!(parse_chord("VolumeUp"), Some(vec![MacKey::system(0)]));
+    }
+
+    #[test]
+    fn modifier_press_includes_its_state_flag() {
+        assert_eq!(
+            press_flags(&[MacKey::modifier(62, FLAG_CONTROL)]),
+            vec![FLAG_CONTROL]
+        );
+        assert_eq!(
+            press_flags(&[MacKey::modifier(62, FLAG_CONTROL), MacKey::keyboard(8),]),
+            vec![FLAG_CONTROL, FLAG_CONTROL]
+        );
     }
 
     #[test]

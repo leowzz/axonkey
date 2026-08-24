@@ -7,7 +7,7 @@ const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray-show";
 const TRAY_QUIT_ID: &str = "tray-quit";
 const PERMISSION_HELPER_WIDTH: f64 = 430.0;
-const PERMISSION_HELPER_HEIGHT: f64 = 520.0;
+const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
 
 #[derive(Clone, Copy)]
 struct WindowGeometry {
