@@ -111,6 +111,7 @@ type MacPermissions = {
 }
 
 type MacPermissionKind = 'inputMonitoring' | 'accessibility'
+type AppPage = 'home' | 'mapping'
 
 const detectBrowserPlatform = (): Platform => {
   if (typeof navigator === 'undefined') return 'windows'
@@ -453,6 +454,8 @@ function App() {
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
   const [commonBehaviorUndo, setCommonBehaviorUndo] = useState<CommonBehaviorUndo | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
+  const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
+  const [activePage, setActivePage] = useState<AppPage>('home')
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
@@ -988,6 +991,7 @@ function App() {
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
+      setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
       setMacPermissions({
         inputMonitoring: probe.input_monitoring_granted === true,
         accessibility: probe.accessibility_granted === true,
@@ -999,7 +1003,9 @@ function App() {
           name: '小米遥控器 RC003',
           hardwareId: probe.device_hardware_id ?? undefined,
           message: probe.platform === 'macos'
-            ? probe.capture_active
+            ? probe.input_authorization_stale
+              ? '蓝牙已连接，但当前构建没有 HID 输入权限；重新授权后电源键、返回键等映射才会生效。'
+              : probe.capture_active
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
@@ -1013,13 +1019,6 @@ function App() {
           message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。',
         }
         const device = probe.rc003_connected ? connectedDevice : disconnectedDevice
-        if (!showChecking) {
-          const unchanged = current.device.status === device.status
-            && current.device.name === device.name
-            && current.device.hardwareId === device.hardwareId
-            && current.device.message === device.message
-          return unchanged ? current : setDeviceConnection(current, device)
-        }
         const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
         const inputStatus = probe.platform === 'macos'
           ? probe.input_authorization_stale
@@ -1048,6 +1047,13 @@ function App() {
                 ? 'OpenInputBridge 按键服务工作正常。'
                 : '已检测到 OpenInputBridge 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+        if (!showChecking) {
+          const unchanged = next.device.status === device.status
+            && next.device.name === device.name
+            && next.device.hardwareId === device.hardwareId
+            && next.device.message === device.message
+          return unchanged ? next : setDeviceConnection(next, device)
+        }
         return setDeviceConnection(next, device)
       })
       return true
@@ -1194,6 +1200,16 @@ function App() {
   }, [setupOpen, setupState.currentStep, platform])
 
   useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    const initialTimer = window.setTimeout(() => void probeAudioState(), 1_500)
+    const interval = window.setInterval(() => void probeAudioState(), 30_000)
+    return () => {
+      window.clearTimeout(initialTimer)
+      window.clearInterval(interval)
+    }
+  }, [platform])
+
+  useEffect(() => {
     if (setupOpen && setupState.currentStep === 'deviceConnection') void probeDeviceConnection()
   }, [setupOpen, setupState.currentStep])
 
@@ -1290,13 +1306,18 @@ function App() {
                 <span className="brand-version">RC003 控制台 <span>{appPackage.version}</span></span>
               </span>
             </button>
-            <div className="title-row"><h1>按键映射</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
+            <div className="title-row"><h1>{activePage === 'home' ? '主页' : '按键映射'}</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
           </div>
+          <nav className="app-nav" aria-label="主导航">
+            <button type="button" className={activePage === 'home' ? 'active' : ''} onClick={() => setActivePage('home')}><Home size={15} /> 主页</button>
+            <button type="button" className={activePage === 'mapping' ? 'active' : ''} onClick={() => setActivePage('mapping')}><Keyboard size={15} /> 按键映射</button>
+          </nav>
           <div className="header-actions">
             <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={toggleEnabled}><span /></button></label>
           </div>
         </header>
 
+        {activePage === 'mapping' ? <>
         <div className="toolbar-row">
           <div className="toolbar-context"><span className="toolbar-context-mark" /> 选择按键，设置不同的触发行为</div>
           <div className="toolbar-meta"><span>{connectedCount} 个自定义行为</span><span className="toolbar-divider" /><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已自动保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><span className="debug-hint">拖动图上的点调整连线起点</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
@@ -1316,7 +1337,7 @@ function App() {
           />
 
           <section className="remote-panel panel-surface">
-            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep('deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
+            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '按键权限需重新授权' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
             <div className="remote-stage">
               <div className="remote-art" ref={remoteArtRef}>
                 <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
@@ -1388,6 +1409,20 @@ function App() {
           onReturnToMappings={returnToSelectedMapping}
         />
         <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
+        </> : <HomeDashboard
+          platform={platform}
+          permissions={macPermissions}
+          inputAuthorizationStale={inputAuthorizationStale}
+          inputDriver={setupState.drivers.input}
+          audioDriver={setupState.drivers.audio}
+          device={setupState.device}
+          batteryLevel={batteryLevel}
+          enabled={enabled}
+          onRequestPermission={(kind) => void requestMacPermission(kind)}
+          onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
+          onOpenStep={openSetupStep}
+          onOpenMapping={() => setActivePage('mapping')}
+        />}
       </main>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
       {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
@@ -1463,6 +1498,147 @@ function App() {
       />}
     </div>
   )
+}
+
+type HomeDashboardProps = {
+  platform: Platform
+  permissions: MacPermissions
+  inputAuthorizationStale: boolean
+  inputDriver: SetupState['drivers']['input']
+  audioDriver: SetupState['drivers']['audio']
+  device: SetupState['device']
+  batteryLevel: number | null
+  enabled: boolean
+  onRequestPermission: (kind: MacPermissionKind) => void
+  onRefresh: () => void
+  onOpenStep: (step: SetupStepId) => void
+  onOpenMapping: () => void
+}
+
+type HomeStatusTone = 'ready' | 'warning' | 'error' | 'checking' | 'muted'
+
+type HomeStatusCardProps = {
+  icon: ReactNode
+  title: string
+  status: string
+  detail: string
+  tone: HomeStatusTone
+  action?: ReactNode
+}
+
+function HomeStatusCard({ icon, title, status, detail, tone, action }: HomeStatusCardProps) {
+  return <article className={`home-status-card ${tone}`}>
+    <div className="home-status-card-head">
+      <span className="home-status-icon">{icon}</span>
+      <div><h3>{title}</h3><span className="home-status-label"><span className="home-status-dot" />{status}</span></div>
+    </div>
+    <p>{detail}</p>
+    {action && <div className="home-status-action">{action}</div>}
+  </article>
+}
+
+function driverStatusPresentation(status: SetupState['drivers']['audio']['status']): { label: string; tone: HomeStatusTone } {
+  switch (status) {
+    case 'installed': return { label: '已安装', tone: 'ready' }
+    case 'restartRequired': return { label: '需要重启', tone: 'warning' }
+    case 'checking': return { label: '检测中', tone: 'checking' }
+    case 'error': return { label: '检测失败', tone: 'error' }
+    case 'missing': return { label: '未安装', tone: 'warning' }
+    default: return { label: '未检测', tone: 'muted' }
+  }
+}
+
+function HomeDashboard({
+  platform,
+  permissions,
+  inputAuthorizationStale,
+  inputDriver,
+  audioDriver,
+  device,
+  batteryLevel,
+  enabled,
+  onRequestPermission,
+  onRefresh,
+  onOpenStep,
+  onOpenMapping,
+}: HomeDashboardProps) {
+  const macOS = platform === 'macos'
+  const inputReady = macOS && permissions.inputMonitoring && !inputAuthorizationStale
+  const inputTone: HomeStatusTone = inputAuthorizationStale || inputDriver.status === 'error'
+    ? 'error'
+    : inputReady || (!macOS && inputDriver.status === 'installed')
+      ? 'ready'
+      : inputDriver.status === 'checking' ? 'checking' : 'warning'
+  const inputStatus = inputAuthorizationStale
+    ? '需要重新授权'
+    : inputReady || (!macOS && inputDriver.status === 'installed')
+      ? '已授权'
+      : macOS ? '未授权' : inputDriver.status === 'checking' ? '检测中' : '需要检查'
+  const inputDetail = inputAuthorizationStale
+    ? '当前构建的输入监控授权已失效，电源键、返回键等映射不会收到按键。'
+    : inputDriver.message ?? (macOS ? '允许 Axonkey 读取 RC003 原始 HID 按键报告。' : '检查 OpenInputBridge 按键服务。')
+  const audioPresentation = driverStatusPresentation(audioDriver.status)
+  const deviceConnected = device.status === 'connected'
+  const deviceTone: HomeStatusTone = deviceConnected ? 'ready' : device.status === 'checking' ? 'checking' : 'warning'
+  const deviceStatus = deviceConnected ? '已连接' : device.status === 'checking' ? '检测中' : '未连接'
+  const deviceDetail = deviceConnected
+    ? `${device.message ?? 'RC003 已被系统识别。'}${batteryLevel === null ? '' : ` 当前电量 ${batteryLevel}%。`}`
+    : device.message ?? '请在系统蓝牙设置中配对并唤醒 RC003。'
+  const accessibilityReady = !macOS || permissions.accessibility
+  const allReady = inputTone === 'ready' && accessibilityReady && audioPresentation.tone === 'ready' && deviceTone === 'ready'
+
+  return <div className="home-page">
+    <section className={`home-summary ${allReady ? 'ready' : 'attention'}`}>
+      <div className="home-summary-icon">{allReady ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}</div>
+      <div className="home-summary-copy"><span className="section-kicker">SYSTEM STATUS</span><h2>{allReady ? '运行环境已就绪' : '有项目需要处理'}</h2><p>{allReady ? '权限、设备和音频通道均已检查，可以直接使用 RC003。' : inputAuthorizationStale ? '请重新授权当前 Axonkey 构建，按键映射才能恢复。' : '从下方状态卡处理缺失的权限、驱动或设备连接。'}</p></div>
+      <button type="button" className="button home-refresh-button" onClick={onRefresh}><RotateCcw size={15} /> 重新检测</button>
+    </section>
+
+    <div className="home-status-grid">
+      <HomeStatusCard
+        icon={<Keyboard size={19} />}
+        title="输入监控"
+        status={inputStatus}
+        tone={inputTone}
+        detail={inputDetail}
+        action={macOS
+          ? <button type="button" className="dialog-secondary" onClick={() => onRequestPermission('inputMonitoring')}><ShieldCheck size={14} /> {inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '重新打开设置' : '开始授权'}</button>
+          : <button type="button" className="dialog-secondary" onClick={() => onOpenStep('inputDriver')}><Settings2 size={14} /> 检查驱动</button>}
+      />
+      <HomeStatusCard
+        icon={<Command size={19} />}
+        title="辅助功能"
+        status={macOS ? permissions.accessibility ? '已授权' : '未授权' : '系统不需要'}
+        tone={macOS ? permissions.accessibility ? 'ready' : 'warning' : 'muted'}
+        detail={macOS ? '允许 Axonkey 发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
+        action={macOS && <button type="button" className="dialog-secondary" onClick={() => onRequestPermission('accessibility')}><ShieldCheck size={14} /> {permissions.accessibility ? '重新打开设置' : '开始授权'}</button>}
+      />
+      <HomeStatusCard
+        icon={<AudioLines size={19} />}
+        title={macOS ? 'MiRemoteV 2ch' : 'VB-CABLE 虚拟麦克风'}
+        status={audioPresentation.label}
+        tone={audioPresentation.tone}
+        detail={audioDriver.message ?? (macOS ? '用于把 RC003 语音转发到系统音频输入。' : '用于提供 CABLE Output 虚拟录音设备。')}
+        action={<button type="button" className="dialog-secondary" onClick={onRefresh}><RotateCcw size={14} /> 重新检测</button>}
+      />
+      <HomeStatusCard
+        icon={<Bluetooth size={19} />}
+        title="小米遥控器 RC003"
+        status={deviceStatus}
+        tone={deviceTone}
+        detail={deviceDetail}
+        action={<button type="button" className="dialog-secondary" onClick={() => onOpenStep('deviceConnection')}><Bluetooth size={14} /> 连接设置</button>}
+      />
+    </div>
+
+    <section className="home-tools">
+      <div><span className="section-kicker">QUICK ACCESS</span><h2>常用入口</h2></div>
+      <div className="home-tool-actions">
+        <button type="button" className="home-tool-button" onClick={onOpenMapping}><Keyboard size={17} /><span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span><ChevronRight size={16} /></button>
+        <button type="button" className="home-tool-button" onClick={() => onOpenStep('inputDriver')}><Settings2 size={17} /><span><strong>完整设置</strong><small>权限、驱动与设备检测</small></span><ChevronRight size={16} /></button>
+      </div>
+    </section>
+  </div>
 }
 
 type MappingSideProps = {
@@ -1576,9 +1752,26 @@ function BehaviorEditor({ editorRef, attention, platform, button, trigger, behav
       <div className="behavior-editor-title">
         <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
         <div><h2>{button.label} · {triggerLabels[trigger]}</h2><p>按顺序执行下面的行为，支持连续组合</p></div>
-      </div>
-      <div className="behavior-editor-tools">
         <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
+      </div>
+      <div className="behavior-editor-head-actions">
+        <div className="behavior-tabs" role="tablist" aria-label="行为分类">
+          {([
+            ['common', '常用'],
+            ['navigation', '导航编辑'],
+            ['media', '媒体控制'],
+            ['advanced', '追加步骤'],
+          ] as const).map(([id, label]) => <button
+            key={id}
+            id={`${tabId}-${id}-tab`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls={`${tabId}-${id}-panel`}
+            className={activeTab === id ? 'active' : ''}
+            onClick={() => setActiveTab(id)}
+          >{label}</button>)}
+        </div>
         <button type="button" className="icon-button behavior-return-button" title="返回按键总览" aria-label="返回按键总览" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
       </div>
     </div>
@@ -1605,25 +1798,6 @@ function BehaviorEditor({ editorRef, attention, platform, button, trigger, behav
         <div className="behavior-column-heading">
           <h3>推荐行为</h3>
           {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
-        </div>
-        <div className="behavior-tabs-row">
-          <div className="behavior-tabs" role="tablist" aria-label="行为分类">
-            {([
-              ['common', '常用'],
-              ['navigation', '导航编辑'],
-              ['media', '媒体控制'],
-              ['advanced', '追加步骤'],
-            ] as const).map(([id, label]) => <button
-              key={id}
-              id={`${tabId}-${id}-tab`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === id}
-              aria-controls={`${tabId}-${id}-panel`}
-              className={activeTab === id ? 'active' : ''}
-              onClick={() => setActiveTab(id)}
-            >{label}</button>)}
-          </div>
         </div>
         <div
           id={`${tabId}-${activeTab}-panel`}
