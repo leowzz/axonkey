@@ -12,9 +12,6 @@ concurrency:
   group: build-tag-${{ github.ref }}
   cancel-in-progress: false
 
-env:
-  RELEASE_BRANCH: main
-
 jobs:
   build-windows:
     name: Build Windows installer
@@ -30,37 +27,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify release branch and version tag
-        id: release_metadata
-        shell: pwsh
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: |
-          git show-ref --verify --quiet "refs/remotes/origin/$env:RELEASE_BRANCH"
-          if ($LASTEXITCODE -ne 0) {
-            throw "Release branch '$env:RELEASE_BRANCH' was not found in the checkout."
-          }
-
-          git merge-base --is-ancestor HEAD "refs/remotes/origin/$env:RELEASE_BRANCH"
-          if ($LASTEXITCODE -eq 1) {
-            throw "Tag '$env:TAG_NAME' does not point to a commit on '$env:RELEASE_BRANCH'."
-          }
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Unable to verify the tagged commit against the release branch.'
-          }
-
-          if ($env:TAG_NAME -notmatch '^v(?<Version>(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*))$') {
-            throw "Tag '$env:TAG_NAME' is invalid. Expected vMAJOR.MINOR.PATCH, for example v1.2.3."
-          }
-          $version = $Matches.Version
-          Add-Content -LiteralPath $env:GITHUB_ENV -Value "APP_VERSION=$version" -Encoding utf8
-          Add-Content -LiteralPath $env:GITHUB_OUTPUT -Value "version=$version" -Encoding utf8
-
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+
+      - name: Verify release branch and version tag
+        id: release_metadata
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: node ./scripts/verify-release-tag.mjs $env:TAG_NAME
 
       - name: Verify repository version
         shell: pwsh
@@ -119,36 +97,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Verify release branch and version tag
         id: release_metadata
         shell: bash
         env:
           TAG_NAME: ${{ github.ref_name }}
-        run: |
-          if ! git show-ref --verify --quiet "refs/remotes/origin/$RELEASE_BRANCH"; then
-            echo "Release branch '$RELEASE_BRANCH' was not found in the checkout." >&2
-            exit 1
-          fi
-
-          if git merge-base --is-ancestor HEAD "refs/remotes/origin/$RELEASE_BRANCH"; then
-            :
-          else
-            status=$?
-            if [[ "$status" -eq 1 ]]; then
-              echo "Tag '$TAG_NAME' does not point to a commit on '$RELEASE_BRANCH'." >&2
-            else
-              echo "Unable to verify the tagged commit against the release branch." >&2
-            fi
-            exit 1
-          fi
-
-          if [[ ! "$TAG_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
-            echo "Tag '$TAG_NAME' is invalid. Expected vMAJOR.MINOR.PATCH." >&2
-            exit 1
-          fi
-          version="${TAG_NAME#v}"
-          echo "APP_VERSION=$version" >> "$GITHUB_ENV"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: node ./scripts/verify-release-tag.mjs "$TAG_NAME"
 
       - name: Validate Apple packaging credentials
         id: apple_credentials
@@ -157,11 +117,21 @@ jobs:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MACOS_INSTALLER_CERTIFICATE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+          MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          signing_names=(APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY)
+          signing_names=(
+            APPLE_CERTIFICATE
+            APPLE_CERTIFICATE_PASSWORD
+            APPLE_SIGNING_IDENTITY
+            MACOS_INSTALLER_CERTIFICATE
+            MACOS_INSTALLER_CERTIFICATE_PASSWORD
+            MACOS_INSTALLER_SIGNING_IDENTITY
+          )
           notarization_names=(APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID)
           signing_count=0
           notarization_count=0
@@ -200,12 +170,6 @@ jobs:
             echo "::warning::Apple notarization secrets are not configured; the DMG will not be notarized."
           fi
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
       - name: Verify repository version
         shell: bash
         env:
@@ -224,17 +188,61 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Import Installer signing certificate
+        if: steps.apple_credentials.outputs.signed == 'true'
+        shell: bash
+        env:
+          MACOS_INSTALLER_CERTIFICATE: ${{ secrets.MACOS_INSTALLER_CERTIFICATE }}
+          MACOS_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERTIFICATE_PASSWORD }}
+          MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
+        run: |
+          certificate_path="$RUNNER_TEMP/axonkey-installer-signing.p12"
+          keychain_path="$RUNNER_TEMP/axonkey-installer-signing.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+
+          printf '%s' "$MACOS_INSTALLER_CERTIFICATE" | /usr/bin/base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$MACOS_INSTALLER_CERTIFICATE_PASSWORD" \
+            -T /usr/bin/productsign
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s \
+            "$keychain_path" \
+            $(security list-keychains -d user | tr -d '"')
+          security find-certificate \
+            -c "$MACOS_INSTALLER_SIGNING_IDENTITY" \
+            "$keychain_path" >/dev/null
+
+          rm -f "$certificate_path"
+          echo "MACOS_INSTALLER_KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+
       - name: Build signed universal DMG
         if: steps.apple_credentials.outputs.signed == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
         run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
 
       - name: Build ad-hoc universal DMG
         if: steps.apple_credentials.outputs.signed != 'true'
         run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
+
+      - name: Remove Installer signing keychain
+        if: always() && steps.apple_credentials.outputs.signed == 'true'
+        shell: bash
+        run: |
+          if [[ -n "${MACOS_INSTALLER_KEYCHAIN_PATH:-}" && -f "$MACOS_INSTALLER_KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$MACOS_INSTALLER_KEYCHAIN_PATH"
+          fi
 
       - name: Notarize and staple DMG
         if: steps.apple_credentials.outputs.notarize == 'true'

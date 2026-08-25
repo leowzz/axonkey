@@ -1,5 +1,7 @@
+mod audio_service;
 mod input_service;
 
+use audio_service::{AudioService, AudioServiceStatus};
 use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 
@@ -200,8 +202,7 @@ fn find_driver_script(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("input", "install") => "install-driver.ps1",
-        ("input", "uninstall") => "uninstall-driver.ps1",
+        ("input", "install" | "uninstall") => "openinputbridge-driver.ps1",
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -254,6 +255,95 @@ fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, Str
     Ok(directory.join(file_name))
 }
 
+#[cfg(target_os = "macos")]
+fn macos_driver_log_path(action: &str) -> Result<std::path::PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .ok_or_else(|| "Cannot locate the macOS home directory".to_string())?;
+    let directory = std::path::PathBuf::from(home)
+        .join("Library")
+        .join("Logs")
+        .join("Axonkey");
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
+    Ok(directory.join(format!("miremotev-{action}.log")))
+}
+
+#[cfg(target_os = "macos")]
+fn find_macos_driver_package(
+    action: &str,
+    resource_dir: &std::path::Path,
+) -> Result<std::path::PathBuf, String> {
+    let file_name = match action {
+        "install" => "MiRemoteV2ch-Install.pkg",
+        "uninstall" => "MiRemoteV2ch-Uninstall.pkg",
+        _ => return Err("Unsupported driver action".into()),
+    };
+    let mut roots = vec![resource_dir.to_path_buf()];
+    if let Ok(current) = std::env::current_dir() {
+        roots.push(current.clone());
+        roots.push(current.join("src-tauri"));
+        if let Some(parent) = current.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+    for root in roots {
+        for candidate in [
+            root.join(file_name),
+            root.join("macos").join(file_name),
+            root.join("resources").join("macos").join(file_name),
+            root.join("src-tauri")
+                .join("resources")
+                .join("macos")
+                .join(file_name),
+        ] {
+            if candidate.is_file() {
+                return candidate
+                    .canonicalize()
+                    .map_err(|error| format!("Cannot resolve the driver package: {error}"));
+            }
+        }
+    }
+    Err(format!(
+        "{file_name} was not found. Run `make build-macos-audio` before testing installation."
+    ))
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_driver_action(
+    action: &str,
+    resource_dir: &std::path::Path,
+) -> Result<DriverActionResult, String> {
+    let package = find_macos_driver_package(action, resource_dir)?;
+    let log_path = macos_driver_log_path(action)?;
+    let script = r#"on run argv
+set packagePath to item 1 of argv
+return do shell script "/usr/sbin/installer -pkg " & quoted form of packagePath & " -target /" with administrator privileges
+end run"#;
+    let output = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .arg(&package)
+        .output()
+        .map_err(|error| format!("Cannot launch the macOS driver installer: {error}"))?;
+    let mut log = format!(
+        "Axonkey MiRemoteV 2ch {action}\nPackage: {}\n",
+        package.display()
+    );
+    log.push_str(&String::from_utf8_lossy(&output.stdout));
+    log.push_str(&String::from_utf8_lossy(&output.stderr));
+    std::fs::write(&log_path, log)
+        .map_err(|error| format!("Cannot write the driver log: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "MiRemoteV 2ch {action} was cancelled or failed. Log: {}",
+            log_path.display()
+        ));
+    }
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+    })
+}
+
 #[cfg(target_os = "windows")]
 fn run_driver_action(
     driver: &str,
@@ -287,9 +377,7 @@ fn run_driver_action(
         .arg("Bypass")
         .arg("-File")
         .arg(script);
-    if driver == "audio" {
-        command.arg("-Action").arg(action);
-    }
+    command.arg("-Action").arg(action);
     let status = command
         .arg("-Confirmed")
         .arg("-LogPath")
@@ -347,11 +435,33 @@ async fn launch_driver_action(
         .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        if driver != "audio" {
+            return Err("macOS uses system permissions instead of an input driver".into());
+        }
+        let resource_dir = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        let action_for_task = action.clone();
+        _app.state::<AudioService>().pause();
+        let task_result = tauri::async_runtime::spawn_blocking(move || {
+            run_macos_driver_action(&action_for_task, &resource_dir)
+        })
+        .await;
+        _app.state::<AudioService>().resume();
+        let result =
+            task_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+        Ok(result)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = _app;
+        let _ = driver;
         let _ = action;
-        Err("Driver installation is only supported on Windows".into())
+        Err("Driver installation is only supported on Windows and macOS".into())
     }
 }
 
@@ -509,6 +619,7 @@ struct SystemProbe {
     input_backend_error: Option<String>,
     device_hardware_id: Option<String>,
     input_monitoring_granted: Option<bool>,
+    input_authorization_stale: Option<bool>,
     accessibility_granted: Option<bool>,
     capture_active: bool,
 }
@@ -617,18 +728,45 @@ try {
 }
 
 #[tauri::command]
-async fn probe_rc003_battery_level() -> Option<u8> {
+async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
     #[cfg(target_os = "windows")]
     {
+        let _ = app;
         tauri::async_runtime::spawn_blocking(rc003_battery_level)
             .await
             .unwrap_or_default()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        use tauri::Manager;
+
+        app.state::<AudioService>().status().battery_level
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = app;
         None
     }
+}
+
+#[cfg(target_os = "windows")]
+fn oib_driver_installed() -> Result<bool, String> {
+    use winreg::enums::HKEY_LOCAL_MACHINE;
+    use winreg::RegKey;
+
+    let services = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey("SYSTEM\\CurrentControlSet\\Services")
+        .map_err(|error| format!("Cannot inspect Windows input drivers: {error}"))?;
+    for service in ["OpenInputBridgeKeyboard", "OpenInputBridgeMouse"] {
+        match services.open_subkey(service) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(format!("Cannot inspect {service}: {error}")),
+        }
+    }
+    Ok(true)
 }
 
 #[cfg(target_os = "windows")]
@@ -647,16 +785,28 @@ fn vbcable_service_installed() -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn probe_audio_available() -> Result<bool, String> {
+fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
         vbcable_service_installed()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     {
+        Ok(audio_service.status().driver_installed)
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = audio_service;
         Ok(false)
     }
+}
+
+#[tauri::command]
+fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServiceStatus {
+    audio_service.refresh();
+    audio_service.status()
 }
 
 #[tauri::command]
@@ -700,12 +850,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        let input_driver_installed = std::path::PathBuf::from(windows)
-            .join("System32")
-            .join("drivers")
-            .join("keyboard.sys")
-            .is_file();
+        let input_driver_installed = oib_driver_installed()?;
         Ok(SystemProbe {
             platform: "windows",
             input_driver_installed,
@@ -714,6 +859,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: None,
+            input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: input_status.capture_active,
         })
@@ -729,6 +875,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: input_status.input_monitoring_granted,
+            input_authorization_stale: Some(input_status.input_monitoring_open_denied),
             accessibility_granted: input_status.accessibility_granted,
             capture_active: input_status.capture_active,
         })
@@ -744,6 +891,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
             input_monitoring_granted: None,
+            input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: false,
         })
@@ -756,6 +904,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
         }))
+        .manage(AudioService::start())
         .manage(InputService::start())
         .manage(PermissionHelperWindowState::default())
         .setup(|app| {
@@ -792,6 +941,7 @@ pub fn run() {
             request_macos_permission,
             probe_system_state,
             probe_audio_available,
+            probe_audio_state,
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,

@@ -97,6 +97,7 @@ type SystemProbe = {
   input_backend_error?: string | null
   device_hardware_id?: string | null
   input_monitoring_granted?: boolean | null
+  input_authorization_stale?: boolean | null
   accessibility_granted?: boolean | null
   capture_active: boolean
 }
@@ -123,6 +124,14 @@ type RemoteKeyEvent = {
 
 type DriverActionResult = {
   logPath: string
+}
+
+type AudioProbe = {
+  driverInstalled: boolean
+  state: 'stopped' | 'driverMissing' | 'bluetoothUnavailable' | 'scanning' | 'connecting' | 'ready' | 'forwarding' | 'error' | 'unknown' | 'unsupported'
+  bluetoothConnected: boolean
+  forwarding: boolean
+  error?: string | null
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
@@ -862,15 +871,19 @@ function App() {
     updateSetup((current) => beginDriverAction(current, driver, action))
     try {
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
-      const driverName = driver === 'audio' ? 'VB-CABLE' : '按键驱动'
+      const driverName = driver === 'audio'
+        ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
+        : '按键驱动'
+      const restartRequired = platform === 'windows'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
-        status: action === 'install' ? 'restartRequired' : 'missing',
-        restartRequired: true,
-        message: action === 'install'
-          ? `${driverName} 安装已完成，请重启 Windows。日志：${result.logPath}`
-          : `${driverName} 卸载已完成，请重启 Windows。日志：${result.logPath}`,
+        status: action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing',
+        restartRequired,
+        message: platform === 'macos'
+          ? `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，Core Audio 已刷新。日志：${result.logPath}`
+          : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，请重启 Windows。日志：${result.logPath}`,
       }))
+      if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
     } catch (error) {
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
       updateSetup((current) => finishDriverAction(current, driver, action, {
@@ -990,7 +1003,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -1009,14 +1022,18 @@ function App() {
         }
         const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
         const inputStatus = probe.platform === 'macos'
-          ? !macPermissionsReady
+          ? probe.input_authorization_stale
+            ? 'error'
+            : !macPermissionsReady
             ? 'missing'
             : probe.input_backend_error
               ? 'error'
               : probe.input_backend_ready ? 'installed' : 'checking'
           : !probe.input_driver_installed ? 'missing' : probe.input_backend_error ? 'error' : 'installed'
         const inputMessage = probe.platform === 'macos'
-          ? !macPermissionsReady
+          ? probe.input_authorization_stale
+            ? '当前构建的输入监控授权已失效。请在系统设置中移除旧 Axonkey，重新添加当前 Axonkey.app 并打开开关。'
+            : !macPermissionsReady
             ? '需要授予输入监控和辅助功能权限。'
             : probe.input_backend_error
               ? `原生输入服务启动失败：${probe.input_backend_error}`
@@ -1024,12 +1041,12 @@ function App() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Interception 按键驱动。'
+            ? '未检测到完整的 OpenInputBridge 按键驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Interception 按键服务工作正常。'
-                : '已检测到 Interception 按键驱动，输入服务正在启动。'
+                ? 'OpenInputBridge 按键服务工作正常。'
+                : '已检测到 OpenInputBridge 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         return setDeviceConnection(next, device)
       })
@@ -1048,19 +1065,40 @@ function App() {
   }
 
   const probeAudioState = async () => {
-    if (platform !== 'windows') return
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
-    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', { message: '正在检查 VB-CABLE 虚拟麦克风…' }))
+    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', {
+      message: platform === 'macos' ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…' : '正在检查 VB-CABLE 虚拟麦克风…',
+    }))
     try {
-      const available = await withTimeout(
-        invoke<boolean>('probe_audio_available'),
-        5_000,
-        '检测超时，请点击“重新检测”再试',
-      )
-      updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
-        message: available ? '已检测到 VB-Audio Virtual Cable（CABLE Output）。' : '未检测到 VB-CABLE 虚拟麦克风驱动。',
-      }))
+      if (platform === 'macos') {
+        const probe = await withTimeout(
+          invoke<AudioProbe>('probe_audio_state'),
+          5_000,
+          '检测超时，请点击“重新检测”再试',
+        )
+        const stateMessage = probe.forwarding
+          ? '正在把 RC003 麦克风音频转发到 MiRemoteV 2ch。'
+          : probe.state === 'ready'
+            ? 'MiRemoteV 2ch 已安装，RC003 语音通道已连接。'
+            : probe.state === 'connecting' || probe.state === 'scanning'
+              ? 'MiRemoteV 2ch 已安装，正在连接 RC003 语音通道。'
+              : probe.error
+                ? `MiRemoteV 2ch 已安装；语音通道：${probe.error}`
+                : 'MiRemoteV 2ch 已安装，按住语音键时会自动开始转发。'
+        updateSetup((current) => setDriverStatus(current, 'audio', probe.driverInstalled ? 'installed' : 'missing', {
+          message: probe.driverInstalled ? stateMessage : '未检测到 MiRemoteV 2ch 虚拟麦克风驱动。',
+        }))
+      } else {
+        const available = await withTimeout(
+          invoke<boolean>('probe_audio_available'),
+          5_000,
+          '检测超时，请点击“重新检测”再试',
+        )
+        updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
+          message: available ? '已检测到 VB-Audio Virtual Cable（CABLE Output）。' : '未检测到 VB-CABLE 虚拟麦克风驱动。',
+        }))
+      }
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
@@ -1087,7 +1125,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -1152,7 +1190,7 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (setupOpen && setupState.currentStep === 'inputDriver' && platform === 'windows') void probeAudioState()
+    if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
   }, [setupOpen, setupState.currentStep, platform])
 
   useEffect(() => {
@@ -1837,7 +1875,7 @@ const windowsSetupStepLabels: Record<SetupStepId, string> = {
 
 const macSetupStepLabels: Record<SetupStepId, string> = {
   ...windowsSetupStepLabels,
-  inputDriver: '系统权限',
+  inputDriver: '权限与音频',
 }
 
 const windowsSetupSteps: SetupStepId[] = ['welcome', 'inputDriver', 'deviceConnection', 'complete']
@@ -1879,7 +1917,7 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 OpenInputBridge 驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -1889,7 +1927,11 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
         {step === 'inputDriver' && (platform === 'macos'
           ? <MacPermissionsSetupScreen
             permissions={macPermissions}
+            state={state}
             onRequest={onRequestMacPermission}
+            onAudioAction={onDriverAction}
+            onProbeAudio={onProbeAudio}
+            onOpenSound={() => onOpenSystemSettings('sound')}
             onContinue={onCompleteStep}
             onSkip={onSkipStep}
           />
@@ -1922,6 +1964,7 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
             {platform === 'macos' ? <>
               <span><Keyboard size={15} /> 输入监控：{macPermissions.inputMonitoring ? '已授权' : '稍后授权'}</span>
               <span><Command size={15} /> 辅助功能：{macPermissions.accessibility ? '已授权' : '稍后授权'}</span>
+              <span><AudioLines size={15} /> MiRemoteV 2ch：{driverStatusLabel(state.drivers.audio.status)}</span>
             </> : <>
               <span><Keyboard size={15} /> 按键驱动：{driverStatusLabel(state.drivers.input.status)}</span>
               <span><AudioLines size={15} /> CABLE 麦克风：{driverStatusLabel(state.drivers.audio.status)}</span>
@@ -1937,12 +1980,16 @@ function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onC
 
 type MacPermissionsSetupScreenProps = {
   permissions: MacPermissions
+  state: SetupState
   onRequest: (kind: MacPermissionKind) => void
+  onAudioAction: (driver: DriverKind, action: DriverActionKind) => void
+  onProbeAudio: () => void
+  onOpenSound: () => void
   onContinue: () => void
   onSkip: () => void
 }
 
-function MacPermissionsSetupScreen({ permissions, onRequest, onContinue, onSkip }: MacPermissionsSetupScreenProps) {
+function MacPermissionsSetupScreen({ permissions, state, onRequest, onAudioAction, onProbeAudio, onOpenSound, onContinue, onSkip }: MacPermissionsSetupScreenProps) {
   const ready = permissions.inputMonitoring && permissions.accessibility
   const grantedCount = Number(permissions.inputMonitoring) + Number(permissions.accessibility)
   const activeKind: MacPermissionKind | null = !permissions.inputMonitoring
@@ -1964,6 +2011,12 @@ function MacPermissionsSetupScreen({ permissions, onRequest, onContinue, onSkip 
       icon: <Command size={18} />,
     },
   ]
+  const audio = state.drivers.audio
+  const inputAuthorizationError = state.drivers.input.status === 'error'
+    ? state.drivers.input.message
+    : null
+  const audioInstalled = isDriverInstalled(state, 'audio')
+  const audioRunning = audio.action.status === 'running'
   return <div className="setup-screen mac-permission-screen">
     <span className="section-kicker">SYSTEM ACCESS</span>
     <h2 id="setup-title">先完成两项必要授权</h2>
@@ -1990,7 +2043,23 @@ function MacPermissionsSetupScreen({ permissions, onRequest, onContinue, onSkip 
       })}
     </div>
 
-    {!ready && <div className="permission-drag-note"><Info size={17} /><div><strong>系统列表中没有 Axonkey？</strong><span>授权小窗可以在 Finder 中定位当前应用，再将 Axonkey.app 拖入系统设置列表。</span></div></div>}
+    <section className={`mac-audio-setup ${audio.status}`}>
+      <span className="permission-step-icon"><AudioLines size={18} /></span>
+      <div className="mac-audio-copy">
+        <div><h3>MiRemoteV 2ch 虚拟麦克风</h3><span className="permission-status-label">{driverStatusLabel(audio.status)}</span></div>
+        <p>{audio.action.error ?? audio.message ?? '安装后，Axonkey 会把 RC003 语音直接转发给豆包输入法等应用。'}</p>
+      </div>
+      <div className="mac-audio-actions">
+        {!audioInstalled && <button type="button" className="dialog-secondary" disabled={audioRunning} onClick={() => onAudioAction('audio', 'install')}><Download size={14} /> {audioRunning ? '等待授权…' : '安装驱动'}</button>}
+        {audioInstalled && <button type="button" className="dialog-secondary danger" disabled={audioRunning} onClick={() => onAudioAction('audio', 'uninstall')}><Trash2 size={14} /> {audioRunning ? '等待授权…' : '卸载'}</button>}
+        <button type="button" className="dialog-secondary" disabled={audioRunning || audio.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {audio.status === 'checking' ? '检测中' : '重新检测'}</button>
+        <button type="button" className="dialog-secondary" disabled={audioRunning} onClick={onOpenSound}><Settings2 size={14} /> 声音设置</button>
+      </div>
+    </section>
+
+    {inputAuthorizationError
+      ? <div className="permission-drag-note"><Info size={17} /><div><strong>需要重新授权当前构建</strong><span>{inputAuthorizationError}</span></div></div>
+      : !ready && <div className="permission-drag-note"><Info size={17} /><div><strong>系统列表中没有 Axonkey？</strong><span>授权小窗可以在 Finder 中定位当前应用，再将 Axonkey.app 拖入系统设置列表。</span></div></div>}
     <div className="setup-actions"><button type="button" className="setup-text-button" onClick={onSkip}>稍后授权</button><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续 <ChevronRight size={15} /></button></div>
   </div>
 }
@@ -2074,7 +2143,7 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const message = driver.action.error ?? driver.message ?? (kind === 'input'
-    ? '经过校验的 Interception 驱动，仅用于识别 RC003 按键。'
+    ? '经过校验的 OpenInputBridge 驱动，仅用于识别 RC003 按键。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">

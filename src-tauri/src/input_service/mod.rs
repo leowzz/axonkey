@@ -10,6 +10,8 @@ pub struct InputServiceStatus {
     pub input_monitoring_granted: Option<bool>,
     pub accessibility_granted: Option<bool>,
     pub capture_active: bool,
+    #[serde(skip)]
+    pub(crate) input_monitoring_open_denied: bool,
 }
 
 #[derive(Clone, Default, Deserialize)]

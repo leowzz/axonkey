@@ -1,8 +1,9 @@
 # Axonkey Product Scope
 
-> The current Interception-based input path has a confirmed Bluetooth HID
-> reconnect blocker and does not yet satisfy this product scope. See
-> [Interception hot-plug incident](./INTERCEPTION_HOTPLUG_INCIDENT.md).
+> The Windows input path has migrated from Interception to OpenInputBridge.
+> Code-level identity, device isolation, and reconnect re-enumeration are in
+> place; the physical RC003 reconnect matrix must pass before a Windows build is
+> considered release-ready. See [Windows alternatives](./WINDOWS_INPUT_ALTERNATIVES.md).
 
 ## Purpose
 
@@ -22,8 +23,11 @@ local utility rather than a general keyboard automation platform.
 - Apply saved changes immediately without a reboot.
 - Run in the notification area and optionally at sign-in.
 - Store all settings and diagnostics locally.
-- Guide Windows users through Interception and optional VB-CABLE setup, and
-  macOS users through Input Monitoring and Accessibility permissions.
+- Guide Windows users through OpenInputBridge and optional VB-CABLE setup, and
+  macOS users through Input Monitoring, Accessibility, and optional MiRemoteV
+  2ch virtual-microphone setup.
+- Forward physical RC003 voice sessions to MiRemoteV 2ch on macOS without a
+  remote-mic-app process or installation.
 
 The RC003 Back and independent Volume +/- buttons are not shown on Windows because
 Windows does not reliably associate those events with their source input device.
@@ -49,7 +53,7 @@ as their defaults.
   behaviors. Key and shortcut capture share one entry, and no extra add
   confirmation is required.
 - Invalid custom shortcuts cannot be saved.
-- Missing devices, missing Windows drivers and missing macOS permissions have
+- Missing devices, missing platform drivers and missing macOS permissions have
   different messages and remedies.
 - A mapping failure must not leave a replacement modifier held down.
 - Installing, closing, or uninstalling Axonkey must not prevent RC003's original

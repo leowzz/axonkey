@@ -1,11 +1,11 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Axonkey",
-  "version": "0.1.10",
+  "version": "0.1.14",
   "identifier": "com.axonkey.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:tauri",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../web-dist"
   },

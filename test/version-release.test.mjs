@@ -15,6 +15,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { checkVersions, updateVersions, versionFiles } from '../scripts/version.mjs'
+import { verifyReleaseTag } from '../scripts/verify-release-tag.mjs'
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -130,6 +131,30 @@ test('explicit release uses the requested tag version', (t) => {
   const result = runRelease(root, 'v2.3.4')
   assert.equal(result.status, 0, result.stderr)
   assert.equal(checkVersions('v2.3.4', root), 'v2.3.4')
+})
+
+test('release tag may point to a commit on a non-main remote branch', (t) => {
+  const root = seedRepository(t)
+  git(root, 'branch', '-M', 'main')
+  git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
+  git(root, 'switch', '-qc', 'feat/mac')
+  writeFileSync(join(root, 'feature.txt'), 'feature release\n')
+  git(root, 'add', 'feature.txt')
+  git(root, 'commit', '-qm', 'feature release')
+  git(root, 'update-ref', 'refs/remotes/origin/feat/mac', 'HEAD')
+
+  assert.deepEqual(verifyReleaseTag('v0.1.10', root), {
+    version: '0.1.10',
+    branches: ['origin/feat/mac'],
+  })
+})
+
+test('release tag is rejected when no remote branch contains its commit', (t) => {
+  const root = seedRepository(t)
+  assert.throws(
+    () => verifyReleaseTag('v0.1.10', root),
+    /does not point to a commit on any remote branch/,
+  )
 })
 
 for (const dirtyKind of ['staged', 'unstaged', 'untracked']) {

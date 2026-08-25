@@ -2,7 +2,9 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <IOKit/hid/IOHIDManager.h>
+#import <IOKit/hidsystem/IOHIDEventSystemClient.h>
 #import <IOKit/hidsystem/IOHIDLib.h>
+#import <IOKit/hidsystem/IOHIDServiceClient.h>
 #import <IOKit/hidsystem/IOLLEvent.h>
 #import <IOKit/hidsystem/ev_keymap.h>
 
@@ -24,6 +26,7 @@ enum {
     AXONKEY_CAPTURE_NONE = 0,
     AXONKEY_CAPTURE_SEIZED = 1,
     AXONKEY_CAPTURE_FILTERED = 2,
+    AXONKEY_CAPTURE_VOICE_RIGHT_CONTROL = 4,
     AXONKEY_NATIVE_EVENT_KEYBOARD = 1,
     AXONKEY_NATIVE_EVENT_SYSTEM = 2,
     AXONKEY_MAX_PENDING_EVENTS = 32,
@@ -76,7 +79,255 @@ typedef struct {
     size_t held_event_count;
     uint16_t active_usages[AXONKEY_MAX_ACTIVE_USAGES];
     size_t active_usage_count;
+    bool voice_right_control_requested;
+    bool voice_right_control_active;
+    IOHIDEventSystemClientRef event_system_client;
+    CFMutableDictionaryRef original_voice_mappings;
 } AxonkeyInputState;
+
+static const uint64_t AXONKEY_RC003_VOICE_USAGE = 0x000000070000003E;
+static const uint64_t AXONKEY_RIGHT_CONTROL_USAGE = 0x00000007000000E4;
+
+static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
+    if (value == NULL || result == NULL || CFGetTypeID(value) != CFNumberGetTypeID()) {
+        return false;
+    }
+    return CFNumberGetValue((CFNumberRef)value, kCFNumberSInt64Type, result);
+}
+
+static bool axonkey_service_is_rc003(IOHIDServiceClientRef service) {
+    if (service == NULL) {
+        return false;
+    }
+    CFTypeRef vendor = IOHIDServiceClientCopyProperty(service, CFSTR(kIOHIDVendorIDKey));
+    CFTypeRef product = IOHIDServiceClientCopyProperty(service, CFSTR(kIOHIDProductIDKey));
+    uint64_t vendor_id = 0;
+    uint64_t product_id = 0;
+    bool matches = axonkey_cf_number_get_u64(vendor, &vendor_id) &&
+        axonkey_cf_number_get_u64(product, &product_id) &&
+        vendor_id == 0x2717 && product_id == 0x32B8;
+    if (vendor != NULL) CFRelease(vendor);
+    if (product != NULL) CFRelease(product);
+    return matches;
+}
+
+static bool axonkey_mapping_has_source(CFTypeRef value, uint64_t expected_source) {
+    if (value == NULL || CFGetTypeID(value) != CFDictionaryGetTypeID()) {
+        return false;
+    }
+    CFTypeRef source = CFDictionaryGetValue(
+        (CFDictionaryRef)value,
+        CFSTR("HIDKeyboardModifierMappingSrc")
+    );
+    uint64_t actual_source = 0;
+    return axonkey_cf_number_get_u64(source, &actual_source) && actual_source == expected_source;
+}
+
+static CFMutableArrayRef axonkey_copy_service_mappings(IOHIDServiceClientRef service) {
+    CFTypeRef property = IOHIDServiceClientCopyProperty(service, CFSTR("UserKeyMapping"));
+    CFMutableArrayRef mappings = NULL;
+    if (property != NULL && CFGetTypeID(property) == CFArrayGetTypeID()) {
+        mappings = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, (CFArrayRef)property);
+    } else {
+        mappings = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+    }
+    if (property != NULL) CFRelease(property);
+    return mappings;
+}
+
+static CFDictionaryRef axonkey_create_usage_mapping(uint64_t source, uint64_t destination) {
+    CFNumberRef source_number = CFNumberCreate(
+        kCFAllocatorDefault,
+        kCFNumberSInt64Type,
+        &source
+    );
+    CFNumberRef destination_number = CFNumberCreate(
+        kCFAllocatorDefault,
+        kCFNumberSInt64Type,
+        &destination
+    );
+    if (source_number == NULL || destination_number == NULL) {
+        if (source_number != NULL) CFRelease(source_number);
+        if (destination_number != NULL) CFRelease(destination_number);
+        return NULL;
+    }
+    const void *keys[] = {
+        CFSTR("HIDKeyboardModifierMappingSrc"),
+        CFSTR("HIDKeyboardModifierMappingDst"),
+    };
+    const void *values[] = {source_number, destination_number};
+    CFDictionaryRef mapping = CFDictionaryCreate(
+        kCFAllocatorDefault,
+        keys,
+        values,
+        2,
+        &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks
+    );
+    CFRelease(source_number);
+    CFRelease(destination_number);
+    return mapping;
+}
+
+static CFMutableArrayRef axonkey_copy_replacing_voice_mapping(
+    CFArrayRef current,
+    CFDictionaryRef replacement
+) {
+    CFMutableArrayRef desired = current == NULL
+        ? CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks)
+        : CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, current);
+    if (desired == NULL) {
+        return NULL;
+    }
+    for (CFIndex index = CFArrayGetCount(desired); index > 0; index -= 1) {
+        CFTypeRef mapping = CFArrayGetValueAtIndex(desired, index - 1);
+        if (axonkey_mapping_has_source(mapping, AXONKEY_RC003_VOICE_USAGE)) {
+            CFArrayRemoveValueAtIndex(desired, index - 1);
+        }
+    }
+    if (replacement != NULL) {
+        CFArrayAppendValue(desired, replacement);
+    }
+    return desired;
+}
+
+static CFDictionaryRef axonkey_copy_voice_mapping(CFArrayRef mappings) {
+    if (mappings == NULL) {
+        return NULL;
+    }
+    for (CFIndex index = 0; index < CFArrayGetCount(mappings); index += 1) {
+        CFTypeRef mapping = CFArrayGetValueAtIndex(mappings, index);
+        if (axonkey_mapping_has_source(mapping, AXONKEY_RC003_VOICE_USAGE)) {
+            return CFRetain((CFDictionaryRef)mapping);
+        }
+    }
+    return NULL;
+}
+
+static void axonkey_restore_voice_right_control(AxonkeyInputState *state) {
+    if (state == NULL || state->event_system_client == NULL ||
+        state->original_voice_mappings == NULL) {
+        return;
+    }
+    CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
+    if (services != NULL) {
+        for (CFIndex index = 0; index < CFArrayGetCount(services); index += 1) {
+            IOHIDServiceClientRef service = (IOHIDServiceClientRef)CFArrayGetValueAtIndex(
+                services,
+                index
+            );
+            if (!axonkey_service_is_rc003(service)) {
+                continue;
+            }
+            CFTypeRef registry_id = IOHIDServiceClientGetRegistryID(service);
+            if (registry_id == NULL) {
+                continue;
+            }
+            CFTypeRef original = CFDictionaryGetValue(
+                state->original_voice_mappings,
+                registry_id
+            );
+            if (original == NULL) {
+                continue;
+            }
+            CFMutableArrayRef current = axonkey_copy_service_mappings(service);
+            CFDictionaryRef replacement = original == kCFNull
+                ? NULL
+                : (CFDictionaryRef)original;
+            CFMutableArrayRef restored = axonkey_copy_replacing_voice_mapping(
+                current,
+                replacement
+            );
+            if (restored != NULL) {
+                IOHIDServiceClientSetProperty(
+                    service,
+                    CFSTR("UserKeyMapping"),
+                    restored
+                );
+                CFRelease(restored);
+            }
+            if (current != NULL) CFRelease(current);
+        }
+        CFRelease(services);
+    }
+    CFDictionaryRemoveAllValues(state->original_voice_mappings);
+    state->voice_right_control_active = false;
+}
+
+static bool axonkey_apply_voice_right_control(AxonkeyInputState *state) {
+    if (state == NULL || state->event_system_client == NULL ||
+        state->original_voice_mappings == NULL) {
+        return false;
+    }
+    CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
+    if (services == NULL) {
+        return false;
+    }
+    CFDictionaryRef replacement = axonkey_create_usage_mapping(
+        AXONKEY_RC003_VOICE_USAGE,
+        AXONKEY_RIGHT_CONTROL_USAGE
+    );
+    if (replacement == NULL) {
+        CFRelease(services);
+        return false;
+    }
+
+    size_t target_count = 0;
+    bool applied = true;
+    for (CFIndex index = 0; index < CFArrayGetCount(services); index += 1) {
+        IOHIDServiceClientRef service = (IOHIDServiceClientRef)CFArrayGetValueAtIndex(
+            services,
+            index
+        );
+        if (!axonkey_service_is_rc003(service)) {
+            continue;
+        }
+        target_count += 1;
+        CFTypeRef registry_id = IOHIDServiceClientGetRegistryID(service);
+        if (registry_id == NULL || CFGetTypeID(registry_id) != CFNumberGetTypeID()) {
+            applied = false;
+            break;
+        }
+        CFMutableArrayRef current = axonkey_copy_service_mappings(service);
+        if (current == NULL) {
+            applied = false;
+            break;
+        }
+        if (!CFDictionaryContainsKey(state->original_voice_mappings, registry_id)) {
+            CFDictionaryRef original = axonkey_copy_voice_mapping(current);
+            const void *stored_original = original == NULL
+                ? (const void *)kCFNull
+                : (const void *)original;
+            CFDictionarySetValue(
+                state->original_voice_mappings,
+                registry_id,
+                stored_original
+            );
+            if (original != NULL) CFRelease(original);
+        }
+        CFMutableArrayRef desired = axonkey_copy_replacing_voice_mapping(current, replacement);
+        CFRelease(current);
+        if (desired == NULL || !IOHIDServiceClientSetProperty(
+            service,
+            CFSTR("UserKeyMapping"),
+            desired
+        )) {
+            if (desired != NULL) CFRelease(desired);
+            applied = false;
+            break;
+        }
+        CFRelease(desired);
+    }
+    CFRelease(replacement);
+    CFRelease(services);
+
+    if (!applied || target_count == 0) {
+        axonkey_restore_voice_right_control(state);
+        return false;
+    }
+    state->voice_right_control_active = true;
+    return true;
+}
 
 static bool axonkey_native_event_equal(int lhs_kind, int lhs_code, int rhs_kind, int rhs_code) {
     return lhs_kind == rhs_kind && lhs_code == rhs_code;
@@ -220,6 +471,22 @@ static bool axonkey_native_event_for_usage(uint16_t usage, int *kind, int *code)
     }
 }
 
+static void axonkey_arm_usage_events(AxonkeyInputState *state, uint16_t usage, bool down) {
+    int kind = 0;
+    int code = 0;
+    if (axonkey_native_event_for_usage(usage, &kind, &code)) {
+        axonkey_arm_native_event(state, kind, code, down);
+    }
+    if (usage == 0x3e) {
+        // A per-device UserKeyMapping may translate the RC003 voice key to Fn.
+        axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 63, down);
+    }
+    if (usage == 0x66) {
+        // The RC003 power usage is Escape unless another app remaps it to F20.
+        axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 53, down);
+    }
+}
+
 static bool axonkey_usage_contains(const uint16_t *usages, size_t count, uint16_t usage) {
     for (size_t index = 0; index < count; index += 1) {
         if (usages[index] == usage) {
@@ -256,24 +523,32 @@ static void axonkey_arm_report_events(
     }
     for (size_t index = 0; index < usage_count; index += 1) {
         if (!axonkey_usage_contains(state->active_usages, state->active_usage_count, usages[index])) {
-            int kind = 0;
-            int code = 0;
-            if (axonkey_native_event_for_usage(usages[index], &kind, &code)) {
-                axonkey_arm_native_event(state, kind, code, true);
-            }
+            axonkey_arm_usage_events(state, usages[index], true);
         }
     }
     for (size_t index = 0; index < state->active_usage_count; index += 1) {
         if (!axonkey_usage_contains(usages, usage_count, state->active_usages[index])) {
-            int kind = 0;
-            int code = 0;
-            if (axonkey_native_event_for_usage(state->active_usages[index], &kind, &code)) {
-                axonkey_arm_native_event(state, kind, code, false);
-            }
+            axonkey_arm_usage_events(state, state->active_usages[index], false);
         }
     }
     memcpy(state->active_usages, usages, usage_count * sizeof(uint16_t));
     state->active_usage_count = usage_count;
+}
+
+static CGEventFlags axonkey_modifier_mask_for_keycode(int code) {
+    switch (code) {
+        case 54:
+        case 55: return kCGEventFlagMaskCommand;
+        case 56:
+        case 60: return kCGEventFlagMaskShift;
+        case 57: return kCGEventFlagMaskAlphaShift;
+        case 58:
+        case 61: return kCGEventFlagMaskAlternate;
+        case 59:
+        case 62: return kCGEventFlagMaskControl;
+        case 63: return kCGEventFlagMaskSecondaryFn;
+        default: return 0;
+    }
 }
 
 static bool axonkey_describe_cg_event(
@@ -290,6 +565,16 @@ static bool axonkey_describe_cg_event(
         *kind = AXONKEY_NATIVE_EVENT_KEYBOARD;
         *code = (int)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
         *down = type == kCGEventKeyDown;
+        return true;
+    }
+    if (type == kCGEventFlagsChanged) {
+        *kind = AXONKEY_NATIVE_EVENT_KEYBOARD;
+        *code = (int)CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+        CGEventFlags mask = axonkey_modifier_mask_for_keycode(*code);
+        if (mask == 0) {
+            return false;
+        }
+        *down = (CGEventGetFlags(event) & mask) != 0;
         return true;
     }
     if ((uint32_t)type != 14) {
@@ -366,6 +651,7 @@ static bool axonkey_start_event_filter(AxonkeyInputState *state, CFRunLoopRef ru
     }
     CGEventMask event_mask = CGEventMaskBit(kCGEventKeyDown) |
         CGEventMaskBit(kCGEventKeyUp) |
+        CGEventMaskBit(kCGEventFlagsChanged) |
         CGEventMaskBit((CGEventType)14);
     state->event_tap = CGEventTapCreate(
         kCGSessionEventTap,
@@ -449,13 +735,16 @@ static int axonkey_capture_mode(AxonkeyInputState *state) {
     if (state == NULL || !state->capture) {
         return AXONKEY_CAPTURE_NONE;
     }
+    int mode = AXONKEY_CAPTURE_NONE;
     if (CFSetGetCount(state->seized_devices) > 0) {
-        return AXONKEY_CAPTURE_SEIZED;
+        mode = AXONKEY_CAPTURE_SEIZED;
+    } else if (state->event_tap != NULL && CFSetGetCount(state->monitored_devices) > 0) {
+        mode = AXONKEY_CAPTURE_FILTERED;
     }
-    if (state->event_tap != NULL && CFSetGetCount(state->monitored_devices) > 0) {
-        return AXONKEY_CAPTURE_FILTERED;
+    if (state->voice_right_control_active) {
+        mode |= AXONKEY_CAPTURE_VOICE_RIGHT_CONTROL;
     }
-    return AXONKEY_CAPTURE_NONE;
+    return mode;
 }
 
 static void axonkey_device_matched(
@@ -475,20 +764,33 @@ static void axonkey_device_matched(
     }
     CFSetAddValue(state->devices, device);
 
+    if (state->capture && state->voice_right_control_requested) {
+        state->voice_right_control_active = axonkey_apply_voice_right_control(state);
+    }
+
     int capture_mode = AXONKEY_CAPTURE_NONE;
     if (state->capture && !axonkey_device_is_seized(state, device)) {
-        IOReturn open_result = IOHIDDeviceOpen(device, kIOHIDOptionsTypeSeizeDevice);
-        if (open_result == kIOReturnSuccess) {
-            CFSetAddValue(state->seized_devices, device);
-        } else if (state->event_tap != NULL) {
+        if (state->voice_right_control_requested && state->event_tap != NULL) {
             IOReturn monitor_result = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
             if (monitor_result == kIOReturnSuccess) {
                 CFSetAddValue(state->monitored_devices, device);
             } else if (axonkey_capture_mode(state) == AXONKEY_CAPTURE_NONE) {
                 axonkey_emit(state, AXONKEY_EVENT_BACKEND_ERROR, 0, NULL, 0, monitor_result);
             }
-        } else if (axonkey_capture_mode(state) == AXONKEY_CAPTURE_NONE) {
-            axonkey_emit(state, AXONKEY_EVENT_BACKEND_ERROR, 0, NULL, 0, open_result);
+        } else {
+            IOReturn open_result = IOHIDDeviceOpen(device, kIOHIDOptionsTypeSeizeDevice);
+            if (open_result == kIOReturnSuccess) {
+                CFSetAddValue(state->seized_devices, device);
+            } else if (state->event_tap != NULL) {
+                IOReturn monitor_result = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
+                if (monitor_result == kIOReturnSuccess) {
+                    CFSetAddValue(state->monitored_devices, device);
+                } else if (axonkey_capture_mode(state) == AXONKEY_CAPTURE_NONE) {
+                    axonkey_emit(state, AXONKEY_EVENT_BACKEND_ERROR, 0, NULL, 0, monitor_result);
+                }
+            } else if (axonkey_capture_mode(state) == AXONKEY_CAPTURE_NONE) {
+                axonkey_emit(state, AXONKEY_EVENT_BACKEND_ERROR, 0, NULL, 0, open_result);
+            }
         }
     }
     capture_mode = axonkey_capture_mode(state);
@@ -582,7 +884,11 @@ static void axonkey_close_seized_device(const void *value, void *context) {
     IOHIDDeviceClose((IOHIDDeviceRef)value, kIOHIDOptionsTypeNone);
 }
 
-int axonkey_macos_input_run(const AxonkeyCallbacks *callbacks, bool capture) {
+int axonkey_macos_input_run(
+    const AxonkeyCallbacks *callbacks,
+    bool capture,
+    bool voice_right_control
+) {
     if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL) {
         return kIOReturnBadArgument;
     }
@@ -616,6 +922,7 @@ int axonkey_macos_input_run(const AxonkeyCallbacks *callbacks, bool capture) {
         .devices = devices,
         .seized_devices = seized_devices,
         .monitored_devices = monitored_devices,
+        .voice_right_control_requested = capture && voice_right_control,
     };
 
     int vendor_id = 0x2717;
@@ -651,6 +958,22 @@ int axonkey_macos_input_run(const AxonkeyCallbacks *callbacks, bool capture) {
         return kIOReturnNoMemory;
     }
 
+    if (state.voice_right_control_requested) {
+        state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
+        state.original_voice_mappings = CFDictionaryCreateMutable(
+            kCFAllocatorDefault,
+            0,
+            &kCFTypeDictionaryKeyCallBacks,
+            &kCFTypeDictionaryValueCallBacks
+        );
+        if (state.event_system_client == NULL || state.original_voice_mappings == NULL) {
+            if (state.event_system_client != NULL) CFRelease(state.event_system_client);
+            if (state.original_voice_mappings != NULL) CFRelease(state.original_voice_mappings);
+            state.event_system_client = NULL;
+            state.original_voice_mappings = NULL;
+        }
+    }
+
     IOHIDManagerSetDeviceMatching(manager, matching);
     CFRelease(matching);
     IOHIDManagerRegisterDeviceMatchingCallback(manager, axonkey_device_matched, &state);
@@ -675,12 +998,15 @@ int axonkey_macos_input_run(const AxonkeyCallbacks *callbacks, bool capture) {
     CFSetRemoveAllValues(seized_devices);
     CFSetApplyFunction(monitored_devices, axonkey_close_seized_device, NULL);
     CFSetRemoveAllValues(monitored_devices);
+    axonkey_restore_voice_right_control(&state);
     axonkey_stop_event_filter(&state, run_loop);
     IOHIDManagerUnscheduleFromRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
     IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
     CFRelease(monitored_devices);
     CFRelease(seized_devices);
     CFRelease(devices);
+    if (state.original_voice_mappings != NULL) CFRelease(state.original_voice_mappings);
+    if (state.event_system_client != NULL) CFRelease(state.event_system_client);
     CFRelease(manager);
     return result;
 }
@@ -717,20 +1043,13 @@ bool axonkey_macos_post_key(
     uint16_t code,
     bool down,
     uint64_t flags,
-    bool autorepeat,
-    bool modifier
+    bool autorepeat
 ) {
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
     if (source == NULL) {
         return false;
     }
-    CGEventRef event = modifier
-        ? CGEventCreate(source)
-        : CGEventCreateKeyboardEvent(source, code, down);
-    if (event != NULL && modifier) {
-        CGEventSetType(event, kCGEventFlagsChanged);
-        CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, code);
-    }
+    CGEventRef event = CGEventCreateKeyboardEvent(source, code, down);
     CFRelease(source);
     if (event == NULL) {
         return false;

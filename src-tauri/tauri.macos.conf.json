@@ -9,11 +9,14 @@
       "icons/icon.icns"
     ],
     "category": "Utility",
-    "resources": [],
+    "resources": [
+      "resources/macos"
+    ],
     "macOS": {
       "minimumSystemVersion": "13.0",
       "signingIdentity": "-",
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "infoPlist": "Info.macos.plist"
     }
   }
 }

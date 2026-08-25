@@ -19,12 +19,18 @@ const EVENT_DEVICE_DISCONNECTED: i32 = 3;
 const EVENT_INPUT_REPORT: i32 = 4;
 const EVENT_BACKEND_ERROR: i32 = 5;
 const EVENT_TICK: i32 = 6;
+const CAPTURE_MODE_MASK: i32 = 0x03;
+const CAPTURE_VOICE_RIGHT_CONTROL: i32 = 0x04;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 const REPEAT_INITIAL_MS: u64 = 500;
 const REPEAT_INTERVAL_MS: u64 = 50;
 const MEDIA_REPEAT_INITIAL_MS: u64 = 350;
 const MEDIA_REPEAT_INTERVAL_MS: u64 = 100;
+const DENIED_RETRY_MS: u64 = 2_000;
+const IO_RETURN_NOT_PERMITTED: i32 = 0xe00002e2_u32 as i32;
+const STALE_INPUT_MONITORING_ERROR: &str =
+    "macOS Input Monitoring authorization is stale for this build; remove the old Axonkey entry and add the current Axonkey.app again";
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
@@ -37,18 +43,16 @@ struct NativeCallbacks {
 }
 
 extern "C" {
-    fn axonkey_macos_input_run(callbacks: *const NativeCallbacks, capture: bool) -> i32;
+    fn axonkey_macos_input_run(
+        callbacks: *const NativeCallbacks,
+        capture: bool,
+        voice_right_control: bool,
+    ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
     fn axonkey_macos_request_input_monitoring() -> bool;
     fn axonkey_macos_request_accessibility() -> bool;
-    fn axonkey_macos_post_key(
-        code: u16,
-        down: bool,
-        flags: u64,
-        autorepeat: bool,
-        modifier: bool,
-    ) -> bool;
+    fn axonkey_macos_post_key(code: u16, down: bool, flags: u64, autorepeat: bool) -> bool;
     fn axonkey_macos_post_system_key(kind: i32, down: bool) -> bool;
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
@@ -91,19 +95,21 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
-        let old_enabled = self
+        let old_settings = self
             .shared
             .settings
             .read()
             .map_err(|_| "Input settings lock is unavailable")?
-            .enabled;
-        let new_enabled = settings.enabled;
+            .clone();
+        let should_restart = old_settings.enabled != settings.enabled
+            || wants_hardware_voice_right_control(&old_settings)
+                != wants_hardware_voice_right_control(&settings);
         *self
             .shared
             .settings
             .write()
             .map_err(|_| "Input settings lock is unavailable")? = settings;
-        if old_enabled != new_enabled {
+        if should_restart {
             self.shared.restart.store(true, Ordering::Release);
         }
         Ok(())
@@ -119,7 +125,10 @@ impl InputService {
                 error: Some("Input status lock is unavailable".into()),
                 ..InputServiceStatus::default()
             });
-        status.input_monitoring_granted = Some(Self::input_monitoring_granted());
+        status.input_monitoring_granted = Some(effective_input_monitoring_granted(
+            Self::input_monitoring_granted(),
+            &status,
+        ));
         status.accessibility_granted = Some(Self::accessibility_granted());
         status
     }
@@ -187,9 +196,43 @@ fn permission_error(shared: &Shared) -> Option<String> {
     None
 }
 
+fn effective_input_monitoring_granted(
+    preflight_granted: bool,
+    status: &InputServiceStatus,
+) -> bool {
+    preflight_granted && !status.input_monitoring_open_denied
+}
+
+fn prepare_backend_attempt(status: &mut InputServiceStatus, permission_error: Option<String>) {
+    status.backend_ready = false;
+    if !status.input_monitoring_open_denied {
+        status.device_connected = false;
+        status.hardware_id = None;
+    }
+    status.capture_active = false;
+    status.error = if status.input_monitoring_open_denied {
+        Some(STALE_INPUT_MONITORING_ERROR.into())
+    } else {
+        permission_error
+    };
+}
+
+fn record_backend_error(status: &mut InputServiceStatus, code: i32) {
+    status.capture_active = false;
+    if code == IO_RETURN_NOT_PERMITTED {
+        status.input_monitoring_open_denied = true;
+        status.error = Some(STALE_INPUT_MONITORING_ERROR.into());
+    } else {
+        status.error = Some(format!("macOS HID backend stopped with IOKit error {code}"));
+    }
+}
+
 struct WorkerContext {
     shared: Arc<Shared>,
     capture: bool,
+    voice_right_control_requested: bool,
+    voice_right_control_active: bool,
+    device_seen: bool,
     input: MacInputState,
     next_permission_check: Instant,
 }
@@ -199,16 +242,20 @@ fn worker_loop(shared: Arc<Shared>) {
         shared.restart.store(false, Ordering::Release);
         let capture = desired_capture(&shared);
         if let Ok(mut status) = shared.status.lock() {
-            status.backend_ready = false;
-            status.device_connected = false;
-            status.hardware_id = None;
-            status.capture_active = false;
-            status.error = permission_error(&shared);
+            prepare_backend_attempt(&mut status, permission_error(&shared));
         }
 
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),
             capture,
+            voice_right_control_requested: capture
+                && shared
+                    .settings
+                    .read()
+                    .map(|settings| wants_hardware_voice_right_control(&settings))
+                    .unwrap_or(false),
+            voice_right_control_active: false,
+            device_seen: false,
             input: MacInputState::default(),
             next_permission_check: Instant::now() + Duration::from_millis(250),
         };
@@ -217,18 +264,33 @@ fn worker_loop(shared: Arc<Shared>) {
             should_stop: should_stop_callback,
             on_event: event_callback,
         };
-        let result = unsafe { axonkey_macos_input_run(&callbacks, capture) };
+        let result = unsafe {
+            axonkey_macos_input_run(&callbacks, capture, context.voice_right_control_requested)
+        };
         context.input.release_all();
         if let Ok(mut status) = shared.status.lock() {
             status.capture_active = false;
-            if result != 0 && status.error.is_none() {
-                status.error = Some(format!(
-                    "macOS HID backend stopped with IOKit error {result}"
-                ));
+            if result != 0 {
+                record_backend_error(&mut status, result);
+                if status.input_monitoring_open_denied && !context.device_seen {
+                    status.device_connected = false;
+                    status.hardware_id = None;
+                }
             }
         }
         if !shared.stop.load(Ordering::Acquire) && !shared.restart.load(Ordering::Acquire) {
-            thread::sleep(Duration::from_millis(150));
+            let retry_ms = shared
+                .status
+                .lock()
+                .map(|status| {
+                    if status.input_monitoring_open_denied {
+                        DENIED_RETRY_MS
+                    } else {
+                        150
+                    }
+                })
+                .unwrap_or(150);
+            thread::sleep(Duration::from_millis(retry_ms));
         }
     }
 }
@@ -266,16 +328,29 @@ unsafe extern "C" fn event_callback(
         EVENT_BACKEND_READY => {
             if let Ok(mut status) = context.shared.status.lock() {
                 status.backend_ready = true;
-                status.error = permission_error(&context.shared);
+                if !status.input_monitoring_open_denied {
+                    status.error = permission_error(&context.shared);
+                }
             }
         }
         EVENT_DEVICE_CONNECTED => {
+            let capture_mode = code & CAPTURE_MODE_MASK;
+            context.device_seen = true;
+            context.voice_right_control_active = code & CAPTURE_VOICE_RIGHT_CONTROL != 0;
             if let Ok(mut status) = context.shared.status.lock() {
+                if context.capture && capture_mode != 0 {
+                    status.input_monitoring_open_denied = false;
+                }
                 status.device_connected = true;
                 status.hardware_id = Some("HID\\VID_2717&PID_32B8".into());
-                status.capture_active = context.capture && code != 0;
-                if context.capture && code == 0 {
+                status.capture_active = context.capture && capture_mode != 0;
+                if context.capture && capture_mode == 0 {
                     status.error = Some("RC003 could not be captured or filtered on macOS".into());
+                } else if context.voice_right_control_requested
+                    && !context.voice_right_control_active
+                {
+                    status.error =
+                        Some("RC003 Right Control hardware mapping could not be applied".into());
                 } else if context.capture {
                     status.error = None;
                 }
@@ -292,13 +367,16 @@ unsafe extern "C" fn event_callback(
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
             let report = std::slice::from_raw_parts(bytes, length);
             if let Some(usages) = parse_hid_report(report_id, report) {
-                context.input.process_report(&context.shared, usages);
+                context.input.process_report(
+                    &context.shared,
+                    usages,
+                    context.voice_right_control_requested,
+                );
             }
         }
         EVENT_BACKEND_ERROR => {
             if let Ok(mut status) = context.shared.status.lock() {
-                status.error = Some(format!("macOS HID device error {code}"));
-                status.capture_active = false;
+                record_backend_error(&mut status, code);
             }
         }
         EVENT_TICK if context.capture => context.input.process_timers(&context.shared),
@@ -344,6 +422,7 @@ const FLAG_SHIFT: u64 = 1 << 17;
 const FLAG_CONTROL: u64 = 1 << 18;
 const FLAG_OPTION: u64 = 1 << 19;
 const FLAG_COMMAND: u64 = 1 << 20;
+const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
 
 #[derive(Clone, Copy)]
 struct SourceKey {
@@ -487,9 +566,7 @@ impl PressedChord {
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
     unsafe {
         match key {
-            MacKey::Keyboard { code, modifier } => {
-                axonkey_macos_post_key(code, down, flags, autorepeat, modifier != 0)
-            }
+            MacKey::Keyboard { code, .. } => axonkey_macos_post_key(code, down, flags, autorepeat),
             MacKey::System { kind } => axonkey_macos_post_system_key(kind, down),
         }
     }
@@ -528,7 +605,12 @@ struct MacInputState {
 }
 
 impl MacInputState {
-    fn process_report(&mut self, shared: &Shared, usages: HashSet<u16>) {
+    fn process_report(
+        &mut self,
+        shared: &Shared,
+        usages: HashSet<u16>,
+        voice_right_control_is_hardware_mapped: bool,
+    ) {
         let pressed = usages
             .difference(&self.active_usages)
             .copied()
@@ -543,13 +625,17 @@ impl MacInputState {
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
                 emit_remote_key_event(shared, source.id, true);
-                self.press_source(shared, source);
+                if source.id != "voice" || !voice_right_control_is_hardware_mapped {
+                    self.press_source(shared, source);
+                }
             }
         }
         for usage in released {
             if let Some(source) = source_for_usage(usage) {
                 emit_remote_key_event(shared, source.id, false);
-                self.release_source(shared, source);
+                if source.id != "voice" || !voice_right_control_is_hardware_mapped {
+                    self.release_source(shared, source);
+                }
             }
         }
     }
@@ -797,6 +883,20 @@ fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<MacKey>> {
     behavior_chord(behavior)
 }
 
+fn wants_hardware_voice_right_control(settings: &NativeSettings) -> bool {
+    if !settings.enabled {
+        return false;
+    }
+    let Some(triggers) = settings.behaviors.get("voice") else {
+        return false;
+    };
+    continuous_click_chord(triggers)
+        == Some(vec![MacKey::modifier(
+            62,
+            FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+        )])
+}
+
 fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
     if has_enabled(behaviors) {
         execute_behaviors(behaviors);
@@ -878,7 +978,10 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
     let upper = value.to_ascii_uppercase();
     let named = match upper.as_str() {
         "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(59, FLAG_CONTROL)),
-        "RCTRL" => Some(MacKey::modifier(62, FLAG_CONTROL)),
+        "RCTRL" => Some(MacKey::modifier(
+            62,
+            FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+        )),
         "SHIFT" | "LSHIFT" => Some(MacKey::modifier(56, FLAG_SHIFT)),
         "RSHIFT" => Some(MacKey::modifier(60, FLAG_SHIFT)),
         "ALT" | "LALT" | "OPTION" | "LOPTION" => Some(MacKey::modifier(58, FLAG_OPTION)),
@@ -1108,12 +1211,21 @@ mod tests {
     #[test]
     fn modifier_press_includes_its_state_flag() {
         assert_eq!(
-            press_flags(&[MacKey::modifier(62, FLAG_CONTROL)]),
-            vec![FLAG_CONTROL]
+            press_flags(&[MacKey::modifier(
+                62,
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+            )]),
+            vec![FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL]
         );
         assert_eq!(
-            press_flags(&[MacKey::modifier(62, FLAG_CONTROL), MacKey::keyboard(8),]),
-            vec![FLAG_CONTROL, FLAG_CONTROL]
+            press_flags(&[
+                MacKey::modifier(62, FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL),
+                MacKey::keyboard(8),
+            ]),
+            vec![
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+                FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
+            ]
         );
     }
 
@@ -1133,6 +1245,57 @@ mod tests {
             key: "Escape".into(),
         });
         assert_eq!(continuous_click_chord(&triggers), None);
+    }
+
+    #[test]
+    fn uses_hardware_mapping_only_for_standalone_voice_right_control() {
+        let mut settings = NativeSettings {
+            enabled: true,
+            ..NativeSettings::default()
+        };
+        settings.behaviors.insert(
+            "voice".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "RCtrl".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        assert!(wants_hardware_voice_right_control(&settings));
+
+        settings
+            .behaviors
+            .get_mut("voice")
+            .unwrap()
+            .long_press
+            .push(NativeBehavior::Key {
+                enabled: true,
+                key: "Space".into(),
+            });
+        assert!(!wants_hardware_voice_right_control(&settings));
+    }
+
+    #[test]
+    fn does_not_use_hardware_mapping_for_other_voice_keys() {
+        let mut settings = NativeSettings {
+            enabled: true,
+            ..NativeSettings::default()
+        };
+        settings.behaviors.insert(
+            "voice".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "Space".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        assert!(!wants_hardware_voice_right_control(&settings));
+        settings.enabled = false;
+        assert!(!wants_hardware_voice_right_control(&settings));
     }
 
     #[test]
@@ -1157,5 +1320,26 @@ mod tests {
             repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
         assert!(!pending_click_is_due(&state, now));
+    }
+
+    #[test]
+    fn tcc_denial_preserves_detected_device_and_invalidates_stale_preflight() {
+        let mut status = InputServiceStatus {
+            backend_ready: false,
+            device_connected: true,
+            hardware_id: Some("HID\\VID_2717&PID_32B8".into()),
+            ..InputServiceStatus::default()
+        };
+
+        record_backend_error(&mut status, IO_RETURN_NOT_PERMITTED);
+        prepare_backend_attempt(&mut status, None);
+
+        assert!(status.device_connected);
+        assert_eq!(
+            status.hardware_id.as_deref(),
+            Some("HID\\VID_2717&PID_32B8")
+        );
+        assert!(!effective_input_monitoring_granted(true, &status));
+        assert_eq!(status.error.as_deref(), Some(STALE_INPUT_MONITORING_ERROR));
     }
 }

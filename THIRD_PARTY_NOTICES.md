@@ -1,39 +1,62 @@
 # Third-party notices
 
-## Interception 1.0.1
+## remote-bridge-hub
 
-Copyright (C) 2008-2017 Francisco Lopes da Silva.
+- Project: `xxb26553663-star/remote-bridge-hub`
+- Source: https://github.com/xxb26553663-star/remote-bridge-hub
+- Reference revision: `8a93f321ac71a602300c6cd77f7256fa4b63068e`
+- License: GNU General Public License v3.0 only (`GPL-3.0-only`)
 
-Upstream project: https://github.com/oblitum/Interception
+The Xiaomi RC003 ATVV UUIDs, microphone commands, capability parsing, and
+IMA/DVI ADPCM decoding order were adapted from this project. Axonkey implements
+the macOS transport with Apple public frameworks and does not include the
+upstream Windows input-injection or application code.
 
-Release: https://github.com/oblitum/Interception/releases/tag/v1.0.1
+## BlackHole
 
-Axonkey dynamically loads the unmodified AMD64 `interception.dll` and uses only
-the published Interception API. The release package also carries the upstream
-command-line driver installer so installation and removal remain explicit user
-actions.
+- Project: `ExistentialAudio/BlackHole`
+- Source: https://github.com/ExistentialAudio/BlackHole
+- Pinned source: `v0.7.1` / `e2b22aaaba4e507a097131704bf96dabc004d9cf`
+- License: GNU General Public License v3.0 (`GPL-3.0`)
 
-The upstream project describes Interception as dual-licensed. For
-non-commercial purposes, it states that the library and source use LGPL and
-that related driver/installer binaries may be distributed when communication
-with the drivers occurs solely through the library and its API. Commercial use
-requires one of the commercial licenses described by the upstream project.
+Axonkey builds the separately identified `MiRemoteV2ch.driver` from this pinned
+source. `third_party/blackhole/blackhole-device-usb.patch` changes the reported
+Core Audio transport to USB and assigns an independent CFPlugIn factory UUID.
+The build settings use bundle identifier `com.hd838a.MiRemoteV2ch`, device UID
+`MiRemoteV2ch_UID`, and two channels. The driver coexists with BlackHole and is
+distributed as a separate macOS Installer component inside Axonkey.app.
 
-The full non-commercial LGPL text shipped in the v1.0.1 archive is included at
-`licenses\LICENSE-LGPL-3.0.txt`. The upstream commercial-license documents are
-retained in the source tree under `vendor\interception\licenses` for review;
-their presence does not grant a commercial license.
+The exact build recipe and corresponding-source pointer are retained at
+`third_party/blackhole/README.md`.
 
-Reviewed binary hashes (SHA-256):
+## OpenInputBridge 1.00
 
-- x64 `interception.dll`: `AB88164C11B1B48488772D4C3BFAA4509D5B0AE9DBC5A691DC4F96F0260443C8`
-- `install-interception.exe`: `E137863A79DA797F08E7A137280FF2A123809044A888FD75CE9C973198915ABE`
+Copyright (C) 2026 OpenInputBridge Contributors.
 
-The upstream installer does not carry an Authenticode publisher signature.
-Axonkey verifies its exact reviewed hash before installation or removal and
-never invokes it silently.
+Upstream project: https://github.com/Applet-LLC/OpenInputBridge
 
-Axonkey does not bundle or require AutoHotkey or AutoHotInterception.
+Release: https://github.com/Applet-LLC/OpenInputBridge/releases/tag/1.00
+
+Reviewed source commit: `a661848ddf4deadc07e6c6df9d374c20df5f4c01`
+
+OpenInputBridge's original source is MIT licensed. Axonkey implements its
+user-mode protocol client directly from the published protocol documentation;
+it does not load or bundle `interception.dll`. The upstream MIT text is retained
+at `vendor\openinputbridge\LICENSE-MIT.txt`.
+
+The production WHQL driver package is a separately sold and licensed artifact.
+It is not present in this repository. A Windows release must not be distributed
+until Axonkey has written OEM/redistribution permission and records the approved
+package version, hashes, and signer identities in
+`vendor\openinputbridge\SOURCE.md`. The Windows build preflight rejects an
+incomplete package. At install time Axonkey also requires an Applet LLC-signed
+installer and Microsoft Windows Hardware Compatibility Publisher-signed
+keyboard and mouse catalogs.
+
+Legacy Interception 1.0.1 binaries and license evidence remain in the source
+tree only for uninstall/recovery and incident provenance. New Axonkey Windows
+packages do not include them, and production code rejects them as an input
+backend. Axonkey does not bundle or require AutoHotkey or AutoHotInterception.
 
 ## VB-Audio VB-CABLE Pack45
 
