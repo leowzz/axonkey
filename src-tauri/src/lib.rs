@@ -810,6 +810,14 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
+fn set_audio_gain(
+    gain: i16,
+    audio_service: tauri::State<'_, AudioService>,
+) -> Result<(), String> {
+    audio_service.set_gain_db(gain)
+}
+
+#[tauri::command]
 async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri::Manager;
 
@@ -959,6 +967,7 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
+            set_audio_gain,
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,

@@ -1,4 +1,4 @@
-use super::AudioServiceStatus;
+use super::{clamp_gain_db, AudioServiceStatus};
 use std::{
     ffi::{c_char, c_void},
     sync::{
@@ -37,6 +37,7 @@ extern "C" {
         capacity: usize,
     ) -> usize;
     fn axonkey_macos_audio_enqueue(bridge: *mut c_void, samples: *const i16, count: usize) -> bool;
+    fn axonkey_macos_audio_set_gain_db(bridge: *mut c_void, gain_db: f32);
 }
 
 struct Shared {
@@ -93,6 +94,16 @@ impl AudioService {
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_start(bridge) };
         }
+    }
+
+    pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        if bridge.is_null() {
+            return Err("无法连接 macOS 音频服务".into());
+        }
+        let gain_db = clamp_gain_db(gain);
+        unsafe { axonkey_macos_audio_set_gain_db(bridge, f32::from(gain_db)) };
+        Ok(())
     }
 
     pub fn status(&self) -> AudioServiceStatus {

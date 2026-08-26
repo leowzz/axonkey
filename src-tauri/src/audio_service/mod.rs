@@ -11,6 +11,13 @@ pub struct AudioServiceStatus {
     pub error: Option<String>,
 }
 
+pub(crate) const AUDIO_GAIN_MIN_DB: i16 = -30;
+pub(crate) const AUDIO_GAIN_MAX_DB: i16 = 30;
+
+pub(crate) fn clamp_gain_db(gain: i16) -> i16 {
+    gain.clamp(AUDIO_GAIN_MIN_DB, AUDIO_GAIN_MAX_DB)
+}
+
 #[cfg(target_os = "macos")]
 mod macos;
 
@@ -28,10 +35,28 @@ impl AudioService {
 
     pub fn refresh(&self) {}
 
+    pub fn set_gain_db(&self, _gain: i16) -> Result<(), String> {
+        Err("音频增益仅支持 macOS 音频转发".into())
+    }
+
     pub fn status(&self) -> AudioServiceStatus {
         AudioServiceStatus {
             state: "unsupported".into(),
             ..AudioServiceStatus::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{clamp_gain_db, AUDIO_GAIN_MAX_DB};
+
+    #[test]
+    fn gain_is_limited_to_driver_range() {
+        assert_eq!(clamp_gain_db(0), 0);
+        assert_eq!(clamp_gain_db(-30), -30);
+        assert_eq!(clamp_gain_db(AUDIO_GAIN_MAX_DB), 30);
+        assert_eq!(clamp_gain_db(i16::MIN), -30);
+        assert_eq!(clamp_gain_db(i16::MAX), 30);
     }
 }

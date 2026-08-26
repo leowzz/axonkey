@@ -49,6 +49,8 @@ test('runtime installation and forwarding do not reference the reference reposit
   assert.match(backend, /\/usr\/sbin\/installer -pkg/)
   assert.match(nativeAudio, /AB5E0003-5A21-4F05-BC7D-AF01F617B664/)
   assert.match(nativeAudio, /MiRemoteV2ch_UID/)
+  assert.match(nativeAudio, /AVAudioPlayerNode \*_player/)
+  assert.match(nativeAudio, /axonkey_macos_audio_set_gain_db/)
   assert.doesNotMatch(`${backend}\n${nativeAudio}`, /remote-mic-app/)
 })
 

@@ -4,6 +4,7 @@
 #import <CoreBluetooth/CoreBluetooth.h>
 #import <Foundation/Foundation.h>
 #include <stdbool.h>
+#include <math.h>
 #include <string.h>
 
 enum {
@@ -148,6 +149,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (BOOL)isForwarding;
 - (int)currentBatteryLevel;
 - (NSString *)currentError;
+- (void)setGainDecibels:(float)decibels;
 @end
 
 @implementation AKMacAudioBridge {
@@ -180,6 +182,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     BOOL _drainRequested;
     CFAbsoluteTime _lastVoiceStopTime;
     int _batteryLevel;
+    float _gain;
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
@@ -204,6 +207,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _selectedCodec = 0x02;
         _frameSize = 120;
         _batteryLevel = -1;
+        _gain = 1.0f;
         _state = AKAudioStateStopped;
         _sourceFormat = [[AVAudioFormat alloc]
             initWithCommonFormat:AVAudioPCMFormatFloat32
@@ -230,6 +234,16 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (NSString *)currentError {
     @synchronized (self) {
         return _errorMessage;
+    }
+}
+
+- (void)setGainDecibels:(float)decibels {
+    if (!isfinite(decibels)) {
+        decibels = 0.0f;
+    }
+    @synchronized (self) {
+        decibels = fminf(fmaxf(decibels, -30.0f), 30.0f);
+        _gain = powf(10.0f, decibels / 20.0f);
     }
 }
 
@@ -652,8 +666,13 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         return NO;
     }
     float *channel = buffer.floatChannelData[0];
+    float gain = 1.0f;
+    @synchronized (self) {
+        gain = _gain;
+    }
     for (size_t index = 0; index < count; index++) {
-        channel[index] = (float)samples[index] / (float)INT16_MAX;
+        float value = ((float)samples[index] / (float)INT16_MAX) * gain;
+        channel[index] = fminf(fmaxf(value, -1.0f), 1.0f);
     }
     buffer.frameLength = (AVAudioFrameCount)count;
     _pendingAudioBuffers += 1;
@@ -1033,4 +1052,12 @@ bool axonkey_macos_audio_enqueue(void *rawBridge, const int16_t *samples, size_t
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ accepted = [bridge enqueueSamples:samples count:count]; });
     return accepted;
+}
+
+void axonkey_macos_audio_set_gain_db(void *rawBridge, float gain_db) {
+    if (rawBridge == NULL) {
+        return;
+    }
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ [bridge setGainDecibels:gain_db]; });
 }
