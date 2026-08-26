@@ -41,7 +41,6 @@ import type {
   AudioProbe,
   CommonBehaviorPreset,
   CommonBehaviorUndo,
-  Connector,
   DraftBehaviorState,
   DriverActionResult,
   HitPosition,
@@ -54,7 +53,7 @@ import type {
 } from './appTypes'
 import { HomeDashboard } from './components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from './components/BehaviorEditor'
-import { MappingSide } from './components/MappingComponents'
+import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from './components/SetupDialog'
 import { useAudioControls } from './hooks/useAudioControls'
 import {
@@ -82,7 +81,6 @@ import {
   PointerEvent as ReactPointerEvent,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -123,12 +121,11 @@ function App() {
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
-  const workspaceRef = useRef<HTMLDivElement>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
-  const rowRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
+  const rowRefs = useRef<Partial<Record<ButtonId, HTMLElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
@@ -137,7 +134,6 @@ function App() {
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
-  const [connectors, setConnectors] = useState<Connector[]>([])
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
   const { audioGain, updateAudioGain } = useAudioControls({
     platform,
@@ -156,44 +152,6 @@ function App() {
     setAutoSaveState('saving')
     setCommonBehaviorUndo(null)
   }, [selectedBehavior])
-
-  const measureConnectors = useCallback(() => {
-    if (!workspaceRef.current) return
-    const workspace = workspaceRef.current.getBoundingClientRect()
-    const next = editableButtons.flatMap((button) => {
-      const marker = markerRefs.current[button.id]
-      const row = rowRefs.current[button.id]
-      if (!marker || !row) return []
-      const markerRect = marker.getBoundingClientRect()
-      const rowRect = row.getBoundingClientRect()
-      return [{
-        id: button.id,
-        side: button.side,
-        x1: markerRect.left + markerRect.width / 2 - workspace.left,
-        y1: markerRect.top + markerRect.height / 2 - workspace.top,
-        x2: button.side === 'left'
-          ? rowRect.right - workspace.left + 10
-          : rowRect.left - workspace.left - 10,
-        y2: rowRect.top + rowRect.height / 2 - workspace.top,
-      }]
-    })
-    setConnectors(next)
-  }, [editableButtons])
-
-  useLayoutEffect(() => {
-    measureConnectors()
-    const observer = new ResizeObserver(measureConnectors)
-    if (workspaceRef.current) observer.observe(workspaceRef.current)
-    window.addEventListener('resize', measureConnectors)
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', measureConnectors)
-    }
-  }, [measureConnectors, activeId, behaviors, debugMode])
-
-  useLayoutEffect(() => {
-    measureConnectors()
-  }, [hitPositions, measureConnectors])
 
   useEffect(() => {
     window.localStorage.setItem(hitPositionsStorageKey, JSON.stringify(hitPositions))
@@ -946,6 +904,7 @@ function App() {
     : null
   const canUndoCommonBehavior = commonBehaviorUndo?.buttonId === selectedBehavior.buttonId
     && commonBehaviorUndo.trigger === selectedBehavior.trigger
+  const selectedButton = editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]
 
   if (permissionHelperKind) {
     const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
@@ -966,7 +925,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       <main className="main-content">
         <header className="topbar">
           <div className="topbar-left">
@@ -988,99 +947,84 @@ function App() {
           </div>
         </header>
 
-        {activePage === 'mapping' ? <>
-        <div className="toolbar-row">
-          <div className="toolbar-context"><span className="toolbar-context-mark" /> 选择按键，设置不同的触发行为</div>
-          <div className="toolbar-meta"><span>{connectedCount} 个自定义行为</span><span className="toolbar-divider" /><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已自动保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><span className="debug-hint">拖动图上的点调整连线起点</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
-        </div>
+        {activePage === 'mapping' ? <div className="mapping-page">
+          <div className="toolbar-row">
+            <div className="toolbar-context"><span className="toolbar-context-mark" /> RC003 KEYMAP</div>
+            <div className="toolbar-meta"><span>{connectedCount} 个自定义行为</span><span className="toolbar-divider" /><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已自动保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
+          </div>
 
-        <div className={`workspace ${debugMode ? 'debug-mode' : ''}`} ref={workspaceRef}>
-          <MappingSide
-            platform={platform}
-            side="left"
-            buttons={editableButtons.filter((button) => button.side === 'left')}
-            behaviors={behaviors}
-            activeId={activeId}
-            pressedId={pressedId}
-            selectedBehavior={selectedBehavior}
-            rowRefs={rowRefs}
-            selectBehaviorTarget={selectBehaviorTarget}
-          />
-
-          <section className="remote-panel panel-surface">
-            <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '按键权限需重新授权' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
-            <div className="remote-stage">
-              <div className="remote-art" ref={remoteArtRef}>
-                <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
-                {editableButtons.map((button) => (
-                  <button
-                    key={button.id}
-                    ref={(node) => { if (node) markerRefs.current[button.id] = node }}
-                    type="button"
-                    aria-label={button.label}
-                    className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
-                    style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
-                    onClick={() => selectBehaviorTarget(button.id, 'click')}
-                    onPointerDown={(event) => handleHotspotPointerDown(button, event)}
-                    onPointerMove={(event) => handleHotspotPointerMove(button, event)}
-                    onPointerUp={finishHotspotDrag}
-                    onPointerCancel={finishHotspotDrag}
-                  >{button.icon === 'center' ? <span className="center-dot" /> : iconFor(button.icon, 13)}</button>
-                ))}
+          <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
+            <aside className="mapping-device-rail panel-surface">
+              <div className="remote-rail-label"><span>DEVICE</span><strong>RC003</strong></div>
+              <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
+              <div className="remote-stage">
+                <div className="remote-art" ref={remoteArtRef}>
+                  <img src="/rc003-remote-cutout.png" alt="小米 RC003 遥控器" />
+                  {editableButtons.map((button) => (
+                    <button
+                      key={button.id}
+                      ref={(node) => { if (node) markerRefs.current[button.id] = node }}
+                      type="button"
+                      aria-label={button.label}
+                      className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
+                      style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
+                      onClick={() => selectBehaviorTarget(button.id, 'click')}
+                      onPointerDown={(event) => handleHotspotPointerDown(button, event)}
+                      onPointerMove={(event) => handleHotspotPointerMove(button, event)}
+                      onPointerUp={finishHotspotDrag}
+                      onPointerCancel={finishHotspotDrag}
+                    >{button.icon === 'center' ? <span className="center-dot" /> : iconFor(button.icon, 13)}</button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div className="remote-caption"><span className="caption-line" /> 点击按键查看对应行为</div>
-          </section>
+              <div className="remote-caption"><span className={`row-icon icon-${selectedButton.icon}`}>{iconFor(selectedButton.icon, 14)}</span><span>{selectedButton.label}</span></div>
+            </aside>
 
-          <MappingSide
-            platform={platform}
-            side="right"
-            buttons={editableButtons.filter((button) => button.side === 'right')}
-            behaviors={behaviors}
-            activeId={activeId}
-            pressedId={pressedId}
-            selectedBehavior={selectedBehavior}
-            rowRefs={rowRefs}
-            selectBehaviorTarget={selectBehaviorTarget}
-          />
-
-          <svg className="connector-layer" aria-hidden="true">
-            {connectors.map((line) => {
-              const selected = line.id === activeId
-              const pressed = line.id === pressedId
-              const elbow = line.side === 'left'
-                ? Math.min(line.x1 - 34, line.x2 + 32)
-                : Math.max(line.x1 + 34, line.x2 - 32)
-              return <g key={line.id} className={`connector ${selected ? 'selected' : ''} ${pressed ? 'pressed' : ''}`}>
-                <path d={`M ${line.x1} ${line.y1} C ${elbow} ${line.y1}, ${elbow} ${line.y2}, ${line.x2} ${line.y2}`} />
-                <circle cx={line.x1} cy={line.y1} r={selected ? 4 : 2.5} />
-                <circle cx={line.x2} cy={line.y2} r={selected ? 3.5 : 2} />
-              </g>
-            })}
-          </svg>
-        </div>
-        {platform !== 'macos' && <div className="mapping-limit-note" role="note">
-          <Info size={12} aria-hidden="true" />
-          <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
-        </div>}
-        <BehaviorEditor
-          editorRef={behaviorEditorRef}
-          attention={behaviorEditorAttention}
-          platform={platform}
-          button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
-          trigger={selectedBehavior.trigger}
-          behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
-          canUndoCommonBehavior={canUndoCommonBehavior}
-          onApplyCommonBehavior={applyCommonBehavior}
-          onUndoCommonBehavior={undoCommonBehavior}
-          onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
-          onRemoveBehavior={removeBehavior}
-          onMoveBehavior={moveSelectedBehavior}
-          onEditBehavior={setEditingBehaviorId}
-          onReturnToMappings={returnToSelectedMapping}
-        />
-        <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
-        </> : <HomeDashboard
+            <section className="mapping-main" aria-label="按键映射工作区">
+              <section className="key-picker" aria-labelledby="key-picker-title">
+                <div className="key-picker-head"><div><span className="section-kicker">REMOTE KEYS</span><h2 id="key-picker-title">全部按键</h2></div><span className="key-count">{editableButtons.length} KEYS</span></div>
+                <MappingKeyGrid
+                  platform={platform}
+                  buttons={editableButtons}
+                  behaviors={behaviors}
+                  activeId={activeId}
+                  pressedId={pressedId}
+                  selectedBehavior={selectedBehavior}
+                  rowRefs={rowRefs}
+                  onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
+                />
+              </section>
+              <MappingTriggerSelector
+                platform={platform}
+                button={selectedButton}
+                behaviors={behaviors[selectedBehavior.buttonId]}
+                trigger={selectedBehavior.trigger}
+                onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
+              />
+              <BehaviorEditor
+                editorRef={behaviorEditorRef}
+                attention={behaviorEditorAttention}
+                platform={platform}
+                button={selectedButton}
+                trigger={selectedBehavior.trigger}
+                behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
+                canUndoCommonBehavior={canUndoCommonBehavior}
+                onApplyCommonBehavior={applyCommonBehavior}
+                onUndoCommonBehavior={undoCommonBehavior}
+                onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
+                onRemoveBehavior={removeBehavior}
+                onMoveBehavior={moveSelectedBehavior}
+                onEditBehavior={setEditingBehaviorId}
+                onReturnToMappings={returnToSelectedMapping}
+              />
+            </section>
+          </div>
+          {platform !== 'macos' && <div className="mapping-limit-note" role="note">
+            <Info size={12} aria-hidden="true" />
+            <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
+          </div>}
+          <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
+        </div> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}

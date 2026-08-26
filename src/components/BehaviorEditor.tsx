@@ -70,7 +70,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
     <div className="behavior-editor-head">
       <div className="behavior-editor-title">
         <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
-        <div><h2>{button.label} · {triggerLabels[trigger]}</h2><p>按顺序执行下面的行为，支持连续组合</p></div>
+        <div><h2>行为配置</h2><p>{button.label} · {triggerLabels[trigger]}</p></div>
         <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
       </div>
       <div className="behavior-editor-head-actions">
@@ -91,13 +91,13 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             onClick={() => setActiveTab(id)}
           >{label}</button>)}
         </div>
-        <button type="button" className="icon-button behavior-return-button" title="返回按键总览" aria-label="返回按键总览" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+        <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
       </div>
     </div>
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
         <div className="behavior-column-heading">
-          <h3 id={`${tabId}-current-title`}>现有行为</h3>
+          <h3 id={`${tabId}-current-title`}>当前序列</h3>
         </div>
         <div className="behavior-list">
           {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
@@ -115,7 +115,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       </section>
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
-          <h3>推荐行为</h3>
+          <h3>添加行为</h3>
           {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
         </div>
         <div
