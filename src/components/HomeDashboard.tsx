@@ -75,7 +75,7 @@ function HomeAudioCard({ macOS, driver, probePending, gain, onGainChange, onRefr
   return <article className={`home-status-card home-audio-card ${presentation.tone}`}>
     <div className="home-status-card-head">
       <span className="home-status-icon"><AudioLines size={19} /></span>
-      <div><h3>{macOS ? 'MiRemoteV 2ch' : 'VB-CABLE 虚拟麦克风'}</h3><span className="home-status-label"><span className="home-status-dot" />{presentation.label}</span></div>
+      <div><h3>音频驱动</h3><span className="home-status-label"><span className="home-status-dot" />{presentation.label}</span></div>
     </div>
     <p>{detail}</p>
     <div className="home-audio-controls">
@@ -160,7 +160,7 @@ export function HomeDashboard({
   return <div className="home-page">
     <section className={`home-summary ${pageLoading ? 'loading' : allReady ? 'ready' : 'attention'}`}>
       <div className="home-summary-icon">{pageLoading ? <LoaderCircle className="home-summary-loading-icon" size={24} /> : allReady ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}</div>
-      <div className="home-summary-copy"><span className="section-kicker">SYSTEM STATUS</span><h2>{pageLoading ? '正在检查运行环境' : allReady ? '运行环境已就绪' : '有项目需要处理'}</h2><p>{pageLoading ? '正在检查权限、驱动和设备连接，请稍候。' : allReady ? '权限、设备和音频通道均已检查，可以直接使用 RC003。' : inputAuthorizationStale ? '请重新授权当前 Axonkey 构建，按键映射才能恢复。' : '从下方状态卡处理缺失的权限、驱动或设备连接。'}</p></div>
+      <div className="home-summary-copy"><span className="section-kicker">系统状态</span><h2>{pageLoading ? '正在检查运行环境' : allReady ? '运行环境已就绪' : '有项目需要处理'}</h2><p>{pageLoading ? '正在检查权限、驱动和设备连接，请稍候。' : allReady ? '权限、设备和音频通道均已检查，可以直接使用 RC003。' : inputAuthorizationStale ? '请重新授权当前 Axonkey 构建，按键映射才能恢复。' : '从下方状态卡处理缺失的权限、驱动或设备连接。'}</p></div>
       <button type="button" className="button home-refresh-button" onClick={onRefresh} disabled={pageLoading}><RotateCcw size={15} /> {pageLoading ? '检测中' : '重新检测'}</button>
     </section>
 
@@ -202,7 +202,7 @@ export function HomeDashboard({
     </div>
 
     <section className="home-tools">
-      <div><span className="section-kicker">QUICK ACCESS</span><h2>常用入口</h2></div>
+      <div><span className="section-kicker">快捷入口</span><h2>常用入口</h2></div>
       <div className="home-tool-actions">
         <button type="button" className="home-tool-button" onClick={onOpenMapping}><Keyboard size={17} /><span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span><ChevronRight size={16} /></button>
         <button type="button" className="home-tool-button" onClick={() => onOpenStep('inputDriver')}><Settings2 size={17} /><span><strong>完整设置</strong><small>权限、驱动与设备检测</small></span><ChevronRight size={16} /></button>
