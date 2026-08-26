@@ -3,7 +3,6 @@ import {
   Bluetooth,
   Check,
   CheckCircle2,
-  Command,
   Copy,
   Home,
   Info,
@@ -308,8 +307,6 @@ function App() {
       return next
     })
   }
-
-  const connectedCount = editableButtons.reduce((count, button) => count + Object.values(behaviors[button.id]).reduce((total, list) => total + list.length, 0), 0)
 
   const revealBehaviorEditor = () => {
     window.requestAnimationFrame(() => {
@@ -948,14 +945,8 @@ function App() {
         </header>
 
         {activePage === 'mapping' ? <div className="mapping-page">
-          <div className="toolbar-row">
-            <div className="toolbar-context"><span className="toolbar-context-mark" /> RC003 KEYMAP</div>
-            <div className="toolbar-meta"><span>{connectedCount} 个自定义行为</span><span className="toolbar-divider" /><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已自动保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
-          </div>
-
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
-              <div className="remote-rail-label"><span>DEVICE</span><strong>RC003</strong></div>
               <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
               <div className="remote-stage">
                 <div className="remote-art" ref={remoteArtRef}>
@@ -977,12 +968,14 @@ function App() {
                   ))}
                 </div>
               </div>
-              <div className="remote-caption"><span className={`row-icon icon-${selectedButton.icon}`}>{iconFor(selectedButton.icon, 14)}</span><span>{selectedButton.label}</span></div>
             </aside>
 
             <section className="mapping-main" aria-label="按键映射工作区">
               <section className="key-picker" aria-labelledby="key-picker-title">
-                <div className="key-picker-head"><div><span className="section-kicker">REMOTE KEYS</span><h2 id="key-picker-title">全部按键</h2></div><span className="key-count">{editableButtons.length} KEYS</span></div>
+                <div className="key-picker-head">
+                  <h2 id="key-picker-title">按键</h2>
+                  <div className="key-picker-actions"><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
+                </div>
                 <MappingKeyGrid
                   platform={platform}
                   buttons={editableButtons}
@@ -1023,7 +1016,6 @@ function App() {
             <Info size={12} aria-hidden="true" />
             <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
           </div>}
-          <footer className="main-footer"><span>Axonkey 仅修改 RC003 遥控器输入，不影响普通键盘。</span><span className="footer-key"><Command size={12} /> 本地配置</span></footer>
         </div> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}

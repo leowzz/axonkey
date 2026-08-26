@@ -22,7 +22,9 @@ export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressed
       const configuredTriggers = triggerOrder.filter((trigger) => behaviors[button.id][trigger].length > 0)
       const selectedTrigger = selectedBehavior.buttonId === button.id ? selectedBehavior.trigger : null
       const summaryTrigger = selectedTrigger ?? configuredTriggers[0] ?? 'click'
-      const summary = triggerSummary(behaviors[button.id][summaryTrigger], summaryTrigger, platform)
+      const summary = configuredTriggers.length > 0
+        ? triggerSummary(behaviors[button.id][summaryTrigger], summaryTrigger, platform)
+        : null
       const active = activeId === button.id
       const pressed = pressedId === button.id
 
@@ -33,8 +35,8 @@ export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressed
       >
         <button type="button" aria-pressed={active} onClick={() => onSelect(button.id)}>
           <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 16)}</span>
-          <span className="mapping-key-copy"><strong>{button.label}</strong><small>{summary}</small></span>
-          <span className={`mapping-key-status ${configuredTriggers.length > 0 ? 'configured' : ''}`} aria-label={`${configuredTriggers.length} 个已设置触发方式`}>{configuredTriggers.length || '—'}</span>
+          <span className="mapping-key-copy"><strong>{button.label}</strong>{summary && <small>{summary}</small>}</span>
+          {configuredTriggers.length > 0 && <span className="mapping-key-status" aria-label={`${configuredTriggers.length} 个已设置触发方式`}>{configuredTriggers.length}</span>}
         </button>
       </article>
     })}
@@ -59,7 +61,7 @@ export function MappingTriggerSelector({ platform, button, behaviors, trigger, o
   return <section className="trigger-selector" aria-labelledby="trigger-selector-title">
     <div className="trigger-selector-title">
       <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
-      <div><span className="section-kicker">SELECTED KEY</span><h2 id="trigger-selector-title">{button.label}</h2></div>
+      <h2 id="trigger-selector-title">{button.label}</h2>
     </div>
     <div className="trigger-options" role="tablist" aria-label={`${button.label}触发方式`}>
       {triggerOrder.map((item) => {
@@ -74,8 +76,8 @@ export function MappingTriggerSelector({ platform, button, behaviors, trigger, o
           onClick={() => onSelect(item)}
         >
           <span className="trigger-option-icon">{triggerIcons[item]}</span>
-          <span className="trigger-option-copy"><strong>{triggerLabels[item]}</strong><small>{triggerSummary(list, item, platform)}</small></span>
-          <span className={`trigger-option-dot ${list.length > 0 ? 'configured' : ''}`} />
+          <span className="trigger-option-copy"><strong>{triggerLabels[item]}</strong>{list.length > 0 && <small>{triggerSummary(list, item, platform)}</small>}</span>
+          {list.length > 0 && <span className="trigger-option-dot" />}
         </button>
       })}
     </div>

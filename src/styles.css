@@ -546,7 +546,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .remote-device-card .device-state-dot { background: #7b8580; }
 .mapping-active .remote-device-card .device-state-dot.connected { background: #63a889; box-shadow: 0 0 0 3px rgba(99,168,137,.14); }
 .mapping-active .remote-device-card .battery-level.low { color: #e39a94; }
-.mapping-active .remote-stage { display: grid; min-height: 0; flex: 1; place-items: center; margin-top: 17px; }
+.mapping-active .remote-stage { display: grid; min-height: 0; flex: 0 0 auto; place-items: center; margin-top: 17px; padding: 26px 0 18px; }
 .mapping-active .remote-art { width: 168px; }
 .mapping-active .remote-art img { filter: drop-shadow(0 22px 15px rgba(8, 12, 10, .34)); }
 .mapping-active .hotspot { color: transparent; transition: color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s cubic-bezier(.16, 1, .3, 1); }
@@ -687,7 +687,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 @media (max-height: 720px) {
   .mapping-device-rail { min-height: 660px; padding-top: 16px; }
   .mapping-active .remote-device-card { margin-top: 11px; }
-  .mapping-active .remote-stage { margin-top: 10px; }
+  .mapping-active .remote-stage { margin-top: 10px; padding: 18px 0 12px; }
   .mapping-active .remote-art { width: 132px; }
   .key-picker { padding-top: 17px; padding-bottom: 18px; }
   .mapping-key > button { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
