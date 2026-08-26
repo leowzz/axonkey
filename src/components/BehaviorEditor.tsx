@@ -6,7 +6,6 @@ import {
   ChevronRight,
   ClipboardPaste,
   Clock3,
-  GripVertical,
   Keyboard,
   Pencil,
   Play,
@@ -21,7 +20,6 @@ import type { Behavior, ButtonId, TriggerType } from '../behaviorModel'
 import {
   behaviorSummary,
   behaviorTypeLabels,
-  iconFor,
   isStandaloneModifierKey,
   keyDisplayName,
   keyGroupsForPlatform,
@@ -52,14 +50,14 @@ type BehaviorEditorProps = {
 type BehaviorActionButtonProps = {
   icon: ReactNode
   label: string
-  detail: string
+  detail?: string
   onClick: () => void
 }
 
 function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionButtonProps) {
   return <button type="button" className="behavior-action-button" onClick={onClick}>
     <span className="behavior-action-icon">{icon}</span>
-    <span className="behavior-action-copy"><strong>{label}</strong><small>{detail}</small></span>
+    <span className="behavior-action-copy"><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
   </button>
 }
 
@@ -68,11 +66,6 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
     <div className="behavior-editor-head">
-      <div className="behavior-editor-title">
-        <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
-        <div><h2>行为配置</h2><p>{button.label} · {triggerLabels[trigger]}</p></div>
-        <span className="behavior-trigger-pill"><GripVertical size={13} /> {behaviors.length ? `${behaviors.length} 个行为` : '尚未配置'}</span>
-      </div>
       <div className="behavior-editor-head-actions">
         <div className="behavior-tabs" role="tablist" aria-label="行为分类">
           {([
@@ -100,7 +93,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           <h3 id={`${tabId}-current-title`}>当前序列</h3>
         </div>
         <div className="behavior-list">
-          {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '当前保留原按键，可从右侧直接更改行为' : '这个触发方式尚未设置，可从右侧直接选择行为'}</div>}
+          {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '保留原按键' : '尚未设置'}</div>}
           {behaviors.map((behavior, index) => <BehaviorItem
             platform={platform}
             key={behavior.id}
@@ -127,35 +120,35 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           {activeTab === 'common' && <>
             <BehaviorActionButton icon={<RotateCcw size={17} />} label={trigger === 'click' ? '保留原按键' : '清除触发方式'} detail={trigger === 'click' ? '使用遥控器原始输入' : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
             <BehaviorActionButton icon={<Ban size={17} />} label="禁用按键" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
-            <BehaviorActionButton icon={<kbd>Esc</kbd>} label="Escape" detail="返回或关闭" onClick={() => onApplyCommonBehavior('escape')} />
-            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="Enter" detail="确认或提交" onClick={() => onApplyCommonBehavior('enter')} />
-            <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" detail="空格键" onClick={() => onApplyCommonBehavior('space')} />
-            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="粘贴 · 30 ms · Enter" onClick={() => onApplyCommonBehavior('textAndEnter')} />
+            <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
+            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 提交" onClick={() => onApplyCommonBehavior('enter')} />
+            <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />
+            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
           </>}
           {activeTab === 'navigation' && <>
-            <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" detail="Up" onClick={() => onApplyCommonBehavior('arrowUp')} />
-            <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" detail="Down" onClick={() => onApplyCommonBehavior('arrowDown')} />
-            <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" detail="Left" onClick={() => onApplyCommonBehavior('arrowLeft')} />
-            <BehaviorActionButton icon={<kbd>→</kbd>} label="方向右" detail="Right" onClick={() => onApplyCommonBehavior('arrowRight')} />
-            <BehaviorActionButton icon={<kbd>Tab</kbd>} label="Tab" detail="切换焦点" onClick={() => onApplyCommonBehavior('tab')} />
-            <BehaviorActionButton icon={<kbd>Back</kbd>} label="Backspace" detail="向前删除" onClick={() => onApplyCommonBehavior('backspace')} />
-            <BehaviorActionButton icon={<kbd>Del</kbd>} label="Delete" detail="向后删除" onClick={() => onApplyCommonBehavior('delete')} />
-            <BehaviorActionButton icon={<kbd>Home</kbd>} label="Home" detail="跳到开头" onClick={() => onApplyCommonBehavior('keyHome')} />
-            <BehaviorActionButton icon={<kbd>End</kbd>} label="End" detail="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
-            <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="Page Up" detail="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
-            <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="Page Down" detail="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
+            <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
+            <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />
+            <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" onClick={() => onApplyCommonBehavior('arrowLeft')} />
+            <BehaviorActionButton icon={<kbd>→</kbd>} label="方向右" onClick={() => onApplyCommonBehavior('arrowRight')} />
+            <BehaviorActionButton icon={<kbd>Tab</kbd>} label="切换焦点" onClick={() => onApplyCommonBehavior('tab')} />
+            <BehaviorActionButton icon={<kbd>Back</kbd>} label="向前删除" onClick={() => onApplyCommonBehavior('backspace')} />
+            <BehaviorActionButton icon={<kbd>Del</kbd>} label="向后删除" onClick={() => onApplyCommonBehavior('delete')} />
+            <BehaviorActionButton icon={<kbd>Home</kbd>} label="跳到开头" onClick={() => onApplyCommonBehavior('keyHome')} />
+            <BehaviorActionButton icon={<kbd>End</kbd>} label="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
+            <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
+            <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
           </>}
           {activeTab === 'media' && <>
-            <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" detail="媒体播放控制" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
-            <BehaviorActionButton icon={<Volume2 size={17} />} label="增大音量" detail="系统音量 +" onClick={() => onApplyCommonBehavior('volumeUp')} />
-            <BehaviorActionButton icon={<Volume1 size={17} />} label="减小音量" detail="系统音量 -" onClick={() => onApplyCommonBehavior('volumeDown')} />
-            <BehaviorActionButton icon={<VolumeX size={17} />} label="静音" detail="切换系统静音" onClick={() => onApplyCommonBehavior('volumeMute')} />
+            <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
+            <BehaviorActionButton icon={<Volume2 size={17} />} label="增大音量" onClick={() => onApplyCommonBehavior('volumeUp')} />
+            <BehaviorActionButton icon={<Volume1 size={17} />} label="减小音量" onClick={() => onApplyCommonBehavior('volumeDown')} />
+            <BehaviorActionButton icon={<VolumeX size={17} />} label="静音" onClick={() => onApplyCommonBehavior('volumeMute')} />
           </>}
           {activeTab === 'advanced' && <>
-            <BehaviorActionButton icon={<Keyboard size={17} />} label="按键 / 组合键" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('key')} />
-            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="粘贴文本" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('paste')} />
-            <BehaviorActionButton icon={<Clock3 size={17} />} label="等待" detail="追加到行为序列" onClick={() => onAddAdvancedBehavior('delay')} />
+            <BehaviorActionButton icon={<Keyboard size={17} />} label="按键 / 组合键" onClick={() => onAddAdvancedBehavior('key')} />
+            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="粘贴文本" onClick={() => onAddAdvancedBehavior('paste')} />
+            <BehaviorActionButton icon={<Clock3 size={17} />} label="等待" onClick={() => onAddAdvancedBehavior('delay')} />
           </>}
         </div>
       </section>

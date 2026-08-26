@@ -977,18 +977,15 @@ function App() {
                   <div className="key-picker-actions"><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
                 </div>
                 <MappingKeyGrid
-                  platform={platform}
                   buttons={editableButtons}
                   behaviors={behaviors}
                   activeId={activeId}
                   pressedId={pressedId}
-                  selectedBehavior={selectedBehavior}
                   rowRefs={rowRefs}
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
                 />
               </section>
               <MappingTriggerSelector
-                platform={platform}
                 button={selectedButton}
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}
