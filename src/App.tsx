@@ -4,9 +4,7 @@ import {
   Check,
   CheckCircle2,
   Copy,
-  Home,
   Info,
-  Keyboard,
   RotateCcw,
   Target,
   X,
@@ -50,6 +48,7 @@ import type {
   RemoteKeyEvent,
   SystemProbe,
 } from './appTypes'
+import { AppHeader } from './components/AppHeader'
 import { HomeDashboard } from './components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from './components/BehaviorEditor'
 import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComponents'
@@ -74,7 +73,6 @@ import {
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import appPackage from '../package.json'
 import {
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -924,25 +922,13 @@ function App() {
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       <main className="main-content">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={handleBrandClick}>
-              <span className="brand-mark">A</span>
-              <span>
-                <span className="brand-name">axonkey</span>
-                <span className="brand-version">RC003 控制台 <span>{appPackage.version}</span></span>
-              </span>
-            </button>
-            <div className="title-row"><h1>{activePage === 'home' ? '主页' : '按键映射'}</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
-          </div>
-          <nav className="app-nav" aria-label="主导航">
-            <button type="button" className={activePage === 'home' ? 'active' : ''} onClick={() => setActivePage('home')}><Home size={15} /> 主页</button>
-            <button type="button" className={activePage === 'mapping' ? 'active' : ''} onClick={() => setActivePage('mapping')}><Keyboard size={15} /> 按键映射</button>
-          </nav>
-          <div className="header-actions">
-            <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={toggleEnabled}><span /></button></label>
-          </div>
-        </header>
+        <AppHeader
+          activePage={activePage}
+          enabled={enabled}
+          onBrandClick={handleBrandClick}
+          onNavigate={setActivePage}
+          onToggleEnabled={toggleEnabled}
+        />
 
         {activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
