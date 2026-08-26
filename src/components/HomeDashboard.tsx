@@ -15,7 +15,7 @@ import {
 import { audioGainMax, audioGainMin } from '../appConfig'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 type HomeStatusTone = 'ready' | 'warning' | 'error' | 'checking' | 'muted'
 
@@ -169,6 +169,8 @@ export function HomeDashboard({
   const recommendedStep: SetupStepId = inputTone !== 'ready' || accessibilityTone === 'warning' || audioPresentation.tone !== 'ready'
     ? 'inputDriver'
     : 'deviceConnection'
+  const audioGainProgress = ((audioGain - audioGainMin) / (audioGainMax - audioGainMin)) * 100
+  const audioGainStyle = { '--home-audio-progress': `${audioGainProgress}%` } as CSSProperties
 
   return <div className="home-page">
     <section className={`home-hero ${heroTone}`} aria-labelledby="home-device-title">
@@ -236,7 +238,7 @@ export function HomeDashboard({
           >
             <div className="home-audio-control">
               <label htmlFor="audio-gain">输入增益</label>
-              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} disabled={!macOS} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
+              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} style={audioGainStyle} disabled={!macOS} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
               <strong>{audioGain} dB</strong>
             </div>
           </HomeStatusRow>
