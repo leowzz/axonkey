@@ -1,6 +1,8 @@
 import {
   AudioLines,
+  BatteryMedium,
   Bluetooth,
+  Check,
   CheckCircle2,
   ChevronRight,
   Command,
@@ -10,9 +12,9 @@ import {
   Settings2,
   ShieldCheck,
 } from 'lucide-react'
+import { audioGainMax, audioGainMin } from '../appConfig'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
-import { audioGainMax, audioGainMin } from '../appConfig'
 import type { ReactNode } from 'react'
 
 type HomeStatusTone = 'ready' | 'warning' | 'error' | 'checking' | 'muted'
@@ -36,55 +38,27 @@ type HomeDashboardProps = {
   onOpenMapping: () => void
 }
 
-type HomeStatusCardProps = {
+type HomeStatusRowProps = {
   icon: ReactNode
   title: string
   status: string
   detail: string
   tone: HomeStatusTone
   action?: ReactNode
+  children?: ReactNode
 }
 
-function HomeStatusCard({ icon, title, status, detail, tone, action }: HomeStatusCardProps) {
-  return <article className={`home-status-card ${tone}`}>
-    <div className="home-status-card-head">
-      <span className="home-status-icon">{icon}</span>
-      <div><h3>{title}</h3><span className="home-status-label"><span className="home-status-dot" />{status}</span></div>
+function HomeStatusRow({ icon, title, status, detail, tone, action, children }: HomeStatusRowProps) {
+  return <article className={`home-status-row ${tone}`}>
+    <span className="home-status-icon">{icon}</span>
+    <div className="home-status-copy">
+      <h3>{title}</h3>
+      <p>{detail}</p>
+      {children}
     </div>
-    <p>{detail}</p>
-    {action && <div className="home-status-action">{action}</div>}
-  </article>
-}
-
-type HomeAudioCardProps = {
-  macOS: boolean
-  driver: SetupState['drivers']['audio']
-  probePending: boolean
-  gain: number
-  onGainChange: (gain: number) => void
-  onRefresh: () => void
-}
-
-function HomeAudioCard({ macOS, driver, probePending, gain, onGainChange, onRefresh }: HomeAudioCardProps) {
-  const presentation = driverStatusPresentation(probePending ? 'checking' : driver.status)
-  const detail = probePending
-    ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
-    : driver.message ?? (macOS
-    ? '将 RC003 语音写入 MiRemoteV 2ch；增益只作用于这一路音频。'
-    : 'VB-CABLE 仅提供虚拟录音设备，Axonkey 当前不直接处理 Windows 音频流。')
-  return <article className={`home-status-card home-audio-card ${presentation.tone}`}>
-    <div className="home-status-card-head">
-      <span className="home-status-icon"><AudioLines size={19} /></span>
-      <div><h3>音频驱动</h3><span className="home-status-label"><span className="home-status-dot" />{presentation.label}</span></div>
-    </div>
-    <p>{detail}</p>
-    <div className="home-audio-controls">
-      <div className="home-audio-control-head"><label htmlFor="audio-gain">输入增益</label><strong>{gain} dB</strong></div>
-      <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={gain} disabled={!macOS} onChange={(event) => onGainChange(Number(event.target.value))} />
-      <div className="home-audio-scale" aria-hidden="true"><span>-30 dB</span><span>0 dB</span><span>30 dB</span></div>
-    </div>
-    <div className="home-audio-actions">
-      <button type="button" className="dialog-secondary" onClick={onRefresh}><RotateCcw size={14} /> 重新检测</button>
+    <div className="home-status-tools">
+      <span className="home-status-label"><span className="home-status-dot" />{status}</span>
+      {action}
     </div>
   </article>
 }
@@ -127,86 +101,182 @@ export function HomeDashboard({
   const inputTone: HomeStatusTone = inputProbeLoading
     ? 'checking'
     : inputAuthorizationStale || inputDriver.status === 'error'
-    ? 'error'
-    : inputReady || (!macOS && inputDriver.status === 'installed')
-      ? 'ready'
-      : inputDriver.status === 'checking' ? 'checking' : 'warning'
+      ? 'error'
+      : inputReady || (!macOS && inputDriver.status === 'installed')
+        ? 'ready'
+        : 'warning'
   const inputStatus = inputProbeLoading
     ? '检测中'
     : inputAuthorizationStale
-    ? '需要重新授权'
-    : inputReady || (!macOS && inputDriver.status === 'installed')
-      ? '已授权'
-      : macOS ? '未授权' : inputDriver.status === 'checking' ? '检测中' : '需要检查'
+      ? '需要重新授权'
+      : inputReady || (!macOS && inputDriver.status === 'installed')
+        ? '已授权'
+        : macOS ? '未授权' : '需要检查'
   const inputDetail = inputProbeLoading
     ? '正在检查输入监控与 RC003 输入服务。'
     : inputAuthorizationStale
-    ? '当前构建的输入监控授权已失效，电源键、返回键等映射不会收到按键。'
-    : inputDriver.message ?? (macOS ? '允许 Axonkey 读取 RC003 原始 HID 按键报告。' : '检查 OpenInputBridge 按键服务。')
+      ? '当前构建的输入监控授权已失效，按键映射暂时不会生效。'
+      : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 OpenInputBridge 按键服务。')
   const audioPresentation = driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
+  const audioDetail = audioProbeLoading
+    ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
+    : audioDriver.message ?? (macOS
+      ? '将 RC003 语音写入 MiRemoteV 2ch，增益仅作用于这一路音频。'
+      : 'VB-CABLE 提供虚拟录音设备，Axonkey 不直接处理 Windows 音频流。')
   const deviceConnected = !deviceProbeLoading && device.status === 'connected'
-  const deviceTone: HomeStatusTone = deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : device.status === 'checking' ? 'checking' : 'warning'
-  const deviceStatus = deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : device.status === 'checking' ? '检测中' : '未连接'
+  const deviceTone: HomeStatusTone = deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : 'warning'
+  const deviceStatus = deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : '未连接'
   const deviceDetail = deviceProbeLoading
     ? '正在检查 RC003 蓝牙连接与输入服务。'
     : deviceConnected
-    ? `${device.message ?? 'RC003 已被系统识别。'}${batteryLevel === null ? '' : ` 当前电量 ${batteryLevel}%。`}`
-    : device.message ?? '请在系统蓝牙设置中配对并唤醒 RC003。'
-  const accessibilityReady = !macOS || permissions.accessibility
+      ? device.message ?? 'RC003 已被系统识别，可以接收按键。'
+      : device.message ?? '请在系统蓝牙设置中配对并唤醒 RC003。'
   const accessibilityLoading = nativeRuntime && systemProbeLoading
-  const allReady = !systemProbeLoading && !audioProbeLoading && !inputProbeLoading && !deviceProbeLoading && inputTone === 'ready' && accessibilityReady && audioPresentation.tone === 'ready' && deviceTone === 'ready'
+  const accessibilityTone: HomeStatusTone = accessibilityLoading
+    ? 'checking'
+    : macOS ? permissions.accessibility ? 'ready' : 'warning' : 'muted'
+  const accessibilityStatus = accessibilityLoading
+    ? '检测中'
+    : macOS ? permissions.accessibility ? '已授权' : '未授权' : '系统不需要'
+  const allReady = !systemProbeLoading
+    && !audioProbeLoading
+    && !inputProbeLoading
+    && !deviceProbeLoading
+    && inputTone === 'ready'
+    && accessibilityTone !== 'warning'
+    && audioPresentation.tone === 'ready'
+    && deviceTone === 'ready'
   const pageLoading = systemProbeLoading || audioProbeLoading || inputProbeLoading || deviceProbeLoading
+  const readyCount = [inputTone, accessibilityTone, audioPresentation.tone, deviceTone]
+    .filter((tone) => tone === 'ready' || tone === 'muted').length
+  const heroTone: HomeStatusTone = pageLoading ? 'checking' : allReady ? 'ready' : inputAuthorizationStale ? 'error' : 'warning'
+  const heroTitle = pageLoading
+    ? '正在检查 RC003'
+    : allReady
+      ? 'RC003 已就绪'
+      : inputAuthorizationStale
+        ? '需要重新授权'
+        : deviceConnected ? '完成设置即可使用' : '等待 RC003 连接'
+  const heroDescription = pageLoading
+    ? '正在确认权限、音频通道和设备连接。'
+    : allReady
+      ? '按键、语音和系统权限均已就绪。现在可以直接编辑遥控器行为。'
+      : inputAuthorizationStale
+        ? '当前应用身份没有有效的输入监控权限，请先完成授权。'
+        : deviceConnected
+          ? '设备已连接，处理剩余系统项目后即可开始使用。'
+          : '唤醒遥控器或打开连接设置，Axonkey 会自动刷新状态。'
+  const recommendedStep: SetupStepId = inputTone !== 'ready' || accessibilityTone === 'warning' || audioPresentation.tone !== 'ready'
+    ? 'inputDriver'
+    : 'deviceConnection'
 
   return <div className="home-page">
-    <section className={`home-summary ${pageLoading ? 'loading' : allReady ? 'ready' : 'attention'}`}>
-      <div className="home-summary-icon">{pageLoading ? <LoaderCircle className="home-summary-loading-icon" size={24} /> : allReady ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}</div>
-      <div className="home-summary-copy"><span className="section-kicker">系统状态</span><h2>{pageLoading ? '正在检查运行环境' : allReady ? '运行环境已就绪' : '有项目需要处理'}</h2><p>{pageLoading ? '正在检查权限、驱动和设备连接，请稍候。' : allReady ? '权限、设备和音频通道均已检查，可以直接使用 RC003。' : inputAuthorizationStale ? '请重新授权当前 Axonkey 构建，按键映射才能恢复。' : '从下方状态卡处理缺失的权限、驱动或设备连接。'}</p></div>
-      <button type="button" className="button home-refresh-button" onClick={onRefresh} disabled={pageLoading}><RotateCcw size={15} /> {pageLoading ? '检测中' : '重新检测'}</button>
-    </section>
+    <section className={`home-hero ${heroTone}`} aria-labelledby="home-device-title">
+      <div className="home-hero-copy">
+        <div className="home-eyebrow"><span className="home-state-mark" /> RC003 CONTROL SURFACE</div>
+        <h2 id="home-device-title">{heroTitle}</h2>
+        <p>{heroDescription}</p>
+        <div className="home-hero-actions">
+          <button type="button" className="home-primary-action" onClick={onOpenMapping}>
+            <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
+          </button>
+          <button type="button" className="home-secondary-action" onClick={() => onOpenStep(recommendedStep)}>
+            <Settings2 size={15} /> {allReady ? '完整设置' : '处理待办'}
+          </button>
+          <button type="button" className="home-icon-action" aria-label={pageLoading ? '检测中' : '重新检测'} title={pageLoading ? '检测中' : '重新检测'} onClick={onRefresh} disabled={pageLoading}>
+            <RotateCcw className={pageLoading ? 'home-summary-loading-icon' : ''} size={15} />
+          </button>
+        </div>
+      </div>
 
-    <div className="home-status-grid">
-      <HomeStatusCard
-        icon={<Keyboard size={19} />}
-        title="输入监控"
-        status={inputStatus}
-        tone={inputTone}
-        detail={inputDetail}
-        action={macOS
-          ? <button type="button" className="dialog-secondary" onClick={() => onRequestPermission('inputMonitoring')}><ShieldCheck size={14} /> {inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '重新打开设置' : '开始授权'}</button>
-          : <button type="button" className="dialog-secondary" onClick={() => onOpenStep('inputDriver')}><Settings2 size={14} /> 检查驱动</button>}
-      />
-      <HomeStatusCard
-        icon={<Command size={19} />}
-        title="辅助功能"
-        status={accessibilityLoading ? '检测中' : macOS ? permissions.accessibility ? '已授权' : '未授权' : '系统不需要'}
-        tone={accessibilityLoading ? 'checking' : macOS ? permissions.accessibility ? 'ready' : 'warning' : 'muted'}
-        detail={accessibilityLoading ? '正在检查 Axonkey 是否可以发送映射后的按键、快捷键和文本。' : macOS ? '允许 Axonkey 发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
-        action={macOS && <button type="button" className="dialog-secondary" onClick={() => onRequestPermission('accessibility')}><ShieldCheck size={14} /> {permissions.accessibility ? '重新打开设置' : '开始授权'}</button>}
-      />
-      <HomeAudioCard
-        macOS={macOS}
-        driver={audioDriver}
-        probePending={audioProbeLoading}
-        gain={audioGain}
-        onGainChange={onAudioGainChange}
-        onRefresh={onRefresh}
-      />
-      <HomeStatusCard
-        icon={<Bluetooth size={19} />}
-        title="小米遥控器 RC003"
-        status={deviceStatus}
-        tone={deviceTone}
-        detail={deviceDetail}
-        action={<button type="button" className="dialog-secondary" onClick={() => onOpenStep('deviceConnection')}><Bluetooth size={14} /> 连接设置</button>}
-      />
-    </div>
-
-    <section className="home-tools">
-      <div><span className="section-kicker">快捷入口</span><h2>常用入口</h2></div>
-      <div className="home-tool-actions">
-        <button type="button" className="home-tool-button" onClick={onOpenMapping}><Keyboard size={17} /><span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span><ChevronRight size={16} /></button>
-        <button type="button" className="home-tool-button" onClick={() => onOpenStep('inputDriver')}><Settings2 size={17} /><span><strong>完整设置</strong><small>权限、驱动与设备检测</small></span><ChevronRight size={16} /></button>
+      <div className="home-device-visual" aria-label={`小米 RC003 ${deviceStatus}`}>
+        <div className="home-device-model"><span>MI</span><strong>RC003</strong></div>
+        <img src="/rc003-remote-cutout.png" alt="小米 RC003 蓝牙遥控器" />
+        <div className="home-device-telemetry">
+          <span><span className={`home-status-dot ${deviceTone}`} />{deviceStatus}</span>
+          <span className="home-device-divider" />
+          <span><BatteryMedium size={14} />{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span>
+        </div>
       </div>
     </section>
+
+    <div className="home-content-grid">
+      <section className="home-health" aria-labelledby="home-health-title">
+        <header className="home-section-head">
+          <div><span className="section-kicker">SYSTEM CHECK</span><h2 id="home-health-title">运行检查</h2></div>
+          <span className="home-check-count"><strong>{readyCount}</strong> / 4 就绪</span>
+        </header>
+
+        <div className="home-status-list">
+          <HomeStatusRow
+            icon={<Keyboard size={18} />}
+            title="输入监控"
+            status={inputStatus}
+            tone={inputTone}
+            detail={inputDetail}
+            action={macOS
+              ? <button type="button" className="home-row-action" onClick={() => onRequestPermission('inputMonitoring')}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
+              : <button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>检查驱动<ChevronRight size={13} /></button>}
+          />
+          <HomeStatusRow
+            icon={<Command size={18} />}
+            title="辅助功能"
+            status={accessibilityStatus}
+            tone={accessibilityTone}
+            detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
+            action={macOS && <button type="button" className="home-row-action" onClick={() => onRequestPermission('accessibility')}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
+          />
+          <HomeStatusRow
+            icon={<AudioLines size={18} />}
+            title="语音通道"
+            status={audioPresentation.label}
+            tone={audioPresentation.tone}
+            detail={audioDetail}
+            action={<button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>音频设置<ChevronRight size={13} /></button>}
+          >
+            <div className="home-audio-control">
+              <label htmlFor="audio-gain">输入增益</label>
+              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} disabled={!macOS} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
+              <strong>{audioGain} dB</strong>
+            </div>
+          </HomeStatusRow>
+          <HomeStatusRow
+            icon={<Bluetooth size={18} />}
+            title="设备连接"
+            status={deviceStatus}
+            tone={deviceTone}
+            detail={deviceDetail}
+            action={<button type="button" className="home-row-action" onClick={() => onOpenStep('deviceConnection')}>连接设置<ChevronRight size={13} /></button>}
+          />
+        </div>
+      </section>
+
+      <aside className="home-sidebar" aria-label="快捷操作">
+        <section className="home-quick-actions">
+          <span className="section-kicker">QUICK ACTIONS</span>
+          <h2>快捷操作</h2>
+          <button type="button" className="home-quick-button" onClick={onOpenMapping}>
+            <span className="home-quick-icon"><Keyboard size={17} /></span>
+            <span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span>
+            <ChevronRight size={15} />
+          </button>
+          <button type="button" className="home-quick-button" onClick={() => onOpenStep('inputDriver')}>
+            <span className="home-quick-icon"><ShieldCheck size={17} /></span>
+            <span><strong>系统设置</strong><small>权限、驱动与音频</small></span>
+            <ChevronRight size={15} />
+          </button>
+          <button type="button" className="home-quick-button" onClick={onRefresh} disabled={pageLoading}>
+            <span className="home-quick-icon">{pageLoading ? <LoaderCircle className="home-summary-loading-icon" size={17} /> : <CheckCircle2 size={17} />}</span>
+            <span><strong>{pageLoading ? '正在检测' : '运行检测'}</strong><small>刷新所有本机状态</small></span>
+            <ChevronRight size={15} />
+          </button>
+        </section>
+
+        <div className="home-local-note">
+          <Check size={15} />
+          <div><strong>数据只保存在本机</strong><span>映射和诊断信息不会上传。</span></div>
+        </div>
+      </aside>
+    </div>
   </div>
 }
