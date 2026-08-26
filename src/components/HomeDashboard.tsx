@@ -205,7 +205,7 @@ export function HomeDashboard({
     <div className="home-content-grid">
       <section className="home-health" aria-labelledby="home-health-title">
         <header className="home-section-head">
-          <div><span className="section-kicker">SYSTEM CHECK</span><h2 id="home-health-title">运行检查</h2></div>
+          <h2 id="home-health-title">运行检查</h2>
           <span className="home-check-count"><strong>{readyCount}</strong> / 4 就绪</span>
         </header>
 
@@ -255,7 +255,6 @@ export function HomeDashboard({
 
       <aside className="home-sidebar" aria-label="快捷操作">
         <section className="home-quick-actions">
-          <span className="section-kicker">QUICK ACTIONS</span>
           <h2>快捷操作</h2>
           <button type="button" className="home-quick-button" onClick={onOpenMapping}>
             <span className="home-quick-icon"><Keyboard size={17} /></span>
