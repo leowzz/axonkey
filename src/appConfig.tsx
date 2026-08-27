@@ -257,22 +257,22 @@ export function behaviorFromCapturedKey(captured: string, id?: string) {
 }
 
 export const initialHitPositions: Record<ButtonId, HitPosition> = {
-  power: { x: 18.27, y: 12.06 },
-  voice: { x: 66.19, y: 11.50 },
-  up: { x: 40.61, y: 24.79 },
-  left: { x: 12.76, y: 37.30 },
-  confirm: { x: 42.23, y: 37.07 },
-  right: { x: 71.70, y: 36.07 },
-  down: { x: 40.61, y: 49.02 },
-  back: { x: 20.42, y: 61.09 },
-  volumeUp: { x: 60.42, y: 61.09 },
-  home: { x: 22.80, y: 75.72 },
-  volumeDown: { x: 60.42, y: 76.85 },
-  menu: { x: 21.18, y: 90.79 },
-  tv: { x: 60.69, y: 91.91 },
+  power: { x: 24.27, y: 10.92 },
+  voice: { x: 75.96, y: 10.92 },
+  up: { x: 50.00, y: 21.46 },
+  left: { x: 13.39, y: 35.44 },
+  confirm: { x: 50.00, y: 35.44 },
+  right: { x: 86.61, y: 35.44 },
+  down: { x: 50.00, y: 49.73 },
+  back: { x: 29.08, y: 59.90 },
+  volumeUp: { x: 70.92, y: 59.90 },
+  home: { x: 29.08, y: 75.09 },
+  volumeDown: { x: 70.92, y: 75.09 },
+  menu: { x: 29.08, y: 90.06 },
+  tv: { x: 70.92, y: 90.06 },
 }
 
-export const hitPositionsStorageKey = 'axonkey.debug-hit-positions.v2'
+export const hitPositionsStorageKey = 'axonkey.debug-hit-positions.v4'
 
 export function getStoredHitPositions() {
   if (typeof window === 'undefined') return initialHitPositions

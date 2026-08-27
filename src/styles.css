@@ -507,21 +507,21 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .auto-save-state.saving { color: #96743d; }
 
 .mapping-workbench { display: grid; width: min(1440px, calc(100% - 48px)); grid-template-columns: 278px minmax(0, 1fr); align-items: start; gap: 12px; margin: 0 auto; }
-.mapping-device-rail { position: sticky; top: 12px; display: flex; min-height: 0; align-self: start; flex-direction: column; overflow: hidden; padding: 20px; border-radius: 8px; color: #edf3f8; background: #242c34; box-shadow: 0 14px 34px rgba(31, 47, 63, .13), inset -1px 0 rgba(255,255,255,.04); }
-.mapping-active .remote-device-card { margin-top: 0; padding: 11px 12px 10px; border-color: rgba(255,255,255,.13); color: #edf3f8; background: rgba(255,255,255,.055); box-shadow: inset 0 1px rgba(255,255,255,.04); }
-.mapping-active .remote-device-card:hover { border-color: rgba(108, 172, 239, .7); background: rgba(255,255,255,.09); }
-.mapping-active .remote-device-card .device-card-head { color: #f2f6fa; }
-.mapping-active .remote-device-card .device-icon { color: #8fc1f4; }
-.mapping-active .remote-device-card .device-card-meta, .mapping-active .remote-device-card .device-card-meta svg, .mapping-active .remote-device-card .battery-level { color: #aab6c1; }
-.mapping-active .remote-device-card .device-meta-separator { background: rgba(255,255,255,.14); }
-.mapping-active .remote-device-card .device-state-dot { background: #7d8994; }
-.mapping-active .remote-device-card .device-state-dot.connected { background: #63a889; box-shadow: 0 0 0 3px rgba(99,168,137,.14); }
+.mapping-device-rail { position: sticky; top: 12px; display: flex; min-height: 0; align-self: start; flex-direction: column; overflow: hidden; padding: 18px; border: 1px solid #d7e3ef; border-radius: 8px; color: #2f4255; background: #edf3fa; box-shadow: 0 14px 34px rgba(38, 83, 129, .1), inset 0 1px rgba(255,255,255,.72); }
+.mapping-active .remote-device-card { margin-top: 0; padding: 11px 12px 10px; border-color: #c9d9e9; color: #24384b; background: rgba(255,255,255,.72); box-shadow: inset 0 1px rgba(255,255,255,.9), 0 5px 16px rgba(47, 83, 117, .05); }
+.mapping-active .remote-device-card:hover { border-color: #76a9dc; background: #fff; }
+.mapping-active .remote-device-card .device-card-head { color: #24384b; }
+.mapping-active .remote-device-card .device-icon { color: #176fcf; }
+.mapping-active .remote-device-card .device-card-meta, .mapping-active .remote-device-card .device-card-meta svg, .mapping-active .remote-device-card .battery-level { color: #6b7d8f; }
+.mapping-active .remote-device-card .device-meta-separator { background: #cad8e5; }
+.mapping-active .remote-device-card .device-state-dot { background: #98aabd; }
+.mapping-active .remote-device-card .device-state-dot.connected { background: #4eaf83; box-shadow: 0 0 0 3px rgba(78,175,131,.14); }
 .mapping-active .remote-device-card .battery-level.low { color: #e39a94; }
-.mapping-active .remote-stage { display: grid; min-height: 0; flex: 0 0 auto; place-items: center; margin-top: 10px; padding: 20px 0 8px; }
-.mapping-active .remote-art { width: 168px; }
-.mapping-active .remote-art img { filter: drop-shadow(0 22px 15px rgba(8, 16, 24, .34)); }
+.mapping-active .remote-stage { display: grid; min-height: 0; flex: 0 0 auto; place-items: center; margin-top: 8px; padding: 10px 0 12px; }
+.mapping-active .remote-art { width: min(232px, 100%); }
+.mapping-active .remote-art img { filter: drop-shadow(0 18px 18px rgba(43, 75, 107, .2)); }
 .mapping-active .hotspot { isolation: isolate; color: #0f6fcf; background: transparent; box-shadow: none; transition: color .2s ease, transform .2s cubic-bezier(.16, 1, .3, 1); }
-.mapping-active .hotspot::before { position: absolute; z-index: -1; width: 28px; height: 28px; border: 1px solid rgba(108, 172, 239, .78); border-radius: 50%; background: rgba(20, 120, 232, .15); box-shadow: inset 0 1px rgba(255,255,255,.3); content: ''; transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s cubic-bezier(.16, 1, .3, 1); }
+.mapping-active .hotspot::before { position: absolute; z-index: -1; width: 30px; height: 30px; border: 1px solid rgba(108, 172, 239, .78); border-radius: 50%; background: rgba(20, 120, 232, .15); box-shadow: inset 0 1px rgba(255,255,255,.3); content: ''; transition: border-color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s cubic-bezier(.16, 1, .3, 1); }
 .mapping-active .hotspot svg, .mapping-active .hotspot .center-dot, .mapping-active .hotspot .tv-button-glyph { position: relative; z-index: 1; opacity: .88; }
 .mapping-active .hotspot .center-dot { background: currentColor; }
 .mapping-active .hotspot:hover::before { border-color: rgba(151, 201, 250, .96); background: rgba(20, 120, 232, .26); transform: scale(1.1); }
@@ -626,7 +626,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 @media (max-width: 1200px) {
   .mapping-workbench { grid-template-columns: 244px minmax(0, 1fr); }
   .mapping-device-rail { padding-right: 16px; padding-left: 16px; }
-  .mapping-active .remote-art { width: 150px; }
+  .mapping-active .remote-art { width: min(232px, 100%); }
   .mapping-key-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
@@ -638,7 +638,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .mapping-workbench, .mapping-active .mapping-limit-note { width: calc(100% - 28px); }
   .mapping-workbench { grid-template-columns: 218px minmax(0, 1fr); }
   .mapping-device-rail { padding-right: 13px; padding-left: 13px; }
-  .mapping-active .remote-art { width: 136px; }
+  .mapping-active .remote-art { width: min(232px, 100%); }
   .mapping-key-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .trigger-selector { grid-template-columns: 120px minmax(0, 1fr); gap: 14px; padding-right: 18px; padding-left: 18px; }
   .key-picker, .mapping-active .behavior-editor { padding-right: 18px; padding-left: 18px; }
@@ -648,8 +648,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 @media (max-height: 720px) {
   .mapping-device-rail { min-height: 0; padding-top: 16px; }
   .mapping-active .remote-device-card { margin-top: 0; }
-  .mapping-active .remote-stage { margin-top: 10px; padding: 18px 0 12px; }
-  .mapping-active .remote-art { width: 132px; }
+  .mapping-active .remote-stage { margin-top: 8px; padding: 10px 0 12px; }
+  .mapping-active .remote-art { width: min(232px, calc((100vh - 198px) * .411), 100%); }
   .key-picker { padding-top: 17px; padding-bottom: 18px; }
   .mapping-key > button { min-height: 56px; padding-top: 6px; padding-bottom: 6px; }
   .trigger-selector { padding-top: 13px; padding-bottom: 13px; }
