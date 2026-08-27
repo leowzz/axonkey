@@ -810,11 +810,26 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
+fn set_audio_gain(
+    gain: i16,
+    audio_service: tauri::State<'_, AudioService>,
+) -> Result<(), String> {
+    audio_service.set_gain_db(gain)
+}
+
+#[tauri::command]
 async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
     use tauri::Manager;
 
     if app.state::<InputService>().status().device_connected {
         return Ok(true);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let audio_service = app.state::<AudioService>();
+        audio_service.refresh();
+        return Ok(rc003_connected(false, audio_service.status().bluetooth_connected));
     }
 
     #[cfg(target_os = "windows")]
@@ -828,7 +843,7 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
         .map_err(|error| format!("Device probe task failed unexpectedly: {error}"))
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         Ok(false)
     }
@@ -867,10 +882,16 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "macos")]
     {
+        let audio_service = app.state::<AudioService>();
+        audio_service.refresh();
+        let audio_status = audio_service.status();
         Ok(SystemProbe {
             platform: "macos",
             input_driver_installed: true,
-            rc003_connected: input_status.device_connected,
+            rc003_connected: rc003_connected(
+                input_status.device_connected,
+                audio_status.bluetooth_connected,
+            ),
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
@@ -896,6 +917,10 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             capture_active: false,
         })
     }
+}
+
+fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
+    input_connected || bluetooth_connected
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -942,6 +967,7 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
+            set_audio_gain,
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
@@ -952,7 +978,14 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_bundle_for_executable, parse_battery_level};
+    use super::{app_bundle_for_executable, parse_battery_level, rc003_connected};
+
+    #[test]
+    fn macos_connection_uses_bluetooth_when_hid_is_not_visible() {
+        assert!(rc003_connected(false, true));
+        assert!(rc003_connected(true, false));
+        assert!(!rc003_connected(false, false));
+    }
 
     #[test]
     fn parses_valid_battery_percentages_only() {

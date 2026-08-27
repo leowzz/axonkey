@@ -5,6 +5,7 @@
 
 @interface AKMacAudioBridge (TailDrainTest)
 - (void)endVoiceSession;
+- (void)setGainDecibels:(float)decibels;
 @end
 
 @interface FakeAudioEngine : NSObject
@@ -23,6 +24,7 @@
 
 @interface FakeAudioPlayer : NSObject
 @property(nonatomic, copy) void (^playedBack)(void);
+@property(nonatomic, strong) AVAudioPCMBuffer *scheduledBuffer;
 @end
 
 @implementation FakeAudioPlayer
@@ -34,14 +36,16 @@
 
 - (void)scheduleBuffer:(AVAudioPCMBuffer *)buffer
      completionHandler:(void (^)(void))completionHandler {
+    self.scheduledBuffer = buffer;
     self.playedBack = completionHandler;
 }
 
 - (void)scheduleBuffer:(AVAudioPCMBuffer *)buffer
                  atTime:(AVAudioTime *)when
                  options:(AVAudioPlayerNodeBufferOptions)options
-  completionCallbackType:(AVAudioPlayerNodeCompletionCallbackType)callbackType
-       completionHandler:(void (^)(AVAudioPlayerNodeCompletionCallbackType))completionHandler {
+       completionCallbackType:(AVAudioPlayerNodeCompletionCallbackType)callbackType
+           completionHandler:(void (^)(AVAudioPlayerNodeCompletionCallbackType))completionHandler {
+    self.scheduledBuffer = buffer;
     self.playedBack = ^{ completionHandler(AVAudioPlayerNodeCompletionDataPlayedBack); };
 }
 @end
@@ -58,10 +62,20 @@ int main(void) {
         [bridge setValue:engine forKey:@"engine"];
         [bridge setValue:player forKey:@"player"];
         [bridge setValue:@YES forKey:@"streaming"];
+        [bridge setGainDecibels:6.0f];
 
-        int16_t samples[] = {100, 200, 300, 400};
+        int16_t samples[] = {100, 200, 30000, 400};
         if (![bridge enqueueSamples:samples count:4]) {
             fputs("failed to enqueue the tail buffer\n", stderr);
+            return 1;
+        }
+        if (player.scheduledBuffer == nil || player.scheduledBuffer.floatChannelData == NULL) {
+            fputs("gain test did not receive a PCM buffer\n", stderr);
+            return 1;
+        }
+        float *channel = player.scheduledBuffer.floatChannelData[0];
+        if (fabsf(channel[0] - (100.0f / (float)INT16_MAX) * powf(10.0f, 6.0f / 20.0f)) > 0.0001f || channel[2] != 1.0f) {
+            fputs("audio gain was not applied with output limiting\n", stderr);
             return 1;
         }
 
