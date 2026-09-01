@@ -165,6 +165,43 @@ static int CheckControlRightArrowEvent(bool down) {
     return 0;
 }
 
+static int CheckTelevisionPassThroughFiltered(void) {
+    AxonkeyInputState state = {
+        .event_tap = (CFMachPortRef)1,
+    };
+    const uint8_t pressed_report[] = {0x35, 0x00};
+    axonkey_arm_report_events(&state, 1, pressed_report, sizeof(pressed_report));
+
+    CGEventRef down_event = CGEventCreateKeyboardEvent(NULL, 50, true);
+    CGEventRef filtered_down = axonkey_event_tap_callback(
+        NULL,
+        kCGEventKeyDown,
+        down_event,
+        &state
+    );
+    CFRelease(down_event);
+    if (filtered_down != NULL) {
+        fputs("television key-down pass-through was not filtered\n", stderr);
+        return 1;
+    }
+
+    const uint8_t released_report[] = {0x00, 0x00};
+    axonkey_arm_report_events(&state, 1, released_report, sizeof(released_report));
+    CGEventRef up_event = CGEventCreateKeyboardEvent(NULL, 50, false);
+    CGEventRef filtered_up = axonkey_event_tap_callback(
+        NULL,
+        kCGEventKeyUp,
+        up_event,
+        &state
+    );
+    CFRelease(up_event);
+    if (filtered_up != NULL) {
+        fputs("television key-up pass-through was not filtered\n", stderr);
+        return 1;
+    }
+    return 0;
+}
+
 int main(void) {
     @autoreleasepool {
         Method method = class_getClassMethod([NSEvent class], @selector(eventWithCGEvent:));
@@ -178,6 +215,7 @@ int main(void) {
             ) ||
             CheckControlRightArrowEvent(true) ||
             CheckControlRightArrowEvent(false) ||
+            CheckTelevisionPassThroughFiltered() ||
             CheckControlEvent(
                 59,
                 kCGEventFlagMaskControl | NX_DEVICELCTLKEYMASK,

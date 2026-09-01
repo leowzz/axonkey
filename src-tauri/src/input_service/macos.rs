@@ -466,7 +466,7 @@ const SOURCE_KEYS: [SourceKey; 13] = [
     SourceKey::new("voice", 0x3e, MacKey::keyboard(96)),
     SourceKey::new("power", 0x66, MacKey::keyboard(90)),
     SourceKey::new("home", 0x4a, MacKey::keyboard(115)),
-    SourceKey::new("tv", 0x35, MacKey::keyboard(10)),
+    SourceKey::new("tv", 0x35, MacKey::keyboard(50)),
     SourceKey::new("menu", 0x65, MacKey::keyboard(110)),
     SourceKey::new("confirm", 0x28, MacKey::keyboard(36)),
     SourceKey::new("up", 0x52, MacKey::keyboard(126)),
@@ -1166,6 +1166,10 @@ mod tests {
         assert_eq!(
             source_for_usage(0x66).map(|source| source.original),
             Some(MacKey::keyboard(90))
+        );
+        assert_eq!(
+            source_for_usage(0x35).map(|source| (source.id, source.original)),
+            Some(("tv", MacKey::keyboard(50)))
         );
         assert_eq!(
             source_for_usage(0xf1).map(|source| (

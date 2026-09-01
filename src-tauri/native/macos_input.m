@@ -453,7 +453,7 @@ static bool axonkey_native_event_for_usage(uint16_t usage, int *kind, int *code)
         case 0x3e: *code = 96; return true;
         case 0x66: *code = 90; return true;
         case 0x4a: *code = 115; return true;
-        case 0x35: *code = 10; return true;
+        case 0x35: *code = 50; return true;
         case 0x65: *code = 110; return true;
         case 0x28: *code = 36; return true;
         case 0x52: *code = 126; return true;
