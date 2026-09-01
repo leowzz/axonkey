@@ -227,7 +227,7 @@ function App() {
       setPressedId(null)
     }
     const handleRemoteKey = (event: { payload: RemoteKeyEvent }) => {
-      if (!document.hasFocus() || !buttons.some((button) => button.id === event.payload.button)) return
+      if (!buttons.some((button) => button.id === event.payload.button)) return
       if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
       pressedClearTimerRef.current = undefined
       if (event.payload.pressed) {

@@ -1,13 +1,13 @@
 {
   "name": "axonkey-ui",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
-    "test:release": "node --test test/version-release.test.mjs test/openinputbridge-package.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs",
+    "test:release": "node --test test/version-release.test.mjs test/openinputbridge-package.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/tauri-event-capability.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

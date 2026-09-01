@@ -259,9 +259,9 @@ export function behaviorFromCapturedKey(captured: string, id?: string) {
 export const initialHitPositions: Record<ButtonId, HitPosition> = {
   power: { x: 25.24, y: 12.73 },
   voice: { x: 73.33, y: 12.73 },
-  up: { x: 48.57, y: 24.67 },
+  up: { x: 49.52, y: 24.67 },
   left: { x: 20.00, y: 36.03 },
-  confirm: { x: 48.57, y: 36.42 },
+  confirm: { x: 49.52, y: 36.22 },
   right: { x: 78.10, y: 36.03 },
   down: { x: 49.52, y: 47.19 },
   back: { x: 30.00, y: 60.11 },
