@@ -772,34 +772,28 @@ function App() {
       message: platform === 'macos' ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…' : '正在检查 VB-CABLE 虚拟麦克风…',
     }))
     try {
-      if (platform === 'macos') {
-        const probe = await withTimeout(
-          invoke<AudioProbe>('probe_audio_state'),
-          5_000,
-          '检测超时，请点击“重新检测”再试',
-        )
-        const stateMessage = probe.forwarding
-          ? '正在把 RC003 麦克风音频转发到 MiRemoteV 2ch。'
-          : probe.state === 'ready'
-            ? 'MiRemoteV 2ch 已安装，RC003 语音通道已连接。'
-            : probe.state === 'connecting' || probe.state === 'scanning'
-              ? 'MiRemoteV 2ch 已安装，正在连接 RC003 语音通道。'
-              : probe.error
-                ? `MiRemoteV 2ch 已安装；语音通道：${probe.error}`
-                : 'MiRemoteV 2ch 已安装，按住语音键时会自动开始转发。'
-        updateSetup((current) => setDriverStatus(current, 'audio', probe.driverInstalled ? 'installed' : 'missing', {
-          message: probe.driverInstalled ? stateMessage : '未检测到 MiRemoteV 2ch 虚拟麦克风驱动。',
-        }))
-      } else {
-        const available = await withTimeout(
-          invoke<boolean>('probe_audio_available'),
-          5_000,
-          '检测超时，请点击“重新检测”再试',
-        )
-        updateSetup((current) => setDriverStatus(current, 'audio', available ? 'installed' : 'missing', {
-          message: available ? '已检测到 VB-Audio Virtual Cable（CABLE Output）。' : '未检测到 VB-CABLE 虚拟麦克风驱动。',
-        }))
-      }
+      const probe = await withTimeout(
+        invoke<AudioProbe>('probe_audio_state'),
+        5_000,
+        '检测超时，请点击“重新检测”再试',
+      )
+      const outputName = platform === 'macos' ? 'MiRemoteV 2ch' : 'CABLE Input'
+      const stateMessage = probe.forwarding
+        ? `正在把 RC003 麦克风音频转发到 ${outputName}。`
+        : probe.state === 'ready'
+          ? `${outputName} 已就绪，RC003 语音通道已连接。`
+          : probe.state === 'connecting' || probe.state === 'scanning'
+            ? `${outputName} 已就绪，正在连接 RC003 语音通道。`
+            : probe.error
+              ? `${outputName} 已就绪；语音通道：${probe.error}`
+              : `${outputName} 已就绪，按住语音键时会自动开始转发。`
+      updateSetup((current) => setDriverStatus(current, 'audio', probe.driverInstalled ? 'installed' : 'missing', {
+        message: probe.driverInstalled
+          ? stateMessage
+          : platform === 'macos'
+            ? '未检测到 MiRemoteV 2ch 虚拟麦克风驱动。'
+            : '未检测到 VB-CABLE 的 CABLE Input 播放端点。',
+      }))
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {

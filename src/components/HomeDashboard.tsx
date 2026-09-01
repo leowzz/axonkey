@@ -122,7 +122,7 @@ export function HomeDashboard({
     ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
     : audioDriver.message ?? (macOS
       ? '将 RC003 语音写入 MiRemoteV 2ch，增益仅作用于这一路音频。'
-      : 'VB-CABLE 提供虚拟录音设备，Axonkey 不直接处理 Windows 音频流。')
+      : '将 RC003 语音写入 CABLE Input，并从 CABLE Output 提供给录音应用。')
   const deviceConnected = !deviceProbeLoading && device.status === 'connected'
   const deviceTone: HomeStatusTone = deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : 'warning'
   const deviceStatus = deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : '未连接'
@@ -238,7 +238,7 @@ export function HomeDashboard({
           >
             <div className="home-audio-control">
               <label htmlFor="audio-gain">输入增益</label>
-              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} style={audioGainStyle} disabled={!macOS} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
+              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} style={audioGainStyle} disabled={!nativeRuntime || platform === 'unsupported'} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
               <strong>{audioGain} dB</strong>
             </div>
           </HomeStatusRow>
