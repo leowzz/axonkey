@@ -72,7 +72,7 @@ import {
 } from './setupModel'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+import { emit, listen } from '@tauri-apps/api/event'
 import {
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
@@ -155,7 +155,15 @@ function App() {
   }, [hitPositions])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    if (typeof window === 'undefined') return
+    const tauriInternalsPresent = '__TAURI_INTERNALS__' in window
+    window.localStorage.setItem('axonkey.debug.remote-listener', JSON.stringify({
+      marker: '[DEBUG-remote-key]',
+      phase: 'effect',
+      tauriInternalsPresent,
+      recordedAt: Date.now(),
+    }))
+    if (!tauriInternalsPresent) return
     let active = true
     void invoke<Platform>('get_platform').then((detected) => {
       if (active) setPlatform(detected)
@@ -227,7 +235,12 @@ function App() {
       setPressedId(null)
     }
     const handleRemoteKey = (event: { payload: RemoteKeyEvent }) => {
-      if (!document.hasFocus() || !buttons.some((button) => button.id === event.payload.button)) return
+      window.localStorage.setItem('axonkey.debug.remote-key', JSON.stringify({
+        marker: '[DEBUG-remote-key]',
+        payload: event.payload,
+        receivedAt: Date.now(),
+      }))
+      if (!buttons.some((button) => button.id === event.payload.button)) return
       if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
       pressedClearTimerRef.current = undefined
       if (event.payload.pressed) {
@@ -240,10 +253,27 @@ function App() {
         setPressedId((current) => current === event.payload.button ? null : current)
       }, 180)
     }
-    void listen<RemoteKeyEvent>('axonkey-remote-key', handleRemoteKey).then((cleanup) => {
-      if (mounted) unlisten = cleanup
-      else cleanup()
-    })
+    void listen<RemoteKeyEvent>('axonkey-remote-key', handleRemoteKey)
+      .then((cleanup) => {
+        window.localStorage.setItem('axonkey.debug.remote-listener', JSON.stringify({
+          marker: '[DEBUG-remote-key]',
+          phase: 'resolved',
+          recordedAt: Date.now(),
+        }))
+        if (mounted) {
+          unlisten = cleanup
+          window.setTimeout(() => void emit('axonkey-remote-key', { button: 'up', pressed: true }), 250)
+          window.setTimeout(() => void emit('axonkey-remote-key', { button: 'up', pressed: false }), 10_250)
+        } else cleanup()
+      })
+      .catch((error: unknown) => {
+        window.localStorage.setItem('axonkey.debug.remote-listener', JSON.stringify({
+          marker: '[DEBUG-remote-key]',
+          phase: 'rejected',
+          error: String(error),
+          recordedAt: Date.now(),
+        }))
+      })
     window.addEventListener('blur', clearPressed)
     document.addEventListener('visibilitychange', clearPressed)
     return () => {
@@ -254,6 +284,16 @@ function App() {
       clearPressed()
     }
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem('axonkey.debug.remote-render', JSON.stringify({
+      marker: '[DEBUG-remote-key]',
+      pressedId,
+      pressedCards: document.querySelectorAll('.mapping-key.pressed').length,
+      pressedHotspots: document.querySelectorAll('.hotspot.pressed').length,
+      renderedAt: Date.now(),
+    }))
+  }, [pressedId])
 
   useEffect(() => {
     if (!coordinateSnippet || !coordinateTextRef.current) return
