@@ -35,6 +35,9 @@ enum {
 };
 
 static const int64_t AXONKEY_SYNTHETIC_EVENT_MARKER = 0x41584F4E4B4559;
+// Quartz stores NX_SYSDEFINED data1 in this low-level event field. AppKit's
+// eventWithCGEvent: can enter HIToolbox and assert when called from our HID thread.
+static const CGEventField AXONKEY_SYSTEM_EVENT_DATA1_FIELD = (CGEventField)149;
 
 typedef bool (*AxonkeyStopCallback)(void *context);
 typedef void (*AxonkeyEventCallback)(
@@ -580,12 +583,8 @@ static bool axonkey_describe_cg_event(
     if ((uint32_t)type != 14) {
         return false;
     }
-    NSEvent *ns_event = [NSEvent eventWithCGEvent:event];
-    if (ns_event == nil) {
-        return false;
-    }
-    NSInteger data1 = ns_event.data1;
-    NSInteger edge = (data1 & 0x0000FF00) >> 8;
+    int64_t data1 = CGEventGetIntegerValueField(event, AXONKEY_SYSTEM_EVENT_DATA1_FIELD);
+    int edge = (int)((data1 & 0x0000FF00) >> 8);
     if (edge != NX_KEYDOWN && edge != NX_KEYUP) {
         return false;
     }
@@ -1059,11 +1058,13 @@ bool axonkey_macos_post_key(
         kCGEventSourceUserData,
         AXONKEY_SYNTHETIC_EVENT_MARKER
     );
-    CGEventSetFlags(event, (CGEventFlags)flags);
+    CGEventFlags intrinsic_flags = CGEventGetFlags(event)
+        & (kCGEventFlagMaskNumericPad | kCGEventFlagMaskSecondaryFn);
+    CGEventSetFlags(event, intrinsic_flags | (CGEventFlags)flags);
     if (autorepeat) {
         CGEventSetIntegerValueField(event, kCGKeyboardEventAutorepeat, 1);
     }
-    CGEventPost(kCGHIDEventTap, event);
+    CGEventPost(kCGSessionEventTap, event);
     CFRelease(event);
     return true;
 }

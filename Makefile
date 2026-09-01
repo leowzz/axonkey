@@ -2,7 +2,7 @@
 
 ENV_FILE ?= .env
 
-dev:
+dev: kill
 	npm run tauri dev
 
 kill:

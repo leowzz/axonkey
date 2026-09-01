@@ -422,6 +422,7 @@ const FLAG_SHIFT: u64 = 1 << 17;
 const FLAG_CONTROL: u64 = 1 << 18;
 const FLAG_OPTION: u64 = 1 << 19;
 const FLAG_COMMAND: u64 = 1 << 20;
+const FLAG_DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
 const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
 
 #[derive(Clone, Copy)]
@@ -977,7 +978,10 @@ fn parse_chord(value: &str) -> Option<Vec<MacKey>> {
 fn mac_key_for_name(value: &str) -> Option<MacKey> {
     let upper = value.to_ascii_uppercase();
     let named = match upper.as_str() {
-        "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(59, FLAG_CONTROL)),
+        "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(
+            59,
+            FLAG_CONTROL | FLAG_DEVICE_LEFT_CONTROL,
+        )),
         "RCTRL" => Some(MacKey::modifier(
             62,
             FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
@@ -1194,6 +1198,13 @@ mod tests {
 
     #[test]
     fn parses_macos_modifiers_and_shortcuts() {
+        assert_eq!(
+            parse_chord("Ctrl+Right"),
+            Some(vec![
+                MacKey::modifier(59, FLAG_CONTROL | FLAG_DEVICE_LEFT_CONTROL),
+                MacKey::keyboard(124),
+            ])
+        );
         assert_eq!(
             parse_chord("RAlt"),
             Some(vec![MacKey::modifier(61, FLAG_OPTION)])
