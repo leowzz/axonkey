@@ -925,7 +925,6 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Temporary rebuild marker for remote-key render diagnostics.
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);

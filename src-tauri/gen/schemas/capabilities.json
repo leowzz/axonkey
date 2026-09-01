@@ -1,1 +1,1 @@
-{"main-event-listener":{"identifier":"main-event-listener","description":"Allow the main window to receive native RC003 button events.","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten","core:event:allow-emit"]}}
+{"main-event-listener":{"identifier":"main-event-listener","description":"Allow the main window to receive native RC003 button events.","local":true,"windows":["main"],"permissions":["core:event:allow-listen","core:event:allow-unlisten"]}}
