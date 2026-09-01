@@ -422,6 +422,7 @@ const FLAG_SHIFT: u64 = 1 << 17;
 const FLAG_CONTROL: u64 = 1 << 18;
 const FLAG_OPTION: u64 = 1 << 19;
 const FLAG_COMMAND: u64 = 1 << 20;
+const FLAG_DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
 const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
 
 #[derive(Clone, Copy)]
@@ -465,7 +466,7 @@ const SOURCE_KEYS: [SourceKey; 13] = [
     SourceKey::new("voice", 0x3e, MacKey::keyboard(96)),
     SourceKey::new("power", 0x66, MacKey::keyboard(90)),
     SourceKey::new("home", 0x4a, MacKey::keyboard(115)),
-    SourceKey::new("tv", 0x35, MacKey::keyboard(10)),
+    SourceKey::new("tv", 0x35, MacKey::keyboard(50)),
     SourceKey::new("menu", 0x65, MacKey::keyboard(110)),
     SourceKey::new("confirm", 0x28, MacKey::keyboard(36)),
     SourceKey::new("up", 0x52, MacKey::keyboard(126)),
@@ -977,7 +978,10 @@ fn parse_chord(value: &str) -> Option<Vec<MacKey>> {
 fn mac_key_for_name(value: &str) -> Option<MacKey> {
     let upper = value.to_ascii_uppercase();
     let named = match upper.as_str() {
-        "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(59, FLAG_CONTROL)),
+        "CTRL" | "CONTROL" | "LCTRL" => Some(MacKey::modifier(
+            59,
+            FLAG_CONTROL | FLAG_DEVICE_LEFT_CONTROL,
+        )),
         "RCTRL" => Some(MacKey::modifier(
             62,
             FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
@@ -1164,6 +1168,10 @@ mod tests {
             Some(MacKey::keyboard(90))
         );
         assert_eq!(
+            source_for_usage(0x35).map(|source| (source.id, source.original)),
+            Some(("tv", MacKey::keyboard(50)))
+        );
+        assert_eq!(
             source_for_usage(0xf1).map(|source| (
                 source.id,
                 source.original,
@@ -1194,6 +1202,13 @@ mod tests {
 
     #[test]
     fn parses_macos_modifiers_and_shortcuts() {
+        assert_eq!(
+            parse_chord("Ctrl+Right"),
+            Some(vec![
+                MacKey::modifier(59, FLAG_CONTROL | FLAG_DEVICE_LEFT_CONTROL),
+                MacKey::keyboard(124),
+            ])
+        );
         assert_eq!(
             parse_chord("RAlt"),
             Some(vec![MacKey::modifier(61, FLAG_OPTION)])

@@ -93,7 +93,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 OpenInputBridge 驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -319,7 +319,7 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const message = driver.action.error ?? driver.message ?? (kind === 'input'
-    ? '经过校验的 OpenInputBridge 驱动，仅用于识别 RC003 按键。'
+    ? '经过校验的 Interception 驱动，仅用于识别 RC003 按键。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">

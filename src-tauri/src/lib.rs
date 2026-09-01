@@ -202,7 +202,8 @@ fn find_driver_script(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("input", "install" | "uninstall") => "openinputbridge-driver.ps1",
+        ("input", "install") => "install-driver.ps1",
+        ("input", "uninstall") => "uninstall-driver.ps1",
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -377,7 +378,9 @@ fn run_driver_action(
         .arg("Bypass")
         .arg("-File")
         .arg(script);
-    command.arg("-Action").arg(action);
+    if driver == "audio" {
+        command.arg("-Action").arg(action);
+    }
     let status = command
         .arg("-Confirmed")
         .arg("-LogPath")
@@ -752,24 +755,6 @@ async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
 }
 
 #[cfg(target_os = "windows")]
-fn oib_driver_installed() -> Result<bool, String> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
-    use winreg::RegKey;
-
-    let services = RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey("SYSTEM\\CurrentControlSet\\Services")
-        .map_err(|error| format!("Cannot inspect Windows input drivers: {error}"))?;
-    for service in ["OpenInputBridgeKeyboard", "OpenInputBridgeMouse"] {
-        match services.open_subkey(service) {
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-            Err(error) => return Err(format!("Cannot inspect {service}: {error}")),
-        }
-    }
-    Ok(true)
-}
-
-#[cfg(target_os = "windows")]
 fn vbcable_service_installed() -> Result<bool, String> {
     use winreg::enums::HKEY_LOCAL_MACHINE;
     use winreg::RegKey;
@@ -810,10 +795,7 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
-fn set_audio_gain(
-    gain: i16,
-    audio_service: tauri::State<'_, AudioService>,
-) -> Result<(), String> {
+fn set_audio_gain(gain: i16, audio_service: tauri::State<'_, AudioService>) -> Result<(), String> {
     audio_service.set_gain_db(gain)
 }
 
@@ -829,7 +811,10 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
     {
         let audio_service = app.state::<AudioService>();
         audio_service.refresh();
-        return Ok(rc003_connected(false, audio_service.status().bluetooth_connected));
+        return Ok(rc003_connected(
+            false,
+            audio_service.status().bluetooth_connected,
+        ));
     }
 
     #[cfg(target_os = "windows")]
@@ -858,6 +843,14 @@ fn update_input_settings(
 }
 
 #[tauri::command]
+fn write_mapping_file(path: String, content: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Mapping file path is empty".into());
+    }
+    std::fs::write(&path, content).map_err(|error| format!("Cannot save mapping file: {error}"))
+}
+
+#[tauri::command]
 async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String> {
     use tauri::Manager;
 
@@ -865,7 +858,12 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let input_driver_installed = oib_driver_installed()?;
+        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+        let input_driver_installed = std::path::PathBuf::from(windows)
+            .join("System32")
+            .join("drivers")
+            .join("keyboard.sys")
+            .is_file();
         Ok(SystemProbe {
             platform: "windows",
             input_driver_installed,
@@ -929,6 +927,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(AudioService::start())
         .manage(InputService::start())
         .manage(PermissionHelperWindowState::default())
@@ -971,6 +970,7 @@ pub fn run() {
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
+            write_mapping_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Axonkey");

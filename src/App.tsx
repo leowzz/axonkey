@@ -4,15 +4,19 @@ import {
   Check,
   CheckCircle2,
   Copy,
+  Download,
   Info,
   RotateCcw,
   Target,
+  Upload,
   X,
 } from 'lucide-react'
 import {
   createBehavior,
   createDefaultBehaviorMap,
+  createMappingExport,
   moveBehavior,
+  parseMappingImport,
   updateBehaviorList,
 } from './behaviorModel'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from './behaviorModel'
@@ -73,7 +77,9 @@ import {
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from './setupModel'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { save } from '@tauri-apps/plugin-dialog'
 import {
+  ChangeEvent,
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
   useCallback,
@@ -121,6 +127,7 @@ function App() {
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
+  const mappingFileInputRef = useRef<HTMLInputElement>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
   const rowRefs = useRef<Partial<Record<ButtonId, HTMLElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
@@ -349,6 +356,70 @@ function App() {
   const showBehaviorToast = (message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 1600)
+  }
+
+  const mappingExportFilename = (date = new Date()) => {
+    const pad = (value: number) => String(value).padStart(2, '0')
+    const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+    return `axonkey-mapping-${timestamp}.json`
+  }
+
+  const exportMappings = async () => {
+    const serialized = JSON.stringify(createMappingExport(behaviors, enabled), null, 2)
+    const filename = mappingExportFilename()
+
+    if (nativeRuntime) {
+      try {
+        const path = await save({
+          defaultPath: filename,
+          filters: [{ name: 'Axonkey 映射规则', extensions: ['json'] }],
+        })
+        if (!path) return
+        await invoke('write_mapping_file', { path, content: serialized })
+        showBehaviorToast(`映射规则已保存：${path.split(/[\\/]/).pop() ?? filename}`)
+      } catch (error) {
+        setToast(`导出失败：${String(error)}`)
+        window.setTimeout(() => setToast(''), 3200)
+      }
+      return
+    }
+
+    const blob = new Blob([serialized], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    showBehaviorToast('映射规则已导出')
+  }
+
+  const openMappingImport = () => {
+    mappingFileInputRef.current?.click()
+  }
+
+  const importMappings = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const imported = parseMappingImport(await file.text())
+      if (!imported) throw new Error('unsupported mapping file')
+      setBehaviors(imported.behaviors)
+      if (imported.enabled !== undefined) setEnabled(imported.enabled)
+      setAutoSaveState('saving')
+      setCommonBehaviorUndo(null)
+      setCapturingBehaviorId(null)
+      setEditingBehaviorId(null)
+      setDraftBehavior(null)
+      setTextInputDraft(null)
+      showBehaviorToast(imported.enabled === undefined ? '映射规则已导入，将自动保存' : '映射规则和启用状态已导入，将自动保存')
+    } catch {
+      setToast('导入失败：请选择有效的 Axonkey 映射 JSON 文件')
+      window.setTimeout(() => setToast(''), 3000)
+    }
   }
 
   const replaceWithCommonBehavior = (next: Behavior[]) => {
@@ -631,7 +702,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
+              ? 'Interception 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -662,12 +733,12 @@ function App() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到完整的 OpenInputBridge 按键驱动。'
+            ? '未检测到 Interception 按键驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'OpenInputBridge 按键服务工作正常。'
-                : '已检测到 OpenInputBridge 按键驱动，输入服务正在启动。'
+                ? 'Interception 按键服务工作正常。'
+                : '已检测到 Interception 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         if (!showChecking) {
           const unchanged = next.device.status === device.status
@@ -755,7 +826,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
+              ? 'Interception 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -960,7 +1031,7 @@ function App() {
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
                   <h2 id="key-picker-title">按键</h2>
-                  <div className="key-picker-actions"><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button></div>
+                  <div className="key-picker-actions"><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
                 <MappingKeyGrid
                   buttons={editableButtons}
