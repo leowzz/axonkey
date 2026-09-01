@@ -631,7 +631,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
+              ? 'Interception 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -662,12 +662,12 @@ function App() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到完整的 OpenInputBridge 按键驱动。'
+            ? '未检测到 Interception 按键驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'OpenInputBridge 按键服务工作正常。'
-                : '已检测到 OpenInputBridge 按键驱动，输入服务正在启动。'
+                ? 'Interception 按键服务工作正常。'
+                : '已检测到 Interception 按键驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         if (!showChecking) {
           const unchanged = next.device.status === device.status
@@ -755,7 +755,7 @@ function App() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'OpenInputBridge 输入服务已识别并接管 RC003。'
+              ? 'Interception 输入服务已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))

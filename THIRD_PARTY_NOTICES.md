@@ -29,34 +29,41 @@ distributed as a separate macOS Installer component inside Axonkey.app.
 The exact build recipe and corresponding-source pointer are retained at
 `third_party/blackhole/README.md`.
 
-## OpenInputBridge 1.00
+## Interception 1.0.1
 
-Copyright (C) 2026 OpenInputBridge Contributors.
+Copyright (C) 2008-2017 Francisco Lopes da Silva.
 
-Upstream project: https://github.com/Applet-LLC/OpenInputBridge
+Upstream project: https://github.com/oblitum/Interception
 
-Release: https://github.com/Applet-LLC/OpenInputBridge/releases/tag/1.00
+Release: https://github.com/oblitum/Interception/releases/tag/v1.0.1
 
-Reviewed source commit: `a661848ddf4deadc07e6c6df9d374c20df5f4c01`
+Axonkey dynamically loads the unmodified AMD64 `interception.dll` and uses only
+the published Interception API. The release package also carries the upstream
+command-line driver installer so installation and removal remain explicit user
+actions.
 
-OpenInputBridge's original source is MIT licensed. Axonkey implements its
-user-mode protocol client directly from the published protocol documentation;
-it does not load or bundle `interception.dll`. The upstream MIT text is retained
-at `vendor\openinputbridge\LICENSE-MIT.txt`.
+The upstream project describes Interception as dual-licensed. For
+non-commercial purposes, it states that the library and source use LGPL and
+that related driver/installer binaries may be distributed when communication
+with the drivers occurs solely through the library and its API. Commercial use
+requires one of the commercial licenses described by the upstream project.
 
-The production WHQL driver package is a separately sold and licensed artifact.
-It is not present in this repository. A Windows release must not be distributed
-until Axonkey has written OEM/redistribution permission and records the approved
-package version, hashes, and signer identities in
-`vendor\openinputbridge\SOURCE.md`. The Windows build preflight rejects an
-incomplete package. At install time Axonkey also requires an Applet LLC-signed
-installer and Microsoft Windows Hardware Compatibility Publisher-signed
-keyboard and mouse catalogs.
+The full non-commercial LGPL text shipped in the v1.0.1 archive is included at
+`vendor\interception\LICENSE-LGPL-3.0.txt`. The upstream commercial-license
+documents are retained in the source tree under
+`vendor\interception\licenses` for review; their presence does not grant a
+commercial license.
 
-Legacy Interception 1.0.1 binaries and license evidence remain in the source
-tree only for uninstall/recovery and incident provenance. New Axonkey Windows
-packages do not include them, and production code rejects them as an input
-backend. Axonkey does not bundle or require AutoHotkey or AutoHotInterception.
+Reviewed binary hashes (SHA-256):
+
+- x64 `interception.dll`: `AB88164C11B1B48488772D4C3BFAA4509D5B0AE9DBC5A691DC4F96F0260443C8`
+- `install-interception.exe`: `E137863A79DA797F08E7A137280FF2A123809044A888FD75CE9C973198915ABE`
+
+The upstream installer does not carry an Authenticode publisher signature.
+Axonkey verifies its exact reviewed hash before installation or removal and
+never invokes it silently.
+
+Axonkey does not bundle or require AutoHotkey or AutoHotInterception.
 
 ## VB-Audio VB-CABLE Pack45
 

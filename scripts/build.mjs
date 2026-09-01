@@ -3,7 +3,6 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { assertOpenInputBridgePackage } from './openinputbridge-package.mjs'
 import { assertVersionsMatch } from './version.mjs'
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -54,7 +53,6 @@ function buildTarget() {
 
 function build(version) {
   const target = buildTarget()
-  if (process.platform === 'win32') assertOpenInputBridgePackage(repositoryRoot)
   if (process.platform === 'darwin') {
     const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim()
     if (signingIdentity && signingIdentity !== '-') process.env.REQUIRE_SIGNED_INSTALLER = '1'

@@ -27,4 +27,4 @@ test-release:
 	npm run test:release
 
 uninstall-driver:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\openinputbridge-driver.ps1" -Action Uninstall
+	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"

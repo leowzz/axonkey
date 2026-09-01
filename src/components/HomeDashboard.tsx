@@ -116,7 +116,7 @@ export function HomeDashboard({
     ? '正在检查输入监控与 RC003 输入服务。'
     : inputAuthorizationStale
       ? '当前构建的输入监控授权已失效，按键映射暂时不会生效。'
-      : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 OpenInputBridge 按键服务。')
+      : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 Interception 按键服务。')
   const audioPresentation = driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
   const audioDetail = audioProbeLoading
     ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
