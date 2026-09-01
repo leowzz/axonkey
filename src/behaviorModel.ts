@@ -63,6 +63,22 @@ export type Behavior = KeyBehavior | ShortcutBehavior | PasteBehavior | DelayBeh
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<ButtonId, TriggerBehaviors>
 
+export const mappingTransferFormat = 'axonkey-mapping'
+export const mappingTransferVersion = 1
+
+export type MappingTransfer = {
+  format: typeof mappingTransferFormat
+  version: typeof mappingTransferVersion
+  exportedAt: string
+  enabled: boolean
+  behaviors: BehaviorMap
+}
+
+export type ImportedMapping = {
+  behaviors: BehaviorMap
+  enabled?: boolean
+}
+
 export type CreateBehaviorOptions =
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
@@ -204,6 +220,26 @@ function behaviorContainer(value: unknown) {
   return value
 }
 
+function hasBehaviorMapShape(value: unknown) {
+  if (!isRecord(value)) return false
+  const knownButtons = buttonIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
+  if (knownButtons.length === 0) return false
+  return knownButtons.every((buttonId) => {
+    const rawButton = value[buttonId]
+    if (!isRecord(rawButton)) return false
+    return triggerTypes.every((trigger) => {
+      const rawList = rawButton[trigger]
+      return rawList === undefined || (Array.isArray(rawList) && rawList.every((entry) => normalizeBehavior(entry) !== null))
+    })
+  })
+}
+
+function hasLegacyMappingShape(value: unknown) {
+  if (!isRecord(value)) return false
+  const knownButtons = buttonIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
+  return knownButtons.length > 0 && knownButtons.every((buttonId) => typeof value[buttonId] === 'string')
+}
+
 /**
  * Parse localStorage JSON (or an already parsed value), merging it with defaults.
  * Both the new behavior map and the previous `{ mappings: Record<ButtonId,string> }`
@@ -244,6 +280,48 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
     }
   }
   return result
+}
+
+/** Build the stable, versioned JSON shape used for mapping file transfers. */
+export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString()): MappingTransfer {
+  return {
+    format: mappingTransferFormat,
+    version: mappingTransferVersion,
+    exportedAt,
+    enabled,
+    behaviors,
+  }
+}
+
+/** Parse a mapping export while retaining compatibility with older settings files. */
+export function parseMappingImport(value: unknown): ImportedMapping | null {
+  let parsed: unknown = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as unknown
+    } catch {
+      return null
+    }
+  }
+  if (!isRecord(parsed)) return null
+
+  const isVersionedExport = parsed.format === mappingTransferFormat
+  if (parsed.format !== undefined && !isVersionedExport) return null
+  if (isVersionedExport && parsed.version !== mappingTransferVersion) return null
+
+  const source = isVersionedExport
+    ? parsed.behaviors
+    : isRecord(parsed.behaviors) ? parsed.behaviors : behaviorContainer(parsed)
+  const validBehaviorMap = hasBehaviorMapShape(source)
+  const validLegacyMappings = hasLegacyMappingShape(parsed.mappings)
+  if (isVersionedExport ? !validBehaviorMap : !validBehaviorMap && !validLegacyMappings) {
+    return null
+  }
+
+  return {
+    behaviors: parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed),
+    enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
+  }
 }
 
 /** Append a behavior without mutating the existing map. */

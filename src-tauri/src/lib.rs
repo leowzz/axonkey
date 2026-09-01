@@ -843,6 +843,14 @@ fn update_input_settings(
 }
 
 #[tauri::command]
+fn write_mapping_file(path: String, content: String) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Mapping file path is empty".into());
+    }
+    std::fs::write(&path, content).map_err(|error| format!("Cannot save mapping file: {error}"))
+}
+
+#[tauri::command]
 async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String> {
     use tauri::Manager;
 
@@ -919,6 +927,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_main_window(app);
         }))
+        .plugin(tauri_plugin_dialog::init())
         .manage(AudioService::start())
         .manage(InputService::start())
         .manage(PermissionHelperWindowState::default())
@@ -961,6 +970,7 @@ pub fn run() {
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
+            write_mapping_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Axonkey");
