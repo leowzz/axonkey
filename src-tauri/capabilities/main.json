@@ -6,6 +6,7 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "dialog:allow-save"
+    "dialog:allow-save",
+    "log:default"
   ]
 }

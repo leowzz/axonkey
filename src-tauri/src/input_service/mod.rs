@@ -100,10 +100,12 @@ mod unsupported {
 
     impl InputService {
         pub fn start() -> Self {
+            log::info!(target: "axonkey::input", "Input service is unsupported on this platform");
             Self
         }
 
         pub fn update_settings(&self, _settings: NativeSettings) -> Result<(), String> {
+            log::warn!(target: "axonkey::input", "Input settings requested on an unsupported platform");
             Err("Axonkey input mapping is only supported on Windows and macOS".into())
         }
 

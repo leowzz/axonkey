@@ -39,12 +39,14 @@ pub struct AudioService;
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 impl AudioService {
     pub fn start() -> Self {
+        log::info!(target: "axonkey::audio", "Audio service is unsupported on this platform");
         Self
     }
 
     pub fn refresh(&self) {}
 
     pub fn set_gain_db(&self, _gain: i16) -> Result<(), String> {
+        log::warn!(target: "axonkey::audio", "Audio gain requested on an unsupported platform");
         Err("音频增益仅支持 macOS 音频转发".into())
     }
 

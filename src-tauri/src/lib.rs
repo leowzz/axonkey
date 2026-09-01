@@ -4,12 +4,16 @@ mod input_service;
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray-show";
 const TRAY_QUIT_ID: &str = "tray-quit";
 const PERMISSION_HELPER_WIDTH: f64 = 430.0;
 const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
+const RUNTIME_LOG_FILE_BASENAME: &str = "axonkey";
+const RUNTIME_LOG_MAX_BYTES: u128 = 5_000_000;
+const RUNTIME_LOG_KEEP_FILES: usize = 5;
 
 #[derive(Clone, Copy)]
 struct WindowGeometry {
@@ -183,6 +187,62 @@ fn install_tray(_app: &tauri::App) -> tauri::Result<()> {
 #[tauri::command]
 fn ping() -> &'static str {
     "ok"
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LogInfo {
+    directory: String,
+    current_file: String,
+}
+
+fn runtime_log_info(app: &tauri::AppHandle) -> Result<LogInfo, String> {
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| format!("Cannot resolve the Axonkey log directory: {error}"))?;
+    let current_file = directory.join(format!("{RUNTIME_LOG_FILE_BASENAME}.log"));
+    Ok(LogInfo {
+        directory: directory.to_string_lossy().into_owned(),
+        current_file: current_file.to_string_lossy().into_owned(),
+    })
+}
+
+#[tauri::command]
+fn get_log_info(app: tauri::AppHandle) -> Result<LogInfo, String> {
+    runtime_log_info(&app)
+}
+
+#[tauri::command]
+fn open_log_directory(app: tauri::AppHandle) -> Result<LogInfo, String> {
+    let info = runtime_log_info(&app)?;
+    let directory = std::path::Path::new(&info.directory);
+    std::fs::create_dir_all(directory)
+        .map_err(|error| format!("Cannot create the Axonkey log directory: {error}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer.exe")
+            .arg(directory)
+            .spawn()
+            .map_err(|error| format!("Cannot open the Axonkey log directory: {error}"))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(directory)
+            .spawn()
+            .map_err(|error| format!("Cannot open the Axonkey log directory: {error}"))?;
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    {
+        let _ = directory;
+        return Err("Opening the Axonkey log directory is not supported on this platform".into());
+    }
+
+    Ok(info)
 }
 
 #[tauri::command]
@@ -422,6 +482,7 @@ async fn launch_driver_action(
     if !matches!(action.as_str(), "install" | "uninstall") {
         return Err("Unsupported driver action".into());
     }
+    log::info!(target: "axonkey::runtime", "Driver action requested: {driver}/{action}");
 
     #[cfg(target_os = "windows")]
     {
@@ -475,6 +536,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
         "sound" => "ms-settings:sound",
         _ => return Err("Unsupported settings page".into()),
     };
+    log::info!(target: "axonkey::runtime", "Opening Windows settings page: {page}");
 
     #[cfg(target_os = "windows")]
     {
@@ -497,6 +559,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 
 #[tauri::command]
 fn open_system_settings(page: String) -> Result<(), String> {
+    log::info!(target: "axonkey::runtime", "Opening system settings page: {page}");
     #[cfg(target_os = "windows")]
     {
         return open_windows_settings(page);
@@ -577,7 +640,16 @@ fn reveal_current_app() -> Result<(), String> {
 fn request_macos_permission(kind: String) -> Result<bool, String> {
     #[cfg(target_os = "macos")]
     {
-        InputService::request_permission(&kind)
+        let result = InputService::request_permission(&kind);
+        match &result {
+            Ok(granted) => {
+                log::info!(target: "axonkey::runtime", "macOS permission request completed: kind={kind}, granted={granted}")
+            }
+            Err(error) => {
+                log::warn!(target: "axonkey::runtime", "macOS permission request failed: kind={kind}, error={error}")
+            }
+        }
+        result
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -593,6 +665,7 @@ fn open_external_page(page: String) -> Result<(), String> {
         "vbcable" => "https://vb-audio.com/Cable/",
         _ => return Err("Unsupported external page".into()),
     };
+    log::info!(target: "axonkey::runtime", "Opening external page: {page}");
 
     #[cfg(target_os = "windows")]
     {
@@ -825,6 +898,7 @@ fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
 ) -> Result<(), String> {
+    log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
     input_service.update_settings(settings)
 }
 
@@ -833,7 +907,13 @@ fn write_mapping_file(path: String, content: String) -> Result<(), String> {
     if path.trim().is_empty() {
         return Err("Mapping file path is empty".into());
     }
-    std::fs::write(&path, content).map_err(|error| format!("Cannot save mapping file: {error}"))
+    let result = std::fs::write(&path, content)
+        .map_err(|error| format!("Cannot save mapping file: {error}"));
+    match &result {
+        Ok(()) => log::info!(target: "axonkey::runtime", "Mapping file exported successfully"),
+        Err(error) => log::warn!(target: "axonkey::runtime", "Mapping file export failed: {error}"),
+    }
+    result
 }
 
 #[tauri::command]
@@ -841,6 +921,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     use tauri::Manager;
 
     let input_status = app.state::<InputService>().status();
+    log::debug!(target: "axonkey::runtime", "Running system state probe");
 
     #[cfg(target_os = "windows")]
     {
@@ -910,19 +991,60 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    Target::new(TargetKind::Stdout),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some(RUNTIME_LOG_FILE_BASENAME.into()),
+                    }),
+                ])
+                .max_file_size(RUNTIME_LOG_MAX_BYTES)
+                .rotation_strategy(RotationStrategy::KeepSome(RUNTIME_LOG_KEEP_FILES))
+                .timezone_strategy(TimezoneStrategy::UseLocal)
+                .level(log::LevelFilter::Info)
+                .build(),
+        )
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log::info!(target: "axonkey::runtime", "Existing instance requested focus");
             show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(AudioService::start())
-        .manage(InputService::start())
-        .manage(PermissionHelperWindowState::default())
         .setup(|app| {
             use tauri::Manager;
 
+            let default_panic_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |panic| {
+                log::error!(target: "axonkey::panic", "Unhandled Rust panic: {panic}");
+                default_panic_hook(panic);
+            }));
+            log::info!(
+                target: "axonkey::runtime",
+                "Axonkey {} starting on {} ({})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::OS,
+                std::env::consts::ARCH,
+            );
+            match runtime_log_info(app.handle()) {
+                Ok(info) => log::info!(
+                    target: "axonkey::runtime",
+                    "Runtime log file: {} (max {} bytes, {} rotated files kept)",
+                    info.current_file,
+                    RUNTIME_LOG_MAX_BYTES,
+                    RUNTIME_LOG_KEEP_FILES,
+                ),
+                Err(error) => log::warn!(target: "axonkey::runtime", "Cannot resolve runtime log path: {error}"),
+            }
+            app.manage(AudioService::start());
+            app.manage(InputService::start());
+            app.manage(PermissionHelperWindowState::default());
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
-            install_tray(app)?;
+            if let Err(error) = install_tray(app) {
+                log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");
+                return Err(error.into());
+            }
+            log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -932,6 +1054,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 
                 #[cfg(target_os = "macos")]
                 let _ = window
@@ -942,6 +1065,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             ping,
             get_platform,
+            get_log_info,
+            open_log_directory,
             launch_driver_action,
             open_windows_settings,
             open_system_settings,

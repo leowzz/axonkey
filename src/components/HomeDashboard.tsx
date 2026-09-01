@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Command,
+  FileText,
   Keyboard,
   LoaderCircle,
   RotateCcw,
@@ -36,6 +37,7 @@ type HomeDashboardProps = {
   onAudioGainChange: (gain: number) => void
   onOpenStep: (step: SetupStepId) => void
   onOpenMapping: () => void
+  onOpenLogs: () => void
 }
 
 type HomeStatusRowProps = {
@@ -91,6 +93,7 @@ export function HomeDashboard({
   onAudioGainChange,
   onOpenStep,
   onOpenMapping,
+  onOpenLogs,
 }: HomeDashboardProps) {
   const macOS = platform === 'macos'
   const systemProbeLoading = nativeRuntime && systemProbeState === 'loading'
@@ -269,6 +272,11 @@ export function HomeDashboard({
           <button type="button" className="home-quick-button" onClick={onRefresh} disabled={pageLoading}>
             <span className="home-quick-icon">{pageLoading ? <LoaderCircle className="home-summary-loading-icon" size={17} /> : <CheckCircle2 size={17} />}</span>
             <span><strong>{pageLoading ? '正在检测' : '运行检测'}</strong><small>刷新所有本机状态</small></span>
+            <ChevronRight size={15} />
+          </button>
+          <button type="button" className="home-quick-button" onClick={onOpenLogs}>
+            <span className="home-quick-icon"><FileText size={17} /></span>
+            <span><strong>运行日志</strong><small>打开日志目录</small></span>
             <ChevronRight size={15} />
           </button>
         </section>

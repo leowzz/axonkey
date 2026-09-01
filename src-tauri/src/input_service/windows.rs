@@ -156,6 +156,7 @@ pub struct InputService {
 
 impl InputService {
     pub fn start() -> Self {
+        log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
             status: Mutex::new(InputServiceStatus::default()),
@@ -169,6 +170,7 @@ impl InputService {
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
+            log::error!(target: "axonkey::input", "Cannot start the Windows input worker thread");
         }
         Self {
             shared,
@@ -178,6 +180,18 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
+        let behavior_count = settings
+            .behaviors
+            .values()
+            .map(|triggers| {
+                triggers.click.len() + triggers.double_click.len() + triggers.long_press.len()
+            })
+            .sum::<usize>();
+        log::info!(
+            target: "axonkey::input",
+            "Input settings updated: enabled={}, behaviors={behavior_count}",
+            settings.enabled,
+        );
         *self
             .shared
             .settings
@@ -306,10 +320,12 @@ fn worker_loop(shared: Arc<Shared>) {
     let api = match InterceptionApi::load() {
         Ok(api) => api,
         Err(error) => {
+            log::error!(target: "axonkey::input", "Failed to load Interception backend: {error}");
             shared.status.lock().unwrap().error = Some(error);
             return;
         }
     };
+    log::info!(target: "axonkey::input", "Interception backend loaded");
     {
         let mut status = shared.status.lock().unwrap();
         status.backend_ready = true;
@@ -324,6 +340,7 @@ fn worker_loop(shared: Arc<Shared>) {
 
         let context = unsafe { (api.create_context)() };
         if context.is_null() {
+            log::warn!(target: "axonkey::input", "Interception could not create an input context; retrying");
             let mut status = shared.status.lock().unwrap();
             status.backend_ready = false;
             status.error = Some("Interception could not create an input context".into());
@@ -501,12 +518,16 @@ fn update_device_status(
     }
     let connected = device_connection_visible(found, *last_target_seen_at, now);
     let mut status = shared.status.lock().unwrap();
+    let previous_connected = status.device_connected;
     status.backend_ready = true;
     status.device_connected = connected;
     if found || !connected {
         status.hardware_id = hardware_id;
     }
     status.error = None;
+    if previous_connected != connected {
+        log::info!(target: "axonkey::input", "RC003 connection changed: connected={connected}");
+    }
 }
 
 #[cfg(target_os = "windows")]
