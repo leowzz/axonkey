@@ -754,26 +754,12 @@ async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn vbcable_service_installed() -> Result<bool, String> {
-    use winreg::enums::HKEY_LOCAL_MACHINE;
-    use winreg::RegKey;
-
-    let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
-    match hklm.open_subkey("SYSTEM\\CurrentControlSet\\Services\\VBAudioVACMME") {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(format!(
-            "Cannot read the VB-CABLE driver registry key: {error}"
-        )),
-    }
-}
-
 #[tauri::command]
 fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        vbcable_service_installed()
+        audio_service.refresh();
+        Ok(audio_service.status().driver_installed)
     }
 
     #[cfg(target_os = "macos")]

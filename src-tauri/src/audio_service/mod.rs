@@ -18,16 +18,25 @@ pub(crate) fn clamp_gain_db(gain: i16) -> i16 {
     gain.clamp(AUDIO_GAIN_MIN_DB, AUDIO_GAIN_MAX_DB)
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
+mod atvv;
+
 #[cfg(target_os = "macos")]
 mod macos;
 
 #[cfg(target_os = "macos")]
 pub use macos::AudioService;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod windows;
+
+#[cfg(target_os = "windows")]
+pub use windows::AudioService;
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub struct AudioService;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 impl AudioService {
     pub fn start() -> Self {
         Self

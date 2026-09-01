@@ -22,14 +22,14 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
   }, [audioGain])
 
   useEffect(() => {
-    if (platform !== 'macos' || !nativeRuntime) return
+    if (platform === 'unsupported' || !nativeRuntime) return
     void invoke('set_audio_gain', { gain: audioGain }).catch(() => undefined)
   }, [nativeRuntime, platform])
 
   const updateAudioGain = (value: number) => {
     const next = Math.max(audioGainMin, Math.min(audioGainMax, Math.round(value)))
     setAudioGain(next)
-    if (platform !== 'macos' || !nativeRuntime) return
+    if (platform === 'unsupported' || !nativeRuntime) return
     void invoke('set_audio_gain', { gain: next }).catch((error) => {
       onToast(`音频增益未生效：${String(error)}`)
       window.setTimeout(() => onToast(''), 2600)
