@@ -72,6 +72,7 @@ pub struct InputService {
 
 impl InputService {
     pub fn start() -> Self {
+        log::info!(target: "axonkey::input", "Starting macOS HID input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
             status: Mutex::new(InputServiceStatus::default()),
@@ -86,6 +87,7 @@ impl InputService {
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
+            log::error!(target: "axonkey::input", "Cannot start the macOS input worker thread");
         }
         Self {
             shared,
@@ -95,6 +97,14 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
+        let settings_enabled = settings.enabled;
+        let behavior_count = settings
+            .behaviors
+            .values()
+            .map(|triggers| {
+                triggers.click.len() + triggers.double_click.len() + triggers.long_press.len()
+            })
+            .sum::<usize>();
         let old_settings = self
             .shared
             .settings
@@ -112,6 +122,12 @@ impl InputService {
         if should_restart {
             self.shared.restart.store(true, Ordering::Release);
         }
+        log::info!(
+            target: "axonkey::input",
+            "Input settings updated: enabled={}, behaviors={}, restart={should_restart}",
+            settings_enabled,
+            behavior_count,
+        );
         Ok(())
     }
 
@@ -219,6 +235,7 @@ fn prepare_backend_attempt(status: &mut InputServiceStatus, permission_error: Op
 
 fn record_backend_error(status: &mut InputServiceStatus, code: i32) {
     status.capture_active = false;
+    log::error!(target: "axonkey::input", "macOS HID backend reported IOKit error {code}");
     if code == IO_RETURN_NOT_PERMITTED {
         status.input_monitoring_open_denied = true;
         status.error = Some(STALE_INPUT_MONITORING_ERROR.into());
@@ -267,6 +284,9 @@ fn worker_loop(shared: Arc<Shared>) {
         let result = unsafe {
             axonkey_macos_input_run(&callbacks, capture, context.voice_right_control_requested)
         };
+        if result != 0 {
+            log::warn!(target: "axonkey::input", "macOS HID backend stopped with IOKit error {result}");
+        }
         context.input.release_all();
         if let Ok(mut status) = shared.status.lock() {
             status.capture_active = false;
@@ -326,6 +346,7 @@ unsafe extern "C" fn event_callback(
     let context = &mut *(context.cast::<WorkerContext>());
     let result = catch_unwind(AssertUnwindSafe(|| match event {
         EVENT_BACKEND_READY => {
+            log::info!(target: "axonkey::input", "macOS HID backend is ready");
             if let Ok(mut status) = context.shared.status.lock() {
                 status.backend_ready = true;
                 if !status.input_monitoring_open_denied {
@@ -334,6 +355,7 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_DEVICE_CONNECTED => {
+            log::info!(target: "axonkey::input", "RC003 HID device connected (capture={})", context.capture);
             let capture_mode = code & CAPTURE_MODE_MASK;
             context.device_seen = true;
             context.voice_right_control_active = code & CAPTURE_VOICE_RIGHT_CONTROL != 0;
@@ -357,6 +379,7 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_DEVICE_DISCONNECTED => {
+            log::info!(target: "axonkey::input", "RC003 HID device disconnected");
             context.input.release_all();
             if let Ok(mut status) = context.shared.status.lock() {
                 status.device_connected = false;
@@ -383,6 +406,7 @@ unsafe extern "C" fn event_callback(
         _ => {}
     }));
     if result.is_err() {
+        log::error!(target: "axonkey::input", "macOS input callback panicked; restarting backend");
         if let Ok(mut status) = context.shared.status.lock() {
             status.error = Some("macOS input callback failed unexpectedly".into());
             status.capture_active = false;

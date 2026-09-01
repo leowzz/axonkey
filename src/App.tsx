@@ -58,6 +58,7 @@ import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from './com
 import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from './components/SetupDialog'
 import { useAudioControls } from './hooks/useAudioControls'
+import { logError, logInfo } from './runtimeLogging'
 import {
   beginDriverAction,
   completeSetupStep,
@@ -166,7 +167,7 @@ function App() {
     let active = true
     void invoke<Platform>('get_platform').then((detected) => {
       if (active) setPlatform(detected)
-    }).catch(() => undefined)
+    }).catch((error) => logError('Failed to detect platform', error))
     return () => { active = false }
   }, [])
 
@@ -182,6 +183,7 @@ function App() {
         if (saveRevisionRef.current === revision) setAutoSaveState('saved')
       } catch (error) {
         if (saveRevisionRef.current !== revision) return
+        logError('Failed to apply input mapping settings', error)
         setAutoSaveState('saved')
         setToast(`映射未生效：${String(error)}`)
         window.setTimeout(() => setToast(''), 4200)
@@ -209,7 +211,8 @@ function App() {
       try {
         const level = await invoke<number | null>('probe_rc003_battery_level')
         if (active) setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
-      } catch {
+      } catch (error) {
+        logError('Failed to read battery level', error)
         if (active) setBatteryLevel(null)
       } finally {
         batteryProbeRunningRef.current = false
@@ -378,6 +381,7 @@ function App() {
         await invoke('write_mapping_file', { path, content: serialized })
         showBehaviorToast(`映射规则已保存：${path.split(/[\\/]/).pop() ?? filename}`)
       } catch (error) {
+        logError('Failed to export mapping file', error)
         setToast(`导出失败：${String(error)}`)
         window.setTimeout(() => setToast(''), 3200)
       }
@@ -416,7 +420,8 @@ function App() {
       setDraftBehavior(null)
       setTextInputDraft(null)
       showBehaviorToast(imported.enabled === undefined ? '映射规则已导入，将自动保存' : '映射规则和启用状态已导入，将自动保存')
-    } catch {
+    } catch (error) {
+      logError('Failed to import mapping file', error)
       setToast('导入失败：请选择有效的 Axonkey 映射 JSON 文件')
       window.setTimeout(() => setToast(''), 3000)
     }
@@ -566,6 +571,7 @@ function App() {
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
     updateSetup((current) => beginDriverAction(current, driver, action))
     try {
+      logInfo(`Starting driver action: ${driver}/${action}`)
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
       const driverName = driver === 'audio'
         ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
@@ -580,7 +586,9 @@ function App() {
           : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，请重启 Windows。日志：${result.logPath}`,
       }))
       if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
+      logInfo(`Driver action completed: ${driver}/${action}`)
     } catch (error) {
+      logError(`Driver action failed: ${driver}/${action}`, error)
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: false,
@@ -594,7 +602,8 @@ function App() {
     try {
       await invoke('open_system_settings', { page })
       return true
-    } catch {
+    } catch (error) {
+      logError(`Failed to open system settings: ${page}`, error)
       setToast(`浏览器预览无法打开${platform === 'macos' ? '系统设置' : 'Windows 设置'}`)
       window.setTimeout(() => setToast(''), 2200)
       return false
@@ -608,6 +617,7 @@ function App() {
       try {
         await invoke('set_permission_helper_mode', { enabled: true })
       } catch (error) {
+        logError('Failed to enable permission helper mode', error)
         setToast(`无法切换授权小窗：${String(error)}`)
       }
     }
@@ -615,6 +625,7 @@ function App() {
     setToast(`正在打开${permissionName}授权…`)
     let granted = false
     try {
+      logInfo(`Requesting macOS permission: ${kind}`)
       granted = await invoke<boolean>('request_macos_permission', { kind })
       if (granted) {
         setToast(`${permissionName}权限已授权`)
@@ -623,6 +634,7 @@ function App() {
         if (opened) setToast(`已打开${permissionName}设置`)
       }
     } catch (error) {
+      logError(`Failed to request macOS permission: ${kind}`, error)
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
       if (browserPreview) {
         setToast('浏览器预览不会打开系统设置')
@@ -640,6 +652,7 @@ function App() {
       try {
         await invoke('set_permission_helper_mode', { enabled: false })
       } catch (error) {
+        logError('Failed to restore the main window after permission helper', error)
         setToast(`无法恢复主窗口：${String(error)}`)
       }
     }
@@ -654,9 +667,11 @@ function App() {
 
   const revealCurrentApp = async () => {
     try {
+      logInfo('Revealing the current Axonkey app in Finder')
       await invoke('reveal_current_app')
       setToast('已在 Finder 中定位 Axonkey')
     } catch (error) {
+      logError('Failed to reveal the current Axonkey app', error)
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
       setToast(browserPreview ? '桌面版会在 Finder 中定位 Axonkey' : `无法定位 Axonkey：${String(error)}`)
     }
@@ -666,10 +681,23 @@ function App() {
   const openExternalPage = async (page: 'vbcable') => {
     try {
       await invoke('open_external_page', { page })
-    } catch {
+    } catch (error) {
+      logError('Failed to open the VB-Audio page', error)
       setToast('无法打开 VB-Audio 官方页面')
       window.setTimeout(() => setToast(''), 2200)
     }
+  }
+
+  const openLogDirectory = async () => {
+    try {
+      const info = await invoke<{ directory: string; currentFile: string }>('open_log_directory')
+      logInfo('User opened the runtime log directory')
+      setToast(`日志目录已打开：${info.directory}`)
+    } catch (error) {
+      logError('Failed to open the runtime log directory', error)
+      setToast(nativeRuntime ? `无法打开日志目录：${String(error)}` : '浏览器预览不会打开日志目录')
+    }
+    window.setTimeout(() => setToast(''), 2600)
   }
 
   const probeSystemState = async (showChecking = true) => {
@@ -752,6 +780,7 @@ function App() {
       setSystemProbeState('ready')
       return true
     } catch (error) {
+      logError('System probe failed', error)
       if (showChecking) {
         updateSetup((current) => {
           const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
@@ -795,6 +824,7 @@ function App() {
             : '未检测到 VB-CABLE 的 CABLE Input 播放端点。',
       }))
     } catch (error) {
+      logError('Audio probe failed', error)
       const detail = error instanceof Error ? error.message : String(error)
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
         message: `音频检测失败：${detail}。可点击“重新检测”，不影响按键映射。`,
@@ -825,6 +855,7 @@ function App() {
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
     } catch (error) {
+      logError('Device probe failed', error)
       updateSetup((current) => setDeviceConnection(current, { status: 'error', message: `设备检测失败：${String(error)}` }))
     } finally {
       deviceProbeRunningRef.current = false
@@ -934,7 +965,8 @@ function App() {
         await navigator.clipboard.writeText(snippet)
         copied = true
       }
-    } catch {
+    } catch (error) {
+      logError('Failed to copy debug hit positions', error)
       copied = false
     }
     if (!copied) {
@@ -1081,6 +1113,7 @@ function App() {
           onAudioGainChange={updateAudioGain}
           onOpenStep={openSetupStep}
           onOpenMapping={() => setActivePage('mapping')}
+          onOpenLogs={() => void openLogDirectory()}
         />}
       </main>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}

@@ -7,6 +7,7 @@ import {
   getStoredAudioGain,
 } from '../appConfig'
 import type { Platform } from '../appTypes'
+import { logError, logInfo } from '../runtimeLogging'
 
 type UseAudioControlsOptions = {
   platform: Platform
@@ -23,14 +24,18 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
 
   useEffect(() => {
     if (platform === 'unsupported' || !nativeRuntime) return
-    void invoke('set_audio_gain', { gain: audioGain }).catch(() => undefined)
+    void invoke('set_audio_gain', { gain: audioGain }).catch((error) => {
+      logError('Failed to initialize audio gain', error)
+    })
   }, [nativeRuntime, platform])
 
   const updateAudioGain = (value: number) => {
     const next = Math.max(audioGainMin, Math.min(audioGainMax, Math.round(value)))
     setAudioGain(next)
     if (platform === 'unsupported' || !nativeRuntime) return
+    logInfo(`Updating audio gain from frontend: ${next} dB`)
     void invoke('set_audio_gain', { gain: next }).catch((error) => {
+      logError('Failed to update audio gain', error)
       onToast(`音频增益未生效：${String(error)}`)
       window.setTimeout(() => onToast(''), 2600)
     })

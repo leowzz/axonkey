@@ -15,4 +15,5 @@ test('main window can subscribe to native remote-key events', () => {
   assert.ok(capability.windows.includes('main'))
   assert.ok(capability.permissions.includes('core:event:allow-listen'))
   assert.ok(capability.permissions.includes('core:event:allow-unlisten'))
+  assert.ok(capability.permissions.includes('log:default'))
 })

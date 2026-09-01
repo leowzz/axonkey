@@ -135,6 +135,7 @@ pub struct AudioService {
 
 impl AudioService {
     pub fn start() -> Self {
+        log::info!(target: "axonkey::audio", "Starting Windows audio service");
         let shared = Arc::new(Shared::new());
         let audio_shared = Arc::clone(&shared);
         let audio_worker = thread::Builder::new()
@@ -148,6 +149,7 @@ impl AudioService {
             .ok();
 
         if audio_worker.is_none() || ble_worker.is_none() {
+            log::error!(target: "axonkey::audio", "Cannot start the Windows audio bridge workers");
             shared.update_status(|status| {
                 status.state = "error".into();
                 status.error = Some("Cannot start the Windows audio bridge workers".into());
@@ -163,6 +165,7 @@ impl AudioService {
 
     pub fn refresh(&self) {
         let status = self.status();
+        log::debug!(target: "axonkey::audio", "Refreshing Windows audio state");
         if !status.driver_installed {
             self.shared.audio_refresh.store(true, Ordering::Release);
         }
@@ -172,6 +175,7 @@ impl AudioService {
     }
 
     pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
+        log::info!(target: "axonkey::audio", "Updating audio gain to {} dB", clamp_gain_db(gain));
         self.shared
             .gain_db
             .store(i32::from(clamp_gain_db(gain)), Ordering::Release);
@@ -228,7 +232,7 @@ fn audio_output_loop(shared: Arc<Shared>) {
                         status.error = None;
                     }
                 });
-                eprintln!("Axonkey audio output ready: {device_name}");
+                log::info!(target: "axonkey::audio", "Windows audio output ready: {device_name}");
                 while !shared.stop.load(Ordering::Acquire)
                     && !shared.audio_refresh.swap(false, Ordering::AcqRel)
                     && !shared.output_failed.load(Ordering::Acquire)
@@ -237,12 +241,21 @@ fn audio_output_loop(shared: Arc<Shared>) {
                 }
             }
             Err(error) => {
+                let error_message = error.to_string();
+                let should_log = shared
+                    .status
+                    .lock()
+                    .map(|status| status.error.as_deref() != Some(error_message.as_str()))
+                    .unwrap_or(true);
                 shared.update_status(|status| {
                     status.driver_installed = false;
                     status.forwarding = false;
                     status.state = "driverMissing".into();
-                    status.error = Some(error);
+                    status.error = Some(error_message.clone());
                 });
+                if should_log {
+                    log::warn!(target: "axonkey::audio", "Windows audio output unavailable: {error_message}");
+                }
                 wait_or_stop(&shared, RETRY_DELAY, &shared.audio_refresh);
             }
         }
@@ -426,6 +439,7 @@ fn cable_output_name(name: &str) -> bool {
 fn ble_worker_loop(shared: Arc<Shared>) {
     let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
     if !initialized {
+        log::error!(target: "axonkey::audio", "Cannot initialize the Windows Bluetooth runtime");
         shared.update_status(|status| {
             status.state = "error".into();
             status.error = Some("Cannot initialize the Windows Bluetooth runtime".into());
@@ -433,6 +447,7 @@ fn ble_worker_loop(shared: Arc<Shared>) {
         return;
     }
 
+    let mut last_connection_error: Option<String> = None;
     while !shared.stop.load(Ordering::Acquire) {
         shared.ble_refresh.store(false, Ordering::Release);
         if !shared.output_available() {
@@ -447,11 +462,12 @@ fn ble_worker_loop(shared: Arc<Shared>) {
         });
         match VoiceConnection::connect(Arc::clone(&shared)) {
             Ok(mut connection) => {
-                eprintln!("Axonkey RC003 voice GATT connected");
+                last_connection_error = None;
+                log::info!(target: "axonkey::audio", "RC003 voice GATT connected");
                 let result = connection.run(&shared);
                 connection.close(&shared);
                 if let Err(error) = result {
-                    eprintln!("Axonkey RC003 voice bridge stopped: {error}");
+                    log::warn!(target: "axonkey::audio", "RC003 voice bridge stopped: {error}");
                     shared.update_status(|status| {
                         status.state = "error".into();
                         status.error = Some(error);
@@ -459,7 +475,10 @@ fn ble_worker_loop(shared: Arc<Shared>) {
                 }
             }
             Err(error) => {
-                eprintln!("Axonkey RC003 voice bridge waiting: {error}");
+                if last_connection_error.as_deref() != Some(error.as_str()) {
+                    log::warn!(target: "axonkey::audio", "RC003 voice bridge waiting: {error}");
+                    last_connection_error = Some(error.clone());
+                }
                 shared.update_status(|status| {
                     status.bluetooth_connected = false;
                     status.forwarding = false;
@@ -789,7 +808,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
                 }
             });
             if !unsupported {
-                eprintln!("Axonkey RC003 voice capabilities ready");
+                log::info!(target: "axonkey::audio", "RC003 voice capabilities ready");
             }
             None
         }
@@ -832,7 +851,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
                     status.state = "forwarding".into();
                     status.error = None;
                 });
-                eprintln!("Axonkey RC003 voice forwarding started");
+                log::info!(target: "axonkey::audio", "RC003 voice forwarding started");
             } else if bytes.len() >= 3 && bytes[2] != 0x02 {
                 shared.update_status(|status| {
                     status.forwarding = false;
@@ -844,7 +863,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
         }
         0x00 => {
             shared.reset_voice_session();
-            eprintln!("Axonkey RC003 voice forwarding stopped");
+            log::info!(target: "axonkey::audio", "RC003 voice forwarding stopped");
             None
         }
         0x0a => {

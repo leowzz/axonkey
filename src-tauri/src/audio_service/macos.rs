@@ -55,6 +55,7 @@ unsafe impl Sync for AudioService {}
 
 impl AudioService {
     pub fn start() -> Self {
+        log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
@@ -68,6 +69,9 @@ impl AudioService {
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_start(bridge) };
+            log::info!(target: "axonkey::audio", "macOS audio bridge started");
+        } else {
+            log::error!(target: "axonkey::audio", "Cannot create the macOS audio bridge");
         }
         Self {
             shared,
@@ -76,6 +80,7 @@ impl AudioService {
     }
 
     pub fn refresh(&self) {
+        log::debug!(target: "axonkey::audio", "Refreshing macOS audio state");
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_refresh(bridge) };
@@ -83,6 +88,7 @@ impl AudioService {
     }
 
     pub fn pause(&self) {
+        log::info!(target: "axonkey::audio", "Pausing macOS audio bridge");
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_stop(bridge) };
@@ -90,6 +96,7 @@ impl AudioService {
     }
 
     pub fn resume(&self) {
+        log::info!(target: "axonkey::audio", "Resuming macOS audio bridge");
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_start(bridge) };
@@ -99,9 +106,11 @@ impl AudioService {
     pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if bridge.is_null() {
+            log::error!(target: "axonkey::audio", "Cannot set audio gain because the macOS bridge is unavailable");
             return Err("无法连接 macOS 音频服务".into());
         }
         let gain_db = clamp_gain_db(gain);
+        log::info!(target: "axonkey::audio", "Updating audio gain to {gain_db} dB");
         unsafe { axonkey_macos_audio_set_gain_db(bridge, f32::from(gain_db)) };
         Ok(())
     }
@@ -109,6 +118,7 @@ impl AudioService {
     pub fn status(&self) -> AudioServiceStatus {
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if bridge.is_null() {
+            log::error!(target: "axonkey::audio", "Cannot read macOS audio status because the bridge is unavailable");
             return AudioServiceStatus {
                 driver_installed: unsafe { axonkey_macos_audio_driver_installed() },
                 state: "error".into(),

@@ -213,6 +213,12 @@ macOS:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CoreGraphics /
 更多实现信息见 [架构说明](./docs/ARCHITECTURE.md)、[产品范围](./docs/PRODUCT.md) 和
 [Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
 
+## 运行日志
+
+Axonkey 会在本地记录启动、设备连接、输入/音频服务、系统探测和命令失败等运行时信息，不会上传日志，也不会记录映射文本内容。主页“运行日志”按钮可以直接打开日志目录，将 `axonkey.log` 和需要的滚动旧日志一起发送即可。
+
+日志按文件大小滚动：单个文件达到 5 MB 后自动切换，并保留最近 5 个旧文件。Tauri 默认日志目录为：Windows 的 `%LOCALAPPDATA%\com.axonkey.app\logs`，macOS 的 `~/Library/Logs/com.axonkey.app`。驱动安装器仍会把单独的安装输出写入下方的 `Axonkey\logs` 目录。
+
 ## 隐私与恢复
 
 - Axonkey 不需要账号，不上传映射、输入历史或诊断信息。
