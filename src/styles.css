@@ -17,8 +17,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 940px; min-height: 100vh; background: #f2f3f4; }
+body { margin: 0; min-width: 940px; min-height: 100vh; background: #f2f3f4; -webkit-user-select: none; user-select: none; }
 button, input, select, textarea { font: inherit; }
+input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-select: text; }
+a, img { -webkit-user-drag: none; }
 button { cursor: pointer; }
 
 .app-shell { display: flex; min-height: 100vh; background: #f2f3f4; }
