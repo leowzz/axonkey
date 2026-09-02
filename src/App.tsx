@@ -11,6 +11,7 @@ import {
   Upload,
   X,
 } from 'lucide-react'
+import { RedoCircle, UndoCircle } from 'reicon-react'
 import {
   createBehavior,
   createDefaultBehaviorMap,
@@ -20,6 +21,7 @@ import {
   updateBehaviorList,
 } from './behaviorModel'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from './behaviorModel'
+import { behaviorHistoryReducer, createBehaviorHistory } from './behaviorHistory'
 import {
   behaviorFromCapturedKey,
   buttons,
@@ -83,9 +85,11 @@ import {
   ChangeEvent,
   KeyboardEvent,
   PointerEvent as ReactPointerEvent,
+  SetStateAction,
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
 } from 'react'
@@ -104,7 +108,20 @@ function App() {
   })
   const [permissionHelperKind, setPermissionHelperKind] = useState<MacPermissionKind | null>(null)
   const [activeId, setActiveId] = useState<ButtonId>('voice')
-  const [behaviors, setBehaviors] = useState<BehaviorMap>(() => getStoredSettings().behaviors)
+  const [behaviorHistory, dispatchBehaviorHistory] = useReducer(
+    behaviorHistoryReducer,
+    null,
+    () => createBehaviorHistory(getStoredSettings().behaviors),
+  )
+  const behaviors = behaviorHistory.present
+  const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
+    dispatchBehaviorHistory({
+      type: 'change',
+      update: typeof update === 'function' ? update : () => update,
+    })
+  }, [])
+  const canUndoBehavior = behaviorHistory.past.length > 0
+  const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [debugMode, setDebugMode] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
@@ -356,10 +373,55 @@ function App() {
     revealBehaviorEditor()
   }
 
-  const showBehaviorToast = (message: string) => {
+  const showBehaviorToast = useCallback((message: string) => {
     setToast(message)
     window.setTimeout(() => setToast(''), 1600)
-  }
+  }, [])
+
+  const clearBehaviorEditingState = useCallback(() => {
+    setCapturingBehaviorId(null)
+    setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
+  }, [])
+
+  const undoBehaviorChange = useCallback(() => {
+    if (!canUndoBehavior) return
+    dispatchBehaviorHistory({ type: 'undo' })
+    setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
+    clearBehaviorEditingState()
+    showBehaviorToast('已撤销行为更改')
+  }, [canUndoBehavior, clearBehaviorEditingState, showBehaviorToast])
+
+  const redoBehaviorChange = useCallback(() => {
+    if (!canRedoBehavior) return
+    dispatchBehaviorHistory({ type: 'redo' })
+    setAutoSaveState('saving')
+    setCommonBehaviorUndo(null)
+    clearBehaviorEditingState()
+    showBehaviorToast('已重做行为更改')
+  }, [canRedoBehavior, clearBehaviorEditingState, showBehaviorToast])
+
+  useEffect(() => {
+    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+      const target = event.target
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      const key = event.key.toLowerCase()
+      const undo = key === 'z' && !event.shiftKey
+      const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey)
+      if (undo && canUndoBehavior) {
+        event.preventDefault()
+        undoBehaviorChange()
+      } else if (redo && canRedoBehavior) {
+        event.preventDefault()
+        redoBehaviorChange()
+      }
+    }
+    window.addEventListener('keydown', handleHistoryShortcut)
+    return () => window.removeEventListener('keydown', handleHistoryShortcut)
+  }, [canRedoBehavior, canUndoBehavior, redoBehaviorChange, undoBehaviorChange])
 
   const mappingExportFilename = (date = new Date()) => {
     const pad = (value: number) => String(value).padStart(2, '0')
@@ -1057,7 +1119,7 @@ function App() {
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
                   <h2 id="key-picker-title">按键</h2>
-                  <div className="key-picker-actions"><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
+                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
                 <MappingKeyGrid
                   buttons={editableButtons}

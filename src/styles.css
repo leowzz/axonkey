@@ -545,6 +545,11 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .key-picker { padding: 18px 20px 20px; border-bottom: 1px solid var(--map-line); }
 .key-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
 .key-picker-actions { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 12px; color: #77808a; font-size: 10px; }
+.behavior-history-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
+.behavior-history-button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 5px; color: #617284; background: transparent; transition: color .16s ease, background .16s ease, transform .16s ease; }
+.behavior-history-button:hover:not(:disabled) { color: var(--map-accent); background: #e8f2ff; }
+.behavior-history-button:active:not(:disabled) { transform: translateY(1px); }
+.behavior-history-button:disabled { cursor: default; opacity: .32; }
 .mapping-file-input { display: none; }
 .mapping-transfer-button { color: #5e7891; }
 .mapping-transfer-button:hover { color: var(--map-accent); }
