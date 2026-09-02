@@ -1,4 +1,4 @@
-import type { Behavior, BehaviorMap, ButtonId, TriggerType } from './behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId } from './behaviorModel'
 
 export type RemoteButton = {
   id: ButtonId
@@ -80,12 +80,6 @@ export type AdvancedBehaviorType = 'key' | 'paste' | 'delay'
 export type DraftBehaviorState = {
   behavior: Behavior
   mode: 'replace' | 'append'
-}
-
-export type CommonBehaviorUndo = {
-  buttonId: ButtonId
-  trigger: TriggerType
-  behaviors: Behavior[]
 }
 
 export type ManualKeyOption = { value: string; label: string }

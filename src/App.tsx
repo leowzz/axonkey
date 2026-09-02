@@ -25,7 +25,6 @@ import { behaviorHistoryReducer, createBehaviorHistory } from './behaviorHistory
 import {
   behaviorFromCapturedKey,
   buttons,
-  cloneBehaviorList,
   detectBrowserPlatform,
   formatCapturedKey,
   getStoredHitPositions,
@@ -43,7 +42,6 @@ import type {
   AppPage,
   AudioProbe,
   CommonBehaviorPreset,
-  CommonBehaviorUndo,
   DraftBehaviorState,
   DriverActionResult,
   HitPosition,
@@ -134,7 +132,6 @@ function App() {
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
-  const [commonBehaviorUndo, setCommonBehaviorUndo] = useState<CommonBehaviorUndo | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('home')
@@ -166,13 +163,11 @@ function App() {
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
     setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
   }, [])
 
   const updateSelectedBehaviorList = useCallback((update: (list: Behavior[]) => Behavior[]) => {
     setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, update))
     setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
   }, [selectedBehavior])
 
   useEffect(() => {
@@ -303,7 +298,6 @@ function App() {
   const resetMappings = () => {
     setBehaviors(createDefaultBehaviorMap())
     setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
     setToast('已恢复默认映射，将自动保存')
     window.setTimeout(() => setToast(''), 2200)
   }
@@ -389,7 +383,6 @@ function App() {
     if (!canUndoBehavior) return
     dispatchBehaviorHistory({ type: 'undo' })
     setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
     clearBehaviorEditingState()
     showBehaviorToast('已撤销行为更改')
   }, [canUndoBehavior, clearBehaviorEditingState, showBehaviorToast])
@@ -398,7 +391,6 @@ function App() {
     if (!canRedoBehavior) return
     dispatchBehaviorHistory({ type: 'redo' })
     setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
     clearBehaviorEditingState()
     showBehaviorToast('已重做行为更改')
   }, [canRedoBehavior, clearBehaviorEditingState, showBehaviorToast])
@@ -476,7 +468,6 @@ function App() {
       setBehaviors(imported.behaviors)
       if (imported.enabled !== undefined) setEnabled(imported.enabled)
       setAutoSaveState('saving')
-      setCommonBehaviorUndo(null)
       setCapturingBehaviorId(null)
       setEditingBehaviorId(null)
       setDraftBehavior(null)
@@ -490,22 +481,8 @@ function App() {
   }
 
   const replaceWithCommonBehavior = (next: Behavior[]) => {
-    const target = { ...selectedBehavior }
-    const original = cloneBehaviorList(behaviors[target.buttonId][target.trigger])
-    setCommonBehaviorUndo((current) => current?.buttonId === target.buttonId && current.trigger === target.trigger
-      ? current
-      : { ...target, behaviors: original })
-    setBehaviors((current) => updateBehaviorList(current, target.buttonId, target.trigger, () => next))
+    setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, () => next))
     setAutoSaveState('saving')
-  }
-
-  const undoCommonBehavior = () => {
-    if (!commonBehaviorUndo) return
-    const snapshot = commonBehaviorUndo
-    setBehaviors((current) => updateBehaviorList(current, snapshot.buttonId, snapshot.trigger, () => cloneBehaviorList(snapshot.behaviors)))
-    setAutoSaveState('saving')
-    setCommonBehaviorUndo(null)
-    showBehaviorToast('已恢复原始行为')
   }
 
   const replaceWithKey = (key: string, label: string) => {
@@ -1056,8 +1033,6 @@ function App() {
   const editingBehavior = editingBehaviorId
     ? behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find((behavior) => behavior.id === editingBehaviorId) ?? null
     : null
-  const canUndoCommonBehavior = commonBehaviorUndo?.buttonId === selectedBehavior.buttonId
-    && commonBehaviorUndo.trigger === selectedBehavior.trigger
   const selectedButton = editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]
 
   if (permissionHelperKind) {
@@ -1143,9 +1118,7 @@ function App() {
                 button={selectedButton}
                 trigger={selectedBehavior.trigger}
                 behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
-                canUndoCommonBehavior={canUndoCommonBehavior}
                 onApplyCommonBehavior={applyCommonBehavior}
-                onUndoCommonBehavior={undoCommonBehavior}
                 onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
                 onRemoveBehavior={removeBehavior}
                 onMoveBehavior={moveSelectedBehavior}

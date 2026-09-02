@@ -38,9 +38,7 @@ type BehaviorEditorProps = {
   button: RemoteButton
   trigger: TriggerType
   behaviors: Behavior[]
-  canUndoCommonBehavior: boolean
   onApplyCommonBehavior: (preset: CommonBehaviorPreset) => void
-  onUndoCommonBehavior: () => void
   onAddAdvancedBehavior: (type: AdvancedBehaviorType) => void
   onRemoveBehavior: (behaviorId: string) => void
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
@@ -62,7 +60,7 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   </button>
 }
 
-export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
+export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
@@ -88,7 +86,6 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
           <h3>添加行为</h3>
-          {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
         </div>
         <div className="behavior-editor-head">
           <div className="behavior-editor-head-actions">

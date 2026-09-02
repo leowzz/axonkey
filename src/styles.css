@@ -242,8 +242,6 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .behavior-tabs button:hover { color: #2b68a6; background: rgba(255,255,255,.34); }
 .behavior-tabs button.active { color: #176fcf; }
 .behavior-tabs button.active::after { background: #2a83df; }
-.behavior-undo-button { display: inline-flex; height: 24px; align-items: center; gap: 5px; padding: 0 7px; border: 1px solid #b8cce1; border-radius: 6px; color: #2873be; background: #edf5fe; font-size: 10px; font-weight: 700; }
-.behavior-undo-button:hover { border-color: #7eaddd; background: #e4f1ff; }
 .behavior-action-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; padding-top: 5px; }
 .behavior-action-button { display: grid; min-width: 0; min-height: 54px; grid-template-columns: 48px minmax(0, 1fr); align-items: center; gap: 9px; padding: 7px 10px; border: 1px solid #d3d7db; border-radius: 7px; color: #4b5761; background: #f6f7f8; text-align: left; }
 .behavior-action-button:hover { border-color: #91b9e4; color: #176fcf; background: #f5faff; }
@@ -613,7 +611,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .behavior-tabs button:hover { color: var(--map-accent); background: #f6f9fc; }
 .mapping-active .behavior-tabs button.active { color: var(--map-accent); }
 .mapping-active .behavior-tabs button.active::after { background: var(--map-accent); }
-.mapping-active .behavior-undo-button { border-color: #b7d2ee; color: var(--map-accent); background: #edf5ff; }
 .mapping-active .behavior-action-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding-top: 8px; }
 .mapping-active .behavior-action-button { min-height: 58px; border-color: #dfe4e9; color: #53606c; background: #fafbfd; transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease; }
 .mapping-active .behavior-action-button:hover { border-color: #94b8df; color: var(--map-accent); background: #edf5ff; }
