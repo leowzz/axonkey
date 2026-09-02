@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 
-test('behavior editor places the current sequence before tabs and choices', () => {
+test('behavior editor orders the current sequence, add heading, tabs, and choices', () => {
   const source = readFileSync(
     join(projectRoot, 'src', 'components', 'BehaviorEditor.tsx'),
     'utf8',
@@ -16,12 +16,13 @@ test('behavior editor places the current sequence before tabs and choices', () =
     source.indexOf('type BehaviorEditorTab'),
   )
   const currentSequence = editor.indexOf('className="behavior-current-panel"')
+  const addBehavior = editor.indexOf('<h3>添加行为</h3>')
   const tabs = editor.indexOf('className="behavior-tabs"')
-  const choices = editor.indexOf('className="behavior-actions"')
+  const choices = editor.indexOf('className="behavior-action-grid"')
 
-  assert.ok(currentSequence >= 0 && tabs >= 0 && choices >= 0)
+  assert.ok(currentSequence >= 0 && addBehavior >= 0 && tabs >= 0 && choices >= 0)
   assert.ok(
-    currentSequence < tabs && tabs < choices,
-    'expected current sequence -> behavior tabs -> behavior choices',
+    currentSequence < addBehavior && addBehavior < tabs && tabs < choices,
+    'expected current sequence -> add behavior -> behavior tabs -> behavior choices',
   )
 })

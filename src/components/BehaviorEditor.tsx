@@ -85,32 +85,32 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           />)}
         </div>
       </section>
-      <div className="behavior-editor-head">
-        <div className="behavior-editor-head-actions">
-          <div className="behavior-tabs" role="tablist" aria-label="行为分类">
-            {([
-              ['common', '常用'],
-              ['navigation', '导航编辑'],
-              ['media', '媒体控制'],
-              ['advanced', '追加步骤'],
-            ] as const).map(([id, label]) => <button
-              key={id}
-              id={`${tabId}-${id}-tab`}
-              type="button"
-              role="tab"
-              aria-selected={activeTab === id}
-              aria-controls={`${tabId}-${id}-panel`}
-              className={activeTab === id ? 'active' : ''}
-              onClick={() => setActiveTab(id)}
-            >{label}</button>)}
-          </div>
-          <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
-        </div>
-      </div>
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
           <h3>添加行为</h3>
           {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
+        </div>
+        <div className="behavior-editor-head">
+          <div className="behavior-editor-head-actions">
+            <div className="behavior-tabs" role="tablist" aria-label="行为分类">
+              {([
+                ['common', '常用'],
+                ['navigation', '导航编辑'],
+                ['media', '媒体控制'],
+                ['advanced', '追加步骤'],
+              ] as const).map(([id, label]) => <button
+                key={id}
+                id={`${tabId}-${id}-tab`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`${tabId}-${id}-panel`}
+                className={activeTab === id ? 'active' : ''}
+                onClick={() => setActiveTab(id)}
+              >{label}</button>)}
+            </div>
+            <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+          </div>
         </div>
         <div
           id={`${tabId}-${activeTab}-panel`}
