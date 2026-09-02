@@ -215,7 +215,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .behavior-editor-body { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 18px; align-items: stretch; margin-top: 10px; }
 .behavior-current-panel { min-width: 0; grid-row: 1 / span 2; padding-right: 18px; border-right: 1px solid #d2d5d8; }
 .behavior-column-heading { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; }
-.behavior-column-heading h3 { color: #4b535a; font-size: 11px; }
+.behavior-column-heading h3 { margin: 0; color: #4b535a; font-size: 11px; }
 .behavior-list { display: flex; min-width: 0; flex-direction: column; gap: 9px; }
 .behavior-empty { display: flex; min-height: 126px; align-items: center; justify-content: center; padding: 18px; border: 1px dashed #c4c9ce; border-radius: 7px; color: #838a91; background: rgba(255,255,255,.28); font-size: 11px; line-height: 1.6; text-align: center; }
 .behavior-item { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px 12px; border: 1px solid #d5d8dc; border-radius: 10px; background: #f5f6f7; }
@@ -595,9 +595,9 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .behavior-editor-head-actions { width: 100%; }
 .mapping-active .behavior-return-button { border-color: #d7dfe7; color: #69737e; background: #fff; }
 .mapping-active .behavior-return-button:hover { border-color: #94b8df; color: var(--map-accent); background: #edf5ff; }
-.mapping-active .behavior-editor-body { grid-template-columns: 1fr; gap: 0; margin-top: 12px; }
-.mapping-active .behavior-current-panel { grid-row: auto; padding: 0; border-right: 0; border-bottom: 1px solid var(--map-line); }
-.mapping-active .behavior-actions { grid-column: 1; margin-top: 14px; }
+.mapping-active .behavior-editor-body { grid-template-columns: 1fr; gap: 0; margin-top: 0; }
+.mapping-active .behavior-current-panel { grid-row: auto; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--map-line); }
+.mapping-active .behavior-actions { grid-column: 1; margin-top: 12px; }
 .mapping-active .behavior-column-heading h3 { color: #5a6570; }
 .mapping-active .behavior-empty { min-height: 58px; border-color: #d1d9e1; color: #858e98; background: #fafbfd; }
 .mapping-active .behavior-item { border-color: #dfe4e9; border-radius: 7px; background: #fafbfd; }
@@ -610,7 +610,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .behavior-tabs button.active { color: var(--map-accent); }
 .mapping-active .behavior-tabs button.active::after { background: var(--map-accent); }
 .mapping-active .behavior-undo-button { border-color: #b7d2ee; color: var(--map-accent); background: #edf5ff; }
-.mapping-active .behavior-action-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.mapping-active .behavior-action-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding-top: 8px; }
 .mapping-active .behavior-action-button { min-height: 58px; border-color: #dfe4e9; color: #53606c; background: #fafbfd; transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease; }
 .mapping-active .behavior-action-button:hover { border-color: #94b8df; color: var(--map-accent); background: #edf5ff; }
 .mapping-active .behavior-action-button:active { transform: translateY(1px); }
