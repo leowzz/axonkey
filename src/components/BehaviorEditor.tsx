@@ -176,7 +176,6 @@ function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEd
     <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
       <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
       <strong>{behaviorSummary(behavior, platform)}</strong>
-      <span className="behavior-type-note">{editable ? '点击编辑' : '不发送输入'}</span>
     </button>
     <div className="behavior-item-actions">
       {editable && <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>}
