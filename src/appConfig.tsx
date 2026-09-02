@@ -197,12 +197,15 @@ export function keyGroupsForPlatform(platform: Platform) {
     ? group
     : {
       ...group,
-      options: group.options.map((option) => ({ ...option, label: keyDisplayName(option.value, platform) })),
+      options: [
+        ...group.options.map((option) => ({ ...option, label: keyDisplayName(option.value, platform) })),
+        { value: 'Fn', label: 'Fn' },
+      ],
     })
 }
 
 export const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
-export const standaloneModifierKeys = ['Ctrl', 'RCtrl', 'Shift', 'RShift', 'Alt', 'LAlt', 'RAlt', 'Win', 'RWin']
+export const standaloneModifierKeys = ['Ctrl', 'RCtrl', 'Shift', 'RShift', 'Alt', 'LAlt', 'RAlt', 'Win', 'RWin', 'Fn']
 
 export function isStandaloneModifierKey(key: string) {
   return standaloneModifierKeys.includes(key)

@@ -26,7 +26,7 @@ enum {
     AXONKEY_CAPTURE_NONE = 0,
     AXONKEY_CAPTURE_SEIZED = 1,
     AXONKEY_CAPTURE_FILTERED = 2,
-    AXONKEY_CAPTURE_VOICE_RIGHT_CONTROL = 4,
+    AXONKEY_CAPTURE_HARDWARE_MODIFIER_MAPPINGS = 4,
     AXONKEY_NATIVE_EVENT_KEYBOARD = 1,
     AXONKEY_NATIVE_EVENT_SYSTEM = 2,
     AXONKEY_MAX_PENDING_EVENTS = 32,
@@ -56,6 +56,11 @@ typedef struct {
 } AxonkeyCallbacks;
 
 typedef struct {
+    uint64_t source;
+    uint64_t destination;
+} AxonkeyHardwareModifierMapping;
+
+typedef struct {
     int kind;
     int code;
     bool down;
@@ -82,14 +87,12 @@ typedef struct {
     size_t held_event_count;
     uint16_t active_usages[AXONKEY_MAX_ACTIVE_USAGES];
     size_t active_usage_count;
-    bool voice_right_control_requested;
-    bool voice_right_control_active;
+    const AxonkeyHardwareModifierMapping *modifier_mappings;
+    size_t modifier_mapping_count;
+    bool modifier_mappings_active;
     IOHIDEventSystemClientRef event_system_client;
-    CFMutableDictionaryRef original_voice_mappings;
+    CFMutableDictionaryRef original_modifier_mappings;
 } AxonkeyInputState;
-
-static const uint64_t AXONKEY_RC003_VOICE_USAGE = 0x000000070000003E;
-static const uint64_t AXONKEY_RIGHT_CONTROL_USAGE = 0x00000007000000E4;
 
 static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
     if (value == NULL || result == NULL || CFGetTypeID(value) != CFNumberGetTypeID()) {
@@ -114,16 +117,30 @@ static bool axonkey_service_is_rc003(IOHIDServiceClientRef service) {
     return matches;
 }
 
-static bool axonkey_mapping_has_source(CFTypeRef value, uint64_t expected_source) {
+static bool axonkey_mapping_get_source(CFTypeRef value, uint64_t *source) {
     if (value == NULL || CFGetTypeID(value) != CFDictionaryGetTypeID()) {
         return false;
     }
-    CFTypeRef source = CFDictionaryGetValue(
+    CFTypeRef source_value = CFDictionaryGetValue(
         (CFDictionaryRef)value,
         CFSTR("HIDKeyboardModifierMappingSrc")
     );
-    uint64_t actual_source = 0;
-    return axonkey_cf_number_get_u64(source, &actual_source) && actual_source == expected_source;
+    return axonkey_cf_number_get_u64(source_value, source);
+}
+
+static bool axonkey_modifier_mapping_has_source(
+    const AxonkeyInputState *state,
+    uint64_t source
+) {
+    if (state == NULL || state->modifier_mappings == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < state->modifier_mapping_count; index += 1) {
+        if (state->modifier_mappings[index].source == source) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static CFMutableArrayRef axonkey_copy_service_mappings(IOHIDServiceClientRef service) {
@@ -172,9 +189,10 @@ static CFDictionaryRef axonkey_create_usage_mapping(uint64_t source, uint64_t de
     return mapping;
 }
 
-static CFMutableArrayRef axonkey_copy_replacing_voice_mapping(
+static CFMutableArrayRef axonkey_copy_replacing_modifier_mappings(
+    const AxonkeyInputState *state,
     CFArrayRef current,
-    CFDictionaryRef replacement
+    CFArrayRef replacements
 ) {
     CFMutableArrayRef desired = current == NULL
         ? CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks)
@@ -184,32 +202,78 @@ static CFMutableArrayRef axonkey_copy_replacing_voice_mapping(
     }
     for (CFIndex index = CFArrayGetCount(desired); index > 0; index -= 1) {
         CFTypeRef mapping = CFArrayGetValueAtIndex(desired, index - 1);
-        if (axonkey_mapping_has_source(mapping, AXONKEY_RC003_VOICE_USAGE)) {
+        uint64_t source = 0;
+        if (axonkey_mapping_get_source(mapping, &source) &&
+            axonkey_modifier_mapping_has_source(state, source)) {
             CFArrayRemoveValueAtIndex(desired, index - 1);
         }
     }
-    if (replacement != NULL) {
-        CFArrayAppendValue(desired, replacement);
+    if (replacements != NULL) {
+        for (CFIndex index = 0; index < CFArrayGetCount(replacements); index += 1) {
+            CFArrayAppendValue(desired, CFArrayGetValueAtIndex(replacements, index));
+        }
     }
     return desired;
 }
 
-static CFDictionaryRef axonkey_copy_voice_mapping(CFArrayRef mappings) {
+static CFMutableArrayRef axonkey_copy_original_modifier_mappings(
+    const AxonkeyInputState *state,
+    CFArrayRef mappings
+) {
+    CFMutableArrayRef originals = CFArrayCreateMutable(
+        kCFAllocatorDefault,
+        0,
+        &kCFTypeArrayCallBacks
+    );
+    if (originals == NULL) {
+        return NULL;
+    }
+    if (mappings != NULL) {
+        for (CFIndex index = 0; index < CFArrayGetCount(mappings); index += 1) {
+            CFTypeRef mapping = CFArrayGetValueAtIndex(mappings, index);
+            uint64_t source = 0;
+            if (axonkey_mapping_get_source(mapping, &source) &&
+                axonkey_modifier_mapping_has_source(state, source)) {
+                CFArrayAppendValue(originals, mapping);
+            }
+        }
+    }
+    return originals;
+}
+
+static CFMutableArrayRef axonkey_create_modifier_mappings(
+    const AxonkeyInputState *state
+) {
+    if (state == NULL || state->modifier_mappings == NULL) {
+        return NULL;
+    }
+    CFMutableArrayRef mappings = CFArrayCreateMutable(
+        kCFAllocatorDefault,
+        0,
+        &kCFTypeArrayCallBacks
+    );
     if (mappings == NULL) {
         return NULL;
     }
-    for (CFIndex index = 0; index < CFArrayGetCount(mappings); index += 1) {
-        CFTypeRef mapping = CFArrayGetValueAtIndex(mappings, index);
-        if (axonkey_mapping_has_source(mapping, AXONKEY_RC003_VOICE_USAGE)) {
-            return CFRetain((CFDictionaryRef)mapping);
+    for (size_t index = 0; index < state->modifier_mapping_count; index += 1) {
+        AxonkeyHardwareModifierMapping requested = state->modifier_mappings[index];
+        CFDictionaryRef mapping = axonkey_create_usage_mapping(
+            requested.source,
+            requested.destination
+        );
+        if (mapping == NULL) {
+            CFRelease(mappings);
+            return NULL;
         }
+        CFArrayAppendValue(mappings, mapping);
+        CFRelease(mapping);
     }
-    return NULL;
+    return mappings;
 }
 
-static void axonkey_restore_voice_right_control(AxonkeyInputState *state) {
+static void axonkey_restore_modifier_mappings(AxonkeyInputState *state) {
     if (state == NULL || state->event_system_client == NULL ||
-        state->original_voice_mappings == NULL) {
+        state->original_modifier_mappings == NULL) {
         return;
     }
     CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
@@ -227,19 +291,17 @@ static void axonkey_restore_voice_right_control(AxonkeyInputState *state) {
                 continue;
             }
             CFTypeRef original = CFDictionaryGetValue(
-                state->original_voice_mappings,
+                state->original_modifier_mappings,
                 registry_id
             );
             if (original == NULL) {
                 continue;
             }
             CFMutableArrayRef current = axonkey_copy_service_mappings(service);
-            CFDictionaryRef replacement = original == kCFNull
-                ? NULL
-                : (CFDictionaryRef)original;
-            CFMutableArrayRef restored = axonkey_copy_replacing_voice_mapping(
+            CFMutableArrayRef restored = axonkey_copy_replacing_modifier_mappings(
+                state,
                 current,
-                replacement
+                (CFArrayRef)original
             );
             if (restored != NULL) {
                 IOHIDServiceClientSetProperty(
@@ -253,24 +315,22 @@ static void axonkey_restore_voice_right_control(AxonkeyInputState *state) {
         }
         CFRelease(services);
     }
-    CFDictionaryRemoveAllValues(state->original_voice_mappings);
-    state->voice_right_control_active = false;
+    CFDictionaryRemoveAllValues(state->original_modifier_mappings);
+    state->modifier_mappings_active = false;
 }
 
-static bool axonkey_apply_voice_right_control(AxonkeyInputState *state) {
+static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
     if (state == NULL || state->event_system_client == NULL ||
-        state->original_voice_mappings == NULL) {
+        state->original_modifier_mappings == NULL ||
+        state->modifier_mapping_count == 0) {
         return false;
     }
     CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
     if (services == NULL) {
         return false;
     }
-    CFDictionaryRef replacement = axonkey_create_usage_mapping(
-        AXONKEY_RC003_VOICE_USAGE,
-        AXONKEY_RIGHT_CONTROL_USAGE
-    );
-    if (replacement == NULL) {
+    CFMutableArrayRef replacements = axonkey_create_modifier_mappings(state);
+    if (replacements == NULL) {
         CFRelease(services);
         return false;
     }
@@ -296,19 +356,25 @@ static bool axonkey_apply_voice_right_control(AxonkeyInputState *state) {
             applied = false;
             break;
         }
-        if (!CFDictionaryContainsKey(state->original_voice_mappings, registry_id)) {
-            CFDictionaryRef original = axonkey_copy_voice_mapping(current);
-            const void *stored_original = original == NULL
-                ? (const void *)kCFNull
-                : (const void *)original;
+        if (!CFDictionaryContainsKey(state->original_modifier_mappings, registry_id)) {
+            CFMutableArrayRef original = axonkey_copy_original_modifier_mappings(state, current);
+            if (original == NULL) {
+                CFRelease(current);
+                applied = false;
+                break;
+            }
             CFDictionarySetValue(
-                state->original_voice_mappings,
+                state->original_modifier_mappings,
                 registry_id,
-                stored_original
+                original
             );
-            if (original != NULL) CFRelease(original);
+            CFRelease(original);
         }
-        CFMutableArrayRef desired = axonkey_copy_replacing_voice_mapping(current, replacement);
+        CFMutableArrayRef desired = axonkey_copy_replacing_modifier_mappings(
+            state,
+            current,
+            replacements
+        );
         CFRelease(current);
         if (desired == NULL || !IOHIDServiceClientSetProperty(
             service,
@@ -321,14 +387,14 @@ static bool axonkey_apply_voice_right_control(AxonkeyInputState *state) {
         }
         CFRelease(desired);
     }
-    CFRelease(replacement);
+    CFRelease(replacements);
     CFRelease(services);
 
     if (!applied || target_count == 0) {
-        axonkey_restore_voice_right_control(state);
+        axonkey_restore_modifier_mappings(state);
         return false;
     }
-    state->voice_right_control_active = true;
+    state->modifier_mappings_active = true;
     return true;
 }
 
@@ -480,7 +546,8 @@ static void axonkey_arm_usage_events(AxonkeyInputState *state, uint16_t usage, b
     if (axonkey_native_event_for_usage(usage, &kind, &code)) {
         axonkey_arm_native_event(state, kind, code, down);
     }
-    if (usage == 0x3e) {
+    uint64_t source = 0x0000000700000000 | (uint64_t)usage;
+    if (usage == 0x3e && !axonkey_modifier_mapping_has_source(state, source)) {
         // A per-device UserKeyMapping may translate the RC003 voice key to Fn.
         axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 63, down);
     }
@@ -740,8 +807,8 @@ static int axonkey_capture_mode(AxonkeyInputState *state) {
     } else if (state->event_tap != NULL && CFSetGetCount(state->monitored_devices) > 0) {
         mode = AXONKEY_CAPTURE_FILTERED;
     }
-    if (state->voice_right_control_active) {
-        mode |= AXONKEY_CAPTURE_VOICE_RIGHT_CONTROL;
+    if (state->modifier_mappings_active) {
+        mode |= AXONKEY_CAPTURE_HARDWARE_MODIFIER_MAPPINGS;
     }
     return mode;
 }
@@ -763,13 +830,13 @@ static void axonkey_device_matched(
     }
     CFSetAddValue(state->devices, device);
 
-    if (state->capture && state->voice_right_control_requested) {
-        state->voice_right_control_active = axonkey_apply_voice_right_control(state);
+    if (state->capture && state->modifier_mapping_count > 0) {
+        state->modifier_mappings_active = axonkey_apply_modifier_mappings(state);
     }
 
     int capture_mode = AXONKEY_CAPTURE_NONE;
     if (state->capture && !axonkey_device_is_seized(state, device)) {
-        if (state->voice_right_control_requested && state->event_tap != NULL) {
+        if (state->modifier_mapping_count > 0 && state->event_tap != NULL) {
             IOReturn monitor_result = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
             if (monitor_result == kIOReturnSuccess) {
                 CFSetAddValue(state->monitored_devices, device);
@@ -886,9 +953,11 @@ static void axonkey_close_seized_device(const void *value, void *context) {
 int axonkey_macos_input_run(
     const AxonkeyCallbacks *callbacks,
     bool capture,
-    bool voice_right_control
+    const AxonkeyHardwareModifierMapping *modifier_mappings,
+    size_t modifier_mapping_count
 ) {
-    if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL) {
+    if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL ||
+        (modifier_mapping_count > 0 && modifier_mappings == NULL)) {
         return kIOReturnBadArgument;
     }
 
@@ -921,7 +990,8 @@ int axonkey_macos_input_run(
         .devices = devices,
         .seized_devices = seized_devices,
         .monitored_devices = monitored_devices,
-        .voice_right_control_requested = capture && voice_right_control,
+        .modifier_mappings = capture ? modifier_mappings : NULL,
+        .modifier_mapping_count = capture ? modifier_mapping_count : 0,
     };
 
     int vendor_id = 0x2717;
@@ -957,19 +1027,21 @@ int axonkey_macos_input_run(
         return kIOReturnNoMemory;
     }
 
-    if (state.voice_right_control_requested) {
+    if (state.modifier_mapping_count > 0) {
         state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
-        state.original_voice_mappings = CFDictionaryCreateMutable(
+        state.original_modifier_mappings = CFDictionaryCreateMutable(
             kCFAllocatorDefault,
             0,
             &kCFTypeDictionaryKeyCallBacks,
             &kCFTypeDictionaryValueCallBacks
         );
-        if (state.event_system_client == NULL || state.original_voice_mappings == NULL) {
+        if (state.event_system_client == NULL || state.original_modifier_mappings == NULL) {
             if (state.event_system_client != NULL) CFRelease(state.event_system_client);
-            if (state.original_voice_mappings != NULL) CFRelease(state.original_voice_mappings);
+            if (state.original_modifier_mappings != NULL) {
+                CFRelease(state.original_modifier_mappings);
+            }
             state.event_system_client = NULL;
-            state.original_voice_mappings = NULL;
+            state.original_modifier_mappings = NULL;
         }
     }
 
@@ -997,14 +1069,14 @@ int axonkey_macos_input_run(
     CFSetRemoveAllValues(seized_devices);
     CFSetApplyFunction(monitored_devices, axonkey_close_seized_device, NULL);
     CFSetRemoveAllValues(monitored_devices);
-    axonkey_restore_voice_right_control(&state);
+    axonkey_restore_modifier_mappings(&state);
     axonkey_stop_event_filter(&state, run_loop);
     IOHIDManagerUnscheduleFromRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
     IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);
     CFRelease(monitored_devices);
     CFRelease(seized_devices);
     CFRelease(devices);
-    if (state.original_voice_mappings != NULL) CFRelease(state.original_voice_mappings);
+    if (state.original_modifier_mappings != NULL) CFRelease(state.original_modifier_mappings);
     if (state.event_system_client != NULL) CFRelease(state.event_system_client);
     CFRelease(manager);
     return result;
