@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Ban,
   Check,
+  ChevronDown,
   ChevronRight,
   ClipboardPaste,
   Clock3,
@@ -205,12 +206,15 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   const platformGroups = keyGroupsForPlatform(platform)
   const groups = includeModifiers ? platformGroups : platformGroups.filter((group) => group.label !== '单独修饰键')
   const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
-  return <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
-    <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
-    {groups.map((group) => <optgroup key={group.label} label={group.label}>
-      {group.options.map((option) => <option key={`${group.label}-${option.value}`} value={option.value}>{option.label}</option>)}
-    </optgroup>)}
-  </select>
+  return <div className="manual-key-select">
+    <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
+      <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
+      {groups.map((group) => <optgroup key={group.label} label={group.label}>
+        {group.options.map((option) => <option key={`${group.label}-${option.value}`} value={option.value}>{option.label}</option>)}
+      </optgroup>)}
+    </select>
+    <span className="manual-key-select-icon" aria-hidden="true"><ChevronDown size={15} /></span>
+  </div>
 }
 
 export function BehaviorEditDialog({ platform, button, trigger, behavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
