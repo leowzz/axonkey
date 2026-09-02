@@ -221,31 +221,6 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 
 `make release` 要求 Git 工作区完全干净。未传 `V` 时，它从 `.env` 递增 patch；也可以用 `V=vX.Y.Z` 指定版本。命令会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建 `chore: release vX.Y.Z` 提交，再在该提交上创建 annotated tag。它不会构建、推送或发布远端 Release。
 
-## GitHub Tag 自动构建
-
-先在 `main` 的干净工作区运行 `make release`，再推送 release commit 和 annotated tag：
-
-```bash
-git checkout main
-make release V=v0.1.25
-git push origin main --follow-tags
-```
-
-Tag 必须采用 `vMAJOR.MINOR.PATCH` 格式并指向 `main` 历史。GitHub Action 会从 `.env.example` 初始化 CI 的 `.env`，然后校验 Tag、`.env.example` 和所有已提交清单版本完全一致；CI 不会临时重写版本。
-
-两个平台都构建成功且 SHA-256 校验通过后，工作流才会创建或更新对应的 GitHub Release，并上传
-Windows NSIS、macOS Universal DMG 及各自的校验文件。相同文件也会作为 GitHub Actions Artifact
-保留 30 天。如果 Tag 指向的提交不属于 `main` 历史，工作流会拒绝构建。目标分支可通过工作流中的
-`RELEASE_BRANCH` 修改。
-
-macOS Action 支持以下 Repository Secrets：
-
-- Developer ID 签名：`APPLE_CERTIFICATE`（Base64 编码的 `.p12`）、`APPLE_CERTIFICATE_PASSWORD`、`APPLE_SIGNING_IDENTITY`；
-- Installer 签名：`MACOS_INSTALLER_CERTIFICATE`（Base64 编码的 `.p12`）、`MACOS_INSTALLER_CERTIFICATE_PASSWORD`、`MACOS_INSTALLER_SIGNING_IDENTITY`；
-- Apple 公证：`APPLE_ID`、`APPLE_PASSWORD`（App 专用密码）、`APPLE_TEAM_ID`。
-
-签名或公证凭据必须按组完整配置。两组签名凭据共六项全部配置时，工作流会签名 MiRemoteV PKG、App 和 DMG；再配置三项公证凭据后，会对移除隐藏卷图标后的最终 DMG 执行公证和 stapling。签名凭据全部未配置时仍可生成 ad-hoc 签名的测试 DMG，但 GitHub Actions 会给出警告，该产物不适合作为正式外部分发包。
-
 ## 工作原理
 
 ```text
