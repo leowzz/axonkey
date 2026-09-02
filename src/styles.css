@@ -225,7 +225,7 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .behavior-item-summary:disabled { cursor: default; }
 .behavior-item-summary:disabled:hover strong { color: #30363b; }
 .behavior-item-summary strong { min-width: 0; overflow: hidden; color: #30363b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.behavior-type-label { display: inline-flex; height: 22px; flex: 0 0 auto; align-items: center; padding: 0 7px; border: 1px solid #d7e0e8; border-radius: 4px; color: #52687d; background: #edf2f7; font-size: 10px; font-weight: 700; }
+.behavior-type-label { display: inline-flex; width: 76px; height: 22px; flex: 0 0 76px; align-items: center; justify-content: center; padding: 0 7px; border: 1px solid #d7e0e8; border-radius: 4px; color: #52687d; background: #edf2f7; font-size: 10px; font-weight: 700; }
 .behavior-item-actions { display: flex; align-items: center; gap: 4px; }
 .icon-button { display: grid; place-items: center; width: 27px; height: 27px; padding: 0; border: 0; border-radius: 6px; color: #7b838b; background: transparent; }
 .icon-button:hover { color: var(--blue); background: #e5effc; }
