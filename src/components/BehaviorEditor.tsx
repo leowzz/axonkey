@@ -38,9 +38,7 @@ type BehaviorEditorProps = {
   button: RemoteButton
   trigger: TriggerType
   behaviors: Behavior[]
-  canUndoCommonBehavior: boolean
   onApplyCommonBehavior: (preset: CommonBehaviorPreset) => void
-  onUndoCommonBehavior: () => void
   onAddAdvancedBehavior: (type: AdvancedBehaviorType) => void
   onRemoveBehavior: (behaviorId: string) => void
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
@@ -62,32 +60,10 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   </button>
 }
 
-export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, canUndoCommonBehavior, onApplyCommonBehavior, onUndoCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
+export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
-    <div className="behavior-editor-head">
-      <div className="behavior-editor-head-actions">
-        <div className="behavior-tabs" role="tablist" aria-label="行为分类">
-          {([
-            ['common', '常用'],
-            ['navigation', '导航编辑'],
-            ['media', '媒体控制'],
-            ['advanced', '追加步骤'],
-          ] as const).map(([id, label]) => <button
-            key={id}
-            id={`${tabId}-${id}-tab`}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === id}
-            aria-controls={`${tabId}-${id}-panel`}
-            className={activeTab === id ? 'active' : ''}
-            onClick={() => setActiveTab(id)}
-          >{label}</button>)}
-        </div>
-        <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
-      </div>
-    </div>
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
         <div className="behavior-column-heading">
@@ -110,7 +86,28 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
           <h3>添加行为</h3>
-          {canUndoCommonBehavior && <button type="button" className="behavior-undo-button" onClick={onUndoCommonBehavior}><RotateCcw size={12} /> 取消</button>}
+        </div>
+        <div className="behavior-editor-head">
+          <div className="behavior-editor-head-actions">
+            <div className="behavior-tabs" role="tablist" aria-label="行为分类">
+              {([
+                ['common', '常用'],
+                ['navigation', '导航编辑'],
+                ['media', '媒体控制'],
+                ['advanced', '追加步骤'],
+              ] as const).map(([id, label]) => <button
+                key={id}
+                id={`${tabId}-${id}-tab`}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === id}
+                aria-controls={`${tabId}-${id}-panel`}
+                className={activeTab === id ? 'active' : ''}
+                onClick={() => setActiveTab(id)}
+              >{label}</button>)}
+            </div>
+            <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+          </div>
         </div>
         <div
           id={`${tabId}-${activeTab}-panel`}
@@ -176,7 +173,6 @@ function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEd
     <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
       <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
       <strong>{behaviorSummary(behavior, platform)}</strong>
-      <span className="behavior-type-note">{editable ? '点击编辑' : '不发送输入'}</span>
     </button>
     <div className="behavior-item-actions">
       {editable && <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>}
