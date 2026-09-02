@@ -1,23 +1,54 @@
 # Axonkey
 
-<p align="center">
-  <img src="./public/rc003-remote.png" width="180" alt="小米 RC003 蓝牙遥控器">
-</p>
-
-Axonkey 是一款面向小米 RC003 蓝牙遥控器的 Windows 与 macOS 本地按键映射工具。Windows 版通过 Interception 驱动识别指定物理设备（`VID 0x2717` / `PID 0x32B8`）；macOS 版通过 IOKit 读取同一设备的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入。两个平台的用户态映射都只处理目标遥控器，普通键盘不会进入映射流程。
+Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。两个平台的用户态映射都只处理目标遥控器，普通键盘不会进入映射流程。
 
 项目目前专注于一个设备和一件事：让 RC003 成为可靠、易配置的快捷键控制器。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
 
+## 当前平台状态
+
+| 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
+| --- | --- | ---: | --- | --- |
+| macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 当前主要支持平台；需要输入监控与辅助功能权限 |
+| Windows 11 x64 | Interception 1.0.1 | 10 | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 可用于功能验证；输入链路仍受 Interception 重连故障影响 |
+
 > **Windows 已知问题：** Axonkey 当前恢复使用 Interception 1.0.1，但该驱动存在已知的设备重连故障。[Interception issue #25](https://github.com/oblitum/Interception/issues/25) 记录了键盘或鼠标反复连接后停止向 Windows 发送输入、且通常只能重启恢复的问题；Axonkey 在 RC003 蓝牙 HID 重连上也复现了同类故障。退出 Axonkey 无法修复内核驱动状态，因此当前 Windows 输入方案仅建议用于隔离测试，不应视为可发布的稳定方案。完整证据与恢复步骤见 [Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。macOS 原生后端不受此问题影响。
+
+## 界面截图
+
+
+<p align="center">
+  <img src="./docs/images/axonkey-home.png" width="960" alt="Axonkey 主页，显示 RC003 状态、系统权限、语音通道和快捷操作">
+</p>
+<p align="center"><sub>主页状态总览：设备、权限、语音通道与快捷操作</sub></p>
+
+<p align="center">
+  <img src="./docs/images/axonkey-mapping.png" width="960" alt="Axonkey 按键映射界面，显示 RC003、触发方式和行为编辑器">
+</p>
+<p align="center"><sub>按键映射：选择实体按键，再分别编辑单击、双击和长按行为</sub></p>
+
+## 手绘配图
+
+<p align="center">
+  <img src="./assets/axonkey-readme-illustrations/01-rc003-control-console.png" width="960" alt="小黑把 RC003 接入按键映射控制台的手绘插图">
+</p>
+<p align="center"><sub>一个遥控器，一张本地控制台：只认 RC003，按键行为随手可改。</sub></p>
+
+<p align="center">
+  <img src="./assets/axonkey-readme-illustrations/02-rc003-voice-bridge.png" width="960" alt="小黑把 RC003 语音分流到 macOS 和 Windows 虚拟麦克风的手绘插图">
+</p>
+<p align="center"><sub>按住语音键，解码后的声音按平台进入 `MiRemoteV 2ch` 或 `CABLE Output`。</sub></p>
 
 ## 主要功能
 
+- 主页集中显示输入环境、辅助功能、语音通道、RC003 连接状态和电量，并提供对应的处理入口。
 - 识别 RC003 的连接状态与输入后端状态；Windows 和 macOS 版同时读取电量。
 - 为每个可识别按键分别配置单击、双击和长按行为。
 - 直接选择常用行为，包括保留原按键、禁用、导航编辑和媒体控制。
 - 支持单个按键、键盘录入、组合键和单独修饰键；macOS 界面会按系统习惯显示 Command 与 Option。
 - 支持按顺序执行多个步骤，例如粘贴文本、等待和按下 Enter。
 - 内置“输入文本并回车”行为：粘贴文本 -> 等待 30 ms -> Enter。
+- 支持将完整映射导出为 JSON、重新导入或恢复默认映射。
+- Windows 和 macOS 均可调节 RC003 语音输入增益（`-30 dB` 至 `+30 dB`）；Windows 输出到 `CABLE Input`，macOS 输出到 `MiRemoteV 2ch`。
 - 修改后自动保存并立即应用，无需为普通映射变更重启应用或系统。
 - 只处理匹配 VID/PID 的目标设备，不修改普通键盘的按键行为。
 - Windows 首次引导可安装并检查 Interception 与 VB-Audio VB-CABLE；macOS 引导可完成系统权限、安装 MiRemoteV 2ch 虚拟麦克风并连接设备。
@@ -96,6 +127,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\vbcable-driver.ps1 -Action in
 
 该脚本校验未修改的官方 Pack45 ZIP、x64 安装器哈希和发布者签名，随后申请管理员权限并打开 VB-Audio 官方安装窗口。安装完成后需要重启 Windows，录音设备列表中会出现 `CABLE Output (VB-Audio Virtual Cable)`。
 
+Windows 语音链路由 Axonkey 直接维护：应用通过 Bluetooth GATT 连接 RC003 的 ATVV 服务，解码 16 kHz IMA ADPCM 音频并写入 `CABLE Input` 播放端点；录音应用选择 `CABLE Output (VB-Audio Virtual Cable)` 作为麦克风。按住语音键时才会建立或恢复语音会话，主页的增益滑杆（`-30 dB` 至 `+30 dB`）只作用于这一路音频。
+
 ## macOS 首次使用
 
 1. 打开 DMG，将 `Axonkey.app` 拖入“应用程序”，再从“应用程序”启动它。不要长期直接运行 DMG 中的副本，否则后续授权可能指向临时挂载路径。
@@ -162,7 +195,7 @@ make build-macos-audio
 make build-macos
 make test-release
 make release
-make release V=v0.2.6
+make release V=v0.1.25
 ```
 
 `.env` 不纳入 Git，且只包含一行 `version=vX.Y.Z`。`make build` 只校验 `.env` 与 npm、Cargo、Tauri
@@ -194,7 +227,7 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 
 ```bash
 git checkout main
-make release V=v0.2.6
+make release V=v0.1.25
 git push origin main --follow-tags
 ```
 
@@ -216,9 +249,10 @@ macOS Action 支持以下 Repository Secrets：
 ## 工作原理
 
 ```text
-Windows: RC003 -> Interception -> 扫描码 -> 行为状态机 -> 同设备发送
-macOS:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CoreGraphics / AppKit 发送
-         RC003 -> CoreBluetooth ATVV -> IMA ADPCM -> PCM -> MiRemoteV 2ch
+Windows input: RC003 -> Interception -> 扫描码 -> 行为状态机 -> 同设备发送
+Windows voice: RC003 -> Bluetooth GATT ATVV -> IMA ADPCM -> PCM -> CABLE Input -> CABLE Output
+macOS input:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CoreGraphics / AppKit 发送
+macOS voice:   RC003 -> CoreBluetooth ATVV -> IMA ADPCM -> PCM -> MiRemoteV 2ch
 ```
 
 输入服务只为识别出的 RC003 设备设置过滤条件。设置更新采用本地快照，界面保存后会直接替换输入服务中的当前配置。
