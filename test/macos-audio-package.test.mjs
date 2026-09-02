@@ -42,6 +42,13 @@ test('macOS build embeds packages and requires Installer signing for signed rele
   assert.match(releaseWorkflow, /security import "\$app_certificate_path"/)
   assert.match(releaseWorkflow, /security import "\$installer_certificate_path"/)
   assert.match(releaseWorkflow, /trust_self_signed_certificate/)
+  const [, trustHelper] =
+    releaseWorkflow.match(/trust_self_signed_certificate\(\) \{([\s\S]*?)\n          \}/) ?? []
+  assert.ok(trustHelper)
+  assert.match(trustHelper, /sudo -n security add-trusted-cert/)
+  assert.match(trustHelper, /-d/)
+  assert.match(trustHelper, /-k \/Library\/Keychains\/System\.keychain/)
+  assert.doesNotMatch(trustHelper, /-k "\$keychain_path"/)
   assert.match(releaseWorkflow, /security delete-keychain/)
 })
 

@@ -17,8 +17,10 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 940px; min-height: 100vh; background: #f2f3f4; }
+body { margin: 0; min-width: 940px; min-height: 100vh; background: #f2f3f4; -webkit-user-select: none; user-select: none; }
 button, input, select, textarea { font: inherit; }
+input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-select: text; }
+a, img { -webkit-user-drag: none; }
 button { cursor: pointer; }
 
 .app-shell { display: flex; min-height: 100vh; background: #f2f3f4; }
@@ -275,14 +277,19 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 .behavior-field-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 9px; }
 .behavior-field-title strong, .behavior-dialog-field label { color: #424a51; font-size: 11px; }
 .behavior-field-title span { color: #8b9298; font-size: 9px; }
-.behavior-manual-section > select, .shortcut-manual-builder > select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid #cfd5da; border-radius: 7px; outline: 0; color: #30383f; background: #fff; font-size: 11px; }
-.behavior-manual-section select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(20,120,232,.09); }
 .shortcut-manual-builder { display: grid; grid-template-columns: minmax(0, auto) auto minmax(160px, 1fr); gap: 9px; align-items: center; }
 .shortcut-modifiers { display: flex; flex-wrap: wrap; gap: 5px; }
 .shortcut-modifiers button { min-width: 44px; height: 34px; padding: 0 8px; border: 1px solid #cfd5da; border-radius: 6px; color: #66717a; background: #fff; font-size: 10px; }
 .shortcut-modifiers button.selected { border-color: #71a9e7; color: #176fcf; background: #e8f3ff; }
 .shortcut-manual-builder.standalone .shortcut-modifiers, .shortcut-manual-builder.standalone .shortcut-plus { opacity: .38; }
 .shortcut-modifiers button:disabled { cursor: default; }
+.manual-key-select { position: relative; min-width: 0; height: 38px; overflow: hidden; border: 1px solid #cfd5da; border-radius: 7px; color: #30383f; background: #fff; transition: border-color .16s ease, background .16s ease, box-shadow .16s ease; }
+.manual-key-select:hover { border-color: #aeb8c1; background: #fbfcfd; }
+.manual-key-select:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(20,120,232,.09); }
+.manual-key-select select { width: 100%; height: 100%; padding: 0 44px 0 12px; border: 0; outline: 0; appearance: none; -webkit-appearance: none; color: inherit; background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; }
+.manual-key-select-icon { position: absolute; top: 0; right: 0; display: grid; width: 36px; height: 100%; place-items: center; border-left: 1px solid #e2e5e8; color: #75808a; background: #f6f8f9; pointer-events: none; transition: color .16s ease, background .16s ease; }
+.manual-key-select:hover .manual-key-select-icon { color: #4f5c67; background: #f1f4f6; }
+.manual-key-select:focus-within .manual-key-select-icon { color: var(--blue); background: #eef6ff; }
 .behavior-dialog-field { display: flex; flex-direction: column; gap: 8px; }
 .behavior-dialog-field .behavior-paste-input { min-height: 150px; margin-top: 0; }
 .behavior-dialog-field .behavior-delay-row { margin-top: 0; }
@@ -621,7 +628,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .record-key-button:focus-visible { outline-color: rgba(20,120,232,.5); }
 .mapping-active .record-key-button.capturing { border-color: var(--map-accent); color: var(--map-accent); background: #eaf3ff; box-shadow: 0 0 0 3px rgba(20,120,232,.11); }
 .mapping-active .behavior-manual-section { border-color: #dfe4e9; }
-.mapping-active .behavior-manual-section select:focus, .mapping-active .behavior-paste-input:focus, .mapping-active .behavior-delay-input:focus { border-color: var(--map-accent); box-shadow: 0 0 0 3px rgba(20,120,232,.1); }
+.mapping-active .manual-key-select:focus-within, .mapping-active .behavior-paste-input:focus, .mapping-active .behavior-delay-input:focus { border-color: var(--map-accent); box-shadow: 0 0 0 3px rgba(20,120,232,.1); }
 .mapping-active .shortcut-modifiers button.selected { border-color: #80afe0; color: var(--map-accent); background: #e8f2ff; }
 .mapping-active .behavior-dialog-actions { border-color: #dfe4e9; background: #f1f4f7; }
 .mapping-active .mapping-limit-note { width: min(1440px, calc(100% - 48px)); }

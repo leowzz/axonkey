@@ -242,10 +242,12 @@ jobs:
             subject="$(openssl x509 -in "$pem_path" -noout -subject -nameopt RFC2253)"
             issuer="$(openssl x509 -in "$pem_path" -noout -issuer -nameopt RFC2253)"
             if [[ "${subject#subject=}" == "${issuer#issuer=}" ]]; then
-              security add-trusted-cert \
+              echo "Trusting self-signed certificate for the $policy policy."
+              sudo -n security add-trusted-cert \
+                -d \
                 -r trustRoot \
                 -p "$policy" \
-                -k "$keychain_path" \
+                -k /Library/Keychains/System.keychain \
                 "$pem_path"
             fi
           }

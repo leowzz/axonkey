@@ -93,7 +93,7 @@ static int CheckSystemEvent(int expected_code, int edge) {
     return 0;
 }
 
-static int CheckControlEvent(uint16_t code, CGEventFlags down_flags, bool down) {
+static int CheckModifierEvent(uint16_t code, CGEventFlags down_flags, bool down) {
     const CGEventFlags flags = down ? down_flags : 0;
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
     CGEventRef reference = CGEventCreateKeyboardEvent(source, code, down);
@@ -104,7 +104,7 @@ static int CheckControlEvent(uint16_t code, CGEventFlags down_flags, bool down) 
     ) | flags;
     CFRelease(reference);
     if (!axonkey_macos_post_key(code, down, flags, false) || captured_posted_event == NULL) {
-        fputs("failed to post Control event\n", stderr);
+        fputs("failed to post modifier event\n", stderr);
         return 1;
     }
     CGEventType type = CGEventGetType(captured_posted_event);
@@ -118,7 +118,7 @@ static int CheckControlEvent(uint16_t code, CGEventFlags down_flags, bool down) 
         actual_flags != expected_flags) {
         fprintf(
             stderr,
-            "unexpected Control event: tap=%u type=%u code=%lld flags=0x%llx\n",
+            "unexpected modifier event: tap=%u type=%u code=%lld flags=0x%llx\n",
             (unsigned int)captured_posted_tap,
             (unsigned int)type,
             (long long)actual_code,
@@ -160,6 +160,143 @@ static int CheckControlRightArrowEvent(bool down) {
             (long long)code,
             (unsigned long long)actual_flags
         );
+        return 1;
+    }
+    return 0;
+}
+
+static bool MappingHasDestination(CFArrayRef mappings, uint64_t source, uint64_t destination) {
+    if (mappings == NULL) {
+        return false;
+    }
+    for (CFIndex index = 0; index < CFArrayGetCount(mappings); index += 1) {
+        CFTypeRef value = CFArrayGetValueAtIndex(mappings, index);
+        uint64_t actual_source = 0;
+        if (!axonkey_mapping_get_source(value, &actual_source) || actual_source != source) {
+            continue;
+        }
+        CFTypeRef destination_value = CFDictionaryGetValue(
+            (CFDictionaryRef)value,
+            CFSTR("HIDKeyboardModifierMappingDst")
+        );
+        uint64_t actual_destination = 0;
+        return axonkey_cf_number_get_u64(destination_value, &actual_destination) &&
+            actual_destination == destination;
+    }
+    return false;
+}
+
+static int CheckModifierMappingReplacementAndRestore(void) {
+    const uint64_t voice = 0x000000070000003E;
+    const uint64_t menu = 0x0000000700000065;
+    const uint64_t television = 0x0000000700000035;
+    const uint64_t function = 0x000000FF00000003;
+    const uint64_t right_control = 0x00000007000000E4;
+    const uint64_t right_option = 0x00000007000000E6;
+    const uint64_t space = 0x000000070000002C;
+    const AxonkeyHardwareModifierMapping requested[] = {
+        {.source = voice, .destination = function},
+        {.source = menu, .destination = right_control},
+    };
+    AxonkeyInputState state = {
+        .modifier_mappings = requested,
+        .modifier_mapping_count = sizeof(requested) / sizeof(requested[0]),
+    };
+    CFMutableArrayRef current = CFArrayCreateMutable(
+        kCFAllocatorDefault,
+        0,
+        &kCFTypeArrayCallBacks
+    );
+    CFDictionaryRef old_voice = axonkey_create_usage_mapping(voice, right_option);
+    CFDictionaryRef old_menu = axonkey_create_usage_mapping(menu, space);
+    CFDictionaryRef unrelated = axonkey_create_usage_mapping(television, space);
+    if (current == NULL || old_voice == NULL || old_menu == NULL || unrelated == NULL) {
+        if (current != NULL) CFRelease(current);
+        if (old_voice != NULL) CFRelease(old_voice);
+        if (old_menu != NULL) CFRelease(old_menu);
+        if (unrelated != NULL) CFRelease(unrelated);
+        fputs("failed to create modifier mapping fixtures\n", stderr);
+        return 1;
+    }
+    CFArrayAppendValue(current, old_voice);
+    CFArrayAppendValue(current, old_menu);
+    CFArrayAppendValue(current, unrelated);
+    CFRelease(old_voice);
+    CFRelease(old_menu);
+    CFRelease(unrelated);
+
+    CFMutableArrayRef originals = axonkey_copy_original_modifier_mappings(&state, current);
+    CFMutableArrayRef replacements = axonkey_create_modifier_mappings(&state);
+    CFMutableArrayRef desired = axonkey_copy_replacing_modifier_mappings(
+        &state,
+        current,
+        replacements
+    );
+    CFMutableArrayRef restored = axonkey_copy_replacing_modifier_mappings(
+        &state,
+        desired,
+        originals
+    );
+    bool valid = originals != NULL && CFArrayGetCount(originals) == 2 &&
+        desired != NULL && CFArrayGetCount(desired) == 3 &&
+        MappingHasDestination(desired, voice, function) &&
+        MappingHasDestination(desired, menu, right_control) &&
+        MappingHasDestination(desired, television, space) &&
+        restored != NULL && CFArrayGetCount(restored) == 3 &&
+        MappingHasDestination(restored, voice, right_option) &&
+        MappingHasDestination(restored, menu, space) &&
+        MappingHasDestination(restored, television, space);
+    CFRelease(current);
+    if (originals != NULL) CFRelease(originals);
+    if (replacements != NULL) CFRelease(replacements);
+    if (desired != NULL) CFRelease(desired);
+    if (restored != NULL) CFRelease(restored);
+    if (!valid) {
+        fputs("modifier mappings were not replaced and restored correctly\n", stderr);
+        return 1;
+    }
+    return 0;
+}
+
+static int CheckHardwareMappedFnPassThrough(void) {
+    const AxonkeyHardwareModifierMapping requested[] = {
+        {
+            .source = 0x000000070000003E,
+            .destination = 0x000000FF00000003,
+        },
+    };
+    AxonkeyInputState state = {
+        .event_tap = (CFMachPortRef)1,
+        .modifier_mappings = requested,
+        .modifier_mapping_count = 1,
+    };
+    const uint8_t pressed_report[] = {0x3e, 0x00};
+    axonkey_arm_report_events(&state, 1, pressed_report, sizeof(pressed_report));
+
+    CGEventRef function_event = CGEventCreateKeyboardEvent(NULL, 63, true);
+    CGEventSetFlags(function_event, kCGEventFlagMaskSecondaryFn);
+    CGEventRef filtered_function = axonkey_event_tap_callback(
+        NULL,
+        kCGEventFlagsChanged,
+        function_event,
+        &state
+    );
+    CFRelease(function_event);
+    if (filtered_function == NULL) {
+        fputs("hardware-mapped Fn event was filtered\n", stderr);
+        return 1;
+    }
+
+    CGEventRef original_event = CGEventCreateKeyboardEvent(NULL, 96, true);
+    CGEventRef filtered_original = axonkey_event_tap_callback(
+        NULL,
+        kCGEventKeyDown,
+        original_event,
+        &state
+    );
+    CFRelease(original_event);
+    if (filtered_original != NULL) {
+        fputs("original event for hardware-mapped Fn source was not filtered\n", stderr);
         return 1;
     }
     return 0;
@@ -208,21 +345,25 @@ int main(void) {
         IMP original = method_setImplementation(method, (IMP)RejectEventWithCGEvent);
         int result = CheckSystemEvent(NX_KEYTYPE_SOUND_UP, NX_KEYDOWN) ||
             CheckSystemEvent(NX_KEYTYPE_SOUND_DOWN, NX_KEYUP) ||
-            CheckControlEvent(
+            CheckModifierEvent(
                 59,
                 kCGEventFlagMaskControl | NX_DEVICELCTLKEYMASK,
                 true
             ) ||
             CheckControlRightArrowEvent(true) ||
             CheckControlRightArrowEvent(false) ||
+            CheckModifierMappingReplacementAndRestore() ||
+            CheckHardwareMappedFnPassThrough() ||
             CheckTelevisionPassThroughFiltered() ||
-            CheckControlEvent(
+            CheckModifierEvent(
                 59,
                 kCGEventFlagMaskControl | NX_DEVICELCTLKEYMASK,
                 false
             ) ||
-            CheckControlEvent(62, kCGEventFlagMaskControl | 0x00002000, true) ||
-            CheckControlEvent(62, kCGEventFlagMaskControl | 0x00002000, false);
+            CheckModifierEvent(62, kCGEventFlagMaskControl | 0x00002000, true) ||
+            CheckModifierEvent(62, kCGEventFlagMaskControl | 0x00002000, false) ||
+            CheckModifierEvent(63, kCGEventFlagMaskSecondaryFn, true) ||
+            CheckModifierEvent(63, kCGEventFlagMaskSecondaryFn, false);
         method_setImplementation(method, original);
         if (captured_posted_event != NULL) {
             CFRelease(captured_posted_event);

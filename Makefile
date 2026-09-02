@@ -1,4 +1,4 @@
-.PHONY: dev kill version-check build build-macos build-macos-audio test-release release uninstall-driver
+.PHONY: dev kill clean version-check build build-macos build-macos-audio test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -7,6 +7,9 @@ dev: kill
 
 kill:
 	pkill -x axonkey || true
+
+clean:
+	rm -rf src-tauri/target/release/bundle/macos/Axonkey.app
 
 build:
 	ENV_FILE="$(ENV_FILE)" node ./scripts/build.mjs
