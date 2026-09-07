@@ -634,41 +634,31 @@ impl VoiceConnection {
 }
 
 fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
-    let selector = BluetoothLEDevice::GetDeviceSelectorFromPairingState(true)
-        .map_err(|error| format!("Cannot create the paired Bluetooth selector: {error}"))?;
+    let selector = GattDeviceService::GetDeviceSelectorFromUuid(VOICE_SERVICE_UUID)
+        .map_err(|error| format!("Cannot create the RC003 voice service selector: {error}"))?;
     let devices = DeviceInformation::FindAllAsyncAqsFilter(&selector)
         .and_then(|operation| operation.get())
-        .map_err(|error| format!("Cannot enumerate paired Bluetooth LE devices: {error}"))?;
+        .map_err(|error| format!("Cannot enumerate Bluetooth voice services: {error}"))?;
     let mut failures = Vec::new();
     for index in 0..devices.Size().unwrap_or_default() {
         let Ok(info) = devices.GetAt(index) else {
             continue;
         };
+        let Ok(id) = info.Id() else {
+            continue;
+        };
+        if !approved_remote_service_id(&id.to_string()) {
+            continue;
+        }
         let name = info
             .Name()
             .map(|value| value.to_string())
             .unwrap_or_default();
-        if !approved_remote_name(&name) {
-            continue;
-        }
         let result = (|| {
-            let id = info.Id()?;
-            let device = BluetoothLEDevice::FromIdAsync(&id)?.get()?;
-            let services = device
-                .GetGattServicesForUuidAsync(VOICE_SERVICE_UUID)?
-                .get()?;
-            if services.Status()? != GattCommunicationStatus::Success {
-                return Err(windows::core::Error::from_hresult(windows::core::HRESULT(
-                    0x8007_0436_u32 as i32,
-                )));
-            }
-            let list = services.Services()?;
-            if list.Size()? == 0 {
-                return Err(windows::core::Error::from_hresult(windows::core::HRESULT(
-                    0x8007_0490_u32 as i32,
-                )));
-            }
-            Ok((device, list.GetAt(0)?))
+            let service = GattDeviceService::FromIdAsync(&id)?.get()?;
+            let device_id = service.Session()?.DeviceId()?.Id()?;
+            let device = BluetoothLEDevice::FromIdAsync(&device_id)?.get()?;
+            Ok::<_, windows::core::Error>((device, service))
         })();
         match result {
             Ok(connection) => return Ok(connection),
@@ -676,7 +666,7 @@ fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
         }
     }
     if failures.is_empty() {
-        Err("Paired RC003 was not found; pair or wake MI RC in Windows Bluetooth settings".into())
+        Err("RC003 voice service was not found; pair or wake the remote in Windows Bluetooth settings".into())
     } else {
         Err(format!(
             "Cannot open the RC003 voice service ({})",
@@ -685,10 +675,10 @@ fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     }
 }
 
-fn approved_remote_name(name: &str) -> bool {
-    let normalized = name.trim().to_ascii_lowercase().replace(['-', '_'], " ");
-    matches!(normalized.as_str(), "mi rc" | "xiaomi remote" | "rc003")
-        || normalized.contains("rc003")
+fn approved_remote_service_id(id: &str) -> bool {
+    // Windows GATT instance paths retain the hardware identity even when the
+    // device has a localized or user-chosen Bluetooth name.
+    id.to_ascii_lowercase().contains("_vid&012717_pid&32b8_")
 }
 
 fn find_characteristic(
@@ -943,7 +933,7 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_remote_name, cable_output_name};
+    use super::{approved_remote_service_id, cable_output_name};
 
     #[test]
     fn selects_only_the_vb_cable_playback_endpoint() {
@@ -953,10 +943,13 @@ mod tests {
     }
 
     #[test]
-    fn accepts_known_rc003_names() {
-        assert!(approved_remote_name("MI RC"));
-        assert!(approved_remote_name("RC003"));
-        assert!(approved_remote_name("Xiaomi Remote"));
-        assert!(!approved_remote_name("MX Master 3S"));
+    fn selects_rc003_voice_service_by_hardware_identity() {
+        let id = r"\\?\BTHLEDevice#{ab5e0001-5a21-4f05-bc7d-af01f617b664}_Dev_VID&012717_PID&32b8_REV&00a4_001122334455#device";
+        assert!(approved_remote_service_id(id));
+        assert!(approved_remote_service_id(&id.to_ascii_uppercase()));
+        assert!(!approved_remote_service_id(&id.replace("012717", "01046D")));
+        assert!(!approved_remote_service_id(&id.replace("32b8", "32b9")));
+        assert!(!approved_remote_service_id(&id.replace("32b8", "32b80")));
+        assert!(!approved_remote_service_id("RC003"));
     }
 }
