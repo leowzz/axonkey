@@ -3,7 +3,7 @@ export function gainAdjustedLevel(level: number, gain: number) {
 }
 
 export function suggestedAudioGain(peak: number, minimum: number, maximum: number): number | null {
-  if (!Number.isFinite(peak) || peak < 10 ** (-50 / 20) || peak >= 0.999) return null
+  if (!Number.isFinite(peak) || peak <= 0 || peak >= 0.999) return null
   return Math.max(minimum, Math.min(maximum, Math.round(-12 - 20 * Math.log10(peak))))
 }
 

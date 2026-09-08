@@ -10,11 +10,13 @@ test('gain estimate preserves silence and exposes clipping instead of hiding it'
   assert.equal(gainAdjustedLevel(1, -20), 0.1)
 })
 
-test('suggestion targets -12 dBFS with bounded gain and rejects insufficient or clipped input', () => {
+test('suggestion includes quiet input and rejects silent, invalid or clipped input', () => {
   assert.equal(suggestedAudioGain(0.1, -30, 30), 8)
   assert.equal(suggestedAudioGain(0.004, -30, 30), 30)
   assert.equal(suggestedAudioGain(0.9, -5, 30), -5)
-  for (const peak of [0, 0.001, 1, NaN, Infinity]) {
+  assert.equal(suggestedAudioGain(0.001, -30, 30), 30)
+  assert.equal(suggestedAudioGain(1 / 32768, -30, 30), 30)
+  for (const peak of [0, -0.001, 1, NaN, Infinity]) {
     assert.equal(suggestedAudioGain(peak, -30, 30), null)
   }
 })
