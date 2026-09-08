@@ -53,6 +53,7 @@ import type {
   SystemProbe,
 } from './appTypes'
 import { AppHeader } from './components/AppHeader'
+import { AudioTestDialog } from './components/AudioTestDialog'
 import { HomeDashboard } from './components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from './components/BehaviorEditor'
 import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComponents'
@@ -122,6 +123,7 @@ function App() {
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [debugMode, setDebugMode] = useState(false)
+  const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
   const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
   const [coordinateSnippet, setCoordinateSnippet] = useState('')
@@ -1146,6 +1148,7 @@ function App() {
           onRequestPermission={(kind) => void requestMacPermission(kind)}
           onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
           onAudioGainChange={updateAudioGain}
+          onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}
           onOpenMapping={() => setActivePage('mapping')}
           onOpenLogs={() => void openLogDirectory()}
@@ -1194,6 +1197,7 @@ function App() {
         onClose={() => setTextInputDraft(null)}
         onSave={commitTextInputPreset}
       />}
+      {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} onClose={() => setAudioTestOpen(false)} />}
       {setupOpen && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}

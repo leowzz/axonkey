@@ -1,6 +1,12 @@
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, Serialize)]
+pub struct AudioLevel {
+    pub peak: f64,
+    pub rms: f64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AudioServiceStatus {
     pub driver_installed: bool,
@@ -41,6 +47,10 @@ pub struct AudioService;
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 impl AudioService {
+    pub fn level(&self) -> AudioLevel {
+        AudioLevel::default()
+    }
+
     pub fn start() -> Self {
         log::info!(target: "axonkey::audio", "Audio service is unsupported on this platform");
         Self

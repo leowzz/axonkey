@@ -854,6 +854,11 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
+fn get_audio_test_state(audio_service: tauri::State<'_, AudioService>) -> (AudioServiceStatus, audio_service::AudioLevel) {
+    (audio_service.status(), audio_service.level())
+}
+
+#[tauri::command]
 fn set_audio_gain(gain: i16, audio_service: tauri::State<'_, AudioService>) -> Result<(), String> {
     audio_service.set_gain_db(gain)
 }
@@ -1077,6 +1082,7 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
+            get_audio_test_state,
             set_audio_gain,
             probe_rc003_connected,
             probe_rc003_battery_level,

@@ -64,6 +64,10 @@ unsafe impl Send for AudioService {}
 unsafe impl Sync for AudioService {}
 
 impl AudioService {
+    pub fn level(&self) -> super::AudioLevel {
+        self.shared.diagnostics.level()
+    }
+
     pub fn start() -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {

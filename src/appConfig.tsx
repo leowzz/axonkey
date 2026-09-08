@@ -8,6 +8,7 @@ import {
   Menu,
   Mic,
   Power,
+  Tv,
   Undo2,
   Volume1,
   Volume2,
@@ -105,7 +106,7 @@ export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
     case 'volumeDown': return <Volume1 {...props} />
     case 'home': return <Home {...props} />
     case 'menu': return <Menu {...props} />
-    case 'tv': return <span className="tv-button-glyph" aria-hidden="true">TV</span>
+    case 'tv': return <Tv {...props} />
     default: return <Command {...props} />
   }
 }

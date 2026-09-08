@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
 pub(super) struct AudioDiagnostics {
+    level: std::sync::Mutex<Option<(Instant, f64, f64)>>,
     epoch: Instant,
     activity: AtomicBool,
     packets: AtomicU64,
@@ -28,6 +29,7 @@ pub(super) struct AudioDiagnostics {
 impl Default for AudioDiagnostics {
     fn default() -> Self {
         Self {
+            level: std::sync::Mutex::new(None),
             epoch: Instant::now(),
             activity: AtomicBool::new(false),
             packets: AtomicU64::new(0),
@@ -73,6 +75,19 @@ impl AudioDiagnostics {
         self.decoded.fetch_add(samples.len() as u64, Relaxed);
         self.energy.fetch_add(energy, Relaxed);
         self.peak.fetch_max(peak, Relaxed);
+        if !samples.is_empty() {
+            if let Ok(mut level) = self.level.lock() {
+                *level = Some((Instant::now(), peak as f64 / 32768.0,
+                    (energy as f64 / samples.len() as f64).sqrt() / 32768.0));
+            }
+        }
+    }
+
+    pub(super) fn level(&self) -> super::AudioLevel {
+        self.level.lock().ok().and_then(|level| {
+            level.as_ref().filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
+                .map(|(_, peak, rms)| super::AudioLevel { peak: *peak, rms: *rms })
+        }).unwrap_or_default()
     }
 
     pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
@@ -203,6 +218,24 @@ impl AudioDiagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_level_normalizes_pcm_and_expires_without_packets() {
+        let diagnostics = AudioDiagnostics::default();
+        assert_eq!(diagnostics.level().peak, 0.0);
+        diagnostics.decoded(&[i16::MIN, 0]);
+        assert_eq!(diagnostics.level().peak, 1.0);
+        assert!((diagnostics.level().rms - 0.5_f64.sqrt()).abs() < 0.000001);
+        diagnostics.report(true, Duration::from_secs(1));
+        assert_eq!(diagnostics.level().peak, 1.0);
+        *diagnostics.level.lock().unwrap() = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
+        assert_eq!(diagnostics.level().peak, 0.0);
+        assert_eq!(diagnostics.level().rms, 0.0);
+        diagnostics.decoded(&[0, 0]);
+        assert_eq!(diagnostics.level().peak, 0.0);
+        diagnostics.decoded(&[]);
+        assert!(diagnostics.level().rms.is_finite());
+    }
 
     #[test]
     fn idle_callbacks_do_not_log_but_active_silence_does() {

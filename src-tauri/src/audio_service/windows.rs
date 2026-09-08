@@ -162,6 +162,10 @@ pub struct AudioService {
 }
 
 impl AudioService {
+    pub fn level(&self) -> super::AudioLevel {
+        self.shared.diagnostics.level()
+    }
+
     pub fn start() -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows audio service");
         let shared = Arc::new(Shared::new());
