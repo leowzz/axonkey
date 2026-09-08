@@ -204,6 +204,9 @@ h1 { color: #202327; font-size: 26px; letter-spacing: 0; line-height: 1; }
 
 .behavior-editor { width: min(1560px, calc(100% - 60px)); margin: 10px auto 0; padding: 14px 16px 16px; scroll-margin-top: 10px; border: 1px solid #d8dade; border-radius: 8px; background: #e9eaec; }
 .behavior-editor.attention { animation: behavior-editor-attention .9s ease-out; }
+.voice-button-guidance { margin-bottom: 16px; padding: 12px 14px; border-left: 3px solid #83a9ce; border-radius: 4px; color: #44505a; background: #eef2f5; font-size: 12px; line-height: 1.7; }
+.voice-button-guidance strong { font-weight: 600; }
+.voice-button-guidance p { margin: 4px 0 0; }
 @keyframes behavior-editor-attention {
   0% { border-color: #4f9df2; box-shadow: 0 0 0 4px rgba(20, 120, 232, .16); }
   100% { border-color: #d8dade; box-shadow: 0 0 0 0 rgba(20, 120, 232, 0); }

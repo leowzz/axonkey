@@ -64,6 +64,11 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
+    {button.id === 'voice' && <div className="voice-button-guidance" role="note">
+      <strong>语音键配置建议</strong>
+      <p>建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。不建议配置双击或长按事件。</p>
+      <p>受遥控器硬件限制，只有长按语音键时才会产生音频流。</p>
+    </div>}
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
         <div className="behavior-column-heading">
