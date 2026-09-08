@@ -54,14 +54,52 @@ static void PumpMainRunLoop(NSTimeInterval seconds) {
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
+typedef struct {
+    int received;
+    int rejected;
+    int playedSamples;
+    int discardedBuffers;
+    int reports;
+    int activeReports;
+    int lastWindow;
+} AudioEvents;
+
+static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
+                              size_t length, int value1, int value2) {
+    AudioEvents *events = context;
+    if (event == AKAudioEventReceived) events->received += 1;
+    if (event == AKAudioEventRejected) events->rejected += 1;
+    if (event == AKAudioEventPlayed) events->playedSamples += value1;
+    if (event == AKAudioEventOutputReset) events->discardedBuffers += value1;
+    if (event == AKAudioEventDiagnostics) {
+        events->reports += 1;
+        events->activeReports += value1 != 0;
+        events->lastWindow = value2;
+    }
+}
+
 int main(void) {
     @autoreleasepool {
-        AKMacAudioBridge *bridge = [[AKMacAudioBridge alloc] initWithCallbacks:NULL];
+        AudioEvents events = {0};
+        AKAudioCallbacks callbacks = {.context = &events, .on_event = CaptureAudioEvent};
+        AKMacAudioBridge *bridge = [[AKMacAudioBridge alloc] initWithCallbacks:&callbacks];
+        [bridge handleAudioData:[NSData dataWithBytes:"\x11" length:1]];
+        if (events.received != 1 || events.rejected != 1) {
+            fputs("rejected audio notification was not counted\n", stderr);
+            return 1;
+        }
         FakeAudioEngine *engine = [[FakeAudioEngine alloc] init];
         FakeAudioPlayer *player = [[FakeAudioPlayer alloc] init];
         [bridge setValue:engine forKey:@"engine"];
         [bridge setValue:player forKey:@"player"];
         [bridge setValue:@YES forKey:@"streaming"];
+        [bridge startDiagnostics];
+        [bridge startDiagnostics];
+        PumpMainRunLoop(1.1);
+        if (events.reports != 1 || events.activeReports != 1 || events.lastWindow < 900) {
+            fputs("active silent session did not produce one periodic diagnostic event\n", stderr);
+            return 1;
+        }
         [bridge setGainDecibels:6.0f];
 
         int16_t samples[] = {100, 200, 30000, 400};
@@ -71,6 +109,10 @@ int main(void) {
         }
         if (player.scheduledBuffer == nil || player.scheduledBuffer.floatChannelData == NULL) {
             fputs("gain test did not receive a PCM buffer\n", stderr);
+            return 1;
+        }
+        if (events.playedSamples != 0) {
+            fputs("scheduled audio was incorrectly counted as played\n", stderr);
             return 1;
         }
         float *channel = player.scheduledBuffer.floatChannelData[0];
@@ -94,6 +136,29 @@ int main(void) {
         PumpMainRunLoop(0.05);
         if (!engine.stopped) {
             fputs("audio output did not stop after the tail buffer played back\n", stderr);
+            return 1;
+        }
+        if (events.playedSamples != 4 || events.discardedBuffers != 0) {
+            fputs("tail playback diagnostics are incorrect\n", stderr);
+            return 1;
+        }
+        player.playedBack();
+        PumpMainRunLoop(0.05);
+        if (events.playedSamples != 4) {
+            fputs("stale player callback was counted as new playback\n", stderr);
+            return 1;
+        }
+        [bridge setValue:@2 forKey:@"pendingAudioBuffers"];
+        [bridge stopAudioOutput];
+        if (events.discardedBuffers != 2) {
+            fputs("discarded pending buffers were not counted\n", stderr);
+            return 1;
+        }
+        [bridge stop];
+        int reportsAfterStop = events.reports;
+        PumpMainRunLoop(1.1);
+        if (events.reports != reportsAfterStop) {
+            fputs("diagnostic timer survived bridge stop\n", stderr);
             return 1;
         }
     }

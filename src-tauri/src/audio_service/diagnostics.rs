@@ -20,6 +20,9 @@ pub(super) struct AudioDiagnostics {
     starts: AtomicU64,
     stops: AtomicU64,
     syncs: AtomicU64,
+    scheduled: AtomicU64,
+    enqueue_failures: AtomicU64,
+    discarded_buffers: AtomicU64,
 }
 
 impl Default for AudioDiagnostics {
@@ -43,6 +46,9 @@ impl Default for AudioDiagnostics {
             starts: AtomicU64::new(0),
             stops: AtomicU64::new(0),
             syncs: AtomicU64::new(0),
+            scheduled: AtomicU64::new(0),
+            enqueue_failures: AtomicU64::new(0),
+            discarded_buffers: AtomicU64::new(0),
         }
     }
 }
@@ -76,6 +82,7 @@ impl AudioDiagnostics {
         self.queue_busy.fetch_add(u64::from(queue_busy), Relaxed);
     }
 
+    #[cfg(any(target_os = "windows", test))]
     pub(super) fn overflow(&self, samples: usize) {
         self.overflow.fetch_add(samples as u64, Relaxed);
     }
@@ -105,7 +112,35 @@ impl AudioDiagnostics {
         }
     }
 
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn scheduled(&self, samples: usize, success: bool) {
+        self.activity.store(true, Relaxed);
+        if success {
+            self.scheduled.fetch_add(samples as u64, Relaxed);
+        } else {
+            self.enqueue_failures.fetch_add(1, Relaxed);
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn discarded_buffers(&self, count: usize) {
+        if count > 0 {
+            self.activity.store(true, Relaxed);
+            self.discarded_buffers.fetch_add(count as u64, Relaxed);
+        }
+    }
+
+    #[cfg(any(target_os = "windows", test))]
     pub(super) fn report(&self, active: bool, window: Duration) -> Option<String> {
+        self.report_platform(active, window, false)
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn report_macos(&self, active: bool, window: Duration) -> Option<String> {
+        self.report_platform(active, window, true)
+    }
+
+    fn report_platform(&self, active: bool, window: Duration, macos: bool) -> Option<String> {
         let activity = self.activity.swap(false, Relaxed);
         let packets = self.packets.swap(0, Relaxed);
         let bytes = self.bytes.swap(0, Relaxed);
@@ -122,6 +157,9 @@ impl AudioDiagnostics {
         let starts = self.starts.swap(0, Relaxed);
         let stops = self.stops.swap(0, Relaxed);
         let syncs = self.syncs.swap(0, Relaxed);
+        let scheduled = self.scheduled.swap(0, Relaxed);
+        let enqueue_failures = self.enqueue_failures.swap(0, Relaxed);
+        let discarded_buffers = self.discarded_buffers.swap(0, Relaxed);
         if !active
             && !activity
             && packets == 0
@@ -131,6 +169,9 @@ impl AudioDiagnostics {
             && starts == 0
             && stops == 0
             && syncs == 0
+            && scheduled == 0
+            && enqueue_failures == 0
+            && discarded_buffers == 0
         {
             return None;
         }
@@ -147,8 +188,13 @@ impl AudioDiagnostics {
         } else {
             (energy as f64 / decoded as f64).sqrt()
         };
+        let output = if macos {
+            format!("scheduled_samples={scheduled} completed_buffers={callbacks} played_samples={consumed} enqueue_failures={enqueue_failures} discarded_pending_buffers={discarded_buffers}")
+        } else {
+            format!("output_callbacks={callbacks} consumed_samples={consumed} unfilled_output_frames={silent_frames} queue_busy_callbacks={queue_busy} overflow_samples={overflow}")
+        };
         Some(format!(
-            "window_ms={} active={active} rx_packets={packets} rx_bytes={bytes} last_rx_ms={last_rx_ms} rejected_packets={rejected} decoded_samples={decoded} pcm_peak={peak} pcm_rms={rms:.1} output_callbacks={callbacks} consumed_samples={consumed} unfilled_output_frames={silent_frames} queue_busy_callbacks={queue_busy} overflow_samples={overflow} notification_read_errors={read_errors} starts={starts} stops={stops} syncs={syncs}",
+            "window_ms={} active={active} rx_packets={packets} rx_bytes={bytes} last_rx_ms={last_rx_ms} rejected_packets={rejected} decoded_samples={decoded} pcm_peak={peak} pcm_rms={rms:.1} {output} notification_read_errors={read_errors} starts={starts} stops={stops} syncs={syncs}",
             window.as_millis()
         ))
     }
@@ -229,5 +275,29 @@ mod tests {
         assert!(report.contains("rx_packets=0"));
         assert!(report.contains("decoded_samples=0"));
         assert!(report.contains("consumed_samples=0 unfilled_output_frames=480"));
+    }
+
+    #[test]
+    fn macos_scheduling_is_not_playback_completion() {
+        let diagnostics = AudioDiagnostics::default();
+        diagnostics.scheduled(240, true);
+        diagnostics.scheduled(240, false);
+        let report = diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains(
+            "scheduled_samples=240 completed_buffers=0 played_samples=0 enqueue_failures=1"
+        ));
+        assert!(!report.contains("unfilled_output_frames"));
+        diagnostics.output(240, 0, false);
+        diagnostics.discarded_buffers(2);
+        let report = diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("scheduled_samples=0 completed_buffers=1 played_samples=240"));
+        assert!(report.contains("discarded_pending_buffers=2"));
+        assert!(diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .is_none());
     }
 }

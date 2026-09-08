@@ -284,6 +284,7 @@ fn worker_loop(shared: Arc<Shared>) {
             .iter()
             .map(|mapping| mapping.source as u16)
             .collect();
+        log::info!(target: "axonkey::input", "macOS capture configuration: capture={capture}, hardware_modifier_mappings={hardware_modifier_mappings:?}");
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),
             capture,
@@ -584,6 +585,7 @@ fn press_flags(keys: &[MacKey]) -> Vec<u64> {
 
 impl PressedChord {
     fn press(keys: &[MacKey]) -> Self {
+        log::info!(target: "axonkey::input", "Mapped chord press: keys={keys:?}");
         let flags = press_flags(keys);
         let mut pressed = Vec::new();
         for (key, flags) in keys.iter().zip(flags) {
@@ -595,6 +597,7 @@ impl PressedChord {
     }
 
     fn release(&mut self) {
+        log::info!(target: "axonkey::input", "Mapped chord release: keys={:?}", self.keys);
         let mut flags = self
             .keys
             .iter()
@@ -630,12 +633,17 @@ impl PressedChord {
 }
 
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
-    unsafe {
+    let posted = unsafe {
         match key {
             MacKey::Keyboard { code, .. } => axonkey_macos_post_key(code, down, flags, autorepeat),
             MacKey::System { kind } => axonkey_macos_post_system_key(kind, down),
         }
+    };
+    log::info!(target: "axonkey::input", "RC003 output: key={key:?}, phase={}, flags=0x{flags:X}, autorepeat={autorepeat}, posted={posted}", if down { "down" } else { "up" });
+    if !posted {
+        log::warn!(target: "axonkey::input", "RC003 output injection failed: key={key:?}, down={down}, autorepeat={autorepeat}");
     }
+    posted
 }
 
 fn tap_key(key: MacKey) {
@@ -691,6 +699,7 @@ impl MacInputState {
 
         for usage in pressed {
             if let Some(source) = source_for_usage(usage) {
+                log::info!(target: "axonkey::input", "RC003 key: button={}, phase=down, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, true);
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
@@ -701,6 +710,7 @@ impl MacInputState {
         }
         for usage in released {
             if let Some(source) = source_for_usage(usage) {
+                log::info!(target: "axonkey::input", "RC003 key: button={}, phase=up, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, false);
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
@@ -724,6 +734,7 @@ impl MacInputState {
             .unwrap_or_default();
         let state = self.button_states.entry(source.id).or_default();
         if state.pressed.is_some() {
+            log::warn!(target: "axonkey::input", "RC003 duplicate down ignored: button={}", source.id);
             return;
         }
         let now = Instant::now();
@@ -733,9 +744,11 @@ impl MacInputState {
             .is_some_and(|pending| now >= pending.due_at)
         {
             let pending = state.pending_click.take().unwrap();
+            log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=next_press", source.id);
             execute_click_or_original(&triggers.click, pending.original);
         }
         if !settings.enabled || !has_custom_behavior(&triggers) {
+            log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}", source.id, settings.enabled);
             post_key(source.original, true, 0, false);
             state.pressed = Some(PressState {
                 started_at: now,
@@ -750,7 +763,13 @@ impl MacInputState {
         }
 
         let held_outputs = continuous_click_chord(&triggers)
-            .map(|keys| PressedChord::press(&keys))
+            .map(|keys| {
+                log::info!(target: "axonkey::input", "Mapped hold: button={}", source.id);
+                for behavior in triggers.click.iter().filter(|behavior| behavior.enabled()) {
+                    log_behavior(behavior);
+                }
+                PressedChord::press(&keys)
+            })
             .unwrap_or_else(|| PressedChord { keys: Vec::new() });
         state.pressed = Some(PressState {
             started_at: now,
@@ -775,11 +794,14 @@ impl MacInputState {
             .cloned()
             .unwrap_or_default();
         let Some(state) = self.button_states.get_mut(source.id) else {
+            log::warn!(target: "axonkey::input", "RC003 unmatched key-up ignored: button={}", source.id);
             return;
         };
         let Some(mut press) = state.pressed.take() else {
+            log::warn!(target: "axonkey::input", "RC003 unmatched key-up ignored: button={}", source.id);
             return;
         };
+        log::info!(target: "axonkey::input", "RC003 release handling: button={}, held_ms={}, held_outputs={}, passthrough={}, long_fired={}", source.id, press.started_at.elapsed().as_millis(), press.held_outputs.keys.len(), press.passthrough, press.long_fired);
         if !press.held_outputs.is_empty() {
             press.held_outputs.release();
             return;
@@ -793,6 +815,7 @@ impl MacInputState {
         }
         let long_enabled = has_enabled(&triggers.long_press);
         if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
+            log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=key_up", source.id);
             execute_behaviors(&triggers.long_press);
             return;
         }
@@ -802,14 +825,17 @@ impl MacInputState {
         }
         if has_enabled(&triggers.double_click) {
             if state.pending_click.take().is_some() {
+                log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=double_click", source.id);
                 execute_behaviors(&triggers.double_click);
             } else {
+                log::info!(target: "axonkey::input", "RC003 click pending: button={}", source.id);
                 state.pending_click = Some(PendingClick {
                     due_at: Instant::now() + Duration::from_millis(DOUBLE_CLICK_MS),
                     original: press.original,
                 });
             }
         } else {
+            log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click", source.id);
             execute_click_or_original(&triggers.click, press.original);
         }
     }
@@ -843,9 +869,11 @@ impl MacInputState {
                     && reached_long_press
                 {
                     if has_enabled(&triggers.long_press) {
+                        log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
                         execute_behaviors(&triggers.long_press);
                         press.long_fired = true;
                     } else {
+                        log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
                         post_key(press.original, true, 0, false);
                         press.passthrough = true;
                         press.next_repeat_at =
@@ -854,6 +882,9 @@ impl MacInputState {
                     state.pending_click = None;
                 }
                 if now >= press.next_repeat_at {
+                    if !press.held_outputs.is_empty() || press.passthrough {
+                        log::info!(target: "axonkey::input", "RC003 repeat: button={}, origin=timer, held_ms={}, passthrough={}", source.id, now.duration_since(press.started_at).as_millis(), press.passthrough);
+                    }
                     if !press.held_outputs.is_empty() {
                         press.held_outputs.repeat();
                     } else if press.passthrough {
@@ -863,6 +894,7 @@ impl MacInputState {
                 }
             }
             if pending_click_is_due(state, now) {
+                log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
                 let pending = state.pending_click.take().unwrap();
                 execute_click_or_original(&triggers.click, pending.original);
             }
@@ -870,8 +902,9 @@ impl MacInputState {
     }
 
     fn release_all(&mut self) {
-        for state in self.button_states.values_mut() {
+        for (button, state) in self.button_states.iter_mut() {
             if let Some(mut press) = state.pressed.take() {
+                log::info!(target: "axonkey::input", "Mapped forced release: button={button}, held_ms={}, held_outputs={}, passthrough={}", press.started_at.elapsed().as_millis(), press.held_outputs.keys.len(), press.passthrough);
                 if !press.held_outputs.is_empty() {
                     press.held_outputs.release();
                 }
@@ -983,6 +1016,7 @@ fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
 
 fn execute_behaviors(behaviors: &[NativeBehavior]) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
+        log_behavior(behavior);
         match behavior {
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(keys) = behavior_chord(behavior) {
@@ -993,8 +1027,10 @@ fn execute_behaviors(behaviors: &[NativeBehavior]) {
             NativeBehavior::Paste { text, .. } => {
                 let utf16 = text.encode_utf16().collect::<Vec<_>>();
                 if !utf16.is_empty() {
-                    unsafe {
-                        axonkey_macos_post_text(utf16.as_ptr(), utf16.len());
+                    let posted = unsafe { axonkey_macos_post_text(utf16.as_ptr(), utf16.len()) };
+                    log::info!(target: "axonkey::input", "Mapped paste output: utf16_units={}, posted={posted}", utf16.len());
+                    if !posted {
+                        log::warn!(target: "axonkey::input", "Mapped paste injection failed");
                     }
                 }
             }
@@ -1002,6 +1038,26 @@ fn execute_behaviors(behaviors: &[NativeBehavior]) {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
             NativeBehavior::Disabled { .. } => {}
+        }
+    }
+}
+
+fn log_behavior(behavior: &NativeBehavior) {
+    match behavior {
+        NativeBehavior::Key { key, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
+        }
+        NativeBehavior::Shortcut { keys, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=shortcut, keys={keys:?}")
+        }
+        NativeBehavior::Paste { text, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count())
+        }
+        NativeBehavior::Delay { ms, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=delay, effective_ms={}", (*ms).min(300_000))
+        }
+        NativeBehavior::Disabled { .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
     }
 }

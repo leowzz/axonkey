@@ -249,6 +249,11 @@ Windows 音频链路常驻 INFO 级诊断，不需要开启调试模式。连接
 - `output_callbacks/consumed_samples` 表示播放回调次数和从队列取出的 16 kHz 源样本数，不保证下游录音应用已收到声音。`unfilled_output_frames` 是因没有足够样本等原因填零的输出帧数（按输出采样率计，不等于内容本身静音）；`queue_busy_callbacks` 是未取得队列锁的回调数，`overflow_samples` 是队列溢出丢弃的源样本数。会话边缘和空闲窗口的填零是正常现象。
 - `streaming/microphone_opened/session_id/queued_samples/gain_db` 提供控制状态、队列余量和增益上下文。排查只有按下瞬间有电平时，保持按住语音键连续说话约 10 秒，再提供包含开始、周期统计和停止事件的日志。
 
+macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标识，共用收包、拒收、通知读取错误、增益前 PCM 电平和控制事件统计。每秒汇总，空闲不写日志，暂停或停止服务时补记并取消定时器；不保存语音内容。状态变化、协议协商、输出格式和语音命令提交也会进入运行日志。
+
+- macOS 输出采用 AVAudioPlayerNode 缓冲调度，不使用 Windows 的输出回调/欠载字段。`scheduled_samples` 是成功排入播放器的源样本数，`enqueue_failures` 是排入失败的缓冲次数；`completed_buffers/played_samples` 仅在当前播放器返回 `DataPlayedBack` 完成回调后累加，不能据此证明下游输入法已收音。
+- `pending_buffers/engine_running/player_playing/drain_requested` 表示待完成缓冲数、引擎/播放器状态和尾音排空状态；`discarded_pending_buffers` 是输出重置时仍未确认完成的缓冲数量，不等于丢弃样本数。播放完成计数在主线程处理回调时记录，跨统计窗口延迟是正常现象。
+
 ## 隐私与恢复
 
 - Axonkey 不需要账号，不上传映射、输入历史或诊断信息。

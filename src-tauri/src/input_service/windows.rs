@@ -447,7 +447,7 @@ fn run_context(
             continue;
         }
         if device != target_device {
-            send_stroke(api, context, device, stroke);
+            unsafe { (api.send)(context, device, &stroke, 1) };
             continue;
         }
         process_target_stroke(api, context, device, shared, &mut button_states, stroke);
@@ -614,11 +614,14 @@ fn process_target_stroke(
     stroke: KeyStroke,
 ) {
     let Some(source) = source_for(stroke) else {
+        log::info!(target: "axonkey::input", "RC003 unrecognized key passthrough: device={device}, scan=0x{:04X}, state=0x{:04X}", stroke.code, stroke.state);
         send_stroke(api, context, device, stroke);
         return;
     };
     let key_up = stroke.state & KEY_UP != 0;
-    let pressed = states.get(source.id).and_then(|state| state.pressed.as_ref());
+    let pressed = states
+        .get(source.id)
+        .and_then(|state| state.pressed.as_ref());
     log::info!(target: "axonkey::input", "RC003 key: device={device}, button={}, phase={}, scan=0x{:04X}, state=0x{:04X}, tracked_press={}, held_ms={}",
         source.id, if key_up { "up" } else if pressed.is_some() { "repeat" } else { "down" },
         stroke.code, stroke.state, pressed.is_some(), pressed.map_or(0, |press| press.started_at.elapsed().as_millis()));
@@ -662,7 +665,16 @@ fn process_target_stroke(
             }
         } else {
             let held_outputs = continuous_click_chord(&triggers)
-                .map(|keys| press_chord(api, context, device, &keys))
+                .map(|keys| {
+                    for behavior in triggers.click.iter().filter(|behavior| behavior.enabled()) {
+                        match behavior {
+                            NativeBehavior::Key { key, .. } => log::info!(target: "axonkey::input", "Mapped hold: button={}, key={key:?}", source.id),
+                            NativeBehavior::Shortcut { keys, .. } => log::info!(target: "axonkey::input", "Mapped hold: button={}, keys={keys:?}", source.id),
+                            _ => {}
+                        }
+                    }
+                    press_chord(api, context, device, &keys)
+                })
                 .unwrap_or_default();
             state.pressed = Some(PressState {
                 started_at: Instant::now(),
@@ -854,11 +866,21 @@ fn execute_behaviors(
 ) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
-            NativeBehavior::Key { key, .. } => log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}"),
-            NativeBehavior::Shortcut { keys, .. } => log::info!(target: "axonkey::input", "Mapped action: type=shortcut, keys={keys:?}"),
-            NativeBehavior::Paste { text, .. } => log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count()),
-            NativeBehavior::Delay { ms, .. } => log::info!(target: "axonkey::input", "Mapped action: type=delay, effective_ms={}", (*ms).min(300_000)),
-            NativeBehavior::Disabled { .. } => log::info!(target: "axonkey::input", "Mapped action: type=disabled"),
+            NativeBehavior::Key { key, .. } => {
+                log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
+            }
+            NativeBehavior::Shortcut { keys, .. } => {
+                log::info!(target: "axonkey::input", "Mapped action: type=shortcut, keys={keys:?}")
+            }
+            NativeBehavior::Paste { text, .. } => {
+                log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count())
+            }
+            NativeBehavior::Delay { ms, .. } => {
+                log::info!(target: "axonkey::input", "Mapped action: type=delay, effective_ms={}", (*ms).min(300_000))
+            }
+            NativeBehavior::Disabled { .. } => {
+                log::info!(target: "axonkey::input", "Mapped action: type=disabled")
+            }
         }
         match behavior {
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
@@ -950,7 +972,13 @@ fn release_all_held_outputs(
 }
 
 fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
-    unsafe { (api.send)(context, device, &stroke, 1) == 1 }
+    let sent = unsafe { (api.send)(context, device, &stroke, 1) };
+    log::info!(target: "axonkey::input", "RC003 output: device={device}, phase={}, scan=0x{:04X}, state=0x{:04X}, sent={sent}",
+        if stroke.state & KEY_UP != 0 { "up" } else { "down" }, stroke.code, stroke.state);
+    if sent != 1 {
+        log::warn!(target: "axonkey::input", "RC003 output injection failed: device={device}, scan=0x{:04X}, state=0x{:04X}, sent={sent}", stroke.code, stroke.state);
+    }
+    sent == 1
 }
 
 fn output_stroke(virtual_key: u16, key_up: bool) -> Option<KeyStroke> {
@@ -1136,6 +1164,8 @@ fn send_unicode_text(text: &str) {
     const INPUT_KEYBOARD: u32 = 1;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
     const KEYEVENTF_UNICODE: u32 = 0x0004;
+    let mut expected_events = 0;
+    let mut sent_events = 0;
     for code_unit in text.encode_utf16() {
         let input = |flags| Input {
             kind: INPUT_KEYBOARD,
@@ -1153,13 +1183,18 @@ fn send_unicode_text(text: &str) {
             input(KEYEVENTF_UNICODE),
             input(KEYEVENTF_UNICODE | KEYEVENTF_KEYUP),
         ];
-        unsafe {
+        expected_events += inputs.len() as u32;
+        sent_events += unsafe {
             SendInput(
                 inputs.len() as u32,
                 inputs.as_ptr(),
                 std::mem::size_of::<Input>() as i32,
             )
         };
+    }
+    log::info!(target: "axonkey::input", "Mapped paste output: expected_events={expected_events}, sent_events={sent_events}");
+    if sent_events != expected_events {
+        log::warn!(target: "axonkey::input", "Mapped paste injection incomplete: expected_events={expected_events}, sent_events={sent_events}");
     }
 }
 

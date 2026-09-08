@@ -1,16 +1,25 @@
-use super::{atvv::AtvvDecoder, clamp_gain_db, AudioServiceStatus};
+use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use std::{
     ffi::{c_char, c_void},
     sync::{
         atomic::{AtomicPtr, Ordering},
         Arc, Mutex,
     },
+    time::Duration,
 };
 
 const EVENT_AUDIO_PACKET: i32 = 1;
 const EVENT_CODEC_SYNC: i32 = 2;
 const EVENT_SESSION_START: i32 = 3;
 const EVENT_SESSION_STOP: i32 = 4;
+const EVENT_RECEIVED: i32 = 5;
+const EVENT_REJECTED: i32 = 6;
+const EVENT_READ_ERROR: i32 = 7;
+const EVENT_PLAYED: i32 = 8;
+const EVENT_DIAGNOSTICS: i32 = 9;
+const EVENT_LOG: i32 = 10;
+const EVENT_CONTROL: i32 = 11;
+const EVENT_OUTPUT_RESET: i32 = 12;
 
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, *const u8, usize, i32, i32);
 
@@ -41,6 +50,7 @@ extern "C" {
 }
 
 struct Shared {
+    diagnostics: AudioDiagnostics,
     bridge: AtomicPtr<c_void>,
     decoder: Mutex<AtvvDecoder>,
 }
@@ -57,6 +67,7 @@ impl AudioService {
     pub fn start() -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
+            diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
         });
@@ -203,31 +214,121 @@ unsafe extern "C" fn native_event_callback(
         return;
     }
     let shared = &*(context.cast::<Shared>());
-    let Ok(mut decoder) = shared.decoder.lock() else {
-        return;
-    };
     match event {
         EVENT_AUDIO_PACKET if !data.is_null() && length > 0 => {
+            let Ok(mut decoder) = shared.decoder.lock() else {
+                shared.diagnostics.rejected();
+                return;
+            };
             let packet = std::slice::from_raw_parts(data, length);
             let frames = decoder.append(packet, value1.max(1) as usize);
             drop(decoder);
             let bridge = shared.bridge.load(Ordering::Acquire);
-            if bridge.is_null() {
-                return;
-            }
             for samples in frames {
-                let _ = axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len());
+                shared.diagnostics.decoded(&samples);
+                let success = !bridge.is_null()
+                    && axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len());
+                shared.diagnostics.scheduled(samples.len(), success);
             }
         }
-        EVENT_CODEC_SYNC => decoder.synchronize(value1, value2),
-        EVENT_SESSION_START | EVENT_SESSION_STOP => decoder.reset_session(),
+        EVENT_CODEC_SYNC => {
+            if let Ok(mut decoder) = shared.decoder.lock() {
+                decoder.synchronize(value1, value2);
+            }
+        }
+        EVENT_SESSION_START | EVENT_SESSION_STOP => {
+            if let Ok(mut decoder) = shared.decoder.lock() {
+                decoder.reset_session();
+            }
+            let state = if event == EVENT_SESSION_START {
+                "started"
+            } else {
+                "stopped"
+            };
+            log::info!(target: "axonkey::audio", "macOS RC003 voice session {state}: session_id={value1}");
+        }
+        EVENT_RECEIVED => shared.diagnostics.received(value1.max(0) as usize),
+        EVENT_REJECTED => shared.diagnostics.rejected(),
+        EVENT_READ_ERROR => shared.diagnostics.read_error(),
+        EVENT_PLAYED => shared.diagnostics.output(value1.max(0) as usize, 0, false),
+        EVENT_CONTROL => shared.diagnostics.control(value1 as u8),
+        EVENT_OUTPUT_RESET => shared.diagnostics.discarded_buffers(value1.max(0) as usize),
+        EVENT_DIAGNOSTICS | EVENT_LOG if !data.is_null() => {
+            let message = String::from_utf8_lossy(std::slice::from_raw_parts(data, length));
+            if event == EVENT_DIAGNOSTICS {
+                if let Some(report) = shared
+                    .diagnostics
+                    .report_macos(value1 != 0, Duration::from_millis(value2.max(0) as u64))
+                {
+                    log::info!(target: "axonkey::audio", "macOS RC003 audio diagnostics: {report} {message}");
+                }
+            } else if value1 != 0 {
+                log::warn!(target: "axonkey::audio", "{message}");
+            } else {
+                log::info!(target: "axonkey::audio", "{message}");
+            }
+        }
         _ => {}
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::battery_level_from_native;
+    use super::*;
+
+    #[test]
+    fn native_packets_record_decode_and_enqueue_failure_separately() {
+        let shared = Shared {
+            diagnostics: AudioDiagnostics::default(),
+            bridge: AtomicPtr::new(std::ptr::null_mut()),
+            decoder: Mutex::new(AtvvDecoder::default()),
+        };
+        let context = (&shared as *const Shared).cast_mut().cast();
+        let packet = [0x11; 120];
+        unsafe {
+            native_event_callback(context, EVENT_RECEIVED, std::ptr::null(), 0, 120, 0);
+            native_event_callback(
+                context,
+                EVENT_AUDIO_PACKET,
+                packet.as_ptr(),
+                packet.len(),
+                120,
+                0,
+            );
+        }
+        let report = shared
+            .diagnostics
+            .report_macos(true, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("rx_packets=1 rx_bytes=120"));
+        assert!(report.contains("decoded_samples=240"));
+        assert!(report.contains(
+            "scheduled_samples=0 completed_buffers=0 played_samples=0 enqueue_failures=1"
+        ));
+    }
+
+    #[test]
+    fn native_telemetry_does_not_take_the_decoder_lock() {
+        let shared = Shared {
+            diagnostics: AudioDiagnostics::default(),
+            bridge: AtomicPtr::new(std::ptr::null_mut()),
+            decoder: Mutex::new(AtvvDecoder::default()),
+        };
+        let context = (&shared as *const Shared).cast_mut().cast();
+        let _guard = shared.decoder.lock().unwrap();
+        unsafe {
+            native_event_callback(context, EVENT_READ_ERROR, std::ptr::null(), 0, 0, 0);
+            native_event_callback(context, EVENT_PLAYED, std::ptr::null(), 0, 240, 0);
+            native_event_callback(context, EVENT_OUTPUT_RESET, std::ptr::null(), 0, 2, 0);
+        }
+        let report = shared
+            .diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("completed_buffers=1 played_samples=240"));
+        assert!(report.contains("notification_read_errors=1"));
+        assert!(report.contains("discarded_pending_buffers=2"));
+    }
 
     #[test]
     fn accepts_only_valid_native_battery_percentages() {

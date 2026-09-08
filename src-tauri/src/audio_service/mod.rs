@@ -21,7 +21,7 @@ pub(crate) fn clamp_gain_db(gain: i16) -> i16 {
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
 mod atvv;
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 mod diagnostics;
 
 #[cfg(target_os = "macos")]

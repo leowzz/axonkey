@@ -12,6 +12,14 @@ enum {
     AKAudioEventCodecSync = 2,
     AKAudioEventSessionStart = 3,
     AKAudioEventSessionStop = 4,
+    AKAudioEventReceived = 5,
+    AKAudioEventRejected = 6,
+    AKAudioEventReadError = 7,
+    AKAudioEventPlayed = 8,
+    AKAudioEventDiagnostics = 9,
+    AKAudioEventLog = 10,
+    AKAudioEventControl = 11,
+    AKAudioEventOutputReset = 12,
 };
 
 enum {
@@ -188,6 +196,8 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     AVAudioEngine *_engine;
     AVAudioPlayerNode *_player;
     AVAudioFormat *_sourceFormat;
+    NSTimer *_diagnosticsTimer;
+    NSTimeInterval _lastDiagnosticsTime;
 }
 
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks {
@@ -219,9 +229,16 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)setState:(int)state error:(NSString *)error {
+    BOOL changed = NO;
     @synchronized (self) {
+        changed = _state != state || !(_errorMessage == error || [_errorMessage isEqual:error]);
         _state = state;
         _errorMessage = [error copy];
+    }
+    if (changed) {
+        [self logAudio:[NSString stringWithFormat:@"macOS audio state: state=%d error=%@",
+                                                  state, error ?: @"none"]
+                 error:error != nil];
     }
 }
 
@@ -290,7 +307,46 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 
 - (void)start {
     _shouldRun = YES;
+    [self startDiagnostics];
     [self refresh];
+}
+
+- (void)logAudio:(NSString *)message error:(BOOL)error {
+    [self emitEvent:AKAudioEventLog
+               data:[message dataUsingEncoding:NSUTF8StringEncoding]
+             value1:error
+             value2:0];
+}
+
+- (void)startDiagnostics {
+    if (_diagnosticsTimer != nil) {
+        return;
+    }
+    _lastDiagnosticsTime = NSProcessInfo.processInfo.systemUptime;
+    __weak AKMacAudioBridge *weakSelf = self;
+    _diagnosticsTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
+        (void)timer;
+        [weakSelf reportDiagnostics];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:_diagnosticsTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)reportDiagnostics {
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    int windowMilliseconds = (int)fmin(fmax((now - _lastDiagnosticsTime) * 1000.0, 0), INT32_MAX);
+    _lastDiagnosticsTime = now;
+    float gain;
+    @synchronized (self) {
+        gain = _gain;
+    }
+    NSString *context = [NSString stringWithFormat:
+        @"streaming=%d microphone_opened=%d session_id=%u pending_buffers=%lu engine_running=%d player_playing=%d drain_requested=%d gain_db=%.1f",
+        _streaming, _microphoneOpened, _sessionID, (unsigned long)_pendingAudioBuffers,
+        _engine.isRunning, _player.isPlaying, _drainRequested, 20.0f * log10f(gain)];
+    [self emitEvent:AKAudioEventDiagnostics
+               data:[context dataUsingEncoding:NSUTF8StringEncoding]
+             value1:_streaming || _microphoneOpened || _pendingAudioBuffers > 0
+             value2:windowMilliseconds];
 }
 
 - (void)refresh {
@@ -311,12 +367,15 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)stop {
+    [_diagnosticsTimer invalidate];
+    _diagnosticsTimer = nil;
     _shouldRun = NO;
     [self closeMicrophoneIfNeeded];
     [self emitEvent:AKAudioEventSessionStop data:nil value1:0 value2:0];
     [self stopBluetooth];
     [self stopAudioOutput];
     [self setState:AKAudioStateStopped error:nil];
+    [self reportDiagnostics];
 }
 
 - (void)beginBluetooth {
@@ -434,6 +493,11 @@ static BOOL AKRemoteNameMatches(NSString *name) {
             ? CBCharacteristicWriteWithoutResponse
             : CBCharacteristicWriteWithResponse;
     [_peripheral writeValue:data forCharacteristic:_transmitCharacteristic type:type];
+    if (data.length > 0) {
+        [self logAudio:[NSString stringWithFormat:@"macOS RC003 voice command submitted: opcode=0x%02x write_type=%ld",
+                                                  ((const uint8_t *)data.bytes)[0], (long)type]
+                 error:NO];
+    }
     return YES;
 }
 
@@ -480,7 +544,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _drainGeneration += 1;
         _lastVoiceStopTime = 0;
         _streaming = YES;
-        [self emitEvent:AKAudioEventSessionStart data:nil value1:0 value2:0];
+        [self emitEvent:AKAudioEventSessionStart data:nil value1:_sessionID value2:0];
     }
     if ([self ensureAudioOutput]) {
         [self setState:AKAudioStateForwarding error:nil];
@@ -493,7 +557,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
     _streaming = NO;
     _microphoneOpened = NO;
-    [self emitEvent:AKAudioEventSessionStop data:nil value1:0 value2:0];
+    [self emitEvent:AKAudioEventSessionStop data:nil value1:_sessionID value2:0];
     if (_capabilitiesConfirmed) {
         [self setState:AKAudioStateReady error:nil];
     }
@@ -533,6 +597,9 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     if (_frameSize == 0) {
         _frameSize = 120;
     }
+    [self logAudio:[NSString stringWithFormat:@"macOS RC003 voice format: protocol_version=0x%04x selected_codec=0x%02x frame_bytes=%lu",
+                                              _protocolVersion, _selectedCodec, (unsigned long)_frameSize]
+             error:NO];
     if (_selectedCodec != 0x02) {
         [self setState:AKAudioStateError error:@"RC003 did not offer 16 kHz voice audio"];
         [self closeMicrophoneIfNeeded];
@@ -547,6 +614,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         return;
     }
     const uint8_t *bytes = data.bytes;
+    [self emitEvent:AKAudioEventControl data:nil value1:bytes[0] value2:0];
     switch (bytes[0]) {
         case 0x0b:
             [self handleCapabilities:data];
@@ -584,12 +652,15 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)handleAudioData:(NSData *)data {
+    [self emitEvent:AKAudioEventReceived data:nil value1:(int)data.length value2:0];
     if (!_capabilitiesConfirmed || data.length == 0) {
+        [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
         return;
     }
     if (!_streaming) {
         if (_lastVoiceStopTime > 0 &&
             CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3) {
+            [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
             return;
         }
         [self beginVoiceSession];
@@ -652,6 +723,11 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
     _engine = engine;
     _player = player;
+    AVAudioFormat *outputFormat = [engine.outputNode outputFormatForBus:0];
+    [self logAudio:[NSString stringWithFormat:@"macOS audio output ready: device=MiRemoteV2ch_UID source_sample_rate=%.0f source_channels=%u source_format=float32 output_sample_rate=%.0f output_channels=%u",
+                                              _sourceFormat.sampleRate, _sourceFormat.channelCount,
+                                              outputFormat.sampleRate, outputFormat.channelCount]
+             error:NO];
     return YES;
 }
 
@@ -676,6 +752,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
     buffer.frameLength = (AVAudioFrameCount)count;
     _pendingAudioBuffers += 1;
+    __weak AVAudioPlayerNode *scheduledPlayer = _player;
     __weak AKMacAudioBridge *weakSelf = self;
     [_player scheduleBuffer:buffer
                      atTime:nil
@@ -690,6 +767,9 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                    if (strongSelf == nil) {
                        return;
                    }
+                   if (scheduledPlayer != nil && strongSelf->_player == scheduledPlayer) {
+                       [strongSelf emitEvent:AKAudioEventPlayed data:nil value1:(int)count value2:0];
+                   }
                    if (strongSelf->_pendingAudioBuffers > 0) {
                        strongSelf->_pendingAudioBuffers -= 1;
                    }
@@ -703,6 +783,9 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)stopAudioOutput {
+    if (_pendingAudioBuffers > 0) {
+        [self emitEvent:AKAudioEventOutputReset data:nil value1:(int)_pendingAudioBuffers value2:0];
+    }
     _drainGeneration += 1;
     _drainRequested = NO;
     _pendingAudioBuffers = 0;
@@ -928,7 +1011,13 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         [self setBatteryLevel:error == nil ? AKParseBatteryLevel(characteristic.value) : -1];
         return;
     }
-    if (peripheral != _peripheral || error != nil || characteristic.value == nil) {
+    if (peripheral != _peripheral) {
+        return;
+    }
+    if (error != nil || characteristic.value == nil) {
+        if ([characteristic.UUID isEqual:_audioUUID] || [characteristic.UUID isEqual:_controlUUID]) {
+            [self emitEvent:AKAudioEventReadError data:nil value1:0 value2:0];
+        }
         return;
     }
     if ([characteristic.UUID isEqual:_controlUUID]) {
