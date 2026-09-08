@@ -681,6 +681,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .mapping-key > button, .trigger-options > button, .mapping-active .hotspot, .mapping-active .hotspot::before { transition: none; }
 }
 .audio-test-dialog { width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; border: 1px solid #cfd4d9; border-radius: 12px; color: #29333d; background: #f8f9fa; box-shadow: 0 24px 70px #191f2642; }
+:root:has(.audio-test-dialog[open]), body:has(.audio-test-dialog[open]) { overflow: hidden; }
+.audio-test-dialog { overflow-y: auto; overscroll-behavior: contain; }
 .audio-test-dialog::backdrop { background: #1d21266b; }
 .audio-test-content { padding: 24px; }
 .audio-test-content header, .audio-test-content header > div, .audio-test-content footer { display: flex; align-items: center; gap: 10px; }
@@ -700,3 +702,23 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-meter dd { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
 .audio-test-note { color: #687581; font-size: 12px; line-height: 1.7; margin: 16px 0 22px; }
 .audio-test-content footer { justify-content: flex-end; }
+.audio-test-gain { margin: 20px 0; }
+.audio-test-gain-heading { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.audio-test-gain-heading output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+.audio-test-gain-controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.audio-test-gain-controls input { flex: 1; min-width: 0; accent-color: #428770; }
+.audio-test-gain-controls button { flex: 0 0 32px; width: 32px; height: 32px; justify-content: center; padding: 0; }
+.audio-test-gain p, .audio-test-suggestion { font-size: 12px; color: #687581; line-height: 1.6; }
+.audio-test-meter h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; }
+.audio-test-meter.hot .audio-test-track > div { background: #bb8524; }
+.audio-test-meter.clipping .audio-test-track > div { background: #c54a4a; }
+.audio-test-meter .audio-test-gain-feedback { margin: 16px 0 12px; }
+.audio-test-gain-error { color: #ad3535 !important; }
+.audio-test-suggestion { display: flex; align-items: center; gap: 12px; border-top: 1px solid #e4e8eb; padding-top: 12px; }
+.audio-test-suggestion button { flex-shrink: 0; }
+@media (max-width: 480px) {
+  .audio-test-content { padding: 16px; }
+  .audio-test-meter { padding: 12px; }
+  .audio-test-meter dl { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
+  .audio-test-suggestion { flex-wrap: wrap; }
+}

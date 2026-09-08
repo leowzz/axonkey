@@ -156,7 +156,7 @@ function App() {
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
-  const { audioGain, updateAudioGain } = useAudioControls({
+  const { audioGain, gainError, updateAudioGain } = useAudioControls({
     platform,
     nativeRuntime,
     onToast: setToast,
@@ -1197,7 +1197,7 @@ function App() {
         onClose={() => setTextInputDraft(null)}
         onSave={commitTextInputPreset}
       />}
-      {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} onClose={() => setAudioTestOpen(false)} />}
+      {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
       {setupOpen && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}
