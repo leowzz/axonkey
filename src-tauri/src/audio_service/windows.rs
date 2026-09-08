@@ -1,4 +1,4 @@
-use super::{atvv::AtvvDecoder, clamp_gain_db, AudioServiceStatus};
+use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, Sample, SampleFormat, SizedSample, StreamConfig, I24, U24,
@@ -65,6 +65,7 @@ impl VoiceProtocolState {
 }
 
 struct Shared {
+    diagnostics: AudioDiagnostics,
     status: Mutex<AudioServiceStatus>,
     protocol: Mutex<VoiceProtocolState>,
     decoder: Mutex<AtvvDecoder>,
@@ -81,6 +82,7 @@ impl Shared {
         let mut protocol = VoiceProtocolState::default();
         protocol.reset_connection();
         Self {
+            diagnostics: AudioDiagnostics::default(),
             status: Mutex::new(AudioServiceStatus {
                 state: "driverMissing".into(),
                 ..AudioServiceStatus::default()
@@ -124,6 +126,32 @@ impl Shared {
                 status.state = "ready".into();
             }
         });
+    }
+
+    fn report_diagnostics(&self, window: Duration) {
+        let (streaming, microphone_opened, session_id) = self
+            .protocol
+            .lock()
+            .map(|protocol| {
+                (
+                    protocol.streaming,
+                    protocol.microphone_opened,
+                    protocol.session_id,
+                )
+            })
+            .unwrap_or_default();
+        if let Some(report) = self
+            .diagnostics
+            .report(streaming || microphone_opened, window)
+        {
+            let queued = self
+                .samples
+                .lock()
+                .map(|samples| samples.len())
+                .unwrap_or_default();
+            let gain_db = self.gain_db.load(Ordering::Acquire);
+            log::info!(target: "axonkey::audio", "RC003 audio diagnostics: {report} streaming={streaming} microphone_opened={microphone_opened} session_id={session_id} queued_samples={queued} gain_db={gain_db}");
+        }
     }
 }
 
@@ -286,6 +314,7 @@ fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), Str
         .map_err(|error| format!("Cannot read CABLE Input audio format: {error}"))?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
+    log::info!(target: "axonkey::audio", "Windows audio output format: device={device_name} sample_rate={} channels={} sample_format={sample_format:?} source_sample_rate={SOURCE_SAMPLE_RATE}", config.sample_rate, config.channels);
     let stream = match sample_format {
         SampleFormat::I8 => build_output_stream::<i8>(&device, config, shared),
         SampleFormat::I16 => build_output_stream::<i16>(&device, config, shared),
@@ -327,7 +356,9 @@ where
             config,
             move |output: &mut [T], _| fill_output(output, channels, &mut cursor, &callback_shared),
             move |error| {
-                error_shared.output_failed.store(true, Ordering::Release);
+                if !error_shared.output_failed.swap(true, Ordering::AcqRel) {
+                    log::warn!(target: "axonkey::audio", "CABLE Input playback callback failed: {error}");
+                }
                 error_shared.update_status(|status| {
                     status.driver_installed = false;
                     status.forwarding = false;
@@ -404,19 +435,24 @@ where
     if channels == 0 {
         return;
     }
+    let output_frames = output.len().div_ceil(channels);
     let streaming = shared
         .protocol
         .lock()
         .map(|protocol| protocol.streaming)
         .unwrap_or(false);
     let Ok(mut samples) = shared.samples.try_lock() else {
+        shared.diagnostics.output(0, output_frames, true);
         return;
     };
+    let queued_before = samples.len();
     if !cursor.prime(&mut samples, streaming) {
+        shared.diagnostics.output(0, output_frames, false);
         return;
     }
     let gain_db = shared.gain_db.load(Ordering::Acquire) as f32;
     let gain = 10.0_f32.powf(gain_db / 20.0);
+    let mut filled_frames = 0;
     for frame in output.chunks_mut(channels) {
         if !cursor.active && !cursor.prime(&mut samples, streaming) {
             break;
@@ -424,7 +460,13 @@ where
         let value = (cursor.next_sample(&mut samples) * gain).clamp(-1.0, 1.0);
         let converted = T::from_sample(value);
         frame.fill(converted);
+        filled_frames += 1;
     }
+    shared.diagnostics.output(
+        queued_before - samples.len(),
+        output_frames - filled_frames,
+        false,
+    );
 }
 
 fn pcm_to_f32(sample: i16) -> f32 {
@@ -493,6 +535,7 @@ fn ble_worker_loop(shared: Arc<Shared>) {
 }
 
 struct VoiceConnection {
+    last_report: Instant,
     device: BluetoothLEDevice,
     service: GattDeviceService,
     transmit: GattCharacteristic,
@@ -530,8 +573,9 @@ impl VoiceConnection {
         let audio_handler = TypedEventHandler::<GattCharacteristic, GattValueChangedEventArgs>::new(
             move |_, args| {
                 if let Some(args) = args.as_ref() {
-                    if let Ok(bytes) = event_bytes(args) {
-                        handle_audio_packet(&audio_shared, &bytes);
+                    match event_bytes(args) {
+                        Ok(bytes) => handle_audio_packet(&audio_shared, &bytes),
+                        Err(_) => audio_shared.diagnostics.read_error(),
                     }
                 }
                 Ok(())
@@ -546,10 +590,15 @@ impl VoiceConnection {
             TypedEventHandler::<GattCharacteristic, GattValueChangedEventArgs>::new(
                 move |_, args| {
                     if let Some(args) = args.as_ref() {
-                        if let Ok(bytes) = event_bytes(args) {
-                            if let Some(command) = handle_control_packet(&control_shared, &bytes) {
-                                let _ = command_tx.send(command);
+                        match event_bytes(args) {
+                            Ok(bytes) => {
+                                if let Some(command) =
+                                    handle_control_packet(&control_shared, &bytes)
+                                {
+                                    let _ = command_tx.send(command);
+                                }
                             }
+                            Err(_) => control_shared.diagnostics.read_error(),
                         }
                     }
                     Ok(())
@@ -564,6 +613,7 @@ impl VoiceConnection {
         write_characteristic(&transmit, &[0x0a, 0x01, 0x00, 0x00, 0x03, 0x03])?;
 
         Ok(Self {
+            last_report: Instant::now(),
             device,
             service,
             transmit,
@@ -579,6 +629,10 @@ impl VoiceConnection {
         while !shared.stop.load(Ordering::Acquire)
             && !shared.ble_refresh.swap(false, Ordering::AcqRel)
         {
+            if self.last_report.elapsed() >= Duration::from_secs(1) {
+                shared.report_diagnostics(self.last_report.elapsed());
+                self.last_report = Instant::now();
+            }
             if !shared.output_available() {
                 return Err("CABLE Input playback endpoint became unavailable".into());
             }
@@ -593,7 +647,10 @@ impl VoiceConnection {
                 );
             }
             match self.commands.recv_timeout(CONNECTION_POLL) {
-                Ok(command) => write_characteristic(&self.transmit, &command)?,
+                Ok(command) => {
+                    write_characteristic(&self.transmit, &command)?;
+                    log::info!(target: "axonkey::audio", "RC003 voice command sent: opcode=0x{:02x}", command[0]);
+                }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     return Err("RC003 voice notification handler stopped".into())
@@ -604,6 +661,7 @@ impl VoiceConnection {
     }
 
     fn close(&mut self, shared: &Shared) {
+        shared.report_diagnostics(self.last_report.elapsed());
         let close_command = shared.protocol.lock().ok().and_then(|protocol| {
             (protocol.microphone_opened || protocol.streaming).then(|| {
                 let command = [0x0d, protocol.session_id];
@@ -764,6 +822,7 @@ fn event_bytes(args: &GattValueChangedEventArgs) -> windows::core::Result<Vec<u8
 }
 
 fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
+    shared.diagnostics.control(*bytes.first()?);
     let command = match bytes.first().copied()? {
         0x0b => {
             if bytes.len() < 7 {
@@ -787,6 +846,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
                 }
                 unsupported = protocol.selected_codec != 0x02;
                 protocol.capabilities_confirmed = !unsupported;
+                log::info!(target: "axonkey::audio", "RC003 voice format: protocol_version=0x{:04x} selected_codec=0x{:02x} frame_bytes={} supported={}", protocol.protocol_version, protocol.selected_codec, protocol.frame_size, !unsupported);
             }
             shared.update_status(|status| {
                 if unsupported {
@@ -871,14 +931,18 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
+    shared.diagnostics.received(bytes.len());
     if bytes.is_empty() {
+        shared.diagnostics.rejected();
         return;
     }
     let frame_size = {
         let Ok(mut protocol) = shared.protocol.lock() else {
+            shared.diagnostics.rejected();
             return;
         };
         if !protocol.capabilities_confirmed {
+            shared.diagnostics.rejected();
             return;
         }
         if !protocol.streaming {
@@ -886,6 +950,7 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
                 .last_voice_stop
                 .is_some_and(|stopped| stopped.elapsed() < Duration::from_millis(300))
             {
+                shared.diagnostics.rejected();
                 return;
             }
             protocol.streaming = true;
@@ -906,6 +971,9 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
     if frames.is_empty() {
         return;
     }
+    for frame in &frames {
+        shared.diagnostics.decoded(frame);
+    }
     if let Ok(mut queued) = shared.samples.lock() {
         for frame in frames {
             let overflow = queued
@@ -915,6 +983,7 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
             if overflow > 0 {
                 let remove = overflow.min(queued.len());
                 queued.drain(..remove);
+                shared.diagnostics.overflow(remove);
             }
             queued.extend(frame);
         }
@@ -933,7 +1002,54 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{approved_remote_service_id, cable_output_name};
+    use super::{approved_remote_service_id, cable_output_name, fill_output, OutputCursor, Shared};
+    use std::time::Duration;
+
+    #[test]
+    fn output_diagnostics_count_source_samples_without_changing_stereo_audio() {
+        let shared = Shared::new();
+        shared.samples.lock().unwrap().extend([1000; 640]);
+        let mut cursor = OutputCursor::new(48_000);
+        let mut output = [0.0_f32; 960];
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        assert!(output
+            .iter()
+            .all(|sample| (*sample - 1000.0 / 32767.0).abs() < 0.00001));
+        assert_eq!(shared.samples.lock().unwrap().len(), 478);
+        let report = shared
+            .diagnostics
+            .report(true, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("output_callbacks=1 consumed_samples=162 unfilled_output_frames=0"));
+    }
+
+    #[test]
+    fn output_diagnostics_distinguish_prebuffer_and_queue_contention() {
+        let shared = Shared::new();
+        shared.protocol.lock().unwrap().streaming = true;
+        shared.samples.lock().unwrap().extend([1000; 240]);
+        let mut cursor = OutputCursor::new(48_000);
+        let mut output = [1.0_f32; 960];
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        assert!(output.iter().all(|sample| *sample == 0.0));
+        let report = shared
+            .diagnostics
+            .report(true, Duration::from_secs(1))
+            .unwrap();
+        assert!(
+            report.contains("consumed_samples=0 unfilled_output_frames=480 queue_busy_callbacks=0")
+        );
+
+        let _guard = shared.samples.lock().unwrap();
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        let report = shared
+            .diagnostics
+            .report(true, Duration::from_secs(1))
+            .unwrap();
+        assert!(
+            report.contains("consumed_samples=0 unfilled_output_frames=480 queue_busy_callbacks=1")
+        );
+    }
 
     #[test]
     fn selects_only_the_vb_cable_playback_endpoint() {

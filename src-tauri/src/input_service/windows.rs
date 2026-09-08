@@ -618,6 +618,10 @@ fn process_target_stroke(
         return;
     };
     let key_up = stroke.state & KEY_UP != 0;
+    let pressed = states.get(source.id).and_then(|state| state.pressed.as_ref());
+    log::info!(target: "axonkey::input", "RC003 key: device={device}, button={}, phase={}, scan=0x{:04X}, state=0x{:04X}, tracked_press={}, held_ms={}",
+        source.id, if key_up { "up" } else if pressed.is_some() { "repeat" } else { "down" },
+        stroke.code, stroke.state, pressed.is_some(), pressed.map_or(0, |press| press.started_at.elapsed().as_millis()));
     emit_remote_key_event(shared, source.id, !key_up);
     let settings = shared
         .settings
@@ -630,6 +634,7 @@ fn process_target_stroke(
         .cloned()
         .unwrap_or_default();
     if !settings.enabled || !has_custom_behavior(&triggers) {
+        log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}, custom_behavior={}", source.id, settings.enabled, has_custom_behavior(&triggers));
         if let Some(state) = states.get_mut(source.id) {
             if let Some(press) = state.pressed.take() {
                 release_chord(api, context, device, &press.held_outputs);
@@ -643,6 +648,7 @@ fn process_target_stroke(
     let state = states.entry(source.id).or_default();
     if !key_up {
         if let Some(press) = state.pressed.as_mut() {
+            log::info!(target: "axonkey::input", "RC003 repeat handling: button={}, held_outputs={}, passthrough_long={}, long_fired={}", source.id, press.held_outputs.len(), press.passthrough_long, press.long_fired);
             if let Some(repeat) = press.held_outputs.last().copied() {
                 send_stroke(api, context, device, repeat);
             } else if press.passthrough_long {
@@ -670,6 +676,7 @@ fn process_target_stroke(
     }
 
     let Some(press) = state.pressed.take() else {
+        log::warn!(target: "axonkey::input", "RC003 unmatched key-up ignored: button={}", source.id);
         return;
     };
     if !press.held_outputs.is_empty() {
@@ -685,6 +692,7 @@ fn process_target_stroke(
     }
     let long_enabled = has_enabled(&triggers.long_press);
     if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
+        log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=key_up", source.id);
         execute_behaviors(api, context, device, &triggers.long_press);
         return;
     }
@@ -695,14 +703,17 @@ fn process_target_stroke(
     }
     if has_enabled(&triggers.double_click) {
         if state.pending_click.take().is_some() {
+            log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=double_click", source.id);
             execute_behaviors(api, context, device, &triggers.double_click);
         } else {
+            log::info!(target: "axonkey::input", "RC003 click pending: button={}", source.id);
             state.pending_click = Some(PendingClick {
                 due_at: Instant::now() + Duration::from_millis(DOUBLE_CLICK_MS),
                 original: press.original,
             });
         }
     } else {
+        log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click", source.id);
         execute_click_or_original(api, context, device, &triggers.click, press.original);
     }
 }
@@ -761,9 +772,11 @@ fn process_timers(
                 && reached_long_press
             {
                 if has_enabled(&triggers.long_press) {
+                    log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
                     execute_behaviors(api, context, device, &triggers.long_press);
                     press.long_fired = true;
                 } else {
+                    log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
                     send_original_down(api, context, device, press.original);
                     press.passthrough_long = true;
                 }
@@ -776,6 +789,7 @@ fn process_timers(
             .is_some_and(|pending| now >= pending.due_at)
         {
             let pending = state.pending_click.take().unwrap();
+            log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
             execute_click_or_original(api, context, device, &triggers.click, pending.original);
         }
     }
@@ -840,6 +854,13 @@ fn execute_behaviors(
 ) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
+            NativeBehavior::Key { key, .. } => log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}"),
+            NativeBehavior::Shortcut { keys, .. } => log::info!(target: "axonkey::input", "Mapped action: type=shortcut, keys={keys:?}"),
+            NativeBehavior::Paste { text, .. } => log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count()),
+            NativeBehavior::Delay { ms, .. } => log::info!(target: "axonkey::input", "Mapped action: type=delay, effective_ms={}", (*ms).min(300_000)),
+            NativeBehavior::Disabled { .. } => log::info!(target: "axonkey::input", "Mapped action: type=disabled"),
+        }
+        match behavior {
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(chord) = behavior_chord(behavior) {
                     tap_chord(api, context, device, &chord);
@@ -883,17 +904,23 @@ fn press_chord(
     keys: &[u16],
 ) -> Vec<KeyStroke> {
     let mut pressed = Vec::new();
+    log::info!(target: "axonkey::input", "Mapped chord press: device={device}, virtual_keys={keys:X?}");
     for key in keys {
         if let Some(stroke) = output_stroke(*key, false) {
             if send_stroke(api, context, device, stroke) {
                 pressed.push(stroke);
             }
+        } else {
+            log::warn!(target: "axonkey::input", "Mapped key conversion failed: virtual_key=0x{key:04X}");
         }
     }
     pressed
 }
 
 fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: &[KeyStroke]) {
+    if !pressed.is_empty() {
+        log::info!(target: "axonkey::input", "Mapped chord release: device={device}, keys={}", pressed.len());
+    }
     for mut stroke in pressed.iter().copied().rev() {
         stroke.state |= KEY_UP;
         send_stroke(api, context, device, stroke);
@@ -911,8 +938,11 @@ fn release_all_held_outputs(
     device: i32,
     states: &mut HashMap<&'static str, ButtonState>,
 ) {
-    for state in states.values_mut() {
+    for (button, state) in states.iter_mut() {
         if let Some(press) = state.pressed.as_mut() {
+            if !press.held_outputs.is_empty() {
+                log::info!(target: "axonkey::input", "Mapped forced release: button={button}, keys={}, held_ms={}", press.held_outputs.len(), press.started_at.elapsed().as_millis());
+            }
             release_chord(api, context, device, &press.held_outputs);
             press.held_outputs.clear();
         }
