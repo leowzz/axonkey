@@ -26,18 +26,6 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 </p>
 <p align="center"><sub>按键映射：选择实体按键，再分别编辑单击、双击和长按行为</sub></p>
 
-## 手绘配图
-
-<p align="center">
-  <img src="./assets/axonkey-readme-illustrations/01-rc003-control-console.png" width="960" alt="小黑把 RC003 接入按键映射控制台的手绘插图">
-</p>
-<p align="center"><sub>一个遥控器，一张本地控制台：只认 RC003，按键行为随手可改。</sub></p>
-
-<p align="center">
-  <img src="./assets/axonkey-readme-illustrations/02-rc003-voice-bridge.png" width="960" alt="小黑把 RC003 语音分流到 macOS 和 Windows 虚拟麦克风的手绘插图">
-</p>
-<p align="center"><sub>按住语音键，解码后的声音按平台进入 `MiRemoteV 2ch` 或 `CABLE Output`。</sub></p>
-
 ## 主要功能
 
 - 主页集中显示输入环境、辅助功能、语音通道、RC003 连接状态和电量，并提供对应的处理入口。
