@@ -76,8 +76,9 @@ impl AudioDiagnostics {
         self.energy.fetch_add(energy, Relaxed);
         self.peak.fetch_max(peak, Relaxed);
         if !samples.is_empty() {
+            let trimmed_peak = trimmed_sample_peak(samples);
             if let Ok(mut level) = self.level.lock() {
-                *level = Some((Instant::now(), peak as f64 / 32768.0,
+                *level = Some((Instant::now(), trimmed_peak as f64 / 32768.0,
                     (energy as f64 / samples.len() as f64).sqrt() / 32768.0));
             }
         }
@@ -215,9 +216,44 @@ impl AudioDiagnostics {
     }
 }
 
+fn trimmed_sample_peak(samples: &[i16]) -> u16 {
+    if samples.is_empty() {
+        return 0;
+    }
+    let mut magnitudes: Vec<u16> = samples.iter().map(|sample| sample.unsigned_abs()).collect();
+    let retained_peak_index = magnitudes.len() - magnitudes.len() / 100 - 1;
+    let (_, peak, _) = magnitudes.select_nth_unstable(retained_peak_index);
+    *peak
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_peak_trims_top_one_percent_without_changing_rms_or_log_peak() {
+        let diagnostics = AudioDiagnostics::default();
+        let mut samples = vec![1000; 200];
+        samples[0] = i16::MIN;
+        samples[1] = i16::MAX;
+        diagnostics.decoded(&samples);
+        assert_eq!(diagnostics.level().peak, 1000.0 / 32768.0);
+        let energy = 198.0 * 1000.0_f64.powi(2) + 32768.0_f64.powi(2) + 32767.0_f64.powi(2);
+        assert!((diagnostics.level().rms - (energy / 200.0).sqrt() / 32768.0).abs() < 1e-12);
+        let report = diagnostics.report(true, Duration::from_secs(1)).unwrap();
+        assert!(report.contains("pcm_peak=32768"));
+    }
+
+    #[test]
+    fn trimmed_peak_preserves_sustained_loud_audio_and_handles_small_batches() {
+        assert_eq!(trimmed_sample_peak(&[]), 0);
+        assert_eq!(trimmed_sample_peak(&[i16::MIN]), 32768);
+        assert_eq!(trimmed_sample_peak(&[0; 200]), 0);
+        assert_eq!(trimmed_sample_peak(&[i16::MIN; 200]), 32768);
+        let mut samples = vec![1000; 200];
+        samples[..3].fill(-20000);
+        assert_eq!(trimmed_sample_peak(&samples), 20000);
+    }
 
     #[test]
     fn live_level_normalizes_pcm_and_expires_without_packets() {

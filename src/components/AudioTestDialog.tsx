@@ -106,7 +106,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
         {maximum >= 0.999 ? <p className="audio-test-gain-error">原始输入已接近满幅，降低软件增益无法修复源头失真。请远离麦克风或降低说话音量后重新测量。</p>
           : <div className="audio-test-suggestion"><span>{suggestedGain === null ? '尚无足够响亮的样本，请正常说话后获取建议。' : `按本次原始峰值估算，建议 ${suggestedGain > 0 ? '+' : ''}${suggestedGain} dB，以 −12 dBFS 为目标（限于可调范围）。`}</span><button type="button" className="dialog-secondary" disabled={!supported || !!error || !status?.bluetoothConnected || !status.driverInstalled || suggestedGain === null || suggestedGain === audioGain} onClick={() => { if (suggestedGain !== null) onAudioGainChange(suggestedGain) }}>应用建议</button></div>}
       </section>
-      <p className="audio-test-note">增益后数值按原始采样和当前设置估算，超过 0 dBFS 表示削波风险，并非实际输出测量。建议仅供调节参考，不能区分语音与噪声。请在目标应用录音回放确认；本弹窗不播放或保存录音。</p>
+      <p className="audio-test-note">测试峰值剔除每批绝对振幅最高的 1% 样本（不足 100 个时不剔除），减轻按键瞬间尖峰的影响；RMS 和实际音频不变。增益后数值按当前设置估算，超过 0 dBFS 表示削波风险，并非实际输出测量，短暂削波仍可能被过滤。建议不能区分语音与噪声，请在目标应用录音回放确认；本弹窗不播放或保存录音。</p>
       <footer><button type="button" className="dialog-secondary" onClick={() => setMaximum(0)}>重新测量</button><button type="button" className="dialog-secondary" onClick={onClose}>完成</button></footer>
     </div>
   </dialog>
