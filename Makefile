@@ -9,7 +9,7 @@ kill:
 	@if command -v pkill >/dev/null 2>&1; then \
 		pkill -x axonkey || true; \
 	elif command -v powershell.exe >/dev/null 2>&1; then \
-		powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name axonkey -ErrorAction SilentlyContinue | Stop-Process -Force"; \
+		powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name axonkey -ErrorAction SilentlyContinue | Stop-Process -Force; exit 0" || true; \
 	else \
 		echo "No process cleanup command available; continuing."; \
 	fi
