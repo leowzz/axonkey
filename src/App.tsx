@@ -1131,7 +1131,7 @@ function App() {
           </div>
           {platform !== 'macos' && <div className="mapping-limit-note" role="note">
             <Info size={12} aria-hidden="true" />
-            <span>返回键和独立音量 + / - 键暂不可配置：Windows 无法可靠区分这些按键来自哪台设备，强制映射可能影响其他键盘或遥控器。</span>
+            <span>Windows 支持配置 10 个按键；返回键和独立音量 + / - 键保留系统原始行为，不作为映射触发键。</span>
           </div>}
         </div> : <HomeDashboard
           platform={platform}

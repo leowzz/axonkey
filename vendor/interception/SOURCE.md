@@ -23,21 +23,8 @@ Bundled files:
   commercial-license descriptions for review only.
 
 `interception.h`, import libraries, samples, and x86 runtime DLLs are not
-bundled because Axonkey calls the native API through managed P/Invoke and ships
-only as an x64 application.
+bundled because the Windows backend loads the native API from Rust through
+`libloading` and ships only as an x64 application.
 
 The commercial-license PDFs are informational. Bundling them does not grant
 commercial distribution rights. Review `THIRD_PARTY_NOTICES.md` before release.
-
-## Known RC003 compatibility blocker
-
-Interception 1.0.1 has confirmed keyboard hot-plug and reconnect failures. On
-RC003, a Bluetooth HID reconnect can leave the new keyboard node attached to
-the `keyboard.sys` upper filter but absent from every Interception keyboard
-slot. The device then remains visible and healthy in Windows while producing no
-input, regardless of whether Axonkey is running.
-
-Do not treat this binary as a production-safe RC003 dependency. See
-[`docs/INTERCEPTION_HOTPLUG_INCIDENT.md`](../../docs/INTERCEPTION_HOTPLUG_INCIDENT.md)
-for local evidence, upstream issue links, recovery steps, and replacement
-requirements.

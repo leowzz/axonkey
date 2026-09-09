@@ -8,10 +8,8 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 
 | 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
 | --- | --- | ---: | --- | --- |
-| macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 当前主要支持平台；需要输入监控与辅助功能权限 |
-| Windows 11 x64 | Interception 1.0.1 | 10 | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 可用于功能验证；输入链路仍受 Interception 重连故障影响 |
-
-> **Windows 已知问题：** Axonkey 当前恢复使用 Interception 1.0.1，但该驱动存在已知的设备重连故障。[Interception issue #25](https://github.com/oblitum/Interception/issues/25) 记录了键盘或鼠标反复连接后停止向 Windows 发送输入、且通常只能重启恢复的问题；Axonkey 在 RC003 蓝牙 HID 重连上也复现了同类故障。退出 Axonkey 无法修复内核驱动状态，因此当前 Windows 输入方案仅建议用于隔离测试，不应视为可发布的稳定方案。完整证据与恢复步骤见 [Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。macOS 原生后端不受此问题影响。
+| macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 支持按键映射与语音；需要输入监控与辅助功能权限 |
+| Windows 11 x64 | Interception 1.0.1 | 10 | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 支持按键映射与语音；需要 Interception，语音另需 VB-CABLE |
 
 ## 界面截图
 
@@ -49,7 +47,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 
 Windows 编辑器只开放其中 10 个按键，不提供返回键和独立音量 `+ / -` 作为映射触发键。Windows 无法可靠区分这些原始事件来自哪台输入设备，强制拦截可能影响其他键盘或遥控器。可配置按键仍然可以映射为系统音量增大、减小或静音。
 
-当前版本不计划支持：
+以下功能不在项目支持范围内：
 
 - 其他遥控器或普通键盘型号；
 - Linux；
@@ -68,13 +66,13 @@ Windows 编辑器只开放其中 10 个按键，不提供返回键和独立音�
 
 ### Windows
 
-- 64 位 Windows 11；Windows 10 仅保留待验证兼容性，不属于当前正式支持范围；
+- 64 位 Windows 11；
 - 已通过 Windows 蓝牙设置配对的 RC003；
-- Interception v1.0.1 输入驱动（仅建议用于隔离测试，见上方已知问题）；
+- Interception v1.0.1 输入驱动；
 - 需要虚拟麦克风时安装 VB-Audio VB-CABLE Pack45；
 - 首次安装或卸载上述驱动时需要管理员权限，并需要重启 Windows 一次。
 
-Axonkey 使用 x64 `interception.dll`，因此不支持 32 位 Windows。输入服务按硬件 ID 只为 RC003 设置过滤条件，但这不能规避 Interception 内核驱动自身的热插拔问题。
+Axonkey 使用 x64 `interception.dll`，因此不支持 32 位 Windows。输入服务按硬件 ID 只为 RC003 设置过滤条件。
 
 ### macOS
 
@@ -89,15 +87,13 @@ macOS 按键映射不需要安装输入驱动。未启用自定义映射，或�
 
 ## Windows 首次使用
 
-> 以下 Interception 安装步骤仅用于隔离测试环境。日常使用的 Windows 系统应跳过输入驱动安装；此时 Axonkey 的自定义按键映射不可用，但不会引入已确认的重连失效风险。
-
 1. 在 Windows 蓝牙设置中配对并唤醒 RC003。
 2. 启动 Axonkey，按照首次使用引导检查设备和驱动。
-3. 仅在隔离测试环境中，在“驱动安装”页面依次安装 Interception 和 VB-CABLE；两个安装器都完成后重启 Windows 一次。
+3. 在“驱动安装”页面安装 Interception；需要语音时同时安装 VB-CABLE。完成所需驱动安装后重启 Windows 一次。
 4. 重新打开 Axonkey，选择遥控器按键及触发方式，然后设置目标行为。
 5. 打开“启用自定义按键功能”开关。
 
-VB-CABLE 只需安装一次。Interception 安装说明仅保留用于测试和故障复现，不应作为当前生产安装建议。之后添加、删除或修改映射不需要再次重启。
+Interception 和 VB-CABLE 只需安装一次。之后添加、删除或修改映射不需要再次重启。
 
 从源码目录或解压后的发行目录也可以手动运行安装脚本：
 
@@ -205,9 +201,9 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 
 `make build-macos-audio` 可单独从固定的 BlackHole 源码构建 MiRemoteV 驱动及安装、卸载 PKG；`make build` 和 `make build-macos` 在 macOS 上会自动执行这一步。
 
-设置 `APPLE_SIGNING_IDENTITY` 后，`make build-macos` 会用该证书签名 App 和 DMG；此时本地钥匙串还必须包含 Developer ID Installer 证书，并通过 `MACOS_INSTALLER_SIGNING_IDENTITY` 指定它，否则构建会拒绝嵌入未签名的 MiRemoteV PKG。两项 identity 都不设置时回退到 ad-hoc 签名。输入监控和辅助功能权限绑定代码签名身份，经常安装本地构建时应固定使用同一签名证书。ad-hoc 构建每次变化后都可能需要移除旧权限条目并重新授权。
+设置 `APPLE_SIGNING_IDENTITY` 后，`make build-macos` 会用该证书签名 App 和 DMG；此时还需通过 `MACOS_INSTALLER_SIGNING_IDENTITY` 指定钥匙串中的安装包签名证书，否则构建会拒绝嵌入未签名的 MiRemoteV PKG。构建流程支持自签名证书和 Developer ID 证书。两项 identity 都不设置时，App 使用 ad-hoc 签名，MiRemoteV PKG 不签名。输入监控和辅助功能权限绑定代码签名身份，经常安装本地构建时应固定使用同一签名证书。ad-hoc 构建每次变化后都可能需要移除旧权限条目并重新授权。
 
-面向外部用户分发时必须使用稳定的 Developer ID Application 身份并配置 Apple 公证凭据，不能把 ad-hoc CI 产物作为可延续系统权限的正式安装包。
+自签名分发包的首次安装与授权步骤见上方“macOS 自签名版本的信任与限制”。使用 Developer ID 签名并配置 Apple 公证凭据时，CI 会执行公证流程。
 
 `make release` 要求 Git 工作区完全干净。未传 `V` 时，它从 `.env` 递增 patch；也可以用 `V=vX.Y.Z` 指定版本。命令会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建 `chore: release vX.Y.Z` 提交，再在该提交上创建 annotated tag。它不会构建、推送或发布远端 Release。
 
@@ -222,8 +218,7 @@ macOS voice:   RC003 -> CoreBluetooth ATVV -> IMA ADPCM -> PCM -> MiRemoteV 2ch
 
 输入服务只为识别出的 RC003 设备设置过滤条件。设置更新采用本地快照，界面保存后会直接替换输入服务中的当前配置。
 
-更多实现信息见 [架构说明](./docs/ARCHITECTURE.md)、[产品范围](./docs/PRODUCT.md) 和
-[Interception 热插拔故障记录](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+更多实现信息见 [架构说明](./docs/ARCHITECTURE.md)、[产品范围](./docs/PRODUCT.md) 和 [Windows 输入说明](./docs/WINDOWS_INPUT.md)。
 
 ## 运行日志
 
@@ -250,7 +245,7 @@ macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标�
 - 映射配置保存在本机应用数据中。
 - Windows 驱动安装和卸载日志位于 `%LOCALAPPDATA%\Axonkey\logs`。
 - macOS MiRemoteV 安装和卸载日志位于 `~/Library/Logs/Axonkey`。
-- Windows 中退出 Axonkey 会释放用户态 Interception context，但无法修复驱动热插拔故障。若 RC003 重连后完全没有输入，需要卸载 Interception、重启 Windows 并重新配对。
+- Windows 中退出 Axonkey 会释放用户态 Interception context，停止处理自定义映射。
 - macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
 ## Interception 许可

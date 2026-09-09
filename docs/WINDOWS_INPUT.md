@@ -1,0 +1,33 @@
+# Windows 输入
+
+Axonkey 在 Windows 11 x64 上使用 Interception 1.0.1 处理 RC003 按键映射。
+首次使用时通过应用引导安装驱动并重启 Windows，之后修改映射无需重启。
+
+## 输入链路
+
+Rust 后端通过 `libloading` 加载随应用提供的 x64 `interception.dll`，按硬件 ID
+匹配小米 RC003（`VID_2717&PID_32B8`），只为目标设备设置输入过滤条件。
+按键事件经过单击、双击和长按状态机处理，再从同一设备发送映射后的输入。
+普通键盘不进入 RC003 映射流程。
+
+Windows 提供 10 个可配置按键：电源、语音、四向、确认、主页、菜单和 TV。
+返回键和独立音量 `+ / -` 键保留系统原始行为，不作为映射触发键。
+可配置按键仍可映射为系统音量增大、减小或静音。
+
+关闭主窗口后，Axonkey 继续常驻系统托盘并处理映射。
+关闭“启用自定义按键功能”可恢复原按键行为；从托盘退出应用会释放
+Interception context，停止处理自定义映射。
+
+## 安装与语音
+
+Interception 的安装和卸载需要管理员权限及 Windows 重启。
+安装脚本在提权前校验随项目提供的安装器和运行库哈希。
+卸载输入驱动后，自定义按键映射需要重新安装驱动才能使用。
+
+RC003 语音由独立的 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；
+Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
+按键映射不要求安装 VB-CABLE。
+
+详细安装步骤见 [README](../README.md)，双平台实现见
+[架构说明](./ARCHITECTURE.md)，驱动来源与校验值见
+[Interception 来源说明](../vendor/interception/SOURCE.md)。

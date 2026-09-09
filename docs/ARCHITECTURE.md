@@ -1,10 +1,5 @@
 # Architecture
 
-> **Confirmed blocker:** Interception 1.0.1 can leave a reconnected Bluetooth
-> HID keyboard present but unable to produce input, even when Axonkey is not
-> running. The current Windows input architecture is not production-safe for
-> RC003. See [Interception hot-plug incident](./INTERCEPTION_HOTPLUG_INCIDENT.md).
-
 ```text
 Windows
   RC003 HID keyboard
@@ -14,6 +9,12 @@ Windows
     -> source scan-code lookup (including E0 state)
     -> mapping snapshot and gesture state
     -> Interception send on the same RC003 keyboard device
+
+  RC003 ATVV voice service
+    -> Windows Bluetooth GATT control and audio notifications
+    -> Rust frame accumulator and 16 kHz IMA ADPCM decoder
+    -> CPAL output to CABLE Input
+    -> CABLE Output selected by the consuming application
 
 macOS
   RC003 HID interfaces
@@ -33,9 +34,7 @@ macOS
 The input service opens the Interception context, reads the hardware ID for each
 keyboard slot, and sets a filter only on the matching RC003.
 Other keyboards do not enter Axonkey's event loop and therefore cannot be
-suppressed by an RC003 mapping. This user-mode isolation does not prevent the
-Interception kernel driver's fixed-slot and PnP failure documented in upstream
-[issue #25](https://github.com/oblitum/Interception/issues/25).
+suppressed by an RC003 mapping.
 
 On macOS, the input service starts in non-exclusive monitor mode. When custom
 mappings are enabled and both Input Monitoring and Accessibility permissions
@@ -56,9 +55,8 @@ enabled state restarts only the IOHIDManager session so it can enter or leave
 capture mode safely.
 
 Installing or removing Interception requires administrator access and a Windows
-reboot. Normal Axonkey execution uses the current user's privileges. User-mode
-context cleanup cannot recover an Interception device that failed during PnP
-re-enumeration.
+reboot. Normal Axonkey execution uses the current user's privileges. Quitting
+Axonkey releases its user-mode Interception context.
 
 The macOS backend is compiled from `native/macos_input.m` and
 `native/macos_audio.m` and links only Apple system frameworks. Input Monitoring
@@ -68,10 +66,12 @@ ATVV voice connection. macOS needs no input driver. Its optional virtual audio
 driver is a pinned BlackHole derivative built and packaged by Axonkey as
 `MiRemoteV2ch.driver`.
 
-`AudioService` is the application-facing audio module. Rust owns frame
-accumulation and ADPCM decoding; the Objective-C adapter hides CoreBluetooth,
+`AudioService` is the application-facing audio module on both platforms. Rust
+owns frame accumulation, ADPCM decoding, gain, and audio diagnostics. On Windows,
+the service uses Windows Bluetooth GATT APIs and CPAL to forward voice to
+VB-CABLE. On macOS, the Objective-C adapter hides CoreBluetooth,
 ATVV session control, AVAudioEngine device binding, reconnect timeouts and
-sleep-safe audio-engine lifetime. The service starts with the app, but opens
+sleep-safe audio-engine lifetime. The macOS service starts with the app, but opens
 Core Audio IO only while RC003 is sending voice data.
 
 The first-run guide presents Interception and VB-CABLE on one driver setup page
