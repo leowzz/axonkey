@@ -77,6 +77,9 @@ impl ExtraKeysService {
         let mut state = self.inner.lock().unwrap();
         (state.generation, state.events.drain(..).collect())
     }
+    pub fn is_ready(&self) -> bool {
+        self.inner.lock().unwrap().status.state == "ready"
+    }
     pub fn stop(&self) {
         let mut state = self.inner.lock().unwrap();
         state.startup_attempted = true;
@@ -173,12 +176,7 @@ impl ExtraKeysService {
                 Err(e) => return Err(e.to_string()),
             }
         };
-        stream
-            .set_read_timeout(Some(POLL))
-            .map_err(|e| e.to_string())?;
-        stream
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .map_err(|e| e.to_string())?;
+        configure_stream(&stream)?;
         {
             let mut state = self.inner.lock().unwrap();
             if state.generation != generation {
@@ -307,6 +305,17 @@ mod authorization_tests {
         assert!(state.begin(false).is_some());
     }
 }
+fn configure_stream(stream: &TcpStream) -> Result<(), String> {
+    // All IPC directions carry small control/key messages. A read timeout is
+    // only an idle health-check deadline; it must not become a batching delay.
+    stream.set_nodelay(true).map_err(|e| e.to_string())?;
+    stream
+        .set_read_timeout(Some(POLL))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|e| e.to_string())
+}
 fn send(stream: &mut TcpStream, message: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(message).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
@@ -350,6 +359,61 @@ impl Frames {
 
 fn script_id() -> String {
     format!("{:x}", Sha256::digest(SCRIPT.as_bytes()))[..12].into()
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+
+    fn pair() -> (TcpStream, TcpStream) {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let sender = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (receiver, _) = listener.accept().unwrap();
+        configure_stream(&sender).unwrap();
+        configure_stream(&receiver).unwrap();
+        assert!(sender.nodelay().unwrap());
+        assert!(receiver.nodelay().unwrap());
+        (sender, receiver)
+    }
+
+    #[test]
+    fn local_ipc_forwards_each_press_without_waiting_for_release() {
+        let (mut gadget, mut helper_input) = pair();
+        let (mut helper_output, mut app) = pair();
+        let mut capture_frames = Frames::default();
+        let mut app_frames = Frames::default();
+        let mut times = Vec::new();
+        for index in 0..100 {
+            let usage = EXTRA_KEYS[index % EXTRA_KEYS.len()].0;
+            let began = Instant::now();
+            let edge = json!({"kind":"key", "usage":usage, "pressed":true});
+            send(&mut gadget, &edge).unwrap();
+            let captured = capture_frames.read(&mut helper_input).unwrap();
+            assert_eq!(captured, vec![edge.clone()]);
+            send(&mut helper_output, &captured[0]).unwrap();
+            assert_eq!(app_frames.read(&mut app).unwrap(), vec![edge]);
+            // Keep both connections open; no key-up or subsequent packet is
+            // needed to make the current press available to the mapper.
+            times.push(began.elapsed().as_micros());
+        }
+        times.sort_unstable();
+        eprintln!(
+            "Two-hop loopback IPC (100 presses): median={}us p95={}us max={}us",
+            times[50], times[95], times[99]
+        );
+
+        // Packet boundaries must not be confused with report boundaries.
+        gadget.write_all(b"{\"kind\":\"key\",\"pressed\":").unwrap();
+        assert!(capture_frames.read(&mut helper_input).unwrap().is_empty());
+        gadget.write_all(b"false}\n{\"kind\":\"reset\"}\n").unwrap();
+        assert_eq!(
+            capture_frames.read(&mut helper_input).unwrap(),
+            vec![
+                json!({"kind":"key", "pressed":false}),
+                json!({"kind":"reset"})
+            ]
+        );
+    }
 }
 fn gadget_port() -> u16 {
     30000 + u16::from_str_radix(&script_id()[..4], 16).unwrap() % 20000
@@ -428,12 +492,7 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
     if os::peer_pid(&parent) != Some(parent_pid) {
         return Err("应用进程身份不匹配。".into());
     }
-    parent
-        .set_read_timeout(Some(POLL))
-        .map_err(|e| e.to_string())?;
-    parent
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .map_err(|e| e.to_string())?;
+    configure_stream(&parent)?;
     send(&mut parent, &json!({"kind":"hello", "token":args[2]}))?;
     let mut framed = Frames::default();
     let start = Instant::now();
@@ -535,12 +594,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
             injected = None;
             continue;
         };
-        client
-            .set_read_timeout(Some(POLL))
-            .map_err(|e| e.to_string())?;
-        client
-            .set_write_timeout(Some(Duration::from_secs(2)))
-            .map_err(|e| e.to_string())?;
+        configure_stream(client)?;
         send(
             client,
             &json!({"kind":"configure", "devices":names, "auth_token":auth_token}),

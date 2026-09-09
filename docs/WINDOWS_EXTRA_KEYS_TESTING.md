@@ -155,6 +155,35 @@ remount. TypeScript and Vite compilation passed. Browser UI automation could not
 run in this session because the connector rejected the configured API-key auth;
 the new layout has not been visually inspected in a live browser.
 
+## Extra-key latency (2026-09-10)
+
+The user's Volume+ → Enter trace already showed a mapped hold immediately after
+the mapper received down. It did not establish physical end-to-end latency:
+log timestamps had only second precision. Review found two avoidable sources
+of delay upstream: both TCP hops used default Nagle behavior, and Frida events
+could sit in a queue while the mapping worker waited up to 50 ms for an
+Interception event that these three usages never generate.
+
+Every Gadget connection now awaits `setNoDelay(true)` before capture starts,
+including reconnects. Failure closes that socket before retrying. All native IPC
+sockets use `TCP_NODELAY` too. Frida documents Nagle as enabled by default in its
+[SocketConnection API](https://frida.re/docs/javascript-api/#socketconnection).
+The mapping worker requests an 8 ms wait while extra-key capture is ready and
+retains 50 ms otherwise. The 100 ms socket read timeout remains an idle health
+deadline; complete reports are returned immediately without batching.
+
+The Gadget regression failed before this change and passed afterward.
+`npm run test:windows-extra-keys` passed with 7 Node tests and 15 Rust input tests.
+Coverage verifies immediate down output for each of the three keys with a key
+or shortcut mapping, including disabled double/long rows, and retains existing
+gesture, release, cancellation and reconnect checks. The loopback test uses two
+real TCP connections in one process: 100 small reports measured median 48 us,
+p95 126 us and maximum 210 us in one run, with no release or following packet
+needed to deliver a press. It also checks partial and multiple JSON frames.
+These measurements exclude BLE, the actual Gadget runtime, worker scheduling,
+Interception output and the target application; no physical latency reduction
+has yet been measured. The shorter wait is not an end-to-end latency guarantee.
+
 ## Remaining interactive checks
 
 With the installed build, verify:

@@ -98,6 +98,14 @@ async function connectToHub() {
       host: host,
       port: port
     });
+    try {
+      // Key edges are tiny writes. Do not hold a press behind an unacknowledged
+      // report while waiting for another packet or TCP's delayed ACK timer.
+      await connection.setNoDelay(true);
+    } catch (error) {
+      await connection.close().catch(() => {});
+      throw error;
+    }
     const current = { connection, writeChain: Promise.resolve(), pendingWrites: 0 };
     session = current;
     // Wait for the receiver's current RC003 device name before attaching.

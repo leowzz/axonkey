@@ -21,6 +21,10 @@ const FILTER_KEY_ALL: u16 = 0xffff;
 const KEY_UP: u16 = 0x0001;
 const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
+// Frida edges do not wake Interception's wait handle. Poll their queue at a
+// shorter interval only while that optional capture channel is ready.
+#[cfg(windows)]
+const EXTRA_KEYS_WAIT_TIMEOUT_MS: u32 = 8;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
 // Keep synthesized taps visible to applications that poll keyboard state.
@@ -550,7 +554,15 @@ fn run_context(
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
-        let device = unsafe { (api.wait_with_timeout)(context, WAIT_TIMEOUT_MS) };
+        #[cfg(not(windows))]
+        let wait_timeout_ms = WAIT_TIMEOUT_MS;
+        #[cfg(windows)]
+        let wait_timeout_ms = if shared.extra_keys.is_ready() {
+            EXTRA_KEYS_WAIT_TIMEOUT_MS
+        } else {
+            WAIT_TIMEOUT_MS
+        };
+        let device = unsafe { (api.wait_with_timeout)(context, wait_timeout_ms) };
         if device <= 0 {
             continue;
         }
@@ -1494,6 +1506,37 @@ mod tests {
         );
         let mut states = HashMap::new();
         let ctx = std::ptr::null_mut();
+        // Single-click-only mappings must send key-down before a release or
+        // timer tick, including when other gesture rows exist but are disabled.
+        for source in &SOURCE_KEYS[10..] {
+            for shortcut in [false, true] {
+                let click = if shortcut {
+                    serde_json::json!({"type":"shortcut", "keys":["Ctrl", "C"]})
+                } else {
+                    serde_json::json!({"type":"key", "key":"Enter"})
+                };
+                *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
+                    "enabled": true, "behaviors": { (source.id): {
+                        "click": [click],
+                        "doubleClick": [{"type":"key", "key":"F2", "enabled":false}],
+                        "longPress": [{"type":"key", "key":"F3", "enabled":false}]
+                    }}
+                })).unwrap();
+                SENT.lock().unwrap().clear();
+                states.clear();
+                let down = KeyStroke { code: source.scan_code, state: KEY_E0, information: 0 };
+                process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
+                let expected = if shortcut { 2 } else { 1 };
+                assert_eq!(SENT.lock().unwrap().len(), expected, "{} must execute on down", source.id);
+                assert!(SENT.lock().unwrap().iter().all(|key| key.state & KEY_UP == 0));
+                assert!(states[source.id].pending_click.is_none());
+                process_source_stroke(&api, ctx, 5, &shared, &mut states,
+                    KeyStroke { state: KEY_E0 | KEY_UP, ..down }, *source);
+                assert_eq!(SENT.lock().unwrap().len(), expected * 2);
+            }
+        }
+        states.clear();
+        SENT.lock().unwrap().clear();
         // A held replacement modifier is always released on disconnect.
         shared.settings.write().unwrap().behaviors.insert(
             "back".into(),

@@ -9,6 +9,7 @@ const reads = [];
 let callbacks, closeCallbacks, attached = 0, detached = 0, available = false;
 let queriedName = '\\Device\\000000ee';
 let readReportCount = 0;
+let noDelayConnections = 0;
 const context = vm.createContext({
   Uint8Array, ArrayBuffer, Promise, JSON, String, Error,
   setTimeout() { return 1; }, setInterval() { return 1; },
@@ -22,6 +23,7 @@ const context = vm.createContext({
   Socket: { async connect() {
     if (!available) throw new Error('receiver absent');
     return {
+      async setNoDelay(enabled) { assert.equal(enabled, true); noDelayConnections++; },
       output: { async writeAll(bytes) { sent.push(JSON.parse(Buffer.from(bytes).toString())); } },
       input: { read() { return new Promise(resolve => reads.push(resolve)); } },
       async close() {}
@@ -35,6 +37,7 @@ await context.rpc.exports.init(null, { port: 30685, protocol_id: 'test-revision'
 assert.equal(attached, 0, 'no hook when receiver is absent');
 available = true;
 await vm.runInContext('connectToHub()', context);
+assert.equal(noDelayConnections, 1, 'disable TCP packet coalescing before activating capture');
 assert.equal(attached, 0, 'no hook before per-device configuration');
 const config = new TextEncoder().encode(JSON.stringify({kind:'configure', auth_token:authToken, devices:['\\device\\000000ee']}) + '\n');
 const unauthorized = new TextEncoder().encode(JSON.stringify({kind:'configure', auth_token:'wrong', devices:['\\device\\000000ee']}) + '\n');
@@ -104,14 +107,16 @@ assert.equal(pendingConnections.length, 1, 'overlapping reconnects must not open
 
 function endpoint() {
   const messages = [], input = [], writes = [];
-  let block = false, closed = false;
+  let block = false, closed = false, noDelay = false;
   return {
     messages, input, writes,
     blockWrites() { block = true; },
     get closed() { return closed; },
     connection: {
+      async setNoDelay(enabled) { assert.equal(enabled, true); noDelay = true; },
       input: { read() { return new Promise(resolve => input.push(resolve)); } },
       output: { async writeAll(bytes) {
+        assert.equal(noDelay, true, 'every replacement socket must send small reports immediately');
         if (block) await new Promise((resolve, reject) => writes.push({resolve, reject}));
         messages.push(JSON.parse(Buffer.from(bytes).toString()));
       } },
