@@ -6,9 +6,8 @@ const RECONNECT_DELAY_MS = 1000;
 
 let host = "127.0.0.1";
 let port = 30685;
-let output = null;
-let writeChain = Promise.resolve();
-let pendingWrites = 0;
+let session = null;
+let connecting = false;
 let reconnectTimer = null;
 let hookInstalled = false;
 let hookListener = null;
@@ -57,42 +56,50 @@ function scheduleReconnect() {
   }, RECONNECT_DELAY_MS);
 }
 
-function markDisconnected(currentOutput) {
-  if (output !== currentOutput) return;
-  output = null;
+function markDisconnected(current) {
+  if (session !== current) return;
+  session = null;
   detachHook();
+  allowedDevices = [];
+  // Close both directions even when a write stalls before the reader sees EOF.
+  current.connection.close().catch(() => {});
   scheduleReconnect();
 }
 
 function emit(payload) {
   payload.protocol_id = protocolId;
-  const currentOutput = output;
-  if (currentOutput === null) {
+  const current = session;
+  if (current === null) {
     scheduleReconnect();
     return;
   }
-  if (++pendingWrites > 128) {
-    pendingWrites--;
-    markDisconnected(currentOutput);
+  if (++current.pendingWrites > 128) {
+    current.pendingWrites--;
+    markDisconnected(current);
     return;
   }
   const line = JSON.stringify(payload) + "\n";
-  writeChain = writeChain
-    .then(() => currentOutput.writeAll(asciiBytes(line)))
-    .catch(() => markDisconnected(currentOutput))
-    .finally(() => { pendingWrites--; });
+  current.writeChain = current.writeChain
+    .then(() => {
+      if (session === current) return current.connection.output.writeAll(asciiBytes(line));
+    })
+    .catch(() => markDisconnected(current))
+    .finally(() => { current.pendingWrites--; });
 }
 
 async function connectToHub() {
-  if (output !== null) return;
+  // A Windows connect may outlive the retry timer. Never let a later attempt
+  // replace the socket that the helper has already accepted and configured.
+  if (session !== null || connecting) return;
+  connecting = true;
   try {
     const connection = await Socket.connect({
       family: "ipv4",
       host: host,
       port: port
     });
-    output = connection.output;
-    const currentOutput = output;
+    const current = { connection, writeChain: Promise.resolve(), pendingWrites: 0 };
+    session = current;
     // Wait for the receiver's current RC003 device name before attaching.
     // Also observe EOF while idle so Pause really removes the hook.
     (async () => {
@@ -100,7 +107,7 @@ async function connectToHub() {
         let line = "";
         while (true) {
           const chunk = new Uint8Array(await connection.input.read(4096));
-          if (chunk.byteLength === 0) break;
+          if (session !== current || chunk.byteLength === 0) break;
           for (const value of chunk) {
             if (value === 10) {
               const command = JSON.parse(line);
@@ -119,12 +126,12 @@ async function connectToHub() {
           }
         }
       } catch (_error) {}
-      markDisconnected(currentOutput);
-      try { await connection.close(); } catch (_error) {}
+      markDisconnected(current);
     })();
   } catch (_error) {
-    output = null;
     scheduleReconnect();
+  } finally {
+    connecting = false;
   }
 }
 
@@ -209,7 +216,7 @@ function installHook() {
 }
 
 setInterval(() => {
-  if (output === null) {
+  if (session === null) {
     scheduleReconnect();
   } else {
     emit({ kind: "heartbeat", pid: Process.id, hook_installed: hookInstalled,

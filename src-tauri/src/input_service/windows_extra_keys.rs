@@ -493,6 +493,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
         let mut heartbeat = Instant::now();
         let mut probe = Instant::now();
         let mut displayed = None;
+        let mut capture_ready = false;
         let session: Result<(), String> = (|| {
             while !stop.load(Ordering::Relaxed) {
                 if probe.elapsed() > Duration::from_secs(1) {
@@ -505,7 +506,11 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                     probe = Instant::now();
                 }
                 if heartbeat.elapsed() > Duration::from_secs(15) {
-                    return Err("按键采集失去响应，请关闭后重试。".into());
+                    return Err(if capture_ready {
+                        "按键采集失去响应，请关闭后重试。"
+                    } else {
+                        "按键组件未确认就绪，请关闭后重试。"
+                    }.into());
                 }
                 for message in frames.read(client)? {
                     if message["protocol_id"].as_str() != Some(&script_id()) {
@@ -517,6 +522,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                                 return Err("Windows 未允许启用按键采集。".into());
                             }
                             heartbeat = Instant::now();
+                            capture_ready = true;
                         }
                         Some("error") => {
                             return Err("按键组件无法读取输入报告，请关闭后重试。".into())
@@ -556,7 +562,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                         _ => {}
                     }
                 }
-                if displayed != Some(selection.step) {
+                if capture_ready && displayed != Some(selection.step) {
                     let state = if selection.stream.is_some() {
                         "ready"
                     } else {

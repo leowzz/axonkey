@@ -94,4 +94,60 @@ assert.equal(attached, 4);
 reads.shift()(new ArrayBuffer(0));
 await drain();
 assert.equal(detached, 4);
+
+// Reconnect timers can fire again while Windows is still opening a socket.
+// Exactly one attempt must own the stream on which the helper sends configure.
+const pendingConnections = [];
+context.Socket.connect = () => new Promise((resolve, reject) => pendingConnections.push({resolve, reject}));
+const attempts = [0, 1, 2].map(() => vm.runInContext('connectToHub()', context));
+assert.equal(pendingConnections.length, 1, 'overlapping reconnects must not open competing sockets');
+
+function endpoint() {
+  const messages = [], input = [], writes = [];
+  let block = false, closed = false;
+  return {
+    messages, input, writes,
+    blockWrites() { block = true; },
+    get closed() { return closed; },
+    connection: {
+      input: { read() { return new Promise(resolve => input.push(resolve)); } },
+      output: { async writeAll(bytes) {
+        if (block) await new Promise((resolve, reject) => writes.push({resolve, reject}));
+        messages.push(JSON.parse(Buffer.from(bytes).toString()));
+      } },
+      async close() { closed = true; }
+    }
+  };
+}
+const first = endpoint();
+pendingConnections.shift().resolve(first.connection);
+await Promise.all(attempts);
+first.input.shift()(config.buffer);
+await drain();
+assert.equal(first.messages.at(-1).kind, 'ready');
+
+// A write stuck on the previous socket must not block the next connection.
+first.blockWrites();
+vm.runInContext('emit({kind:"heartbeat", hook_installed:true})', context);
+await drain();
+assert.equal(first.writes.length, 1);
+first.input.shift()(new ArrayBuffer(0));
+await drain();
+assert.equal(first.closed, true, 'disconnect closes its socket');
+const reconnect = vm.runInContext('connectToHub()', context);
+const second = endpoint();
+pendingConnections.shift().resolve(second.connection);
+await reconnect;
+second.input.shift()(config.buffer);
+await drain();
+assert.equal(second.messages.at(-1)?.kind, 'ready', 'new readiness must not wait for old writes');
+const detachedBeforeStaleWrite = detached;
+first.writes.shift().reject(new Error('old socket closed'));
+await drain();
+assert.equal(detached, detachedBeforeStaleWrite, 'stale write failure must not detach the new hook');
+vm.runInContext('emit({kind:"heartbeat", hook_installed:true})', context);
+await drain();
+assert.equal(second.messages.at(-1).kind, 'heartbeat');
+second.input.shift()(new ArrayBuffer(0));
+await drain();
 console.log('PASS: Gadget device isolation, completed-report filtering, receiver handshake, idle detach and reconnect.');

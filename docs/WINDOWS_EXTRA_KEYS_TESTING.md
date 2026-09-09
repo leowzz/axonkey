@@ -50,6 +50,32 @@ captured events without executing mappings. The first attempt had stalled at
 authorization; a later attempt revealed that this Windows installation stores
 `HostPid` as REG_QWORD, which previously caused false device-absent detection.
 
+## Reconnect regression fixed and verified (2026-09-10)
+
+The installed build subsequently timed out 15 seconds after entering pairing.
+The native debug capture reproduced the failure without the UI. TCP inspection
+showed two simultaneous WUDFHost connections to the same helper port. Overlapping
+asynchronous reconnect attempts could overwrite the active output stream, so
+the helper configured one socket while readiness and heartbeats went to another.
+A global write queue could also hold up a replacement connection behind an old
+socket's pending write.
+
+The regression test failed before the fix (three concurrent connection attempts
+instead of one) and passed afterward. The script now allows only one connection
+attempt in flight, gives each connection its own bounded write queue, closes
+disconnected sockets, and ignores failures from previous sessions. The native
+helper waits for a valid ready/heartbeat acknowledgment before displaying the
+three-key confirmation instructions.
+
+The patched DLL script captured all six DOWN/UP edges from the user's three
+keys again. A second, separately elevated helper then reused the resident DLL
+without restarting Windows. It reached confirmed pairing and stayed healthy
+for more than 45 seconds without key presses, with exactly one established
+WUDFHost connection. The idle probe was then stopped and its helper exited.
+The Gadget regression and all 11 Rust input-service tests passed; the NSIS
+installer was rebuilt. Installed UI mapping outputs remain part of the checks
+below.
+
 ## Remaining interactive checks
 
 With the installed build, verify:
