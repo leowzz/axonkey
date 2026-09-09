@@ -19,6 +19,9 @@
       "../vendor/interception/licenses/Interception API.pdf": "vendor/interception/licenses/Interception API.pdf",
       "../vendor/vbcable/VBCABLE_Driver_Pack45.zip": "vendor/vbcable/VBCABLE_Driver_Pack45.zip",
       "../vendor/vbcable/SOURCE.md": "vendor/vbcable/SOURCE.md",
+      "../vendor/frida/SOURCE.md": "vendor/frida/SOURCE.md",
+      "../vendor/frida/LICENSE-Frida.txt": "vendor/frida/LICENSE-Frida.txt",
+      "../vendor/frida/LICENSE-GPL-3.0.txt": "vendor/frida/LICENSE-GPL-3.0.txt",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "windows": {

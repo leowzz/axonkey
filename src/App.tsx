@@ -32,7 +32,6 @@ import {
   hitPositionsStorageKey,
   iconFor,
   initialHitPositions,
-  macOSOnlyButtonIds,
   settingsStorageKey,
   textAndEnterValue,
   withTimeout,
@@ -59,6 +58,8 @@ import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from './com
 import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from './components/SetupDialog'
 import { useAudioControls } from './hooks/useAudioControls'
+import { useExtraKeys } from './hooks/useExtraKeys'
+import { ExtraKeysControl } from './components/ExtraKeysControl'
 import { logError, logInfo } from './runtimeLogging'
 import {
   beginDriverAction,
@@ -87,7 +88,6 @@ import {
   SetStateAction,
   useCallback,
   useEffect,
-  useMemo,
   useReducer,
   useRef,
   useState,
@@ -96,10 +96,7 @@ import {
 function App() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
-  const editableButtons = useMemo(
-    () => buttons.filter((button) => platform === 'macos' || !macOSOnlyButtonIds.has(button.id)),
-    [platform],
-  )
+  const editableButtons = buttons
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
     inputMonitoring: false,
     accessibility: false,
@@ -122,6 +119,7 @@ function App() {
   const canUndoBehavior = behaviorHistory.past.length > 0
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
+  const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled)
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
@@ -1067,6 +1065,7 @@ function App() {
         />
 
         {activePage === 'mapping' ? <div className="mapping-page">
+          {platform === 'windows' && <ExtraKeysControl control={extraKeys} />}
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
               <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
@@ -1129,10 +1128,6 @@ function App() {
               />
             </section>
           </div>
-          {platform !== 'macos' && <div className="mapping-limit-note" role="note">
-            <Info size={12} aria-hidden="true" />
-            <span>Windows 支持配置 10 个按键；返回键和独立音量 + / - 键保留系统原始行为，不作为映射触发键。</span>
-          </div>}
         </div> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
@@ -1145,6 +1140,7 @@ function App() {
           batteryLevel={batteryLevel}
           audioGain={audioGain}
           enabled={enabled}
+          extraKeysControl={platform === 'windows' ? <ExtraKeysControl control={extraKeys} /> : undefined}
           onRequestPermission={(kind) => void requestMacPermission(kind)}
           onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
           onAudioGainChange={updateAudioGain}

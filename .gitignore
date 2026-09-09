@@ -1,6 +1,20 @@
 *.log
 .env
 .build/
+# Keycode Demo and Frida runtime artifacts (source and pinned licenses remain tracked).
+tools/keycode-demo/*.exe
+tools/keycode-demo/*.dll
+tools/keycode-demo/*.config
+tools/keycode-demo/*.log
+tools/keycode-demo/python-path.txt
+tools/keycode-demo/self-test.txt
+tools/keycode-demo/self-test-*.txt
+tools/keycode-demo/self-test-*.log
+tools/keycode-demo/self-test-*.png
+tools/keycode-demo/restart-*.ps1
+tools/keycode-demo/restart-*.txt
+tools/keycode-demo/rc003_hid/frida_assets/
+tools/keycode-demo/rc003_hid/__pycache__/
 node_modules/
 web-dist/
 src-tauri/target/

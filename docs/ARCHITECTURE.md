@@ -10,6 +10,14 @@ Windows
     -> mapping snapshot and gesture state
     -> Interception send on the same RC003 keyboard device
 
+  Optional Back / Volume +/-
+    -> explicit UAC for the native auxiliary process
+    -> pinned Frida Gadget in RC003's current WUDFHost
+    -> completed HID reads, per-handle lifetime identity
+    -> user-confirmed stream (Back, Volume+, Volume-)
+    -> authenticated loopback IPC to the normal-privilege app
+    -> the same gesture state and Interception output on RC003
+
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
     -> Rust frame accumulator and 16 kHz IMA ADPCM decoder

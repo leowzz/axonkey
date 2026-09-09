@@ -1,6 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[cfg(any(windows, test))]
+mod extra_keys_protocol;
+#[cfg(windows)]
+mod extra_keys_winapi;
+#[cfg(windows)]
+pub mod windows_extra_keys;
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {
     pub backend_ready: bool,

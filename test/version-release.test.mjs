@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   chmodSync,
-  copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -37,7 +37,7 @@ function git(root, ...args) {
 
 function seedRepository(t) {
   const root = mkdtempSync(join(tmpdir(), 'axonkey-release-test-'))
-  t.after(() => rmSync(root, { recursive: true, force: true }))
+  t.after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))
   mkdirSync(join(root, 'scripts'))
   mkdirSync(join(root, 'src-tauri'))
 
@@ -65,7 +65,8 @@ function seedRepository(t) {
   )
 
   for (const script of ['release.sh', 'repo-version.mjs', 'version.mjs']) {
-    copyFileSync(join(projectRoot, 'scripts', script), join(root, 'scripts', script))
+    // Fixtures must behave identically under Windows Git and bash/WSL Git.
+    writeFileSync(join(root, 'scripts', script), readFileSync(join(projectRoot, 'scripts', script), 'utf8').replace(/\r\n/g, '\n'))
   }
   chmodSync(join(root, 'scripts', 'release.sh'), 0o755)
 
@@ -83,7 +84,22 @@ function runRelease(root, version, envOverrides = {}) {
   const env = { ...process.env, ...envOverrides }
   if (version) env.V = version
   else delete env.V
-  return run(root, 'bash', ['scripts/release.sh'], { check: false, env })
+  // Windows' system32/bash.exe is WSL: it drops Windows environment overrides
+  // and resolves a different git, making release fixtures behave incorrectly.
+  let bash = 'bash'
+  if (process.platform === 'win32') {
+    const gitPath = spawnSync('where.exe', ['git'], { encoding: 'utf8' }).stdout?.trim().split(/\r?\n/)[0]
+    const candidates = gitPath ? [join(dirname(gitPath), '..', 'bin', 'bash.exe'), join(dirname(gitPath), '..', '..', 'bin', 'bash.exe'), join(dirname(gitPath), 'bash.exe')] : []
+    bash = candidates.find(existsSync) ?? bash
+  }
+  const args = ['scripts/release.sh']
+  if (process.platform === 'win32' && envOverrides.PATH) {
+    env.AXONKEY_TEST_PATH = envOverrides.PATH
+    // The Git Bash launcher prepends its own git directory; restore the test
+    // shim after shell startup so the intentional tag failure is exercised.
+    args.splice(0, 1, '-c', 'export PATH="$(cygpath -p -u "$AXONKEY_TEST_PATH")"; exec "$BASH" scripts/release.sh')
+  }
+  return run(root, bash, args, { check: false, env })
 }
 
 function snapshotVersionFiles(root) {
@@ -225,7 +241,7 @@ test('a tag failure leaves the release commit visible for diagnosis', (t) => {
   const wrapper = join(wrapperDirectory, 'git')
   writeFileSync(
     wrapper,
-    '#!/usr/bin/env bash\nif [[ "$1" == "tag" ]]; then\n  echo tag creation failed >&2\n  exit 1\nfi\nPATH="$ORIGINAL_PATH" exec git "$@"\n',
+    '#!/bin/bash\nif [[ "$1" == "tag" ]]; then\n  echo tag creation failed >&2\n  exit 1\nfi\nif command -v cygpath >/dev/null; then ORIGINAL_PATH="$(cygpath -p -u "$ORIGINAL_PATH")"; fi\nPATH="$ORIGINAL_PATH" exec git "$@"\n',
   )
   chmodSync(wrapper, 0o755)
 
@@ -233,7 +249,7 @@ test('a tag failure leaves the release commit visible for diagnosis', (t) => {
   const originalPath = process.env.PATH ?? ''
   const result = runRelease(root, undefined, {
     ORIGINAL_PATH: originalPath,
-    PATH: `${wrapperDirectory}:${originalPath}`,
+    PATH: `${wrapperDirectory}${delimiter}${originalPath}`,
   })
 
   assert.notEqual(result.status, 0)

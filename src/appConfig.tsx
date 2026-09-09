@@ -57,8 +57,6 @@ export const buttons: RemoteButton[] = [
   { id: 'tv', label: '电视键', short: '电视', side: 'right', x: 60.69, y: 91.91, icon: 'tv' },
 ]
 
-export const macOSOnlyButtonIds = new Set<ButtonId>(['back', 'volumeUp', 'volumeDown'])
-
 export const settingsStorageKey = 'axonkey.settings.v1'
 export const audioSettingsStorageKey = 'axonkey.audio-settings.v2'
 export const audioGainMin = -30

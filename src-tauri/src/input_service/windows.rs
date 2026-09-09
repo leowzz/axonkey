@@ -11,6 +11,7 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+#[cfg(not(test))]
 use tauri::Emitter;
 
 const MAX_KEYBOARD: i32 = 10;
@@ -142,11 +143,18 @@ fn interception_dll_candidates() -> Vec<PathBuf> {
     candidates
 }
 
+#[cfg(not(test))]
+type EventApp = tauri::AppHandle;
+#[cfg(test)]
+type EventApp = ();
+
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
-    event_app: RwLock<Option<tauri::AppHandle>>,
+    event_app: RwLock<Option<EventApp>>,
     stop: AtomicBool,
+    #[cfg(windows)]
+    extra_keys: Arc<super::windows_extra_keys::ExtraKeysService>,
 }
 
 pub struct InputService {
@@ -162,6 +170,8 @@ impl InputService {
             status: Mutex::new(InputServiceStatus::default()),
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
+            #[cfg(windows)]
+            extra_keys: Arc::default(),
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
@@ -180,6 +190,10 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
+        #[cfg(windows)]
+        if !settings.enabled {
+            self.shared.extra_keys.stop();
+        }
         let behavior_count = settings
             .behaviors
             .values()
@@ -200,10 +214,48 @@ impl InputService {
         Ok(())
     }
 
+    #[cfg(windows)]
+    pub fn extra_keys_status(&self) -> super::windows_extra_keys::ExtraKeysStatus {
+        self.shared.extra_keys.status()
+    }
+
+    #[cfg(windows)]
+    pub fn set_extra_keys_enabled(&self, enabled: bool) -> Result<(), String> {
+        if enabled {
+            if !self
+                .shared
+                .settings
+                .read()
+                .map_err(|_| "设置不可用")?
+                .enabled
+            {
+                return Err("请先开启自定义按键功能，再授权这三个按键。".into());
+            }
+            self.shared.extra_keys.start()
+        } else {
+            self.shared.extra_keys.stop();
+            Ok(())
+        }
+    }
+
+    pub fn shutdown(&self) {
+        #[cfg(windows)]
+        self.shared.extra_keys.stop();
+        self.shared.stop.store(true, Ordering::Relaxed);
+        if let Ok(mut worker) = self.worker.lock() {
+            if let Some(worker) = worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+
     pub fn set_event_app(&self, app: tauri::AppHandle) {
+        #[cfg(not(test))]
         if let Ok(mut event_app) = self.shared.event_app.write() {
             *event_app = Some(app);
         }
+        #[cfg(test)]
+        let _ = app;
     }
 
     pub fn status(&self) -> InputServiceStatus {
@@ -220,12 +272,7 @@ impl InputService {
 
 impl Drop for InputService {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Relaxed);
-        if let Ok(worker) = self.worker.get_mut() {
-            if let Some(worker) = worker.take() {
-                let _ = worker.join();
-            }
-        }
+        self.shutdown();
     }
 }
 
@@ -236,7 +283,7 @@ struct SourceKey {
     extended: Option<bool>,
 }
 
-const SOURCE_KEYS: [SourceKey; 10] = [
+const SOURCE_KEYS: [SourceKey; 13] = [
     SourceKey {
         id: "voice",
         scan_code: 0x3f,
@@ -287,11 +334,27 @@ const SOURCE_KEYS: [SourceKey; 10] = [
         scan_code: 0x4d,
         extended: None,
     },
+    // Output equivalents only; these are never recognized from Interception input.
+    SourceKey {
+        id: "back",
+        scan_code: 0x6a,
+        extended: Some(true),
+    },
+    SourceKey {
+        id: "volumeUp",
+        scan_code: 0x30,
+        extended: Some(true),
+    },
+    SourceKey {
+        id: "volumeDown",
+        scan_code: 0x2e,
+        extended: Some(true),
+    },
 ];
 
 fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
     let extended = stroke.state & KEY_E0 != 0;
-    SOURCE_KEYS.iter().copied().find(|source| {
+    SOURCE_KEYS[..10].iter().copied().find(|source| {
         source.scan_code == stroke.code
             && source.extended.is_none_or(|expected| expected == extended)
     })
@@ -397,6 +460,8 @@ fn run_context(
     let mut target_device = 0;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
+    #[cfg(windows)]
+    let mut extra_generation = shared.extra_keys.drain().0;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
@@ -408,7 +473,7 @@ fn run_context(
             let hardware_id = rc003_keyboard_device_id();
             update_device_status(shared, hardware_id.clone(), last_target_seen_at, now);
             if !mapping_enabled || hardware_id.is_none() {
-                return;
+                break;
             }
             let next_target = probe_devices(
                 api,
@@ -429,12 +494,50 @@ fn run_context(
             }
             if next_target == 0 {
                 // Contexts keep fixed device handles; rebuild after hot removal or re-pairing.
-                return;
+                break;
             }
             target_device = next_target;
             next_probe = now + Duration::from_secs(1);
         }
         if target_device != 0 {
+            #[cfg(windows)]
+            {
+                let (generation, events) = shared.extra_keys.drain();
+                if generation != extra_generation {
+                    release_extra_outputs(api, context, target_device, shared, &mut button_states);
+                    extra_generation = generation;
+                }
+                for (usage, pressed) in events {
+                    if usage == 0 {
+                        release_extra_outputs(
+                            api,
+                            context,
+                            target_device,
+                            shared,
+                            &mut button_states,
+                        );
+                    } else if let Some(index) = super::extra_keys_protocol::EXTRA_KEYS
+                        .iter()
+                        .position(|k| k.0 == usage)
+                    {
+                        let source = SOURCE_KEYS[10 + index];
+                        let stroke = KeyStroke {
+                            code: source.scan_code,
+                            state: KEY_E0 | if pressed { 0 } else { KEY_UP },
+                            information: 0,
+                        };
+                        process_source_stroke(
+                            api,
+                            context,
+                            target_device,
+                            shared,
+                            &mut button_states,
+                            stroke,
+                            source,
+                        );
+                    }
+                }
+            }
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
@@ -618,6 +721,18 @@ fn process_target_stroke(
         send_stroke(api, context, device, stroke);
         return;
     };
+    process_source_stroke(api, context, device, shared, states, stroke, source);
+}
+
+fn process_source_stroke(
+    api: &InterceptionApi,
+    context: Context,
+    device: i32,
+    shared: &Shared,
+    states: &mut HashMap<&'static str, ButtonState>,
+    stroke: KeyStroke,
+    source: SourceKey,
+) {
     let key_up = stroke.state & KEY_UP != 0;
     let pressed = states
         .get(source.id)
@@ -643,6 +758,17 @@ fn process_target_stroke(
                 release_chord(api, context, device, &press.held_outputs);
             }
             state.pending_click = None;
+        }
+        // Raw extra keys have no Windows key-up fallback if the helper disconnects.
+        // Track their synthesized default down so shutdown can always release it.
+        if SOURCE_KEYS[10..].iter().any(|key| key.id == source.id) && settings.enabled && !key_up {
+            states.entry(source.id).or_default().pressed = Some(PressState {
+                started_at: Instant::now(),
+                original: stroke,
+                long_fired: false,
+                passthrough_long: true,
+                held_outputs: vec![],
+            });
         }
         send_stroke(api, context, device, stroke);
         return;
@@ -737,6 +863,7 @@ struct RemoteKeyEvent {
     pressed: bool,
 }
 
+#[cfg(not(test))]
 fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
     let app = shared
         .event_app
@@ -967,8 +1094,35 @@ fn release_all_held_outputs(
             }
             release_chord(api, context, device, &press.held_outputs);
             press.held_outputs.clear();
+            if press.passthrough_long {
+                let mut up = press.original;
+                up.state |= KEY_UP;
+                send_stroke(api, context, device, up);
+                press.passthrough_long = false;
+            }
         }
     }
+}
+
+#[cfg(test)]
+fn emit_remote_key_event(_shared: &Shared, _button: &'static str, _pressed: bool) {}
+
+#[cfg(windows)]
+fn release_extra_outputs(
+    api: &InterceptionApi,
+    context: Context,
+    device: i32,
+    shared: &Shared,
+    states: &mut HashMap<&'static str, ButtonState>,
+) {
+    let mut extra = HashMap::new();
+    for source in &SOURCE_KEYS[10..] {
+        if let Some(state) = states.remove(source.id) {
+            emit_remote_key_event(shared, source.id, false);
+            extra.insert(source.id, state);
+        }
+    }
+    release_all_held_outputs(api, context, device, &mut extra);
 }
 
 fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
@@ -1234,6 +1388,138 @@ extern "system" {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn extra_keys_use_gestures_and_release_outputs_without_firing_pending_clicks() {
+        static SENT: Mutex<Vec<KeyStroke>> = Mutex::new(Vec::new());
+        unsafe extern "C" fn create() -> Context {
+            std::ptr::null_mut()
+        }
+        unsafe extern "C" fn destroy(_: Context) {}
+        unsafe extern "C" fn filter(_: Context, _: DevicePredicate, _: u16) {}
+        unsafe extern "C" fn wait(_: Context, _: u32) -> i32 {
+            0
+        }
+        unsafe extern "C" fn receive(_: Context, _: i32, _: *mut KeyStroke, _: u32) -> i32 {
+            0
+        }
+        unsafe extern "C" fn send(_: Context, _: i32, stroke: *const KeyStroke, _: u32) -> i32 {
+            SENT.lock().unwrap().push(*stroke);
+            1
+        }
+        unsafe extern "C" fn hardware(_: Context, _: i32, _: *mut u8, _: u32) -> u32 {
+            0
+        }
+        // No input APIs are called: only output conversion and recording send stubs.
+        let api = InterceptionApi {
+            _library: unsafe { libloading::Library::new("kernel32.dll").unwrap() },
+            create_context: create,
+            destroy_context: destroy,
+            set_filter: filter,
+            wait_with_timeout: wait,
+            receive,
+            send,
+            get_hardware_id: hardware,
+        };
+        let shared = Shared {
+            settings: RwLock::new(NativeSettings {
+                enabled: true,
+                ..Default::default()
+            }),
+            status: Mutex::default(),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            extra_keys: Arc::default(),
+        };
+        let source = SOURCE_KEYS[10];
+        let down = KeyStroke {
+            code: source.scan_code,
+            state: KEY_E0,
+            information: 0,
+        };
+        let up = KeyStroke {
+            state: KEY_E0 | KEY_UP,
+            ..down
+        };
+        assert!(
+            source_for(down).is_none(),
+            "extra key output codes must not become a second input source"
+        );
+        let mut states = HashMap::new();
+        let ctx = std::ptr::null_mut();
+        // A held replacement modifier is always released on disconnect.
+        shared.settings.write().unwrap().behaviors.insert(
+            "back".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "RAlt".into(),
+                }],
+                ..Default::default()
+            },
+        );
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+        assert_eq!(SENT.lock().unwrap().len(), 1);
+        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
+        assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
+        assert!(states.is_empty());
+        SENT.lock().unwrap().clear();
+        // A pending click is cancelled on disconnect; it must not become a user action.
+        shared.settings.write().unwrap().behaviors.insert(
+            "back".into(),
+            TriggerBehaviors {
+                double_click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "F2".into(),
+                }],
+                ..Default::default()
+            },
+        );
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
+        assert!(states["back"].pending_click.is_some());
+        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
+        assert!(SENT.lock().unwrap().is_empty());
+        // Two taps fire the configured double click exactly once.
+        for _ in 0..2 {
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
+        }
+        assert_eq!(SENT.lock().unwrap().len(), 2);
+        SENT.lock().unwrap().clear();
+        states.clear();
+        // Long press is driven by timers even when HID sends no repeat reports.
+        shared.settings.write().unwrap().behaviors.insert(
+            "back".into(),
+            TriggerBehaviors {
+                long_press: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "F3".into(),
+                }],
+                ..Default::default()
+            },
+        );
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+        states
+            .get_mut("back")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap()
+            .started_at -= Duration::from_millis(650);
+        process_timers(&api, ctx, 5, &shared, &mut states, Instant::now());
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
+        assert_eq!(SENT.lock().unwrap().len(), 2);
+        SENT.lock().unwrap().clear();
+        states.clear();
+        // Default synthesized inputs are released too.
+        shared.settings.write().unwrap().behaviors.clear();
+        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
+        assert_eq!(SENT.lock().unwrap().len(), 2);
+        assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
+    }
 
     #[test]
     fn matches_real_rc003_hardware_id_variants() {

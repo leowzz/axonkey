@@ -10,7 +10,9 @@ local utility rather than a general keyboard automation platform.
 
 - Recognize only HID devices with Xiaomi vendor `0x2717` and product `0x32B8`.
 - Keep the user's normal keyboard isolated from every RC003 mapping.
-- Show ten editable RC003 buttons on Windows and thirteen on macOS.
+- Show thirteen editable RC003 buttons on Windows and macOS.
+- Optionally enable Back and Volume +/- on Windows with explicit administrator
+  authorization and confirmation of the remote's report stream each session.
 - Configure click, double-click, and long-press actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
@@ -31,10 +33,13 @@ local utility rather than a general keyboard automation platform.
 - Show device connection, battery, permissions, and driver status, with setup
   actions and access to local runtime logs.
 
-The RC003 Back and independent Volume +/- buttons are not shown on Windows. The
+The RC003 Back and independent Volume +/- buttons require optional support on Windows. The
 known raw Keyboard-page usages (0xF1, 0x80, 0x81) do not produce scan codes in the
 tested Windows HID translation function, so adding scan-code mappings is insufficient.
-Global keyboard or media events, when available, also do not prove RC003 origin.
+An elevated Frida helper reads their raw reports. A three-tap confirmation
+selects a stream for the current connection; shared UMDF proxies are not claimed
+to be automatically verified physical devices. No authorization is requested
+automatically on startup, import, or settings synchronization.
 See [the Windows diagnosis](./WINDOWS_RC003_EXTRA_KEYS.md) for evidence and limits.
 The macOS backend can identify these raw usages, so macOS exposes them as
 platform-specific editor rows with native behavior as their defaults.

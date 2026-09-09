@@ -1,6 +1,6 @@
 # Third-party notices
 
-## Experimental RC003 Frida HID diagnostic
+## RC003 Frida HID support and diagnostic
 
 The standalone diagnostic in `tools/keycode-demo/rc003_hid` adapts the
 GPL-3.0-only HID tap from `ZSTDJan/windows-remote-mic-app`, revision
@@ -8,7 +8,11 @@ GPL-3.0-only HID tap from `ZSTDJan/windows-remote-mic-app`, revision
 license are recorded in that directory's `SOURCE.md` and `LICENSE-GPL-3.0.txt`.
 The optional Frida Gadget 17.15.3 is downloaded unchanged from the official
 release and verified by archive and DLL hashes. Its license is retained in
-`LICENSE-Frida.txt`. This experiment is not included in the Axonkey installer.
+`LICENSE-Frida.txt`. The Windows application now embeds the same verified Gadget
+DLL and a native optional helper. Production provenance, source pointers and
+retained licenses are in `vendor/frida`; the installer includes these notices.
+The helper and adapted Gadget script are GPL-3.0-only. Distribution of the
+derived work must retain those terms and provide corresponding source.
 
 ## remote-bridge-hub
 
@@ -20,7 +24,7 @@ release and verified by archive and DLL hashes. Its license is retained in
 The Xiaomi RC003 ATVV UUIDs, microphone commands, capability parsing, and
 IMA/DVI ADPCM decoding order were adapted from this project. Axonkey implements
 the macOS transport with Apple public frameworks. The separately identified
-experimental Windows HID tap described above also adapts the Windows approach
+Windows HID tap described above also adapts the Windows approach
 through `windows-remote-mic-app`; its source and licensing are retained there.
 
 ## BlackHole
