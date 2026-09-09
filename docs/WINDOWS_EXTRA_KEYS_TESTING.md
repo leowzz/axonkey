@@ -76,6 +76,24 @@ The Gadget regression and all 11 Rust input-service tests passed; the NSIS
 installer was rebuilt. Installed UI mapping outputs remain part of the checks
 below.
 
+## Gesture output timing (2026-09-10)
+
+The user's runtime log at 01:04:49–01:04:59 showed Volume- double-click and
+timer-triggered long-press recognition, followed by successful Esc down/up
+submissions. Thus gesture recognition was working in that trace. The output
+implementation immediately released synthesized taps, unlike single-click
+mappings which remained down until physical release. A polling application
+could miss these short pulses; this remains a candidate explanation pending
+confirmation in the user's target application.
+
+Synthesized key/chord taps and deferred default clicks now hold for 50 ms before
+releasing. Physical single-click holds retain their previous behavior. Regression
+coverage loads all three keys' mappings from JSON, triggers double-click and
+long-press, and verifies exactly one Esc pulse (no Space click or duplicate)
+with an observable down interval. It failed before the change and passed after;
+all 11 Rust input-service tests passed. Target-application physical acceptance
+of this timing change still needs verification.
+
 ## Remaining interactive checks
 
 With the installed build, verify:

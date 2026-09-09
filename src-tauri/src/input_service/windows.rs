@@ -22,6 +22,9 @@ const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
 const LONG_PRESS_MS: u64 = 600;
 const DOUBLE_CLICK_MS: u64 = 350;
+// Keep synthesized taps visible to applications that poll keyboard state.
+// Physical single-click holds already last until the remote's key-up.
+const OUTPUT_TAP_DURATION: Duration = Duration::from_millis(50);
 const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
@@ -362,6 +365,7 @@ fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
 
 struct PressState {
     started_at: Instant,
+    last_repeat_log: Instant,
     original: KeyStroke,
     long_fired: bool,
     passthrough_long: bool,
@@ -734,12 +738,24 @@ fn process_source_stroke(
     source: SourceKey,
 ) {
     let key_up = stroke.state & KEY_UP != 0;
-    let pressed = states
-        .get(source.id)
-        .and_then(|state| state.pressed.as_ref());
-    log::info!(target: "axonkey::input", "RC003 key: device={device}, button={}, phase={}, scan=0x{:04X}, state=0x{:04X}, tracked_press={}, held_ms={}",
-        source.id, if key_up { "up" } else if pressed.is_some() { "repeat" } else { "down" },
-        stroke.code, stroke.state, pressed.is_some(), pressed.map_or(0, |press| press.started_at.elapsed().as_millis()));
+    let (tracked_press, held_ms, should_log) = if let Some(press) = states
+        .get_mut(source.id)
+        .and_then(|state| state.pressed.as_mut())
+    {
+        let held_ms = press.started_at.elapsed().as_millis();
+        let should_log = key_up || press.last_repeat_log.elapsed() >= Duration::from_secs(1);
+        if should_log {
+            press.last_repeat_log = Instant::now();
+        }
+        (true, held_ms, should_log)
+    } else {
+        (false, 0, true)
+    };
+    if should_log {
+        log::info!(target: "axonkey::input", "RC003 key: device={device}, button={}, phase={}, scan=0x{:04X}, state=0x{:04X}, tracked_press={}, held_ms={}",
+            source.id, if key_up { "up" } else if tracked_press { "repeat" } else { "down" },
+            stroke.code, stroke.state, tracked_press, held_ms);
+    }
     emit_remote_key_event(shared, source.id, !key_up);
     let settings = shared
         .settings
@@ -764,6 +780,7 @@ fn process_source_stroke(
         if SOURCE_KEYS[10..].iter().any(|key| key.id == source.id) && settings.enabled && !key_up {
             states.entry(source.id).or_default().pressed = Some(PressState {
                 started_at: Instant::now(),
+                last_repeat_log: Instant::now(),
                 original: stroke,
                 long_fired: false,
                 passthrough_long: true,
@@ -804,6 +821,7 @@ fn process_source_stroke(
                 .unwrap_or_default();
             state.pressed = Some(PressState {
                 started_at: Instant::now(),
+                last_repeat_log: Instant::now(),
                 original: stroke,
                 long_fired: false,
                 passthrough_long: false,
@@ -969,9 +987,11 @@ fn execute_click_or_original(
     } else {
         let mut down = original;
         down.state &= !KEY_UP;
-        send_stroke(api, context, device, down);
-        down.state |= KEY_UP;
-        send_stroke(api, context, device, down);
+        if send_stroke(api, context, device, down) {
+            thread::sleep(OUTPUT_TAP_DURATION);
+            down.state |= KEY_UP;
+            send_stroke(api, context, device, down);
+        }
     }
 }
 
@@ -1078,6 +1098,10 @@ fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: 
 
 fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16]) {
     let pressed = press_chord(api, context, device, keys);
+    if !pressed.is_empty() {
+        log::info!(target: "axonkey::input", "Mapped tap: device={device}, hold_ms={}", OUTPUT_TAP_DURATION.as_millis());
+        thread::sleep(OUTPUT_TAP_DURATION);
+    }
     release_chord(api, context, device, &pressed);
 }
 
@@ -1393,6 +1417,7 @@ mod tests {
     #[test]
     fn extra_keys_use_gestures_and_release_outputs_without_firing_pending_clicks() {
         static SENT: Mutex<Vec<KeyStroke>> = Mutex::new(Vec::new());
+        static SENT_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
         unsafe extern "C" fn create() -> Context {
             std::ptr::null_mut()
         }
@@ -1406,6 +1431,7 @@ mod tests {
         }
         unsafe extern "C" fn send(_: Context, _: i32, stroke: *const KeyStroke, _: u32) -> i32 {
             SENT.lock().unwrap().push(*stroke);
+            SENT_AT.lock().unwrap().push(Instant::now());
             1
         }
         unsafe extern "C" fn hardware(_: Context, _: i32, _: *mut u8, _: u32) -> u32 {
@@ -1463,6 +1489,7 @@ mod tests {
         assert_eq!(SENT.lock().unwrap().len(), 1);
         release_extra_outputs(&api, ctx, 5, &shared, &mut states);
         assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
+
         assert!(states.is_empty());
         SENT.lock().unwrap().clear();
         // A pending click is cancelled on disconnect; it must not become a user action.
@@ -1519,6 +1546,47 @@ mod tests {
         release_extra_outputs(&api, ctx, 5, &shared, &mut states);
         assert_eq!(SENT.lock().unwrap().len(), 2);
         assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
+        // Reproduce the user's mappings through JSON and the real gesture
+        // handlers for all three extra keys. A frame-polled consumer must have
+        // an opportunity to observe Esc down, not just two adjacent events.
+        for source in &SOURCE_KEYS[10..] {
+            let settings = serde_json::json!({
+                "enabled": true,
+                "behaviors": { (source.id): {
+                    "click": [{"type":"key", "key":"Space"}],
+                    "doubleClick": [{"type":"key", "key":"Esc"}],
+                    "longPress": [{"type":"key", "key":"Esc"}]
+                }}
+            });
+            *shared.settings.write().unwrap() = serde_json::from_value(settings).unwrap();
+            for long_press in [false, true] {
+                states.clear();
+                SENT.lock().unwrap().clear();
+                SENT_AT.lock().unwrap().clear();
+                let down = KeyStroke { code: source.scan_code, state: KEY_E0, information: 0 };
+                let up = KeyStroke { state: KEY_E0 | KEY_UP, ..down };
+                if long_press {
+                    process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
+                    states.get_mut(source.id).unwrap().pressed.as_mut().unwrap().started_at
+                        -= Duration::from_millis(650);
+                    process_timers(&api, ctx, 5, &shared, &mut states, Instant::now());
+                    process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
+                } else {
+                    for _ in 0..2 {
+                        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
+                        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
+                    }
+                }
+                let sent = SENT.lock().unwrap();
+                assert_eq!(sent.len(), 2, "one Esc tap, without a Space click or duplicate");
+                assert_eq!(sent[0].code, 1);
+                assert_eq!(sent[0].state, 0);
+                assert_eq!(sent[1].state, KEY_UP);
+                let at = SENT_AT.lock().unwrap();
+                assert!(at[1].duration_since(at[0]) >= Duration::from_millis(16),
+                    "{} long_press={long_press}: Esc down/up collapse within one polling frame", source.id);
+            }
+        }
     }
 
     #[test]
