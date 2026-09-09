@@ -1,3 +1,6 @@
+// @refresh reset
+// Authorization callbacks can outlive a dev edit; remount instead of reusing
+// an obsolete hook layout when Fast Refresh updates this stateful root.
 import {
   BatteryMedium,
   Bluetooth,

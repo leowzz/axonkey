@@ -7,6 +7,7 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex, RwLock,
+        OnceLock,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -223,7 +224,7 @@ impl InputService {
     }
 
     #[cfg(windows)]
-    pub fn set_extra_keys_enabled(&self, enabled: bool) -> Result<(), String> {
+    pub fn set_extra_keys_enabled(&self, enabled: bool, automatic: bool) -> Result<(), String> {
         if enabled {
             if !self
                 .shared
@@ -234,7 +235,11 @@ impl InputService {
             {
                 return Err("请先开启自定义按键功能，再授权这三个按键。".into());
             }
-            self.shared.extra_keys.start()
+            if automatic {
+                self.shared.extra_keys.start_automatically()
+            } else {
+                self.shared.extra_keys.start()
+            }
         } else {
             self.shared.extra_keys.stop();
             Ok(())
@@ -1154,8 +1159,20 @@ fn release_extra_outputs(
 
 fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
     let sent = unsafe { (api.send)(context, device, &stroke, 1) };
-    log::info!(target: "axonkey::input", "RC003 output: device={device}, phase={}, scan=0x{:04X}, state=0x{:04X}, sent={sent}",
-        if stroke.state & KEY_UP != 0 { "up" } else { "down" }, stroke.code, stroke.state);
+    let is_up = stroke.state & KEY_UP != 0;
+    static OUTPUT_LOGS: OnceLock<Mutex<HashMap<(i32, u16, u16), Instant>>> = OnceLock::new();
+    let now = Instant::now();
+    let key = (device, stroke.code, stroke.state & KEY_E0);
+    let should_log = is_up || OUTPUT_LOGS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock().map(|mut logs| {
+            let previous = logs.insert(key, now);
+            previous.is_none_or(|time| now.duration_since(time) >= Duration::from_secs(1))
+        }).unwrap_or(true);
+    if should_log {
+        log::info!(target: "axonkey::input", "RC003 output: device={device}, phase={}, scan=0x{:04X}, state=0x{:04X}, sent={sent}",
+            if is_up { "up" } else { "down" }, stroke.code, stroke.state);
+    }
     if sent != 1 {
         log::warn!(target: "axonkey::input", "RC003 output injection failed: device={device}, scan=0x{:04X}, state=0x{:04X}, sent={sent}", stroke.code, stroke.state);
     }

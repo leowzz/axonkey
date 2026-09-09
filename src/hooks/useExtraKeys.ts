@@ -29,7 +29,7 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
         const next = await invoke<ExtraKeysStatus>('get_extra_keys_status')
         if (mounted && current === revision.current) setStatus(next)
       } catch (error) {
-        if (mounted) setStatus({ state: 'error', message: `无法读取按键服务状态：${String(error)}`, step: 0 })
+        if (mounted && current === revision.current) setStatus({ state: 'error', message: `无法读取按键服务状态：${String(error)}`, step: 0 })
       } finally { running = false }
     }
     void refresh()
@@ -37,7 +37,7 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     return () => { mounted = false; window.clearInterval(timer) }
   }, [windows, nativeRuntime])
 
-  const change = useCallback(async (enable: boolean) => {
+  const change = useCallback(async (enable: boolean, automatic = false) => {
     startupHandled.current = true
     if (changing.current) return
     if (!nativeRuntime) {
@@ -52,7 +52,7 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     revision.current += 1
     setBusy(true)
     try {
-      await invoke('set_extra_keys_enabled', { enabled: enable })
+      await invoke('set_extra_keys_enabled', { enabled: enable, automatic })
       setWanted(enable)
       setStatus(await invoke<ExtraKeysStatus>('get_extra_keys_status'))
     } catch (error) {
@@ -66,7 +66,7 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     // not cause repeated UAC prompts during the same application run.
     if (!windows || !nativeRuntime || !settingsReady || startupHandled.current) return
     startupHandled.current = true
-    if (wanted && mappingEnabled) void change(true)
+    if (wanted && mappingEnabled) void change(true, true)
   }, [windows, nativeRuntime, settingsReady, wanted, mappingEnabled, change])
   return { wanted, status, busy, mappingEnabled, change }
 }

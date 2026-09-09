@@ -42,9 +42,28 @@ impl Default for ExtraKeysStatus {
 #[derive(Default)]
 struct State {
     generation: u64,
+    startup_attempted: bool,
     status: ExtraKeysStatus,
     connection: Option<TcpStream>,
     events: VecDeque<(u16, bool)>,
+}
+impl State {
+    fn begin(&mut self, automatic: bool) -> Option<u64> {
+        if automatic && self.startup_attempted {
+            return None;
+        }
+        self.startup_attempted = true;
+        if !["disabled", "error"].contains(&self.status.state.as_str()) {
+            return None;
+        }
+        self.generation += 1;
+        self.status = status(
+            "authorizing",
+            "请在 Windows 授权窗口中选择“是”，允许读取这三个按键。",
+            0,
+        );
+        Some(self.generation)
+    }
 }
 #[derive(Default)]
 pub struct ExtraKeysService {
@@ -60,6 +79,7 @@ impl ExtraKeysService {
     }
     pub fn stop(&self) {
         let mut state = self.inner.lock().unwrap();
+        state.startup_attempted = true;
         state.generation += 1;
         if let Some(stream) = state.connection.take() {
             let _ = stream.shutdown(Shutdown::Both);
@@ -80,18 +100,18 @@ impl ExtraKeysService {
         }
     }
     pub fn start(self: &Arc<Self>) -> Result<(), String> {
+        self.start_with_mode(false)
+    }
+    pub fn start_automatically(self: &Arc<Self>) -> Result<(), String> {
+        self.start_with_mode(true)
+    }
+    fn start_with_mode(self: &Arc<Self>, automatic: bool) -> Result<(), String> {
         let generation = {
             let mut state = self.inner.lock().unwrap();
-            if !["disabled", "error"].contains(&state.status.state.as_str()) {
+            let Some(generation) = state.begin(automatic) else {
                 return Ok(());
-            }
-            state.generation += 1;
-            state.status = status(
-                "authorizing",
-                "请在 Windows 授权窗口中选择“是”，允许读取这三个按键。",
-                0,
-            );
-            state.generation
+            };
+            generation
         };
         let service = self.clone();
         thread::Builder::new()
@@ -248,6 +268,38 @@ fn status(state: &str, message: &str, step: usize) -> ExtraKeysStatus {
         state: state.into(),
         message: message.into(),
         step,
+    }
+}
+
+#[cfg(test)]
+mod authorization_tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_survives_frontend_remount_but_allows_manual_retry() {
+        let mut state = State::default();
+        let first = state.begin(true).unwrap();
+        state.status = status("error", "已取消管理员授权", 0);
+        for _ in 0..3 {
+            assert_eq!(state.begin(true), None);
+            assert_eq!(state.status.message, "已取消管理员授权");
+            assert_eq!(state.generation, first);
+        }
+        assert!(state.begin(false).unwrap() > first);
+        assert_eq!(state.status.state, "authorizing");
+        assert_eq!(state.begin(false), None, "pending requests cannot open another dialog");
+        assert!(State::default().begin(true).is_some(), "a new app process can request again");
+    }
+
+    #[test]
+    fn disabling_support_does_not_rearm_automatic_authorization() {
+        let service = ExtraKeysService::default();
+        service.inner.lock().unwrap().begin(true);
+        service.stop();
+        let mut state = service.inner.lock().unwrap();
+        assert_eq!(state.begin(true), None);
+        assert_eq!(state.status.state, "disabled");
+        assert!(state.begin(false).is_some());
     }
 }
 fn send(stream: &mut TcpStream, message: &Value) -> Result<(), String> {

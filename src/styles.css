@@ -17,6 +17,10 @@
 }
 
 * { box-sizing: border-box; }
+.app-recovery { max-width: 560px; margin: 18vh auto; padding: 32px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.app-recovery h1 { font-size: 24px; line-height: 1.4; }
+.app-recovery p { margin: 16px 0; color: var(--muted); line-height: 1.7; }
+.app-recovery button { padding: 10px 20px; border: 0; border-radius: 8px; background: var(--blue); color: #fff; }
 body { margin: 0; min-width: 940px; min-height: 100vh; background: #f2f3f4; -webkit-user-select: none; user-select: none; }
 button, input, select, textarea { font: inherit; }
 input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-select: text; }

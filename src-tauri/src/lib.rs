@@ -916,11 +916,11 @@ fn get_extra_keys_status(input_service: tauri::State<'_, InputService>) -> serde
 }
 
 #[tauri::command]
-fn set_extra_keys_enabled(enabled: bool, input_service: tauri::State<'_, InputService>) -> Result<(), String> {
+fn set_extra_keys_enabled(enabled: bool, automatic: Option<bool>, input_service: tauri::State<'_, InputService>) -> Result<(), String> {
     #[cfg(windows)]
-    return input_service.set_extra_keys_enabled(enabled);
+    return input_service.set_extra_keys_enabled(enabled, automatic.unwrap_or(false));
     #[cfg(not(windows))]
-    { let _ = (enabled, input_service); Err("仅 Windows 需要此功能。".into()) }
+    { let _ = (enabled, automatic, input_service); Err("仅 Windows 需要此功能。".into()) }
 }
 
 #[tauri::command]
