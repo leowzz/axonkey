@@ -1001,6 +1001,35 @@ function App() {
     setDraggingId(null)
   }
 
+  // In debug mode the selected hotspot can be nudged with the arrow keys.
+  // Coordinates remain percentages so they scale with the remote artwork;
+  // converting one screen pixel to a percentage keeps each press pixel precise.
+  useEffect(() => {
+    if (!debugMode) return
+    const handleDebugNudge = (event: globalThis.KeyboardEvent) => {
+      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
+      if (event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return
+      const rect = remoteArtRef.current?.getBoundingClientRect()
+      if (!rect || rect.width <= 0 || rect.height <= 0) return
+      const current = hitPositions[activeId]
+      if (!current) return
+      const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+      const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0
+      const stepX = 100 / rect.width
+      const stepY = 100 / rect.height
+      event.preventDefault()
+      setHitPositions((positions) => ({
+        ...positions,
+        [activeId]: {
+          x: Math.max(2, Math.min(98, positions[activeId].x + dx * stepX)),
+          y: Math.max(2, Math.min(98, positions[activeId].y + dy * stepY)),
+        },
+      }))
+    }
+    window.addEventListener('keydown', handleDebugNudge)
+    return () => window.removeEventListener('keydown', handleDebugNudge)
+  }, [debugMode, activeId, hitPositions])
+
   const copyHitPositions = async () => {
     const lines = editableButtons.map((button) => `  ${button.id}: { x: ${hitPositions[button.id].x.toFixed(2)}, y: ${hitPositions[button.id].y.toFixed(2)} },`)
     const snippet = `const initialHitPositions: Record<ButtonId, HitPosition> = {\n${lines.join('\n')}\n}`
@@ -1102,7 +1131,7 @@ function App() {
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
                   <h2 id="key-picker-title">按键</h2>
-                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status"><Target size={13} /> 调试模式</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
+                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className={`auto-save-state ${autoSaveState}`}><Check size={13} /> {autoSaveState === 'saving' ? '保存中' : '已保存'}</span><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
                 <MappingKeyGrid
                   buttons={editableButtons}

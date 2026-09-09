@@ -259,19 +259,19 @@ export function behaviorFromCapturedKey(captured: string, id?: string) {
 }
 
 export const initialHitPositions: Record<ButtonId, HitPosition> = {
-  power: { x: 25.24, y: 12.73 },
+  power: { x: 25.71, y: 12.93 },
   voice: { x: 73.33, y: 12.73 },
-  up: { x: 49.52, y: 24.67 },
+  up: { x: 49.37, y: 24.84 },
   left: { x: 20.00, y: 36.03 },
   confirm: { x: 49.52, y: 36.22 },
   right: { x: 78.10, y: 36.03 },
-  down: { x: 49.52, y: 47.19 },
-  back: { x: 30.00, y: 60.11 },
-  volumeUp: { x: 69.05, y: 60.11 },
-  home: { x: 30.00, y: 74.40 },
-  volumeDown: { x: 69.05, y: 74.01 },
-  menu: { x: 29.05, y: 88.11 },
-  tv: { x: 69.05, y: 88.50 },
+  down: { x: 49.52, y: 47.39 },
+  back: { x: 30.00, y: 59.33 },
+  volumeUp: { x: 68.58, y: 59.52 },
+  home: { x: 30.00, y: 73.81 },
+  volumeDown: { x: 68.58, y: 74.01 },
+  menu: { x: 30.00, y: 87.91 },
+  tv: { x: 68.58, y: 88.11 },
 }
 
 export const hitPositionsStorageKey = 'axonkey.debug-hit-positions.v5'
