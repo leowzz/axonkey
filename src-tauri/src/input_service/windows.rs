@@ -794,7 +794,10 @@ fn process_source_stroke(
     let state = states.entry(source.id).or_default();
     if !key_up {
         if let Some(press) = state.pressed.as_mut() {
-            log::info!(target: "axonkey::input", "RC003 repeat handling: button={}, held_outputs={}, passthrough_long={}, long_fired={}", source.id, press.held_outputs.len(), press.passthrough_long, press.long_fired);
+            if press.last_repeat_log.elapsed() >= Duration::from_secs(1) {
+                log::info!(target: "axonkey::input", "RC003 repeat handling: button={}, held_outputs={}, passthrough_long={}, long_fired={}", source.id, press.held_outputs.len(), press.passthrough_long, press.long_fired);
+                press.last_repeat_log = Instant::now();
+            }
             if let Some(repeat) = press.held_outputs.last().copied() {
                 send_stroke(api, context, device, repeat);
             } else if press.passthrough_long {
