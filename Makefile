@@ -6,7 +6,13 @@ dev: kill
 	npm run tauri dev
 
 kill:
-	pkill -x axonkey || true
+	@if command -v pkill >/dev/null 2>&1; then \
+		pkill -x axonkey || true; \
+	elif command -v powershell.exe >/dev/null 2>&1; then \
+		powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name axonkey -ErrorAction SilentlyContinue | Stop-Process -Force"; \
+	else \
+		echo "No process cleanup command available; continuing."; \
+	fi
 
 clean:
 	rm -rf src-tauri/target/release/bundle/macos/Axonkey.app

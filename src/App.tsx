@@ -119,7 +119,8 @@ function App() {
   const canUndoBehavior = behaviorHistory.past.length > 0
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
-  const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled)
+  const [inputSettingsReady, setInputSettingsReady] = useState(false)
+  const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
@@ -192,7 +193,10 @@ function App() {
         if ('__TAURI_INTERNALS__' in window) {
           await invoke('update_input_settings', { settings: { behaviors, enabled } })
         }
-        if (saveRevisionRef.current === revision) setAutoSaveState('saved')
+        if (saveRevisionRef.current === revision) {
+          setAutoSaveState('saved')
+          setInputSettingsReady(true)
+        }
       } catch (error) {
         if (saveRevisionRef.current !== revision) return
         logError('Failed to apply input mapping settings', error)

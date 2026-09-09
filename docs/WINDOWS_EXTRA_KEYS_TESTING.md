@@ -62,8 +62,11 @@ With the installed build, verify:
    outputs. With no custom action, verify browser Back and system Volume +/-.
 4. Hold a replacement modifier and turn the feature off; verify release. Quit
    through the tray and verify that the helper exits and the hook detaches.
-5. Restart the app: saved preference must show the authorization button without
-   popping UAC automatically. Reconnect the remote: re-confirm the stream.
+5. Restart with both switches enabled: UAC should appear automatically once,
+   after native settings are restored. Cancel: it must not repeat on polling or
+   mapping edits, and manual retry must remain available. Restart with extra keys
+   off, or with custom mappings off: no automatic UAC. Reconnect the remote:
+   re-confirm the stream.
 6. Try another keyboard/remote alongside RC003. UMDF stream confirmation is user
    selection, not automatic hardware identity; see the scope limits in
    [Windows input](./WINDOWS_INPUT.md) and [provenance](../vendor/frida/SOURCE.md).

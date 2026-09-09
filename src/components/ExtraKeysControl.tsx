@@ -29,6 +29,6 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
         <span>{index < status.step ? <Check size={12} /> : index + 1}</span>按下并松开{label}
       </li>)}
     </ol>}
-    <p className="extra-keys-hint">每次启动应用后手动授权；连接变化时按提示重新确认遥控器。关闭此开关会停止这三个按键的采集。</p>
+    <p className="extra-keys-hint">保持此开关打开，下次启动应用会自动弹出管理员授权。取消后可手动重试；连接变化时按提示重新确认遥控器。关闭此开关会停止这三个按键的采集。</p>
   </section>
 }

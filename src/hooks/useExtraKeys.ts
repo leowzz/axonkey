@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
 export type ExtraKeysStatus = {
@@ -9,12 +9,13 @@ export type ExtraKeysStatus = {
 const storageKey = 'axonkey.extra-keys.v1'
 const initialStatus: ExtraKeysStatus = { state: 'disabled', message: '', step: 0 }
 
-export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEnabled: boolean) {
+export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEnabled: boolean, settingsReady: boolean) {
   const [wanted, setWanted] = useState(() => window.localStorage.getItem(storageKey) === 'true')
   const [status, setStatus] = useState<ExtraKeysStatus>(initialStatus)
   const [busy, setBusy] = useState(false)
   const changing = useRef(false)
   const revision = useRef(0)
+  const startupHandled = useRef(false)
   useEffect(() => { window.localStorage.setItem(storageKey, String(wanted)) }, [wanted])
   useEffect(() => {
     if (!windows || !nativeRuntime) return
@@ -36,7 +37,8 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     return () => { mounted = false; window.clearInterval(timer) }
   }, [windows, nativeRuntime])
 
-  const change = async (enable: boolean) => {
+  const change = useCallback(async (enable: boolean) => {
+    startupHandled.current = true
     if (changing.current) return
     if (!nativeRuntime) {
       setStatus({ state: 'error', message: '请在 Windows 桌面应用中开启此功能。', step: 0 })
@@ -56,6 +58,15 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     } catch (error) {
       setStatus({ state: 'error', message: String(error), step: 0 })
     } finally { changing.current = false; setBusy(false) }
-  }
+  }, [nativeRuntime, mappingEnabled])
+
+  useEffect(() => {
+    // Restore only after the backend has received the saved master switch.
+    // Consume this attempt before invoking so cancellation and StrictMode do
+    // not cause repeated UAC prompts during the same application run.
+    if (!windows || !nativeRuntime || !settingsReady || startupHandled.current) return
+    startupHandled.current = true
+    if (wanted && mappingEnabled) void change(true)
+  }, [windows, nativeRuntime, settingsReady, wanted, mappingEnabled, change])
   return { wanted, status, busy, mappingEnabled, change }
 }

@@ -38,8 +38,10 @@ known raw Keyboard-page usages (0xF1, 0x80, 0x81) do not produce scan codes in t
 tested Windows HID translation function, so adding scan-code mappings is insufficient.
 An elevated Frida helper reads their raw reports. A three-tap confirmation
 selects a stream for the current connection; shared UMDF proxies are not claimed
-to be automatically verified physical devices. No authorization is requested
-automatically on startup, import, or settings synchronization.
+to be automatically verified physical devices. If both the saved extra-key switch
+and custom mappings are enabled, startup automatically requests UAC once after
+restoring native settings. Cancellation leaves a manual retry option; subsequent
+mapping edits, imports and settings synchronization do not repeat the prompt.
 See [the Windows diagnosis](./WINDOWS_RC003_EXTRA_KEYS.md) for evidence and limits.
 The macOS backend can identify these raw usages, so macOS exposes them as
 platform-specific editor rows with native behavior as their defaults.
