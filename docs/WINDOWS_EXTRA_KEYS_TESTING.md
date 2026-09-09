@@ -94,6 +94,27 @@ with an observable down interval. It failed before the change and passed after;
 all 11 Rust input-service tests passed. Target-application physical acceptance
 of this timing change still needs verification.
 
+## UAC cancellation and white-screen recovery (2026-09-10)
+
+The reported white screen coincided with a development Fast Refresh at 01:10:14:
+React raised `Should have a queue` from the App hook list. The native log then
+recorded normal UAC cancellation at 01:10:15. App updates now request a fresh
+React mount instead of preserving the old hook layout. A root error boundary
+can also remount a damaged tree once; repeated render errors show a recovery
+button rather than an empty window.
+
+Automatic authorization is consumed once per native application process,
+including after cancellation or disabling support. A webview remount cannot
+reopen the prompt, while an explicit retry can. Restarting the application still
+automatically requests UAC when the saved switches are enabled.
+
+Three React renderer tests cover UAC No through status polling, command rejection,
+and cancellation combined with a damaged render tree. They verify the other UI
+controls remain usable, the saved switch persists, manual retry works, and
+recovery does not open another dialog. Both native authorization lifecycle tests
+also passed (13 input-service tests in total). These automated tests do not
+operate the Windows secure-desktop consent dialog.
+
 ## Remaining interactive checks
 
 With the installed build, verify:
