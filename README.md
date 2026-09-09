@@ -248,6 +248,14 @@ macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标�
 - Windows 中退出 Axonkey 会释放用户态 Interception context，停止处理自定义映射。
 - macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
+### Windows 断连后按键无响应
+
+Interception 存在设备断开后重新连接可能无法输入的已知问题：RC003 在 Windows 中仍显示已连接，但按键没有响应，退出或重启 Axonkey 也可能无法恢复。原始报告见 [Interception issue #25](https://github.com/oblitum/Interception/issues/25)。
+
+问题涉及驱动对重新枚举设备的处理。上游 [issue #193](https://github.com/oblitum/Interception/issues/193) 将其归因于固定设备编号范围：反复断连、重连可能生成超出驱动支持范围的设备编号，即使是同一台设备也可能触发。Axonkey 只过滤 RC003 的用户态逻辑无法修复该内核驱动状态；这也不意味着每次重连都会失败。
+
+遇到该现象时可先重启 Windows。若问题反复出现，可卸载 Interception、重启 Windows，再重新配对 RC003；卸载后自定义按键映射不可用。详细现象、既有排查证据和恢复步骤见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+
 ## Interception 许可
 
 Interception 是独立的第三方组件，并采用双重许可。其上游许可允许在所列 LGPL 条款下进行非商业使用；商业分发需要向 Interception 作者取得单独授权。在取得相应许可前，请勿将包含 Interception 资源的 Axonkey 用于商业分发。

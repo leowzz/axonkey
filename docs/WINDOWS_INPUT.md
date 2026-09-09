@@ -31,3 +31,10 @@ Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Outpu
 详细安装步骤见 [README](../README.md)，双平台实现见
 [架构说明](./ARCHITECTURE.md)，驱动来源与校验值见
 [Interception 来源说明](../vendor/interception/SOURCE.md)。
+
+## 故障排查
+
+若 RC003 断连后重新连接，Windows 显示设备正常但所有按键都无响应，
+可能遇到了 Interception 的设备重新枚举问题。退出 Axonkey 释放的是用户态
+context，无法修复已经异常的内核驱动状态。
+原因、原始 issue 和恢复步骤见 [Interception 重连问题说明](./INTERCEPTION_HOTPLUG_INCIDENT.md)。

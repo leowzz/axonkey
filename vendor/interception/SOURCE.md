@@ -28,3 +28,7 @@ bundled because the Windows backend loads the native API from Rust through
 
 The commercial-license PDFs are informational. Bundling them does not grant
 commercial distribution rights. Review `THIRD_PARTY_NOTICES.md` before release.
+
+Hot-plug behavior and recovery are documented in
+[Interception reconnect troubleshooting](../../docs/INTERCEPTION_HOTPLUG_INCIDENT.md),
+including the original [upstream issue #25](https://github.com/oblitum/Interception/issues/25).
