@@ -49,16 +49,4 @@ Axonkey 的 VID/PID 过滤、重新创建 context 或退出时清理过滤条件
 
 ## 恢复方法
 
-1. 先从 Windows 的电源菜单选择“重启”，然后重新检查 RC003 原始按键和映射。
-   重启可以恢复输入，但不能消除驱动本身的重连限制。
-2. 若问题反复出现，退出 Axonkey 和其他使用 Interception 的程序，运行卸载脚本：
-
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-driver.ps1
-   ```
-
-3. 完成管理员授权和卸载后重启 Windows；如仍需重新建立蓝牙配对，在系统设置中
-   移除 RC003 后再次配对，再检查原始按键。
-
-卸载 Interception 后，Axonkey 的 Windows 自定义按键映射不可用；重新安装驱动
-才能继续使用。该问题涉及 Windows 输入驱动，macOS 原生输入后端不使用 Interception。
+遇到该现象时，重启电脑即可。

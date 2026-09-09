@@ -254,7 +254,7 @@ Interception 存在设备断开后重新连接可能无法输入的已知问题�
 
 问题涉及驱动对重新枚举设备的处理。上游 [issue #193](https://github.com/oblitum/Interception/issues/193) 将其归因于固定设备编号范围：反复断连、重连可能生成超出驱动支持范围的设备编号，即使是同一台设备也可能触发。Axonkey 只过滤 RC003 的用户态逻辑无法修复该内核驱动状态；这也不意味着每次重连都会失败。
 
-遇到该现象时可先重启 Windows。若问题反复出现，可卸载 Interception、重启 Windows，再重新配对 RC003；卸载后自定义按键映射不可用。详细现象、既有排查证据和恢复步骤见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+遇到该现象时，重启电脑即可。详细现象、原因和既有排查证据见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
 
 ## Interception 许可
 
