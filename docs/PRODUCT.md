@@ -31,12 +31,13 @@ local utility rather than a general keyboard automation platform.
 - Show device connection, battery, permissions, and driver status, with setup
   actions and access to local runtime logs.
 
-The RC003 Back and independent Volume +/- buttons are not shown on Windows because
-Windows does not reliably associate those events with their source input device.
-Axonkey therefore cannot prove that an event came from the RC003 without risking
-input from another keyboard or remote. The macOS backend can identify these raw
-usages, so macOS exposes them as platform-specific editor rows with native behavior
-as their defaults.
+The RC003 Back and independent Volume +/- buttons are not shown on Windows. The
+known raw Keyboard-page usages (0xF1, 0x80, 0x81) do not produce scan codes in the
+tested Windows HID translation function, so adding scan-code mappings is insufficient.
+Global keyboard or media events, when available, also do not prove RC003 origin.
+See [the Windows diagnosis](./WINDOWS_RC003_EXTRA_KEYS.md) for evidence and limits.
+The macOS backend can identify these raw usages, so macOS exposes them as
+platform-specific editor rows with native behavior as their defaults.
 
 ## Defaults
 

@@ -11,7 +11,8 @@ Rust 后端通过 `libloading` 加载随应用提供的 x64 `interception.dll`�
 普通键盘不进入 RC003 映射流程。
 
 Windows 提供 10 个可配置按键：电源、语音、四向、确认、主页、菜单和 TV。
-返回键和独立音量 `+ / -` 键保留系统原始行为，不作为映射触发键。
+返回键和独立音量 `+ / -` 键不作为映射触发键；应用不主动映射这些键，但这不保证
+Windows 能识别其原始 HID usage。已验证的转换限制见 [三个额外按键的诊断结论](./WINDOWS_RC003_EXTRA_KEYS.md)。
 可配置按键仍可映射为系统音量增大、减小或静音。
 
 关闭主窗口后，Axonkey 继续常驻系统托盘并处理映射。
@@ -38,3 +39,16 @@ Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Outpu
 可能遇到了 Interception 的设备重新枚举问题。退出 Axonkey 释放的是用户态
 context，无法修复已经异常的内核驱动状态。
 原因、原始 issue 和恢复步骤见 [Interception 重连问题说明](./INTERCEPTION_HOTPLUG_INCIDENT.md)。
+
+## 返回键与音量键采集 Demo
+
+需要确定返回、音量加、音量减的实际 Windows 按键码时，可以运行独立的
+[按键码诊断 Demo](../tools/keycode-demo/README.md)：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\keycode-demo.ps1
+```
+
+Demo 同时记录 Interception 原始扫描码、Raw Input、HID 报告、全局键盘事件和窗口媒体命令，
+并标注设备来源与实时采集状态。Interception 通道仅过滤 RC003，收到的事件立即原样转发。
+从托盘退出 Axonkey 后，按窗口提示分三组采集；日志自动保存在本机，便于后续兼容分析。
