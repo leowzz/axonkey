@@ -1,6 +1,6 @@
 # Axonkey
 
-Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。两个平台的用户态映射都只处理目标遥控器，普通键盘不会进入映射流程。
+Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
 
 项目目前专注于一个设备和一件事：让 RC003 成为可靠、易配置的快捷键控制器。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
 
@@ -9,7 +9,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 | 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
 | --- | --- | ---: | --- | --- |
 | macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 支持按键映射与语音；需要输入监控与辅助功能权限 |
-| Windows 11 x64 | Interception 1.0.1 | 10 | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 支持按键映射与语音；需要 Interception，语音另需 VB-CABLE |
+| Windows 11 x64 | Interception 1.0.1 + 可选 Frida 增强通道 | 13（其中 3 个需单独开启增强支持） | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 基础映射需要 Interception；返回与音量键增强默认关闭，需管理员授权；语音另需 VB-CABLE |
 
 ## 界面截图
 
@@ -29,6 +29,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 - 主页集中显示输入环境、辅助功能、语音通道、RC003 连接状态和电量，并提供对应的处理入口。
 - 识别 RC003 的连接状态与输入后端状态；Windows 和 macOS 版同时读取电量。
 - 为每个可识别按键分别配置单击、双击和长按行为。
+- Windows 的返回与音量键增强位于“按键映射 → 高级选项”，默认关闭，由用户阅读兼容性说明后自行选择。
 - 直接选择常用行为，包括保留原按键、禁用、导航编辑和媒体控制。
 - 支持单个按键、键盘录入、组合键和单独修饰键；macOS 界面会按系统习惯显示 Command 与 Option。
 - 支持按顺序执行多个步骤，例如粘贴文本、等待和按下 Enter。
@@ -36,7 +37,7 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 - 支持将完整映射导出为 JSON、重新导入或恢复默认映射。
 - Windows 和 macOS 均可调节 RC003 语音输入增益（`-30 dB` 至 `+30 dB`）；Windows 输出到 `CABLE Input`，macOS 输出到 `MiRemoteV 2ch`。
 - 修改后自动保存并立即应用，无需为普通映射变更重启应用或系统。
-- 只处理匹配 VID/PID 的目标设备，不修改普通键盘的按键行为。
+- 基础输入通道按 VID/PID 匹配 RC003；Windows 可选增强通道的共享宿主识别限制见下文。
 - Windows 首次引导可安装并检查 Interception 与 VB-Audio VB-CABLE；macOS 引导可完成系统权限、安装 MiRemoteV 2ch 虚拟麦克风并连接设备。
 - macOS 授权时提供置顶小窗，可直接打开对应设置、在 Finder 中定位当前 `Axonkey.app` 并重新检测权限。
 - 关闭主窗口后继续常驻 Windows 系统托盘或 macOS 菜单栏，可从托盘菜单重新显示或完全退出。
@@ -45,7 +46,9 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 
 当前只支持小米 RC003 蓝牙遥控器。macOS 可以配置全部 13 个已识别实体按键：语音、电源、四向、确认、返回、音量 `+ / -`、主页、菜单和 TV 键。返回键默认保持 Delete（退格）行为，音量键默认保持 macOS 系统音量行为与连续按压节奏，也可以改成其他单击、双击或长按映射。
 
-Windows 编辑器提供 13 个按键。返回键和独立音量 `+ / -` 需要在首页或映射页开启“返回键与音量键支持”，在 Windows 授权窗口中选择“是”。采集组件就绪后直接支持单击、双击和长按映射，无需按键测试或校准。管理员权限仅用于按键辅助进程；保持支持开关和自定义按键功能开启时，下次启动应用会自动弹出管理员授权；取消后可手动重试，不影响其他按键。安装包已携带 Frida DLL，无需安装 Python 或额外驱动。详见 [Windows 输入](./docs/WINDOWS_INPUT.md)。
+Windows 编辑器提供 13 个按键，其中返回和独立音量 `+ / -` 需要开启可选增强支持，其余 10 个使用 Interception。增强支持默认关闭，不属于首次使用的必做步骤；开启方式见下方“可选：返回与音量键增强”。
+
+增强通道会自动匹配当前 RC003 宿主中的按键报告流。如果其他蓝牙设备共用该宿主，且先发送相同格式和 usage 的报告，仍可能误匹配，不能保证这类设备之间的硬件隔离。技术依据和限制见 [Windows 输入](./docs/WINDOWS_INPUT.md)。
 
 以下功能不在项目支持范围内：
 
@@ -71,6 +74,7 @@ Windows 编辑器提供 13 个按键。返回键和独立音量 `+ / -` 需要�
 - Interception v1.0.1 输入驱动；
 - 需要虚拟麦克风时安装 VB-Audio VB-CABLE Pack45；
 - 首次安装或卸载上述驱动时需要管理员权限，并需要重启 Windows 一次。
+- 可选的返回与音量键增强需要为采集辅助进程授予管理员权限；未开启时不会启动该辅助进程或发起 Frida 注入。
 
 Axonkey 使用 x64 `interception.dll`，因此不支持 32 位 Windows。输入服务按硬件 ID 只为 RC003 设置过滤条件。
 
@@ -114,6 +118,23 @@ powershell -ExecutionPolicy Bypass -File .\scripts\vbcable-driver.ps1 -Action in
 Windows 语音链路由 Axonkey 直接维护：应用通过 Bluetooth GATT 连接 RC003 的 ATVV 服务，解码 16 kHz IMA ADPCM 音频并写入 `CABLE Input` 播放端点；录音应用选择 `CABLE Output (VB-Audio Virtual Cable)` 作为麦克风。按住语音键时才会建立或恢复语音会话，主页的增益滑杆（`-30 dB` 至 `+30 dB`）只作用于这一路音频。
 
 > **Windows 音频设置提醒：** 微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 `CABLE Output`；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 `CABLE Input` 等虚拟设备。Axonkey 会自行向 `CABLE Input` 写入遥控器语音，无需将其设为系统默认播放设备。
+
+### 可选：返回与音量键增强
+
+此功能默认关闭，入口位于“按键映射”页面底部收起的“高级选项”，不会出现在主页顶部。选中返回、音量加或音量减时，也可以点击“了解并设置”直达该入口。
+
+**开启前请了解：** 此功能通过 Frida 向 Windows 蓝牙设备宿主进程注入 DLL，无法保证与游戏反作弊兼容；有顾虑请保持关闭。这个开关只控制增强采集通道，不控制 Interception 驱动，也不代表整个软件已通过游戏反作弊兼容性认证。
+
+1. 连接 RC003，完成 Interception 设置，并打开“启用自定义按键功能”。
+2. 展开“高级选项”，阅读“返回与音量键增强”的说明，自行决定是否打开“启用增强支持”。
+3. Windows 弹出管理员授权时选择“是”。应用主体保持普通权限，仅采集辅助进程提权。
+4. 状态显示“已启用”后，三个按键直接执行已保存的单击、双击或长按映射，首次按键即可使用，无需测试或校准。
+
+明确开启后会记住选择。保持增强支持与自定义按键功能都开启时，下次启动应用会自动请求一次管理员授权；取消后本次运行不会反复弹窗，可回到高级选项点击“管理员授权”重试。旧版保存的开启状态不会自动沿用，需要在阅读新增说明后重新选择。安装包已携带 Frida DLL，无需安装 Python 或为这条通道安装新的驱动。
+
+关闭开关会停止采集并释放已按下的映射输出，但已加载的 DLL 可能仍驻留在 Windows 宿主进程中。**如需清除已加载的 DLL，请保持该功能关闭并重启 Windows。** 关闭应用主窗口只会隐藏到托盘，不等于停止采集。
+
+实现与故障排查见 [Windows 输入](./docs/WINDOWS_INPUT.md)，组件版本、校验值与许可见 [Frida 来源说明](./vendor/frida/SOURCE.md)。
 
 ## macOS 首次使用
 

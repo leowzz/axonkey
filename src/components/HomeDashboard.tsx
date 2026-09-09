@@ -32,7 +32,6 @@ type HomeDashboardProps = {
   batteryLevel: number | null
   audioGain: number
   enabled: boolean
-  extraKeysControl?: ReactNode
   onRequestPermission: (kind: MacPermissionKind) => void
   onRefresh: () => void
   onAudioGainChange: (gain: number) => void
@@ -90,7 +89,6 @@ export function HomeDashboard({
   batteryLevel,
   audioGain,
   enabled,
-  extraKeysControl,
   onRequestPermission,
   onRefresh,
   onAudioGainChange,
@@ -180,7 +178,6 @@ export function HomeDashboard({
   const audioGainStyle = { '--home-audio-progress': `${audioGainProgress}%` } as CSSProperties
 
   return <div className="home-page">
-    {extraKeysControl}
     <section className={`home-hero ${heroTone}`} aria-labelledby="home-device-title">
       <div className="home-hero-copy">
         <div className="home-eyebrow"><span className="home-state-mark" /> RC003 CONTROL SURFACE</div>

@@ -14,6 +14,9 @@ local utility rather than a general keyboard automation platform.
 - Show thirteen editable RC003 buttons on Windows and macOS.
 - Optionally enable Back and Volume +/- on Windows with explicit administrator
   authorization, with automatic stream acquisition and no confirmation taps.
+- Keep this enhancement off by default and outside the Home readiness checklist.
+  Mapping's collapsed Advanced options explain DLL injection, uncertain game
+  anti-cheat compatibility, and DLL residency before the user enables it.
 - Configure click, double-click, and long-press actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
@@ -41,7 +44,8 @@ An elevated Frida helper reads their raw reports. The first eligible extra-key
 report selects a stream for the current connection and immediately executes its
 mapping. Shared UMDF proxies are not verified physical identities: another device
 in the same host with the same report format and usages can be misidentified.
-If both the saved extra-key switch
+The old v1 preference is not migrated: the user must opt in again after seeing
+the disclosure, then the v2 preference remembers that choice. If both the saved extra-key switch
 and custom mappings are enabled, startup automatically requests UAC once after
 restoring native settings. Cancellation leaves a manual retry option; subsequent
 mapping edits, imports and settings synchronization do not repeat the prompt.

@@ -17,11 +17,18 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
     <div className="extra-keys-heading">
       <ShieldCheck size={19} aria-hidden="true" />
       <div className="extra-keys-copy">
-        <h3 id="extra-keys-title">返回键与音量键支持</h3>
-        <p>需管理员权限，开启后每次启动自动请求授权。</p>
+        <h3 id="extra-keys-title">返回与音量键增强 <small>可选 · 默认关闭</small></h3>
+        <p>为返回、音量加和音量减启用自定义映射。</p>
       </div>
+    </div>
+    <div className="extra-keys-disclosure" id="extra-keys-disclosure">
+      <p><strong>游戏兼容性提醒</strong>通过 Frida 向 Windows 蓝牙设备宿主进程注入 DLL，需管理员权限。无法保证与游戏反作弊兼容；有顾虑请保持关闭。</p>
+      <p>关闭会停止采集，但已加载的 DLL 可能仍驻留；如需清除，请关闭此功能并重启 Windows。</p>
+    </div>
+    <div className="extra-keys-activation">
+      <div><strong>启用增强支持</strong><p>开启后记住选择，下次启动自动请求管理员授权。</p></div>
       <button type="button" className={`extra-keys-switch ${wanted ? 'on' : ''}`} role="switch"
-        aria-checked={wanted} aria-label="返回键与音量键支持" disabled={busy}
+        aria-checked={wanted} aria-label="返回键与音量键支持" aria-describedby="extra-keys-disclosure" disabled={busy || (!wanted && !mappingEnabled)}
         onClick={() => void change(!wanted)}><span /></button>
     </div>
     <div className="extra-keys-state" role="status" aria-live="polite">

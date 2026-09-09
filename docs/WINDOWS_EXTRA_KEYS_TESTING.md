@@ -12,7 +12,7 @@ standalone diagnostic remains available for comparison.
 - `cargo test --manifest-path src-tauri/Cargo.toml --lib`: 30 passed.
 - `npm run test:release`: 26 passed; 3 macOS execution tests skipped on Windows.
 - `node --test test/windows-extra-keys-gadget.test.mjs`: passed.
-- Browser inspection: authorization explanation and switch visible on Home and
+- Historical browser inspection: authorization explanation and switch visible on Home and
   Mapping; all 13 buttons present; Back exposes click/double-click/long-press.
 
 The current tests exercise immediate delivery of each extra key's first press,
@@ -123,8 +123,8 @@ removed. A healthy Gadget acknowledgment now publishes ready before processing
 any following key in the same read batch. The first qualifying extra-key report
 acquires its stream and forwards its down edge immediately. Closing that handle
 clears acquisition and resets pending gestures/outputs; the next qualifying
-press automatically acquires the new stream. The UI shows only the switch, a
-short permission explanation, and connection status.
+press automatically acquires the new stream. See the opt-in placement update
+below for the current UI.
 
 Protocol regression tests cover starting with any of the three keys, duplicate
 reports, other streams, simultaneous keys, releases, and acquisition after close.
@@ -137,11 +137,31 @@ from these automated checks.
 UAC cancellation regressions. TypeScript and the production frontend build also
 passed. The updated flow has not undergone a new physical target-application run.
 
+## Default-off enhancement and contextual guidance (2026-09-10)
+
+The control is now in Mapping's collapsed Advanced options, with a contextual
+link when Back or either volume key is selected. It is absent from Home and the
+required setup checklist. The expanded control discloses Frida DLL injection,
+uncertain game anti-cheat compatibility, and the need to restart Windows if the
+user wants to clear an already loaded DLL after disabling support.
+
+The v2 preference defaults to false and deliberately does not inherit a true v1
+value. Users must explicitly opt in after this disclosure. The false startup
+path stops any helper left alive across frontend remounts without requesting
+UAC; informed opt-in retains automatic authorization on later launches.
+The 7 Node tests and 14 Rust input tests passed, including fresh/legacy defaults,
+explicit opt-in, persistence, cancellation recovery, and disabling across a
+remount. TypeScript and Vite compilation passed. Browser UI automation could not
+run in this session because the connector rejected the configured API-key auth;
+the new layout has not been visually inspected in a live browser.
+
 ## Remaining interactive checks
 
 With the installed build, verify:
 
-1. Enable custom mappings and the extra-key switch. Cancel UAC: the UI explains
+1. Verify a fresh install and an old v1=true preference both stay off without
+   UAC. Open Mapping → Advanced options, read the disclosure, and enable custom
+   mappings and the extra-key switch. Cancel UAC: the UI explains
    cancellation and offers retry; the other ten keys continue working.
 2. Authorize and wait for ready without pressing keys. The first normal press of
    any extra key must execute its mapping; there is no confirmation sequence.

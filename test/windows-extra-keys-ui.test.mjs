@@ -11,11 +11,11 @@ import Renderer, { act } from 'react-test-renderer'
 const require = createRequire(import.meta.url)
 const cancelled = { state: 'error', message: '已取消管理员授权。这三个按键尚未启用，可点击重新授权。', step: 0 }
 
-function environment({ reject = false } = {}) {
-  const storage = new Map([['axonkey.extra-keys.v1', 'true']])
+function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true']], running = false } = {}) {
+  const storage = new Map(saved)
   const timers = new Map(), requests = [], modules = new Map()
   let nextTimer = 0, attempted = false, dialogs = 0
-  let status = { state: 'disabled', message: '', step: 0 }
+  let status = { state: running ? 'ready' : 'disabled', message: '', step: 0 }
   const window = {
     localStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     setInterval: callback => { timers.set(++nextTimer, callback); return nextTimer },
@@ -97,7 +97,7 @@ test('UAC No keeps the interface usable and permits manual retry without repeate
     for (let n = 0; n < 3; n++) await app.poll()
     assert.equal(app.dialogs, 1)
     assert.equal(app.control.status.message, cancelled.message)
-    assert.equal(app.storage.get('axonkey.extra-keys.v1'), 'true')
+    assert.equal(app.storage.get('axonkey.extra-keys.v2'), 'true')
     const other = app.renderer.root.findByProps({ id: 'other-controls' })
     await act(async () => { other.props.onClick() })
     assert.deepEqual(other.children, ['其他功能 1'])
@@ -150,4 +150,49 @@ test('a damaged React tree remounts after cancellation without requesting anothe
     assert.equal(app.control.status.message, cancelled.message)
     assert.ok(app.renderer.root.findByProps({ id: 'other-controls' }))
   } finally { console.error = originalError; await app.close() }
+})
+
+test('fresh installs and legacy preferences stay off without requesting authorization', async () => {
+  for (const saved of [[], [['axonkey.extra-keys.v1', 'true']]]) {
+    const app = environment({ saved, running: true })
+    try {
+      await app.mount()
+      await app.restore()
+      await app.poll()
+      assert.equal(app.control.wanted, false)
+      assert.equal(app.control.status.state, 'disabled', 'also stop a helper left alive across a frontend reload')
+      assert.equal(app.dialogs, 0)
+      assert.equal(app.requests.some(request => request.enabled), false)
+      assert.equal(app.storage.get('axonkey.extra-keys.v2'), 'false')
+    } finally { await app.close() }
+  }
+})
+
+test('explicit opt-in persists, starts without calibration, and can be turned off', async () => {
+  const app = environment({ saved: [] })
+  try {
+    await app.mount()
+    await app.restore()
+    const toggle = app.renderer.root.findByProps({ role: 'switch' })
+    assert.equal(toggle.props['aria-checked'], false)
+    const disclosure = app.renderer.root.findByProps({ id: toggle.props['aria-describedby'] })
+    const readText = node => typeof node === 'string' ? node : node.children.map(readText).join('')
+    const text = readText(disclosure)
+    assert.match(text, /反作弊/)
+    assert.match(text, /DLL/)
+    assert.match(text, /重启 Windows/)
+    await act(async () => { toggle.props.onClick() })
+    assert.equal(app.dialogs, 1)
+    assert.equal(app.requests.at(-1).automatic, false)
+    assert.equal(app.storage.get('axonkey.extra-keys.v2'), 'true')
+    await app.connected()
+    assert.equal(app.control.status.state, 'ready')
+    await act(async () => { toggle.props.onClick() })
+    assert.equal(app.control.wanted, false)
+    assert.equal(app.storage.get('axonkey.extra-keys.v2'), 'false')
+    await app.close()
+    await app.mount()
+    await app.poll()
+    assert.equal(app.dialogs, 1, 'turning off must survive remounts without another prompt')
+  } finally { await app.close() }
 })

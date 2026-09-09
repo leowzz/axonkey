@@ -6,7 +6,9 @@ export type ExtraKeysStatus = {
   message: string
   step: number
 }
-const storageKey = 'axonkey.extra-keys.v1'
+// The old preference predates the DLL/anti-cheat disclosure. Require a fresh
+// opt-in, then preserve that informed choice across application launches.
+const storageKey = 'axonkey.extra-keys.v2'
 const initialStatus: ExtraKeysStatus = { state: 'disabled', message: '', step: 0 }
 
 export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEnabled: boolean, settingsReady: boolean) {
@@ -67,6 +69,7 @@ export function useExtraKeys(windows: boolean, nativeRuntime: boolean, mappingEn
     if (!windows || !nativeRuntime || !settingsReady || startupHandled.current) return
     startupHandled.current = true
     if (wanted && mappingEnabled) void change(true, true)
+    else if (!wanted) void change(false, true)
   }, [windows, nativeRuntime, settingsReady, wanted, mappingEnabled, change])
   return { wanted, status, busy, mappingEnabled, change }
 }

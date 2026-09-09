@@ -6,6 +6,7 @@ import {
   Bluetooth,
   Check,
   CheckCircle2,
+  ChevronRight,
   Copy,
   Download,
   Info,
@@ -124,6 +125,15 @@ function App() {
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [inputSettingsReady, setInputSettingsReady] = useState(false)
   const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
+  const [extraKeysOptionsOpen, setExtraKeysOptionsOpen] = useState(false)
+  const extraKeysOptionsRef = useRef<HTMLDetailsElement>(null)
+  const openExtraKeysOptions = () => {
+    setExtraKeysOptionsOpen(true)
+    window.requestAnimationFrame(() => {
+      extraKeysOptionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      extraKeysOptionsRef.current?.querySelector('summary')?.focus({ preventScroll: true })
+    })
+  }
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
@@ -1101,7 +1111,6 @@ function App() {
         />
 
         {activePage === 'mapping' ? <div className="mapping-page">
-          {platform === 'windows' && <ExtraKeysControl control={extraKeys} />}
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
               <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
@@ -1148,6 +1157,12 @@ function App() {
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
               />
+              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && <div className="extra-keys-context">
+                <span>{extraKeys.status.state === 'ready' ? '增强支持已启用'
+                  : extraKeys.wanted ? '增强支持尚未就绪'
+                    : '此按键的映射需开启可选增强支持'}</span>
+                <button type="button" className="home-row-action" onClick={openExtraKeysOptions}>{extraKeys.wanted ? '管理增强支持' : '了解并设置'}<ChevronRight size={13} /></button>
+              </div>}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
                 attention={behaviorEditorAttention}
@@ -1164,6 +1179,11 @@ function App() {
               />
             </section>
           </div>
+          {platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
+            open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
+            <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
+            <ExtraKeysControl control={extraKeys} />
+          </details>}
         </div> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
@@ -1176,7 +1196,6 @@ function App() {
           batteryLevel={batteryLevel}
           audioGain={audioGain}
           enabled={enabled}
-          extraKeysControl={platform === 'windows' ? <ExtraKeysControl control={extraKeys} /> : undefined}
           onRequestPermission={(kind) => void requestMacPermission(kind)}
           onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
           onAudioGainChange={updateAudioGain}
