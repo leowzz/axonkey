@@ -79,6 +79,7 @@ function environment({ reject = false } = {}) {
     async mount() { await act(async () => { renderer = Renderer.create(tree()) }) },
     async restore() { ready = true; await act(async () => { renderer.update(tree()) }) },
     async cancel(crash = false) { failOnce = crash; status = { ...cancelled }; await this.poll() },
+    async connected() { status = { state: 'ready', message: '已启用', step: 0 }; await this.poll() },
     async poll() { await act(async () => { await Promise.all([...timers.values()].map(refresh => refresh())) }) },
     async close() { await act(async () => { renderer.unmount() }) },
   }
@@ -117,6 +118,22 @@ test('a rejected authorization command is rendered as a message, not a blank scr
     assert.equal(app.control.status.message, cancelled.message)
     assert.equal(app.control.busy, false)
     assert.ok(app.renderer.root.findByProps({ id: 'other-controls' }))
+  } finally { await app.close() }
+})
+
+test('authorization and service readiness enable the control without a key confirmation step', async () => {
+  const app = environment()
+  try {
+    await app.mount()
+    await app.restore()
+    await app.connected()
+    assert.equal(app.control.status.state, 'ready')
+    assert.equal(app.dialogs, 1)
+    assert.ok(app.renderer.root.findByProps({ role: 'status' }).findAllByType('span').some(span => span.children[0] === '已启用'))
+    assert.equal(app.renderer.root.findAllByType('ol').length, 0)
+    assert.equal(app.renderer.root.findAllByType('button').some(button => button.children[0] === '管理员授权'), false)
+    await app.poll()
+    assert.equal(app.dialogs, 1)
   } finally { await app.close() }
 })
 

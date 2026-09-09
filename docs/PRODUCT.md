@@ -9,10 +9,11 @@ local utility rather than a general keyboard automation platform.
 ## Current features
 
 - Recognize only HID devices with Xiaomi vendor `0x2717` and product `0x32B8`.
-- Keep the user's normal keyboard isolated from every RC003 mapping.
+- Keep ordinary keyboard scan codes outside RC003 mappings; the optional shared
+  UMDF capture channel has the device identity limitation described below.
 - Show thirteen editable RC003 buttons on Windows and macOS.
 - Optionally enable Back and Volume +/- on Windows with explicit administrator
-  authorization and confirmation of the remote's report stream each session.
+  authorization, with automatic stream acquisition and no confirmation taps.
 - Configure click, double-click, and long-press actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
@@ -36,9 +37,11 @@ local utility rather than a general keyboard automation platform.
 The RC003 Back and independent Volume +/- buttons require optional support on Windows. The
 known raw Keyboard-page usages (0xF1, 0x80, 0x81) do not produce scan codes in the
 tested Windows HID translation function, so adding scan-code mappings is insufficient.
-An elevated Frida helper reads their raw reports. A three-tap confirmation
-selects a stream for the current connection; shared UMDF proxies are not claimed
-to be automatically verified physical devices. If both the saved extra-key switch
+An elevated Frida helper reads their raw reports. The first eligible extra-key
+report selects a stream for the current connection and immediately executes its
+mapping. Shared UMDF proxies are not verified physical identities: another device
+in the same host with the same report format and usages can be misidentified.
+If both the saved extra-key switch
 and custom mappings are enabled, startup automatically requests UAC once after
 restoring native settings. Cancellation leaves a manual retry option; subsequent
 mapping edits, imports and settings synchronization do not repeat the prompt.

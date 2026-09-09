@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 
 export type ExtraKeysStatus = {
-  state: 'disabled' | 'authorizing' | 'starting' | 'waitingDevice' | 'pairing' | 'ready' | 'error'
+  state: 'disabled' | 'authorizing' | 'starting' | 'waitingDevice' | 'ready' | 'error'
   message: string
   step: number
 }

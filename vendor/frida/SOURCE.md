@@ -33,15 +33,18 @@ notices and provide corresponding source when distributing the derived work.
 Axonkey's corresponding sources are `src-tauri/native/windows/rc003_hid_gadget.js`
 and `src-tauri/src/input_service/{windows_extra_keys,extra_keys_winapi,extra_keys_protocol}.rs`.
 They replace the experimental Python runtime with a native Rust helper,
-explicit UAC activation, authenticated local IPC, user-confirmed stream
+explicit UAC activation, authenticated local IPC, automatic extra-key stream
 selection, per-handle lifetime tracking, and disconnect cleanup. The complete
 application source and build instructions are in https://github.com/leowzz/axonkey
 (use the revision accompanying the distributed application).
 
 UMDF proxy names are not physical hardware identities. A shared WUDFHost is
-validated against RC003's HID service, then the user selects a stream by three
-complete taps (Back, Volume+, Volume-). Only that stream's three usages enter
-the mapping worker. Selection is never persisted across connections; close,
-host/device changes, protocol failure and process exit invalidate it. This is
-explicit user confirmation, not automatic proof of a proxy's VID/PID. No raw
-reports from unselected streams are saved or forwarded to the UI.
+validated against RC003's HID service, then the first eligible nine-byte report
+containing Back, Volume+ or Volume- automatically selects the current stream.
+That first press is forwarded immediately; no confirmation taps are consumed.
+Only that stream's three usages enter the mapping worker. Selection is never
+persisted across connections; close, host/device changes, protocol failure and
+process exit invalidate it. Another device sharing the host and emitting the
+same format and usages first can still be misidentified. Automatic acquisition
+is not proof of a proxy's VID/PID. No raw reports from unselected streams are
+saved or forwarded to the UI.

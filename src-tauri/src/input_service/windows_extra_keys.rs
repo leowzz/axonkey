@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Optional, explicitly elevated HID acquisition. Mapping stays in the normal input worker.
-use super::extra_keys_protocol::{decode, Selection, EXTRA_KEYS};
+use super::extra_keys_protocol::{decode, ExtraKeyStream, EXTRA_KEYS};
 use super::extra_keys_winapi as os;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -209,9 +209,7 @@ impl ExtraKeysService {
                 match message["kind"].as_str() {
                     Some("status") => {
                         let mode = message["state"].as_str().unwrap_or("error");
-                        if !["waitingDevice", "starting", "pairing", "ready", "error"]
-                            .contains(&mode)
-                        {
+                        if !["waitingDevice", "starting", "ready", "error"].contains(&mode) {
                             return Err("按键服务状态无效。".into());
                         }
                         let msg = message["message"].as_str().unwrap_or("按键服务出错。");
@@ -287,8 +285,15 @@ mod authorization_tests {
         }
         assert!(state.begin(false).unwrap() > first);
         assert_eq!(state.status.state, "authorizing");
-        assert_eq!(state.begin(false), None, "pending requests cannot open another dialog");
-        assert!(State::default().begin(true).is_some(), "a new app process can request again");
+        assert_eq!(
+            state.begin(false),
+            None,
+            "pending requests cannot open another dialog"
+        );
+        assert!(
+            State::default().begin(true).is_some(),
+            "a new app process can request again"
+        );
     }
 
     #[test]
@@ -540,11 +545,10 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
             client,
             &json!({"kind":"configure", "devices":names, "auth_token":auth_token}),
         )?;
-        let mut selection = Selection::default();
+        let mut input = ExtraKeyStream::default();
         let mut frames = Frames::default();
         let mut heartbeat = Instant::now();
         let mut probe = Instant::now();
-        let mut displayed = None;
         let mut capture_ready = false;
         let session: Result<(), String> = (|| {
             while !stop.load(Ordering::Relaxed) {
@@ -562,7 +566,8 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                         "按键采集失去响应，请关闭后重试。"
                     } else {
                         "按键组件未确认就绪，请关闭后重试。"
-                    }.into());
+                    }
+                    .into());
                 }
                 for message in frames.read(client)? {
                     if message["protocol_id"].as_str() != Some(&script_id()) {
@@ -574,19 +579,25 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                                 return Err("Windows 未允许启用按键采集。".into());
                             }
                             heartbeat = Instant::now();
-                            capture_ready = true;
+                            if !capture_ready {
+                                // Publish readiness before any key in this same batch:
+                                // the parent only accepts keys while the service is ready.
+                                report(parent, "ready", "已启用", 0)?;
+                                capture_ready = true;
+                            }
                         }
                         Some("error") => {
                             return Err("按键组件无法读取输入报告，请关闭后重试。".into())
                         }
                         Some("stream_closed") => {
-                            if selection.closed(message["stream"].as_str().unwrap_or("")) {
+                            if input.closed(message["stream"].as_str().unwrap_or("")) {
                                 send(parent, &json!({"kind":"reset"}))?;
-                                selection = Selection::default();
-                                displayed = None;
                             }
                         }
                         Some("gatt_read") => {
+                            if !capture_ready {
+                                continue;
+                            }
                             let Some(stream) =
                                 message["stream"].as_str().filter(|s| s.len() <= 256)
                             else {
@@ -603,8 +614,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                             let Some(usages) = message["raw"].as_str().and_then(decode) else {
                                 continue;
                             };
-                            for (usage, pressed) in selection.report(stream, usages, Instant::now())
-                            {
+                            for (usage, pressed) in input.report(stream, usages) {
                                 send(
                                     parent,
                                     &json!({"kind":"key", "usage":usage, "pressed":pressed}),
@@ -613,20 +623,6 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                         }
                         _ => {}
                     }
-                }
-                if capture_ready && displayed != Some(selection.step) {
-                    let state = if selection.stream.is_some() {
-                        "ready"
-                    } else {
-                        "pairing"
-                    };
-                    let message = if selection.stream.is_some() {
-                        "已确认本次连接的遥控器，三个按键已启用。"
-                    } else {
-                        "请仅操作 RC003，依次按下并松开：返回 → 音量加 → 音量减。"
-                    };
-                    report(parent, state, message, selection.step)?;
-                    displayed = Some(selection.step);
                 }
             }
             Ok(())

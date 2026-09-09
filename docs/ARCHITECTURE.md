@@ -14,7 +14,7 @@ Windows
     -> explicit UAC for the native auxiliary process
     -> pinned Frida Gadget in RC003's current WUDFHost
     -> completed HID reads, per-handle lifetime identity
-    -> user-confirmed stream (Back, Volume+, Volume-)
+    -> automatically acquired extra-key stream (first press forwarded)
     -> authenticated loopback IPC to the normal-privilege app
     -> the same gesture state and Interception output on RC003
 

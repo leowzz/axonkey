@@ -15,8 +15,9 @@ standalone diagnostic remains available for comparison.
 - Browser inspection: authorization explanation and switch visible on Home and
   Mapping; all 13 buttons present; Back exposes click/double-click/long-press.
 
-The new tests exercise three complete confirmation taps, rejection of mixed
-streams and malformed packets, simultaneous usages, duplicate suppression,
+The current tests exercise immediate delivery of each extra key's first press,
+ignoring ordinary/idle reports before acquisition, rejection of other streams
+and malformed packets, simultaneous usages, duplicate suppression,
 modifier release, cancellation of pending clicks, timer-based long presses,
 raw-output cleanup, per-handle close/reuse, authenticated configuration,
 completed-read filtering, idle detach and reconnect.
@@ -115,14 +116,35 @@ recovery does not open another dialog. Both native authorization lifecycle tests
 also passed (13 input-service tests in total). These automated tests do not
 operate the Windows secure-desktop consent dialog.
 
+## Automatic activation (2026-09-10)
+
+The confirmation flow described in the historical physical runs above has been
+removed. A healthy Gadget acknowledgment now publishes ready before processing
+any following key in the same read batch. The first qualifying extra-key report
+acquires its stream and forwards its down edge immediately. Closing that handle
+clears acquisition and resets pending gestures/outputs; the next qualifying
+press automatically acquires the new stream. The UI shows only the switch, a
+short permission explanation, and connection status.
+
+Protocol regression tests cover starting with any of the three keys, duplicate
+reports, other streams, simultaneous keys, releases, and acquisition after close.
+The React readiness test requires no simulated button presses or confirmation
+actions. Physical mapping acceptance in the target application remains separate
+from these automated checks.
+
+`npm run test:windows-extra-keys` passed: 5 Node tests (Gadget and React) and
+14 Rust input-service tests, including the existing double-click/long-press and
+UAC cancellation regressions. TypeScript and the production frontend build also
+passed. The updated flow has not undergone a new physical target-application run.
+
 ## Remaining interactive checks
 
 With the installed build, verify:
 
 1. Enable custom mappings and the extra-key switch. Cancel UAC: the UI explains
    cancellation and offers retry; the other ten keys continue working.
-2. Authorize, then tap/release Back, Volume+, Volume- in order. These confirmation
-   taps do not execute actions. Repeat the keys after the status becomes ready.
+2. Authorize and wait for ready without pressing keys. The first normal press of
+   any extra key must execute its mapping; there is no confirmation sequence.
 3. Configure one click, double-click and long-press action; verify the physical
    outputs. With no custom action, verify browser Back and system Volume +/-.
 4. Hold a replacement modifier and turn the feature off; verify release. Quit
@@ -131,12 +153,13 @@ With the installed build, verify:
    after native settings are restored. Cancel: it must not repeat on polling or
    mapping edits, and manual retry must remain available. Restart with extra keys
    off, or with custom mappings off: no automatic UAC. Reconnect the remote:
-   re-confirm the stream.
-6. Try another keyboard/remote alongside RC003. UMDF stream confirmation is user
-   selection, not automatic hardware identity; see the scope limits in
+   the next normal press must work without confirmation.
+6. Try another keyboard/remote alongside RC003. Automatic report matching is not
+   proof of physical hardware identity; see the scope limits in
    [Windows input](./WINDOWS_INPUT.md) and [provenance](../vendor/frida/SOURCE.md).
 
 For a capture-only native test, a debug build supports
-`axonkey.exe --extra-keys-smoke-test`. It requests UAC, waits for the three
-confirmation taps, then observes a further tap of each key without sending any
-mapped output. It exits after those events or after 120 seconds.
+`axonkey.exe --extra-keys-smoke-test`. It requests UAC and observes a normal tap
+of each key in any order without sending mapped output. It exits after those
+events or after 120 seconds. This is a developer diagnostic, not a product setup
+step.
