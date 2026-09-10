@@ -1,5 +1,29 @@
-import { Check, LoaderCircle, ShieldCheck } from 'lucide-react'
+import { Check, ChevronRight, LoaderCircle, ShieldCheck } from 'lucide-react'
 import type { useExtraKeys } from '../hooks/useExtraKeys'
+
+type Control = ReturnType<typeof useExtraKeys>
+
+export function ExtraKeysNotice({ control, onOpen }: { control: Control; onOpen: () => void }) {
+  const { wanted, status, mappingEnabled } = control
+  const ready = wanted && mappingEnabled && status.state === 'ready'
+  const title = ready ? '增强支持已启用'
+    : !mappingEnabled ? '自定义按键功能已关闭'
+      : !wanted ? '增强未开启，此按键的映射尚未生效'
+        : status.state === 'waitingDevice' ? '等待遥控器连接，此按键暂不可用'
+          : status.state === 'starting' || status.state === 'authorizing' ? '增强正在启动，此按键暂不可用'
+            : '增强尚未就绪，此按键的映射尚未生效'
+  return <section className={`extra-keys-context ${ready ? 'ready' : 'unavailable'}`} aria-label="此按键的增强支持状态">
+    <ShieldCheck size={20} aria-hidden="true" />
+    <div className="extra-keys-context-copy">
+      <strong>{title}</strong>
+      {!ready && <p>{!mappingEnabled ? '请先打开顶部的自定义按键开关，再检查增强支持。'
+        : '返回和音量加减都需要增强支持，包括默认的加减音量。仅保存映射不会启用。'}</p>}
+    </div>
+    <button type="button" className={`extra-keys-action ${ready ? 'secondary' : ''}`} onClick={onOpen}>
+      {ready ? '管理增强支持' : wanted ? '查看状态 / 授权' : '查看说明并开启'}<ChevronRight size={15} />
+    </button>
+  </section>
+}
 
 export function ExtraKeysControl({ control }: { control: ReturnType<typeof useExtraKeys> }) {
   const { wanted, status, busy, mappingEnabled, change } = control
@@ -18,7 +42,7 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
       <ShieldCheck size={19} aria-hidden="true" />
       <div className="extra-keys-copy">
         <h3 id="extra-keys-title">返回与音量键增强 <small>可选 · 默认关闭</small></h3>
-        <p>为返回、音量加和音量减启用自定义映射。</p>
+        <p>返回和音量加减的映射均需要此功能，包括默认的加减音量。</p>
       </div>
     </div>
     <div className="extra-keys-disclosure" id="extra-keys-disclosure">
@@ -27,6 +51,8 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
     </div>
     <div className="extra-keys-activation">
       <div><strong>启用增强支持</strong><p>开启后记住选择，下次启动自动请求管理员授权。</p></div>
+      {!wanted && <button type="button" className="extra-keys-action" disabled={busy || !mappingEnabled}
+        aria-describedby="extra-keys-disclosure" onClick={() => void change(true)}><ShieldCheck size={16} />开启并授权</button>}
       <button type="button" className={`extra-keys-switch ${wanted ? 'on' : ''}`} role="switch"
         aria-checked={wanted} aria-label="返回键与音量键支持" aria-describedby="extra-keys-disclosure" disabled={busy || (!wanted && !mappingEnabled)}
         onClick={() => void change(!wanted)}><span /></button>
@@ -34,7 +60,7 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
     <div className="extra-keys-state" role="status" aria-live="polite">
       {requesting || status.state === 'starting' ? <LoaderCircle size={14} className="home-summary-loading-icon" /> : status.state === 'ready' ? <Check size={14} /> : null}
       <span>{message}</span>
-      {needsAuthorization && mappingEnabled && <button type="button" className="home-row-action" disabled={busy} onClick={() => void change(true)}>管理员授权</button>}
+      {needsAuthorization && mappingEnabled && <button type="button" className="extra-keys-action" disabled={busy} onClick={() => void change(true)}>管理员授权</button>}
     </div>
   </section>
 }

@@ -184,6 +184,22 @@ These measurements exclude BLE, the actual Gadget runtime, worker scheduling,
 Interception output and the target application; no physical latency reduction
 has yet been measured. The shorter wait is not an end-to-end latency guarantee.
 
+## Visible activation guidance (2026-09-10)
+
+When enhancement is off, the three affected key tiles now show `需开启增强`.
+Selecting one displays a highlighted explanation that its mapping is not active
+and that even default volume adjustment requires enhancement. The explicit
+`查看说明并开启` button opens Advanced options without requesting UAC. The
+disclosure then offers `开启并授权`, alongside the existing switch. Cancellation
+and connection failures retain a visible status/authorization entry; once ready,
+the warning changes to enabled status and tile requirements disappear.
+
+`npm run test:windows-extra-keys` passed with 8 Node tests and 15 Rust tests.
+The new React test verifies that opening the disclosure does not authorize
+injection, explicit activation requests UAC, cancellation preserves unavailable
+guidance, and ready status clears that guidance. README and Windows input docs
+use the same labels. Live visual inspection remains outstanding.
+
 ## Remaining interactive checks
 
 With the installed build, verify:

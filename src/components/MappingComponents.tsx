@@ -10,16 +10,18 @@ type MappingKeyGridProps = {
   behaviors: BehaviorMap
   activeId: ButtonId
   pressedId: ButtonId | null
+  extraKeysNotice?: string
   rowRefs: { current: Partial<Record<ButtonId, HTMLElement>> }
   onSelect: (buttonId: ButtonId) => void
 }
 
-export function MappingKeyGrid({ buttons, behaviors, activeId, pressedId, rowRefs, onSelect }: MappingKeyGridProps) {
+export function MappingKeyGrid({ buttons, behaviors, activeId, pressedId, extraKeysNotice, rowRefs, onSelect }: MappingKeyGridProps) {
   return <div className="mapping-key-grid">
     {buttons.map((button) => {
       const configuredTriggers = triggerOrder.filter((trigger) => behaviors[button.id][trigger].length > 0)
       const active = activeId === button.id
       const pressed = pressedId === button.id
+      const notice = ['back', 'volumeUp', 'volumeDown'].includes(button.id) ? extraKeysNotice : undefined
 
       return <article
         key={button.id}
@@ -28,7 +30,7 @@ export function MappingKeyGrid({ buttons, behaviors, activeId, pressedId, rowRef
       >
         <button type="button" aria-pressed={active} onClick={() => onSelect(button.id)}>
           <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 16)}</span>
-          <span className="mapping-key-copy"><strong>{button.label}</strong></span>
+          <span className="mapping-key-copy"><strong>{button.label}</strong>{notice && <small className="mapping-key-requirement">{notice}</small>}</span>
           {configuredTriggers.length > 0 && <span className="mapping-key-status" aria-label={`${configuredTriggers.length} 个已设置触发方式`}>{configuredTriggers.length}</span>}
         </button>
       </article>

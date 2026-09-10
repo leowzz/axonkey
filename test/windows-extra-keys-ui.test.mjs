@@ -11,7 +11,7 @@ import Renderer, { act } from 'react-test-renderer'
 const require = createRequire(import.meta.url)
 const cancelled = { state: 'error', message: '已取消管理员授权。这三个按键尚未启用，可点击重新授权。', step: 0 }
 
-function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true']], running = false } = {}) {
+function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true']], running = false, showNotice = false } = {}) {
   const storage = new Map(saved)
   const timers = new Map(), requests = [], modules = new Map()
   let nextTimer = 0, attempted = false, dialogs = 0
@@ -53,9 +53,9 @@ function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true'
     return module.exports
   }
   const { useExtraKeys } = load('src/hooks/useExtraKeys.ts')
-  const { ExtraKeysControl } = load('src/components/ExtraKeysControl.tsx')
+  const { ExtraKeysControl, ExtraKeysNotice } = load('src/components/ExtraKeysControl.tsx')
   const { AppErrorBoundary } = load('src/components/AppErrorBoundary.tsx')
-  let ready = false, failOnce = false, control
+  let ready = false, failOnce = false, control, opened = 0
   function Harness() {
     control = useExtraKeys(true, true, true, ready)
     const [count, setCount] = React.useState(0)
@@ -65,6 +65,7 @@ function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true'
     }
     return React.createElement('main', null,
       React.createElement('button', { id: 'other-controls', onClick: () => setCount(count + 1) }, `其他功能 ${count}`),
+      showNotice && React.createElement(ExtraKeysNotice, { control, onOpen: () => { opened++ } }),
       React.createElement(ExtraKeysControl, { control }),
     )
   }
@@ -74,6 +75,7 @@ function environment({ reject = false, saved = [['axonkey.extra-keys.v2', 'true'
   return {
     requests, storage,
     get dialogs() { return dialogs },
+    get opened() { return opened },
     get control() { return control },
     get renderer() { return renderer },
     async mount() { await act(async () => { renderer = Renderer.create(tree()) }) },
@@ -194,5 +196,30 @@ test('explicit opt-in persists, starts without calibration, and can be turned of
     await app.mount()
     await app.poll()
     assert.equal(app.dialogs, 1, 'turning off must survive remounts without another prompt')
+  } finally { await app.close() }
+})
+
+test('the prominent guidance opens the disclosure before explicit authorization', async () => {
+  const app = environment({ saved: [], showNotice: true })
+  try {
+    await app.mount()
+    await app.restore()
+    const readText = node => typeof node === 'string' ? node : node.children.map(readText).join('')
+    const notice = () => app.renderer.root.findByProps({ 'aria-label': '此按键的增强支持状态' })
+    assert.match(readText(notice()), /映射尚未生效/)
+    assert.match(readText(notice()), /包括默认的加减音量/)
+    await act(async () => { notice().findByType('button').props.onClick() })
+    assert.equal(app.opened, 1)
+    assert.equal(app.dialogs, 0, 'reading the disclosure must not authorize injection')
+    const enable = app.renderer.root.findAllByType('button').find(button => readText(button) === '开启并授权')
+    assert.ok(enable)
+    assert.equal(enable.props['aria-describedby'], 'extra-keys-disclosure')
+    await act(async () => { enable.props.onClick() })
+    assert.equal(app.dialogs, 1)
+    await app.cancel()
+    assert.match(readText(notice()), /尚未就绪/)
+    await app.connected()
+    assert.match(readText(notice()), /增强支持已启用/)
+    assert.doesNotMatch(readText(notice()), /尚未生效/)
   } finally { await app.close() }
 })

@@ -6,7 +6,6 @@ import {
   Bluetooth,
   Check,
   CheckCircle2,
-  ChevronRight,
   Copy,
   Download,
   Info,
@@ -63,7 +62,7 @@ import { MappingKeyGrid, MappingTriggerSelector } from './components/MappingComp
 import { MacPermissionHelperWindow, SetupDialog } from './components/SetupDialog'
 import { useAudioControls } from './hooks/useAudioControls'
 import { useExtraKeys } from './hooks/useExtraKeys'
-import { ExtraKeysControl } from './components/ExtraKeysControl'
+import { ExtraKeysControl, ExtraKeysNotice } from './components/ExtraKeysControl'
 import { logError, logInfo } from './runtimeLogging'
 import {
   beginDriverAction,
@@ -1147,6 +1146,9 @@ function App() {
                   behaviors={behaviors}
                   activeId={activeId}
                   pressedId={pressedId}
+                  extraKeysNotice={platform !== 'windows' ? undefined
+                    : !extraKeys.wanted ? '需开启增强'
+                      : !enabled || extraKeys.status.state !== 'ready' ? '增强未就绪' : undefined}
                   rowRefs={rowRefs}
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
                 />
@@ -1157,12 +1159,8 @@ function App() {
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
               />
-              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && <div className="extra-keys-context">
-                <span>{extraKeys.status.state === 'ready' ? '增强支持已启用'
-                  : extraKeys.wanted ? '增强支持尚未就绪'
-                    : '此按键的映射需开启可选增强支持'}</span>
-                <button type="button" className="home-row-action" onClick={openExtraKeysOptions}>{extraKeys.wanted ? '管理增强支持' : '了解并设置'}<ChevronRight size={13} /></button>
-              </div>}
+              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) &&
+                <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} />}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
                 attention={behaviorEditorAttention}
