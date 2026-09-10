@@ -188,7 +188,7 @@ has yet been measured. The shorter wait is not an end-to-end latency guarantee.
 
 When enhancement is off, the three affected key tiles now show `需开启增强`.
 Selecting one displays a highlighted explanation that its mapping is not active
-and that even default volume adjustment requires enhancement. The explicit
+and that saving a mapping does not enable enhancement. The explicit
 `查看说明并开启` button opens Advanced options without requesting UAC. The
 disclosure then offers `开启并授权`, alongside the existing switch. Cancellation
 and connection failures retain a visible status/authorization entry; once ready,

@@ -17,7 +17,7 @@ export function ExtraKeysNotice({ control, onOpen }: { control: Control; onOpen:
     <div className="extra-keys-context-copy">
       <strong>{title}</strong>
       {!ready && <p>{!mappingEnabled ? '请先打开顶部的自定义按键开关，再检查增强支持。'
-        : '返回和音量加减都需要增强支持，包括默认的加减音量。仅保存映射不会启用。'}</p>}
+        : '返回和音量加减的映射需要增强支持。仅保存映射不会启用。'}</p>}
     </div>
     <button type="button" className={`extra-keys-action ${ready ? 'secondary' : ''}`} onClick={onOpen}>
       {ready ? '管理增强支持' : wanted ? '查看状态 / 授权' : '查看说明并开启'}<ChevronRight size={15} />
@@ -48,7 +48,7 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
             <span>{message}</span>
           </div>
         </div>
-        <p>返回和音量加减的映射均需要此功能，包括默认的加减音量。</p>
+        <p>返回和音量加减的映射均需要此功能。</p>
       </div>
       <div className="extra-keys-heading-actions">
         {!wanted && <button type="button" className="extra-keys-action" disabled={busy || !mappingEnabled}

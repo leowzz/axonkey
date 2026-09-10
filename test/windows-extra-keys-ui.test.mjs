@@ -207,7 +207,7 @@ test('the prominent guidance opens the disclosure before explicit authorization'
     const readText = node => typeof node === 'string' ? node : node.children.map(readText).join('')
     const notice = () => app.renderer.root.findByProps({ 'aria-label': '此按键的增强支持状态' })
     assert.match(readText(notice()), /映射尚未生效/)
-    assert.match(readText(notice()), /包括默认的加减音量/)
+    assert.match(readText(notice()), /仅保存映射不会启用/)
     await act(async () => { notice().findByType('button').props.onClick() })
     assert.equal(app.opened, 1)
     assert.equal(app.dialogs, 0, 'reading the disclosure must not authorize injection')
