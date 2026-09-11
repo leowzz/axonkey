@@ -68,15 +68,11 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .title-divider { width: 1px; height: 28px; background: #d4d7da; }
 .title-hint { color: #90949a; font-family: 'DM Mono', monospace; font-size: 13px; letter-spacing: .1em; }
 .header-actions { display: flex; align-items: center; justify-self: end; }
-.app-nav { position: relative; isolation: isolate; display: flex; height: 42px; align-items: stretch; gap: 3px; justify-self: center; margin: 0; padding: 3px; border: 1px solid rgba(255,255,255,.8); border-radius: 999px; background: linear-gradient(135deg, rgba(255,255,255,.62), rgba(214,225,237,.3) 55%, rgba(255,255,255,.48)); -webkit-backdrop-filter: blur(18px) saturate(160%); backdrop-filter: blur(18px) saturate(160%); box-shadow: inset 0 1px 1px rgba(255,255,255,.95), inset 0 -1px 2px rgba(111,137,165,.12), 0 3px 12px rgba(46,72,100,.1), 0 0 0 1px rgba(121,144,167,.1); }
-.app-nav button { display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 14px; border: 0; border-radius: 999px; color: #526477; background: transparent; font-size: 13px; font-weight: 700; transition: background .18s ease, box-shadow .18s ease, color .18s ease; }
-.app-nav button:hover { color: #235f9e; background: rgba(255,255,255,.4); }
-.app-nav button.active { color: #155ca9; background: linear-gradient(155deg, rgba(255,255,255,.95), rgba(241,248,255,.65) 55%, rgba(211,231,251,.5)); box-shadow: inset 0 1px 1px #fff, inset 0 -1px 2px rgba(86,132,182,.16), 0 2px 6px rgba(45,87,130,.16), 0 0 0 1px rgba(255,255,255,.7); }
+.app-nav { display: flex; height: 42px; align-items: stretch; gap: 3px; justify-self: center; margin: 0; padding: 3px; border: 1px solid #d9dde1; border-radius: 999px; background: #e9ebed; }
+.app-nav button { display: inline-flex; align-items: center; gap: 6px; height: 100%; padding: 0 14px; border: 0; border-radius: 999px; color: #737b83; background: transparent; font-size: 13px; font-weight: 700; }
+.app-nav button:hover { color: #3b6f9f; background: #f4f6f7; }
+.app-nav button.active { color: #176fcf; background: #fff; box-shadow: 0 1px 3px rgba(39, 58, 76, .1); }
 .app-nav button:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
-@media (prefers-reduced-transparency: reduce) {
-  .app-nav { background: #e6edf4; -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .app-nav button.active { background: #fff; }
-}
 .enable-control { display: flex; align-items: center; gap: 10px; color: #363a3f; font-size: 15px; font-weight: 700; white-space: nowrap; }
 .switch { position: relative; width: 50px; height: 28px; padding: 3px; border: 0; border-radius: 20px; background: #d6d8db; transition: background .16s ease; }
 .switch span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.13); transition: transform .16s ease; }
@@ -799,7 +795,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 
 .about-page { width: min(1000px, calc(100% - 48px)); margin: 24px auto; }
 .about-intro { display: flex; align-items: center; gap: 24px; padding: 32px; border: 1px solid #dfe1e4; border-radius: 8px; background: #f8f8f7; }
-.about-intro > .brand-mark { flex-shrink: 0; width: 64px; height: 64px; font-size: 38px; border-radius: 14px; }
+.about-app-icon { flex-shrink: 0; width: 64px; height: 64px; object-fit: contain; }
 .about-version { color: #737b83; font-size: 13px; font-variant-numeric: tabular-nums; }
 .about-intro h2 { margin: 8px 0 12px; font-size: 28px; }
 .about-intro p, .about-features p { color: #69737b; font-size: 14px; line-height: 1.8; }
@@ -811,3 +807,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 @media (max-width: 1200px) {
   .topbar .title-hint, .topbar .title-divider { display: none; }
 }
+
+.about-github-button { display: inline-flex; flex-shrink: 0; align-self: flex-start; align-items: center; justify-content: center; gap: 8px; min-height: 38px; margin-left: auto; padding: 0 14px; border: 1px solid #cfd2d3; border-radius: 7px; color: #3d4852; background: #fff; text-decoration: none; font-size: 14px; font-weight: 700; }
+.about-github-button:hover { border-color: #9fa7ac; color: #202528; background: #f0f3f6; }
+.about-github-button:focus-visible { outline: 2px solid #1478e8; outline-offset: 3px; }
