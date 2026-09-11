@@ -1,8 +1,23 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
+// Both RC003 decoders produce 16 kHz mono PCM. Count samples rather than
+// wall time so delayed Bluetooth packets cannot leak the button transient.
+const TEST_WARMUP_SAMPLES: usize = 16_000 / 2;
+
+struct TestLevel {
+    remaining: usize,
+    sample: Option<(Instant, f64, f64)>,
+}
+
+impl Default for TestLevel {
+    fn default() -> Self {
+        Self { remaining: TEST_WARMUP_SAMPLES, sample: None }
+    }
+}
+
 pub(super) struct AudioDiagnostics {
-    level: std::sync::Mutex<Option<(Instant, f64, f64)>>,
+    level: std::sync::Mutex<TestLevel>,
     epoch: Instant,
     activity: AtomicBool,
     packets: AtomicU64,
@@ -29,7 +44,7 @@ pub(super) struct AudioDiagnostics {
 impl Default for AudioDiagnostics {
     fn default() -> Self {
         Self {
-            level: std::sync::Mutex::new(None),
+            level: std::sync::Mutex::new(TestLevel::default()),
             epoch: Instant::now(),
             activity: AtomicBool::new(false),
             packets: AtomicU64::new(0),
@@ -75,18 +90,22 @@ impl AudioDiagnostics {
         self.decoded.fetch_add(samples.len() as u64, Relaxed);
         self.energy.fetch_add(energy, Relaxed);
         self.peak.fetch_max(peak, Relaxed);
-        if !samples.is_empty() {
-            let trimmed_peak = trimmed_sample_peak(samples);
-            if let Ok(mut level) = self.level.lock() {
-                *level = Some((Instant::now(), trimmed_peak as f64 / 32768.0,
-                    (energy as f64 / samples.len() as f64).sqrt() / 32768.0));
+        if let Ok(mut level) = self.level.lock() {
+            let skipped = level.remaining.min(samples.len());
+            level.remaining -= skipped;
+            let samples = &samples[skipped..];
+            if !samples.is_empty() {
+                let trimmed_peak = trimmed_sample_peak(samples);
+                let energy: f64 = samples.iter().map(|sample| f64::from(*sample).powi(2)).sum();
+                level.sample = Some((Instant::now(), trimmed_peak as f64 / 32768.0,
+                    (energy / samples.len() as f64).sqrt() / 32768.0));
             }
         }
     }
 
     pub(super) fn level(&self) -> super::AudioLevel {
         self.level.lock().ok().and_then(|level| {
-            level.as_ref().filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
+            level.sample.as_ref().filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
                 .map(|(_, peak, rms)| super::AudioLevel { peak: *peak, rms: *rms })
         }).unwrap_or_default()
     }
@@ -117,6 +136,9 @@ impl AudioDiagnostics {
         match opcode {
             0x04 => {
                 self.starts.fetch_add(1, Relaxed);
+                if let Ok(mut level) = self.level.lock() {
+                    *level = TestLevel::default();
+                }
             }
             0x00 => {
                 self.stops.fetch_add(1, Relaxed);
@@ -231,8 +253,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_level_skips_first_500ms_across_batches_and_preserves_diagnostics() {
+        let diagnostics = AudioDiagnostics::default();
+        diagnostics.control(0x04);
+        diagnostics.decoded(&[i16::MIN; 7990]);
+        diagnostics.decoded(&[]);
+        assert_eq!(diagnostics.level().peak, 0.0);
+        assert_eq!(diagnostics.level().rms, 0.0);
+        let mut boundary = vec![i16::MIN; 10];
+        boundary.extend_from_slice(&[1000; 200]);
+        diagnostics.decoded(&boundary);
+        assert_eq!(diagnostics.level().peak, 1000.0 / 32768.0);
+        assert_eq!(diagnostics.level().rms, 1000.0 / 32768.0);
+        let report = diagnostics.report(true, Duration::from_secs(1)).unwrap();
+        assert!(report.contains("decoded_samples=8200 pcm_peak=32768"));
+
+        diagnostics.control(0x00);
+        diagnostics.control(0x04);
+        assert_eq!(diagnostics.level().peak, 0.0);
+        diagnostics.decoded(&[i16::MAX; TEST_WARMUP_SAMPLES]);
+        assert_eq!(diagnostics.level().peak, 0.0);
+        assert_eq!(diagnostics.level().rms, 0.0);
+        diagnostics.decoded(&[2000]);
+        assert_eq!(diagnostics.level().peak, 2000.0 / 32768.0);
+        assert_eq!(diagnostics.level().rms, 2000.0 / 32768.0);
+    }
+
+    #[test]
     fn test_peak_trims_top_one_percent_without_changing_rms_or_log_peak() {
         let diagnostics = AudioDiagnostics::default();
+        diagnostics.level.lock().unwrap().remaining = 0;
         let mut samples = vec![1000; 200];
         samples[0] = i16::MIN;
         samples[1] = i16::MAX;
@@ -258,13 +308,14 @@ mod tests {
     #[test]
     fn live_level_normalizes_pcm_and_expires_without_packets() {
         let diagnostics = AudioDiagnostics::default();
+        diagnostics.level.lock().unwrap().remaining = 0;
         assert_eq!(diagnostics.level().peak, 0.0);
         diagnostics.decoded(&[i16::MIN, 0]);
         assert_eq!(diagnostics.level().peak, 1.0);
         assert!((diagnostics.level().rms - 0.5_f64.sqrt()).abs() < 0.000001);
         diagnostics.report(true, Duration::from_secs(1));
         assert_eq!(diagnostics.level().peak, 1.0);
-        *diagnostics.level.lock().unwrap() = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
+        diagnostics.level.lock().unwrap().sample = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
         assert_eq!(diagnostics.level().peak, 0.0);
         assert_eq!(diagnostics.level().rms, 0.0);
         diagnostics.decoded(&[0, 0]);
