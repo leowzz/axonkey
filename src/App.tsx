@@ -348,7 +348,8 @@ function App() {
       const editor = behaviorEditorRef.current
       if (!editor) return
       const rect = editor.getBoundingClientRect()
-      const editorFullyVisible = rect.top >= 8 && rect.bottom <= window.innerHeight - 8
+      const topbarBottom = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0
+      const editorFullyVisible = rect.top >= topbarBottom + 8 && rect.bottom <= window.innerHeight - 8
       if (!editorFullyVisible) {
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
         editor.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
