@@ -1,4 +1,4 @@
-use super::{InputServiceStatus, NativeBehavior, NativeSettings, TriggerBehaviors};
+use super::{InputServiceStatus, NativeBehavior, NativeSettings, TriggerBehaviors, WheelDirection};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -373,6 +373,7 @@ fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
 }
 
 struct PressState {
+    wheel_repeat: Option<(i32, Instant)>,
     started_at: Instant,
     last_repeat_log: Instant,
     original: KeyStroke,
@@ -796,6 +797,7 @@ fn process_source_stroke(
         // Track their synthesized default down so shutdown can always release it.
         if SOURCE_KEYS[10..].iter().any(|key| key.id == source.id) && settings.enabled && !key_up {
             states.entry(source.id).or_default().pressed = Some(PressState {
+                wheel_repeat: None,
                 started_at: Instant::now(),
                 last_repeat_log: Instant::now(),
                 original: stroke,
@@ -811,6 +813,10 @@ fn process_source_stroke(
     let state = states.entry(source.id).or_default();
     if !key_up {
         if let Some(press) = state.pressed.as_mut() {
+            // The timer owns wheel repeats, including remotes without repeat reports.
+            if press.wheel_repeat.is_some() {
+                return;
+            }
             if press.last_repeat_log.elapsed() >= Duration::from_secs(1) {
                 log::info!(target: "axonkey::input", "RC003 repeat handling: button={}, held_outputs={}, passthrough_long={}, long_fired={}", source.id, press.held_outputs.len(), press.passthrough_long, press.long_fired);
                 press.last_repeat_log = Instant::now();
@@ -827,6 +833,10 @@ fn process_source_stroke(
                 send_stroke(api, context, device, stroke);
             }
         } else {
+            let wheel_repeat = continuous_click_wheel(&triggers).map(|delta| {
+                send_wheel(delta);
+                (delta, Instant::now() + Duration::from_millis(400))
+            });
             let held_outputs = continuous_click_chord(&triggers)
                 .map(|keys| {
                     for behavior in triggers.click.iter().filter(|behavior| behavior.enabled()) {
@@ -840,6 +850,7 @@ fn process_source_stroke(
                 })
                 .unwrap_or_default();
             state.pressed = Some(PressState {
+                wheel_repeat,
                 started_at: Instant::now(),
                 last_repeat_log: Instant::now(),
                 original: stroke,
@@ -855,6 +866,9 @@ fn process_source_stroke(
         log::warn!(target: "axonkey::input", "RC003 unmatched key-up ignored: button={}", source.id);
         return;
     };
+    if press.wheel_repeat.is_some() {
+        return;
+    }
     if !press.held_outputs.is_empty() {
         release_chord(api, context, device, &press.held_outputs);
         return;
@@ -941,6 +955,13 @@ fn process_timers(
             .cloned()
             .unwrap_or_default();
         if let Some(press) = state.pressed.as_mut() {
+            if let Some((delta, due)) = press.wheel_repeat.as_mut() {
+                if continuous_click_wheel(&triggers) == Some(*delta) && now >= *due {
+                    send_wheel(*delta);
+                    *due = now + Duration::from_millis(80);
+                }
+                continue;
+            }
             let reached_long_press =
                 now.duration_since(press.started_at) >= Duration::from_millis(LONG_PRESS_MS);
             if press.held_outputs.is_empty()
@@ -995,6 +1016,28 @@ fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<u16>> {
     behavior_chord(behavior)
 }
 
+fn wheel_delta(direction: WheelDirection) -> i32 {
+    match direction {
+        WheelDirection::Up => 120,
+        WheelDirection::Down => -120,
+    }
+}
+
+fn continuous_click_wheel(triggers: &TriggerBehaviors) -> Option<i32> {
+    if has_enabled(&triggers.double_click) || has_enabled(&triggers.long_press) {
+        return None;
+    }
+    let mut enabled = triggers.click.iter().filter(|behavior| behavior.enabled());
+    let first = enabled.next()?;
+    if enabled.next().is_some() {
+        return None;
+    }
+    match first {
+        NativeBehavior::Wheel { direction, .. } => Some(wheel_delta(*direction)),
+        _ => None,
+    }
+}
+
 fn execute_click_or_original(
     api: &InterceptionApi,
     context: Context,
@@ -1033,6 +1076,9 @@ fn execute_behaviors(
 ) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
+            NativeBehavior::Wheel { direction, .. } => {
+                log::info!(target: "axonkey::input", "Mapped wheel: delta={}", wheel_delta(*direction))
+            }
             NativeBehavior::Key { key, .. } => {
                 log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
             }
@@ -1050,6 +1096,7 @@ fn execute_behaviors(
             }
         }
         match behavior {
+            NativeBehavior::Wheel { direction, .. } => send_wheel(wheel_delta(*direction)),
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(chord) = behavior_chord(behavior) {
                     tap_chord(api, context, device, &chord);
@@ -1080,7 +1127,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
                 });
             (!chord.is_empty()).then_some(chord)
         }
-        NativeBehavior::Paste { .. }
+        NativeBehavior::Wheel { .. }
+        | NativeBehavior::Paste { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
@@ -1370,6 +1418,42 @@ struct Input {
     value: InputValue,
 }
 
+fn wheel_input(delta: i32) -> Input {
+    Input {
+        kind: 0, // INPUT_MOUSE
+        value: InputValue {
+            mouse: MouseInput {
+                dx: 0,
+                dy: 0,
+                mouse_data: delta as u32,
+                flags: 0x0800, // MOUSEEVENTF_WHEEL
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn send_wheel(delta: i32) {
+    let input = wheel_input(delta);
+    #[cfg(test)]
+    {
+        WHEEL_EVENTS.with(|events| events.borrow_mut().push(unsafe { input.value.mouse.mouse_data } as i32));
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            log::warn!(target: "axonkey::input", "Wheel injection failed: delta={delta}, error={}; target may have higher privileges", std::io::Error::last_os_error());
+        }
+    }
+}
+
 fn send_unicode_text(text: &str) {
     const INPUT_KEYBOARD: u32 = 1;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
@@ -1445,6 +1529,39 @@ extern "system" {
 mod tests {
     use super::*;
 
+    #[test]
+    fn wheel_events_use_signed_windows_notches_without_mouse_movement() {
+        for delta in [120, -120] {
+            let input = wheel_input(delta);
+            assert_eq!(input.kind, 0);
+            let mouse = unsafe { input.value.mouse };
+            assert_eq!(mouse.flags, 0x0800);
+            assert_eq!(mouse.mouse_data as i32, delta);
+            assert_eq!((mouse.dx, mouse.dy), (0, 0));
+        }
+    }
+
+    #[test]
+    fn continuous_wheel_does_not_bypass_other_gestures_or_sequences() {
+        let mut triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
+            "click": [{"type":"wheel", "direction":"down"}]
+        })).unwrap();
+        assert_eq!(continuous_click_wheel(&triggers), Some(-120));
+        assert!(continuous_click_chord(&triggers).is_none());
+        let wheel = triggers.click[0].clone();
+        triggers.double_click.push(wheel.clone());
+        assert_eq!(continuous_click_wheel(&triggers), None);
+        triggers.double_click.clear();
+        triggers.long_press.push(wheel.clone());
+        assert_eq!(continuous_click_wheel(&triggers), None);
+        triggers.long_press.clear();
+        triggers.click.push(wheel);
+        assert_eq!(continuous_click_wheel(&triggers), None);
+        assert!(serde_json::from_value::<NativeBehavior>(serde_json::json!({
+            "type":"wheel", "direction":"left"
+        })).is_err());
+    }
+
     #[cfg(windows)]
     #[test]
     fn extra_keys_use_gestures_and_release_outputs_without_firing_pending_clicks() {
@@ -1506,6 +1623,39 @@ mod tests {
         );
         let mut states = HashMap::new();
         let ctx = std::ptr::null_mut();
+        // Wheel holds emit immediately, repeat only from the timer, and never
+        // leak the original arrow down/up or emit an extra wheel on release.
+        for (button, direction, delta) in [("up", "up", 120), ("down", "down", -120)] {
+            let source = *SOURCE_KEYS.iter().find(|source| source.id == button).unwrap();
+            *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
+                "enabled": true, "behaviors": { (button): {
+                    "click": [{"type":"wheel", "direction":direction}]
+                }}
+            })).unwrap();
+            assert!(validate_settings(&shared.settings.read().unwrap()).is_ok());
+            SENT.lock().unwrap().clear();
+            states.clear();
+            WHEEL_EVENTS.with(|events| events.borrow_mut().clear());
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+            WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), vec![delta]));
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 1));
+            let start = states[button].pressed.as_ref().unwrap().started_at;
+            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_millis(700));
+            WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), vec![delta, delta]));
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
+            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_secs(2));
+            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 2));
+            assert!(SENT.lock().unwrap().is_empty(), "wheel must not leak keyboard input");
+
+            // Disabling mappings cancels a held wheel even without a release report.
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
+            shared.settings.write().unwrap().enabled = false;
+            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_secs(3));
+            assert!(states.is_empty());
+            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 3));
+        }
+        shared.settings.write().unwrap().enabled = true;
         // Single-click-only mappings must send key-down before a release or
         // timer tick, including when other gesture rows exist but are disabled.
         for source in &SOURCE_KEYS[10..] {
