@@ -4,6 +4,7 @@
   "version": "0.2.8",
   "type": "module",
   "scripts": {
+    "test:windows-wheel": "node --test test/wheel-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && node scripts/verify-windows-extra-keys.mjs && npm run build",
