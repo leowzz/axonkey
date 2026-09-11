@@ -73,6 +73,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
         <div className="behavior-column-heading">
           <h3 id={`${tabId}-current-title`}>当前序列</h3>
+          <span>{button.label} · {triggerLabels[trigger]}</span>
         </div>
         <div className="behavior-list">
           {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '保留原按键' : '尚未设置'}</div>}
