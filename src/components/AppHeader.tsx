@@ -25,7 +25,7 @@ export function AppHeader({ activePage, enabled, onBrandClick, onNavigate, onTog
         <img src={appIconUrl} alt="" width={28} height={28} style={{ flexShrink: 0, objectFit: 'contain' }} />
         <span>
           <span className="brand-name">axonkey</span>
-          <span className="brand-version"><span>V{appPackage.version}</span></span>
+          <span className="brand-version"><span>{/^[vV]/.test(appPackage.version) ? appPackage.version : `V${appPackage.version}`}</span></span>
         </span>
       </button>
       <div className="title-row"><h1>{pageTitles[activePage]}</h1></div>
