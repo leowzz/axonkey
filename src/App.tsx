@@ -54,6 +54,7 @@ import type {
   RemoteKeyEvent,
   SystemProbe,
 } from './appTypes'
+import { AboutPage } from './components/AboutPage'
 import { AppHeader } from './components/AppHeader'
 import { AudioTestDialog } from './components/AudioTestDialog'
 import { HomeDashboard } from './components/HomeDashboard'
@@ -1193,7 +1194,7 @@ function App() {
             <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
             <ExtraKeysControl control={extraKeys} />
           </details>}
-        </div> : <HomeDashboard
+        </div> : activePage === 'about' ? <AboutPage /> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}
