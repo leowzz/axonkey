@@ -1,4 +1,4 @@
-import { Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
+import { Check, Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import { iconFor, triggerLabels } from '../appConfig'
 import type { RemoteButton } from '../appTypes'
@@ -71,7 +71,7 @@ export function MappingTriggerSelector({ button, behaviors, trigger, onSelect }:
         >
           <span className="trigger-option-icon">{triggerIcons[item]}</span>
           <span className="trigger-option-copy"><strong>{triggerLabels[item]}</strong></span>
-          {list.length > 0 && <span className="trigger-option-dot" />}
+          {selected ? <Check size={17} strokeWidth={3} aria-hidden="true" /> : list.length > 0 && <span className="trigger-option-dot" />}
         </button>
       })}
     </div>
