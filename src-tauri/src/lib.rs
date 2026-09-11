@@ -663,6 +663,7 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
+        "github" => "https://github.com/leowzz/axonkey",
         _ => return Err("Unsupported external page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening external page: {page}");
@@ -679,10 +680,23 @@ fn open_external_page(page: String) -> Result<(), String> {
         Ok(())
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(url)
+            .status()
+            .map_err(|error| format!("Cannot open the external page: {error}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("Cannot open the external page in the default browser".into())
+        }
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     {
         let _ = url;
-        Err("External pages are only supported on Windows".into())
+        Err("External pages are only supported on macOS and Windows".into())
     }
 }
 

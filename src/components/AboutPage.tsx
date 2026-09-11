@@ -1,3 +1,4 @@
+import { openGitHub } from '../openGitHub'
 import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
 import appPackage from '../../package.json'
 
@@ -13,7 +14,7 @@ export function AboutPage() {
         <p>面向小米 RC003 蓝牙遥控器的本地控制台，让遥控器成为易于配置的快捷键控制器。</p>
       </div>
       <div className="about-github-support">
-        <a className="about-github-button" href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer"><Github size={17} aria-hidden="true" /> GitHub</a>
+        <a className="about-github-button" href="https://github.com/leowzz/axonkey" onClick={openGitHub} target="_blank" rel="noopener noreferrer"><Github size={17} aria-hidden="true" /> GitHub</a>
         <span>如果觉得好用，欢迎给个 Star ⭐</span>
       </div>
     </section>
