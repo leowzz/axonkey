@@ -116,6 +116,7 @@ export const triggerLabels: Record<TriggerType, string> = {
 }
 
 export const behaviorTypeLabels: Record<BehaviorType, string> = {
+  wheel: '鼠标滚轮',
   key: '按键 / 组合键',
   shortcut: '按键 / 组合键',
   paste: '粘贴文本',
@@ -212,6 +213,7 @@ export function isStandaloneModifierKey(key: string) {
 
 export function behaviorSummary(behavior: Behavior, platform: Platform) {
   switch (behavior.type) {
+    case 'wheel': return behavior.direction === 'up' ? '滚轮向上' : '滚轮向下'
     case 'key': return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'

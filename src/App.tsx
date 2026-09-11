@@ -528,6 +528,12 @@ function App() {
 
   const applyCommonBehavior = (preset: CommonBehaviorPreset) => {
     switch (preset) {
+      case 'wheelUp':
+      case 'wheelDown':
+        if (platform !== 'windows') return
+        replaceWithCommonBehavior([createBehavior({ type: 'wheel', direction: preset === 'wheelUp' ? 'up' : 'down' })])
+        showBehaviorToast(preset === 'wheelUp' ? '已设为滚轮向上' : '已设为滚轮向下')
+        return
       case 'original':
         replaceWithCommonBehavior([])
         showBehaviorToast(selectedBehavior.trigger === 'click' ? '已保留原按键' : '已清除此触发方式')
