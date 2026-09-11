@@ -811,3 +811,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .about-github-button { display: inline-flex; flex-shrink: 0; align-self: flex-start; align-items: center; justify-content: center; gap: 8px; min-height: 38px; margin-left: auto; padding: 0 14px; border: 1px solid #cfd2d3; border-radius: 7px; color: #3d4852; background: #fff; text-decoration: none; font-size: 14px; font-weight: 700; }
 .about-github-button:hover { border-color: #9fa7ac; color: #202528; background: #f0f3f6; }
 .about-github-button:focus-visible { outline: 2px solid #1478e8; outline-offset: 3px; }
+
+.about-github-support { display: flex; flex: 0 0 156px; align-self: flex-start; flex-direction: column; align-items: flex-end; gap: 10px; margin-left: auto; }
+.about-github-support > span { color: #737b83; font-size: 12px; line-height: 1.6; text-align: right; }

@@ -12,7 +12,10 @@ export function AboutPage() {
         <h2 id="about-title">关于 Axonkey</h2>
         <p>面向小米 RC003 蓝牙遥控器的本地控制台，让遥控器成为易于配置的快捷键控制器。</p>
       </div>
-      <a className="about-github-button" href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer"><Github size={17} aria-hidden="true" /> GitHub</a>
+      <div className="about-github-support">
+        <a className="about-github-button" href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer"><Github size={17} aria-hidden="true" /> GitHub</a>
+        <span>如果觉得好用，欢迎给个 Star ⭐</span>
+      </div>
     </section>
     <section className="about-features" aria-label="应用功能">
       <article><Keyboard size={22} /><h3>自定义按键</h3><p>为单击、双击和长按配置按键、组合键、文本与多步操作。</p></article>
