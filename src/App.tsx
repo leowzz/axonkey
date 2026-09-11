@@ -2,7 +2,6 @@
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
 import {
-  BatteryMedium,
   Bluetooth,
   Check,
   CheckCircle2,
@@ -55,6 +54,7 @@ import type {
   SystemProbe,
 } from './appTypes'
 import { AboutPage } from './components/AboutPage'
+import { BatteryDebugControls, BatteryIndicator } from './components/BatteryIndicator'
 import { AppHeader } from './components/AppHeader'
 import { AudioTestDialog } from './components/AudioTestDialog'
 import { HomeDashboard } from './components/HomeDashboard'
@@ -147,6 +147,14 @@ function App() {
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
+  const [previewBatteryLevel, setPreviewBatteryLevel] = useState<number | null>(null)
+  const displayedBatteryLevel = debugMode ? previewBatteryLevel ?? batteryLevel : batteryLevel
+  const adjustPreviewBattery = (delta: number) => {
+    setPreviewBatteryLevel((current) => Math.max(0, Math.min(100, (current ?? batteryLevel ?? 50) + delta)))
+  }
+  useEffect(() => {
+    if (!debugMode) setPreviewBatteryLevel(null)
+  }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('home')
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
@@ -1124,7 +1132,8 @@ function App() {
         {activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
-              <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryMedium size={14} /><span className={`battery-level ${batteryLevel !== null && batteryLevel <= 20 ? 'low' : ''}`}>{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
+              <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryIndicator level={displayedBatteryLevel} /><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
+              {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
               <div className="remote-stage">
                 <div className="remote-art" ref={remoteArtRef}>
                   <img src="/rc003-remote-keymap.png" alt="小米 RC003 遥控器" />
@@ -1203,7 +1212,8 @@ function App() {
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
           device={setupState.device}
-          batteryLevel={batteryLevel}
+          batteryLevel={displayedBatteryLevel}
+          onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           audioGain={audioGain}
           enabled={enabled}
           onRequestPermission={(kind) => void requestMacPermission(kind)}

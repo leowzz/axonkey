@@ -1,7 +1,6 @@
 import { openGitHub } from '../openGitHub'
 import {
   AudioLines,
-  BatteryMedium,
   Bluetooth,
   Check,
   CheckCircle2,
@@ -15,6 +14,7 @@ import {
   Settings2,
   ShieldCheck,
 } from 'lucide-react'
+import { BatteryDebugControls, BatteryIndicator } from './BatteryIndicator'
 import { audioGainMax, audioGainMin } from '../appConfig'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
@@ -32,6 +32,7 @@ type HomeDashboardProps = {
   audioDriver: SetupState['drivers']['audio']
   device: SetupState['device']
   batteryLevel: number | null
+  onAdjustBattery?: (delta: number) => void
   audioGain: number
   enabled: boolean
   onRequestPermission: (kind: MacPermissionKind) => void
@@ -91,6 +92,7 @@ export function HomeDashboard({
   audioDriver,
   device,
   batteryLevel,
+  onAdjustBattery,
   audioGain,
   enabled,
   onRequestPermission,
@@ -210,7 +212,8 @@ export function HomeDashboard({
         <div className="home-device-telemetry">
           <span><span className={`home-status-dot ${deviceTone}`} />{deviceStatus}</span>
           <span className="home-device-divider" />
-          <span><BatteryMedium size={14} />{batteryLevel === null ? '电量未知' : `${batteryLevel}%`}</span>
+          <span><BatteryIndicator level={batteryLevel} /></span>
+          {onAdjustBattery && <BatteryDebugControls onAdjust={onAdjustBattery} />}
         </div>
       </div>
     </section>

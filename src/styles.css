@@ -89,7 +89,8 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .device-state-dot.connected { background: var(--green); box-shadow: 0 0 0 3px rgba(42,184,76,.12); }
 .device-card-meta svg { color: #68727e; }
 .battery-level { color: #58636e; font-family: 'DM Mono', monospace; font-variant-numeric: tabular-nums; }
-.battery-level.low { color: #b64747; font-weight: 700; }
+.battery-level.low, .battery-icon.low { color: #c53030; font-weight: 700; }
+.battery-level.full, .battery-icon.full { color: #23834b; font-weight: 700; }
 .device-meta-separator { display: none; }
 
 .home-page { --home-side-width: 282px; --home-hero-height: 220px; --home-panel-height: 400px; --home-surface: #f8f8f7; --home-side-surface: #eef0ef; --home-card-border: rgba(54, 61, 64, .1); --home-card-shadow: 0 12px 34px rgba(36, 43, 46, .055); width: min(1180px, calc(100% - 72px)); margin: 0 auto; padding: 12px 0; }
@@ -551,7 +552,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .remote-device-card .device-meta-separator { background: #cad8e5; }
 .mapping-active .remote-device-card .device-state-dot { background: #98aabd; }
 .mapping-active .remote-device-card .device-state-dot.connected { background: #4eaf83; box-shadow: 0 0 0 3px rgba(78,175,131,.14); }
-.mapping-active .remote-device-card .battery-level.low { color: #e39a94; }
+.mapping-active .remote-device-card .battery-level.low, .mapping-active .remote-device-card .battery-icon.low { color: #c53030; }
+.mapping-active .remote-device-card .battery-level.full, .mapping-active .remote-device-card .battery-icon.full { color: #23834b; }
 .mapping-active .remote-stage { display: grid; min-height: 0; flex: 0 0 auto; place-items: start center; margin-top: 8px; padding: 10px 0 12px; }
 .mapping-active .remote-art { width: min(232px, 100%); }
 .mapping-active .remote-art img { filter: drop-shadow(0 18px 18px rgba(43, 75, 107, .2)); }
@@ -820,3 +822,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .home-github-support a:hover { border-color: #9fa7ac; color: #202528; background: #f0f3f6; }
 .home-github-support a:focus-visible { outline: 2px solid #1478e8; outline-offset: 3px; }
 .home-github-support > span { color: #7c8488; font-size: 11px; line-height: 1.5; }
+
+.battery-debug-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; color: #6b7d8f; font-size: 11px; }
+.battery-debug-controls > span { flex-basis: 100%; }
+.battery-debug-controls button { min-height: 26px; padding: 3px 7px; border: 1px solid #b8cce1; border-radius: 5px; color: #285f96; background: #f7fbff; font-size: 11px; }
+.battery-debug-controls button:hover { background: #e1effc; }
