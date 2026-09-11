@@ -349,7 +349,8 @@ function App() {
       if (!editor) return
       const rect = editor.getBoundingClientRect()
       const topbarBottom = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0
-      const editorFullyVisible = rect.top >= topbarBottom + 8 && rect.bottom <= window.innerHeight - 8
+      const noticeBottom = document.querySelector('.mapping-disabled-notice')?.getBoundingClientRect().bottom ?? 0
+      const editorFullyVisible = rect.top >= Math.max(topbarBottom, noticeBottom) + 8 && rect.bottom <= window.innerHeight - 8
       if (!editorFullyVisible) {
         const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
         editor.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })

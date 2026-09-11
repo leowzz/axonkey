@@ -48,17 +48,19 @@ type HomeStatusRowProps = {
   detail: string
   tone: HomeStatusTone
   action?: ReactNode
+  leadingAction?: ReactNode
   children?: ReactNode
 }
 
-function HomeStatusRow({ icon, title, status, detail, tone, action, children }: HomeStatusRowProps) {
-  return <article className={`home-status-row ${tone}`}>
+function HomeStatusRow({ icon, title, status, detail, tone, action, leadingAction, children }: HomeStatusRowProps) {
+  return <article className={`home-status-row ${tone}${leadingAction ? ' with-leading-action' : ''}`}>
     <span className="home-status-icon">{icon}</span>
     <div className="home-status-copy">
       <h3>{title}</h3>
       <p>{detail}</p>
       {children}
     </div>
+    {leadingAction}
     <div className="home-status-tools">
       <span className="home-status-label"><span className="home-status-dot" />{status}</span>
       {action}
@@ -239,7 +241,8 @@ export function HomeDashboard({
             status={audioPresentation.label}
             tone={audioPresentation.tone}
             detail={audioDetail}
-            action={<div><button type="button" className="home-row-action" onClick={onTestAudio}>测试音频<ChevronRight size={13} /></button><button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>音频设置<ChevronRight size={13} /></button></div>}
+            leadingAction={<button type="button" className="home-audio-test-button" onClick={onTestAudio}><AudioLines size={20} aria-hidden="true" /><span>测试音频</span></button>}
+            action={<button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>音频设置<ChevronRight size={13} /></button>}
           >
             <div className="home-audio-control">
               <label htmlFor="audio-gain">输入增益</label>
