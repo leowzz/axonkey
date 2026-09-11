@@ -87,7 +87,8 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
       <div className="audio-test-layout">
         <section className="audio-test-gain" aria-label="输入增益调整">
           <h3>1. 正常讲话，调整增益</h3>
-          <p>保持日常使用距离，说“音频测试，一二三”，持续几秒。每次按键后的前 200ms 不计入测试。</p>
+          <p>保持日常使用距离，说“音频测试，一二三”，持续几秒。</p>
+          <p><strong>按键声过滤：</strong>每次按下语音键后的前 200ms（0.2 秒）不计入测试电平和增益建议，避免按键声干扰判断。仅影响测试统计，正常语音仍完整传输，不会被裁剪或静音。</p>
           <div className="audio-test-gain-heading"><label htmlFor="audio-test-gain">输入增益</label><output htmlFor="audio-test-gain">{audioGain > 0 ? '+' : ''}{audioGain} dB</output></div>
           <div className="audio-test-gain-controls">
             <button type="button" className="dialog-secondary" aria-label="降低 1 dB" title="降低 1 dB" disabled={!supported || audioGain <= audioGainMin} onClick={() => onAudioGainChange(audioGain - 1)}><Minus size={16} /></button>
@@ -110,7 +111,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
           <p className="audio-test-result-note">按本次最高峰值判断，停顿时保留结果；改变距离或说话音量后，请重新测量。</p>
           <h3>实时音量 · 绿色区域为合适范围</h3>
           <div className="audio-test-track" role="meter" aria-label="增益后估算峰值电平" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, adjustedPeak > 0 ? 20 * Math.log10(adjustedPeak) : -60))} aria-valuetext={decibels(adjustedPeak)}><div style={{ width: `${meterValue}%` }} /></div>
-          <div className="audio-test-scale"><span>偏低 · 提高增益</span><span>绿色 · 合适</span><span>偏高 · 降低增益</span></div>
+          <div className="audio-test-scale"><span>偏低</span><span>合适</span><span>偏高</span></div>
         </section>
       </div>
       <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>在录音或通话应用中选择「{deviceName}」作为麦克风，录一小段，确认声音清晰。</span></div>

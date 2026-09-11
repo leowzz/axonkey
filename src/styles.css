@@ -735,7 +735,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-meter p { margin: 0 0 18px; font-size: 13px; line-height: 1.6; }
 .audio-test-track { height: 16px; overflow: hidden; border-radius: 4px; background: linear-gradient(to right, #e9edef 0% 60%, #d4eddf 60% 90%, #fae7c3 90% 98%, #f5cccc 98% 100%); }
 .audio-test-track > div { height: 100%; background: #428770; transition: width 100ms linear; }
-.audio-test-scale { display: flex; justify-content: space-between; margin-top: 7px; color: #7d8791; font-size: 10px; }
+.audio-test-scale { display: grid; grid-template-columns: 60fr 30fr 10fr; margin-top: 7px; color: #7d8791; font-size: 10px; text-align: center; }
 .audio-test-details dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 20px 0 0; }
 .audio-test-details dt { color: #687581; font-size: 11px; }
 .audio-test-details dd { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
