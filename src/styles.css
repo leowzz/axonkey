@@ -714,7 +714,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .mapping-active .behavior-editor.attention { animation: none; box-shadow: inset 3px 0 var(--map-accent); }
   .mapping-key > button, .trigger-options > button, .mapping-active .hotspot, .mapping-active .hotspot::before { transition: none; }
 }
-.audio-test-dialog { width: min(580px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; border: 1px solid #cfd4d9; border-radius: 12px; color: #29333d; background: #f8f9fa; box-shadow: 0 24px 70px #191f2642; }
+.audio-test-dialog { width: min(880px, calc(100vw - 32px)); max-height: calc(100vh - 40px); padding: 0; border: 1px solid #cfd4d9; border-radius: 12px; color: #29333d; background: #f8f9fa; box-shadow: 0 24px 70px #191f2642; }
 :root:has(.audio-test-dialog[open]), body:has(.audio-test-dialog[open]) { overflow: hidden; }
 .audio-test-dialog { overflow-y: auto; overscroll-behavior: contain; }
 .audio-test-dialog::backdrop { background: #1d21266b; }
@@ -722,28 +722,33 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-content header, .audio-test-content header > div, .audio-test-content footer { display: flex; align-items: center; gap: 10px; }
 .audio-test-content header { justify-content: space-between; }
 .audio-test-content h2 { margin: 0; font-size: 19px; }
-.audio-test-steps { display: grid; gap: 16px; margin: 24px 0; padding-left: 22px; }
-.audio-test-steps li { padding-left: 5px; font-size: 13px; }
-.audio-test-steps strong, .audio-test-steps span { display: block; }
-.audio-test-steps span { margin-top: 5px; color: #687581; line-height: 1.6; }
+.audio-test-intro { margin: 10px 0 24px; color: #687581; font-size: 13px; line-height: 1.6; }
+.audio-test-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 20px; align-items: start; }
+.audio-test-layout > section { min-width: 0; }
+.audio-test-playback { display: flex; gap: 16px; margin: 20px 0; padding: 16px 18px; border-radius: 8px; background: #edf2f6; font-size: 12px; line-height: 1.7; }
+.audio-test-playback strong { flex-shrink: 0; }
+.audio-test-playback span { color: #687581; }
+.audio-test-details { margin-bottom: 20px; border-top: 1px solid #dde3e7; }
+.audio-test-details summary { padding: 16px 0 0; cursor: pointer; color: #687581; font-size: 12px; }
+.audio-test-details summary:focus-visible { outline: 2px solid #1478e8; outline-offset: 4px; }
 .audio-test-meter { padding: 18px; border: 1px solid #dde3e7; border-radius: 8px; background: white; }
 .audio-test-meter p { margin: 0 0 18px; font-size: 13px; line-height: 1.6; }
 .audio-test-track { height: 16px; overflow: hidden; border-radius: 4px; background: linear-gradient(to right, #e9edef 0% 60%, #d4eddf 60% 90%, #fae7c3 90% 98%, #f5cccc 98% 100%); }
 .audio-test-track > div { height: 100%; background: #428770; transition: width 100ms linear; }
 .audio-test-scale { display: flex; justify-content: space-between; margin-top: 7px; color: #7d8791; font-size: 10px; }
-.audio-test-meter dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 20px 0 0; }
-.audio-test-meter dt { color: #687581; font-size: 11px; }
-.audio-test-meter dd { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.audio-test-details dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 20px 0 0; }
+.audio-test-details dt { color: #687581; font-size: 11px; }
+.audio-test-details dd { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
 .audio-test-note { color: #687581; font-size: 12px; line-height: 1.7; margin: 16px 0 22px; }
 .audio-test-content footer { justify-content: flex-end; }
-.audio-test-gain { margin: 20px 0; }
-.audio-test-gain-heading { display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
+.audio-test-gain { margin: 0; padding: 18px; border: 1px solid #dde3e7; border-radius: 8px; background: white; }
+.audio-test-gain-heading { margin-top: 24px; display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
 .audio-test-gain-heading output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
 .audio-test-gain-controls { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
 .audio-test-gain-controls input { flex: 1; min-width: 0; accent-color: #428770; }
 .audio-test-gain-controls button { flex: 0 0 32px; width: 32px; height: 32px; justify-content: center; padding: 0; }
 .audio-test-gain p, .audio-test-suggestion { font-size: 12px; color: #687581; line-height: 1.6; }
-.audio-test-meter h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; }
+.audio-test-meter h3, .audio-test-gain h3 { margin: 0 0 10px; font-size: 12px; font-weight: 600; }
 .audio-test-meter.hot .audio-test-track > div { background: #bb8524; }
 .audio-test-meter.clipping .audio-test-track > div { background: #c54a4a; }
 .audio-test-result { display: grid; gap: 8px; padding: 16px; border: 1px solid #d6dfe6; border-radius: 8px; background: #f3f6f8; color: #465663; }
@@ -755,12 +760,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-meter .audio-test-result-note { margin: 10px 0 18px; color: #687581; font-size: 12px; }
 .audio-test-meter.low .audio-test-track > div { background: #8998a4; }
 .audio-test-gain-error { color: #ad3535 !important; }
-.audio-test-suggestion { display: flex; align-items: center; gap: 12px; border-top: 1px solid #e4e8eb; margin-top: 16px; padding-top: 12px; }
+.audio-test-suggestion { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; border-top: 1px solid #e4e8eb; margin-top: 16px; padding-top: 12px; }
 .audio-test-suggestion button { flex-shrink: 0; }
+@media (max-width: 700px) {
+  .audio-test-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .audio-test-playback { flex-direction: column; gap: 4px; }
+}
 @media (max-width: 480px) {
   .audio-test-content { padding: 16px; }
   .audio-test-meter { padding: 12px; }
-  .audio-test-meter dl { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
+  .audio-test-details dl { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; }
   .audio-test-suggestion { flex-wrap: wrap; }
 }
 /* Optional Windows keys live in the mapping page's collapsed advanced settings. */

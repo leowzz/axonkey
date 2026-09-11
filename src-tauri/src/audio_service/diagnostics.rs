@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 // Both RC003 decoders produce 16 kHz mono PCM. Count samples rather than
 // wall time so delayed Bluetooth packets cannot leak the button transient.
-const TEST_WARMUP_SAMPLES: usize = 16_000 / 2;
+const TEST_WARMUP_SAMPLES: usize = 16_000 / 5;
 
 struct TestLevel {
     remaining: usize,
@@ -253,10 +253,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_level_skips_first_500ms_across_batches_and_preserves_diagnostics() {
+    fn test_level_skips_first_200ms_across_batches_and_preserves_diagnostics() {
         let diagnostics = AudioDiagnostics::default();
         diagnostics.control(0x04);
-        diagnostics.decoded(&[i16::MIN; 7990]);
+        diagnostics.decoded(&[i16::MIN; 3190]);
         diagnostics.decoded(&[]);
         assert_eq!(diagnostics.level().peak, 0.0);
         assert_eq!(diagnostics.level().rms, 0.0);
@@ -266,7 +266,7 @@ mod tests {
         assert_eq!(diagnostics.level().peak, 1000.0 / 32768.0);
         assert_eq!(diagnostics.level().rms, 1000.0 / 32768.0);
         let report = diagnostics.report(true, Duration::from_secs(1)).unwrap();
-        assert!(report.contains("decoded_samples=8200 pcm_peak=32768"));
+        assert!(report.contains("decoded_samples=3400 pcm_peak=32768"));
 
         diagnostics.control(0x00);
         diagnostics.control(0x04);
