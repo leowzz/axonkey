@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Command,
   FileText,
+  Github,
   Keyboard,
   LoaderCircle,
   RotateCcw,
@@ -195,6 +196,10 @@ export function HomeDashboard({
           <button type="button" className="home-icon-action" aria-label={pageLoading ? '检测中' : '重新检测'} title={pageLoading ? '检测中' : '重新检测'} onClick={onRefresh} disabled={pageLoading}>
             <RotateCcw className={pageLoading ? 'home-summary-loading-icon' : ''} size={15} />
           </button>
+          <div className="home-github-support">
+            <a href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer"><Github size={15} aria-hidden="true" /> GitHub</a>
+            <span>觉得好用，欢迎给个 Star ⭐</span>
+          </div>
         </div>
       </div>
 
