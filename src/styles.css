@@ -44,6 +44,20 @@ button { cursor: pointer; }
 
 .main-content { min-width: 0; flex: 1; background: #f1f2f3; }
 .topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; height: var(--topbar-height); padding: 14px 30px; border-bottom: 1px solid #d8dade; background: #f4f5f6; }
+/* Keep the disabled state visible after setup and on both main pages. */
+.mapping-disabled-notice { display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 72px)); margin: 16px auto 0; padding: 14px 16px; border: 1px solid #e6d3a9; border-radius: 8px; color: #795a23; background: #fff8e9; }
+.mapping-disabled-notice > svg { flex-shrink: 0; }
+.mapping-disabled-copy { flex: 1; min-width: 0; }
+.mapping-disabled-copy strong { font-size: 14px; }
+.mapping-disabled-copy p { margin-top: 4px; font-size: 12px; line-height: 1.6; }
+.mapping-enable-button { flex-shrink: 0; min-height: 36px; padding: 8px 14px; border: 1px solid #956b28; border-radius: 6px; color: #fff; background: #805b20; font-size: 13px; font-weight: 700; }
+.mapping-enable-button:hover { background: #694917; }
+.mapping-enable-button:focus-visible { outline: 2px solid #805b20; outline-offset: 3px; }
+.mapping-active .mapping-disabled-notice { width: min(1440px, calc(100% - 48px)); }
+@media (max-width: 1000px) {
+  .mapping-disabled-notice, .mapping-active .mapping-disabled-notice { width: calc(100% - 28px); }
+}
+
 .topbar-left { display: flex; align-items: center; gap: 24px; min-width: 0; }
 .title-row { display: flex; align-items: center; gap: 17px; }
 h1, h2, p { margin: 0; }

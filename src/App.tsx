@@ -1110,6 +1110,15 @@ function App() {
           onToggleEnabled={toggleEnabled}
         />
 
+        {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
+          <Info size={20} aria-hidden="true" />
+          <div className="mapping-disabled-copy">
+            <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
+            <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过右上角的全局开关开启。</p>
+          </div>
+          <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
+        </section>}
+
         {activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
