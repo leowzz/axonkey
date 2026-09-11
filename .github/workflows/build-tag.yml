@@ -361,6 +361,12 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Check out release notes script
+        uses: actions/checkout@v4
+        continue-on-error: true
+        with:
+          fetch-depth: 0
+
       - name: Verify build versions
         shell: bash
         env:
@@ -400,17 +406,41 @@ jobs:
             sha256sum --check ./*.sha256
           )
 
+      - name: Generate release notes with LLM
+        id: llm_notes
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_LLM_API_KEY: ${{ secrets.RELEASE_LLM_API_KEY }}
+          RELEASE_LLM_ENDPOINT: ${{ secrets.RELEASE_LLM_ENDPOINT }}
+          RELEASE_LLM_MODEL: ${{ secrets.RELEASE_LLM_MODEL }}
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists; preserving its notes."
+            exit 0
+          fi
+          timeout 60s node scripts/generate-release-notes.mjs
+
       - name: Create or update GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
+          LLM_NOTES_OUTCOME: ${{ steps.llm_notes.outcome }}
+          RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
+          notes_args=(--generate-notes)
+          if [[ "$LLM_NOTES_OUTCOME" == "success" && -s "$RELEASE_NOTES_FILE" ]]; then
+            notes_args=(--notes-file "$RELEASE_NOTES_FILE")
+          fi
           if ! gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release create "$TAG_NAME" \
               --repo "$GITHUB_REPOSITORY" \
               --title "Axonkey $TAG_NAME" \
-              --generate-notes \
+              "${notes_args[@]}" \
               --verify-tag
           fi
 

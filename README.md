@@ -298,3 +298,15 @@ VB-CABLE 是 VB-Audio Software 提供的 Donationware。Axonkey 原样携带官�
 Axonkey 的产品灵感来自 [HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app)。macOS 原生后端参考了该项目经真机验证的 RC003 VID/PID、HID usage、ATVV 语音协议、IOKit 权限检查、CoreGraphics 键盘注入和 Core Audio 输出路径；Axonkey 仍维护独立的 Tauri 界面、设置格式、驱动构建和运行时服务。
 
 Axonkey 与 remote-mic-app 是相互独立的项目，本仓库不是其 fork。
+
+### 自动生成 Release 说明
+
+推送版本 tag 后，发布流程可使用 OpenAI Responses 兼容接口总结提交记录和 GitHub 原始 Release Notes。请在仓库 Settings → Secrets and variables → Actions 配置以下 Secrets：
+
+- `RELEASE_LLM_API_KEY`：接口密钥。
+- `RELEASE_LLM_ENDPOINT`：服务地址，支持根地址、`/v1` 或完整 `/v1/responses` 地址。
+- `RELEASE_LLM_MODEL`：服务支持的模型 ID。
+
+生成过程总计最多等待 60 秒；配置缺失、超时、请求失败或结果无效时，自动回退到 GitHub 的 `--generate-notes`，不影响安装包发布。已有 Release 只更新附件，保留原有说明。发送给模型的内容为当前版本的提交记录与 GitHub 生成的说明，不包含密钥或工作区文件内容。
+
+验证：`node --test test/release-notes.test.mjs`。
