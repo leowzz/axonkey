@@ -172,15 +172,14 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .home-sidebar { display: flex; height: var(--home-panel-height); min-height: 0; flex-direction: column; overflow-y: auto; margin-top: var(--home-section-offset); padding: 18px; border-radius: 8px; background: rgba(250, 251, 250, .58); box-shadow: inset 0 0 0 1px rgba(56, 64, 68, .08), 0 8px 24px rgba(43, 50, 53, .03); }
 .home-quick-actions { display: grid; flex: 1 0 auto; grid-template-rows: auto repeat(4, minmax(48px, 1fr)); }
 .home-quick-actions h2 { margin-bottom: 11px; }
-.home-quick-button { display: grid; width: 100%; min-height: 48px; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 4px; border: 0; border-top: 1px solid rgba(61, 69, 73, .09); color: #626c72; background: transparent; text-align: left; transition: color .2s ease, background .2s ease, transform .2s ease; }
-.home-quick-button:last-of-type { border-bottom: 1px solid rgba(61, 69, 73, .09); }
+.home-quick-button { display: grid; width: 100%; min-height: 48px; grid-template-columns: 32px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 6px 4px; border: 0; color: #626c72; background: transparent; text-align: left; transition: color .2s ease, background .2s ease, transform .2s ease; }
 .home-quick-button:hover { color: #176fcf; background: rgba(255, 255, 255, .46); }
 .home-quick-button:disabled { cursor: default; opacity: .55; }
 .home-quick-icon { display: grid; width: 30px; height: 30px; place-items: center; border: 1px solid #d5d9db; border-radius: 7px; color: #69747a; background: #f8f9f9; }
 .home-quick-button > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .home-quick-button strong { color: #343b3f; font-size: 14px; }
 .home-quick-button small { overflow: hidden; color: #7c8488; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
-.home-local-note { display: flex; flex-shrink: 0; align-items: flex-start; gap: 9px; margin-top: 10px; padding-top: 10px; color: #567461; border-top: 1px solid rgba(61, 69, 73, .09); }
+.home-local-note { display: flex; flex-shrink: 0; align-items: flex-start; gap: 9px; margin-top: 10px; padding-top: 10px; color: #567461; }
 .home-local-note > div { display: flex; flex-direction: column; gap: 3px; }
 .home-local-note strong { color: #4b5a50; font-size: 14px; }
 .home-local-note span { color: #7d8581; font-size: 13px; line-height: 1.5; }
