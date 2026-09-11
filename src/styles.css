@@ -740,7 +740,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-details dt { color: #687581; font-size: 11px; }
 .audio-test-details dd { margin: 8px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
 .audio-test-note { color: #687581; font-size: 12px; line-height: 1.7; margin: 16px 0 22px; }
-.audio-test-content footer { justify-content: flex-end; }
+.audio-test-content footer { justify-content: flex-end; flex-wrap: wrap; }
 .audio-test-gain { margin: 0; padding: 18px; border: 1px solid #dde3e7; border-radius: 8px; background: white; }
 .audio-test-gain-heading { margin-top: 24px; display: flex; justify-content: space-between; font-size: 14px; font-weight: 600; }
 .audio-test-gain-heading output { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }

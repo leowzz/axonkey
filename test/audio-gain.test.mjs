@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { gainAdjustedLevel, gainLevelTone, suggestedAudioGain } from '../src/audioGain.ts'
+import { audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone, suggestedAudioGain } from '../src/audioGain.ts'
 
 test('gain estimate preserves silence and exposes clipping instead of hiding it', () => {
   assert.equal(gainAdjustedLevel(0, 30), 0)
@@ -28,4 +28,29 @@ test('feedback distinguishes silence, low volume, reference range, headroom and 
   assert.equal(gainLevelTone(0.8), 'hot')
   assert.equal(gainLevelTone(1), 'clipping')
   assert.equal(gainLevelTone(2), 'clipping')
+})
+
+
+test('recommendation is calculated once after the whole measurement and frozen until reset', () => {
+  let state = audioTestMeasurementReducer(initialAudioTestMeasurement, { type: 'sample', peak: 0.1 })
+  state = audioTestMeasurementReducer(state, { type: 'sample', peak: 0.25 })
+  state = audioTestMeasurementReducer(state, { type: 'sample', peak: 0 })
+  assert.equal(state.maximum, 0.25)
+  assert.equal(state.suggestedGain, null)
+  assert.equal(state.completed, false)
+  state = audioTestMeasurementReducer(state, { type: 'finish', minimum: -30, maximum: 30 })
+  assert.equal(state.completed, true)
+  assert.equal(state.suggestedGain, 0)
+  assert.strictEqual(audioTestMeasurementReducer(state, { type: 'sample', peak: 1 }), state)
+  assert.strictEqual(audioTestMeasurementReducer(state, { type: 'finish', minimum: 10, maximum: 30 }), state)
+  assert.deepEqual(audioTestMeasurementReducer(state, { type: 'reset' }), initialAudioTestMeasurement)
+})
+
+test('empty measurements cannot finish and clipped measurements never recommend gain', () => {
+  const finish = { type: 'finish', minimum: -30, maximum: 30 }
+  assert.strictEqual(audioTestMeasurementReducer(initialAudioTestMeasurement, finish), initialAudioTestMeasurement)
+  const clipped = audioTestMeasurementReducer(initialAudioTestMeasurement, { type: 'sample', peak: 1 })
+  const result = audioTestMeasurementReducer(clipped, finish)
+  assert.equal(result.completed, true)
+  assert.equal(result.suggestedGain, null)
 })
