@@ -26,7 +26,7 @@ export function AppHeader({ activePage, enabled, onBrandClick, onNavigate, onTog
           <span className="brand-version">RC003 控制台 <span>{appPackage.version}</span></span>
         </span>
       </button>
-      <div className="title-row"><h1>{pageTitles[activePage]}</h1><span className="title-divider" /><span className="title-hint">RC003</span></div>
+      <div className="title-row"><h1>{pageTitles[activePage]}</h1></div>
     </div>
     <nav className="app-nav" aria-label="主导航">
       <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
