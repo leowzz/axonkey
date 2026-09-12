@@ -131,6 +131,10 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
           </>}
           {activeTab === 'navigation' && <>
+            {platform === 'windows' && <>
+              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" detail="Wheel Up · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelUp')} />
+              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="Wheel Down · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
+            </>}
             <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
             <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />
             <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" onClick={() => onApplyCommonBehavior('arrowLeft')} />
@@ -288,7 +292,13 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
               />
             </div>
           </div>
-        </> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
+        </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
+          <label htmlFor="behavior-wheel-direction">滚动方向（Windows）</label>
+          <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value === 'up' ? 'up' : 'down' } : current)}>
+            <option value="up">滚轮向上（Wheel Up）</option><option value="down">滚轮向下（Wheel Down）</option>
+          </select>
+          <p>每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。</p>
+        </div> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
           id="behavior-paste-text"
           className="behavior-paste-input"
           autoFocus={draft}

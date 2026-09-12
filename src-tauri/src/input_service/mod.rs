@@ -43,6 +43,11 @@ pub(super) struct TriggerBehaviors {
 #[derive(Clone, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum NativeBehavior {
+    Wheel {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        direction: WheelDirection,
+    },
     Key {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -76,9 +81,17 @@ fn enabled_by_default() -> bool {
     true
 }
 
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum WheelDirection {
+    Up,
+    Down,
+}
+
 impl NativeBehavior {
     pub(super) fn enabled(&self) -> bool {
         match self {
+            Self::Wheel { enabled, .. } => *enabled,
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
             | Self::Paste { enabled, .. }

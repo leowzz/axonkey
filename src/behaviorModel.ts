@@ -26,7 +26,7 @@ export type ButtonId = (typeof buttonIds)[number]
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'paste', 'delay', 'disabled'] as const
+export const behaviorTypes = ['key', 'shortcut', 'wheel', 'paste', 'delay', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 
 type BehaviorBase = {
@@ -58,7 +58,9 @@ export type DisabledBehavior = BehaviorBase & {
   type: 'disabled'
 }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
+export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' }
+
+export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<ButtonId, TriggerBehaviors>
@@ -80,6 +82,7 @@ export type ImportedMapping = {
 }
 
 export type CreateBehaviorOptions =
+  | { type: 'wheel'; direction: 'up' | 'down'; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
@@ -121,6 +124,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
   const enabled = options.enabled !== false
 
   switch (options.type) {
+    case 'wheel':
+      return { id, enabled, type: 'wheel', direction: options.direction }
     case 'key':
       return { id, enabled, type: 'key', key: cleanKey(options.key) || 'Enter' }
     case 'shortcut': {
@@ -178,6 +183,8 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
   const enabled = value.enabled !== false
 
   switch (type) {
+    case 'wheel':
+      return value.direction === 'up' || value.direction === 'down' ? { id, enabled, type, direction: value.direction } : null
     case 'key': {
       const key = cleanKey(value.key)
       return key ? { id, enabled, type, key } : null
