@@ -139,9 +139,9 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
               <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
               <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelLeft')} />
               <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelRight')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseLeft')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseRight')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
             </>}
             <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
             <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />
