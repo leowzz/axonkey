@@ -853,3 +853,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .audio-test-stage-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; color: #687581; font-size: 12px; }
 @media (max-width: 640px) { .audio-test-stage-list { grid-template-columns: 1fr; } }
 
+
+.mapping-active .mapping-page { height: calc(100vh - var(--topbar-height) - 28px); overflow: hidden; }
+.mapping-active .mapping-workbench { height: 100%; min-height: 0; }
+.mapping-active .mapping-main { display: flex; min-height: 0; flex-direction: column; }
+.mapping-active .mapping-main .behavior-editor { min-height: 0; overflow-y: auto; }
+
+/* Scroll the complete mapping panel as one surface. */
+.mapping-active .mapping-main { display: block; overflow-y: auto; overflow-x: hidden; }
+.mapping-active .mapping-main .behavior-editor { overflow: visible; }

@@ -1210,13 +1210,13 @@ function AppController() {
                 onEditBehavior={setEditingBehaviorId}
                 onReturnToMappings={returnToSelectedMapping}
               />
+              {platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
+                open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
+                <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
+                <ExtraKeysControl control={extraKeys} />
+              </details>}
             </section>
           </div>
-          {platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
-            open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
-            <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
-            <ExtraKeysControl control={extraKeys} />
-          </details>}
         </div> : activePage === 'about' ? <AboutPage /> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
