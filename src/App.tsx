@@ -139,7 +139,8 @@ function App() {
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
   const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
   const [coordinateSnippet, setCoordinateSnippet] = useState('')
-  const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving'>('saved')
+  const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
+  const [applyRetry, setApplyRetry] = useState(0)
   const [toast, setToast] = useState('')
   const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
@@ -221,13 +222,13 @@ function App() {
       } catch (error) {
         if (saveRevisionRef.current !== revision) return
         logError('Failed to apply input mapping settings', error)
-        setAutoSaveState('saved')
-        setToast(`映射未生效：${String(error)}`)
-        window.setTimeout(() => setToast(''), 4200)
+        setAutoSaveState('error')
+        setInputSettingsReady(false)
+        setToast(`映射已保存，但尚未应用：${String(error)}`)
       }
     }
     void syncNativeSettings()
-  }, [behaviors, enabled])
+  }, [behaviors, enabled, applyRetry])
 
   useEffect(() => {
     saveSetupState(setupState)
