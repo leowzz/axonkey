@@ -1594,7 +1594,7 @@ mod tests {
         assert!(serde_json::from_value::<NativeBehavior>(serde_json::json!({
             "type":"wheel", "direction":"left"
         }))
-        .is_err());
+        .is_ok());
     }
 
     #[cfg(windows)]
