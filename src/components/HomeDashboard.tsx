@@ -258,7 +258,6 @@ export function HomeDashboard({
               <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} style={audioGainStyle} disabled={!nativeRuntime || platform === 'unsupported'} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
               <strong>{audioGain} dB</strong>
             </div>
-            {platform === 'windows' && <p className="home-audio-notice">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。</p>}
           </HomeStatusRow>
           <HomeStatusRow
             icon={<Bluetooth size={18} />}

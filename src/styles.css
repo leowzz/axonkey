@@ -385,7 +385,7 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .driver-setup-item.installed .setup-status-dot { background: #3da052; box-shadow: 0 0 0 3px #d8efdd; }
 .driver-setup-item.restartRequired .setup-status-dot { background: #e28c24; box-shadow: 0 0 0 3px #f7e6d1; }
 .driver-setup-item.error .setup-status-dot { background: #d45555; box-shadow: 0 0 0 3px #f4dddd; }
-.driver-setup-message { max-width: calc(100% - 44px); margin: 8px 0 0 44px; overflow: hidden; color: #69737c; font-size: 12px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
+.driver-setup-message { max-width: calc(100% - 44px); margin: 8px 0 0 44px; overflow: visible; color: #69737c; font-size: 12px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
 .driver-setup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 0 44px; }
 .driver-setup-actions .dialog-secondary { height: 30px; padding: 0 10px; font-size: 12px; }
 .driver-restart-notice { display: flex; gap: 10px; width: 100%; margin-top: 9px; padding: 9px 12px; border-left: 3px solid #83a9ce; color: #66717b; background: #eef2f5; }
