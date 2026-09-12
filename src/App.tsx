@@ -560,11 +560,6 @@ function App() {
       case 'volumeDown': return replaceWithKey('VolumeDown', '减小音量')
       case 'volumeMute': return replaceWithKey('VolumeMute', '静音')
       case 'mediaPlayPause': return replaceWithKey('MediaPlayPause', '播放 / 暂停')
-      case 'altTab': return replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: ['Alt', 'Tab'] })])
-      case 'copy': return replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: ['Ctrl', 'C'] })])
-      case 'paste': return replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: ['Ctrl', 'V'] })])
-      case 'undo': return replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: ['Ctrl', 'Z'] })])
-      case 'find': return replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: ['Ctrl', 'F'] })])
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
         return
