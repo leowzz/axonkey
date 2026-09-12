@@ -94,7 +94,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       </section>
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
-          <h3>添加行为 <small className="behavior-scope-note">常用按键会替换当前序列</small></h3>
+          <h3>可选行为</h3>
         </div>
         <div className="behavior-editor-head">
           <div className="behavior-editor-head-actions">
@@ -355,3 +355,4 @@ export function TextInputPresetDialog({ button, trigger, value, onChange, onClos
     </section>
   </div>
 }
+
