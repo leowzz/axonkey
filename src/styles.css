@@ -843,3 +843,48 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .battery-debug-controls > span { flex-basis: 100%; }
 .battery-debug-controls button { min-height: 26px; padding: 3px 7px; border: 1px solid #b8cce1; border-radius: 5px; color: #285f96; background: #f7fbff; font-size: 11px; }
 .battery-debug-controls button:hover { background: #e1effc; }
+
+.home-audio-stages { display: grid; gap: 4px; margin-top: 8px; color: #687581; font-size: 12px; }
+
+
+
+.audio-test-stage-panel { margin: 16px 0; padding: 14px 16px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; }
+.audio-test-stage-panel h3 { margin: 0 0 10px; font-size: 12px; }
+.audio-test-stage-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; color: #687581; font-size: 12px; }
+@media (max-width: 640px) { .audio-test-stage-list { grid-template-columns: 1fr; } }
+
+
+.mapping-active .mapping-page { height: calc(100vh - var(--topbar-height) - 28px); overflow: hidden; }
+.mapping-active .mapping-workbench { height: 100%; min-height: 0; }
+.mapping-active .mapping-main { display: flex; min-height: 0; flex-direction: column; }
+.mapping-active .mapping-main .behavior-editor { min-height: 0; overflow-y: auto; }
+
+/* Scroll the complete mapping panel as one surface. */
+.mapping-active .mapping-main { display: block; overflow-y: auto; overflow-x: hidden; }
+.mapping-active .mapping-main .behavior-editor { overflow: visible; }
+
+/* Keep mapping key cards aligned when an optional driver hint is shown. */
+.mapping-key-requirement { display: block; max-width: 100%; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
+.mapping-key > button { min-height: 56px; }
+.mapping-key-copy { overflow: hidden; }
+
+.behavior-scope-note { margin-left: 8px; color: #7a8490; font-size: 11px; font-weight: 400; }
+.auto-save-state.error { color: #a54949; }
+
+
+
+.extra-keys-context.compact-ready { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 14px; border: 1px solid #b8d9c0; border-radius: 7px; color: #2f8053; background: #f3f8f5; text-align: left; }
+.extra-keys-context.compact-ready span { margin-left: auto; color: #687581; font-size: 12px; }
+
+.trigger-selector-title > div { min-width: 0; }
+.trigger-selector-title .extra-keys-context.compact-ready { width: max-content; margin-top: 2px; padding: 0; gap: 4px; border: 0; background: transparent; font-size: 10px; }
+.trigger-selector-title .extra-keys-context.compact-ready svg { width: 12px; height: 12px; }
+.trigger-selector-title .extra-keys-context.compact-ready span { margin-left: 0; font-size: 10px; }
+.trigger-selector-title .extra-keys-context.compact-ready strong { font-size: 10px; font-weight: 600; }
+
+.trigger-selector-title .extra-keys-context.compact-ready { margin-left: 0; padding-left: 0; }
+.trigger-selector-title .extra-keys-context.compact-ready > svg { display: none; }
+.trigger-selector-title .extra-keys-context.compact-ready strong { margin: 0; }
+
+.key-picker-head h2 .auto-save-state { margin-left: 10px; font-size: 12px; font-weight: 500; vertical-align: middle; }
+.key-picker-head h2 .reset-button { margin-left: 6px; font-size: 12px; }

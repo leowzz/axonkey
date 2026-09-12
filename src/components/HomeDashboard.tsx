@@ -145,10 +145,10 @@ export function HomeDashboard({
   const accessibilityLoading = nativeRuntime && systemProbeLoading
   const accessibilityTone: HomeStatusTone = accessibilityLoading
     ? 'checking'
-    : macOS ? permissions.accessibility ? 'ready' : 'warning' : 'muted'
+    : macOS ? permissions.accessibility ? 'ready' : 'warning' : inputDriver.status === 'installed' ? 'ready' : 'warning'
   const accessibilityStatus = accessibilityLoading
     ? '检测中'
-    : macOS ? permissions.accessibility ? '已授权' : '未授权' : '系统不需要'
+    : macOS ? permissions.accessibility ? '已授权' : '未授权' : inputDriver.status === 'installed' ? '已就绪' : '需要授权'
   const allReady = !systemProbeLoading
     && !audioProbeLoading
     && !inputProbeLoading
@@ -228,7 +228,7 @@ export function HomeDashboard({
         <div className="home-status-list">
           <HomeStatusRow
             icon={<Keyboard size={18} />}
-            title="输入监控"
+            title={macOS ? "输入监控" : "按键服务"}
             status={inputStatus}
             tone={inputTone}
             detail={inputDetail}
@@ -238,7 +238,7 @@ export function HomeDashboard({
           />
           <HomeStatusRow
             icon={<Command size={18} />}
-            title="辅助功能"
+            title={macOS ? "辅助功能" : "管理员权限"}
             status={accessibilityStatus}
             tone={accessibilityTone}
             detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
@@ -246,7 +246,7 @@ export function HomeDashboard({
           />
           <HomeStatusRow
             icon={<AudioLines size={18} />}
-            title="语音通道"
+            title={macOS ? "语音通道" : "遥控器麦克风"}
             status={audioPresentation.label}
             tone={audioPresentation.tone}
             detail={audioDetail}
@@ -261,7 +261,7 @@ export function HomeDashboard({
           </HomeStatusRow>
           <HomeStatusRow
             icon={<Bluetooth size={18} />}
-            title="设备连接"
+            title={macOS ? "设备连接" : "驱动状态"}
             status={deviceStatus}
             tone={deviceTone}
             detail={deviceDetail}
@@ -303,3 +303,4 @@ export function HomeDashboard({
     </div>
   </div>
 }
+

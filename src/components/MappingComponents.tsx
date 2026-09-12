@@ -2,6 +2,7 @@ import { Check, Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import { iconFor, triggerLabels } from '../appConfig'
 import type { RemoteButton } from '../appTypes'
+import type { ReactNode } from 'react'
 
 const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
 
@@ -43,6 +44,7 @@ type MappingTriggerSelectorProps = {
   behaviors: Record<TriggerType, Behavior[]>
   trigger: TriggerType
   onSelect: (trigger: TriggerType) => void
+  auxiliary?: ReactNode
 }
 
 const triggerIcons = {
@@ -51,11 +53,11 @@ const triggerIcons = {
   longPress: <Clock3 size={17} />,
 }
 
-export function MappingTriggerSelector({ button, behaviors, trigger, onSelect }: MappingTriggerSelectorProps) {
+export function MappingTriggerSelector({ button, behaviors, trigger, onSelect, auxiliary }: MappingTriggerSelectorProps) {
   return <section className="trigger-selector" aria-labelledby="trigger-selector-title">
     <div className="trigger-selector-title">
       <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
-      <h2 id="trigger-selector-title">{button.label}</h2>
+      <div><h2 id="trigger-selector-title">{button.label}</h2>{auxiliary}</div>
     </div>
     <div className="trigger-options" role="tablist" aria-label={`${button.label}触发方式`}>
       {triggerOrder.map((item) => {

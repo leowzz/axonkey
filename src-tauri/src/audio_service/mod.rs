@@ -13,6 +13,9 @@ pub struct AudioServiceStatus {
     pub state: String,
     pub bluetooth_connected: bool,
     pub forwarding: bool,
+    pub received_data: bool,
+    pub output_ready: bool,
+    pub event_version: u64,
     pub battery_level: Option<u8>,
     pub error: Option<String>,
 }
