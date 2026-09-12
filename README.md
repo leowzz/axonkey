@@ -217,6 +217,11 @@ Windows: src-tauri\target\release\bundle\nsis\Axonkey_<version>_x64-setup.exe
 macOS:   src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 ```
 
+Windows 安装包使用 `src-tauri/windows/installer.nsi` 自定义模板：已有 NSIS 安装直接覆盖，
+升级或同版本重装时不再显示“先卸载 / 不卸载”选择页，也不会调用旧版卸载程序。
+安装目录恢复、运行中程序检查和独立卸载入口仍由 Tauri 模板处理；WiX/MSI 迁移保留原有流程。
+模板基于 `tauri-cli-v2.11.4`，升级 Tauri CLI 时需同步检查上游模板变更。
+
 `make build-macos` 使用同一版本校验，并生成当前架构的 `.app` 与 `.dmg`：
 
 ```text
