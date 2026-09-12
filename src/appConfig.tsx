@@ -116,6 +116,7 @@ export const triggerLabels: Record<TriggerType, string> = {
 }
 
 export const behaviorTypeLabels: Record<BehaviorType, string> = {
+  mouse: '鼠标按键',
   wheel: '鼠标滚轮',
   key: '按键 / 组合键',
   shortcut: '按键 / 组合键',
