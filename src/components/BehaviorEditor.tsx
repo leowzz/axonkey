@@ -146,10 +146,10 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
             <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
             {platform === 'windows' && <>
-              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" onClick={() => onApplyCommonBehavior('wheelUp')} />
-              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" onClick={() => onApplyCommonBehavior('wheelDown')} />
-              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
-              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
+              <BehaviorActionButton icon={<ArrowUp size={17} />} label="鼠标滚轮向上" onClick={() => onApplyCommonBehavior('wheelUp')} />
+              <BehaviorActionButton icon={<ArrowDown size={17} />} label="鼠标滚轮向下" onClick={() => onApplyCommonBehavior('wheelDown')} />
+              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="鼠标滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
+              <BehaviorActionButton icon={<ArrowRight size={17} />} label="鼠标滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
