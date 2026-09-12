@@ -116,6 +116,7 @@ export const triggerLabels: Record<TriggerType, string> = {
 }
 
 export const behaviorTypeLabels: Record<BehaviorType, string> = {
+  mouse: '鼠标按键',
   wheel: '鼠标滚轮',
   key: '按键 / 组合键',
   shortcut: '按键 / 组合键',
@@ -177,7 +178,16 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
 ]
 
 export function keyDisplayName(key: string, platform: Platform) {
-  if (platform !== 'macos') return key
+  if (platform !== 'macos') {
+    const labels: Record<string, string> = {
+      RCtrl: '右 Ctrl',
+      RShift: '右 Shift',
+      LAlt: '左 Alt',
+      RAlt: '右 Alt',
+      RWin: '右 Windows',
+    }
+    return labels[key] ?? key
+  }
   const labels: Record<string, string> = {
     Ctrl: 'Control',
     RCtrl: '右 Control',
@@ -213,7 +223,8 @@ export function isStandaloneModifierKey(key: string) {
 
 export function behaviorSummary(behavior: Behavior, platform: Platform) {
   switch (behavior.type) {
-    case 'wheel': return behavior.direction === 'up' ? '滚轮向上' : '滚轮向下'
+    case 'wheel': return ({ up: '滚轮向上', down: '滚轮向下', left: '水平滚轮向左', right: '水平滚轮向右' })[behavior.direction]
+    case 'mouse': return ({ left: '鼠标左键', middle: '鼠标中键', right: '鼠标右键' })[behavior.button]
     case 'key': return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'

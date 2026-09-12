@@ -48,6 +48,11 @@ pub(super) enum NativeBehavior {
         enabled: bool,
         direction: WheelDirection,
     },
+    Mouse {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        button: MouseButton,
+    },
     Key {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -86,12 +91,14 @@ fn enabled_by_default() -> bool {
 pub(super) enum WheelDirection {
     Up,
     Down,
+    Left,
+    Right,
 }
 
 impl NativeBehavior {
     pub(super) fn enabled(&self) -> bool {
         match self {
-            Self::Wheel { enabled, .. } => *enabled,
+            Self::Wheel { enabled, .. } | Self::Mouse { enabled, .. } => *enabled,
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
             | Self::Paste { enabled, .. }
@@ -100,6 +107,10 @@ impl NativeBehavior {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum MouseButton { Left, Middle, Right }
 
 #[cfg(target_os = "macos")]
 mod macos;

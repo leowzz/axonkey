@@ -1045,7 +1045,9 @@ fn execute_behaviors(behaviors: &[NativeBehavior]) {
 
 fn log_behavior(behavior: &NativeBehavior) {
     match behavior {
-        NativeBehavior::Wheel { .. } => log::warn!(target: "axonkey::input", "Wheel behavior requires Windows"),
+        NativeBehavior::Wheel { .. } => {
+            log::warn!(target: "axonkey::input", "Wheel behavior requires Windows")
+        }
         NativeBehavior::Key { key, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
         }
@@ -1252,7 +1254,9 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
             }
             match behavior {
                 NativeBehavior::Wheel { .. } => {
-                    return Err(format!("{button}: mouse wheel is currently supported only on Windows"));
+                    return Err(format!(
+                        "{button}: mouse wheel is currently supported only on Windows"
+                    ));
                 }
                 NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
                     return Err(format!("{button}: unsupported key '{key}'"));
