@@ -1493,6 +1493,7 @@ fn send_wheel_with_axis(delta: i32, horizontal: bool) {
 fn send_mouse_click(button: super::MouseButton) {
     let (down, up) = match button {
         super::MouseButton::Left => (0x0002, 0x0004),
+        super::MouseButton::Middle => (0x0020, 0x0040),
         super::MouseButton::Right => (0x0008, 0x0010),
     };
     for flags in [down, up] {

@@ -536,10 +536,10 @@ function App() {
         { const direction = ({ wheelUp: 'up', wheelDown: 'down', wheelLeft: 'left', wheelRight: 'right' } as const)[preset]; replaceWithCommonBehavior([createBehavior({ type: 'wheel', direction })]); showBehaviorToast(`已设为${direction === 'up' ? '滚轮向上' : direction === 'down' ? '滚轮向下' : direction === 'left' ? '水平滚轮向左' : '水平滚轮向右'}`) }
         return
       case 'mouseLeft':
+      case 'mouseMiddle':
       case 'mouseRight':
         if (platform !== 'windows') return
-        replaceWithCommonBehavior([createBehavior({ type: 'mouse', button: preset === 'mouseLeft' ? 'left' : 'right' })])
-        showBehaviorToast(preset === 'mouseLeft' ? '已设为鼠标左键' : '已设为鼠标右键')
+        { const button = ({ mouseLeft: 'left', mouseMiddle: 'middle', mouseRight: 'right' } as const)[preset]; replaceWithCommonBehavior([createBehavior({ type: 'mouse', button })]); showBehaviorToast(`已设为${button === 'left' ? '鼠标左键' : button === 'middle' ? '鼠标中键' : '鼠标右键'}`) }
         return
       case 'original':
         replaceWithCommonBehavior([])
