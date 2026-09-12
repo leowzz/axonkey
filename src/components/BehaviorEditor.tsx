@@ -94,7 +94,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       </section>
       <section className="behavior-actions" aria-label="选择行为">
         <div className="behavior-column-heading">
-          <h3>添加行为</h3>
+          <h3>添加行为 <small className="behavior-scope-note">常用按键会替换当前序列</small></h3>
         </div>
         <div className="behavior-editor-head">
           <div className="behavior-editor-head-actions">
@@ -126,7 +126,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
         >
           {activeTab === 'common' && <>
             <BehaviorActionButton icon={<RotateCcw size={17} />} label={trigger === 'click' ? '保留原按键' : '清除触发方式'} detail={trigger === 'click' ? '使用遥控器原始输入' : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
-            <BehaviorActionButton icon={<Ban size={17} />} label="禁用按键" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
+            <BehaviorActionButton icon={<Ban size={17} />} label="禁用此触发方式" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
             <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
             <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 提交" onClick={() => onApplyCommonBehavior('enter')} />
             <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />

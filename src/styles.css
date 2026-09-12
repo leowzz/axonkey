@@ -867,3 +867,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-key-requirement { display: block; max-width: 100%; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
 .mapping-key > button { min-height: 56px; }
 .mapping-key-copy { overflow: hidden; }
+
+.behavior-scope-note { margin-left: 8px; color: #7a8490; font-size: 11px; font-weight: 400; }
+.auto-save-state.error { color: #a54949; }
+
+
