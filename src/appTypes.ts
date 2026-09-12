@@ -74,6 +74,11 @@ export type CommonBehaviorPreset =
   | 'volumeDown'
   | 'volumeMute'
   | 'mediaPlayPause'
+  | 'altTab'
+  | 'copy'
+  | 'paste'
+  | 'undo'
+  | 'find'
   | 'textAndEnter'
   | 'customKey'
 

@@ -129,6 +129,11 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />
             <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
+            <BehaviorActionButton icon={<kbd>Alt+Tab</kbd>} label="切换窗口" onClick={() => onApplyCommonBehavior('altTab')} />
+            <BehaviorActionButton icon={<kbd>Ctrl+C</kbd>} label="复制" onClick={() => onApplyCommonBehavior('copy')} />
+            <BehaviorActionButton icon={<kbd>Ctrl+V</kbd>} label="粘贴" onClick={() => onApplyCommonBehavior('paste')} />
+            <BehaviorActionButton icon={<kbd>Ctrl+Z</kbd>} label="撤销" onClick={() => onApplyCommonBehavior('undo')} />
+            <BehaviorActionButton icon={<kbd>Ctrl+F</kbd>} label="查找" onClick={() => onApplyCommonBehavior('find')} />
           </>}
           {activeTab === 'navigation' && <>
             {platform === 'windows' && <>
