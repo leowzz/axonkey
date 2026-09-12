@@ -1026,6 +1026,8 @@ fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {
         WheelDirection::Up => 120,
         WheelDirection::Down => -120,
+        WheelDirection::Left => -120,
+        WheelDirection::Right => 120,
     }
 }
 
@@ -1102,7 +1104,7 @@ fn execute_behaviors(
             }
         }
         match behavior {
-            NativeBehavior::Wheel { direction, .. } => send_wheel(wheel_delta(*direction)),
+            NativeBehavior::Wheel { direction, .. } => send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction)),
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(chord) = behavior_chord(behavior) {
                     tap_chord(api, context, device, &chord);
@@ -1427,7 +1429,7 @@ struct Input {
     value: InputValue,
 }
 
-fn wheel_input(delta: i32) -> Input {
+fn wheel_input(delta: i32, horizontal: bool) -> Input {
     Input {
         kind: 0, // INPUT_MOUSE
         value: InputValue {
@@ -1435,7 +1437,7 @@ fn wheel_input(delta: i32) -> Input {
                 dx: 0,
                 dy: 0,
                 mouse_data: delta as u32,
-                flags: 0x0800, // MOUSEEVENTF_WHEEL
+                flags: if horizontal { 0x1000 } else { 0x0800 },
                 time: 0,
                 extra_info: 0,
             },
@@ -1449,7 +1451,15 @@ thread_local! {
 }
 
 fn send_wheel(delta: i32) {
-    let input = wheel_input(delta);
+    send_wheel_with_axis(delta, false)
+}
+
+fn wheel_horizontal(direction: WheelDirection) -> bool {
+    matches!(direction, WheelDirection::Left | WheelDirection::Right)
+}
+
+fn send_wheel_with_axis(delta: i32, horizontal: bool) {
+    let input = wheel_input(delta, horizontal);
     #[cfg(test)]
     {
         WHEEL_EVENTS.with(|events| events.borrow_mut().push(unsafe { input.value.mouse.mouse_data } as i32));
@@ -1541,7 +1551,7 @@ mod tests {
     #[test]
     fn wheel_events_use_signed_windows_notches_without_mouse_movement() {
         for delta in [120, -120] {
-            let input = wheel_input(delta);
+            let input = wheel_input(delta, false);
             assert_eq!(input.kind, 0);
             let mouse = unsafe { input.value.mouse };
             assert_eq!(mouse.flags, 0x0800);

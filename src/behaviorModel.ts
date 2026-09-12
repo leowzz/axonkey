@@ -58,7 +58,7 @@ export type DisabledBehavior = BehaviorBase & {
   type: 'disabled'
 }
 
-export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' }
+export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right' }
 
 export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
@@ -82,7 +82,7 @@ export type ImportedMapping = {
 }
 
 export type CreateBehaviorOptions =
-  | { type: 'wheel'; direction: 'up' | 'down'; enabled?: boolean; id?: string }
+  | { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right'; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
@@ -184,7 +184,7 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
 
   switch (type) {
     case 'wheel':
-      return value.direction === 'up' || value.direction === 'down' ? { id, enabled, type, direction: value.direction } : null
+      return ['up', 'down', 'left', 'right'].includes(String(value.direction)) ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] } : null
     case 'key': {
       const key = cleanKey(value.key)
       return key ? { id, enabled, type, key } : null

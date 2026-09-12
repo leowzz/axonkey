@@ -54,6 +54,8 @@ export type AudioProbe = {
 export type CommonBehaviorPreset =
   | 'wheelUp'
   | 'wheelDown'
+  | 'wheelLeft'
+  | 'wheelRight'
   | 'original'
   | 'disabled'
   | 'escape'

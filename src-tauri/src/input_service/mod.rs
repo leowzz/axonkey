@@ -86,6 +86,8 @@ fn enabled_by_default() -> bool {
 pub(super) enum WheelDirection {
     Up,
     Down,
+    Left,
+    Right,
 }
 
 impl NativeBehavior {

@@ -1,6 +1,8 @@
 import {
   ArrowDown,
   ArrowUp,
+  ArrowLeft,
+  ArrowRight,
   Ban,
   Check,
   ChevronDown,
@@ -134,6 +136,8 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             {platform === 'windows' && <>
               <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" detail="Wheel Up · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelUp')} />
               <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="Wheel Down · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
+              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" detail="Horizontal Wheel Left · 按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelLeft')} />
+              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" detail="Horizontal Wheel Right · 按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelRight')} />
             </>}
             <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
             <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />

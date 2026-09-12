@@ -530,9 +530,10 @@ function App() {
     switch (preset) {
       case 'wheelUp':
       case 'wheelDown':
+      case 'wheelLeft':
+      case 'wheelRight':
         if (platform !== 'windows') return
-        replaceWithCommonBehavior([createBehavior({ type: 'wheel', direction: preset === 'wheelUp' ? 'up' : 'down' })])
-        showBehaviorToast(preset === 'wheelUp' ? '已设为滚轮向上' : '已设为滚轮向下')
+        { const direction = ({ wheelUp: 'up', wheelDown: 'down', wheelLeft: 'left', wheelRight: 'right' } as const)[preset]; replaceWithCommonBehavior([createBehavior({ type: 'wheel', direction })]); showBehaviorToast(`已设为${direction === 'up' ? '滚轮向上' : direction === 'down' ? '滚轮向下' : direction === 'left' ? '水平滚轮向左' : '水平滚轮向右'}`) }
         return
       case 'original':
         replaceWithCommonBehavior([])
