@@ -959,8 +959,14 @@ fn process_timers(
                 if continuous_click_wheel(&triggers) == Some(*delta) && now >= *due {
                     send_wheel(*delta);
                     *due = now + Duration::from_millis(80);
+                } else if continuous_click_wheel(&triggers) != Some(*delta) {
+                    // A mapping change while the key is held must cancel the
+                    // old wheel gesture rather than leaving stale repeat state.
+                    press.wheel_repeat = None;
                 }
-                continue;
+                if press.wheel_repeat.is_some() {
+                    continue;
+                }
             }
             let reached_long_press =
                 now.duration_since(press.started_at) >= Duration::from_millis(LONG_PRESS_MS);
@@ -1180,6 +1186,9 @@ fn release_all_held_outputs(
     states: &mut HashMap<&'static str, ButtonState>,
 ) {
     for (button, state) in states.iter_mut() {
+        // A forced reset must never allow a delayed click from the old
+        // configuration to fire after disable/disconnect/reconnect.
+        state.pending_click = None;
         if let Some(press) = state.pressed.as_mut() {
             if !press.held_outputs.is_empty() {
                 log::info!(target: "axonkey::input", "Mapped forced release: button={button}, keys={}, held_ms={}", press.held_outputs.len(), press.started_at.elapsed().as_millis());
