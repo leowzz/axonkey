@@ -868,7 +868,9 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
-fn get_audio_test_state(audio_service: tauri::State<'_, AudioService>) -> (AudioServiceStatus, audio_service::AudioLevel) {
+fn get_audio_test_state(
+    audio_service: tauri::State<'_, AudioService>,
+) -> (AudioServiceStatus, audio_service::AudioLevel) {
     (audio_service.status(), audio_service.level())
 }
 
@@ -926,15 +928,25 @@ fn get_extra_keys_status(input_service: tauri::State<'_, InputService>) -> serde
     #[cfg(windows)]
     return serde_json::to_value(input_service.extra_keys_status()).unwrap_or_default();
     #[cfg(not(windows))]
-    { let _ = input_service; serde_json::json!({"state":"unsupported", "message":"仅 Windows 需要此功能。", "step":0}) }
+    {
+        let _ = input_service;
+        serde_json::json!({"state":"unsupported", "message":"仅 Windows 需要此功能。", "step":0})
+    }
 }
 
 #[tauri::command]
-fn set_extra_keys_enabled(enabled: bool, automatic: Option<bool>, input_service: tauri::State<'_, InputService>) -> Result<(), String> {
+fn set_extra_keys_enabled(
+    enabled: bool,
+    automatic: Option<bool>,
+    input_service: tauri::State<'_, InputService>,
+) -> Result<(), String> {
     #[cfg(windows)]
     return input_service.set_extra_keys_enabled(enabled, automatic.unwrap_or(false));
     #[cfg(not(windows))]
-    { let _ = (enabled, automatic, input_service); Err("仅 Windows 需要此功能。".into()) }
+    {
+        let _ = (enabled, automatic, input_service);
+        Err("仅 Windows 需要此功能。".into())
+    }
 }
 
 #[tauri::command]
@@ -1029,9 +1041,14 @@ pub fn run() {
     {
         let args: Vec<String> = std::env::args().collect();
         #[cfg(debug_assertions)]
-        if args.get(1).is_some_and(|arg| arg == "--extra-keys-smoke-test") {
+        if args
+            .get(1)
+            .is_some_and(|arg| arg == "--extra-keys-smoke-test")
+        {
             let result = input_service::windows_extra_keys::smoke_test();
-            if let Err(error) = &result { eprintln!("{error}"); }
+            if let Err(error) = &result {
+                eprintln!("{error}");
+            }
             std::process::exit(if result.is_ok() { 0 } else { 1 });
         }
         if args.get(1).is_some_and(|arg| arg == "--extra-keys-helper") {

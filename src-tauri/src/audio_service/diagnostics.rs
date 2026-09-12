@@ -12,7 +12,10 @@ struct TestLevel {
 
 impl Default for TestLevel {
     fn default() -> Self {
-        Self { remaining: TEST_WARMUP_SAMPLES, sample: None }
+        Self {
+            remaining: TEST_WARMUP_SAMPLES,
+            sample: None,
+        }
     }
 }
 
@@ -96,18 +99,34 @@ impl AudioDiagnostics {
             let samples = &samples[skipped..];
             if !samples.is_empty() {
                 let trimmed_peak = trimmed_sample_peak(samples);
-                let energy: f64 = samples.iter().map(|sample| f64::from(*sample).powi(2)).sum();
-                level.sample = Some((Instant::now(), trimmed_peak as f64 / 32768.0,
-                    (energy / samples.len() as f64).sqrt() / 32768.0));
+                let energy: f64 = samples
+                    .iter()
+                    .map(|sample| f64::from(*sample).powi(2))
+                    .sum();
+                level.sample = Some((
+                    Instant::now(),
+                    trimmed_peak as f64 / 32768.0,
+                    (energy / samples.len() as f64).sqrt() / 32768.0,
+                ));
             }
         }
     }
 
     pub(super) fn level(&self) -> super::AudioLevel {
-        self.level.lock().ok().and_then(|level| {
-            level.sample.as_ref().filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
-                .map(|(_, peak, rms)| super::AudioLevel { peak: *peak, rms: *rms })
-        }).unwrap_or_default()
+        self.level
+            .lock()
+            .ok()
+            .and_then(|level| {
+                level
+                    .sample
+                    .as_ref()
+                    .filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
+                    .map(|(_, peak, rms)| super::AudioLevel {
+                        peak: *peak,
+                        rms: *rms,
+                    })
+            })
+            .unwrap_or_default()
     }
 
     pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
@@ -315,7 +334,8 @@ mod tests {
         assert!((diagnostics.level().rms - 0.5_f64.sqrt()).abs() < 0.000001);
         diagnostics.report(true, Duration::from_secs(1));
         assert_eq!(diagnostics.level().peak, 1.0);
-        diagnostics.level.lock().unwrap().sample = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
+        diagnostics.level.lock().unwrap().sample =
+            Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
         assert_eq!(diagnostics.level().peak, 0.0);
         assert_eq!(diagnostics.level().rms, 0.0);
         diagnostics.decoded(&[0, 0]);
