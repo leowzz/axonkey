@@ -12,16 +12,9 @@ export function ExtraKeysNotice({ control, onOpen }: { control: Control; onOpen:
         : status.state === 'waitingDevice' ? '等待遥控器连接，此按键暂不可用'
           : status.state === 'starting' || status.state === 'authorizing' ? '增强正在启动，此按键暂不可用'
             : '增强尚未就绪，此按键的映射尚未生效'
-  return <section className={`extra-keys-context ${ready ? 'ready' : 'unavailable'}`} aria-label="此按键的增强支持状态">
-    <ShieldCheck size={20} aria-hidden="true" />
-    <div className="extra-keys-context-copy">
-      <strong>{title}</strong>
-      {!ready && <p>{!mappingEnabled ? '请先打开顶部的自定义按键开关，再检查增强支持。'
-        : '返回和音量加减的映射需要增强支持。仅保存映射不会启用。'}</p>}
-    </div>
-    <button type="button" className={`extra-keys-action ${ready ? 'secondary' : ''}`} onClick={onOpen}>
-      {ready ? '管理增强支持' : wanted ? '查看状态 / 授权' : '查看说明并开启'}<ChevronRight size={15} />
-    </button>
+  if (ready) return <button type="button" className="extra-keys-context compact-ready" onClick={onOpen} aria-label="打开高级选项"><ShieldCheck size={16} aria-hidden="true" /><strong>增强支持已启用</strong><ChevronRight size={15} /></button>
+  return <section className={`extra-keys-context unavailable`} aria-label="此按键的增强支持状态">
+    <ShieldCheck size={20} aria-hidden="true" /><div className="extra-keys-context-copy"><strong>{title}</strong><p>{!mappingEnabled ? '请先打开顶部的自定义按键开关，再检查增强支持。' : '返回和音量加减的映射需要增强支持。仅保存映射不会启用。'}</p></div><button type="button" className="extra-keys-action" onClick={onOpen}>{wanted ? '查看状态 / 授权' : '查看说明并开启'}<ChevronRight size={15} /></button>
   </section>
 }
 
@@ -66,3 +59,4 @@ export function ExtraKeysControl({ control }: { control: ReturnType<typeof useEx
     </div>
   </section>
 }
+

@@ -1193,9 +1193,8 @@ function AppController() {
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
+                auxiliary={platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) ? <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} /> : undefined}
               />
-              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) &&
-                <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} />}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
                 attention={behaviorEditorAttention}

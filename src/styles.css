@@ -872,3 +872,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .auto-save-state.error { color: #a54949; }
 
 
+
+.extra-keys-context.compact-ready { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 14px; border: 1px solid #b8d9c0; border-radius: 7px; color: #2f8053; background: #f3f8f5; text-align: left; }
+.extra-keys-context.compact-ready span { margin-left: auto; color: #687581; font-size: 12px; }
+
+.trigger-selector-title > div { min-width: 0; }
+.trigger-selector-title .extra-keys-context.compact-ready { width: max-content; margin-top: 2px; padding: 0; gap: 4px; border: 0; background: transparent; font-size: 10px; }
+.trigger-selector-title .extra-keys-context.compact-ready svg { width: 12px; height: 12px; }
+.trigger-selector-title .extra-keys-context.compact-ready span { margin-left: 0; font-size: 10px; }
+.trigger-selector-title .extra-keys-context.compact-ready strong { font-size: 10px; font-weight: 600; }
+
+.trigger-selector-title .extra-keys-context.compact-ready { margin-left: 0; padding-left: 0; }
+.trigger-selector-title .extra-keys-context.compact-ready > svg { display: none; }
+.trigger-selector-title .extra-keys-context.compact-ready strong { margin: 0; }
