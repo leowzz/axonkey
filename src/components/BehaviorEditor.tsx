@@ -134,15 +134,6 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
           </>}
           {activeTab === 'navigation' && <>
-            {platform === 'windows' && <>
-              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" detail="仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelUp')} />
-              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
-              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelLeft')} />
-              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelRight')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
-            </>}
             <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
             <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />
             <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" onClick={() => onApplyCommonBehavior('arrowLeft')} />
@@ -154,6 +145,15 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<kbd>End</kbd>} label="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
             <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
             <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
+            {platform === 'windows' && <>
+              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" onClick={() => onApplyCommonBehavior('wheelUp')} />
+              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" onClick={() => onApplyCommonBehavior('wheelDown')} />
+              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
+              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
+              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
+            </>}
           </>}
           {activeTab === 'media' && <>
             <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
