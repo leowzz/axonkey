@@ -110,7 +110,11 @@ impl NativeBehavior {
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) enum MouseButton { Left, Middle, Right }
+pub(super) enum MouseButton {
+    Left,
+    Middle,
+    Right,
+}
 
 #[cfg(target_os = "macos")]
 mod macos;
