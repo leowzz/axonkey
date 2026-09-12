@@ -120,6 +120,12 @@ impl Shared {
             protocol.microphone_opened = false;
             protocol.last_voice_stop = Some(Instant::now());
         }
+        // Drop buffered PCM immediately when the remote releases the voice
+        // key; otherwise the output callback can play the stale queue for up
+        // to MAX_QUEUED_SAMPLES / SOURCE_SAMPLE_RATE (about two seconds).
+        if let Ok(mut samples) = self.samples.lock() {
+            samples.clear();
+        }
         self.update_status(|status| {
             status.forwarding = false;
             if status.driver_installed && status.bluetooth_connected {
