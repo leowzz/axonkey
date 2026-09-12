@@ -1,7 +1,7 @@
 {
   "name": "axonkey-ui",
   "private": true,
-  "version": "0.2.14",
+  "version": "0.2.15",
   "type": "module",
   "scripts": {
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
