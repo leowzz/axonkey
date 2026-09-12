@@ -862,3 +862,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 /* Scroll the complete mapping panel as one surface. */
 .mapping-active .mapping-main { display: block; overflow-y: auto; overflow-x: hidden; }
 .mapping-active .mapping-main .behavior-editor { overflow: visible; }
+
+/* Keep mapping key cards aligned when an optional driver hint is shown. */
+.mapping-key-requirement { display: block; max-width: 100%; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
+.mapping-key > button { min-height: 56px; }
+.mapping-key-copy { overflow: hidden; }
