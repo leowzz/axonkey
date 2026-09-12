@@ -151,6 +151,7 @@ impl AudioService {
                 axonkey_macos_audio_battery_level(bridge)
             }),
             error: native_error(bridge),
+            ..AudioServiceStatus::default()
         }
     }
 }

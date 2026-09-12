@@ -13,7 +13,25 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  test-release:
+    name: Run release test suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v7
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run release tests
+        run: npm run test:release
+
   build-windows:
+    needs: test-release
     name: Build Windows installer
     runs-on: windows-2022
     timeout-minutes: 45
@@ -84,6 +102,7 @@ jobs:
           retention-days: 30
 
   build-macos:
+    needs: test-release
     name: Build macOS universal DMG
     runs-on: macos-14
     timeout-minutes: 60
@@ -447,3 +466,4 @@ jobs:
           gh release upload "$TAG_NAME" release-assets/* \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+
