@@ -135,10 +135,10 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           </>}
           {activeTab === 'navigation' && <>
             {platform === 'windows' && <>
-              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" detail="Wheel Up · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelUp')} />
-              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="Wheel Down · 仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
-              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" detail="Horizontal Wheel Left · 按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelLeft')} />
-              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" detail="Horizontal Wheel Right · 按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelRight')} />
+              <BehaviorActionButton icon={<ArrowUp size={17} />} label="滚轮向上" detail="仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelUp')} />
+              <BehaviorActionButton icon={<ArrowDown size={17} />} label="滚轮向下" detail="仅配置单击时按住连续滚动" onClick={() => onApplyCommonBehavior('wheelDown')} />
+              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="水平滚轮向左" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelLeft')} />
+              <BehaviorActionButton icon={<ArrowRight size={17} />} label="水平滚轮向右" detail="按住连续横向滚动" onClick={() => onApplyCommonBehavior('wheelRight')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseLeft')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" detail="Windows 原生鼠标点击" onClick={() => onApplyCommonBehavior('mouseRight')} />
@@ -302,8 +302,8 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
           </div>
         </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
           <label htmlFor="behavior-wheel-direction">滚动方向（Windows）</label>
-          <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value === 'up' ? 'up' : 'down' } : current)}>
-            <option value="up">滚轮向上（Wheel Up）</option><option value="down">滚轮向下（Wheel Down）</option>
+          <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value as typeof current.direction } : current)}>
+            <option value="up">滚轮向上</option><option value="down">滚轮向下</option><option value="left">水平滚轮向左</option><option value="right">水平滚轮向右</option>
           </select>
           <p>每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。</p>
         </div> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
