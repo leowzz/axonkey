@@ -1039,6 +1039,7 @@ fn execute_behaviors(behaviors: &[NativeBehavior]) {
             }
             NativeBehavior::Disabled { .. } => {}
             NativeBehavior::Wheel { .. } => {}
+            NativeBehavior::Mouse { .. } => {}
         }
     }
 }
@@ -1047,6 +1048,9 @@ fn log_behavior(behavior: &NativeBehavior) {
     match behavior {
         NativeBehavior::Wheel { .. } => {
             log::warn!(target: "axonkey::input", "Wheel behavior requires Windows")
+        }
+        NativeBehavior::Mouse { .. } => {
+            log::warn!(target: "axonkey::input", "Mouse button behavior requires Windows")
         }
         NativeBehavior::Key { key, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
@@ -1083,6 +1087,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
             (!chord.is_empty()).then_some(chord)
         }
         NativeBehavior::Wheel { .. }
+        | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
@@ -1256,6 +1261,11 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
                 NativeBehavior::Wheel { .. } => {
                     return Err(format!(
                         "{button}: mouse wheel is currently supported only on Windows"
+                    ));
+                }
+                NativeBehavior::Mouse { .. } => {
+                    return Err(format!(
+                        "{button}: mouse button is currently supported only on Windows"
                     ));
                 }
                 NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {

@@ -1092,7 +1092,9 @@ fn execute_behaviors(
             NativeBehavior::Wheel { direction, .. } => {
                 log::info!(target: "axonkey::input", "Mapped wheel: delta={}", wheel_delta(*direction))
             }
-            NativeBehavior::Mouse { button, .. } => log::info!(target: "axonkey::input", "Mapped mouse button: {button:?}"),
+            NativeBehavior::Mouse { button, .. } => {
+                log::info!(target: "axonkey::input", "Mapped mouse button: {button:?}")
+            }
             NativeBehavior::Key { key, .. } => {
                 log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
             }
@@ -1497,9 +1499,23 @@ fn send_mouse_click(button: super::MouseButton) {
         super::MouseButton::Right => (0x0008, 0x0010),
     };
     for flags in [down, up] {
-        let input = Input { kind: 0, value: InputValue { mouse: MouseInput { dx: 0, dy: 0, mouse_data: 0, flags, time: 0, extra_info: 0 } } };
+        let input = Input {
+            kind: 0,
+            value: InputValue {
+                mouse: MouseInput {
+                    dx: 0,
+                    dy: 0,
+                    mouse_data: 0,
+                    flags,
+                    time: 0,
+                    extra_info: 0,
+                },
+            },
+        };
         #[cfg(not(test))]
-        { let _ = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) }; }
+        {
+            let _ = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        }
     }
 }
 
