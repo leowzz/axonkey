@@ -6,8 +6,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
-        Arc, Mutex, RwLock,
-        OnceLock,
+        Arc, Mutex, OnceLock, RwLock,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -373,7 +372,7 @@ fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
 }
 
 struct PressState {
-    wheel_repeat: Option<(i32, Instant)>,
+    wheel_repeat: Option<(i32, bool, Instant)>,
     started_at: Instant,
     last_repeat_log: Instant,
     original: KeyStroke,
@@ -833,9 +832,13 @@ fn process_source_stroke(
                 send_stroke(api, context, device, stroke);
             }
         } else {
-            let wheel_repeat = continuous_click_wheel(&triggers).map(|delta| {
-                send_wheel(delta);
-                (delta, Instant::now() + Duration::from_millis(400))
+            let wheel_repeat = continuous_click_wheel(&triggers).map(|(delta, horizontal)| {
+                send_wheel_with_axis(delta, horizontal);
+                (
+                    delta,
+                    horizontal,
+                    Instant::now() + Duration::from_millis(400),
+                )
             });
             let held_outputs = continuous_click_chord(&triggers)
                 .map(|keys| {
@@ -955,11 +958,11 @@ fn process_timers(
             .cloned()
             .unwrap_or_default();
         if let Some(press) = state.pressed.as_mut() {
-            if let Some((delta, due)) = press.wheel_repeat.as_mut() {
-                if continuous_click_wheel(&triggers) == Some(*delta) && now >= *due {
-                    send_wheel(*delta);
+            if let Some((delta, horizontal, due)) = press.wheel_repeat.as_mut() {
+                if continuous_click_wheel(&triggers) == Some((*delta, *horizontal)) && now >= *due {
+                    send_wheel_with_axis(*delta, *horizontal);
                     *due = now + Duration::from_millis(80);
-                } else if continuous_click_wheel(&triggers) != Some(*delta) {
+                } else if continuous_click_wheel(&triggers) != Some((*delta, *horizontal)) {
                     // A mapping change while the key is held must cancel the
                     // old wheel gesture rather than leaving stale repeat state.
                     press.wheel_repeat = None;
@@ -1031,7 +1034,7 @@ fn wheel_delta(direction: WheelDirection) -> i32 {
     }
 }
 
-fn continuous_click_wheel(triggers: &TriggerBehaviors) -> Option<i32> {
+fn continuous_click_wheel(triggers: &TriggerBehaviors) -> Option<(i32, bool)> {
     if has_enabled(&triggers.double_click) || has_enabled(&triggers.long_press) {
         return None;
     }
@@ -1041,7 +1044,9 @@ fn continuous_click_wheel(triggers: &TriggerBehaviors) -> Option<i32> {
         return None;
     }
     match first {
-        NativeBehavior::Wheel { direction, .. } => Some(wheel_delta(*direction)),
+        NativeBehavior::Wheel { direction, .. } => {
+            Some((wheel_delta(*direction), wheel_horizontal(*direction)))
+        }
         _ => None,
     }
 }
@@ -1104,7 +1109,9 @@ fn execute_behaviors(
             }
         }
         match behavior {
-            NativeBehavior::Wheel { direction, .. } => send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction)),
+            NativeBehavior::Wheel { direction, .. } => {
+                send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction))
+            }
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(chord) = behavior_chord(behavior) {
                     tap_chord(api, context, device, &chord);
@@ -1234,12 +1241,15 @@ fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: Key
     static OUTPUT_LOGS: OnceLock<Mutex<HashMap<(i32, u16, u16), Instant>>> = OnceLock::new();
     let now = Instant::now();
     let key = (device, stroke.code, stroke.state & KEY_E0);
-    let should_log = is_up || OUTPUT_LOGS
-        .get_or_init(|| Mutex::new(HashMap::new()))
-        .lock().map(|mut logs| {
-            let previous = logs.insert(key, now);
-            previous.is_none_or(|time| now.duration_since(time) >= Duration::from_secs(1))
-        }).unwrap_or(true);
+    let should_log = is_up
+        || OUTPUT_LOGS
+            .get_or_init(|| Mutex::new(HashMap::new()))
+            .lock()
+            .map(|mut logs| {
+                let previous = logs.insert(key, now);
+                previous.is_none_or(|time| now.duration_since(time) >= Duration::from_secs(1))
+            })
+            .unwrap_or(true);
     if should_log {
         log::info!(target: "axonkey::input", "RC003 output: device={device}, phase={}, scan=0x{:04X}, state=0x{:04X}, sent={sent}",
             if is_up { "up" } else { "down" }, stroke.code, stroke.state);
@@ -1462,7 +1472,11 @@ fn send_wheel_with_axis(delta: i32, horizontal: bool) {
     let input = wheel_input(delta, horizontal);
     #[cfg(test)]
     {
-        WHEEL_EVENTS.with(|events| events.borrow_mut().push(unsafe { input.value.mouse.mouse_data } as i32));
+        WHEEL_EVENTS.with(|events| {
+            events
+                .borrow_mut()
+                .push(unsafe { input.value.mouse.mouse_data } as i32)
+        });
     }
     #[cfg(not(test))]
     {
@@ -1564,8 +1578,9 @@ mod tests {
     fn continuous_wheel_does_not_bypass_other_gestures_or_sequences() {
         let mut triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
             "click": [{"type":"wheel", "direction":"down"}]
-        })).unwrap();
-        assert_eq!(continuous_click_wheel(&triggers), Some(-120));
+        }))
+        .unwrap();
+        assert_eq!(continuous_click_wheel(&triggers), Some((-120, false)));
         assert!(continuous_click_chord(&triggers).is_none());
         let wheel = triggers.click[0].clone();
         triggers.double_click.push(wheel.clone());
@@ -1578,7 +1593,8 @@ mod tests {
         assert_eq!(continuous_click_wheel(&triggers), None);
         assert!(serde_json::from_value::<NativeBehavior>(serde_json::json!({
             "type":"wheel", "direction":"left"
-        })).is_err());
+        }))
+        .is_err());
     }
 
     #[cfg(windows)]
@@ -1645,12 +1661,16 @@ mod tests {
         // Wheel holds emit immediately, repeat only from the timer, and never
         // leak the original arrow down/up or emit an extra wheel on release.
         for (button, direction, delta) in [("up", "up", 120), ("down", "down", -120)] {
-            let source = *SOURCE_KEYS.iter().find(|source| source.id == button).unwrap();
+            let source = *SOURCE_KEYS
+                .iter()
+                .find(|source| source.id == button)
+                .unwrap();
             *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
                 "enabled": true, "behaviors": { (button): {
                     "click": [{"type":"wheel", "direction":direction}]
                 }}
-            })).unwrap();
+            }))
+            .unwrap();
             assert!(validate_settings(&shared.settings.read().unwrap()).is_ok());
             SENT.lock().unwrap().clear();
             states.clear();
@@ -1660,17 +1680,41 @@ mod tests {
             process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
             WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 1));
             let start = states[button].pressed.as_ref().unwrap().started_at;
-            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_millis(700));
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                start + Duration::from_millis(700),
+            );
             WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), vec![delta, delta]));
             process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_secs(2));
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                start + Duration::from_secs(2),
+            );
             WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 2));
-            assert!(SENT.lock().unwrap().is_empty(), "wheel must not leak keyboard input");
+            assert!(
+                SENT.lock().unwrap().is_empty(),
+                "wheel must not leak keyboard input"
+            );
 
             // Disabling mappings cancels a held wheel even without a release report.
             process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
             shared.settings.write().unwrap().enabled = false;
-            process_timers(&api, ctx, 5, &shared, &mut states, start + Duration::from_secs(3));
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                start + Duration::from_secs(3),
+            );
             assert!(states.is_empty());
             WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 3));
         }
@@ -1690,17 +1734,41 @@ mod tests {
                         "doubleClick": [{"type":"key", "key":"F2", "enabled":false}],
                         "longPress": [{"type":"key", "key":"F3", "enabled":false}]
                     }}
-                })).unwrap();
+                }))
+                .unwrap();
                 SENT.lock().unwrap().clear();
                 states.clear();
-                let down = KeyStroke { code: source.scan_code, state: KEY_E0, information: 0 };
+                let down = KeyStroke {
+                    code: source.scan_code,
+                    state: KEY_E0,
+                    information: 0,
+                };
                 process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
                 let expected = if shortcut { 2 } else { 1 };
-                assert_eq!(SENT.lock().unwrap().len(), expected, "{} must execute on down", source.id);
-                assert!(SENT.lock().unwrap().iter().all(|key| key.state & KEY_UP == 0));
+                assert_eq!(
+                    SENT.lock().unwrap().len(),
+                    expected,
+                    "{} must execute on down",
+                    source.id
+                );
+                assert!(SENT
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .all(|key| key.state & KEY_UP == 0));
                 assert!(states[source.id].pending_click.is_none());
-                process_source_stroke(&api, ctx, 5, &shared, &mut states,
-                    KeyStroke { state: KEY_E0 | KEY_UP, ..down }, *source);
+                process_source_stroke(
+                    &api,
+                    ctx,
+                    5,
+                    &shared,
+                    &mut states,
+                    KeyStroke {
+                        state: KEY_E0 | KEY_UP,
+                        ..down
+                    },
+                    *source,
+                );
                 assert_eq!(SENT.lock().unwrap().len(), expected * 2);
             }
         }
@@ -1795,12 +1863,24 @@ mod tests {
                 states.clear();
                 SENT.lock().unwrap().clear();
                 SENT_AT.lock().unwrap().clear();
-                let down = KeyStroke { code: source.scan_code, state: KEY_E0, information: 0 };
-                let up = KeyStroke { state: KEY_E0 | KEY_UP, ..down };
+                let down = KeyStroke {
+                    code: source.scan_code,
+                    state: KEY_E0,
+                    information: 0,
+                };
+                let up = KeyStroke {
+                    state: KEY_E0 | KEY_UP,
+                    ..down
+                };
                 if long_press {
                     process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
-                    states.get_mut(source.id).unwrap().pressed.as_mut().unwrap().started_at
-                        -= Duration::from_millis(650);
+                    states
+                        .get_mut(source.id)
+                        .unwrap()
+                        .pressed
+                        .as_mut()
+                        .unwrap()
+                        .started_at -= Duration::from_millis(650);
                     process_timers(&api, ctx, 5, &shared, &mut states, Instant::now());
                     process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
                 } else {
@@ -1810,13 +1890,20 @@ mod tests {
                     }
                 }
                 let sent = SENT.lock().unwrap();
-                assert_eq!(sent.len(), 2, "one Esc tap, without a Space click or duplicate");
+                assert_eq!(
+                    sent.len(),
+                    2,
+                    "one Esc tap, without a Space click or duplicate"
+                );
                 assert_eq!(sent[0].code, 1);
                 assert_eq!(sent[0].state, 0);
                 assert_eq!(sent[1].state, KEY_UP);
                 let at = SENT_AT.lock().unwrap();
-                assert!(at[1].duration_since(at[0]) >= Duration::from_millis(16),
-                    "{} long_press={long_press}: Esc down/up collapse within one polling frame", source.id);
+                assert!(
+                    at[1].duration_since(at[0]) >= Duration::from_millis(16),
+                    "{} long_press={long_press}: Esc down/up collapse within one polling frame",
+                    source.id
+                );
             }
         }
     }
