@@ -843,3 +843,13 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .battery-debug-controls > span { flex-basis: 100%; }
 .battery-debug-controls button { min-height: 26px; padding: 3px 7px; border: 1px solid #b8cce1; border-radius: 5px; color: #285f96; background: #f7fbff; font-size: 11px; }
 .battery-debug-controls button:hover { background: #e1effc; }
+
+.home-audio-stages { display: grid; gap: 4px; margin-top: 8px; color: #687581; font-size: 12px; }
+
+
+
+.audio-test-stage-panel { margin: 16px 0; padding: 14px 16px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; }
+.audio-test-stage-panel h3 { margin: 0 0 10px; font-size: 12px; }
+.audio-test-stage-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 18px; color: #687581; font-size: 12px; }
+@media (max-width: 640px) { .audio-test-stage-list { grid-template-columns: 1fr; } }
+

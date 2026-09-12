@@ -48,6 +48,9 @@ export type AudioProbe = {
   state: 'stopped' | 'driverMissing' | 'bluetoothUnavailable' | 'scanning' | 'connecting' | 'ready' | 'forwarding' | 'error' | 'unknown' | 'unsupported'
   bluetoothConnected: boolean
   forwarding: boolean
+  receivedData?: boolean
+  outputReady?: boolean
+  eventVersion?: number
   error?: string | null
 }
 

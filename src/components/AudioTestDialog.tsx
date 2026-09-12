@@ -124,6 +124,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
         </section>
       </div>
       <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>在录音或通话应用中选择「{deviceName}」作为麦克风，录一小段，确认声音清晰。</span></div>
+      <section className="audio-test-stage-panel" aria-label="语音通道状态"><h3>语音通道状态</h3><div className="audio-test-stage-list"><span>音频驱动：{status?.driverInstalled ? '已安装' : '未安装'}</span><span>RC003 语音连接：{status?.bluetoothConnected ? '已连接' : '等待连接'}</span><span>语音收音：{status?.forwarding ? '已收到数据' : '暂无数据'}</span><span>语音转发：{status?.forwarding ? '正在转发到 CABLE Input' : '未转发'}</span></div></section>
       <details className="audio-test-details">
         <summary>详细电平与测量说明</summary>
         <dl><div><dt>原始峰值</dt><dd>{decibels(level.peak)}</dd></div><div><dt>增益后估算</dt><dd>{decibels(adjustedPeak)}</dd></div><div><dt>本次最高估算</dt><dd>{decibels(adjustedMaximum)}</dd></div></dl>
