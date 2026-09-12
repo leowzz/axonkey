@@ -885,3 +885,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .trigger-selector-title .extra-keys-context.compact-ready { margin-left: 0; padding-left: 0; }
 .trigger-selector-title .extra-keys-context.compact-ready > svg { display: none; }
 .trigger-selector-title .extra-keys-context.compact-ready strong { margin: 0; }
+
+.key-picker-head h2 .auto-save-state { margin-left: 10px; font-size: 12px; font-weight: 500; vertical-align: middle; }
+.key-picker-head h2 .reset-button { margin-left: 6px; font-size: 12px; }
