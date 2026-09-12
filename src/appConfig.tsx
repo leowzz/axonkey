@@ -177,7 +177,16 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
 ]
 
 export function keyDisplayName(key: string, platform: Platform) {
-  if (platform !== 'macos') return key
+  if (platform !== 'macos') {
+    const labels: Record<string, string> = {
+      RCtrl: '右 Ctrl',
+      RShift: '右 Shift',
+      LAlt: '左 Alt',
+      RAlt: '右 Alt',
+      RWin: '右 Windows',
+    }
+    return labels[key] ?? key
+  }
   const labels: Record<string, string> = {
     Ctrl: 'Control',
     RCtrl: '右 Control',
