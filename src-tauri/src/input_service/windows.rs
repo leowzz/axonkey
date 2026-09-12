@@ -1092,6 +1092,7 @@ fn execute_behaviors(
             NativeBehavior::Wheel { direction, .. } => {
                 log::info!(target: "axonkey::input", "Mapped wheel: delta={}", wheel_delta(*direction))
             }
+            NativeBehavior::Mouse { button, .. } => log::info!(target: "axonkey::input", "Mapped mouse button: {button:?}"),
             NativeBehavior::Key { key, .. } => {
                 log::info!(target: "axonkey::input", "Mapped action: type=key, key={key:?}")
             }
@@ -1112,6 +1113,7 @@ fn execute_behaviors(
             NativeBehavior::Wheel { direction, .. } => {
                 send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction))
             }
+            NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(chord) = behavior_chord(behavior) {
                     tap_chord(api, context, device, &chord);
@@ -1143,6 +1145,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
             (!chord.is_empty()).then_some(chord)
         }
         NativeBehavior::Wheel { .. }
+        | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
@@ -1484,6 +1487,18 @@ fn send_wheel_with_axis(delta: i32, horizontal: bool) {
         if sent != 1 {
             log::warn!(target: "axonkey::input", "Wheel injection failed: delta={delta}, error={}; target may have higher privileges", std::io::Error::last_os_error());
         }
+    }
+}
+
+fn send_mouse_click(button: super::MouseButton) {
+    let (down, up) = match button {
+        super::MouseButton::Left => (0x0002, 0x0004),
+        super::MouseButton::Right => (0x0008, 0x0010),
+    };
+    for flags in [down, up] {
+        let input = Input { kind: 0, value: InputValue { mouse: MouseInput { dx: 0, dy: 0, mouse_data: 0, flags, time: 0, extra_info: 0 } } };
+        #[cfg(not(test))]
+        { let _ = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) }; }
     }
 }
 

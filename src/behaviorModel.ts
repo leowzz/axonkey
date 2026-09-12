@@ -26,7 +26,7 @@ export type ButtonId = (typeof buttonIds)[number]
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'wheel', 'paste', 'delay', 'disabled'] as const
+export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'paste', 'delay', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 
 type BehaviorBase = {
@@ -59,8 +59,9 @@ export type DisabledBehavior = BehaviorBase & {
 }
 
 export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right' }
+export type MouseBehavior = BehaviorBase & { type: 'mouse'; button: 'left' | 'right' }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
+export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<ButtonId, TriggerBehaviors>
@@ -83,6 +84,7 @@ export type ImportedMapping = {
 
 export type CreateBehaviorOptions =
   | { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right'; enabled?: boolean; id?: string }
+  | { type: 'mouse'; button: 'left' | 'right'; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
@@ -126,6 +128,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
   switch (options.type) {
     case 'wheel':
       return { id, enabled, type: 'wheel', direction: options.direction }
+    case 'mouse':
+      return { id, enabled, type: 'mouse', button: options.button }
     case 'key':
       return { id, enabled, type: 'key', key: cleanKey(options.key) || 'Enter' }
     case 'shortcut': {
@@ -185,6 +189,8 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
   switch (type) {
     case 'wheel':
       return ['up', 'down', 'left', 'right'].includes(String(value.direction)) ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] } : null
+    case 'mouse':
+      return value.button === 'left' || value.button === 'right' ? { id, enabled, type, button: value.button } : null
     case 'key': {
       const key = cleanKey(value.key)
       return key ? { id, enabled, type, key } : null

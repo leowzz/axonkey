@@ -56,6 +56,8 @@ export type CommonBehaviorPreset =
   | 'wheelDown'
   | 'wheelLeft'
   | 'wheelRight'
+  | 'mouseLeft'
+  | 'mouseRight'
   | 'original'
   | 'disabled'
   | 'escape'
