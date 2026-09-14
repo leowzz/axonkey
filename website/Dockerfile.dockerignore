@@ -1,0 +1,11 @@
+**
+!package.json
+!package-lock.json
+!website/
+!website/**
+!docs/
+!docs/images/
+!docs/images/**
+website/node_modules/
+website/dist/
+website/.env*

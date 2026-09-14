@@ -16,21 +16,26 @@ Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS �
 
 ## 界面截图
 
-<p align="center">
-  <img src="./docs/images/axonkey-home.png" width="960" alt="Axonkey 主页，展示设备状态、系统权限、语音通道和快捷操作">
-</p>
-<p align="center"><sub>主页：设备状态、运行检查与快捷操作</sub></p>
+### 首页
 
+<p align="center">
+  <img src="./docs/images/axonkey-home.png" width="960" alt="Axonkey 首页，展示设备状态、系统权限、语音通道和快捷操作">
+</p>
+<p align="center"><sub>设备状态、运行检查与快捷操作</sub></p>
+
+### 总览
 
 <p align="center">
   <img src="./docs/images/axonkey-overview.png" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
 </p>
-<p align="center"><sub>按键总览：查看各实体按键的映射行为，切换单击、双击和长按</sub></p>
+<p align="center"><sub>查看各实体按键的映射行为，切换单击、双击和长按</sub></p>
+
+### 映射
 
 <p align="center">
-  <img src="./docs/images/axonkey-mapping.png" width="960" alt="Axonkey 按键映射界面，显示 RC003、触发方式和行为编辑器">
+  <img src="./docs/images/axonkey-mapping.png" width="960" alt="Axonkey 映射界面，显示 RC003、触发方式和行为编辑器">
 </p>
-<p align="center"><sub>按键映射：选择实体按键，再分别编辑单击、双击和长按行为</sub></p>
+<p align="center"><sub>选择实体按键，再分别编辑单击、双击和长按行为</sub></p>
 
 ## 主要功能
 
