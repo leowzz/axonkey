@@ -57,7 +57,7 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
-import { PermissionsPage } from '../components/PermissionsPage'
+import { SettingsPage } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
@@ -1218,7 +1218,7 @@ function AppController() {
               </details>}
             </section>
           </div>
-        </div> : activePage === 'about' ? <AboutPage /> : activePage === 'permissions' ? <PermissionsPage
+        </div> : activePage === 'about' ? <AboutPage /> : activePage === 'settings' ? <SettingsPage
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}
@@ -1242,7 +1242,7 @@ function AppController() {
           onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           audioGain={audioGain}
           enabled={enabled}
-          onOpenPermissions={() => setActivePage('permissions')}
+          onOpenSettings={() => setActivePage('settings')}
           onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
           onAudioGainChange={updateAudioGain}
           onTestAudio={() => setAudioTestOpen(true)}

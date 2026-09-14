@@ -1,5 +1,4 @@
 import { openGitHub } from '../openGitHub'
-import { AutostartControl } from './AutostartControl'
 import {
   AudioLines,
   Bluetooth,
@@ -36,7 +35,7 @@ type HomeDashboardProps = {
   onAdjustBattery?: (delta: number) => void
   audioGain: number
   enabled: boolean
-  onOpenPermissions: () => void
+  onOpenSettings: () => void
   onRefresh: () => void
   onAudioGainChange: (gain: number) => void
   onTestAudio: () => void
@@ -96,7 +95,7 @@ export function HomeDashboard({
   onAdjustBattery,
   audioGain,
   enabled,
-  onOpenPermissions,
+  onOpenSettings,
   onRefresh,
   onAudioGainChange,
   onTestAudio,
@@ -194,7 +193,7 @@ export function HomeDashboard({
           <button type="button" className="home-primary-action" onClick={onOpenMapping}>
             <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenPermissions() : onOpenStep(recommendedStep)}>
+          <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
             <Settings2 size={15} /> {allReady ? '完整设置' : '处理待办'}
           </button>
           <button type="button" className="home-icon-action" aria-label={pageLoading ? '检测中' : '重新检测'} title={pageLoading ? '检测中' : '重新检测'} onClick={onRefresh} disabled={pageLoading}>
@@ -234,7 +233,7 @@ export function HomeDashboard({
             tone={inputTone}
             detail={inputDetail}
             action={macOS
-              ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
+              ? <button type="button" className="home-row-action" onClick={onOpenSettings}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
               : <button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>检查驱动<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
@@ -243,7 +242,7 @@ export function HomeDashboard({
             status={accessibilityStatus}
             tone={accessibilityTone}
             detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
-            action={macOS && <button type="button" className="home-row-action" onClick={onOpenPermissions}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
+            action={macOS && <button type="button" className="home-row-action" onClick={onOpenSettings}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
             icon={<AudioLines size={18} />}
@@ -279,9 +278,9 @@ export function HomeDashboard({
             <span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-quick-button" onClick={onOpenPermissions}>
+          <button type="button" className="home-quick-button" onClick={onOpenSettings}>
             <span className="home-quick-icon"><ShieldCheck size={17} /></span>
-            <span><strong>权限设置</strong><small>查看与管理系统权限</small></span>
+            <span><strong>设置</strong><small>开机自启与系统权限</small></span>
             <ChevronRight size={15} />
           </button>
           <button type="button" className="home-quick-button" onClick={onRefresh} disabled={pageLoading}>
@@ -295,8 +294,6 @@ export function HomeDashboard({
             <ChevronRight size={15} />
           </button>
         </section>
-
-        <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />
 
         <div className="home-local-note">
           <Check size={15} />
