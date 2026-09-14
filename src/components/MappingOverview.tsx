@@ -27,7 +27,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   const [wires, setWires] = useState<Wire[]>([])
   const canvasRef = useRef<HTMLDivElement>(null)
   const imageRef = useRef<HTMLDivElement>(null)
-  const cardRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
+  const cardRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
   const highlightedId = pressedId ?? hoveredId ?? selectedId
   const selected = buttons.find((button) => button.id === selectedId) ?? buttons[0]
   const configured = buttons.filter((button) => triggerTypes.some((type) => behaviors[button.id][type].length > 0)).length
@@ -80,14 +80,16 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
             const list = behaviors[button.id][trigger]
             const summary = triggerSummary(list, trigger, platform)
             const paused = list.length > 0 && list.every((behavior) => !behavior.enabled)
-            return <button key={button.id} type="button" ref={(node) => { if (node) cardRefs.current[button.id] = node }}
+            return <div key={button.id} ref={(node) => { if (node) cardRefs.current[button.id] = node }}
               className={`overview-key ${list.length ? 'configured' : ''} ${highlightedId === button.id ? 'highlighted' : ''} ${pressedId === button.id ? 'pressed' : ''}`}
-              aria-pressed={selectedId === button.id} onClick={() => onSelect(button.id, trigger)}
               onMouseEnter={() => setHoveredId(button.id)} onMouseLeave={() => setHoveredId(null)}
               onFocus={() => setHoveredId(button.id)} onBlur={() => setHoveredId(null)}>
+              <button type="button" className="overview-key-select" aria-pressed={selectedId === button.id} onClick={() => onSelect(button.id, trigger)}>
               <span className="overview-key-icon">{iconFor(button.icon, 18)}</span>
-              <span className="overview-key-copy"><span className="overview-key-name">{button.label}<small>{paused ? '动作已停用' : list.length ? `${list.length} 个动作` : trigger === 'click' ? '默认' : '未设置'}</small></span><strong title={summary}>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>
-            </button>
+              <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong title={summary}>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>
+              </button>
+              <span className="overview-key-actions"><small>{paused ? '动作已停用' : list.length ? `${list.length} 个动作` : trigger === 'click' ? '默认' : '未设置'}</small><button type="button" className="overview-key-edit" aria-label={`编辑${button.label}${triggerLabels[trigger]}映射`} onClick={() => { onSelect(button.id, trigger); onEdit(button.id, trigger) }}>编辑 <ArrowUpRight size={12} /></button></span>
+            </div>
           })}
         </div>)}
         <div className="overview-device">

@@ -973,6 +973,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .overview-cards-left { grid-column: 1; grid-row: 1; }
 .overview-cards-right { grid-column: 3; grid-row: 1; }
 .overview-key { line-height: 1.35; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 6px 12px; border: 1px solid #dfe5eb; border-radius: 10px; background: #ffffffed; text-align: left; color: #687785; box-shadow: 0 2px 5px #29466404; transition: border-color .15s, box-shadow .15s; }
+/* Selection and editing are sibling controls so both remain keyboard accessible. */
+.overview-key-select { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; line-height: inherit; }
+.overview-key-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
+.overview-key-actions > small { color: #96a2ae; font-size: 9px; white-space: nowrap; }
+.overview-key-edit { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; padding: 2px 4px; border: 0; border-radius: 4px; color: #2978c4; background: transparent; font-size: 11px; line-height: 1.35; }
+.overview-key-edit:hover { background: #e2efff; color: #135ba5; }
 .overview-key.configured { border-color: #c6d6e6; }
 .overview-key.highlighted { border-color: #458edf; box-shadow: 0 0 0 3px #1478e80b, 0 4px 16px #1478e812; background: #f5faff; }
 .overview-key.pressed { background: #dfedff; }
