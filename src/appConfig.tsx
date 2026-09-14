@@ -286,16 +286,3 @@ export const initialHitPositions: Record<ButtonId, HitPosition> = {
   menu: { x: 30.00, y: 87.91 },
   tv: { x: 68.58, y: 88.11 },
 }
-
-export const hitPositionsStorageKey = 'axonkey.debug-hit-positions.v5'
-
-export function getStoredHitPositions() {
-  if (typeof window === 'undefined') return initialHitPositions
-  try {
-    const stored = window.localStorage.getItem(hitPositionsStorageKey)
-    if (!stored) return initialHitPositions
-    return { ...initialHitPositions, ...JSON.parse(stored) } as Record<ButtonId, HitPosition>
-  } catch {
-    return initialHitPositions
-  }
-}

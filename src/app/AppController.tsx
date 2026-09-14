@@ -30,9 +30,7 @@ import {
   buttons,
   detectBrowserPlatform,
   formatCapturedKey,
-  getStoredHitPositions,
   getStoredSettings,
-  hitPositionsStorageKey,
   iconFor,
   initialHitPositions,
   settingsStorageKey,
@@ -138,7 +136,7 @@ function AppController() {
   }
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
-  const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(getStoredHitPositions)
+  const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(initialHitPositions)
   const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
   const [coordinateSnippet, setCoordinateSnippet] = useState('')
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
@@ -197,8 +195,25 @@ function AppController() {
   }, [selectedBehavior])
 
   useEffect(() => {
-    window.localStorage.setItem(hitPositionsStorageKey, JSON.stringify(hitPositions))
-  }, [hitPositions])
+    // Discard legacy coordinates so shipped artwork positions always take effect.
+    try {
+      const storage = window.localStorage
+      for (let index = storage.length - 1; index >= 0; index -= 1) {
+        const key = storage.key(index)
+        if (key?.startsWith('axonkey.debug-hit-positions.')) storage.removeItem(key)
+      }
+    } catch (error) {
+      logError('Failed to remove legacy hit positions', error)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!debugMode) {
+      setHitPositions(initialHitPositions)
+      setDraggingId(null)
+      setCoordinateSnippet('')
+    }
+  }, [debugMode])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -1098,7 +1113,6 @@ function AppController() {
 
   const resetHitPositions = () => {
     setHitPositions(initialHitPositions)
-    window.localStorage.removeItem(hitPositionsStorageKey)
     setToast('已恢复默认点位')
     window.setTimeout(() => setToast(''), 2200)
   }
@@ -1332,4 +1346,3 @@ function AppController() {
 }
 
 export default AppController
-
