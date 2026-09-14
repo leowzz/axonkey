@@ -947,24 +947,25 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .about-update-actions :focus-visible { outline: 2px solid #1478e8; outline-offset: 3px; }
 
 /* Current mappings, arranged around the calibrated RC003 artwork. */
-.mapping-overview { width: min(1180px, calc(100% - 48px)); margin: 12px auto 20px; }
-.overview-surface { overflow: hidden; border: 1px solid #dce2e8; border-radius: 18px; background: #fafcfe; box-shadow: 0 8px 30px #29466406; }
+.mapping-overview { width: calc(100% - 32px); height: calc(100dvh - var(--sticky-header-height) - 24px); margin: 12px auto; }
+.main-content:has(.mapping-disabled-notice) .mapping-overview { height: calc(100dvh - var(--sticky-header-height) - 40px); }
+.overview-surface { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; min-height: 520px; overflow: hidden; border: 1px solid #dce2e8; border-radius: 18px; background: #fafcfe; box-shadow: 0 8px 30px #29466406; }
 .overview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; border-bottom: 1px solid #e6ebf0; }
 .overview-trigger-switch { display: flex; gap: 4px; padding: 4px; border: 1px solid #e2e7ed; border-radius: 10px; background: #edf1f5; }
-.overview-trigger-switch button { line-height: 1.35; min-width: 76px; padding: 6px 14px; border: 0; border-radius: 7px; background: transparent; color: #6b7886; font-size: 12px; }
+.overview-trigger-switch button { line-height: 1.35; min-width: 88px; min-height: 40px; padding: 9px 18px; border: 0; border-radius: 7px; background: transparent; color: #6b7886; font-size: 15px; font-weight: 500; }
 .overview-trigger-switch button.active { background: #fff; color: #1b62a8; box-shadow: 0 1px 5px #283c5120; font-weight: 700; }
 .overview-save-state { display: flex; align-items: center; gap: 7px; color: #74818d; font-size: 11px; }
 .overview-save-state > span { width: 6px; height: 6px; border-radius: 50%; background: #8191a0; }
 .overview-save-state.error { color: #a54949; }
 .overview-save-state.error > span { background: #a54949; }
-.overview-canvas { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) 230px minmax(0, 1fr); gap: 28px; padding: 12px 26px; background: radial-gradient(ellipse at 50% 45%, #dceaf670, transparent 52%), radial-gradient(#9fb2c429 .7px, transparent .7px); background-size: auto, 16px 16px; }
+.overview-canvas { min-height: 0; position: relative; display: grid; grid-template-columns: minmax(0, 1fr) clamp(180px, 24vw, 380px) minmax(0, 1fr); gap: 28px; padding: 12px 26px; background: radial-gradient(ellipse at 50% 45%, #dceaf670, transparent 52%), radial-gradient(#9fb2c429 .7px, transparent .7px); background-size: auto, 16px 16px; }
 .overview-wires { z-index: 2; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .overview-wires path { fill: none; stroke: #b9c7d5; stroke-width: 1; opacity: .7; transition: stroke .15s, opacity .15s; }
 .overview-wires path.active { stroke: #1478e8; stroke-width: 2; opacity: 1; }
 .overview-cards { z-index: 3; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; padding: 0; min-width: 0; }
 .overview-cards-left { grid-column: 1; grid-row: 1; }
 .overview-cards-right { grid-column: 3; grid-row: 1; }
-.overview-key { line-height: 1.35; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 6px 12px; border: 1px solid #dfe5eb; border-radius: 10px; background: #ffffffed; text-align: left; color: #687785; box-shadow: 0 2px 5px #29466404; transition: border-color .15s, box-shadow .15s; }
+.overview-key { line-height: 1.35; display: flex; align-items: center; gap: 12px; width: 100%; min-height: clamp(48px, calc((100dvh - var(--sticky-header-height) - 180px) / 9), 76px); padding: 6px 12px; border: 1px solid #dfe5eb; border-radius: 10px; background: #ffffffed; text-align: left; color: #687785; box-shadow: 0 2px 5px #29466404; transition: border-color .15s, box-shadow .15s; }
 /* Selection and editing are sibling controls so both remain keyboard accessible. */
 .overview-key-select { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; line-height: inherit; }
 .overview-key-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex-shrink: 0; }
@@ -982,8 +983,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .overview-key-copy > strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 4px; font-size: 13px; font-weight: 500; }
 .overview-key.configured .overview-key-copy > strong { color: #263e54; font-weight: 700; }
 .overview-key-notice { display: block; margin-top: 4px; color: #97723f; font-size: 9px; }
-.overview-device { grid-column: 2; grid-row: 1; display: flex; align-items: center; flex-direction: column; pointer-events: none; }
-.overview-art { position: relative; width: clamp(136px, calc((100dvh - var(--sticky-header-height) - 240px) * .411), 192px); }
+.overview-device { min-height: 0; container-type: size; justify-content: center; grid-column: 2; grid-row: 1; display: flex; align-items: center; flex-direction: column; pointer-events: none; }
+.overview-art { position: relative; width: min(100%, calc((100cqh - 24px) * .411)); flex-shrink: 0; }
 .overview-art img { display: block; width: 100%; height: auto; filter: drop-shadow(0 22px 18px #284a6924); }
 .overview-marker { z-index: 3; position: absolute; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 50%; background: transparent; transform: translate(-50%, -50%); pointer-events: auto; }
 .overview-marker > span { width: 7px; height: 7px; border: 1.5px solid #fff; border-radius: 50%; background: #9aabbc; box-shadow: 0 0 0 2px #5f799e30; }
