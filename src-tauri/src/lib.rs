@@ -26,6 +26,27 @@ struct WindowGeometry {
 #[derive(Default)]
 struct PermissionHelperWindowState(std::sync::Mutex<Option<WindowGeometry>>);
 
+fn initialize_autostart(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_plugin_autostart::ManagerExt;
+
+    let directory = app.path().app_config_dir()?;
+    let marker = directory.join("autostart-initialized");
+    // Apply the default once, preserving subsequent changes made by the user.
+    if marker.try_exists()? {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&directory)?;
+    let autostart = app.autolaunch();
+    if !autostart.is_enabled()? {
+        autostart.enable()?;
+    }
+    if !autostart.is_enabled()? {
+        return Err("Autostart did not become enabled".into());
+    }
+    std::fs::write(marker, b"initialized\n")?;
+    Ok(())
+}
+
 fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
@@ -1122,6 +1143,9 @@ pub fn run() {
                     RUNTIME_LOG_KEEP_FILES,
                 ),
                 Err(error) => log::warn!(target: "axonkey::runtime", "Cannot resolve runtime log path: {error}"),
+            }
+            if let Err(error) = initialize_autostart(app.handle()) {
+                log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
             app.manage(AudioService::start());
             app.manage(InputService::start());
