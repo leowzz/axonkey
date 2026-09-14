@@ -28,12 +28,18 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
     <div className="mouse-model-title">选择输入部位</div>
     <div className="mouse-input-model">
       {part('buttonLeft', '左键')}{part('buttonRight', '右键')}
-      <div className="mouse-wheel-track">{part('up', '上')}{part('down', '下')}</div>
-      <div className="mouse-horizontal-track">{part('left', '左滚')}{part('right', '右滚')}</div>
+      <div className="mouse-wheel-track" aria-label="垂直滚轮方向">
+        <span className="mouse-track-label">垂直滚轮</span>
+        {part('up', '向上')}{part('down', '向下')}
+      </div>
+      <div className="mouse-horizontal-track" aria-label="水平滚轮方向">
+        <span className="mouse-track-label">水平滚轮</span>
+        {part('left', '向左')}{part('right', '向右')}
+      </div>
       <span className="mouse-model-mark"><Mouse size={14} /> MOUSE</span>
     </div>
     <strong className="mouse-model-selection">{selected.label}</strong>
-    <p>点击鼠标部位，再在右侧设置触发条件和执行行为。</p>
+    <p>点击部位选择输入。滚轮方向按内容移动方向标注，避免与滚动条方向混淆。</p>
   </section>
 }
 
