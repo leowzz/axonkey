@@ -165,6 +165,7 @@ function AppController() {
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
+  const [homeRefreshing, setHomeRefreshing] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
@@ -898,7 +899,8 @@ function AppController() {
   const probeAudioState = async () => {
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
-    updateSetup((current) => setDriverStatus(current, 'audio', 'checking', {
+    // Keep the last result visible during subsequent probes, including polling.
+    updateSetup((current) => current.drivers.audio.status !== 'unknown' ? current : setDriverStatus(current, 'audio', 'checking', {
       message: platform === 'macos' ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…' : '正在检查 VB-CABLE 虚拟麦克风…',
     }))
     try {
@@ -932,6 +934,16 @@ function AppController() {
       }))
     } finally {
       audioProbeRunningRef.current = false
+    }
+  }
+
+  const refreshHome = async () => {
+    if (homeRefreshing) return
+    setHomeRefreshing(true)
+    try {
+      await Promise.all([probeSystemState(false), probeAudioState()])
+    } finally {
+      setHomeRefreshing(false)
     }
   }
 
@@ -1271,13 +1283,14 @@ function AppController() {
           inputAuthorizationStale={inputAuthorizationStale}
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
+          refreshing={homeRefreshing}
           device={setupState.device}
           batteryLevel={displayedBatteryLevel}
           onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           audioGain={audioGain}
           enabled={enabled}
           onOpenSettings={() => setActivePage('settings')}
-          onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
+          onRefresh={() => void refreshHome()}
           onAudioGainChange={updateAudioGain}
           onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}

@@ -9,7 +9,6 @@ import {
   FileText,
   Github,
   Keyboard,
-  LoaderCircle,
   RotateCcw,
   Settings2,
   ShieldCheck,
@@ -26,6 +25,7 @@ type HomeDashboardProps = {
   platform: Platform
   nativeRuntime: boolean
   systemProbeState: 'loading' | 'ready' | 'error'
+  refreshing?: boolean
   permissions: MacPermissions
   inputAuthorizationStale: boolean
   inputDriver: SetupState['drivers']['input']
@@ -86,6 +86,7 @@ export function HomeDashboard({
   platform,
   nativeRuntime,
   systemProbeState,
+  refreshing = false,
   permissions,
   inputAuthorizationStale,
   inputDriver,
@@ -158,6 +159,7 @@ export function HomeDashboard({
     && audioPresentation.tone === 'ready'
     && deviceTone === 'ready'
   const pageLoading = systemProbeLoading || audioProbeLoading || inputProbeLoading || deviceProbeLoading
+  const refreshBusy = pageLoading || refreshing
   const readyCount = [inputTone, accessibilityTone, audioPresentation.tone, deviceTone]
     .filter((tone) => tone === 'ready' || tone === 'muted').length
   const heroTone: HomeStatusTone = pageLoading ? 'checking' : allReady ? 'ready' : inputAuthorizationStale ? 'error' : 'warning'
@@ -196,8 +198,8 @@ export function HomeDashboard({
           <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
             <Settings2 size={15} /> {allReady ? '完整设置' : '处理待办'}
           </button>
-          <button type="button" className="home-icon-action" aria-label={pageLoading ? '检测中' : '重新检测'} title={pageLoading ? '检测中' : '重新检测'} onClick={onRefresh} disabled={pageLoading}>
-            <RotateCcw className={pageLoading ? 'home-summary-loading-icon' : ''} size={15} />
+          <button type="button" className="home-icon-action" aria-label={refreshBusy ? '检测中' : '重新检测'} title={refreshBusy ? '检测中' : '重新检测'} onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>
+            <RotateCcw className={refreshBusy ? 'home-summary-loading-icon' : ''} size={15} />
           </button>
           <div className="home-github-support">
             <a href="https://github.com/leowzz/axonkey" onClick={openGitHub} target="_blank" rel="noopener noreferrer"><Github size={15} aria-hidden="true" /> GitHub</a>
@@ -283,9 +285,9 @@ export function HomeDashboard({
             <span><strong>设置</strong><small>开机自启与系统权限</small></span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-quick-button" onClick={onRefresh} disabled={pageLoading}>
-            <span className="home-quick-icon">{pageLoading ? <LoaderCircle className="home-summary-loading-icon" size={17} /> : <CheckCircle2 size={17} />}</span>
-            <span><strong>{pageLoading ? '正在检测' : '运行检测'}</strong><small>刷新所有本机状态</small></span>
+          <button type="button" className="home-quick-button" onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>
+            <span className="home-quick-icon"><CheckCircle2 size={17} /></span>
+            <span><strong>运行检测</strong><small>刷新所有本机状态</small></span>
             <ChevronRight size={15} />
           </button>
           <button type="button" className="home-quick-button" onClick={onOpenLogs}>
