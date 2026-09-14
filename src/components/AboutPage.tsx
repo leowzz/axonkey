@@ -22,7 +22,7 @@ export function AboutPage({ update }: { update: ReleaseUpdateState & { hasUpdate
     <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
       <div role="status">
         <strong>{update.hasUpdate ? `发现新版本 ${update.latestVersion}` : update.checking ? '正在检查更新…' : update.error ? '检查更新失败' : update.checkedAt ? '当前已是最新版本' : '等待检查更新'}</strong>
-        <p>{update.error ?? (update.hasUpdate ? `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。` : '启动、返回应用、网络恢复和进入本页时自动检查更新。')}{update.checking && update.hasUpdate ? ' 正在重新检查…' : ''}</p>
+        {(update.error || update.hasUpdate) && <p>{update.error ?? `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`}{update.checking && update.hasUpdate ? ' 正在重新检查…' : ''}</p>}
       </div>
       <div className="about-update-actions">
         <button type="button" disabled={update.checking} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
