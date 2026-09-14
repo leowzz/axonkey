@@ -84,7 +84,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
               className={`overview-key ${list.length ? 'configured' : ''} ${highlightedId === button.id ? 'highlighted' : ''} ${pressedId === button.id ? 'pressed' : ''}`}
               onMouseEnter={() => setHoveredId(button.id)} onMouseLeave={() => setHoveredId(null)}
               onFocus={() => setHoveredId(button.id)} onBlur={() => setHoveredId(null)}>
-              <BehaviorSummaryPopover openDelay={800} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[trigger], behaviors: list }] : []}>
+              <BehaviorSummaryPopover openDelay={500} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[trigger], behaviors: list }] : []}>
               <button type="button" className="overview-key-select" aria-pressed={selectedId === button.id} onClick={() => onSelect(button.id, trigger)}>
               <span className="overview-key-icon">{iconFor(button.icon, 18)}</span>
               <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>

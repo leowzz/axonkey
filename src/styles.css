@@ -1014,7 +1014,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .overview-key, .overview-wires path { transition: none; }
 }
 
-.behavior-summary-popover { position: fixed; z-index: 1000; width: 320px; max-width: calc(100vw - 16px); max-height: min(420px, calc(100dvh - 16px)); overflow: auto; padding: 14px 16px; border: 1px solid #cbd9e7; border-radius: 10px; background: #fff; color: #304960; box-shadow: 0 8px 28px #183b6126; user-select: text; }
+.behavior-summary-popover { position: fixed; z-index: 1000; width: max-content; max-width: min(260px, calc(100vw - 16px)); max-height: min(420px, calc(100dvh - 16px)); overflow: auto; padding: 14px 16px; border: 1px solid #cbd9e7; border-radius: 10px; background: #fff; color: #304960; box-shadow: 0 8px 28px #183b6126; user-select: text; }
 .behavior-summary-heading { display: block; font-size: 13px; }
 .behavior-summary-popover h4 { margin: 10px 0 6px; color: #7c8fa2; font-size: 11px; font-weight: 500; }
 .behavior-summary-popover ol { margin: 0; padding-left: 22px; }

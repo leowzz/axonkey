@@ -31,7 +31,7 @@ export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressed
         ref={(node) => { if (node) rowRefs.current[button.id] = node }}
         className={`mapping-key ${active ? 'active' : ''} ${pressed ? 'pressed' : ''}`}
       >
-        <BehaviorSummaryPopover openDelay={800} label={button.label} platform={platform} groups={configuredTriggers.map((trigger) => ({ label: triggerLabels[trigger], behaviors: behaviors[button.id][trigger] }))}>
+        <BehaviorSummaryPopover openDelay={500} label={button.label} platform={platform} groups={configuredTriggers.map((trigger) => ({ label: triggerLabels[trigger], behaviors: behaviors[button.id][trigger] }))}>
         <button type="button" aria-pressed={active} onClick={() => onSelect(button.id)}>
           <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 16)}</span>
           <span className="mapping-key-copy"><strong>{button.label}</strong>{notice && <small className="mapping-key-requirement">{notice}</small>}</span>
@@ -68,7 +68,7 @@ export function MappingTriggerSelector({ platform, button, behaviors, trigger, o
       {triggerOrder.map((item) => {
         const selected = trigger === item
         const list = behaviors[item]
-        return <BehaviorSummaryPopover openDelay={800} key={item} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[item], behaviors: list }] : []}><button
+        return <BehaviorSummaryPopover openDelay={500} key={item} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[item], behaviors: list }] : []}><button
           type="button"
           role="tab"
           aria-selected={selected}
