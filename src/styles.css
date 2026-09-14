@@ -1013,3 +1013,15 @@ body.permission-helper-mode #root { min-height: 100vh; }
 @media (prefers-reduced-motion: reduce) {
   .overview-key, .overview-wires path { transition: none; }
 }
+
+.behavior-summary-popover { position: fixed; z-index: 1000; width: 320px; max-width: calc(100vw - 16px); max-height: min(420px, calc(100dvh - 16px)); overflow: auto; padding: 14px 16px; border: 1px solid #cbd9e7; border-radius: 10px; background: #fff; color: #304960; box-shadow: 0 8px 28px #183b6126; user-select: text; }
+.behavior-summary-heading { display: block; font-size: 13px; }
+.behavior-summary-popover h4 { margin: 10px 0 6px; color: #7c8fa2; font-size: 11px; font-weight: 500; }
+.behavior-summary-popover ol { margin: 0; padding-left: 22px; }
+.behavior-summary-popover li { padding: 5px 0 5px 3px; font-size: 12px; line-height: 1.6; }
+.behavior-summary-popover li + li { border-top: 1px solid #edf1f5; }
+.behavior-summary-popover li::marker { color: #8a9eb2; font-size: 10px; }
+.behavior-summary-popover li span { white-space: pre-wrap; overflow-wrap: anywhere; }
+.behavior-summary-popover li.paused { color: #8997a4; }
+.trigger-option-copy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: #637b96; }
+.trigger-options > button.active .trigger-option-copy small { color: #dceaff; }

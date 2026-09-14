@@ -1,12 +1,14 @@
 import { Check, Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
-import { iconFor, triggerLabels } from '../appConfig'
-import type { RemoteButton } from '../appTypes'
+import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
+import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
+import type { Platform, RemoteButton } from '../appTypes'
 import type { ReactNode } from 'react'
 
 const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
 
 type MappingKeyGridProps = {
+  platform: Platform
   buttons: RemoteButton[]
   behaviors: BehaviorMap
   activeId: ButtonId
@@ -16,7 +18,7 @@ type MappingKeyGridProps = {
   onSelect: (buttonId: ButtonId) => void
 }
 
-export function MappingKeyGrid({ buttons, behaviors, activeId, pressedId, extraKeysNotice, rowRefs, onSelect }: MappingKeyGridProps) {
+export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressedId, extraKeysNotice, rowRefs, onSelect }: MappingKeyGridProps) {
   return <div className="mapping-key-grid">
     {buttons.map((button) => {
       const configuredTriggers = triggerOrder.filter((trigger) => behaviors[button.id][trigger].length > 0)
@@ -29,17 +31,20 @@ export function MappingKeyGrid({ buttons, behaviors, activeId, pressedId, extraK
         ref={(node) => { if (node) rowRefs.current[button.id] = node }}
         className={`mapping-key ${active ? 'active' : ''} ${pressed ? 'pressed' : ''}`}
       >
+        <BehaviorSummaryPopover openDelay={800} label={button.label} platform={platform} groups={configuredTriggers.map((trigger) => ({ label: triggerLabels[trigger], behaviors: behaviors[button.id][trigger] }))}>
         <button type="button" aria-pressed={active} onClick={() => onSelect(button.id)}>
           <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 16)}</span>
           <span className="mapping-key-copy"><strong>{button.label}</strong>{notice && <small className="mapping-key-requirement">{notice}</small>}</span>
           {configuredTriggers.length > 0 && <span className="mapping-key-status" aria-label={`${configuredTriggers.length} 个已设置触发方式`}>{configuredTriggers.length}</span>}
         </button>
+        </BehaviorSummaryPopover>
       </article>
     })}
   </div>
 }
 
 type MappingTriggerSelectorProps = {
+  platform: Platform
   button: RemoteButton
   behaviors: Record<TriggerType, Behavior[]>
   trigger: TriggerType
@@ -53,7 +58,7 @@ const triggerIcons = {
   longPress: <Clock3 size={17} />,
 }
 
-export function MappingTriggerSelector({ button, behaviors, trigger, onSelect, auxiliary }: MappingTriggerSelectorProps) {
+export function MappingTriggerSelector({ platform, button, behaviors, trigger, onSelect, auxiliary }: MappingTriggerSelectorProps) {
   return <section className="trigger-selector" aria-labelledby="trigger-selector-title">
     <div className="trigger-selector-title">
       <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
@@ -63,8 +68,7 @@ export function MappingTriggerSelector({ button, behaviors, trigger, onSelect, a
       {triggerOrder.map((item) => {
         const selected = trigger === item
         const list = behaviors[item]
-        return <button
-          key={item}
+        return <BehaviorSummaryPopover openDelay={800} key={item} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[item], behaviors: list }] : []}><button
           type="button"
           role="tab"
           aria-selected={selected}
@@ -72,9 +76,9 @@ export function MappingTriggerSelector({ button, behaviors, trigger, onSelect, a
           onClick={() => onSelect(item)}
         >
           <span className="trigger-option-icon">{triggerIcons[item]}</span>
-          <span className="trigger-option-copy"><strong>{triggerLabels[item]}</strong></span>
+          <span className="trigger-option-copy"><strong>{triggerLabels[item]}</strong><small>{triggerSummary(list, item, platform)}</small></span>
           {selected ? <Check size={17} strokeWidth={3} aria-hidden="true" /> : list.length > 0 && <span className="trigger-option-dot" />}
-        </button>
+        </button></BehaviorSummaryPopover>
       })}
     </div>
   </section>

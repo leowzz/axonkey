@@ -1210,6 +1210,7 @@ function AppController() {
                   <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
                 <MappingKeyGrid
+                  platform={platform}
                   buttons={editableButtons}
                   behaviors={behaviors}
                   activeId={activeId}
@@ -1222,6 +1223,7 @@ function AppController() {
                 />
               </section>
               <MappingTriggerSelector
+                platform={platform}
                 button={selectedButton}
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}

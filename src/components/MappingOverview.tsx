@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import { ArrowUpRight, CircleDot } from 'lucide-react'
 import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
+import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
 import { triggerTypes } from '../behaviorModel'
 import type { BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import type { HitPosition, Platform, RemoteButton } from '../appTypes'
@@ -83,10 +84,12 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
               className={`overview-key ${list.length ? 'configured' : ''} ${highlightedId === button.id ? 'highlighted' : ''} ${pressedId === button.id ? 'pressed' : ''}`}
               onMouseEnter={() => setHoveredId(button.id)} onMouseLeave={() => setHoveredId(null)}
               onFocus={() => setHoveredId(button.id)} onBlur={() => setHoveredId(null)}>
+              <BehaviorSummaryPopover openDelay={800} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[trigger], behaviors: list }] : []}>
               <button type="button" className="overview-key-select" aria-pressed={selectedId === button.id} onClick={() => onSelect(button.id, trigger)}>
               <span className="overview-key-icon">{iconFor(button.icon, 18)}</span>
-              <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong title={summary}>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>
+              <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>
               </button>
+              </BehaviorSummaryPopover>
               <span className="overview-key-actions"><small>{paused ? '动作已停用' : list.length ? `${list.length} 个动作` : trigger === 'click' ? '默认' : '未设置'}</small><button type="button" className="overview-key-edit" aria-label={`编辑${button.label}${triggerLabels[trigger]}映射`} onClick={() => { onSelect(button.id, trigger); onEdit(button.id, trigger) }}>编辑 <ArrowUpRight size={12} /></button></span>
             </div>
           })}
