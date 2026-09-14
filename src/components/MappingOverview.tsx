@@ -101,7 +101,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
               onClick={() => onSelect(button.id, trigger)} onMouseEnter={() => setHoveredId(button.id)} onMouseLeave={() => setHoveredId(null)}
               onFocus={() => setHoveredId(button.id)} onBlur={() => setHoveredId(null)}><span /></button>)}
           </div>
-          <span className="overview-device-label">XIAOMI <span>RC003</span></span>
+          <span className="overview-device-label"><span>RC003</span></span>
         </div>
       </div>
       <div className="overview-legend"><span><CircleDot size={13} /> {triggerLabels[trigger]} · {triggerCount} 个按键已配置</span><span>点击按键或卡片查看详情 · 实体按下时同步高亮</span></div>
