@@ -60,6 +60,7 @@ import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
+import { MappingOverview } from '../components/MappingOverview'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
@@ -159,6 +160,7 @@ function AppController() {
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('home')
+  const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
@@ -1162,7 +1164,19 @@ function AppController() {
           <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
         </section>}
 
-        {activePage === 'mapping' ? <div className="mapping-page">
+        {activePage === 'overview' ? <MappingOverview
+          buttons={editableButtons}
+          behaviors={behaviors}
+          positions={hitPositions}
+          selection={overviewSelection}
+          onSelect={(buttonId, trigger) => setOverviewSelection({ buttonId, trigger })}
+          platform={platform}
+          enabled={enabled}
+          saveState={autoSaveState}
+          pressedId={pressedId}
+          extraKeysNotice={platform !== 'windows' ? undefined : !extraKeys.wanted ? '需开启返回与音量键增强' : !enabled || extraKeys.status.state !== 'ready' ? '返回与音量键增强未就绪' : undefined}
+          onEdit={(buttonId, trigger) => { setActivePage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
+        /> : activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
               <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryIndicator level={displayedBatteryLevel} /><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
