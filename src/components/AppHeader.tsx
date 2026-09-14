@@ -36,7 +36,7 @@ export function AppHeader({ activePage, hasUpdate, enabled, onBrandClick, onNavi
     <nav className="app-nav" aria-label="主导航">
       <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
       <button type="button" className={activePage === 'overview' ? 'active' : ''} aria-current={activePage === 'overview' ? 'page' : undefined} onClick={() => onNavigate('overview')}><ScanLine size={15} /> 总览</button>
-      <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 按键映射</button>
+      <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 映射</button>
       <button type="button" className={activePage === 'settings' ? 'active' : ''} aria-current={activePage === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}><Settings2 size={15} /> 设置</button>
       <button type="button" className={`${activePage === 'about' ? 'active' : ''} ${hasUpdate ? 'has-update' : ''}`} title={hasUpdate ? '发现新版本' : undefined} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}</button>
     </nav>

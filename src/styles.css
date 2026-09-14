@@ -1003,23 +1003,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .overview-legend { line-height: 1.4; display: flex; justify-content: space-between; gap: 12px; padding: 8px 18px; border-top: 1px solid #e6ebf0; color: #8b98a6; font-size: 11px; }
 .overview-legend > span { display: flex; align-items: center; gap: 7px; }
 .overview-legend > span:first-child { color: #63819f; }
-.overview-details { margin-top: 12px; padding: 14px 18px; border: 1px solid #dce2e8; border-radius: 14px; background: #fff; }
-.overview-detail-heading { display: flex; align-items: center; gap: 12px; }
-.overview-detail-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 10px; color: #1f70bb; background: #edf5fc; }
-.overview-detail-heading h3 { margin: 0; font-size: 15px; }
-.overview-detail-heading p { margin: 4px 0 0; color: #8a96a2; font-size: 11px; }
-.overview-detail-heading > svg { margin-left: auto; color: #9eadbc; }
-.overview-detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
-.overview-detail-grid article { min-width: 0; padding: 14px 16px; border: 1px solid #e6ebf0; border-radius: 9px; background: #fafbfc; }
-.overview-detail-grid article.active { border-color: #c5daef; background: #f7fbff; }
-.overview-detail-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.overview-detail-title h4 { margin: 0; font-size: 12px; font-weight: 600; color: #687b8d; }
-.overview-detail-title button { display: flex; align-items: center; gap: 3px; min-height: 28px; border: 0; background: transparent; color: #2978c4; font-size: 11px; }
-.overview-detail-grid ol { margin: 10px 0 0; padding-left: 20px; color: #94a7b8; font: 11px 'DM Mono', monospace; }
-.overview-detail-grid li { padding: 4px 0 4px 3px; }
-.overview-detail-grid li > span { color: #344f68; font: 12px/1.8 'Manrope', 'Noto Sans SC', sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.overview-detail-grid li.paused > span { color: #8d99a5; }
-.overview-empty { margin: 12px 0 4px; color: #919da9; font-size: 12px; }
 .mapping-overview button:focus-visible { outline: 2px solid #1478e8; outline-offset: 4px; }
 @media (max-width: 1100px) {
   .topbar-left { gap: 12px; }

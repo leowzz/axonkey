@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react'
-import { ArrowUpRight, CircleDot, Layers3 } from 'lucide-react'
-import { behaviorSummary, iconFor, triggerLabels, triggerSummary } from '../appConfig'
+import { ArrowUpRight, CircleDot } from 'lucide-react'
+import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
 import { triggerTypes } from '../behaviorModel'
 import type { BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import type { HitPosition, Platform, RemoteButton } from '../appTypes'
@@ -29,7 +29,6 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   const imageRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
   const highlightedId = pressedId ?? hoveredId ?? selectedId
-  const selected = buttons.find((button) => button.id === selectedId) ?? buttons[0]
   const configured = buttons.filter((button) => triggerTypes.some((type) => behaviors[button.id][type].length > 0)).length
   const triggerCount = buttons.filter((button) => behaviors[button.id][trigger].length > 0).length
   const noticeFor = (id: ButtonId) => ['back', 'volumeUp', 'volumeDown'].includes(id) ? extraKeysNotice : undefined
@@ -104,14 +103,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
           <span className="overview-device-label"><span>RC003</span></span>
         </div>
       </div>
-      <div className="overview-legend"><span><CircleDot size={13} /> {triggerLabels[trigger]} · {triggerCount} 个按键已配置</span><span>点击按键或卡片查看详情 · 实体按下时同步高亮</span></div>
-    </section>
-    <section className="overview-details" aria-label={`${selected.label}完整映射`}>
-      <div className="overview-detail-heading"><span className="overview-detail-icon">{iconFor(selected.icon, 22)}</span><div><h3>{selected.label}</h3><p>所有触发方式与执行顺序{noticeFor(selected.id) && ` · ${noticeFor(selected.id)}`}</p></div><Layers3 size={19} /></div>
-      <div className="overview-detail-grid">{triggerTypes.map((type) => <article key={type} className={type === trigger ? 'active' : ''}>
-        <div className="overview-detail-title"><h4>{triggerLabels[type]}</h4><button type="button" onClick={() => onEdit(selected.id, type)} aria-label={`编辑${selected.label}${triggerLabels[type]}`}>编辑 <ArrowUpRight size={13} /></button></div>
-        {behaviors[selected.id][type].length ? <ol>{behaviors[selected.id][type].map((behavior) => <li key={behavior.id} className={behavior.enabled ? '' : 'paused'}><span>{behavior.type === 'paste' ? `粘贴：${behavior.text || '（空文本）'}` : behaviorSummary(behavior, platform)}{!behavior.enabled && <small>（已停用）</small>}</span></li>)}</ol> : <p className="overview-empty">{type === 'click' ? '保留原按键' : '未设置'}</p>}
-      </article>)}</div>
+      <div className="overview-legend"><span><CircleDot size={13} /> {triggerLabels[trigger]} · {triggerCount} 个按键已配置</span><span>点击编辑调整动作 · 实体按下时同步高亮</span></div>
     </section>
   </div>
 }
