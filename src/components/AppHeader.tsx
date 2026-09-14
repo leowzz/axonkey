@@ -6,6 +6,7 @@ const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.u
 
 type AppHeaderProps = {
   activePage: AppPage
+  hasUpdate: boolean
   enabled: boolean
   onBrandClick: () => void
   onNavigate: (page: AppPage) => void
@@ -19,7 +20,7 @@ const pageTitles: Record<AppPage, string> = {
   about: '关于',
 }
 
-export function AppHeader({ activePage, enabled, onBrandClick, onNavigate, onToggleEnabled }: AppHeaderProps) {
+export function AppHeader({ activePage, hasUpdate, enabled, onBrandClick, onNavigate, onToggleEnabled }: AppHeaderProps) {
   return <header className="topbar">
     <div className="topbar-left">
       <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
@@ -35,7 +36,7 @@ export function AppHeader({ activePage, enabled, onBrandClick, onNavigate, onTog
       <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
       <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 按键映射</button>
       <button type="button" className={activePage === 'settings' ? 'active' : ''} aria-current={activePage === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}><Settings2 size={15} /> 设置</button>
-      <button type="button" className={activePage === 'about' ? 'active' : ''} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于</button>
+      <button type="button" className={`${activePage === 'about' ? 'active' : ''} ${hasUpdate ? 'has-update' : ''}`} title={hasUpdate ? '发现新版本' : undefined} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}</button>
     </nav>
     <div className="header-actions">
       <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={onToggleEnabled}><span /></button></label>

@@ -1,3 +1,4 @@
+import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -159,6 +160,7 @@ function AppController() {
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('home')
+  const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
@@ -1129,6 +1131,7 @@ function AppController() {
       <main className="main-content">
         <AppHeader
           activePage={activePage}
+          hasUpdate={releaseUpdate.hasUpdate}
           enabled={enabled}
           onBrandClick={handleBrandClick}
           onNavigate={setActivePage}
@@ -1218,7 +1221,7 @@ function AppController() {
               </details>}
             </section>
           </div>
-        </div> : activePage === 'about' ? <AboutPage /> : activePage === 'settings' ? <SettingsPage
+        </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}
@@ -1329,5 +1332,4 @@ function AppController() {
 }
 
 export default AppController
-
 

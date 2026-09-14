@@ -681,6 +681,7 @@ fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
         "github" => "https://github.com/leowzz/axonkey",
+        "releases" => "https://github.com/leowzz/axonkey/releases/latest",
         _ => return Err("Unsupported external page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening external page: {page}");

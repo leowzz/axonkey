@@ -1,10 +1,11 @@
-import { openGitHub } from '../openGitHub'
+import { releasesUrl, type ReleaseUpdateState } from '../releaseUpdate'
+import { openGitHub, openReleases } from '../openGitHub'
 import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
 import appPackage from '../../package.json'
 
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
-export function AboutPage() {
+export function AboutPage({ update }: { update: ReleaseUpdateState & { hasUpdate: boolean; check: (force?: boolean) => void } }) {
   return <div className="about-page">
     <section className="about-intro" aria-labelledby="about-title">
       <img className="about-app-icon" src={appIconUrl} alt="Axonkey 应用图标" width={64} height={64} />
@@ -16,6 +17,16 @@ export function AboutPage() {
       <div className="about-github-support">
         <a className="about-github-button" href="https://github.com/leowzz/axonkey" onClick={openGitHub} target="_blank" rel="noopener noreferrer"><Github size={17} aria-hidden="true" /> GitHub</a>
         <span>如果觉得好用，欢迎给个 Star ⭐</span>
+      </div>
+    </section>
+    <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
+      <div role="status">
+        <strong>{update.hasUpdate ? `发现新版本 ${update.latestVersion}` : update.checking ? '正在检查更新…' : update.error ? '检查更新失败' : update.checkedAt ? '当前已是最新版本' : '等待检查更新'}</strong>
+        <p>{update.error ?? (update.hasUpdate ? `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。` : '启动、返回应用、网络恢复和进入本页时自动检查更新。')}{update.checking && update.hasUpdate ? ' 正在重新检查…' : ''}</p>
+      </div>
+      <div className="about-update-actions">
+        <button type="button" disabled={update.checking} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
+        {update.hasUpdate && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
       </div>
     </section>
     <section className="about-features" aria-label="应用功能">
