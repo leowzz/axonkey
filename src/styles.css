@@ -962,7 +962,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .overview-wires { z-index: 2; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .overview-wires path { fill: none; stroke: #b9c7d5; stroke-width: 1; opacity: .7; transition: stroke .15s, opacity .15s; }
 .overview-wires path.active { stroke: #1478e8; stroke-width: 2; opacity: 1; }
-.overview-cards { z-index: 3; display: flex; flex-direction: column; justify-content: space-between; gap: 6px; padding: 0; min-width: 0; }
+.overview-cards { z-index: 3; display: flex; flex-direction: column; justify-content: space-between; gap: 8px; padding: clamp(8px, calc((100dvh - var(--sticky-header-height) - 550px) * .2), 32px) 0 8px; min-width: 0; }
 .overview-cards-left { grid-column: 1; grid-row: 1; }
 .overview-cards-right { grid-column: 3; grid-row: 1; }
 .overview-key { line-height: 1.35; display: flex; align-items: center; gap: 12px; width: 100%; min-height: clamp(48px, calc((100dvh - var(--sticky-header-height) - 180px) / 9), 76px); padding: 6px 12px; border: 1px solid #dfe5eb; border-radius: 10px; background: #ffffffed; text-align: left; color: #687785; box-shadow: 0 2px 5px #29466404; transition: border-color .15s, box-shadow .15s; }
