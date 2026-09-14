@@ -222,7 +222,7 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
   return <div className="manual-key-select">
     <select value={knownValue} aria-label={label} onChange={(event) => onChange(event.target.value)}>
-      <option value="" disabled>{value && !knownValue ? `当前：${value}` : '选择按键'}</option>
+      <option value="" disabled>{value && !knownValue ? `当前：${keyDisplayName(value, platform)}` : '选择按键'}</option>
       {groups.map((group) => <optgroup key={group.label} label={group.label}>
         {group.options.map((option) => <option key={`${group.label}-${option.value}`} value={option.value}>{option.label}</option>)}
       </optgroup>)}
@@ -340,8 +340,8 @@ export function TextInputPresetDialog({ button, trigger, value, onChange, onClos
         <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
-        <div className="text-input-sequence" aria-label="粘贴文本，等待 30 毫秒，然后按下 Enter">
-          <span>粘贴文本</span><ChevronRight size={14} /><span>等待 30 ms</span><ChevronRight size={14} /><span>Enter</span>
+        <div className="text-input-sequence" aria-label="粘贴文本，等待 30 毫秒，然后按下回车">
+          <span>粘贴文本</span><ChevronRight size={14} /><span>等待 30 毫秒</span><ChevronRight size={14} /><span>回车</span>
         </div>
         <div className="behavior-dialog-field text-input-field">
           <label htmlFor="text-input-preset-value">文本内容</label>

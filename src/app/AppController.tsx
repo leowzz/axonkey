@@ -26,6 +26,7 @@ import {
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
+  keyDisplayName,
   behaviorFromCapturedKey,
   buttons,
   detectBrowserPlatform,
@@ -531,9 +532,9 @@ function AppController() {
     setAutoSaveState('saving')
   }
 
-  const replaceWithKey = (key: string, label: string) => {
+  const replaceWithKey = (key: string) => {
     replaceWithCommonBehavior([createBehavior({ type: 'key', key })])
-    showBehaviorToast(`已设置为${label}`)
+    showBehaviorToast(`已设置为${keyDisplayName(key, platform)}`)
   }
 
   const beginBehaviorDraft = (type: AdvancedBehaviorType, mode: DraftBehaviorState['mode']) => {
@@ -568,24 +569,24 @@ function AppController() {
         replaceWithCommonBehavior([createBehavior({ type: 'disabled' })])
         showBehaviorToast('已禁用这个触发方式')
         return
-      case 'escape': return replaceWithKey('Esc', 'Esc')
-      case 'enter': return replaceWithKey('Enter', 'Enter')
-      case 'space': return replaceWithKey('Space', 'Space')
-      case 'tab': return replaceWithKey('Tab', 'Tab')
-      case 'backspace': return replaceWithKey('Backspace', 'Backspace')
-      case 'delete': return replaceWithKey('Delete', 'Delete')
-      case 'keyHome': return replaceWithKey('Home', 'Home')
-      case 'keyEnd': return replaceWithKey('End', 'End')
-      case 'pageUp': return replaceWithKey('PageUp', 'Page Up')
-      case 'pageDown': return replaceWithKey('PageDown', 'Page Down')
-      case 'arrowUp': return replaceWithKey('Up', '方向上')
-      case 'arrowDown': return replaceWithKey('Down', '方向下')
-      case 'arrowLeft': return replaceWithKey('Left', '方向左')
-      case 'arrowRight': return replaceWithKey('Right', '方向右')
-      case 'volumeUp': return replaceWithKey('VolumeUp', '增大音量')
-      case 'volumeDown': return replaceWithKey('VolumeDown', '减小音量')
-      case 'volumeMute': return replaceWithKey('VolumeMute', '静音')
-      case 'mediaPlayPause': return replaceWithKey('MediaPlayPause', '播放 / 暂停')
+      case 'escape': return replaceWithKey('Esc')
+      case 'enter': return replaceWithKey('Enter')
+      case 'space': return replaceWithKey('Space')
+      case 'tab': return replaceWithKey('Tab')
+      case 'backspace': return replaceWithKey('Backspace')
+      case 'delete': return replaceWithKey('Delete')
+      case 'keyHome': return replaceWithKey('Home')
+      case 'keyEnd': return replaceWithKey('End')
+      case 'pageUp': return replaceWithKey('PageUp')
+      case 'pageDown': return replaceWithKey('PageDown')
+      case 'arrowUp': return replaceWithKey('Up')
+      case 'arrowDown': return replaceWithKey('Down')
+      case 'arrowLeft': return replaceWithKey('Left')
+      case 'arrowRight': return replaceWithKey('Right')
+      case 'volumeUp': return replaceWithKey('VolumeUp')
+      case 'volumeDown': return replaceWithKey('VolumeDown')
+      case 'volumeMute': return replaceWithKey('VolumeMute')
+      case 'mediaPlayPause': return replaceWithKey('MediaPlayPause')
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
         return

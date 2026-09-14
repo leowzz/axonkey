@@ -129,10 +129,10 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
   {
     label: '常用按键',
     options: [
-      { value: 'Esc', label: 'Esc' }, { value: 'Enter', label: 'Enter' }, { value: 'Space', label: 'Space' },
-      { value: 'Tab', label: 'Tab' }, { value: 'Backspace', label: 'Backspace' }, { value: 'Delete', label: 'Delete' },
-      { value: 'Insert', label: 'Insert' }, { value: 'Home', label: 'Home' }, { value: 'End', label: 'End' },
-      { value: 'PageUp', label: 'Page Up' }, { value: 'PageDown', label: 'Page Down' },
+      { value: 'Esc', label: '退出（Esc）' }, { value: 'Enter', label: '回车' }, { value: 'Space', label: '空格' },
+      { value: 'Tab', label: '切换焦点（Tab）' }, { value: 'Backspace', label: '向前删除' }, { value: 'Delete', label: '向后删除' },
+      { value: 'Insert', label: '插入' }, { value: 'Home', label: '跳到开头' }, { value: 'End', label: '跳到结尾' },
+      { value: 'PageUp', label: '向上翻页' }, { value: 'PageDown', label: '向下翻页' },
       { value: 'Up', label: '方向上' }, { value: 'Down', label: '方向下' },
       { value: 'Left', label: '方向左' }, { value: 'Right', label: '方向右' },
     ],
@@ -177,28 +177,22 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
   },
 ]
 
+const keyLabels = new Map(manualKeyGroups.flatMap((group) => group.options.map(({ value, label }) => [value, label] as const)))
+
 export function keyDisplayName(key: string, platform: Platform) {
-  if (platform !== 'macos') {
+  if (platform === 'macos') {
     const labels: Record<string, string> = {
-      RCtrl: '右 Ctrl',
-      RShift: '右 Shift',
-      LAlt: '左 Alt',
-      RAlt: '右 Alt',
-      RWin: '右 Windows',
+      Ctrl: 'Control',
+      RCtrl: '右 Control',
+      Alt: 'Option',
+      LAlt: '左 Option',
+      RAlt: '右 Option',
+      Win: 'Command',
+      RWin: '右 Command',
     }
-    return labels[key] ?? key
+    if (labels[key]) return labels[key]
   }
-  const labels: Record<string, string> = {
-    Ctrl: 'Control',
-    RCtrl: '右 Control',
-    RShift: '右 Shift',
-    Alt: 'Option',
-    LAlt: '左 Option',
-    RAlt: '右 Option',
-    Win: 'Command',
-    RWin: '右 Command',
-  }
-  return labels[key] ?? key
+  return keyLabels.get(key) ?? key
 }
 
 export function keyGroupsForPlatform(platform: Platform) {
@@ -228,7 +222,7 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
     case 'key': return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
-    case 'delay': return `等待 ${behavior.ms} ms`
+    case 'delay': return `等待 ${behavior.ms} 毫秒`
     case 'disabled': return '不发送任何按键'
   }
 }
