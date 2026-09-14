@@ -4,6 +4,8 @@
 #import <pthread.h>
 
 static CGEventRef captured_posted_event = NULL;
+static CGEventRef previous_posted_event = NULL;
+static int posted_event_count = 0;
 static CGEventTapLocation captured_posted_tap = kCGAnnotatedSessionEventTap;
 static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event);
 
@@ -12,6 +14,9 @@ static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event);
 #undef CGEventPost
 
 static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event) {
+    posted_event_count++;
+    if (previous_posted_event != NULL) CFRelease(previous_posted_event);
+    previous_posted_event = captured_posted_event == NULL ? NULL : CGEventCreateCopy(captured_posted_event);
     captured_posted_tap = tap;
     if (captured_posted_event != NULL) {
         CFRelease(captured_posted_event);
@@ -339,11 +344,53 @@ static int CheckTelevisionPassThroughFiltered(void) {
     return 0;
 }
 
+static int CheckPointerEvents(void) {
+    const int axes[][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+    for (int i = 0; i < 4; i++) {
+        int before = posted_event_count;
+        if (!axonkey_macos_post_wheel(axes[i][0], axes[i][1]) ||
+            posted_event_count != before + 1 ||
+            captured_posted_tap != kCGHIDEventTap ||
+            CGEventGetType(captured_posted_event) != kCGEventScrollWheel ||
+            CGEventGetIntegerValueField(captured_posted_event, kCGScrollWheelEventDeltaAxis1) != axes[i][0] ||
+            CGEventGetIntegerValueField(captured_posted_event, kCGScrollWheelEventDeltaAxis2) != axes[i][1] ||
+            CGEventGetIntegerValueField(captured_posted_event, kCGScrollWheelEventIsContinuous) != 0 ||
+            CGEventGetIntegerValueField(captured_posted_event, kCGEventSourceUserData) != AXONKEY_SYNTHETIC_EVENT_MARKER) {
+            fputs("incorrect wheel event\n", stderr);
+            return 1;
+        }
+    }
+    const CGEventType downs[] = {kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown};
+    const CGEventType ups[] = {kCGEventLeftMouseUp, kCGEventRightMouseUp, kCGEventOtherMouseUp};
+    for (int button = 0; button < 3; button++) {
+        int before = posted_event_count;
+        if (!axonkey_macos_post_mouse_click(button) || posted_event_count != before + 2 ||
+            CGEventGetType(previous_posted_event) != downs[button] ||
+            CGEventGetType(captured_posted_event) != ups[button] ||
+            !CGPointEqualToPoint(CGEventGetLocation(previous_posted_event), CGEventGetLocation(captured_posted_event))) {
+            fputs("incorrect mouse down/up pair\n", stderr);
+            return 1;
+        }
+        CGEventRef events[] = {previous_posted_event, captured_posted_event};
+        for (int i = 0; i < 2; i++) {
+            if (CGEventGetIntegerValueField(events[i], kCGMouseEventButtonNumber) != button ||
+                CGEventGetIntegerValueField(events[i], kCGMouseEventClickState) != 1 ||
+                CGEventGetIntegerValueField(events[i], kCGEventSourceUserData) != AXONKEY_SYNTHETIC_EVENT_MARKER) {
+                fputs("incorrect mouse event fields\n", stderr);
+                return 1;
+            }
+        }
+    }
+    int before = posted_event_count;
+    if (axonkey_macos_post_mouse_click(3) || posted_event_count != before) return 1;
+    return 0;
+}
+
 int main(void) {
     @autoreleasepool {
         Method method = class_getClassMethod([NSEvent class], @selector(eventWithCGEvent:));
         IMP original = method_setImplementation(method, (IMP)RejectEventWithCGEvent);
-        int result = CheckSystemEvent(NX_KEYTYPE_SOUND_UP, NX_KEYDOWN) ||
+        int result = CheckPointerEvents() || CheckSystemEvent(NX_KEYTYPE_SOUND_UP, NX_KEYDOWN) ||
             CheckSystemEvent(NX_KEYTYPE_SOUND_DOWN, NX_KEYUP) ||
             CheckModifierEvent(
                 59,
@@ -368,6 +415,7 @@ int main(void) {
         if (captured_posted_event != NULL) {
             CFRelease(captured_posted_event);
         }
+        if (previous_posted_event != NULL) CFRelease(previous_posted_event);
         return result;
     }
 }

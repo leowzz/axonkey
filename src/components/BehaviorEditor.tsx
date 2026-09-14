@@ -145,7 +145,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<kbd>End</kbd>} label="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
             <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
             <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
-            {platform === 'windows' && <>
+            {(platform === 'windows' || platform === 'macos') && <>
               <BehaviorActionButton icon={<ArrowUp size={17} />} label="鼠标滚轮向上" onClick={() => onApplyCommonBehavior('wheelUp')} />
               <BehaviorActionButton icon={<ArrowDown size={17} />} label="鼠标滚轮向下" onClick={() => onApplyCommonBehavior('wheelDown')} />
               <BehaviorActionButton icon={<ArrowLeft size={17} />} label="鼠标滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
@@ -301,7 +301,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
             </div>
           </div>
         </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
-          <label htmlFor="behavior-wheel-direction">滚动方向（Windows）</label>
+          <label htmlFor="behavior-wheel-direction">滚动方向</label>
           <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value as typeof current.direction } : current)}>
             <option value="up">滚轮向上</option><option value="down">滚轮向下</option><option value="left">水平滚轮向左</option><option value="right">水平滚轮向右</option>
           </select>

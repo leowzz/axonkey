@@ -86,7 +86,7 @@ fn enabled_by_default() -> bool {
     true
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum WheelDirection {
     Up,

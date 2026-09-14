@@ -1202,3 +1202,53 @@ bool axonkey_macos_post_text(const uint16_t *text, size_t length) {
     }
     return true;
 }
+
+// Use discrete line events, matching one physical wheel notch per action.
+bool axonkey_macos_post_wheel(int32_t vertical, int32_t horizontal) {
+    CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 2,
+                                                   vertical, horizontal);
+    if (event == NULL) return false;
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, AXONKEY_SYNTHETIC_EVENT_MARKER);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+    return true;
+}
+
+bool axonkey_macos_post_mouse_click(int button) {
+    CGEventType down_type, up_type;
+    switch (button) {
+        case kCGMouseButtonLeft:
+            down_type = kCGEventLeftMouseDown;
+            up_type = kCGEventLeftMouseUp;
+            break;
+        case kCGMouseButtonRight:
+            down_type = kCGEventRightMouseDown;
+            up_type = kCGEventRightMouseUp;
+            break;
+        case kCGMouseButtonCenter:
+            down_type = kCGEventOtherMouseDown;
+            up_type = kCGEventOtherMouseUp;
+            break;
+        default: return false;
+    }
+    CGEventRef current = CGEventCreate(NULL);
+    if (current == NULL) return false;
+    CGPoint location = CGEventGetLocation(current);
+    CFRelease(current);
+    CGEventRef down = CGEventCreateMouseEvent(NULL, down_type, location, (CGMouseButton)button);
+    CGEventRef up = CGEventCreateMouseEvent(NULL, up_type, location, (CGMouseButton)button);
+    if (down == NULL || up == NULL) {
+        if (down != NULL) CFRelease(down);
+        if (up != NULL) CFRelease(up);
+        return false;
+    }
+    CGEventSetIntegerValueField(down, kCGMouseEventClickState, 1);
+    CGEventSetIntegerValueField(up, kCGMouseEventClickState, 1);
+    CGEventSetIntegerValueField(down, kCGEventSourceUserData, AXONKEY_SYNTHETIC_EVENT_MARKER);
+    CGEventSetIntegerValueField(up, kCGEventSourceUserData, AXONKEY_SYNTHETIC_EVENT_MARKER);
+    CGEventPost(kCGHIDEventTap, down);
+    CGEventPost(kCGHIDEventTap, up);
+    CFRelease(down);
+    CFRelease(up);
+    return true;
+}
