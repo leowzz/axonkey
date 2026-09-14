@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Mouse, Radio } from 'lucide-react'
+import { Check, Mouse, Radio } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { devices } from '../deviceModel'
 import type { DeviceId } from '../deviceModel'
@@ -6,7 +6,7 @@ import type { DeviceId } from '../deviceModel'
 export type DeviceStatus = {
   title: string
   rows: { label: string; value: ReactNode; tone?: 'ready' | 'warning' }[]
-  action?: { label: string; onClick: () => void }
+  action?: { label: string; title?: string; onClick: () => void }
 }
 
 export function DeviceSelector({ selectedId, onSelect }: { selectedId: DeviceId; onSelect: (id: DeviceId) => void }) {
@@ -25,6 +25,6 @@ export function DeviceStatusCard({ status }: { status: DeviceStatus }) {
   return <section className="device-status-card" aria-label={status.title}>
     <h3>{status.title}</h3>
     <dl>{status.rows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd className={row.tone ?? ''}>{row.value}</dd></div>)}</dl>
-    {status.action && <button type="button" onClick={status.action.onClick}>{status.action.label}<ChevronRight size={13} /></button>}
+    {status.action && <button type="button" title={status.action.title} onClick={status.action.onClick}>{status.action.label}</button>}
   </section>
 }

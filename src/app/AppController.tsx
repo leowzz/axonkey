@@ -1161,7 +1161,7 @@ function AppController() {
       { label: '连接', value: setupState.device.status === 'connected' ? '已连接' : '未连接', tone: setupState.device.status === 'connected' ? 'ready' : undefined },
       { label: '电量', value: <BatteryIndicator level={displayedBatteryLevel} /> },
     ],
-    action: { label: inputAuthorizationStale ? '权限失效 · 查看状态' : '查看设备状态', onClick: () => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection') },
+    action: { label: '查看状态', title: inputAuthorizationStale ? '权限失效 · 查看状态' : '查看设备状态', onClick: () => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection') },
   }
 
   if (permissionHelperKind) {
