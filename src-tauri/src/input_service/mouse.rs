@@ -1,13 +1,13 @@
 //! Mouse input is independent of RC003 discovery and the Interception driver.
 //! Capture callbacks only classify and enqueue; actions run off the hook thread.
-use super::{NativeBehavior, NativeSettings};
+use super::{MouseButton, NativeBehavior, NativeSettings, TriggerBehaviors};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::{self, SyncSender},
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 #[path = "mouse_windows.rs"]
@@ -16,16 +16,48 @@ mod platform;
 #[path = "mouse_macos.rs"]
 mod platform;
 
-const INPUTS: [&str; 8] = [
-    "mouse.top.up",
-    "mouse.top.down",
-    "mouse.top.left",
-    "mouse.top.right",
-    "mouse.left.up",
-    "mouse.left.down",
-    "mouse.right.up",
-    "mouse.right.down",
+const WHEEL_INPUTS: [[&str; 4]; 4] = [
+    [
+        "mouse.global.up",
+        "mouse.global.down",
+        "mouse.global.left",
+        "mouse.global.right",
+    ],
+    [
+        "mouse.top.up",
+        "mouse.top.down",
+        "mouse.top.left",
+        "mouse.top.right",
+    ],
+    [
+        "mouse.left.up",
+        "mouse.left.down",
+        "mouse.left.left",
+        "mouse.left.right",
+    ],
+    [
+        "mouse.right.up",
+        "mouse.right.down",
+        "mouse.right.left",
+        "mouse.right.right",
+    ],
 ];
+const BUTTON_INPUTS: [[&str; 2]; 4] = [
+    ["mouse.global.buttonLeft", "mouse.global.buttonRight"],
+    ["mouse.top.buttonLeft", "mouse.top.buttonRight"],
+    ["mouse.left.buttonLeft", "mouse.left.buttonRight"],
+    ["mouse.right.buttonLeft", "mouse.right.buttonRight"],
+];
+const DOUBLE_CLICK: Duration = Duration::from_millis(350);
+const LONG_PRESS: Duration = Duration::from_millis(600);
+fn has_actions(actions: &[NativeBehavior]) -> bool {
+    actions.iter().any(NativeBehavior::enabled)
+}
+fn has_triggers(triggers: &TriggerBehaviors) -> bool {
+    has_actions(&triggers.click)
+        || has_actions(&triggers.double_click)
+        || has_actions(&triggers.long_press)
+}
 const EDGE_WIDTH: f64 = 8.0;
 
 struct Configuration {
@@ -126,12 +158,15 @@ impl MouseService {
         configuration.revision = configuration.revision.wrapping_add(1);
         configuration.settings = settings.clone();
         let active = settings.enabled
-            && INPUTS.iter().any(|id| {
+            && (WHEEL_INPUTS.iter().flatten().any(|id| {
                 settings
                     .behaviors
                     .get(*id)
-                    .is_some_and(|triggers| triggers.click.iter().any(NativeBehavior::enabled))
-            });
+                    .is_some_and(|t| has_actions(&t.click))
+            }) || BUTTON_INPUTS
+                .iter()
+                .flatten()
+                .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers)));
         self.shared.active.store(active, Ordering::Release);
         if active && !self.shared.ready.load(Ordering::Acquire) {
             return Err("鼠标监听尚未就绪；macOS 请检查输入监控与辅助功能权限，然后重试".into());
@@ -170,12 +205,11 @@ enum Edge {
     Right,
 }
 impl Edge {
-    fn input(self, direction: usize) -> Option<usize> {
-        match (self, direction) {
-            (Self::Top, 0..=3) => Some(direction),
-            (Self::Left, 0..=1) => Some(4 + direction),
-            (Self::Right, 0..=1) => Some(6 + direction),
-            _ => None,
+    fn scope(self) -> usize {
+        match self {
+            Self::Top => 1,
+            Self::Left => 2,
+            Self::Right => 3,
         }
     }
 }
@@ -199,15 +233,15 @@ fn screen_edge(x: f64, y: f64, left: f64, top: f64, right: f64, bottom: f64) -> 
 #[derive(Default)]
 struct ScrollAccumulator {
     edge: Option<Edge>,
-    key: Option<(usize, u64)>,
+    key: Option<(&'static str, u64)>,
     remainder: f64,
 }
 
 impl ScrollAccumulator {
-    fn enter(&mut self, edge: Edge) {
-        if self.edge != Some(edge) {
+    fn enter(&mut self, edge: Option<Edge>) {
+        if self.edge != edge {
             self.reset();
-            self.edge = Some(edge);
+            self.edge = edge;
         }
     }
 
@@ -220,24 +254,37 @@ impl ScrollAccumulator {
     /// True only when an enabled mapping owns this input. Disabled actions count
     /// as mappings, while an empty list / all paused steps preserve native scroll.
     fn scroll(&mut self, shared: &Shared, direction: usize, amount: f64) -> bool {
-        if !amount.is_finite() || amount <= 0.0 || direction >= INPUTS.len() {
+        if !amount.is_finite() || amount <= 0.0 || direction >= 4 {
             return false;
         }
         let Ok(config) = shared.configuration.try_lock() else {
             return false;
         };
-        let actions = config
+        let global_id = WHEEL_INPUTS[0][direction];
+        let scoped_id = WHEEL_INPUTS[self.edge.map_or(0, Edge::scope)][direction];
+        let scoped = config
             .settings
             .behaviors
-            .get(INPUTS[direction])
+            .get(scoped_id)
             .map(|item| &item.click);
-        let Some(actions) = actions.filter(|actions| {
-            config.settings.enabled && actions.iter().any(NativeBehavior::enabled)
-        }) else {
-            self.reset();
+        let (id, actions) = if scoped.is_some_and(|a| has_actions(a)) {
+            (scoped_id, scoped)
+        } else {
+            (
+                global_id,
+                config
+                    .settings
+                    .behaviors
+                    .get(global_id)
+                    .map(|item| &item.click),
+            )
+        };
+        let Some(actions) = actions.filter(|a| config.settings.enabled && has_actions(a)) else {
+            self.key = None;
+            self.remainder = 0.0;
             return false;
         };
-        let key = (direction, config.revision);
+        let key = (id, config.revision);
         if self.key != Some(key) {
             self.remainder = 0.0;
             self.key = Some(key);
@@ -259,6 +306,180 @@ impl ScrollAccumulator {
         } else {
             self.reset();
             false
+        }
+    }
+}
+
+// Button ownership is latched on physical down. A settings change must still
+// consume its matching up, but never swallow an up whose down passed through.
+#[derive(Default)]
+struct ButtonTracker {
+    pressed: [Option<Press>; 2],
+    pending: [Option<PendingClick>; 2],
+}
+struct Press {
+    input: &'static str,
+    triggers: TriggerBehaviors,
+    revision: u64,
+    started: Instant,
+    position: (f64, f64),
+    long_fired: bool,
+    second: bool,
+}
+struct PendingClick {
+    input: &'static str,
+    actions: Vec<NativeBehavior>,
+    revision: u64,
+    released: Instant,
+    position: (f64, f64),
+}
+fn enqueue(shared: &Shared, actions: Vec<NativeBehavior>, revision: u64) {
+    if !actions.is_empty() && current_job(shared, revision) {
+        let _ = shared.sender.try_send(Job {
+            behaviors: actions,
+            revision,
+            repeats: 1,
+        });
+    }
+}
+fn button_rule(
+    config: &Configuration,
+    edge: Option<Edge>,
+    button: usize,
+) -> Option<(&'static str, TriggerBehaviors)> {
+    if !config.settings.enabled {
+        return None;
+    }
+    let global_id = BUTTON_INPUTS[0][button];
+    let scoped_id = BUTTON_INPUTS[edge.map_or(0, Edge::scope)][button];
+    let mut triggers = config
+        .settings
+        .behaviors
+        .get(global_id)
+        .cloned()
+        .unwrap_or_default();
+    let mut input = global_id;
+    if let Some(scoped) = config
+        .settings
+        .behaviors
+        .get(scoped_id)
+        .filter(|t| has_triggers(t))
+    {
+        input = scoped_id;
+        if has_actions(&scoped.click) {
+            triggers.click = scoped.click.clone();
+        }
+        if has_actions(&scoped.double_click) {
+            triggers.double_click = scoped.double_click.clone();
+        }
+        if has_actions(&scoped.long_press) {
+            triggers.long_press = scoped.long_press.clone();
+        }
+    }
+    has_triggers(&triggers).then_some((input, triggers))
+}
+impl ButtonTracker {
+    fn tick(&mut self, shared: &Shared, now: Instant) {
+        for index in 0..2 {
+            if let Some(press) = self.pressed[index].as_mut() {
+                if !press.long_fired
+                    && has_actions(&press.triggers.long_press)
+                    && now.duration_since(press.started) >= LONG_PRESS
+                {
+                    press.long_fired = true;
+                    enqueue(shared, press.triggers.long_press.clone(), press.revision);
+                }
+            }
+            if self.pending[index].as_ref().is_some_and(|p| {
+                !current_job(shared, p.revision) || now.duration_since(p.released) >= DOUBLE_CLICK
+            }) {
+                let pending = self.pending[index].take().unwrap();
+                enqueue(shared, pending.actions, pending.revision);
+            }
+        }
+    }
+    fn event(
+        &mut self,
+        shared: &Shared,
+        button: usize,
+        down: bool,
+        edge: Option<Edge>,
+        position: (f64, f64),
+        now: Instant,
+    ) -> bool {
+        if button >= 2 {
+            return false;
+        }
+        self.tick(shared, now);
+        if down {
+            if self.pressed[button].is_some() {
+                return true;
+            }
+            let Ok(config) = shared.configuration.try_lock() else {
+                return false;
+            };
+            let Some((input, triggers)) = button_rule(&config, edge, button) else {
+                return false;
+            };
+            let revision = config.revision;
+            drop(config);
+            let second = if let Some(pending) = self.pending[button].take() {
+                let matches = pending.input == input
+                    && pending.revision == revision
+                    && (pending.position.0 - position.0).abs() <= 4.0
+                    && (pending.position.1 - position.1).abs() <= 4.0;
+                if !matches {
+                    enqueue(shared, pending.actions, pending.revision);
+                }
+                matches
+            } else {
+                false
+            };
+            self.pressed[button] = Some(Press {
+                input,
+                triggers,
+                revision,
+                started: now,
+                position,
+                long_fired: false,
+                second,
+            });
+            true
+        } else {
+            let Some(press) = self.pressed[button].take() else {
+                return false;
+            };
+            if !current_job(shared, press.revision) || press.long_fired {
+                return true;
+            }
+            if press.second {
+                enqueue(shared, press.triggers.double_click, press.revision);
+            } else {
+                let actions = if has_actions(&press.triggers.click) {
+                    press.triggers.click
+                } else {
+                    vec![NativeBehavior::Mouse {
+                        enabled: true,
+                        button: if button == 0 {
+                            MouseButton::Left
+                        } else {
+                            MouseButton::Right
+                        },
+                    }]
+                };
+                if has_actions(&press.triggers.double_click) {
+                    self.pending[button] = Some(PendingClick {
+                        input: press.input,
+                        actions,
+                        revision: press.revision,
+                        released: now,
+                        position: press.position,
+                    });
+                } else {
+                    enqueue(shared, actions, press.revision);
+                }
+            }
+            true
         }
     }
 }
@@ -291,12 +512,6 @@ mod tests {
             screen_edge(-1919.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0),
             Some(Edge::Top)
         );
-        assert_eq!(Edge::Left.input(0), Some(4));
-        assert_eq!(Edge::Left.input(1), Some(5));
-        assert_eq!(Edge::Right.input(0), Some(6));
-        assert_eq!(Edge::Right.input(1), Some(7));
-        assert_eq!(Edge::Left.input(2), None);
-        assert_eq!(Edge::Right.input(3), None);
     }
 
     #[test]
@@ -321,6 +536,7 @@ mod tests {
             sender,
         };
         let mut scroll = ScrollAccumulator::default();
+        scroll.enter(Some(Edge::Top));
         assert!(!scroll.scroll(&shared, 2, 1.0));
         assert!(!scroll.scroll(&shared, 3, 1.0));
         assert!(scroll.scroll(&shared, 0, 0.5));
@@ -336,5 +552,189 @@ mod tests {
         assert!(!current_job(&shared, job.revision));
         shared.configuration.lock().unwrap().settings.enabled = false;
         assert!(!scroll.scroll(&shared, 0, 1.0));
+    }
+    fn fixture(behaviors: serde_json::Value) -> (Shared, mpsc::Receiver<Job>) {
+        let (sender, receiver) = mpsc::sync_channel(32);
+        let settings =
+            serde_json::from_value(serde_json::json!({ "enabled": true, "behaviors": behaviors }))
+                .unwrap();
+        (
+            Shared {
+                configuration: Mutex::new(Configuration {
+                    settings,
+                    revision: 1,
+                }),
+                stop: AtomicBool::new(false),
+                ready: AtomicBool::new(true),
+                active: AtomicBool::new(true),
+                sender,
+            },
+            receiver,
+        )
+    }
+    fn assert_key(job: Job, expected: &str) {
+        assert!(matches!(&job.behaviors[0], NativeBehavior::Key { key, .. } if key == expected));
+    }
+    #[test]
+    fn wheel_rules_fall_back_per_direction_and_edge_rules_can_disable_global() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.up": {"click":[{"type":"key","key":"G"}]},
+            "mouse.global.left": {"click":[{"type":"key","key":"H"}]},
+            "mouse.top.up": {"click":[{"type":"key","key":"T"}]},
+            "mouse.left.up": {"click":[{"type":"disabled"}]},
+            "mouse.right.up": {"click":[{"type":"key","key":"R","enabled":false}]}
+        }));
+        let mut scroll = ScrollAccumulator::default();
+        assert!(scroll.scroll(&shared, 0, 1.0));
+        assert_key(receiver.try_recv().unwrap(), "G");
+        scroll.enter(Some(Edge::Top));
+        assert!(scroll.scroll(&shared, 0, 1.0));
+        assert_key(receiver.try_recv().unwrap(), "T");
+        scroll.enter(Some(Edge::Left));
+        assert!(scroll.scroll(&shared, 0, 1.0));
+        assert!(matches!(
+            receiver.try_recv().unwrap().behaviors[0],
+            NativeBehavior::Disabled { .. }
+        ));
+        assert!(scroll.scroll(&shared, 2, 1.0));
+        assert_key(receiver.try_recv().unwrap(), "H");
+        scroll.enter(Some(Edge::Right));
+        assert!(scroll.scroll(&shared, 0, 1.0));
+        assert_key(receiver.try_recv().unwrap(), "G");
+        assert!(scroll.scroll(&shared, 0, 0.5));
+        scroll.enter(None);
+        assert!(scroll.scroll(&shared, 0, 0.5));
+        assert!(receiver.try_recv().is_err());
+    }
+    #[test]
+    fn button_clicks_latch_scope_and_keep_left_right_independent() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonLeft": {"click":[{"type":"key","key":"G"}]},
+            "mouse.top.buttonLeft": {"click":[{"type":"key","key":"T"}]},
+            "mouse.global.buttonRight": {"click":[{"type":"key","key":"R"}]}
+        }));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (20.0, 0.0), now));
+        assert!(buttons.event(&shared, 1, true, None, (20.0, 50.0), now));
+        assert!(receiver.try_recv().is_err());
+        assert!(buttons.event(&shared, 0, false, None, (20.0, 50.0), now));
+        assert_key(receiver.try_recv().unwrap(), "T");
+        assert!(buttons.event(&shared, 1, false, Some(Edge::Top), (20.0, 0.0), now));
+        assert_key(receiver.try_recv().unwrap(), "R");
+    }
+    #[test]
+    fn double_click_suppresses_singles_and_long_press_fires_once() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonLeft": {
+                "click":[{"type":"key","key":"C"}],
+                "doubleClick":[{"type":"key","key":"D"}],
+                "longPress":[{"type":"key","key":"L"}]
+            }
+        }));
+        let mut buttons = ButtonTracker::default();
+        let start = Instant::now();
+        let mut event = |down, ms| {
+            buttons.event(
+                &shared,
+                0,
+                down,
+                None,
+                (50.0, 50.0),
+                start + Duration::from_millis(ms),
+            )
+        };
+        assert!(event(true, 0));
+        assert!(event(false, 30));
+        assert!(receiver.try_recv().is_err());
+        assert!(event(true, 200));
+        assert!(event(false, 400));
+        assert_key(receiver.try_recv().unwrap(), "D");
+        buttons.tick(&shared, start + Duration::from_millis(1000));
+        assert!(receiver.try_recv().is_err());
+        assert!(buttons.event(
+            &shared,
+            0,
+            true,
+            None,
+            (50.0, 50.0),
+            start + Duration::from_millis(1100)
+        ));
+        buttons.tick(&shared, start + Duration::from_millis(1699));
+        assert!(receiver.try_recv().is_err());
+        buttons.tick(&shared, start + Duration::from_millis(1700));
+        assert_key(receiver.try_recv().unwrap(), "L");
+        buttons.tick(&shared, start + Duration::from_millis(1800));
+        assert!(buttons.event(
+            &shared,
+            0,
+            false,
+            None,
+            (50.0, 50.0),
+            start + Duration::from_millis(1900)
+        ));
+        assert!(receiver.try_recv().is_err());
+        assert!(buttons.event(
+            &shared,
+            0,
+            true,
+            None,
+            (50.0, 50.0),
+            start + Duration::from_millis(2000)
+        ));
+        assert!(buttons.event(
+            &shared,
+            0,
+            false,
+            None,
+            (50.0, 50.0),
+            start + Duration::from_millis(2050)
+        ));
+        buttons.tick(&shared, start + Duration::from_millis(2400));
+        assert_key(receiver.try_recv().unwrap(), "C");
+    }
+    #[test]
+    fn partial_edge_button_rules_inherit_each_trigger_and_restore_unmapped_taps() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonLeft": {"doubleClick":[{"type":"key","key":"D"}]},
+            "mouse.top.buttonLeft": {"longPress":[{"type":"key","key":"L"}]}
+        }));
+        let (_, rule) =
+            button_rule(&shared.configuration.lock().unwrap(), Some(Edge::Top), 0).unwrap();
+        assert!(has_actions(&rule.double_click) && has_actions(&rule.long_press));
+        assert!(!has_actions(&rule.click));
+        let mut buttons = ButtonTracker::default();
+        let start = Instant::now();
+        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), start));
+        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), start));
+        buttons.tick(&shared, start + DOUBLE_CLICK);
+        assert!(matches!(
+            receiver.try_recv().unwrap().behaviors[0],
+            NativeBehavior::Mouse {
+                button: MouseButton::Left,
+                ..
+            }
+        ));
+    }
+    #[test]
+    fn settings_changes_cancel_jobs_without_orphaning_button_releases() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonLeft": {"click":[{"type":"key","key":"C"}],"doubleClick":[{"type":"key","key":"D"}]}
+        }));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        shared.configuration.lock().unwrap().settings.enabled = false;
+        assert!(!buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
+        shared.configuration.lock().unwrap().settings.enabled = true;
+        assert!(!buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
+        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
+        shared.configuration.lock().unwrap().revision += 1;
+        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
+        assert!(receiver.try_recv().is_err());
+        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
+        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
+        shared.configuration.lock().unwrap().settings.enabled = false;
+        buttons.tick(&shared, now + DOUBLE_CLICK);
+        assert!(receiver.try_recv().is_err());
     }
 }

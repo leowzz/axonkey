@@ -5,6 +5,9 @@ export type MappingInput = {
   label: string
   icon: RemoteButton['icon']
   triggerLabel?: string
+  contextLabel?: string
+  originalDescription?: string
+  inheritDefault?: boolean
   originalLabel?: string
 }
 

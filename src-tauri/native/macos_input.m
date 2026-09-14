@@ -1259,6 +1259,7 @@ typedef struct {
     bool (*should_stop)(void *);
     void (*on_ready)(void *, bool);
     bool (*on_scroll)(void *, double, double, double, double, double, double, double, double);
+    bool (*on_button)(void *, int32_t, bool, double, double, double, double, double, double);
     CFMachPortRef tap;
 } AxonkeyMouseCapture;
 
@@ -1273,8 +1274,15 @@ static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type
     CGPoint point = CGEventGetLocation(event);
     CGDirectDisplayID displays[16];
     uint32_t count = 0;
-    if (CGGetDisplaysWithPoint(point, 16, displays, &count) != kCGErrorSuccess || count == 0) return event;
-    CGRect bounds = CGDisplayBounds(displays[0]);
+    CGRect bounds = CGRectZero;
+    if (CGGetDisplaysWithPoint(point, 16, displays, &count) == kCGErrorSuccess && count > 0) bounds = CGDisplayBounds(displays[0]);
+    if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp || type == kCGEventRightMouseDown || type == kCGEventRightMouseUp) {
+        bool consumed = capture->on_button(capture->context,
+            (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp) ? 0 : 1,
+            type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown, point.x, point.y,
+            CGRectGetMinX(bounds), CGRectGetMinY(bounds), CGRectGetMaxX(bounds), CGRectGetMaxY(bounds));
+        return consumed ? NULL : event;
+    }
     double vertical = 0, horizontal = 0;
     if (type == kCGEventScrollWheel) {
         if (CGEventGetIntegerValueField(event, kCGScrollWheelEventIsContinuous)) {
@@ -1291,12 +1299,15 @@ static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type
 }
 
 bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*on_ready)(void *, bool),
-    bool (*on_scroll)(void *, double, double, double, double, double, double, double, double)) {
+    bool (*on_scroll)(void *, double, double, double, double, double, double, double, double),
+    bool (*on_button)(void *, int32_t, bool, double, double, double, double, double, double)) {
     @autoreleasepool {
         if (!AXIsProcessTrusted() || !CGPreflightListenEventAccess()) return false;
-        AxonkeyMouseCapture capture = { context, should_stop, on_ready, on_scroll, NULL };
+        AxonkeyMouseCapture capture = { context, should_stop, on_ready, on_scroll, on_button, NULL };
         capture.tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
-            CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved), axonkey_mouse_callback, &capture);
+            CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved)
+            | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
+            | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp), axonkey_mouse_callback, &capture);
         if (capture.tap == NULL) return false;
         CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, capture.tap, 0);
         if (source == NULL) { CFRelease(capture.tap); return false; }

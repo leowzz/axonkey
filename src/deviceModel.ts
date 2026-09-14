@@ -1,19 +1,43 @@
 /** Device identity and input capabilities are independent of output behaviors. */
 export const remoteButtonIds = ['power', 'voice', 'up', 'left', 'confirm', 'right', 'down', 'back', 'volumeUp', 'home', 'volumeDown', 'menu', 'tv'] as const
-export const mouseInputIds = ['mouse.top.up', 'mouse.top.down', 'mouse.top.left', 'mouse.top.right', 'mouse.left.up', 'mouse.left.down', 'mouse.right.up', 'mouse.right.down'] as const
+export const mouseScopes = [
+  { id: 'global', label: '任意位置', description: '指针位于任意位置时生效' },
+  { id: 'top', label: '上边缘', description: '指针靠近屏幕上边缘时生效' },
+  { id: 'left', label: '左边缘', description: '指针靠近屏幕左边缘时生效' },
+  { id: 'right', label: '右边缘', description: '指针靠近屏幕右边缘时生效' },
+] as const
+export const mouseControls = [
+  { id: 'buttonLeft', label: '鼠标左键', kind: 'button', icon: 'center' },
+  { id: 'buttonRight', label: '鼠标右键', kind: 'button', icon: 'center' },
+  { id: 'up', label: '向上滚动', kind: 'wheel', icon: 'up' },
+  { id: 'down', label: '向下滚动', kind: 'wheel', icon: 'down' },
+  { id: 'left', label: '向左滚动', kind: 'wheel', icon: 'left' },
+  { id: 'right', label: '向右滚动', kind: 'wheel', icon: 'right' },
+] as const
+export type MouseScopeId = typeof mouseScopes[number]['id']
+export type MouseControlId = typeof mouseControls[number]['id']
 export type RemoteButtonId = typeof remoteButtonIds[number]
-export type MouseInputId = typeof mouseInputIds[number]
+export type MouseInputId = `mouse.${MouseScopeId}.${MouseControlId}`
+export const mouseInputId = (scope: MouseScopeId, control: MouseControlId): MouseInputId => `mouse.${scope}.${control}`
+export const mouseInputIds = mouseScopes.flatMap((scope) => mouseControls.map((control) => mouseInputId(scope.id, control.id)))
+export function mouseInputParts(id: InputId) {
+  const [, scopeId, controlId] = id.split('.')
+  return {
+    scope: mouseScopes.find((scope) => scope.id === scopeId) ?? mouseScopes[0],
+    control: mouseControls.find((control) => control.id === controlId) ?? mouseControls[2],
+  }
+}
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'mouse'
 export type DeviceDefinition = {
   id: DeviceId
   name: string
   inputIds: readonly InputId[]
-  inputKind: 'button' | 'edgeScroll'
+  inputKind: 'button' | 'mouse'
 }
 export const devices: readonly DeviceDefinition[] = [
   { id: 'rc003', name: '小米遥控器', inputIds: remoteButtonIds, inputKind: 'button' },
-  { id: 'mouse', name: '鼠标', inputIds: mouseInputIds, inputKind: 'edgeScroll' },
+  { id: 'mouse', name: '鼠标', inputIds: mouseInputIds, inputKind: 'mouse' },
 ]
 export const inputIds: readonly InputId[] = devices.flatMap((device) => device.inputIds)
 export function deviceForInput(id: InputId): DeviceDefinition {

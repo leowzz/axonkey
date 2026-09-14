@@ -1,11 +1,11 @@
-use super::{screen_edge, ScrollAccumulator, Shared};
+use super::{screen_edge, ButtonTracker, ScrollAccumulator, Shared};
 use crate::input_service::NativeBehavior;
 use std::{
     cell::RefCell,
     ffi::c_void,
     sync::{atomic::Ordering, Arc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[repr(C)]
@@ -50,7 +50,7 @@ struct Message {
 }
 
 thread_local! {
-    static CAPTURE: RefCell<Option<(Arc<Shared>, ScrollAccumulator)>> = const { RefCell::new(None) };
+    static CAPTURE: RefCell<Option<(Arc<Shared>, ScrollAccumulator, ButtonTracker)>> = const { RefCell::new(None) };
 }
 
 fn wheel_direction(message: usize, delta: i32, flags: u32) -> Option<usize> {
@@ -87,7 +87,13 @@ extern "system" {
 
 unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> isize {
     let consumed = std::panic::catch_unwind(|| {
-        if code < 0 || lparam == 0 || !matches!(wparam, 0x0200 | 0x020A | 0x020E) {
+        if code < 0
+            || lparam == 0
+            || !matches!(
+                wparam,
+                0x0200 | 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x020A | 0x020E
+            )
+        {
             return false;
         }
         let event = &*(lparam as *const MouseHook);
@@ -97,13 +103,9 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
         }
         CAPTURE.with(|capture| {
             let mut capture = capture.borrow_mut();
-            let Some((shared, scroll)) = capture.as_mut() else {
+            let Some((shared, scroll, buttons)) = capture.as_mut() else {
                 return false;
             };
-            if !shared.active.load(Ordering::Acquire) {
-                scroll.reset();
-                return false;
-            }
             let monitor = MonitorFromPoint(event.point, 0);
             let mut info = MonitorInfo {
                 size: std::mem::size_of::<MonitorInfo>() as u32,
@@ -111,21 +113,33 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
                 work: Rect::default(),
                 flags: 0,
             };
-            if monitor == 0 || GetMonitorInfoW(monitor, &mut info) == 0 {
+            let valid_monitor = monitor != 0 && GetMonitorInfoW(monitor, &mut info) != 0;
+            let edge = if valid_monitor {
+                screen_edge(
+                    event.point.x as f64,
+                    event.point.y as f64,
+                    info.monitor.left as f64,
+                    info.monitor.top as f64,
+                    info.monitor.right as f64,
+                    info.monitor.bottom as f64,
+                )
+            } else {
+                None
+            };
+            if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205) {
+                return buttons.event(
+                    shared,
+                    if wparam <= 0x0202 { 0 } else { 1 },
+                    matches!(wparam, 0x0201 | 0x0204),
+                    edge,
+                    (event.point.x as f64, event.point.y as f64),
+                    Instant::now(),
+                );
+            }
+            if !shared.active.load(Ordering::Acquire) {
                 scroll.reset();
                 return false;
             }
-            let Some(edge) = screen_edge(
-                event.point.x as f64,
-                event.point.y as f64,
-                info.monitor.left as f64,
-                info.monitor.top as f64,
-                info.monitor.right as f64,
-                info.monitor.bottom as f64,
-            ) else {
-                scroll.reset();
-                return false;
-            };
             scroll.enter(edge);
             if wparam == 0x0200 {
                 return false;
@@ -134,11 +148,7 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
             let Some(direction) = wheel_direction(wparam, delta, event.flags) else {
                 return false;
             };
-            let Some(input) = edge.input(direction) else {
-                scroll.reset();
-                return false;
-            };
-            scroll.scroll(shared, input, delta.unsigned_abs() as f64 / 120.0)
+            scroll.scroll(shared, direction, delta.unsigned_abs() as f64 / 120.0)
         })
     })
     .unwrap_or(false);
@@ -151,7 +161,11 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
 
 pub(super) fn run(shared: Arc<Shared>) {
     CAPTURE.with(|capture| {
-        *capture.borrow_mut() = Some((Arc::clone(&shared), ScrollAccumulator::default()))
+        *capture.borrow_mut() = Some((
+            Arc::clone(&shared),
+            ScrollAccumulator::default(),
+            ButtonTracker::default(),
+        ))
     });
     let hook = unsafe { SetWindowsHookExW(14, callback, GetModuleHandleW(std::ptr::null()), 0) };
     if hook == 0 {
@@ -171,6 +185,11 @@ pub(super) fn run(shared: Arc<Shared>) {
                 DispatchMessageW(&message);
             }
         }
+        CAPTURE.with(|capture| {
+            if let Some((state, _, buttons)) = capture.borrow_mut().as_mut() {
+                buttons.tick(state, Instant::now());
+            }
+        });
         thread::sleep(Duration::from_millis(5));
     }
     shared.ready.store(false, Ordering::Release);

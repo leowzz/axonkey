@@ -60,7 +60,9 @@ import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { devices, deviceForInput } from '../deviceModel'
 import type { DeviceId } from '../deviceModel'
-import { MouseDeviceIllustration, MouseMappingPicker, mouseInputs } from '../components/MouseMapping'
+import { MouseInputModel, MouseControlPicker, MouseTriggerSelector, mouseInputs } from '../components/MouseMapping'
+import { DeviceSelector, DeviceStatusCard } from '../components/DeviceRail'
+import type { DeviceStatus } from '../components/DeviceRail'
 import { MappingOverview } from '../components/MappingOverview'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
@@ -106,7 +108,7 @@ function AppController() {
   const editableButtons = buttons
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>('rc003')
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId)!
-  const isMouse = selectedDevice.inputKind === 'edgeScroll'
+  const isMouse = selectedDevice.inputKind === 'mouse'
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
     inputMonitoring: false,
     accessibility: false,
@@ -574,7 +576,7 @@ function AppController() {
         return
       case 'original':
         replaceWithCommonBehavior([])
-        showBehaviorToast(selectedBehavior.trigger === 'click' ? (isMouse ? '已保留原始滚动' : '已保留原按键') : '已清除此触发方式')
+        showBehaviorToast(selectedBehavior.trigger === 'click' ? (isMouse ? '已恢复默认输入规则' : '已保留原按键') : '已清除此触发方式')
         return
       case 'disabled':
         replaceWithCommonBehavior([createBehavior({ type: 'disabled' })])
@@ -1145,6 +1147,23 @@ function AppController() {
     : null
   const selectedButton = [...editableButtons, ...mouseInputs].find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]
 
+  const deviceStatus: DeviceStatus = isMouse ? {
+    title: '鼠标状态',
+    rows: [
+      { label: '输入来源', value: '系统鼠标' },
+      { label: '映射状态', value: !nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '应用失败' : enabled ? '已开启' : '未开启', tone: autoSaveState === 'error' ? 'warning' : enabled && nativeRuntime ? 'ready' : undefined },
+      ...(platform === 'macos' && nativeRuntime ? [{ label: '输入权限', value: macPermissions.inputMonitoring && macPermissions.accessibility ? '已授权' : '待授权' }] : []),
+    ],
+    ...(platform === 'macos' && nativeRuntime && !(macPermissions.inputMonitoring && macPermissions.accessibility) ? { action: { label: '检查输入权限', onClick: () => openSetupStep('inputDriver') } } : {}),
+  } : {
+    title: '遥控器状态',
+    rows: [
+      { label: '连接', value: setupState.device.status === 'connected' ? '已连接' : '未连接', tone: setupState.device.status === 'connected' ? 'ready' : undefined },
+      { label: '电量', value: <BatteryIndicator level={displayedBatteryLevel} /> },
+    ],
+    action: { label: inputAuthorizationStale ? '权限失效 · 查看状态' : '查看设备状态', onClick: () => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection') },
+  }
+
   if (permissionHelperKind) {
     const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
     const activePermission = !macPermissions.inputMonitoring
@@ -1199,16 +1218,12 @@ function AppController() {
         /> : activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
-              <div className="device-card remote-device-card">
-                <label className="device-selector-label" htmlFor="mapping-device">映射设备</label>
-                <select id="mapping-device" className="device-selector" value={selectedDeviceId} onChange={(event) => {
-                  const device = devices.find((item) => item.id === event.target.value)!
-                  selectBehaviorTarget(device.id === 'rc003' ? activeId : device.inputIds[0], 'click', false)
-                  mappingMainRef.current?.scrollTo({ top: 0 })
-                }}>{devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select>
-                {isMouse ? <div className="mouse-device-status">{!nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '映射尚未应用' : enabled ? '边缘滚动已开启' : '边缘滚动未开启'}</div> : <button type="button" className="device-status-button" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /><span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryIndicator level={displayedBatteryLevel} /><span>{inputAuthorizationStale ? '权限失效' : '查看状态'}</span></button>}
-              </div>
-              {isMouse ? <MouseDeviceIllustration /> : <>
+              <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
+                selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.global.up', 'click', false)
+                mappingMainRef.current?.scrollTo({ top: 0 })
+              }} />
+              <DeviceStatusCard status={deviceStatus} />
+              {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
               {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
               <div className="remote-stage">
                 <div className="remote-art" ref={remoteArtRef}>
@@ -1236,10 +1251,10 @@ function AppController() {
             <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
-                  <h2 id="key-picker-title">{isMouse ? '边缘滚动' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
+                  <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
                   <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
-                {isMouse ? <MouseMappingPicker rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} onSelect={(id) => selectBehaviorTarget(id, 'click', false)} /> : <MappingKeyGrid
+                {isMouse ? <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} /> : <MappingKeyGrid
                   platform={platform}
                   buttons={editableButtons}
                   behaviors={behaviors}
@@ -1252,6 +1267,7 @@ function AppController() {
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
                 />}
               </section>
+              {isMouse && <MouseTriggerSelector rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} trigger={selectedBehavior.trigger} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
               {!isMouse && <MappingTriggerSelector
                 platform={platform}
                 button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}

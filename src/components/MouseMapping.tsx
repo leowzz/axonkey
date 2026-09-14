@@ -1,59 +1,90 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Mouse, MousePointer2 } from 'lucide-react'
-import type { BehaviorMap, InputId } from '../behaviorModel'
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Clock3, Mouse, MousePointer2, MousePointerClick } from 'lucide-react'
+import type { BehaviorMap, InputId, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
-import { behaviorSummary } from '../appConfig'
-import { mouseInputIds } from '../deviceModel'
+import { behaviorSummary, triggerLabels } from '../appConfig'
+import { mouseControls, mouseInputId, mouseInputIds, mouseInputParts, mouseScopes } from '../deviceModel'
+import type { MouseControlId } from '../deviceModel'
 
-const edges = [{ id: 'top', label: '上边缘' }, { id: 'left', label: '左边缘' }, { id: 'right', label: '右边缘' }] as const
-const directions = {
-  up: { label: '向上滚动', Icon: ArrowUp }, down: { label: '向下滚动', Icon: ArrowDown },
-  left: { label: '向左滚动', Icon: ArrowLeft }, right: { label: '向右滚动', Icon: ArrowRight },
-}
+const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointer2, buttonRight: MousePointer2 }
 export const mouseInputs: MappingInput[] = mouseInputIds.map((id) => {
-  const [, edge, direction] = id.split('.')
-  const icon = direction as keyof typeof directions
-  return { id, label: directions[icon].label, icon, triggerLabel: `屏幕${edges.find((item) => item.id === edge)!.label}`, originalLabel: '保留原始滚动' }
+  const { scope, control } = mouseInputParts(id)
+  return {
+    id, label: control.label, icon: control.icon,
+    contextLabel: scope.label,
+    inheritDefault: scope.id !== 'global',
+    triggerLabel: control.kind === 'wheel' ? '滚动一次' : undefined,
+    originalLabel: scope.id !== 'global' ? '沿用任意位置' : control.kind === 'wheel' ? '保留原始滚动' : '保留原始点击',
+    originalDescription: scope.id !== 'global' ? '使用任意位置的设置' : '使用鼠标原始输入',
+  }
 })
 
-export function MouseDeviceIllustration() {
-  return <div className="mouse-device-illustration">
-    <div className="mouse-device-icon"><Mouse size={76} strokeWidth={1} /></div>
-    <strong>屏幕边缘，让滚动多一种用途</strong>
-    <p>将指针移到屏幕上边缘或左右边缘，滚动鼠标即可触发对应行为。</p>
-    <div className="mouse-device-note">适用于系统鼠标<br />每个滚动方向独立配置</div>
-  </div>
+export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onSelect: (id: InputId) => void }) {
+  const { scope, control: selected } = mouseInputParts(activeId)
+  const part = (id: MouseControlId, label: string) => {
+    const Icon = icons[id]
+    return <button type="button" className={`mouse-part mouse-part-${id}`} aria-label={`选择${mouseControls.find((item) => item.id === id)!.label}`} aria-pressed={selected.id === id} onClick={() => onSelect(mouseInputId(scope.id, id))}><Icon size={18} /><span>{label}</span></button>
+  }
+  return <section className="mouse-model-section" aria-label="鼠标输入模型">
+    <div className="mouse-model-title">选择输入部位</div>
+    <div className="mouse-input-model">
+      {part('buttonLeft', '左键')}{part('buttonRight', '右键')}
+      <div className="mouse-wheel-track">{part('up', '上')}{part('down', '下')}</div>
+      <div className="mouse-horizontal-track">{part('left', '左滚')}{part('right', '右滚')}</div>
+      <span className="mouse-model-mark"><Mouse size={14} /> MOUSE</span>
+    </div>
+    <strong className="mouse-model-selection">{selected.label}</strong>
+    <p>点击鼠标部位，再在右侧设置触发条件和执行行为。</p>
+  </section>
 }
 
-export function MouseMappingPicker({ behaviors, activeId, platform, onSelect, rowRefs }: {
+type PickerProps = {
   behaviors: BehaviorMap
   activeId: InputId
   platform: Platform
-  onSelect: (id: InputId) => void
+  trigger: TriggerType
+  onSelect: (id: InputId, trigger: TriggerType) => void
   rowRefs: { current: Partial<Record<InputId, HTMLElement>> }
-}) {
-  const edge = edges.find((item) => item.id === activeId.split('.')[1]) ?? edges[0]
-  const inputs = mouseInputs.filter((input) => input.id.startsWith(`mouse.${edge.id}.`))
-  return <div className="mouse-mapping-picker">
-    <div className="mouse-edge-tabs" role="group" aria-label="屏幕触发边缘">
-      {edges.map((item) => <button type="button" key={item.id} aria-pressed={item.id === edge.id} onClick={() => onSelect(`mouse.${item.id}.up`)}>{item.label}</button>)}
-    </div>
-    <div className="mouse-edge-preview">
-      <div className={`mouse-screen mouse-screen-${edge.id}`} aria-label={`屏幕${edge.label}触发区域示意`}>
-        <div className="mouse-screen-edge" />
-        <span className="mouse-screen-edge-label">{edge.label} · 8 {platform === 'macos' ? '点' : '像素'}</span>
-        <MousePointer2 size={27} className="mouse-screen-pointer" />
-        <span className="mouse-screen-caption">将鼠标移到这里</span>
-      </div>
-      <div className="mouse-edge-description"><span className="section-kicker">触发区域</span><h3>屏幕{edge.label}</h3><p>选择滚动方向，再配置要执行的行为。每个边缘的映射独立保存。</p><small>{edge.id === 'top' ? '支持多显示器；左右滚动需要水平滚轮或横向滚动手势。' : '指针靠近这一侧边缘时触发；顶部角落优先使用上边缘映射。'}</small></div>
-    </div>
-    <div className={`mouse-direction-grid ${inputs.length === 2 ? 'two-directions' : ''}`} role="group" aria-label={`${edge.label}滚动方向`}>
-      {inputs.map((input) => {
-        const Icon = directions[input.icon as keyof typeof directions].Icon
-        const list = behaviors[input.id].click.filter((behavior) => behavior.enabled)
-        return <button type="button" key={input.id} ref={(node) => { if (node) rowRefs.current[input.id] = node }} aria-pressed={input.id === activeId} className={input.id === activeId ? 'active' : ''} onClick={() => onSelect(input.id)}>
-          <Icon size={20} /><strong>{input.label}</strong><small>{list.length ? `${behaviorSummary(list[0], platform)}${list.length > 1 ? ` +${list.length - 1}` : ''}` : '保留原始滚动'}</small>
-        </button>
-      })}
-    </div>
+}
+
+export function MouseControlPicker({ activeId, onSelect }: Pick<PickerProps, 'activeId' | 'onSelect'>) {
+  const { scope, control } = mouseInputParts(activeId)
+  return <div className="mouse-control-grid" role="group" aria-label="鼠标输入部位">
+    {mouseControls.map((item) => {
+      const Icon = icons[item.id]
+      return <button type="button" key={item.id} aria-pressed={item.id === control.id} onClick={() => onSelect(mouseInputId(scope.id, item.id), 'click')}><Icon size={18} /><span>{item.label}</span></button>
+    })}
   </div>
+}
+
+export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, onSelect, rowRefs }: PickerProps) {
+  const { scope, control } = mouseInputParts(activeId)
+  const triggers: TriggerType[] = control.kind === 'button' ? ['click', 'doubleClick', 'longPress'] : ['click']
+  const triggerIcons = { click: control.kind === 'button' ? MousePointerClick : icons[control.id], doubleClick: MousePointerClick, longPress: Clock3 }
+  const original = scope.id === 'global' ? '保留原始输入' : '沿用任意位置'
+  return <section className="mouse-trigger-selector" ref={(node) => { if (node) rowRefs.current[activeId] = node }} aria-label={`${control.label}触发条件`}>
+    <div className="mouse-trigger-heading"><h2>触发条件</h2><span>{control.label}</span></div>
+    <div className="mouse-condition-row">
+      <span className="mouse-condition-label">生效区域</span>
+      <div className="mouse-scope-options" role="group" aria-label="鼠标生效区域">
+        {mouseScopes.map((item) => {
+          const id = mouseInputId(item.id, control.id)
+          const count = Object.values(behaviors[id]).filter((list) => list.some((behavior) => behavior.enabled)).length
+          return <button type="button" key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id, trigger)}>{item.label}{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
+        })}
+      </div>
+    </div>
+    <div className="mouse-condition-row">
+      <span className="mouse-condition-label">触发方式</span>
+      <div className={`mouse-gesture-options ${control.kind === 'wheel' ? 'wheel-gesture' : ''}`} role="tablist" aria-label={`${control.label}触发方式`}>
+        {triggers.map((item) => {
+          const Icon = triggerIcons[item]
+          const ownList = behaviors[activeId][item].filter((behavior) => behavior.enabled)
+          const inherited = scope.id !== 'global' && ownList.length === 0
+          const list = inherited ? behaviors[mouseInputId('global', control.id)][item].filter((behavior) => behavior.enabled) : ownList
+          return <button type="button" key={item} role="tab" aria-selected={trigger === item} onClick={() => onSelect(activeId, item)}><Icon size={17} /><span><strong>{control.kind === 'wheel' ? '滚动一次' : triggerLabels[item]}</strong><small>{list.length ? `${inherited ? '沿用 · ' : ''}${behaviorSummary(list[0], platform)}${list.length > 1 ? ` +${list.length - 1}` : ''}` : scope.id !== 'global' || item === 'click' ? original : '未设置'}</small></span>{trigger === item && <Check size={15} />}</button>
+        })}
+      </div>
+    </div>
+    <p className="mouse-condition-note">{scope.id === 'global' ? '作为默认规则；已配置的屏幕边缘规则优先。' : `距屏幕${scope.label} 8 ${platform === 'macos' ? '点' : '像素'}内生效；未设置时沿用任意位置规则，顶部角落优先使用上边缘。`}{control.kind === 'button' ? ' 双击间隔 350 毫秒，长按 600 毫秒；配置后该按键用于触发行为，不用于拖拽。' : ' 每滚动一格执行一次。'}</p>
+  </section>
 }

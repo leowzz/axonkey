@@ -41,3 +41,16 @@ test('device ownership is unique and mouse edits support undo without changing r
   history = behaviorHistoryReducer(history, { type: 'redo' })
   assert.equal(history.present['mouse.top.down'].click[0].key, 'VolumeDown')
 })
+
+
+test('legacy edge rules stay in their original scopes while new inputs start empty', () => {
+  const legacy = ['mouse.top.up', 'mouse.top.down', 'mouse.top.left', 'mouse.top.right', 'mouse.left.up', 'mouse.left.down', 'mouse.right.up', 'mouse.right.down']
+  const behaviors = Object.fromEntries(legacy.map(id => [id, {click: [createBehavior({type:'key',key:'A'})],doubleClick:[],longPress:[]}]))
+  const parsed = parseStoredBehaviors({behaviors})
+  for (const id of legacy) assert.deepEqual(parsed[id], behaviors[id])
+  assert.deepEqual(parsed['mouse.global.up'].click, [])
+  assert.deepEqual(parsed['mouse.global.buttonLeft'], {click:[],doubleClick:[],longPress:[]})
+  let map = updateBehaviorList(parsed, 'mouse.global.buttonLeft', 'doubleClick', () => [createBehavior({type:'key',key:'B'})])
+  map = updateBehaviorList(map, 'mouse.right.buttonLeft', 'longPress', () => [createBehavior({type:'key',key:'C'})])
+  assert.deepEqual(parseMappingImport(createMappingExport(map, true)).behaviors, map)
+})
