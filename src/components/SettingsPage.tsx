@@ -26,7 +26,7 @@ export function SettingsPage({ platform, nativeRuntime, systemProbeState, permis
   const grantedCount = items.filter((item) => item.granted).length
   return <div className="settings-page">
     <header className="settings-page-head">
-      <div><span className="section-kicker">SETTINGS</span><h2>设置</h2><p>管理 Axonkey 的启动方式和系统权限。</p></div>
+      <div><h2>设置</h2><p>管理 Axonkey 的启动方式和系统权限。</p></div>
       <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} />{loading ? '检测中' : '重新检测'}</button>
     </header>
     <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />

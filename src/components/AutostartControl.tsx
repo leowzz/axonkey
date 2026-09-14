@@ -56,9 +56,9 @@ export function AutostartControl({ supported }: { supported: boolean }) {
   return <section className="home-autostart" aria-label="启动设置">
     <div className="home-autostart-row">
       <div><strong id="autostart-label">开机自启</strong><p id="autostart-description">{supported ? '登录电脑后自动启动 Axonkey' : '请在 Windows 或 macOS 桌面应用中设置'}</p></div>
+      <span className="home-autostart-status" role="status">{busy ? '正在同步系统设置…' : ''}</span>
       <button type="button" role="switch" className={`switch ${enabled ? 'on' : ''}`} aria-checked={enabled === true} aria-labelledby="autostart-label" aria-describedby="autostart-description" aria-busy={busy} disabled={!supported || busy || enabled === null} onClick={() => void toggle()}><span /></button>
     </div>
-    {busy && <p className="home-autostart-status" role="status">正在同步系统设置…</p>}
     {error && <p className="home-autostart-error" role="alert">{error}<button type="button" disabled={busy} onClick={() => setRefreshVersion(value => value + 1)}>重新读取</button></p>}
   </section>
 }
