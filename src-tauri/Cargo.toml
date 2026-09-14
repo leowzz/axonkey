@@ -21,6 +21,7 @@ libloading = "0.8"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-log = "2.9.1"
+tauri-plugin-autostart = "2"
 log = "0.4"
 sha2 = "0.10"
 

@@ -230,10 +230,27 @@ fn open_log_directory(app: tauri::AppHandle) -> Result<LogInfo, String> {
 
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open")
-            .arg(directory)
-            .spawn()
+        // The bundle identifier makes the log directory end in `.app`.
+        // Opening it launches it as an application; reveal a log inside instead.
+        let current_file = std::path::Path::new(&info.current_file);
+        let reveal_target = if current_file.is_file() {
+            current_file
+        } else {
+            directory
+        };
+        let output = std::process::Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(reveal_target)
+            .output()
             .map_err(|error| format!("Cannot open the Axonkey log directory: {error}"))?;
+        if !output.status.success() {
+            let detail = String::from_utf8_lossy(&output.stderr);
+            return Err(format!(
+                "Cannot open the Axonkey log directory ({}): {}",
+                output.status,
+                detail.trim(),
+            ));
+        }
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1076,6 +1093,10 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .setup(|app| {
             use tauri::Manager;
 

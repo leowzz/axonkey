@@ -1,4 +1,4 @@
-import { Home, Info, Keyboard } from 'lucide-react'
+import { Home, Info, Keyboard, ShieldCheck } from 'lucide-react'
 import type { AppPage } from '../appTypes'
 import appPackage from '../../package.json'
 
@@ -15,6 +15,7 @@ type AppHeaderProps = {
 const pageTitles: Record<AppPage, string> = {
   home: '主页',
   mapping: '按键映射',
+  permissions: '权限',
   about: '关于',
 }
 
@@ -33,6 +34,7 @@ export function AppHeader({ activePage, enabled, onBrandClick, onNavigate, onTog
     <nav className="app-nav" aria-label="主导航">
       <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
       <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 按键映射</button>
+      <button type="button" className={activePage === 'permissions' ? 'active' : ''} aria-current={activePage === 'permissions' ? 'page' : undefined} onClick={() => onNavigate('permissions')}><ShieldCheck size={15} /> 权限</button>
       <button type="button" className={activePage === 'about' ? 'active' : ''} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于</button>
     </nav>
     <div className="header-actions">

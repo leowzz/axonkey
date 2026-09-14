@@ -57,6 +57,7 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
+import { PermissionsPage } from '../components/PermissionsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
@@ -1217,7 +1218,18 @@ function AppController() {
               </details>}
             </section>
           </div>
-        </div> : activePage === 'about' ? <AboutPage /> : <HomeDashboard
+        </div> : activePage === 'about' ? <AboutPage /> : activePage === 'permissions' ? <PermissionsPage
+          platform={platform}
+          nativeRuntime={nativeRuntime}
+          systemProbeState={systemProbeState}
+          permissions={macPermissions}
+          inputAuthorizationStale={inputAuthorizationStale}
+          inputDriver={setupState.drivers.input}
+          onRequestPermission={(kind) => void requestMacPermission(kind)}
+          onOpenSettings={(kind) => void openSystemSettings(kind)}
+          onRefresh={() => void probeSystemState(false)}
+          onOpenDriver={() => openSetupStep('inputDriver')}
+        /> : <HomeDashboard
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}
@@ -1230,7 +1242,7 @@ function AppController() {
           onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           audioGain={audioGain}
           enabled={enabled}
-          onRequestPermission={(kind) => void requestMacPermission(kind)}
+          onOpenPermissions={() => setActivePage('permissions')}
           onRefresh={() => { void probeSystemState(false); void probeAudioState() }}
           onAudioGainChange={updateAudioGain}
           onTestAudio={() => setAudioTestOpen(true)}

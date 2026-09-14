@@ -1,4 +1,5 @@
 import { openGitHub } from '../openGitHub'
+import { AutostartControl } from './AutostartControl'
 import {
   AudioLines,
   Bluetooth,
@@ -16,7 +17,7 @@ import {
 } from 'lucide-react'
 import { BatteryDebugControls, BatteryIndicator } from './BatteryIndicator'
 import { audioGainMax, audioGainMin } from '../appConfig'
-import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
+import type { MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
 import type { CSSProperties, ReactNode } from 'react'
 
@@ -35,7 +36,7 @@ type HomeDashboardProps = {
   onAdjustBattery?: (delta: number) => void
   audioGain: number
   enabled: boolean
-  onRequestPermission: (kind: MacPermissionKind) => void
+  onOpenPermissions: () => void
   onRefresh: () => void
   onAudioGainChange: (gain: number) => void
   onTestAudio: () => void
@@ -95,7 +96,7 @@ export function HomeDashboard({
   onAdjustBattery,
   audioGain,
   enabled,
-  onRequestPermission,
+  onOpenPermissions,
   onRefresh,
   onAudioGainChange,
   onTestAudio,
@@ -193,7 +194,7 @@ export function HomeDashboard({
           <button type="button" className="home-primary-action" onClick={onOpenMapping}>
             <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-secondary-action" onClick={() => onOpenStep(recommendedStep)}>
+          <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenPermissions() : onOpenStep(recommendedStep)}>
             <Settings2 size={15} /> {allReady ? '完整设置' : '处理待办'}
           </button>
           <button type="button" className="home-icon-action" aria-label={pageLoading ? '检测中' : '重新检测'} title={pageLoading ? '检测中' : '重新检测'} onClick={onRefresh} disabled={pageLoading}>
@@ -233,7 +234,7 @@ export function HomeDashboard({
             tone={inputTone}
             detail={inputDetail}
             action={macOS
-              ? <button type="button" className="home-row-action" onClick={() => onRequestPermission('inputMonitoring')}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
+              ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
               : <button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>检查驱动<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
@@ -242,7 +243,7 @@ export function HomeDashboard({
             status={accessibilityStatus}
             tone={accessibilityTone}
             detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
-            action={macOS && <button type="button" className="home-row-action" onClick={() => onRequestPermission('accessibility')}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
+            action={macOS && <button type="button" className="home-row-action" onClick={onOpenPermissions}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
             icon={<AudioLines size={18} />}
@@ -278,9 +279,9 @@ export function HomeDashboard({
             <span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-quick-button" onClick={() => onOpenStep('inputDriver')}>
+          <button type="button" className="home-quick-button" onClick={onOpenPermissions}>
             <span className="home-quick-icon"><ShieldCheck size={17} /></span>
-            <span><strong>系统设置</strong><small>权限、驱动与音频</small></span>
+            <span><strong>权限设置</strong><small>查看与管理系统权限</small></span>
             <ChevronRight size={15} />
           </button>
           <button type="button" className="home-quick-button" onClick={onRefresh} disabled={pageLoading}>
@@ -295,6 +296,8 @@ export function HomeDashboard({
           </button>
         </section>
 
+        <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />
+
         <div className="home-local-note">
           <Check size={15} />
           <div><strong>数据只保存在本机</strong><span>映射和诊断信息不会上传。</span></div>
@@ -303,4 +306,3 @@ export function HomeDashboard({
     </div>
   </div>
 }
-
