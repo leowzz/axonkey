@@ -131,6 +131,7 @@ function AppController() {
   const canUndoBehavior = behaviorHistory.past.length > 0
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
+  const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
   const [inputSettingsReady, setInputSettingsReady] = useState(false)
   const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
   const [extraKeysOptionsOpen, setExtraKeysOptionsOpen] = useState(false)
@@ -236,13 +237,13 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
       try {
         if ('__TAURI_INTERNALS__' in window) {
-          await invoke('update_input_settings', { settings: { behaviors, enabled } })
+          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled } })
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
@@ -257,7 +258,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [behaviors, enabled, applyRetry])
+  }, [behaviors, enabled, mouseEnabled, applyRetry])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -1156,9 +1157,10 @@ function AppController() {
     title: '鼠标状态',
     rows: [
       { label: '输入来源', value: '系统鼠标' },
-      { label: '映射状态', value: !nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '应用失败' : enabled ? '已开启' : '未开启', tone: autoSaveState === 'error' ? 'warning' : enabled && nativeRuntime ? 'ready' : undefined },
+      { label: '映射状态', value: !nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '应用失败' : mouseEnabled ? '已开启' : '已关闭', tone: autoSaveState === 'error' ? 'warning' : mouseEnabled && nativeRuntime ? 'ready' : undefined },
       ...(platform === 'macos' && nativeRuntime ? [{ label: '输入权限', value: macPermissions.inputMonitoring && macPermissions.accessibility ? '已授权' : '待授权' }] : []),
     ],
+    toggle: { checked: mouseEnabled, onChange: () => setMouseEnabled((value) => !value) },
     ...(platform === 'macos' && nativeRuntime && !(macPermissions.inputMonitoring && macPermissions.accessibility) ? { action: { label: '检查输入权限', onClick: () => openSetupStep('inputDriver') } } : {}),
   } : {
     title: '遥控器状态',

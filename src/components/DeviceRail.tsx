@@ -7,6 +7,7 @@ export type DeviceStatus = {
   title: string
   rows: { label: string; value: ReactNode; tone?: 'ready' | 'warning' }[]
   action?: { label: string; title?: string; onClick: () => void }
+  toggle?: { checked: boolean; onChange: () => void }
 }
 
 export function DeviceSelector({ selectedId, onSelect }: { selectedId: DeviceId; onSelect: (id: DeviceId) => void }) {
@@ -25,6 +26,7 @@ export function DeviceStatusCard({ status }: { status: DeviceStatus }) {
   return <section className="device-status-card" aria-label={status.title}>
     <h3>{status.title}</h3>
     <dl>{status.rows.map((row) => <div key={row.label}><dt>{row.label}</dt><dd className={row.tone ?? ''}>{row.value}</dd></div>)}</dl>
+    {status.toggle && <button type="button" role="switch" className={`switch device-status-switch ${status.toggle.checked ? 'on' : ''}`} aria-checked={status.toggle.checked} aria-label="启用鼠标映射" onClick={status.toggle.onChange}><span /></button>}
     {status.action && <button type="button" title={status.action.title} onClick={status.action.onClick}>{status.action.label}</button>}
   </section>
 }

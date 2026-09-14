@@ -27,9 +27,13 @@ pub struct InputServiceStatus {
 pub struct NativeSettings {
     #[serde(default)]
     pub(super) enabled: bool,
+    #[serde(rename = "mouseEnabled", default = "mouse_enabled_by_default")]
+    pub(super) mouse_enabled: bool,
     #[serde(default)]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
+
+fn mouse_enabled_by_default() -> bool { true }
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]

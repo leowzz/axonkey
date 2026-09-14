@@ -156,7 +156,7 @@ impl MouseService {
             .map_err(|_| "Mouse settings lock is unavailable")?;
         configuration.revision = configuration.revision.wrapping_add(1);
         configuration.settings = settings.clone();
-        let active = settings.enabled
+        let active = settings.enabled && settings.mouse_enabled
             && (WHEEL_INPUTS.iter().flatten().any(|id| {
                 settings
                     .behaviors
@@ -194,7 +194,7 @@ fn current_job(shared: &Shared, revision: u64) -> bool {
         && shared
             .configuration
             .lock()
-            .is_ok_and(|config| config.revision == revision && config.settings.enabled)
+            .is_ok_and(|config| config.revision == revision && config.settings.enabled && config.settings.mouse_enabled)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -278,7 +278,7 @@ impl ScrollAccumulator {
                     .map(|item| &item.click),
             )
         };
-        let Some(actions) = actions.filter(|a| config.settings.enabled && has_actions(a)) else {
+        let Some(actions) = actions.filter(|a| config.settings.enabled && config.settings.mouse_enabled && has_actions(a)) else {
             self.key = None;
             self.remainder = 0.0;
             return false;
@@ -346,7 +346,7 @@ fn button_rule(
     edge: Option<Edge>,
     button: usize,
 ) -> Option<(&'static str, TriggerBehaviors)> {
-    if !config.settings.enabled {
+    if !config.settings.enabled || !config.settings.mouse_enabled {
         return None;
     }
     // Mouse buttons are edge-only. Never inherit legacy global button rules,

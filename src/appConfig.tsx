@@ -64,7 +64,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { behaviors: createDefaultBehaviorMap(), enabled: false }
+  const fallback = { behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
@@ -73,6 +73,7 @@ export function getStoredSettings(): StoredSettings {
     return {
       behaviors: parseStoredBehaviors(parsed),
       enabled: parsed.enabled === true,
+      mouseEnabled: parsed.mouseEnabled !== false,
     }
   } catch {
     return fallback

@@ -121,4 +121,5 @@ export type HitPosition = { x: number; y: number }
 export type StoredSettings = {
   behaviors: BehaviorMap
   enabled: boolean
+  mouseEnabled: boolean
 }
