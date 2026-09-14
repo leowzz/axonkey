@@ -20,7 +20,7 @@ import {
   VolumeX,
   X,
 } from 'lucide-react'
-import type { Behavior, ButtonId, TriggerType } from '../behaviorModel'
+import type { Behavior, InputId, TriggerType } from '../behaviorModel'
 import {
   behaviorSummary,
   behaviorTypeLabels,
@@ -30,7 +30,7 @@ import {
   shortcutModifiers,
   triggerLabels,
 } from '../appConfig'
-import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, RemoteButton } from '../appTypes'
+import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, MappingInput } from '../appTypes'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 import { useState } from 'react'
 
@@ -38,7 +38,7 @@ type BehaviorEditorProps = {
   editorRef: RefObject<HTMLElement>
   attention: boolean
   platform: Platform
-  button: RemoteButton
+  button: MappingInput
   trigger: TriggerType
   behaviors: Behavior[]
   onApplyCommonBehavior: (preset: CommonBehaviorPreset) => void
@@ -66,7 +66,7 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
 export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
-  return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${triggerLabels[trigger]}行为配置`}>
+  return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${(button.triggerLabel ?? triggerLabels[trigger])}行为配置`}>
     {button.id === 'voice' && <div className="voice-button-guidance" role="note">
       <strong>语音键配置建议</strong>
       <p>建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。不建议配置双击或长按事件。</p>
@@ -76,10 +76,10 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
         <div className="behavior-column-heading">
           <h3 id={`${tabId}-current-title`}>当前序列</h3>
-          <span>{button.label} · {triggerLabels[trigger]}</span>
+          <span>{button.label} · {(button.triggerLabel ?? triggerLabels[trigger])}</span>
         </div>
         <div className="behavior-list">
-          {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? '保留原按键' : '尚未设置'}</div>}
+          {behaviors.length === 0 && <div className="behavior-empty">{trigger === 'click' ? (button.originalLabel ?? '保留原按键') : '尚未设置'}</div>}
           {behaviors.map((behavior, index) => <BehaviorItem
             platform={platform}
             key={behavior.id}
@@ -115,7 +115,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
                 onClick={() => setActiveTab(id)}
               >{label}</button>)}
             </div>
-            <button type="button" className="icon-button behavior-return-button" title="返回选中按键" aria-label="返回选中按键" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+            <button type="button" className="icon-button behavior-return-button" title="返回选中触发项" aria-label="返回选中触发项" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
           </div>
         </div>
         <div
@@ -125,7 +125,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           className="behavior-action-grid"
         >
           {activeTab === 'common' && <>
-            <BehaviorActionButton icon={<RotateCcw size={17} />} label={trigger === 'click' ? '保留原按键' : '清除触发方式'} detail={trigger === 'click' ? '使用遥控器原始输入' : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
+            <BehaviorActionButton icon={<RotateCcw size={17} />} label={trigger === 'click' ? (button.originalLabel ?? '保留原按键') : '清除触发方式'} detail={trigger === 'click' ? (button.originalLabel ? '使用鼠标原始滚动' : '使用遥控器原始输入') : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
             <BehaviorActionButton icon={<Ban size={17} />} label="禁用此触发方式" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
             <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
             <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 提交" onClick={() => onApplyCommonBehavior('enter')} />
@@ -203,7 +203,7 @@ function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEd
 
 type BehaviorEditDialogProps = {
   platform: Platform
-  button: RemoteButton
+  button: MappingInput
   trigger: TriggerType
   behavior: Behavior
   capturing: boolean
@@ -266,7 +266,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
       onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
     >
       <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="behavior-dialog-title">{draft ? '添加' : '编辑'}{behaviorTypeLabels[behavior.type]}行为</h2></div>
+        <div><span className="section-kicker">{button.label} · {(button.triggerLabel ?? triggerLabels[trigger])}</span><h2 id="behavior-dialog-title">{draft ? '添加' : '编辑'}{behaviorTypeLabels[behavior.type]}行为</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
@@ -305,7 +305,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
           <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value as typeof current.direction } : current)}>
             <option value="up">滚轮向上</option><option value="down">滚轮向下</option><option value="left">水平滚轮向左</option><option value="right">水平滚轮向右</option>
           </select>
-          <p>每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。</p>
+          <p>{button.triggerLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</p>
         </div> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
           id="behavior-paste-text"
           className="behavior-paste-input"
@@ -324,7 +324,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
 }
 
 type TextInputPresetDialogProps = {
-  button: RemoteButton
+  button: MappingInput
   trigger: TriggerType
   value: string
   onChange: (value: string) => void
@@ -336,7 +336,7 @@ export function TextInputPresetDialog({ button, trigger, value, onChange, onClos
   return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section className="behavior-dialog text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="text-input-dialog-title">
       <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {triggerLabels[trigger]}</span><h2 id="text-input-dialog-title">输入文本并回车</h2></div>
+        <div><span className="section-kicker">{button.label} · {(button.triggerLabel ?? triggerLabels[trigger])}</span><h2 id="text-input-dialog-title">输入文本并回车</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">

@@ -1019,3 +1019,43 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .behavior-summary-popover li.paused { color: #8997a4; }
 .trigger-option-copy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: #637b96; }
 .trigger-options > button.active .trigger-option-copy small { color: #dceaff; }
+.device-selector-label { display: block; margin-bottom: 6px; color: #6b7d8f; font-size: 11px; }
+.device-selector { width: 100%; padding: 4px 0; border: 0; background: transparent; color: #24384b; font: inherit; font-size: 15px; font-weight: 650; cursor: pointer; }
+.device-status-button { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px; padding: 6px 0 0; border: 0; border-top: 1px solid #dce5ef; background: transparent; color: #6b7d8f; font-size: 11px; cursor: pointer; }
+.device-status-button > span:last-child { margin-left: auto; }
+.mouse-device-status { margin-top: 8px; color: #6b7d8f; font-size: 12px; }
+.mouse-device-illustration { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 28px 4px; text-align: center; }
+.mouse-device-icon { display: grid; width: 126px; height: 146px; place-items: center; border: 1px solid #dce7f3; border-radius: 42px; background: linear-gradient(145deg, #fff, #dce9f8); color: #497aa9; box-shadow: 0 14px 28px #294d7712; }
+.mouse-device-illustration strong { max-width: 160px; font-size: 15px; line-height: 1.6; }
+.mouse-device-illustration p { margin: 0; color: #6b7d8f; font-size: 12px; line-height: 1.9; }
+.mouse-device-note { margin-top: 16px; color: #8494a5; font-size: 11px; line-height: 1.9; }
+.mouse-edge-preview { display: flex; align-items: center; gap: 22px; padding: 12px 8px; }
+.mouse-screen { position: relative; flex: 0 0 200px; height: 100px; overflow: hidden; border: 2px solid #aec5dc; border-radius: 9px; background: linear-gradient(145deg, #f6faff, #e9f2fd); }
+.mouse-screen-edge { height: 7px; background: #3d8ae0; text-align: center; }
+.mouse-screen-edge-label { position: absolute; top: 15px; width: 100%; color: #2675c9; text-align: center; font-size: 11px; }
+.mouse-screen-left .mouse-screen-edge, .mouse-screen-right .mouse-screen-edge { position: absolute; top: 0; bottom: 0; width: 7px; height: 100%; }
+.mouse-screen-right .mouse-screen-edge { right: 0; }
+.mouse-screen-left .mouse-screen-pointer { top: 52px; left: 2px; }
+.mouse-screen-right .mouse-screen-pointer { top: 52px; right: 2px; left: auto; transform: scaleX(-1); }
+.mouse-edge-tabs { display: flex; gap: 6px; padding-top: 14px; }
+.mouse-edge-tabs button { min-width: 84px; padding: 7px 14px; border: 1px solid #dce5ef; border-radius: 6px; background: #f9fbfe; color: #6b7d8f; font-size: 12px; }
+.mouse-edge-tabs button[aria-pressed="true"] { border-color: #8ebbe8; background: #edf5ff; color: #216bb8; }
+.mouse-direction-grid.two-directions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mouse-screen-pointer { position: absolute; top: 5px; left: 28px; color: #2465a4; fill: white; }
+.mouse-screen-caption { position: absolute; right: 0; bottom: 26px; left: 0; color: #7990a8; text-align: center; font-size: 11px; }
+.mouse-edge-description h3 { margin: 6px 0 8px; color: #2f4255; font-size: 17px; }
+.mouse-edge-description p { margin: 0 0 8px; color: #6b7d8f; font-size: 12px; line-height: 1.8; }
+.mouse-edge-description small { color: #8494a5; font-size: 11px; line-height: 1.7; }
+.mouse-direction-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; padding-bottom: 4px; }
+.mouse-direction-grid button { display: grid; min-width: 0; grid-template-columns: 24px minmax(0, 1fr); align-items: center; gap: 5px 8px; padding: 12px; border: 1px solid #dae4ef; border-radius: 8px; background: #f9fbfe; color: #647c96; text-align: left; cursor: pointer; }
+.mouse-direction-grid button > svg { grid-row: 1 / 3; }
+.mouse-direction-grid button > small { grid-column: 2; }
+.mouse-direction-grid button:hover { border-color: #86b5e6; }
+.mouse-direction-grid button.active { border-color: #65a4e5; background: #edf5ff; color: #216bb8; box-shadow: inset 0 0 0 1px #65a4e520; }
+.mouse-direction-grid strong { font-size: 13px; }
+.mouse-direction-grid small { display: block; width: 100%; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 1000px) {
+  .mouse-edge-preview { gap: 16px; }
+  .mouse-screen { flex-basis: 170px; }
+  .mouse-direction-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

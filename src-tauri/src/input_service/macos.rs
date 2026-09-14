@@ -1091,7 +1091,7 @@ fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
     }
 }
 
-fn execute_behaviors(behaviors: &[NativeBehavior]) {
+pub(super) fn execute_behaviors(behaviors: &[NativeBehavior]) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         log_behavior(behavior);
         match behavior {

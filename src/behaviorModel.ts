@@ -5,23 +5,11 @@
  * run a sequence such as shortcut -> delay -> paste.
  */
 
-export const buttonIds = [
-  'power',
-  'voice',
-  'up',
-  'left',
-  'confirm',
-  'right',
-  'down',
-  'back',
-  'volumeUp',
-  'home',
-  'volumeDown',
-  'menu',
-  'tv',
-] as const
-
-export type ButtonId = (typeof buttonIds)[number]
+import { inputIds, remoteButtonIds } from './deviceModel.ts'
+import type { InputId, RemoteButtonId } from './deviceModel.ts'
+export type { InputId } from './deviceModel.ts'
+export const buttonIds = remoteButtonIds
+export type ButtonId = RemoteButtonId
 
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
@@ -64,7 +52,7 @@ export type MouseBehavior = BehaviorBase & { type: 'mouse'; button: 'left' | 'mi
 export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
-export type BehaviorMap = Record<ButtonId, TriggerBehaviors>
+export type BehaviorMap = Record<InputId, TriggerBehaviors>
 
 export const mappingTransferFormat = 'axonkey-mapping'
 export const mappingTransferVersion = 1
@@ -155,7 +143,7 @@ function emptyTriggers(): TriggerBehaviors {
 
 /** Returns a fresh map so callers can mutate their state without sharing defaults. */
 export function createEmptyBehaviorMap(): BehaviorMap {
-  return Object.fromEntries(buttonIds.map((id) => [id, emptyTriggers()])) as BehaviorMap
+  return Object.fromEntries(inputIds.map((id) => [id, emptyTriggers()])) as BehaviorMap
 }
 
 /** The initial configuration mirrors the two mappings used by the current UI. */
@@ -166,8 +154,8 @@ export function createDefaultBehaviorMap(): BehaviorMap {
   return map
 }
 
-function isButtonId(value: string): value is ButtonId {
-  return (buttonIds as readonly string[]).includes(value)
+function isButtonId(value: string): value is InputId {
+  return (inputIds as readonly string[]).includes(value)
 }
 
 function isTriggerType(value: string): value is TriggerType {
@@ -235,7 +223,7 @@ function behaviorContainer(value: unknown) {
 
 function hasBehaviorMapShape(value: unknown) {
   if (!isRecord(value)) return false
-  const knownButtons = buttonIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
+  const knownButtons = inputIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
   if (knownButtons.length === 0) return false
   return knownButtons.every((buttonId) => {
     const rawButton = value[buttonId]
@@ -249,7 +237,7 @@ function hasBehaviorMapShape(value: unknown) {
 
 function hasLegacyMappingShape(value: unknown) {
   if (!isRecord(value)) return false
-  const knownButtons = buttonIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
+  const knownButtons = inputIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
   return knownButtons.length > 0 && knownButtons.every((buttonId) => typeof value[buttonId] === 'string')
 }
 
@@ -271,7 +259,7 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   const fallback = createDefaultBehaviorMap()
   if (!isRecord(parsed)) return fallback
 
-  const directLegacy = buttonIds.some((buttonId) => typeof parsed[buttonId] === 'string')
+  const directLegacy = inputIds.some((buttonId) => typeof parsed[buttonId] === 'string')
   const legacy = isRecord(parsed.mappings)
     ? legacyMappingsToBehaviorMap(parsed.mappings)
     : directLegacy
@@ -281,7 +269,7 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   if (!source) return legacy ?? fallback
 
   const result = legacy ?? fallback
-  for (const buttonId of buttonIds) {
+  for (const buttonId of inputIds) {
     const rawButton = source[buttonId]
     if (!isRecord(rawButton)) continue
     for (const trigger of triggerTypes) {
@@ -338,14 +326,14 @@ export function parseMappingImport(value: unknown): ImportedMapping | null {
 }
 
 /** Append a behavior without mutating the existing map. */
-export function appendBehavior(map: BehaviorMap, buttonId: ButtonId, trigger: TriggerType, behavior: Behavior): BehaviorMap {
+export function appendBehavior(map: BehaviorMap, buttonId: InputId, trigger: TriggerType, behavior: Behavior): BehaviorMap {
   return updateBehaviorList(map, buttonId, trigger, (list) => [...list, cloneBehavior(behavior)])
 }
 
 /** Replace one ordered list, cloning all values to keep React state immutable. */
 export function updateBehaviorList(
   map: BehaviorMap,
-  buttonId: ButtonId,
+  buttonId: InputId,
   trigger: TriggerType,
   update: (list: Behavior[]) => Behavior[],
 ): BehaviorMap {
@@ -355,7 +343,7 @@ export function updateBehaviorList(
 }
 
 /** Move a behavior in a trigger list; invalid indices return an unchanged clone. */
-export function moveBehavior(map: BehaviorMap, buttonId: ButtonId, trigger: TriggerType, fromIndex: number, toIndex: number): BehaviorMap {
+export function moveBehavior(map: BehaviorMap, buttonId: InputId, trigger: TriggerType, fromIndex: number, toIndex: number): BehaviorMap {
   return updateBehaviorList(map, buttonId, trigger, (list) => {
     if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return list
     const next = [...list]

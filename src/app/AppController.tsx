@@ -3,9 +3,7 @@ import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
 import {
-  Bluetooth,
   Check,
-  CheckCircle2,
   Copy,
   Download,
   Info,
@@ -23,7 +21,7 @@ import {
   parseMappingImport,
   updateBehaviorList,
 } from '../behaviorModel'
-import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerType } from '../behaviorModel'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
   keyDisplayName,
@@ -60,6 +58,9 @@ import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
+import { devices, deviceForInput } from '../deviceModel'
+import type { DeviceId } from '../deviceModel'
+import { MouseDeviceIllustration, MouseMappingPicker, mouseInputs } from '../components/MouseMapping'
 import { MappingOverview } from '../components/MappingOverview'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
@@ -103,6 +104,9 @@ function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
   const editableButtons = buttons
+  const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>('rc003')
+  const selectedDevice = devices.find((device) => device.id === selectedDeviceId)!
+  const isMouse = selectedDevice.inputKind === 'edgeScroll'
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
     inputMonitoring: false,
     accessibility: false,
@@ -144,7 +148,7 @@ function AppController() {
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [applyRetry, setApplyRetry] = useState(0)
   const [toast, setToast] = useState('')
-  const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
+  const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: InputId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
@@ -168,11 +172,12 @@ function AppController() {
   const [homeRefreshing, setHomeRefreshing] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
+  const mappingMainRef = useRef<HTMLElement>(null)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
-  const rowRefs = useRef<Partial<Record<ButtonId, HTMLElement>>>({})
+  const rowRefs = useRef<Partial<Record<InputId, HTMLElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
@@ -344,7 +349,8 @@ function AppController() {
   }, [capturingBehaviorId])
 
   const resetMappings = () => {
-    setBehaviors(createDefaultBehaviorMap())
+    const defaults = createDefaultBehaviorMap()
+    setBehaviors((current) => ({ ...current, ...Object.fromEntries(selectedDevice.inputIds.map((id) => [id, defaults[id]])) }))
     setAutoSaveState('saving')
     setToast('已恢复默认映射，将自动保存')
     window.setTimeout(() => setToast(''), 2200)
@@ -407,14 +413,16 @@ function AppController() {
     selectedRow.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
   }
 
-  const selectBehaviorTarget = (buttonId: ButtonId, trigger: TriggerType) => {
-    setActiveId(buttonId)
+  const selectBehaviorTarget = (buttonId: InputId, trigger: TriggerType, reveal = true) => {
+    const device = deviceForInput(buttonId)
+    setSelectedDeviceId(device.id)
+    if (device.id === 'rc003') setActiveId(buttonId as ButtonId)
     setSelectedBehavior({ buttonId, trigger })
     setCapturingBehaviorId(null)
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
-    revealBehaviorEditor()
+    if (reveal) revealBehaviorEditor()
   }
 
   const showBehaviorToast = useCallback((message: string) => {
@@ -566,7 +574,7 @@ function AppController() {
         return
       case 'original':
         replaceWithCommonBehavior([])
-        showBehaviorToast(selectedBehavior.trigger === 'click' ? '已保留原按键' : '已清除此触发方式')
+        showBehaviorToast(selectedBehavior.trigger === 'click' ? (isMouse ? '已保留原始滚动' : '已保留原按键') : '已清除此触发方式')
         return
       case 'disabled':
         replaceWithCommonBehavior([createBehavior({ type: 'disabled' })])
@@ -1135,7 +1143,7 @@ function AppController() {
   const editingBehavior = editingBehaviorId
     ? behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find((behavior) => behavior.id === editingBehaviorId) ?? null
     : null
-  const selectedButton = editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]
+  const selectedButton = [...editableButtons, ...mouseInputs].find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]
 
   if (permissionHelperKind) {
     const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
@@ -1191,7 +1199,16 @@ function AppController() {
         /> : activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
-              <button type="button" className="device-card remote-device-card" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><div className="device-card-head"><strong>小米遥控器</strong>{inputAuthorizationStale ? <Info className="device-icon warning" size={16} /> : setupState.device.status === 'connected' ? <CheckCircle2 className="device-icon" size={16} /> : <Bluetooth className="device-icon" size={16} />}</div><div className="device-card-meta"><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /> <span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryIndicator level={displayedBatteryLevel} /><span className="device-meta-separator" /><span>{inputAuthorizationStale ? '权限失效' : platform === 'macos' ? '设备与权限' : '设备与驱动'}</span></div></button>
+              <div className="device-card remote-device-card">
+                <label className="device-selector-label" htmlFor="mapping-device">映射设备</label>
+                <select id="mapping-device" className="device-selector" value={selectedDeviceId} onChange={(event) => {
+                  const device = devices.find((item) => item.id === event.target.value)!
+                  selectBehaviorTarget(device.id === 'rc003' ? activeId : device.inputIds[0], 'click', false)
+                  mappingMainRef.current?.scrollTo({ top: 0 })
+                }}>{devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}</select>
+                {isMouse ? <div className="mouse-device-status">{!nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '映射尚未应用' : enabled ? '边缘滚动已开启' : '边缘滚动未开启'}</div> : <button type="button" className="device-status-button" onClick={() => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection')}><span className={`device-state-dot ${setupState.device.status === 'connected' ? 'connected' : ''}`} /><span>{setupState.device.status === 'connected' ? '已连接' : '未连接'}</span><BatteryIndicator level={displayedBatteryLevel} /><span>{inputAuthorizationStale ? '权限失效' : '查看状态'}</span></button>}
+              </div>
+              {isMouse ? <MouseDeviceIllustration /> : <>
               {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
               <div className="remote-stage">
                 <div className="remote-art" ref={remoteArtRef}>
@@ -1213,15 +1230,16 @@ function AppController() {
                   ))}
                 </div>
               </div>
+              </>}
             </aside>
 
-            <section className="mapping-main" aria-label="按键映射工作区">
+            <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
-                  <h2 id="key-picker-title">按键 <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : '已保存并生效'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
-                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
+                  <h2 id="key-picker-title">{isMouse ? '边缘滚动' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
+                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Upload size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Download size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={13} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
-                <MappingKeyGrid
+                {isMouse ? <MouseMappingPicker rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} onSelect={(id) => selectBehaviorTarget(id, 'click', false)} /> : <MappingKeyGrid
                   platform={platform}
                   buttons={editableButtons}
                   behaviors={behaviors}
@@ -1232,16 +1250,16 @@ function AppController() {
                       : !enabled || extraKeys.status.state !== 'ready' ? '增强未就绪' : undefined}
                   rowRefs={rowRefs}
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
-                />
+                />}
               </section>
-              <MappingTriggerSelector
+              {!isMouse && <MappingTriggerSelector
                 platform={platform}
-                button={selectedButton}
+                button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
                 auxiliary={platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && extraKeys.wanted && extraKeys.status.state === 'ready' ? <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} /> : undefined}
-              />
+              />}
               {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && !(extraKeys.wanted && extraKeys.status.state === 'ready') && <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} />}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
@@ -1257,7 +1275,7 @@ function AppController() {
                 onEditBehavior={setEditingBehaviorId}
                 onReturnToMappings={returnToSelectedMapping}
               />
-              {platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
+              {!isMouse && platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
                 open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
                 <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
                 <ExtraKeysControl control={extraKeys} />
@@ -1309,7 +1327,7 @@ function AppController() {
       </div>}
       {editingBehavior && <BehaviorEditDialog
         platform={platform}
-        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
+        button={selectedButton}
         trigger={selectedBehavior.trigger}
         behavior={editingBehavior}
         capturing={capturingBehaviorId === editingBehavior.id}
@@ -1321,7 +1339,7 @@ function AppController() {
       />}
       {draftBehavior && <BehaviorEditDialog
         platform={platform}
-        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
+        button={selectedButton}
         trigger={selectedBehavior.trigger}
         behavior={draftBehavior.behavior}
         capturing={capturingBehaviorId === draftBehavior.behavior.id}
@@ -1334,7 +1352,7 @@ function AppController() {
         onSave={() => commitDraftBehavior()}
       />}
       {textInputDraft !== null && <TextInputPresetDialog
-        button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
+        button={selectedButton}
         trigger={selectedBehavior.trigger}
         value={textInputDraft}
         onChange={setTextInputDraft}

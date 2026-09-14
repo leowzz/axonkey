@@ -1252,3 +1252,66 @@ bool axonkey_macos_post_mouse_click(int button) {
     CFRelease(up);
     return true;
 }
+
+// Independent mouse capture: no HID device or remote capture session required.
+typedef struct {
+    void *context;
+    bool (*should_stop)(void *);
+    void (*on_ready)(void *, bool);
+    bool (*on_scroll)(void *, double, double, double, double, double, double, double, double);
+    CFMachPortRef tap;
+} AxonkeyMouseCapture;
+
+static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *context) {
+    (void)proxy;
+    AxonkeyMouseCapture *capture = context;
+    if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
+        CGEventTapEnable(capture->tap, true);
+        return event;
+    }
+    if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == AXONKEY_SYNTHETIC_EVENT_MARKER) return event;
+    CGPoint point = CGEventGetLocation(event);
+    CGDirectDisplayID displays[16];
+    uint32_t count = 0;
+    if (CGGetDisplaysWithPoint(point, 16, displays, &count) != kCGErrorSuccess || count == 0) return event;
+    CGRect bounds = CGDisplayBounds(displays[0]);
+    double vertical = 0, horizontal = 0;
+    if (type == kCGEventScrollWheel) {
+        if (CGEventGetIntegerValueField(event, kCGScrollWheelEventIsContinuous)) {
+            vertical = CGEventGetDoubleValueField(event, kCGScrollWheelEventPointDeltaAxis1) / 10.0;
+            horizontal = CGEventGetDoubleValueField(event, kCGScrollWheelEventPointDeltaAxis2) / 10.0;
+        } else {
+            vertical = CGEventGetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis1);
+            horizontal = CGEventGetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis2);
+        }
+    }
+    bool consumed = capture->on_scroll(capture->context, point.x, point.y,
+        CGRectGetMinX(bounds), CGRectGetMinY(bounds), CGRectGetMaxX(bounds), CGRectGetMaxY(bounds), vertical, horizontal);
+    return consumed && type == kCGEventScrollWheel ? NULL : event;
+}
+
+bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*on_ready)(void *, bool),
+    bool (*on_scroll)(void *, double, double, double, double, double, double, double, double)) {
+    @autoreleasepool {
+        if (!AXIsProcessTrusted() || !CGPreflightListenEventAccess()) return false;
+        AxonkeyMouseCapture capture = { context, should_stop, on_ready, on_scroll, NULL };
+        capture.tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
+            CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved), axonkey_mouse_callback, &capture);
+        if (capture.tap == NULL) return false;
+        CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, capture.tap, 0);
+        if (source == NULL) { CFRelease(capture.tap); return false; }
+        CFRunLoopRef loop = CFRunLoopGetCurrent();
+        CFRunLoopAddSource(loop, source, kCFRunLoopCommonModes);
+        CGEventTapEnable(capture.tap, true);
+        on_ready(context, true);
+        while (!should_stop(context)) {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.02, false);
+        }
+        on_ready(context, false);
+        CGEventTapEnable(capture.tap, false);
+        CFRunLoopRemoveSource(loop, source, kCFRunLoopCommonModes);
+        CFRelease(source);
+        CFRelease(capture.tap);
+        return true;
+    }
+}

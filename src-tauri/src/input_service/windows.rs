@@ -1130,6 +1130,59 @@ fn execute_behaviors(
     }
 }
 
+/// System mouse mappings use SendInput, independently of any RC003 keyboard.
+pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior) {
+    match behavior {
+        NativeBehavior::Wheel { direction, .. } => {
+            send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction))
+        }
+        NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
+        NativeBehavior::Paste { text, .. } => send_unicode_text(text),
+        NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
+            if let Some(keys) = behavior_chord(behavior) {
+                let mut pressed = Vec::new();
+                for key in keys {
+                    if send_virtual_key(key, false) {
+                        pressed.push(key);
+                    } else {
+                        break;
+                    }
+                }
+                thread::sleep(OUTPUT_TAP_DURATION);
+                for key in pressed.into_iter().rev() {
+                    send_virtual_key(key, true);
+                }
+            }
+        }
+        NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
+    }
+}
+
+fn send_virtual_key(key: u16, up: bool) -> bool {
+    let extended = unsafe { MapVirtualKeyW(key as u32, 4) } >> 8 == 0xe0;
+    let input = Input {
+        kind: 1,
+        value: InputValue {
+            keyboard: KeyboardInput {
+                virtual_key: key,
+                scan_code: 0,
+                flags: (if up { 2 } else { 0 }) | u32::from(extended),
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    #[cfg(not(test))]
+    {
+        unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) == 1 }
+    }
+    #[cfg(test)]
+    {
+        let _ = input;
+        true
+    }
+}
+
 fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
     match behavior {
         NativeBehavior::Key { key, .. } => parse_chord(key),

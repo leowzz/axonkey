@@ -219,7 +219,11 @@ test('the prominent guidance opens the disclosure before explicit authorization'
     await app.cancel()
     assert.match(readText(notice()), /尚未就绪/)
     await app.connected()
-    assert.match(readText(notice()), /增强支持已启用/)
-    assert.doesNotMatch(readText(notice()), /尚未生效/)
+    // The ready state uses the compact button rather than the warning region.
+    const readyNotice = app.renderer.root.findByProps({ 'aria-label': '打开高级选项' })
+    assert.match(readText(readyNotice), /增强支持已启用/)
+    assert.doesNotMatch(readText(readyNotice), /尚未生效/)
+    await act(async () => { readyNotice.props.onClick() })
+    assert.equal(app.opened, 2)
   } finally { await app.close() }
 })

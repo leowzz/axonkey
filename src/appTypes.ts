@@ -1,4 +1,12 @@
-import type { Behavior, BehaviorMap, ButtonId } from './behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, InputId } from './behaviorModel'
+
+export type MappingInput = {
+  id: InputId
+  label: string
+  icon: RemoteButton['icon']
+  triggerLabel?: string
+  originalLabel?: string
+}
 
 export type RemoteButton = {
   id: ButtonId

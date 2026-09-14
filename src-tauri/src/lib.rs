@@ -3,6 +3,7 @@ mod input_service;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::{InputService, NativeSettings};
+use input_service::mouse::MouseService;
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
@@ -957,9 +958,11 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
+    mouse_service: tauri::State<'_, MouseService>,
 ) -> Result<(), String> {
     log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
-    input_service.update_settings(settings)
+    input_service.update_settings(settings.clone())?;
+    mouse_service.update_settings(&settings)
 }
 
 #[tauri::command]
@@ -1151,6 +1154,7 @@ pub fn run() {
             }
             app.manage(AudioService::start());
             app.manage(InputService::start());
+            app.manage(MouseService::start());
             app.manage(PermissionHelperWindowState::default());
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
@@ -1203,6 +1207,9 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
         .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<MouseService>().shutdown();
+            }
             #[cfg(windows)]
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<InputService>().shutdown();

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub mod mouse;
+
 #[cfg(any(windows, test))]
 mod extra_keys_protocol;
 #[cfg(windows)]
