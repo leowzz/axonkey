@@ -38,7 +38,7 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
       <span className="mouse-model-mark"><Mouse size={14} /> MOUSE</span>
     </div>
     <strong className="mouse-model-selection">{selected.label}</strong>
-    <p>点击部位选择输入。滚轮方向按内容移动方向标注，避免与滚动条方向混淆。</p>
+    <p>兜底操作：连续快速按下 5 次 ESC，会关闭鼠标映射开关。</p>
   </section>
 }
 
