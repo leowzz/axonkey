@@ -45,7 +45,7 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
       error: null,
       check,
       install,
-      canInstall: false,
+      canInstall: true,
     }
   }
   return { ...state, hasUpdate, check, install, canInstall: native && hasUpdate }

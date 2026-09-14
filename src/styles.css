@@ -942,7 +942,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .about-update p { margin-top: 6px; color: #69737b; font-size: 13px; line-height: 1.7; }
 .about-update-actions { display: flex; flex-shrink: 0; gap: 8px; }
 .about-update-actions button, .about-update-actions a { padding: 9px 14px; border: 1px solid #cfd2d3; border-radius: 6px; color: #3d4852; background: #fff; font-size: 13px; text-decoration: none; }
-.about-update-actions a, .about-update-actions .about-install-update { color: #fff; border-color: #1478e8; background: #1478e8; }
+.about-update-actions a { color: #1766b5; border-color: #b2d4fa; background: #dcecff; }
+.about-update-actions .about-install-update { color: #fff; border-color: #1478e8; background: #1478e8; }
 .about-update-actions button:disabled { cursor: wait; opacity: .55; }
 .about-update-actions :focus-visible { outline: 2px solid #1478e8; outline-offset: 3px; }
 

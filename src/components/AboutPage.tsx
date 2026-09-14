@@ -35,8 +35,8 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
       </div>
       <div className="about-update-actions">
         <button type="button" disabled={update.checking || update.phase !== 'idle'} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
-        {update.canInstall && <button className="about-install-update" type="button" disabled={busy || update.checking} onClick={update.install}>{update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}</button>}
         {!busy && (update.hasUpdate || update.error) && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
+        {update.canInstall && <button className="about-install-update" type="button" disabled={busy || update.checking} onClick={update.install}>{update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}</button>}
       </div>
     </section>
     <section className="about-features" aria-label="应用功能">
