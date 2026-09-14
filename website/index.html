@@ -49,13 +49,18 @@
       </section>
 
       <section class="experience wrap section" id="experience" aria-labelledby="experience-title">
-        <div class="experience-copy"><span class="eyebrow">MADE TO FEEL SIMPLE.</span><h2 id="experience-title">能力很丰富。<br />设置很直觉。</h2><p>选一个按键，设一种行为。<br />设备状态、按键映射、语音通道，<br />都在一个清晰的本地控制台里。</p><div class="preview-switch" role="group" aria-label="界面预览"><button type="button" data-preview="mapping" aria-pressed="true">按键映射</button><button type="button" data-preview="overview" aria-pressed="false">按键总览</button><button type="button" data-preview="home" aria-pressed="false">主页</button></div><p class="preview-caption" id="preview-caption" aria-live="polite">单击、双击与长按，各有自己的用途。</p><a class="text-link" href="https://github.com/leowzz/axonkey#macos-首次使用" target="_blank" rel="noopener noreferrer">阅读使用指南 <span aria-hidden="true">↗</span></a></div>
-        <div class="app-preview"><div class="window-chrome" aria-hidden="true"><span></span><span></span><span></span><p>Axonkey</p></div><img id="app-screenshot" src="../docs/images/axonkey-mapping.png" alt="Axonkey 按键映射界面，可选择实体按键并编辑触发行为" width="1920" height="1200" loading="lazy" /></div>
+        <div class="experience-copy"><span class="eyebrow">MADE TO FEEL SIMPLE.</span><h2 id="experience-title">能力很丰富。<br />设置很直觉。</h2><p>选一个按键，设一种行为。<br />设备状态、按键映射、语音通道，<br />都在一个清晰的本地控制台里。</p><div class="preview-switch" role="group" aria-label="界面预览"><button type="button" data-preview="home" aria-pressed="true">主页</button><button type="button" data-preview="overview" aria-pressed="false">总览</button><button type="button" data-preview="mapping" aria-pressed="false">映射</button></div></div>
+        <button type="button" class="app-preview" id="open-screenshot" aria-label="放大查看当前应用截图" aria-haspopup="dialog"><div class="window-chrome" aria-hidden="true"><span></span><span></span><span></span><p>Axonkey</p></div><img id="app-screenshot" alt="Axonkey 主页，展示设备状态、系统权限、语音通道和快捷操作" width="2048" height="1375" loading="lazy" /><span class="zoom-hint">点击查看大图 ↗</span></button>
       </section>
 
       <section class="local-section wrap"><div class="local-mark" aria-hidden="true">⌁</div><div><h2>你的控制，留在你的电脑。</h2><p>无需账号，没有云端同步或遥测。配置与诊断数据保存在本机。</p></div><a class="text-link" href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer">查看源代码 <span aria-hidden="true">↗</span></a></section>
 
     </main>
+
+    <dialog class="image-viewer" id="image-viewer" aria-label="应用截图大图">
+      <button type="button" class="viewer-close" aria-label="关闭大图" autofocus>关闭 ×</button>
+      <img id="viewer-image" alt="" />
+    </dialog>
 
     <footer class="footer wrap"><a class="brand" href="#" aria-label="回到首页"><img class="brand-symbol" src="./assets/app-icon.svg" alt="" width="34" height="34" />axonkey</a><span>少一点操作，多一点专注。</span><a href="https://github.com/leowzz/axonkey" target="_blank" rel="noopener noreferrer">GitHub ↗</a></footer>
   </body>
