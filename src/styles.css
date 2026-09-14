@@ -948,14 +948,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
 
 /* Current mappings, arranged around the calibrated RC003 artwork. */
 .mapping-overview { width: min(1180px, calc(100% - 48px)); margin: 12px auto 20px; }
-.overview-heading { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 12px; gap: 16px; }
-.overview-eyebrow { color: #70808f; font: 11px 'DM Mono', monospace; letter-spacing: .16em; }
-.overview-heading h2 { line-height: 1.35; margin: 4px 0 0; font-size: 21px; font-weight: 700; letter-spacing: -.04em; }
-.overview-heading h2 > span { display: none; margin-top: 9px; color: #7b8590; font-size: 13px; font-weight: 400; letter-spacing: 0; }
-.overview-totals { text-align: right; }
-.overview-totals > strong { line-height: 1.1; display: block; font: 26px/1.1 'DM Mono', monospace; letter-spacing: -.07em; }
-.overview-totals small { color: #929ca6; font-size: 20px; }
-.overview-totals > span { display: block; margin-top: 5px; color: #7b8590; font-size: 11px; }
 .overview-surface { overflow: hidden; border: 1px solid #dce2e8; border-radius: 18px; background: #fafcfe; box-shadow: 0 8px 30px #29466406; }
 .overview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; border-bottom: 1px solid #e6ebf0; }
 .overview-trigger-switch { display: flex; gap: 4px; padding: 4px; border: 1px solid #e2e7ed; border-radius: 10px; background: #edf1f5; }

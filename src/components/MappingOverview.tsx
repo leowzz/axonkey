@@ -30,7 +30,6 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   const imageRef = useRef<HTMLDivElement>(null)
   const cardRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
   const highlightedId = pressedId ?? hoveredId ?? selectedId
-  const configured = buttons.filter((button) => triggerTypes.some((type) => behaviors[button.id][type].length > 0)).length
   const triggerCount = buttons.filter((button) => behaviors[button.id][trigger].length > 0).length
   const noticeFor = (id: ButtonId) => ['back', 'volumeUp', 'volumeDown'].includes(id) ? extraKeysNotice : undefined
 
@@ -62,10 +61,6 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   }, [buttons, positions])
 
   return <div className="mapping-overview">
-    <section className="overview-heading">
-      <div><span className="overview-eyebrow">RC003 / CONTROL MAP</span><h2>每个按键，一目了然<span>你的遥控器，你的操作方式。</span></h2></div>
-      <div className="overview-totals"><strong>{configured}<small> / {buttons.length}</small></strong><span>按键已配置</span></div>
-    </section>
     <section className="overview-surface" aria-label="当前按键映射示意图">
       <div className="overview-toolbar">
         <div className="overview-trigger-switch" role="group" aria-label="总览触发方式">
