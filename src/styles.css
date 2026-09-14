@@ -1021,7 +1021,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .behavior-summary-popover li { padding: 5px 0 5px 3px; font-size: 12px; line-height: 1.6; }
 .behavior-summary-popover li + li { border-top: 1px solid #edf1f5; }
 .behavior-summary-popover li::marker { color: #8a9eb2; font-size: 10px; }
-.behavior-summary-popover li span { white-space: pre-wrap; overflow-wrap: anywhere; }
+.behavior-summary-popover li span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .behavior-summary-popover li.paused { color: #8997a4; }
 .trigger-option-copy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: #637b96; }
 .trigger-options > button.active .trigger-option-copy small { color: #dceaff; }
