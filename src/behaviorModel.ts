@@ -290,7 +290,7 @@ export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, ex
     version: mappingTransferVersion,
     exportedAt,
     enabled,
-    behaviors,
+    behaviors: Object.fromEntries(inputIds.map((id) => [id, behaviors[id]])) as BehaviorMap,
   }
 }
 
@@ -337,6 +337,7 @@ export function updateBehaviorList(
   trigger: TriggerType,
   update: (list: Behavior[]) => Behavior[],
 ): BehaviorMap {
+  if (!isButtonId(buttonId)) throw new Error(`Unsupported mapping input: ${buttonId}`)
   const next = { ...map, [buttonId]: { ...map[buttonId] } }
   next[buttonId][trigger] = update(map[buttonId][trigger].map(cloneBehavior)).map(cloneBehavior)
   return next

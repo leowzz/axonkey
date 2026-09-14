@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { devices, deviceForInput, mouseInputIds, remoteButtonIds } from '../src/deviceModel.ts'
+import { devices, deviceForInput, mouseInputIds, mouseInputId, mouseScopesForControl, remoteButtonIds } from '../src/deviceModel.ts'
 import { createBehavior, createDefaultBehaviorMap, createMappingExport, parseMappingImport, parseStoredBehaviors, updateBehaviorList } from '../src/behaviorModel.ts'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../src/behaviorHistory.ts'
 
@@ -49,8 +49,37 @@ test('legacy edge rules stay in their original scopes while new inputs start emp
   const parsed = parseStoredBehaviors({behaviors})
   for (const id of legacy) assert.deepEqual(parsed[id], behaviors[id])
   assert.deepEqual(parsed['mouse.global.up'].click, [])
-  assert.deepEqual(parsed['mouse.global.buttonLeft'], {click:[],doubleClick:[],longPress:[]})
-  let map = updateBehaviorList(parsed, 'mouse.global.buttonLeft', 'doubleClick', () => [createBehavior({type:'key',key:'B'})])
+  assert.equal(parsed['mouse.global.buttonLeft'], undefined)
+  let map = updateBehaviorList(parsed, 'mouse.top.buttonLeft', 'doubleClick', () => [createBehavior({type:'key',key:'B'})])
   map = updateBehaviorList(map, 'mouse.right.buttonLeft', 'longPress', () => [createBehavior({type:'key',key:'C'})])
   assert.deepEqual(parseMappingImport(createMappingExport(map, true)).behaviors, map)
+})
+
+
+test('global mouse button rules cannot be created, restored, imported or exported', () => {
+  const map = createDefaultBehaviorMap()
+  const forbidden = ['mouse.global.buttonLeft', 'mouse.global.buttonRight']
+  for (const id of forbidden) {
+    assert.ok(!mouseInputIds.includes(id))
+    assert.throws(() => updateBehaviorList(map, id, 'click', () => [createBehavior({type:'disabled'})]), /Unsupported mapping input/)
+  }
+  const legacy = { ...map, ...Object.fromEntries(forbidden.map(id => [id, {
+    click:[createBehavior({type:'key',key:'A'})],
+    doubleClick:[createBehavior({type:'key',key:'B'})],
+    longPress:[createBehavior({type:'key',key:'C'})],
+  }])) }
+  legacy['mouse.global.up'].click = [createBehavior({type:'key',key:'Up'})]
+  legacy['mouse.left.buttonRight'].click = [createBehavior({type:'key',key:'R'})]
+  for (const result of [parseStoredBehaviors({behaviors:legacy}), parseMappingImport({behaviors:legacy}).behaviors, createMappingExport(legacy,true).behaviors]) {
+    for (const id of forbidden) assert.equal(result[id], undefined)
+    assert.equal(result['mouse.global.up'].click[0].key, 'Up')
+    assert.equal(result['mouse.left.buttonRight'].click[0].key, 'R')
+  }
+  const oldStrings = {mappings:{voice:'Ctrl+Space', 'mouse.global.buttonLeft':'Ctrl+A', 'mouse.global.buttonRight':'Ctrl+B'}}
+  for (const id of forbidden) assert.equal(parseStoredBehaviors(oldStrings)[id], undefined)
+  for (const control of ['buttonLeft','buttonRight']) {
+    assert.deepEqual(mouseScopesForControl(control).map(scope => scope.id), ['top','left','right'])
+    assert.equal(mouseInputId('global', control), `mouse.top.${control}`)
+  }
+  assert.equal(mouseInputId('global','up'), 'mouse.global.up')
 })

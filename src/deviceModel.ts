@@ -17,9 +17,16 @@ export const mouseControls = [
 export type MouseScopeId = typeof mouseScopes[number]['id']
 export type MouseControlId = typeof mouseControls[number]['id']
 export type RemoteButtonId = typeof remoteButtonIds[number]
-export type MouseInputId = `mouse.${MouseScopeId}.${MouseControlId}`
-export const mouseInputId = (scope: MouseScopeId, control: MouseControlId): MouseInputId => `mouse.${scope}.${control}`
-export const mouseInputIds = mouseScopes.flatMap((scope) => mouseControls.map((control) => mouseInputId(scope.id, control.id)))
+export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonRight'>
+export function mouseScopesForControl(control: MouseControlId) {
+  return mouseScopes.filter((scope) => scope.id !== 'global' || (control !== 'buttonLeft' && control !== 'buttonRight'))
+}
+export function mouseInputId(scope: MouseScopeId, control: MouseControlId): MouseInputId {
+  const allowedScopes = mouseScopesForControl(control)
+  const selectedScope = allowedScopes.find((item) => item.id === scope) ?? allowedScopes[0]
+  return `mouse.${selectedScope.id}.${control}` as MouseInputId
+}
+export const mouseInputIds = mouseControls.flatMap((control) => mouseScopesForControl(control.id).map((scope) => mouseInputId(scope.id, control.id)))
 export function mouseInputParts(id: InputId) {
   const [, scopeId, controlId] = id.split('.')
   return {

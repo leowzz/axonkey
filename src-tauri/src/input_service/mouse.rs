@@ -42,8 +42,7 @@ const WHEEL_INPUTS: [[&str; 4]; 4] = [
         "mouse.right.right",
     ],
 ];
-const BUTTON_INPUTS: [[&str; 2]; 4] = [
-    ["mouse.global.buttonLeft", "mouse.global.buttonRight"],
+const BUTTON_INPUTS: [[&str; 2]; 3] = [
     ["mouse.top.buttonLeft", "mouse.top.buttonRight"],
     ["mouse.left.buttonLeft", "mouse.left.buttonRight"],
     ["mouse.right.buttonLeft", "mouse.right.buttonRight"],
@@ -350,33 +349,12 @@ fn button_rule(
     if !config.settings.enabled {
         return None;
     }
-    let global_id = BUTTON_INPUTS[0][button];
-    let scoped_id = BUTTON_INPUTS[edge.map_or(0, Edge::scope)][button];
-    let mut triggers = config
-        .settings
-        .behaviors
-        .get(global_id)
-        .cloned()
-        .unwrap_or_default();
-    let mut input = global_id;
-    if let Some(scoped) = config
-        .settings
-        .behaviors
-        .get(scoped_id)
-        .filter(|t| has_triggers(t))
-    {
-        input = scoped_id;
-        if has_actions(&scoped.click) {
-            triggers.click = scoped.click.clone();
-        }
-        if has_actions(&scoped.double_click) {
-            triggers.double_click = scoped.double_click.clone();
-        }
-        if has_actions(&scoped.long_press) {
-            triggers.long_press = scoped.long_press.clone();
-        }
-    }
-    has_triggers(&triggers).then_some((input, triggers))
+    // Mouse buttons are edge-only. Never inherit legacy global button rules,
+    // including settings sent directly to the native service by an older UI.
+    let edge = edge?;
+    let input = BUTTON_INPUTS[edge.scope() - 1].get(button)?;
+    let triggers = config.settings.behaviors.get(*input)?;
+    has_triggers(triggers).then(|| (*input, triggers.clone()))
 }
 impl ButtonTracker {
     fn tick(&mut self, shared: &Shared, now: Instant) {
@@ -611,12 +589,12 @@ mod tests {
         let (shared, receiver) = fixture(serde_json::json!({
             "mouse.global.buttonLeft": {"click":[{"type":"key","key":"G"}]},
             "mouse.top.buttonLeft": {"click":[{"type":"key","key":"T"}]},
-            "mouse.global.buttonRight": {"click":[{"type":"key","key":"R"}]}
+            "mouse.left.buttonRight": {"click":[{"type":"key","key":"R"}]}
         }));
         let mut buttons = ButtonTracker::default();
         let now = Instant::now();
         assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (20.0, 0.0), now));
-        assert!(buttons.event(&shared, 1, true, None, (20.0, 50.0), now));
+        assert!(buttons.event(&shared, 1, true, Some(Edge::Left), (20.0, 50.0), now));
         assert!(receiver.try_recv().is_err());
         assert!(buttons.event(&shared, 0, false, None, (20.0, 50.0), now));
         assert_key(receiver.try_recv().unwrap(), "T");
@@ -626,7 +604,7 @@ mod tests {
     #[test]
     fn double_click_suppresses_singles_and_long_press_fires_once() {
         let (shared, receiver) = fixture(serde_json::json!({
-            "mouse.global.buttonLeft": {
+            "mouse.top.buttonLeft": {
                 "click":[{"type":"key","key":"C"}],
                 "doubleClick":[{"type":"key","key":"D"}],
                 "longPress":[{"type":"key","key":"L"}]
@@ -639,7 +617,7 @@ mod tests {
                 &shared,
                 0,
                 down,
-                None,
+                Some(Edge::Top),
                 (50.0, 50.0),
                 start + Duration::from_millis(ms),
             )
@@ -656,7 +634,7 @@ mod tests {
             &shared,
             0,
             true,
-            None,
+            Some(Edge::Top),
             (50.0, 50.0),
             start + Duration::from_millis(1100)
         ));
@@ -669,7 +647,7 @@ mod tests {
             &shared,
             0,
             false,
-            None,
+            Some(Edge::Top),
             (50.0, 50.0),
             start + Duration::from_millis(1900)
         ));
@@ -678,7 +656,7 @@ mod tests {
             &shared,
             0,
             true,
-            None,
+            Some(Edge::Top),
             (50.0, 50.0),
             start + Duration::from_millis(2000)
         ));
@@ -686,7 +664,7 @@ mod tests {
             &shared,
             0,
             false,
-            None,
+            Some(Edge::Top),
             (50.0, 50.0),
             start + Duration::from_millis(2050)
         ));
@@ -694,20 +672,20 @@ mod tests {
         assert_key(receiver.try_recv().unwrap(), "C");
     }
     #[test]
-    fn partial_edge_button_rules_inherit_each_trigger_and_restore_unmapped_taps() {
+    fn edge_button_rules_ignore_global_triggers_and_restore_unmapped_taps() {
         let (shared, receiver) = fixture(serde_json::json!({
             "mouse.global.buttonLeft": {"doubleClick":[{"type":"key","key":"D"}]},
             "mouse.top.buttonLeft": {"longPress":[{"type":"key","key":"L"}]}
         }));
         let (_, rule) =
             button_rule(&shared.configuration.lock().unwrap(), Some(Edge::Top), 0).unwrap();
-        assert!(has_actions(&rule.double_click) && has_actions(&rule.long_press));
+        assert!(!has_actions(&rule.double_click));
+        assert!(has_actions(&rule.long_press));
         assert!(!has_actions(&rule.click));
         let mut buttons = ButtonTracker::default();
         let start = Instant::now();
-        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), start));
-        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), start));
-        buttons.tick(&shared, start + DOUBLE_CLICK);
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), start));
+        assert!(buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), start));
         assert!(matches!(
             receiver.try_recv().unwrap().behaviors[0],
             NativeBehavior::Mouse {
@@ -719,22 +697,50 @@ mod tests {
     #[test]
     fn settings_changes_cancel_jobs_without_orphaning_button_releases() {
         let (shared, receiver) = fixture(serde_json::json!({
-            "mouse.global.buttonLeft": {"click":[{"type":"key","key":"C"}],"doubleClick":[{"type":"key","key":"D"}]}
+            "mouse.top.buttonLeft": {"click":[{"type":"key","key":"C"}],"doubleClick":[{"type":"key","key":"D"}]}
         }));
         let mut buttons = ButtonTracker::default();
         let now = Instant::now();
         shared.configuration.lock().unwrap().settings.enabled = false;
-        assert!(!buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
+        assert!(!buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), now));
         shared.configuration.lock().unwrap().settings.enabled = true;
-        assert!(!buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
-        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
+        assert!(!buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), now));
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), now));
         shared.configuration.lock().unwrap().revision += 1;
-        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
+        assert!(buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), now));
         assert!(receiver.try_recv().is_err());
-        assert!(buttons.event(&shared, 0, true, None, (50.0, 50.0), now));
-        assert!(buttons.event(&shared, 0, false, None, (50.0, 50.0), now));
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), now));
+        assert!(buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), now));
         shared.configuration.lock().unwrap().settings.enabled = false;
         buttons.tick(&shared, now + DOUBLE_CLICK);
         assert!(receiver.try_recv().is_err());
+    }
+    #[test]
+    fn legacy_global_mouse_buttons_never_capture_anywhere_or_inherit_at_edges() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonLeft": {"click":[{"type":"disabled"}], "doubleClick":[{"type":"key","key":"D"}], "longPress":[{"type":"key","key":"L"}]},
+            "mouse.global.buttonRight": {"click":[{"type":"key","key":"R"}]},
+            "mouse.top.buttonLeft": {"click":[{"type":"key","key":"T"}]}
+        }));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        for button in 0..2 {
+            for edge in [None, Some(Edge::Left), Some(Edge::Right)] {
+                assert!(!buttons.event(&shared, button, true, edge, (50.0, 50.0), now));
+                buttons.tick(&shared, now + LONG_PRESS);
+                assert!(!buttons.event(
+                    &shared,
+                    button,
+                    false,
+                    edge,
+                    (50.0, 50.0),
+                    now + LONG_PRESS
+                ));
+            }
+        }
+        assert!(receiver.try_recv().is_err());
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), now));
+        assert!(buttons.event(&shared, 0, false, Some(Edge::Top), (50.0, 0.0), now));
+        assert_key(receiver.try_recv().unwrap(), "T");
     }
 }

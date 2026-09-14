@@ -2,7 +2,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Clock3, Mouse, MouseP
 import type { BehaviorMap, InputId, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
 import { behaviorSummary, triggerLabels } from '../appConfig'
-import { mouseControls, mouseInputId, mouseInputIds, mouseInputParts, mouseScopes } from '../deviceModel'
+import { mouseControls, mouseInputId, mouseInputIds, mouseInputParts, mouseScopesForControl } from '../deviceModel'
 import type { MouseControlId } from '../deviceModel'
 
 const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointer2, buttonRight: MousePointer2 }
@@ -11,10 +11,10 @@ export const mouseInputs: MappingInput[] = mouseInputIds.map((id) => {
   return {
     id, label: control.label, icon: control.icon,
     contextLabel: scope.label,
-    inheritDefault: scope.id !== 'global',
+    inheritDefault: control.kind === 'wheel' && scope.id !== 'global',
     triggerLabel: control.kind === 'wheel' ? '滚动一次' : undefined,
-    originalLabel: scope.id !== 'global' ? '沿用任意位置' : control.kind === 'wheel' ? '保留原始滚动' : '保留原始点击',
-    originalDescription: scope.id !== 'global' ? '使用任意位置的设置' : '使用鼠标原始输入',
+    originalLabel: control.kind === 'button' ? '保留原始点击' : scope.id !== 'global' ? '沿用任意位置' : '保留原始滚动',
+    originalDescription: control.kind === 'wheel' && scope.id !== 'global' ? '使用任意位置的设置' : '使用鼠标原始输入',
   }
 })
 
@@ -60,13 +60,13 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
   const { scope, control } = mouseInputParts(activeId)
   const triggers: TriggerType[] = control.kind === 'button' ? ['click', 'doubleClick', 'longPress'] : ['click']
   const triggerIcons = { click: control.kind === 'button' ? MousePointerClick : icons[control.id], doubleClick: MousePointerClick, longPress: Clock3 }
-  const original = scope.id === 'global' ? '保留原始输入' : '沿用任意位置'
+  const original = control.kind === 'button' ? '保留原始点击' : scope.id === 'global' ? '保留原始输入' : '沿用任意位置'
   return <section className="mouse-trigger-selector" ref={(node) => { if (node) rowRefs.current[activeId] = node }} aria-label={`${control.label}触发条件`}>
     <div className="mouse-trigger-heading"><h2>触发条件</h2><span>{control.label}</span></div>
     <div className="mouse-condition-row">
       <span className="mouse-condition-label">生效区域</span>
       <div className="mouse-scope-options" role="group" aria-label="鼠标生效区域">
-        {mouseScopes.map((item) => {
+        {mouseScopesForControl(control.id).map((item) => {
           const id = mouseInputId(item.id, control.id)
           const count = Object.values(behaviors[id]).filter((list) => list.some((behavior) => behavior.enabled)).length
           return <button type="button" key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id, trigger)}>{item.label}{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
@@ -79,12 +79,12 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
         {triggers.map((item) => {
           const Icon = triggerIcons[item]
           const ownList = behaviors[activeId][item].filter((behavior) => behavior.enabled)
-          const inherited = scope.id !== 'global' && ownList.length === 0
+          const inherited = control.kind === 'wheel' && scope.id !== 'global' && ownList.length === 0
           const list = inherited ? behaviors[mouseInputId('global', control.id)][item].filter((behavior) => behavior.enabled) : ownList
-          return <button type="button" key={item} role="tab" aria-selected={trigger === item} onClick={() => onSelect(activeId, item)}><Icon size={17} /><span><strong>{control.kind === 'wheel' ? '滚动一次' : triggerLabels[item]}</strong><small>{list.length ? `${inherited ? '沿用 · ' : ''}${behaviorSummary(list[0], platform)}${list.length > 1 ? ` +${list.length - 1}` : ''}` : scope.id !== 'global' || item === 'click' ? original : '未设置'}</small></span>{trigger === item && <Check size={15} />}</button>
+          return <button type="button" key={item} role="tab" aria-selected={trigger === item} onClick={() => onSelect(activeId, item)}><Icon size={17} /><span><strong>{control.kind === 'wheel' ? '滚动一次' : triggerLabels[item]}</strong><small>{list.length ? `${inherited ? '沿用 · ' : ''}${behaviorSummary(list[0], platform)}${list.length > 1 ? ` +${list.length - 1}` : ''}` : (control.kind === 'wheel' && scope.id !== 'global') || item === 'click' ? original : '未设置'}</small></span>{trigger === item && <Check size={15} />}</button>
         })}
       </div>
     </div>
-    <p className="mouse-condition-note">{scope.id === 'global' ? '作为默认规则；已配置的屏幕边缘规则优先。' : `距屏幕${scope.label} 8 ${platform === 'macos' ? '点' : '像素'}内生效；未设置时沿用任意位置规则，顶部角落优先使用上边缘。`}{control.kind === 'button' ? ' 双击间隔 350 毫秒，长按 600 毫秒；配置后该按键用于触发行为，不用于拖拽。' : ' 每滚动一格执行一次。'}</p>
+    <p className="mouse-condition-note">{scope.id === 'global' ? '作为默认规则；已配置的屏幕边缘规则优先。' : `距屏幕${scope.label} 8 ${platform === 'macos' ? '点' : '像素'}内生效；${control.kind === 'button' ? '未设置时保留原始点击' : '未设置时沿用任意位置规则'}，顶部角落优先使用上边缘。`}{control.kind === 'button' ? ' 双击间隔 350 毫秒，长按 600 毫秒；配置后该按键用于触发行为，不用于拖拽。' : ' 每滚动一格执行一次。'}</p>
   </section>
 }
