@@ -1,4 +1,4 @@
-import { Check, Command, ExternalLink, Info, Keyboard, RotateCcw, ShieldCheck } from 'lucide-react'
+import { Command, ExternalLink, Info, Keyboard, RotateCcw, ShieldCheck } from 'lucide-react'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState } from '../setupModel'
@@ -33,18 +33,17 @@ export function SettingsPage({ platform, nativeRuntime, systemProbeState, permis
     <h3 className="settings-section-title">系统权限</h3>
     {!nativeRuntime && <p className="permission-drag-note"><Info size={17} />浏览器预览无法检测或更改系统权限，请在桌面版中操作。</p>}
     {platform === 'macos' ? <>
-      <div className={`permission-progress-summary ${nativeRuntime && !loading && !failed && grantedCount === 2 ? 'ready' : ''}`} aria-live="polite">
-        <span className="permission-progress-icon"><ShieldCheck size={24} /></span>
-        <div><strong>{!nativeRuntime ? '等待桌面版检测' : loading ? '正在检测权限' : failed ? '权限检测失败' : grantedCount === 2 ? '系统权限已就绪' : `已完成 ${grantedCount} / 2 项授权`}</strong><span>{failed ? '请重新检测以获取最新的授权状态。' : '授权后返回应用，状态会自动刷新。'}</span></div>
+      <div className={`settings-permission-summary ${nativeRuntime && !loading && !failed && grantedCount === 2 ? 'ready' : ''}`} aria-live="polite">
+        <span className="settings-permission-icon"><ShieldCheck size={18} /></span>
+        <div><strong>{!nativeRuntime ? '等待桌面版检测' : loading ? '正在检测权限' : failed ? '权限检测失败' : grantedCount === 2 ? '系统权限已就绪' : `已完成 ${grantedCount} / 2 项授权`}</strong><span>{failed ? '请重新检测以获取最新的授权状态。' : grantedCount === 2 ? '可以读取遥控器按键并执行自定义映射。' : '授权后返回应用，状态会自动刷新。'}</span></div>
       </div>
-      <div className="mac-permission-list">
-        {items.map((item, index) => {
+      <div className="settings-permission-list">
+        {items.map((item) => {
           const known = nativeRuntime && !loading && !failed
           const granted = known && item.granted
-          return <section key={item.kind} className={`mac-permission-step ${granted ? 'granted' : ''}`}>
-            <div className="permission-step-number">{granted ? <Check size={16} /> : index + 1}</div>
-            <span className="permission-step-icon">{item.icon}</span>
-            <div className="permission-step-copy"><div><h3>{item.title}</h3><span className="permission-status-label">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span></div><p>{item.description}</p></div>
+          return <section key={item.kind} className={`settings-permission-row ${granted ? 'granted' : ''}`}>
+            <span className="settings-permission-icon">{item.icon}</span>
+            <div className="settings-permission-copy"><div><h3>{item.title}</h3><span className="settings-permission-status">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span></div><p>{item.description}</p></div>
             <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading} onClick={() => granted ? onOpenSettings(item.kind) : onRequestPermission(item.kind)}>{granted ? '打开设置' : item.stale ? '重新授权' : '开始授权'}<ExternalLink size={14} /></button>
           </section>
         })}

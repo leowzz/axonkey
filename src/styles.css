@@ -904,13 +904,30 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-page-head h2 { margin: 0; font-size: 20px; }
 .settings-page-head p { margin: 4px 0 0; }
 .settings-page-head p, .settings-platform-note p { color: #65717d; font-size: 13px; line-height: 1.7; }
-.settings-page .permission-progress-summary { margin-bottom: 20px; }
 .settings-platform-note { padding: 24px; border-radius: 8px; background: #eef0ef; }
 @media (max-width: 700px) {
   .settings-page { width: calc(100% - 24px); padding: 16px; }
   .settings-page-head { align-items: flex-start; flex-direction: column; }
-  .settings-page .mac-permission-step { grid-template-columns: 30px 40px minmax(0, 1fr); }
-  .settings-page .mac-permission-step > button { grid-column: 2 / -1; justify-self: start; }
 }
 
 .settings-section-title { margin: 24px 0 16px; font-size: 16px; }
+
+.settings-permission-summary, .settings-permission-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px; }
+.settings-permission-summary { margin-bottom: 12px; border: 1px solid #d5dae0; border-radius: 8px; background: #eef0ef; }
+.settings-permission-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 8px; color: #69747a; background: #e8ebed; }
+.settings-permission-summary.ready .settings-permission-icon { color: #3a8650; background: #deeee2; }
+.settings-permission-summary > div { display: flex; flex-direction: column; gap: 4px; }
+.settings-permission-summary strong { color: #30383f; font-size: 14px; line-height: 1.5; }
+.settings-permission-summary > div > span, .settings-permission-copy p { margin: 0; color: #707a83; font-size: 13px; line-height: 1.5; }
+.settings-permission-list { overflow: hidden; border: 1px solid #d5dae0; border-radius: 8px; background: #fafbfb; }
+.settings-permission-row + .settings-permission-row { border-top: 1px solid #e1e5e7; }
+.settings-permission-copy { min-width: 0; }
+.settings-permission-copy > div { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+.settings-permission-copy h3 { margin: 0; color: #30383f; font-size: 14px; line-height: 1.5; }
+.settings-permission-status { color: #707a83; font-size: 12px; line-height: 1.5; }
+.settings-permission-row.granted .settings-permission-status { color: #3a8650; }
+.settings-permission-row > button { justify-self: end; white-space: nowrap; }
+@media (max-width: 600px) {
+  .settings-permission-row { grid-template-columns: 36px minmax(0, 1fr); }
+  .settings-permission-row > button { grid-column: 2; justify-self: start; }
+}
