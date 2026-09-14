@@ -586,6 +586,11 @@ function AppController() {
       case 'enter': return replaceWithKey('Enter')
       case 'space': return replaceWithKey('Space')
       case 'tab': return replaceWithKey('Tab')
+      case 'previousTab':
+      case 'nextTab':
+        replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: preset === 'previousTab' ? ['Ctrl', 'Shift', 'Tab'] : ['Ctrl', 'Tab'] })])
+        showBehaviorToast(preset === 'previousTab' ? '已设为上一标签页' : '已设为下一标签页')
+        return
       case 'backspace': return replaceWithKey('Backspace')
       case 'delete': return replaceWithKey('Delete')
       case 'keyHome': return replaceWithKey('Home')

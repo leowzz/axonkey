@@ -79,6 +79,8 @@ export type CommonBehaviorPreset =
   | 'enter'
   | 'space'
   | 'tab'
+  | 'previousTab'
+  | 'nextTab'
   | 'backspace'
   | 'delete'
   | 'keyHome'
