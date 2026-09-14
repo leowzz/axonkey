@@ -41,7 +41,7 @@ export function AppHeader({ activePage, hasUpdate, enabled, onBrandClick, onNavi
       <button type="button" className={`${activePage === 'about' ? 'active' : ''} ${hasUpdate ? 'has-update' : ''}`} title={hasUpdate ? '发现新版本' : undefined} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}</button>
     </nav>
     <div className="header-actions">
-      <label className="enable-control"><span>启用自定义按键功能</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-pressed={enabled} onClick={onToggleEnabled}><span /></button></label>
+      <label className="enable-control"><span>软件功能总开关</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-label="软件功能总开关" aria-pressed={enabled} onClick={onToggleEnabled}><span /></button></label>
     </div>
   </header>
 }

@@ -29,7 +29,6 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
     <div className="mouse-input-model">
       {part('buttonLeft', '左键')}{part('buttonRight', '右键')}
       <div className="mouse-wheel-track" aria-label="垂直滚轮方向">
-        <span className="mouse-track-label">垂直滚轮</span>
         {part('up', '向上')}{part('down', '向下')}
       </div>
       <div className="mouse-horizontal-track" aria-label="水平滚轮方向">
