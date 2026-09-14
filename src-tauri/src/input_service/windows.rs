@@ -1140,17 +1140,8 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Paste { text, .. } => send_unicode_text(text),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
-                let mut pressed = Vec::new();
-                for key in keys {
-                    if send_virtual_key(key, false) {
-                        pressed.push(key);
-                    } else {
-                        break;
-                    }
-                }
-                thread::sleep(OUTPUT_TAP_DURATION);
-                for key in pressed.into_iter().rev() {
-                    send_virtual_key(key, true);
+                if !send_mouse_chord_with(&keys, send_mouse_keyboard_inputs) {
+                    log::warn!(target: "axonkey::input", "Mouse keyboard injection incomplete; target may have higher privileges");
                 }
             }
         }
@@ -1158,28 +1149,77 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior) {
     }
 }
 
-fn send_virtual_key(key: u16, up: bool) -> bool {
+fn virtual_key_input(key: u16) -> Input {
     let extended = unsafe { MapVirtualKeyW(key as u32, 4) } >> 8 == 0xe0;
-    let input = Input {
+    Input {
         kind: 1,
         value: InputValue {
             keyboard: KeyboardInput {
                 virtual_key: key,
                 scan_code: 0,
-                flags: (if up { 2 } else { 0 }) | u32::from(extended),
+                flags: u32::from(extended),
                 time: 0,
                 extra_info: 0,
             },
         },
+    }
+}
+
+/// Submit a complete tap in one SendInput batch. Mouse wheel notches must not
+/// inherit the remote's 50 ms hold: it serializes rapid scrolling at 20 Hz.
+fn send_mouse_chord_with(keys: &[u16], mut send: impl FnMut(&[Input]) -> usize) -> bool {
+    if keys.is_empty() {
+        return true;
+    }
+    let downs: Vec<Input> = keys.iter().copied().map(virtual_key_input).collect();
+    let release = |mut input: Input| {
+        unsafe {
+            input.value.keyboard.flags |= 2;
+        }
+        input
     };
+    let mut inputs = Vec::with_capacity(downs.len() * 2);
+    inputs.extend_from_slice(&downs);
+    inputs.extend(downs.iter().copied().rev().map(release));
+    let sent = send(&inputs).min(inputs.len());
+    if sent == inputs.len() {
+        return true;
+    }
+    // A partial batch may have inserted downs without their matching ups.
+    // Release only those keys, in reverse order, without replaying the action.
+    let held = sent.min(downs.len()) - sent.saturating_sub(downs.len());
+    if held > 0 {
+        let cleanup: Vec<Input> = downs[..held].iter().copied().rev().map(release).collect();
+        send(&cleanup);
+    }
+    false
+}
+
+fn send_mouse_keyboard_inputs(inputs: &[Input]) -> usize {
     #[cfg(not(test))]
     {
-        unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) == 1 }
+        unsafe {
+            SendInput(
+                inputs.len() as u32,
+                inputs.as_ptr(),
+                std::mem::size_of::<Input>() as i32,
+            ) as usize
+        }
     }
     #[cfg(test)]
     {
-        let _ = input;
-        true
+        MOUSE_KEY_BATCHES.with(|batches| {
+            batches.borrow_mut().push(
+                inputs
+                    .iter()
+                    .map(|input| {
+                        let key = unsafe { input.value.keyboard };
+                        (key.virtual_key, key.flags)
+                    })
+                    .collect(),
+            )
+        });
+        inputs.len()
     }
 }
 
@@ -1515,6 +1555,7 @@ fn wheel_input(delta: i32, horizontal: bool) -> Input {
 
 #[cfg(test)]
 thread_local! {
+    static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
@@ -1646,6 +1687,81 @@ extern "system" {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_shortcut_burst_has_no_per_event_hold_delay() {
+        MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
+        let started = Instant::now();
+        for index in 0..40 {
+            execute_mouse_behavior(&NativeBehavior::Shortcut {
+                enabled: true,
+                keys: if index % 2 == 0 {
+                    vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
+                } else {
+                    vec!["Ctrl".into(), "Tab".into()]
+                },
+            });
+        }
+        let elapsed = started.elapsed();
+        println!("40 alternating mouse shortcut outputs (mock injection): {elapsed:?}");
+        MOUSE_KEY_BATCHES.with(|batches| {
+            let batches = batches.borrow();
+            assert_eq!(batches.len(), 40);
+            for (index, batch) in batches.iter().enumerate() {
+                let expected = if index % 2 == 0 {
+                    vec![
+                        (0x11, 0),
+                        (0x10, 0),
+                        (0x09, 0),
+                        (0x09, 2),
+                        (0x10, 2),
+                        (0x11, 2),
+                    ]
+                } else {
+                    vec![(0x11, 0), (0x09, 0), (0x09, 2), (0x11, 2)]
+                };
+                assert_eq!(
+                    *batch, expected,
+                    "every notch must preserve order and release its modifiers"
+                );
+            }
+        });
+        // Generous headroom for CI scheduling; the former fixed 50 ms hold
+        // necessarily took at least two seconds, even without OS injection.
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "mouse output is serialized behind a per-event hold: {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn partial_mouse_chord_injection_releases_only_unmatched_downs() {
+        let keys = [0x11, 0x10, 0x09];
+        for accepted in 0..=6 {
+            let mut calls = 0;
+            let mut held = Vec::new();
+            let complete = send_mouse_chord_with(&keys, |inputs| {
+                calls += 1;
+                let sent = if calls == 1 { accepted } else { inputs.len() };
+                for input in &inputs[..sent] {
+                    assert_eq!(input.kind, 1);
+                    let key = unsafe { input.value.keyboard };
+                    if key.flags & 2 == 0 {
+                        held.push(key.virtual_key);
+                    } else {
+                        assert_eq!(held.pop(), Some(key.virtual_key));
+                    }
+                }
+                sent
+            });
+            assert_eq!(complete, accepted == 6);
+            assert!(
+                held.is_empty(),
+                "partial injection must not leave Ctrl/Shift held"
+            );
+            assert_eq!(calls, if accepted == 0 || accepted == 6 { 1 } else { 2 });
+        }
+    }
 
     #[test]
     fn wheel_events_use_signed_windows_notches_without_mouse_movement() {

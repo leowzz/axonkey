@@ -4,8 +4,7 @@ use std::{
     cell::RefCell,
     ffi::c_void,
     sync::{atomic::Ordering, Arc},
-    thread,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 #[repr(C)]
@@ -77,6 +76,13 @@ extern "system" {
     fn PeekMessageW(message: *mut Message, hwnd: isize, min: u32, max: u32, remove: u32) -> i32;
     fn TranslateMessage(message: *const Message) -> i32;
     fn DispatchMessageW(message: *const Message) -> isize;
+    fn MsgWaitForMultipleObjectsEx(
+        count: u32,
+        handles: *const isize,
+        milliseconds: u32,
+        wake_mask: u32,
+        flags: u32,
+    ) -> u32;
     fn MonitorFromPoint(point: Point, flags: u32) -> isize;
     fn GetMonitorInfoW(monitor: isize, info: *mut MonitorInfo) -> i32;
 }
@@ -190,7 +196,16 @@ pub(super) fn run(shared: Arc<Shared>) {
                 buttons.tick(state, Instant::now());
             }
         });
-        thread::sleep(Duration::from_millis(5));
+        // Wake immediately for hook messages; the timeout only services button
+        // gesture timers and shutdown when there is no incoming input.
+        let waited = unsafe { MsgWaitForMultipleObjectsEx(0, std::ptr::null(), 5, 0x04ff, 0x0004) };
+        if waited == u32::MAX {
+            log::error!(
+                "Mouse message wait failed: {}",
+                std::io::Error::last_os_error()
+            );
+            break;
+        }
     }
     shared.ready.store(false, Ordering::Release);
     unsafe {
