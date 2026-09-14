@@ -1,15 +1,18 @@
 # Axonkey
 
+[![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
+[![Downloads](https://img.shields.io/github/downloads/leowzz/axonkey/total?style=flat&color=brightgreen)](https://github.com/leowzz/axonkey/releases)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue?style=flat&logo=apple&logoColor=white)](#系统要求)
+[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat)](#系统要求)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat&logo=tauri&logoColor=white)](./src-tauri/Cargo.toml)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=white)](./package.json)
+
+**[⬇ 下载 Axonkey（macOS / Windows）](https://github.com/leowzz/axonkey/releases)**
+
 Axonkey 是一款面向小米 RC003 蓝牙遥控器的本地控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
 
 项目目前专注于一个设备和一件事：让 RC003 成为可靠、易配置的快捷键控制器。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
-
-## 当前平台状态
-
-| 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
-| --- | --- | ---: | --- | --- |
-| macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 支持按键映射与语音；需要输入监控与辅助功能权限 |
-| Windows 11 x64 | Interception 1.0.1 + 可选 Frida 增强通道 | 13（其中 3 个需单独开启增强支持） | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 基础映射需要 Interception；返回与音量键增强默认关闭，需管理员授权；语音另需 VB-CABLE |
 
 ## 界面截图
 
@@ -70,6 +73,11 @@ Windows 和 macOS 均可将遥控器按键设为四向鼠标滚轮或鼠标左�
 | 其他可配置按键 | 保留原按键 |
 
 ## 系统要求
+
+| 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
+| --- | --- | ---: | --- | --- |
+| macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 支持按键映射与语音；需要输入监控与辅助功能权限 |
+| Windows 11 x64 | Interception 1.0.1 + 可选 Frida 增强通道 | 13（其中 3 个需单独开启增强支持） | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 基础映射需要 Interception；返回与音量键增强默认关闭，需管理员授权；语音另需 VB-CABLE |
 
 ### Windows
 
