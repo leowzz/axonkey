@@ -76,7 +76,10 @@ jobs:
         run: npm ci
 
       - name: Build NSIS installer
-        run: npm run tauri build -- --bundles nsis
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.updater.conf.json
 
       - name: Create SHA-256 checksum
         shell: pwsh
@@ -98,6 +101,7 @@ jobs:
           path: |
             src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe
             src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sha256
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sig
           if-no-files-found: error
           retention-days: 30
 
@@ -306,11 +310,16 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           MACOS_INSTALLER_SIGNING_IDENTITY: ${{ secrets.MACOS_INSTALLER_SIGNING_IDENTITY }}
-        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.updater.conf.json
 
       - name: Build ad-hoc universal DMG
         if: steps.apple_credentials.outputs.signed != 'true'
-        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles dmg
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node ./scripts/build-macos.mjs --target universal-apple-darwin --bundles app,dmg --config src-tauri/tauri.updater.conf.json
 
       - name: Remove macOS signing keychain
         if: always() && steps.apple_credentials.outputs.signed == 'true'
@@ -371,6 +380,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload macOS updater
+        uses: actions/upload-artifact@v7
+        with:
+          name: Axonkey-v${{ env.APP_VERSION }}-macos-updater
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/Axonkey.app.tar.gz
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/Axonkey.app.tar.gz.sig
+          if-no-files-found: error
+          retention-days: 30
+
   publish-release:
     name: Publish GitHub Release
     needs:
@@ -382,7 +401,6 @@ jobs:
     steps:
       - name: Check out release notes script
         uses: actions/checkout@v4
-        continue-on-error: true
         with:
           fetch-depth: 0
 
@@ -409,13 +427,19 @@ jobs:
           name: Axonkey-v${{ needs.build-macos.outputs.version }}-macos-universal
           path: release-assets
 
+      - name: Download macOS updater
+        uses: actions/download-artifact@v7
+        with:
+          name: Axonkey-v${{ needs.build-macos.outputs.version }}-macos-updater
+          path: release-assets
+
       - name: Verify release assets and checksums
         shell: bash
         run: |
           shopt -s nullglob
           assets=(release-assets/*)
-          if (( ${#assets[@]} != 4 )); then
-            echo "Expected four release assets, found ${#assets[@]}." >&2
+          if (( ${#assets[@]} != 7 )); then
+            echo "Expected seven release assets, found ${#assets[@]}." >&2
             printf '  %s\n' "${assets[@]}" >&2
             exit 1
           fi
@@ -424,6 +448,11 @@ jobs:
             sed -i 's/\r$//' ./*.sha256
             sha256sum --check ./*.sha256
           )
+
+      - name: Generate updater manifest
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: node scripts/generate-updater-manifest.mjs release-assets
 
       - name: Generate release notes with LLM
         id: llm_notes
@@ -460,6 +489,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --title "Axonkey $TAG_NAME" \
               "${notes_args[@]}" \
+              --draft \
               --verify-tag
           fi
 
@@ -467,3 +497,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
+          gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createReleaseChecker, isNewerRelease, type ReleaseUpdateState } from '../releaseUpdate'
+import { createReleaseChecker, isNewerRelease } from '../releaseUpdate'
+import { createNativeReleaseChecker, initialUpdateState } from '../nativeReleaseUpdate'
+import { check as checkUpdate } from '@tauri-apps/plugin-updater'
+import { relaunch } from '@tauri-apps/plugin-process'
 import appPackage from '../../package.json'
 
 export function useReleaseUpdate(activePage: string, debugMode = false) {
-  const [state, setState] = useState<ReleaseUpdateState>({ checking: false, latestVersion: null, checkedAt: null, error: null })
-  const checker = useRef<ReturnType<typeof createReleaseChecker> | null>(null)
+  const native = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  const [state, setState] = useState(initialUpdateState)
+  const checker = useRef<ReturnType<typeof createReleaseChecker> | ReturnType<typeof createNativeReleaseChecker> | null>(null)
   const check = useCallback((force = false) => { void checker.current?.check(force) }, [])
+  const install = useCallback(() => {
+    if (!debugMode && checker.current && 'install' in checker.current) void checker.current.install()
+  }, [debugMode])
 
   useEffect(() => {
-    const service = createReleaseChecker(setState)
+    const service = native
+      ? createNativeReleaseChecker(setState, { checkUpdate: () => checkUpdate({ timeout: 15_000 }), relaunch })
+      : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }))
     checker.current = service
     const onWake = () => check()
     const onVisible = () => { if (document.visibilityState === 'visible') check() }
@@ -23,7 +32,7 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
       window.removeEventListener('online', onWake)
       document.removeEventListener('visibilitychange', onVisible)
     }
-  }, [check])
+  }, [check, native])
 
   useEffect(() => { if (activePage === 'about') check() }, [activePage, check])
   const hasUpdate = Boolean(state.latestVersion && isNewerRelease(state.latestVersion, appPackage.version))
@@ -35,7 +44,9 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
       hasUpdate: true,
       error: null,
       check,
+      install,
+      canInstall: false,
     }
   }
-  return { ...state, hasUpdate, check }
+  return { ...state, hasUpdate, check, install, canInstall: native && hasUpdate }
 }

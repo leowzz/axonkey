@@ -1,11 +1,19 @@
-import { releasesUrl, type ReleaseUpdateState } from '../releaseUpdate'
+import { releasesUrl } from '../releaseUpdate'
+import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
 import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
 import appPackage from '../../package.json'
 
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
-export function AboutPage({ update }: { update: ReleaseUpdateState & { hasUpdate: boolean; check: (force?: boolean) => void } }) {
+export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpdate> }) {
+  const busy = ['downloading', 'installing', 'restarting'].includes(update.phase)
+  const progress = update.total ? `${Math.min(100, Math.floor(update.downloaded / update.total * 100))}%` : `${(update.downloaded / 1024 / 1024).toFixed(1)} MB`
+  const status = update.phase === 'downloading' ? `正在下载更新… ${progress}`
+    : update.phase === 'installing' ? '正在验证并安装更新…'
+    : update.phase === 'restarting' ? '更新已安装，正在重启…'
+    : update.phase === 'ready' ? '更新已安装，等待重启'
+    : update.hasUpdate ? `发现新版本 ${update.latestVersion}` : update.checking ? '正在检查更新…' : update.error ? '检查更新失败' : update.checkedAt ? '当前已是最新版本' : '等待检查更新'
   return <div className="about-page">
     <section className="about-intro" aria-labelledby="about-title">
       <img className="about-app-icon" src={appIconUrl} alt="Axonkey 应用图标" width={64} height={64} />
@@ -21,12 +29,14 @@ export function AboutPage({ update }: { update: ReleaseUpdateState & { hasUpdate
     </section>
     <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
       <div role="status">
-        <strong>{update.hasUpdate ? `发现新版本 ${update.latestVersion}` : update.checking ? '正在检查更新…' : update.error ? '检查更新失败' : update.checkedAt ? '当前已是最新版本' : '等待检查更新'}</strong>
-        {(update.error || update.hasUpdate) && <p>{update.error ?? `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`}{update.checking && update.hasUpdate ? ' 正在重新检查…' : ''}</p>}
+        <strong>{status}</strong>
+        {(update.error || update.hasUpdate) && <p>{update.error ?? (update.canInstall ? '可继续使用当前版本。点击“更新并重启”后才会下载并安装新版，完成后重启应用。' : `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`)}</p>}
+        {update.phase === 'downloading' && <progress aria-label="更新下载进度" max={update.total ?? undefined} value={update.total ? update.downloaded : undefined} />}
       </div>
       <div className="about-update-actions">
-        <button type="button" disabled={update.checking} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
-        {update.hasUpdate && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
+        <button type="button" disabled={update.checking || update.phase !== 'idle'} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
+        {update.canInstall && <button className="about-install-update" type="button" disabled={busy || update.checking} onClick={update.install}>{update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}</button>}
+        {!busy && (update.hasUpdate || update.error) && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
       </div>
     </section>
     <section className="about-features" aria-label="应用功能">
