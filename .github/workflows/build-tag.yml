@@ -13,7 +13,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-metadata:
+    name: Verify release tag and repository version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      prerelease: ${{ steps.metadata.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Verify release metadata
+        id: metadata
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          node scripts/verify-release-tag.mjs "$TAG_NAME"
+          cp .env.example .env
+          node scripts/repo-version.mjs check "$TAG_NAME"
+
   test-release:
+    needs: release-metadata
     name: Run release test suite
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -31,12 +56,14 @@ jobs:
         run: npm run test:release
 
   build-windows:
-    needs: test-release
+    needs: [release-metadata, test-release]
     name: Build Windows installer
     runs-on: windows-2022
     timeout-minutes: 45
+    env:
+      APP_VERSION: ${{ needs.release-metadata.outputs.version }}
     outputs:
-      version: ${{ steps.release_metadata.outputs.version }}
+      version: ${{ needs.release-metadata.outputs.version }}
 
     steps:
       - name: Check out tagged commit
@@ -50,13 +77,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - name: Verify release branch and version tag
-        id: release_metadata
-        shell: pwsh
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: node ./scripts/verify-release-tag.mjs $env:TAG_NAME
 
       - name: Verify repository version
         shell: pwsh
@@ -97,21 +117,23 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@v7
         with:
-          name: Axonkey-v${{ steps.release_metadata.outputs.version }}-windows-x64
+          name: Axonkey-v${{ needs.release-metadata.outputs.version }}-windows-x64
           path: |
-            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe
-            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sha256
-            src-tauri/target/release/bundle/nsis/Axonkey_${{ steps.release_metadata.outputs.version }}_x64-setup.exe.sig
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ needs.release-metadata.outputs.version }}_x64-setup.exe
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ needs.release-metadata.outputs.version }}_x64-setup.exe.sha256
+            src-tauri/target/release/bundle/nsis/Axonkey_${{ needs.release-metadata.outputs.version }}_x64-setup.exe.sig
           if-no-files-found: error
           retention-days: 30
 
   build-macos:
-    needs: test-release
+    needs: [release-metadata, test-release]
     name: Build macOS universal DMG
     runs-on: macos-14
     timeout-minutes: 60
+    env:
+      APP_VERSION: ${{ needs.release-metadata.outputs.version }}
     outputs:
-      version: ${{ steps.release_metadata.outputs.version }}
+      version: ${{ needs.release-metadata.outputs.version }}
 
     steps:
       - name: Check out tagged commit
@@ -125,13 +147,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - name: Verify release branch and version tag
-        id: release_metadata
-        shell: bash
-        env:
-          TAG_NAME: ${{ github.ref_name }}
-        run: node ./scripts/verify-release-tag.mjs "$TAG_NAME"
 
       - name: Validate Apple packaging credentials
         id: apple_credentials
@@ -393,6 +408,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs:
+      - release-metadata
       - build-windows
       - build-macos
     runs-on: ubuntu-24.04
@@ -450,6 +466,7 @@ jobs:
           )
 
       - name: Generate updater manifest
+        if: needs.release-metadata.outputs.prerelease == 'false'
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: node scripts/generate-updater-manifest.mjs release-assets
@@ -477,9 +494,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.release-metadata.outputs.prerelease }}
           LLM_NOTES_OUTCOME: ${{ steps.llm_notes.outcome }}
           RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
+          release_args=(--prerelease="$PRERELEASE")
+          if [[ "$PRERELEASE" == "true" ]]; then
+            release_args+=(--latest=false)
+          fi
           notes_args=(--generate-notes)
           if [[ "$LLM_NOTES_OUTCOME" == "success" && -s "$RELEASE_NOTES_FILE" ]]; then
             notes_args=(--notes-file "$RELEASE_NOTES_FILE")
@@ -489,6 +511,7 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --title "Axonkey $TAG_NAME" \
               "${notes_args[@]}" \
+              "${release_args[@]}" \
               --draft \
               --verify-tag
           fi
@@ -497,4 +520,4 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --clobber
 
-          gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false "${release_args[@]}"

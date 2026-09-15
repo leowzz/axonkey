@@ -8,6 +8,7 @@ test('numeric comparison, stable tags and prerelease upgrades', () => {
     ['v0.2.20', '0.2.19', true], ['v0.10.0', '0.9.9', true],
     ['v0.2.19', '0.2.19', false], ['v0.2.18', '0.2.19', false],
     ['v0.3.0-beta.1', '0.2.19', false], ['v0.3.0', '0.3.0-beta.1', true],
+    ['v0.2.29', '0.3.0-beta.1', false], ['v0.3.0', '0.3.0-rc.1', true],
     ['v0.2.19+build', '0.2.19', false], ['invalid', '0.2.19', false],
   ]) assert.equal(isNewerRelease(latest, current), expected)
 })

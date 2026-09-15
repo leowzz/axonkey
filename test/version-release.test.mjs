@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { checkVersions, updateVersions, versionFiles } from '../scripts/version.mjs'
+import { checkVersions, updateVersions, versionFiles, compareVersions, numericVersion, nextPatchTag } from '../scripts/version.mjs'
 import { verifyReleaseTag } from '../scripts/verify-release-tag.mjs'
 
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -64,7 +64,7 @@ function seedRepository(t) {
     `${JSON.stringify({ productName: 'Axonkey', version: '0.1.5' }, null, 2)}\n`,
   )
 
-  for (const script of ['release.sh', 'repo-version.mjs', 'version.mjs']) {
+  for (const script of ['release.sh', 'release.mjs', 'repo-version.mjs', 'version.mjs']) {
     // Fixtures must behave identically under Windows Git and bash/WSL Git.
     writeFileSync(join(root, 'scripts', script), readFileSync(join(projectRoot, 'scripts', script), 'utf8').replace(/\r\n/g, '\n'))
   }
@@ -161,6 +161,7 @@ test('release tag may point to a commit on a non-main remote branch', (t) => {
 
   assert.deepEqual(verifyReleaseTag('v0.1.10', root), {
     version: '0.1.10',
+    prerelease: false,
     branches: ['origin/feat/mac'],
   })
 })
@@ -259,3 +260,108 @@ test('a tag failure leaves the release commit visible for diagnosis', (t) => {
   assert.equal(git(root, 'tag', '--list', 'v0.1.6').stdout.trim(), '')
   assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=v0.1.6\n')
 })
+
+
+test('prerelease versions sort by core, channel and numeric sequence', () => {
+  const versions = ['1.2.2', '1.2.3-alpha.1', '1.2.3-alpha.2', '1.2.3-alpha.10',
+    '1.2.3-beta.1', '1.2.3-rc.1', '1.2.3', '1.2.4-alpha.1']
+  for (let i = 0; i < versions.length; i++) {
+    assert.equal(compareVersions(versions[i], versions[i]), 0)
+    for (let j = i + 1; j < versions.length; j++) {
+      assert.ok(compareVersions(versions[i], versions[j]) < 0)
+      assert.ok(compareVersions(versions[j], versions[i]) > 0)
+    }
+  }
+  assert.equal(nextPatchTag('v1.2.3'), 'v1.2.4')
+  assert.throws(() => nextPatchTag('v1.2.3-beta.1'), /explicit V/)
+  for (const tag of ['v1.2.3-beta', 'v1.2.3-beta.0', 'v1.2.3-beta.01',
+    'v1.2.3-preview.1', 'v1.2.3+build', 'v01.2.3', '1.2.3', 'v1.2.3-rc.1.extra']) {
+    assert.throws(() => numericVersion(tag), /Invalid version/)
+  }
+})
+
+for (const channel of ['alpha', 'beta', 'rc']) {
+  test(`${channel} release synchronizes manifests and emits CI metadata`, (t) => {
+    const root = seedRepository(t)
+    const tag = `v1.2.3-${channel}.1`
+    const result = runRelease(root, tag)
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(checkVersions(tag, root), tag)
+    assert.equal(git(root, 'cat-file', '-t', tag).stdout.trim(), 'tag')
+    git(root, 'update-ref', 'refs/remotes/origin/preview', 'HEAD')
+    assert.deepEqual(verifyReleaseTag(tag, root), {
+      version: tag.slice(1), prerelease: true, branches: ['origin/preview'],
+    })
+    const output = join(root, '.git', 'github-output')
+    const environment = join(root, '.git', 'github-env')
+    run(root, process.execPath, [join(projectRoot, 'scripts/verify-release-tag.mjs'), tag], {
+      env: { ...process.env, GITHUB_OUTPUT: output, GITHUB_ENV: environment },
+    })
+    assert.equal(readFileSync(output, 'utf8'), `version=${tag.slice(1)}\nprerelease=true\n`)
+    assert.equal(readFileSync(environment, 'utf8'), `APP_VERSION=${tag.slice(1)}\n`)
+    const before = snapshotVersionFiles(root)
+    const implicit = runRelease(root)
+    assert.notEqual(implicit.status, 0)
+    assert.match(implicit.stderr, /explicit V/)
+    assert.deepEqual(snapshotVersionFiles(root), before)
+
+    const older = runRelease(root, 'v1.2.2')
+    assert.notEqual(older.status, 0)
+    assert.match(older.stderr, /older than current/)
+    assert.deepEqual(snapshotVersionFiles(root), before)
+
+    const stable = runRelease(root, 'v1.2.3')
+    assert.equal(stable.status, 0, stable.stderr)
+    assert.equal(checkVersions('v1.2.3', root), 'v1.2.3')
+  })
+}
+
+
+for (const prerelease of [false, true]) {
+  for (const exists of [false, true]) {
+    test(`publish workflow: prerelease=${prerelease}, existing release=${exists}`, { skip: process.platform === 'win32' }, (t) => {
+      const root = seedRepository(t)
+      const bin = join(root, 'bin')
+      mkdirSync(bin)
+      mkdirSync(join(root, 'release-assets'))
+      writeFileSync(join(root, 'release-assets', 'installer.exe'), 'fixture')
+      const log = join(root, 'gh-calls.jsonl')
+      const gh = join(bin, 'gh')
+      writeFileSync(gh, String.raw`#!/usr/bin/env node
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.CALL_LOG, JSON.stringify(args) + '\n');
+if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 : 1);
+`)
+      chmodSync(gh, 0o755)
+      const workflow = readFileSync(join(projectRoot, '.github/workflows/build-tag.yml'), 'utf8')
+      const step = workflow.split('      - name: Create or update GitHub Release')[1]
+      const script = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n')
+      const result = run(root, 'bash', ['-e', '-o', 'pipefail', '-c', script], {
+        check: false,
+        env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`,
+          CALL_LOG: log, RELEASE_EXISTS: String(exists), PRERELEASE: String(prerelease),
+          TAG_NAME: prerelease ? 'v1.2.3-beta.1' : 'v1.2.3', GITHUB_REPOSITORY: 'test/axonkey',
+          LLM_NOTES_OUTCOME: 'failure', RELEASE_NOTES_FILE: join(root, 'missing-notes.md') },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const calls = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      const create = calls.find(args => args[1] === 'create')
+      assert.equal(Boolean(create), !exists)
+      if (create) {
+        assert.ok(create.includes('--draft'))
+        assert.ok(create.includes('--generate-notes'))
+      }
+      const edit = calls.find(args => args[1] === 'edit')
+      for (const args of [create, edit].filter(Boolean)) {
+        assert.ok(args.includes(`--prerelease=${prerelease}`))
+        assert.equal(args.includes('--latest=false'), prerelease)
+      }
+      assert.ok(edit.includes('--draft=false'))
+      assert.equal(edit.some(arg => arg.startsWith('--notes')), false)
+      const uploadIndex = calls.findIndex(args => args[1] === 'upload')
+      assert.ok(uploadIndex < calls.indexOf(edit))
+      assert.ok(calls[uploadIndex].includes('--clobber'))
+    })
+  }
+}

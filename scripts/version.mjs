@@ -3,9 +3,10 @@ import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
-const versionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-const tagVersionPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
-const envVersionPattern = /^version=(v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))$/
+const versionSource = String.raw`(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.([1-9]\d*))?`
+const versionPattern = new RegExp(`^${versionSource}$`)
+const tagVersionPattern = new RegExp(`^v${versionSource}$`)
+const envVersionPattern = new RegExp(`^version=(v${versionSource})$`)
 export const versionFiles = [
   '.env.example',
   'package.json',
@@ -106,7 +107,7 @@ function updatedCargoLockPackage(source, packageName, version, path) {
 
 export function validateTagVersion(value) {
   const match = tagVersionPattern.exec(value)
-  if (!match) throw new Error(`Invalid version "${value}". Expected vMAJOR.MINOR.PATCH, for example v0.2.6.`)
+  if (!match) throw new Error(`Invalid version "${value}". Expected vMAJOR.MINOR.PATCH with optional -alpha.N, -beta.N or -rc.N (N >= 1), for example v0.2.6-beta.1.`)
   return value
 }
 
@@ -117,27 +118,40 @@ export function numericVersion(tag) {
 export function parseVersion(value) {
   const match = versionPattern.exec(value)
   if (!match) throw new Error(`Invalid version "${value}". Expected MAJOR.MINOR.PATCH, for example 0.2.6.`)
-  return match.slice(1).map(Number)
+  return match.slice(1, 4).map(Number)
+}
+
+export function isPrerelease(version) {
+  parseVersion(version)
+  return version.includes('-')
 }
 
 export function compareVersions(left, right) {
-  const a = parseVersion(left)
-  const b = parseVersion(right)
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index]
+  parseVersion(left)
+  parseVersion(right)
+  const a = versionPattern.exec(left)
+  const b = versionPattern.exec(right)
+  const compare = (x, y) => x < y ? -1 : x > y ? 1 : 0
+  for (let index = 1; index <= 3; index += 1) {
+    const result = compare(BigInt(a[index]), BigInt(b[index]))
+    if (result) return result
   }
-  return 0
+  const channels = ['alpha', 'beta', 'rc', undefined]
+  const channelOrder = compare(channels.indexOf(a[4]), channels.indexOf(b[4]))
+  if (channelOrder) return channelOrder
+  return a[4] ? compare(BigInt(a[5]), BigInt(b[5])) : 0
 }
 
 export function nextPatchVersion(current) {
-  const [major, minor, patch] = parseVersion(current)
-  return `${major}.${minor}.${patch + 1}`
+  if (isPrerelease(current)) {
+    throw new Error('Prerelease versions require an explicit V, for example V=v1.2.3-beta.2 or V=v1.2.3')
+  }
+  const [major, minor, patch] = current.split('.').map(BigInt)
+  return `${major}.${minor}.${patch + 1n}`
 }
 
 export function nextPatchTag(tag) {
-  const match = tagVersionPattern.exec(validateTagVersion(tag))
-  const [major, minor, patch] = match.slice(1).map(Number)
-  return `v${major}.${minor}.${patch + 1}`
+  return `v${nextPatchVersion(numericVersion(tag))}`
 }
 
 function resolveEnvArguments(rootOrPath, envFile) {
@@ -165,7 +179,7 @@ export function readEnvVersion(rootOrPath, envFile) {
   const match = lines.length === 1 ? lines[0].match(envVersionPattern) : null
   if (!match) {
     throw new Error(
-      `${resolved.envFile} must contain exactly one version=vX.Y.Z line (Expected vMAJOR.MINOR.PATCH, for example v0.2.6.)`,
+      `${resolved.envFile} must contain exactly one version=vX.Y.Z line (Expected vMAJOR.MINOR.PATCH with optional -alpha.N, -beta.N or -rc.N (N >= 1), for example v0.2.6-beta.1.)`,
     )
   }
   return match[1]

@@ -5,16 +5,14 @@ import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const tagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
+import { numericVersion, isPrerelease } from './version.mjs'
 
 function git(root, args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
 }
 
 export function verifyReleaseTag(tagName, root = process.cwd()) {
-  if (!tagPattern.test(tagName)) {
-    throw new Error(`Tag '${tagName}' is invalid. Expected vMAJOR.MINOR.PATCH.`)
-  }
+  const version = numericVersion(tagName)
 
   let branches
   try {
@@ -35,12 +33,12 @@ export function verifyReleaseTag(tagName, root = process.cwd()) {
     throw new Error(`Tag '${tagName}' does not point to a commit on any remote branch.`)
   }
 
-  return { version: tagName.slice(1), branches }
+  return { version, prerelease: isPrerelease(version), branches }
 }
 
-function appendGithubMetadata(version) {
+function appendGithubMetadata(version, prerelease) {
   if (process.env.GITHUB_ENV) appendFileSync(process.env.GITHUB_ENV, `APP_VERSION=${version}\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\nprerelease=${prerelease}\n`)
 }
 
 function main() {
@@ -48,7 +46,7 @@ function main() {
   if (!tagName) throw new Error('Usage: verify-release-tag.mjs vMAJOR.MINOR.PATCH')
   const result = verifyReleaseTag(tagName)
   console.log(`Release commit is present on: ${result.branches.join(', ')}`)
-  appendGithubMetadata(result.version)
+  appendGithubMetadata(result.version, result.prerelease)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
