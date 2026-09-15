@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CircleAlert } from 'lucide-react'
+import { CircleHelp } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export function SettingsHelp({ id, label, children }: { id: string; label: string; children: ReactNode }) {
@@ -42,7 +42,7 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
     <button ref={button} type="button" className="settings-help" aria-label={`${label}说明`} aria-expanded={open} aria-describedby={open ? id : undefined}
       onMouseEnter={() => { clearTimeout(timer.current); setOpen(true) }} onMouseLeave={leave}
       onFocus={() => { clearTimeout(timer.current); setOpen(true) }} onBlur={close}
-      onClick={() => { clearTimeout(timer.current); if (pinned) close(); else { setPinned(true); setOpen(true) } }}><CircleAlert size={15} /></button>
+      onClick={() => { clearTimeout(timer.current); if (pinned) close(); else { setPinned(true); setOpen(true) } }}><CircleHelp size={15} /></button>
     {open && createPortal(<div ref={panel} id={id} role="tooltip" className="settings-help-popover" style={position}
       onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</div>, document.body)}
   </>
