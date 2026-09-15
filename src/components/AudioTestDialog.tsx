@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import { AudioLines, Minus, Plus, RotateCcw, X } from 'lucide-react'
+import { SlidersHorizontal, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { useEffect, useReducer, useRef, useState } from 'react'
 import type { AudioProbe, Platform } from '../appTypes'
 import { audioGainMin, audioGainMax } from '../appConfig'
@@ -91,7 +91,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
 
   return <dialog ref={dialogRef} className="audio-test-dialog" aria-labelledby="audio-test-title" onCancel={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className="audio-test-content">
-      <header><div><AudioLines size={20} /><h2 id="audio-test-title">测试音频</h2></div><button type="button" className="dialog-close" aria-label="关闭音频测试" onClick={onClose} autoFocus><X size={18} /></button></header>
+      <header><div><SlidersHorizontal size={20} /><h2 id="audio-test-title">校准音量</h2></div><button type="button" className="dialog-close" aria-label="关闭音量校准" onClick={onClose} autoFocus><X size={18} /></button></header>
       <p className="audio-test-intro">按住语音键正常讲话，松开后统一计算建议；再次按下会自动开始新一轮测试。</p>
       <div className="audio-test-layout">
         <section className="audio-test-gain" aria-label="输入增益调整">

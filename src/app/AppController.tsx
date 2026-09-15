@@ -1389,12 +1389,10 @@ function AppController() {
           device={setupState.device}
           batteryLevel={displayedBatteryLevel}
           onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
-          audioGain={audioGain}
           enabled={enabled}
           onOpenSettings={() => setActivePage('settings')}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           onRefresh={() => void refreshHome()}
-          onAudioGainChange={updateAudioGain}
           onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}
           onOpenMapping={() => setActivePage('mapping')}

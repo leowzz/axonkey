@@ -11,13 +11,13 @@ import {
   Keyboard,
   RotateCcw,
   Settings2,
+  SlidersHorizontal,
   ShieldCheck,
 } from 'lucide-react'
 import { BatteryDebugControls, BatteryIndicator } from './BatteryIndicator'
-import { audioGainMax, audioGainMin } from '../appConfig'
 import type { MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
-import type { CSSProperties, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 type HomeStatusTone = 'ready' | 'warning' | 'error' | 'checking' | 'muted'
 
@@ -33,12 +33,10 @@ type HomeDashboardProps = {
   device: SetupState['device']
   batteryLevel: number | null
   onAdjustBattery?: (delta: number) => void
-  audioGain: number
   enabled: boolean
   onOpenSettings: () => void
   onOpenPermissions: () => void
   onRefresh: () => void
-  onAudioGainChange: (gain: number) => void
   onTestAudio: () => void
   onOpenStep: (step: SetupStepId) => void
   onOpenMapping: () => void
@@ -53,21 +51,19 @@ type HomeStatusRowProps = {
   tone: HomeStatusTone
   action?: ReactNode
   leadingAction?: ReactNode
-  children?: ReactNode
 }
 
-function HomeStatusRow({ icon, title, status, detail, tone, action, leadingAction, children }: HomeStatusRowProps) {
+function HomeStatusRow({ icon, title, status, detail, tone, action, leadingAction }: HomeStatusRowProps) {
   return <article className={`home-status-row ${tone}${leadingAction ? ' with-leading-action' : ''}`}>
     <span className="home-status-icon">{icon}</span>
     <div className="home-status-copy">
       <h3>{title}</h3>
       <p>{detail}</p>
-      {children}
     </div>
     {leadingAction}
     <div className="home-status-tools">
       <span className="home-status-label"><span className="home-status-dot" />{status}</span>
-      {action}
+      {tone !== 'ready' && tone !== 'checking' && action}
     </div>
   </article>
 }
@@ -95,12 +91,10 @@ export function HomeDashboard({
   device,
   batteryLevel,
   onAdjustBattery,
-  audioGain,
   enabled,
   onOpenSettings,
   onOpenPermissions,
   onRefresh,
-  onAudioGainChange,
   onTestAudio,
   onOpenStep,
   onOpenMapping,
@@ -184,8 +178,6 @@ export function HomeDashboard({
   const recommendedStep: SetupStepId = inputTone !== 'ready' || accessibilityTone === 'warning' || audioPresentation.tone !== 'ready'
     ? 'inputDriver'
     : 'deviceConnection'
-  const audioGainProgress = ((audioGain - audioGainMin) / (audioGainMax - audioGainMin)) * 100
-  const audioGainStyle = { '--home-audio-progress': `${audioGainProgress}%` } as CSSProperties
 
   return <div className="home-page">
     <section className={`home-hero ${heroTone}`} aria-labelledby="home-device-title">
@@ -254,15 +246,9 @@ export function HomeDashboard({
             status={audioPresentation.label}
             tone={audioPresentation.tone}
             detail={audioDetail}
-            leadingAction={<button type="button" className="home-audio-test-button" onClick={onTestAudio}><AudioLines size={20} aria-hidden="true" /><span>测试音频</span></button>}
             action={<button type="button" className="home-row-action" onClick={onOpenPermissions}>音频设置<ChevronRight size={13} /></button>}
-          >
-            <div className="home-audio-control">
-              <label htmlFor="audio-gain">输入增益</label>
-              <input id="audio-gain" type="range" min={audioGainMin} max={audioGainMax} step="1" value={audioGain} style={audioGainStyle} disabled={!nativeRuntime || platform === 'unsupported'} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
-              <strong>{audioGain} dB</strong>
-            </div>
-          </HomeStatusRow>
+            leadingAction={<button type="button" className="home-audio-test-button" onClick={onTestAudio}><SlidersHorizontal size={20} aria-hidden="true" /><span>校准音量</span></button>}
+          />
           <HomeStatusRow
             icon={<Bluetooth size={18} />}
             title={macOS ? "设备连接" : "驱动状态"}
