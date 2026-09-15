@@ -64,13 +64,14 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 0, mouseKeyHoldMs: 0, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: false }
+  const fallback = { showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 0, mouseKeyHoldMs: 0, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: false }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
     if (!stored) return fallback
     const parsed = JSON.parse(stored) as Record<string, unknown>
     return {
+      showRemoteKeyGrid: parsed.showRemoteKeyGrid !== false,
       behaviors: parseStoredBehaviors(parsed),
       enabled: parsed.enabled === true,
       mouseEnabled: parsed.mouseEnabled !== false,

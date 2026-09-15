@@ -1,17 +1,19 @@
 import type { CSSProperties } from 'react'
-import { ExternalLink, Info, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
+import { ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState } from '../setupModel'
 
-export type SettingsSection = 'startup' | 'permissions' | 'mouse'
+export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse'
 
 type SettingsPageProps = {
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   platform: Platform
   nativeRuntime: boolean
+  showRemoteKeyGrid: boolean
+  onShowRemoteKeyGridChange: (value: boolean) => void
   mouseIgnoreScrollAcceleration: boolean
   onMouseIgnoreScrollAccelerationChange: (value: boolean) => void
   mouseScrollSensitivity: number
@@ -32,12 +34,13 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
     { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
     { id: 'permissions' as const, label: '系统权限', icon: <ShieldCheck size={16} /> },
+    { id: 'remote' as const, label: '遥控器映射', icon: <Radio size={16} /> },
     ...(supportsMouse ? [{ id: 'mouse' as const, label: '鼠标映射', icon: <Mouse size={16} /> }] : []),
   ]
   const loading = systemProbeState === 'loading'
@@ -85,6 +88,18 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
     </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
+    </section>
+    <section id="settings-panel-remote" aria-labelledby="settings-nav-remote" hidden={currentSection !== 'remote'}>
+      <div className="settings-mouse-heading"><h3 className="settings-section-title">遥控器映射</h3><span>更改自动保存</span></div>
+      <div className="settings-form-fields">
+        <div className="settings-form-row">
+          <span className="settings-form-label">按键列表：</span>
+          <div className="settings-form-control">
+            <label className="settings-checkbox"><input type="checkbox" checked={showRemoteKeyGrid} onChange={(event) => onShowRemoteKeyGridChange(event.target.checked)} />显示遥控器按键列表</label>
+            <SettingsHelp id="remote-key-grid-help" label="显示遥控器按键列表">默认开启。在映射页顶部显示所有遥控器按键；关闭后仍可通过左侧遥控器图选择按键。</SettingsHelp>
+          </div>
+        </div>
+      </div>
     </section>
     {supportsMouse && <section id="settings-panel-mouse" aria-labelledby="settings-nav-mouse" hidden={currentSection !== 'mouse'}>
       <div className="settings-mouse-heading"><h3 className="settings-section-title">鼠标映射</h3><span>更改自动保存</span></div>
