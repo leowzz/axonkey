@@ -132,7 +132,10 @@ function AppController() {
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
+  const [mouseIgnoreScrollAcceleration, setMouseIgnoreScrollAcceleration] = useState(() => getStoredSettings().mouseIgnoreScrollAcceleration)
   const [mouseScrollSensitivity, setMouseScrollSensitivity] = useState(() => getStoredSettings().mouseScrollSensitivity)
+  const [mouseVerticalScrollIntervalMs, setMouseVerticalScrollIntervalMs] = useState(() => getStoredSettings().mouseVerticalScrollIntervalMs)
+  const [mouseHorizontalScrollIntervalMs, setMouseHorizontalScrollIntervalMs] = useState(() => getStoredSettings().mouseHorizontalScrollIntervalMs)
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [inputSettingsReady, setInputSettingsReady] = useState(false)
   const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
@@ -258,13 +261,13 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
       try {
         if ('__TAURI_INTERNALS__' in window) {
-          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity } })
+          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs } })
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
@@ -279,7 +282,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, applyRetry])
+  }, [behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, applyRetry])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -1326,8 +1329,14 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
+          onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
           mouseScrollSensitivity={mouseScrollSensitivity}
           onMouseScrollSensitivityChange={setMouseScrollSensitivity}
+          mouseVerticalScrollIntervalMs={mouseVerticalScrollIntervalMs}
+          onMouseVerticalScrollIntervalMsChange={setMouseVerticalScrollIntervalMs}
+          mouseHorizontalScrollIntervalMs={mouseHorizontalScrollIntervalMs}
+          onMouseHorizontalScrollIntervalMsChange={setMouseHorizontalScrollIntervalMs}
           mouseKeyHoldMs={mouseKeyHoldMs}
           onMouseKeyHoldMsChange={setMouseKeyHoldMs}
           platform={platform}

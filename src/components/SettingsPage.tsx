@@ -7,8 +7,14 @@ import type { SetupState } from '../setupModel'
 type SettingsPageProps = {
   platform: Platform
   nativeRuntime: boolean
+  mouseIgnoreScrollAcceleration: boolean
+  onMouseIgnoreScrollAccelerationChange: (value: boolean) => void
   mouseScrollSensitivity: number
   onMouseScrollSensitivityChange: (value: number) => void
+  mouseVerticalScrollIntervalMs: number
+  onMouseVerticalScrollIntervalMsChange: (ms: number) => void
+  mouseHorizontalScrollIntervalMs: number
+  onMouseHorizontalScrollIntervalMsChange: (ms: number) => void
   mouseKeyHoldMs: number
   onMouseKeyHoldMsChange: (ms: number) => void
   systemProbeState: 'loading' | 'ready' | 'error'
@@ -21,7 +27,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
   const items = [
@@ -62,6 +68,19 @@ export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, 
       <section className="settings-permission-row settings-mouse-row">
         <span className="settings-permission-icon"><RotateCcw size={18} /></span>
         <div className="settings-permission-copy">
+          <div><h3 id="mouse-ignore-acceleration-label">忽略滚动加速</h3></div>
+          <p id="mouse-ignore-acceleration-help">按事件次数触发，避免快速滚动时触发量激增。100% 灵敏度下每条事件触发一次；不会过滤惯性产生的额外事件。</p>
+        </div>
+        <div className="settings-mouse-control">
+          <button type="button" role="switch" aria-checked={mouseIgnoreScrollAcceleration}
+            aria-labelledby="mouse-ignore-acceleration-label" aria-describedby="mouse-ignore-acceleration-help"
+            className={`switch ${mouseIgnoreScrollAcceleration ? 'on' : ''}`}
+            onClick={() => onMouseIgnoreScrollAccelerationChange(!mouseIgnoreScrollAcceleration)}><span /></button>
+        </div>
+      </section>
+      <section className="settings-permission-row settings-mouse-row">
+        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
+        <div className="settings-permission-copy">
           <div><h3><label htmlFor="mouse-scroll-sensitivity">滚动灵敏度</label></h3></div>
           <p id="mouse-scroll-sensitivity-help">调高可让轻微滚动更容易触发；调低可减少误触。适用于所有滚轮映射。</p>
         </div>
@@ -79,6 +98,28 @@ export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, 
           <div className="settings-control-caption"><span>低 · 25%</span><span>默认 100%</span><span>高 · 400%</span></div>
         </div>
       </section>
+      {([
+        { axis: 'vertical', label: '垂直滚轮触发间隔', directions: '向上、向下', value: mouseVerticalScrollIntervalMs, onChange: onMouseVerticalScrollIntervalMsChange },
+        { axis: 'horizontal', label: '横向滚轮触发间隔', directions: '向左、向右', value: mouseHorizontalScrollIntervalMs, onChange: onMouseHorizontalScrollIntervalMsChange },
+      ] as const).map(({ axis, label, directions, value, onChange }) => <section key={axis} className="settings-permission-row settings-mouse-row">
+        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
+        <div className="settings-permission-copy">
+          <div><h3><label htmlFor={`mouse-${axis}-interval`}>{label}</label></h3></div>
+          <p id={`mouse-${axis}-interval-help`}>{directions}共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。</p>
+        </div>
+        <div className="settings-mouse-control">
+          <div className="settings-hold-control">
+            <input id={`mouse-${axis}-interval`} className="behavior-delay-input" type="number" min={0} max={10000} step={10}
+              aria-describedby={`mouse-${axis}-interval-help`} value={value}
+              onChange={(event) => {
+                const ms = Number(event.target.value)
+                if (Number.isFinite(ms)) onChange(Math.max(0, Math.min(10000, Math.round(ms))))
+              }} />
+            <span>毫秒</span>
+          </div>
+          <div className="settings-control-caption"><span>默认 0 毫秒 · 不限制触发间隔</span></div>
+        </div>
+      </section>)}
       <section className="settings-permission-row settings-mouse-row">
         <span className="settings-permission-icon"><Keyboard size={18} /></span>
         <div className="settings-permission-copy">

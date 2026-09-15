@@ -239,6 +239,8 @@ struct ScrollAccumulator {
     edge: Option<Edge>,
     key: Option<(&'static str, u64)>,
     remainder: f64,
+    // Shared by opposite directions; retained when moving between screen edges.
+    last_trigger: [Option<(u64, Instant)>; 2],
 }
 
 impl ScrollAccumulator {
@@ -258,6 +260,10 @@ impl ScrollAccumulator {
     /// True only when an enabled mapping owns this input. Disabled actions count
     /// as mappings, while an empty list / all paused steps preserve native scroll.
     fn scroll(&mut self, shared: &Shared, direction: usize, amount: f64) -> bool {
+        self.scroll_at(shared, direction, amount, Instant::now())
+    }
+
+    fn scroll_at(&mut self, shared: &Shared, direction: usize, amount: f64, now: Instant) -> bool {
         if !amount.is_finite() || amount <= 0.0 || direction >= 4 {
             return false;
         }
@@ -293,11 +299,26 @@ impl ScrollAccumulator {
             self.remainder = 0.0;
             self.key = Some(key);
         }
+        let axis = direction / 2;
+        let interval_ms = if axis == 0 {
+            config.settings.mouse_vertical_scroll_interval_ms
+        } else {
+            config.settings.mouse_horizontal_scroll_interval_ms
+        }.min(10_000);
+        if interval_ms > 0 && self.last_trigger[axis].is_some_and(|(revision, last)| {
+            revision == config.revision && now.saturating_duration_since(last) < Duration::from_millis(interval_ms)
+        }) {
+            self.remainder = 0.0;
+            return true;
+        }
         // Derived NativeSettings::default() uses zero; treat it like legacy settings.
         let sensitivity = match config.settings.mouse_scroll_sensitivity {
             0 => 100,
             value => value.clamp(25, 400),
         };
+        // Event normalization removes magnitude-based acceleration, not momentum
+        // events or OS event coalescing. Sensitivity still scales event counts.
+        let amount = if config.settings.mouse_ignore_scroll_acceleration { 1.0 } else { amount };
         let total = self.remainder + amount * f64::from(sensitivity) / 100.0;
         let repeats = total.floor() as usize;
         if repeats == 0 {
@@ -307,10 +328,11 @@ impl ScrollAccumulator {
         let job = Job {
             behaviors: actions.clone(),
             revision: config.revision,
-            repeats: repeats.min(32),
+            repeats: if interval_ms > 0 { 1 } else { repeats.min(32) },
         };
         if shared.sender.try_send(job).is_ok() {
-            self.remainder = total.fract();
+            self.last_trigger[axis] = Some((config.revision, now));
+            self.remainder = if interval_ms > 0 { 0.0 } else { total.fract() };
             true
         } else {
             self.reset();
@@ -587,6 +609,118 @@ mod tests {
             assert_eq!(receiver.try_recv().unwrap().repeats, repeats);
             assert!(receiver.try_recv().is_err());
         }
+    }
+
+    #[test]
+    fn ignoring_acceleration_normalizes_event_amount_and_preserves_sensitivity() {
+        for sensitivity in [50, 100, 200] {
+            let (shared, receiver) = fixture(serde_json::json!({
+                "mouse.left.up": {"click":[{"type":"key","key":"VolumeUp"}]},
+                "mouse.left.down": {"click":[{"type":"key","key":"VolumeDown"}]}
+            }));
+            {
+                let mut config = shared.configuration.lock().unwrap();
+                config.settings.mouse_ignore_scroll_acceleration = true;
+                config.settings.mouse_scroll_sensitivity = sensitivity;
+            }
+            let mut scroll = ScrollAccumulator::default();
+            scroll.enter(Some(Edge::Left));
+            for direction in [0, 1] {
+                // Same event count despite a rapidly increasing scroll magnitude.
+                for (index, amount) in [0.04, 3.7596, 13.9608, 23.6027].into_iter().enumerate() {
+                    assert!(scroll.scroll(&shared, direction, amount));
+                    if sensitivity == 50 && index % 2 == 0 {
+                        assert!(receiver.try_recv().is_err());
+                    } else {
+                        let job = receiver.try_recv().unwrap();
+                        assert_eq!(job.repeats, if sensitivity == 200 { 2 } else { 1 });
+                    }
+                    assert!(receiver.try_recv().is_err());
+                }
+            }
+            // Invalid or empty input cannot become an action through normalization.
+            for amount in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+                assert!(!scroll.scroll(&shared, 0, amount));
+            }
+            assert!(receiver.try_recv().is_err());
+            {
+                let mut config = shared.configuration.lock().unwrap();
+                config.settings.mouse_ignore_scroll_acceleration = false;
+                config.settings.mouse_scroll_sensitivity = 100;
+                config.revision += 1;
+            }
+            assert!(scroll.scroll(&shared, 0, 3.0));
+            assert_eq!(receiver.try_recv().unwrap().repeats, 3);
+        }
+    }
+
+    #[test]
+    fn wheel_intervals_limit_each_axis_without_queued_repeats() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.up": {"click":[{"type":"key","key":"A"}]},
+            "mouse.global.down": {"click":[{"type":"key","key":"B"}]},
+            "mouse.global.left": {"click":[{"type":"key","key":"C"}]},
+            "mouse.global.right": {"click":[{"type":"key","key":"D"}]}
+        }));
+        {
+            let mut config = shared.configuration.lock().unwrap();
+            config.settings.mouse_vertical_scroll_interval_ms = 100;
+            config.settings.mouse_horizontal_scroll_interval_ms = 200;
+        }
+        let start = Instant::now();
+        let mut scroll = ScrollAccumulator::default();
+        // Acceleration cannot create a burst of actions inside one interval.
+        assert!(scroll.scroll_at(&shared, 0, 20.0, start));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+        // Horizontal starts immediately, independently of vertical.
+        assert!(scroll.scroll_at(&shared, 2, 20.0, start));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+        for ms in [1, 50, 99] {
+            // Changing edges and reversing direction cannot bypass the limiter.
+            scroll.enter(Some(Edge::Right));
+            assert!(scroll.scroll_at(&shared, 1, 100.0, start + Duration::from_millis(ms)));
+            assert!(scroll.scroll_at(&shared, 3, 100.0, start + Duration::from_millis(ms)));
+            assert!(receiver.try_recv().is_err());
+        }
+        assert!(scroll.scroll_at(&shared, 1, 1.0, start + Duration::from_millis(100)));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+        assert!(scroll.scroll_at(&shared, 3, 1.0, start + Duration::from_millis(199)));
+        assert!(receiver.try_recv().is_err());
+        assert!(scroll.scroll_at(&shared, 3, 1.0, start + Duration::from_millis(200)));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+        // Settings revisions cancel the previous interval; zero restores repeats.
+        {
+            let mut config = shared.configuration.lock().unwrap();
+            config.settings.mouse_vertical_scroll_interval_ms = 0;
+            config.revision += 1;
+        }
+        for _ in 0..2 {
+            assert!(scroll.scroll_at(&shared, 0, 3.0, start + Duration::from_millis(201)));
+            assert_eq!(receiver.try_recv().unwrap().repeats, 3);
+        }
+        assert!(scroll.scroll_at(&shared, 2, 1.0, start + Duration::from_millis(201)));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn wheel_interval_starts_only_after_successful_enqueue() {
+        let (mut shared, _) = fixture(serde_json::json!({
+            "mouse.global.up": {"click":[{"type":"key","key":"A"}]}
+        }));
+        shared.configuration.lock().unwrap().settings.mouse_vertical_scroll_interval_ms = 100;
+        let (sender, receiver) = mpsc::sync_channel(1);
+        shared.sender = sender;
+        let mut scroll = ScrollAccumulator::default();
+        let start = Instant::now();
+        assert!(scroll.scroll_at(&shared, 0, 0.5, start));
+        assert!(receiver.try_recv().is_err());
+        assert!(scroll.scroll_at(&shared, 0, 0.5, start + Duration::from_millis(1)));
+        // Queue is full at the next eligible event: preserve native input.
+        assert!(!scroll.scroll_at(&shared, 0, 1.0, start + Duration::from_millis(101)));
+        receiver.try_recv().unwrap();
+        assert!(scroll.scroll_at(&shared, 0, 1.0, start + Duration::from_millis(102)));
+        assert_eq!(receiver.try_recv().unwrap().repeats, 1);
     }
 
     fn fixture(behaviors: serde_json::Value) -> (Shared, mpsc::Receiver<Job>) {

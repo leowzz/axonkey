@@ -122,6 +122,9 @@ export type StoredSettings = {
   behaviors: BehaviorMap
   enabled: boolean
   mouseEnabled: boolean
+  mouseVerticalScrollIntervalMs: number
+  mouseHorizontalScrollIntervalMs: number
   mouseKeyHoldMs: number
   mouseScrollSensitivity: number
+  mouseIgnoreScrollAcceleration: boolean
 }

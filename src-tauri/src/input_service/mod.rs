@@ -31,8 +31,14 @@ pub struct NativeSettings {
     pub(super) mouse_enabled: bool,
     #[serde(rename = "mouseKeyHoldMs", default)]
     pub(super) mouse_key_hold_ms: u64,
+    #[serde(rename = "mouseHorizontalScrollIntervalMs", default)]
+    pub(super) mouse_horizontal_scroll_interval_ms: u64,
+    #[serde(rename = "mouseVerticalScrollIntervalMs", default)]
+    pub(super) mouse_vertical_scroll_interval_ms: u64,
     #[serde(rename = "mouseScrollSensitivity", default = "default_scroll_sensitivity")]
     pub(super) mouse_scroll_sensitivity: u16,
+    #[serde(rename = "mouseIgnoreScrollAcceleration", default)]
+    pub(super) mouse_ignore_scroll_acceleration: bool,
     #[serde(default)]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
@@ -177,8 +183,14 @@ mod settings_tests {
         let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.mouse_key_hold_ms, 0);
         assert_eq!(legacy.mouse_scroll_sensitivity, 100);
-        let saved: NativeSettings = serde_json::from_str(r#"{"mouseKeyHoldMs":50,"mouseScrollSensitivity":200}"#).unwrap();
+        assert!(!legacy.mouse_ignore_scroll_acceleration);
+        assert_eq!(legacy.mouse_vertical_scroll_interval_ms, 0);
+        assert_eq!(legacy.mouse_horizontal_scroll_interval_ms, 0);
+        let saved: NativeSettings = serde_json::from_str(r#"{"mouseKeyHoldMs":50,"mouseScrollSensitivity":200,"mouseIgnoreScrollAcceleration":true,"mouseVerticalScrollIntervalMs":100,"mouseHorizontalScrollIntervalMs":200}"#).unwrap();
         assert_eq!(saved.mouse_key_hold_ms, 50);
         assert_eq!(saved.mouse_scroll_sensitivity, 200);
+        assert!(saved.mouse_ignore_scroll_acceleration);
+        assert_eq!(saved.mouse_vertical_scroll_interval_ms, 100);
+        assert_eq!(saved.mouse_horizontal_scroll_interval_ms, 200);
     }
 }

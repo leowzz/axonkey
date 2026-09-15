@@ -64,7 +64,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseKeyHoldMs: 0, mouseScrollSensitivity: 100 }
+  const fallback = { behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 0, mouseKeyHoldMs: 0, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: false }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
@@ -74,6 +74,11 @@ export function getStoredSettings(): StoredSettings {
       behaviors: parseStoredBehaviors(parsed),
       enabled: parsed.enabled === true,
       mouseEnabled: parsed.mouseEnabled !== false,
+      mouseHorizontalScrollIntervalMs: typeof parsed.mouseHorizontalScrollIntervalMs === 'number' && Number.isFinite(parsed.mouseHorizontalScrollIntervalMs)
+        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseHorizontalScrollIntervalMs))) : 0,
+      mouseVerticalScrollIntervalMs: typeof parsed.mouseVerticalScrollIntervalMs === 'number' && Number.isFinite(parsed.mouseVerticalScrollIntervalMs)
+        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseVerticalScrollIntervalMs))) : 0,
+      mouseIgnoreScrollAcceleration: parsed.mouseIgnoreScrollAcceleration === true,
       mouseScrollSensitivity: typeof parsed.mouseScrollSensitivity === 'number' && Number.isFinite(parsed.mouseScrollSensitivity)
         ? Math.max(25, Math.min(400, Math.round(parsed.mouseScrollSensitivity))) : 100,
       mouseKeyHoldMs: typeof parsed.mouseKeyHoldMs === 'number' && Number.isFinite(parsed.mouseKeyHoldMs)
