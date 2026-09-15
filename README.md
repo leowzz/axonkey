@@ -1,16 +1,16 @@
 # Axonkey
 
-[![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases/latest)
-[![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
-[![Downloads](https://img.shields.io/github/downloads/leowzz/axonkey/total?style=flat&color=brightgreen)](https://github.com/leowzz/axonkey/releases)
-[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue?style=flat&logo=apple&logoColor=white)](#系统要求)
-[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat)](#系统要求)
-[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat&logo=tauri&logoColor=white)](./src-tauri/Cargo.toml)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=white)](./package.json)
+[IMG0](https://github.com/leowzz/axonkey/releases/latest)
+[IMG0](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
+[IMG0](https://github.com/leowzz/axonkey/releases)
+[IMG0](#系统要求)
+[IMG0](#系统要求)
+[IMG0](./src-tauri/Cargo.toml)
+[IMG0](./package.json)
 
-**[⬇ 下载 Axonkey（macOS / Windows）](https://github.com/leowzz/axonkey/releases)**
+[**⬇ 下载 Axonkey（macOS / Windows）**](https://github.com/leowzz/axonkey/releases)
 
-Axonkey 是一款支持小米 RC003 蓝牙遥控器和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
+Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
 
 设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
 
@@ -19,21 +19,21 @@ Axonkey 是一款支持小米 RC003 蓝牙遥控器和鼠标输入的本地映�
 ### 首页
 
 <p align="center">
-  <img src="./docs/images/axonkey-home.png" width="960" alt="Axonkey 首页，展示设备状态、系统权限、语音通道和快捷操作">
+<img src="./docs/images/axonkey-home.png" width="960" alt="Axonkey 首页，展示设备状态、系统权限、语音通道和快捷操作">
 </p>
 <p align="center"><sub>设备状态、运行检查与快捷操作</sub></p>
 
 ### 总览
 
 <p align="center">
-  <img src="./docs/images/axonkey-overview.png" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
+<img src="./docs/images/axonkey-overview.png" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
 </p>
 <p align="center"><sub>查看各实体按键的映射行为，切换单击、双击和长按</sub></p>
 
 ### 映射
 
 <p align="center">
-  <img src="./docs/images/axonkey-mapping.png" width="960" alt="Axonkey 映射界面，显示 RC003、触发方式和行为编辑器">
+<img src="./docs/images/axonkey-mapping.png" width="960" alt="Axonkey 映射界面，显示 RC003、触发方式和行为编辑器">
 </p>
 <p align="center"><sub>选择实体按键，再分别编辑单击、双击和长按行为</sub></p>
 
