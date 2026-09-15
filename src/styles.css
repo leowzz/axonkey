@@ -1217,7 +1217,47 @@ html.macos-vibrancy,
   background: transparent;
 }
 .macos-vibrancy .topbar { background: rgb(255 255 255 / 24%); border-bottom-color: rgb(70 80 90 / 14%); }
-.macos-vibrancy .home-page { --home-surface: rgb(255 255 255 / 18%); --home-side-surface: rgb(230 235 240 / 24%); }
+/* Home uses one glass layer per panel; nested content stays transparent. */
+.macos-vibrancy .home-page { --home-surface: rgb(255 255 255 / 20%); --home-side-surface: rgb(95 110 130 / 4%); }
+.macos-vibrancy .home-hero,
+.macos-vibrancy .home-content-grid {
+  border: 1px solid rgb(70 80 90 / 12%);
+  border-radius: 12px;
+}
+.macos-vibrancy .home-health { background: transparent; }
+.macos-vibrancy .home-device-visual,
+.macos-vibrancy .home-sidebar {
+  border-left: 1px solid rgb(70 80 90 / 12%);
+  box-shadow: none;
+}
+.macos-vibrancy .home-secondary-action,
+.macos-vibrancy .home-icon-action,
+.macos-vibrancy .home-status-icon,
+.macos-vibrancy .home-quick-icon {
+  border-color: rgb(70 80 90 / 16%);
+  background: rgb(255 255 255 / 48%);
+}
+.macos-vibrancy .home-secondary-action:hover,
+.macos-vibrancy .home-icon-action:hover:not(:disabled) {
+  border-color: #94b8df;
+  background: rgb(240 247 255 / 82%);
+}
+.macos-vibrancy .home-audio-test-button {
+  border-color: rgb(20 120 232 / 24%);
+  background: rgb(235 245 255 / 58%);
+}
+.macos-vibrancy .home-audio-test-button:hover { background: rgb(225 240 255 / 85%); }
+.macos-vibrancy .home-status-row { border-top-color: rgb(70 80 90 / 10%); }
+.macos-vibrancy .home-quick-button { border-radius: 7px; }
+.macos-vibrancy .home-eyebrow,
+.macos-vibrancy .home-hero-copy > p,
+.macos-vibrancy .home-device-model,
+.macos-vibrancy .home-device-telemetry,
+.macos-vibrancy .home-check-count,
+.macos-vibrancy .home-status-copy p,
+.macos-vibrancy .home-audio-control,
+.macos-vibrancy .home-quick-button small,
+.macos-vibrancy .home-local-note span { color: #505e69; }
 .macos-vibrancy .settings-form-page { background: transparent; }
 .macos-vibrancy .settings-nav { background: rgb(230 235 240 / 16%); }
 .macos-vibrancy .settings-panels { background: rgb(255 255 255 / 20%); }
