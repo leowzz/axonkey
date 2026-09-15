@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react'
-import { Command, ExternalLink, Info, Keyboard, RotateCcw, ShieldCheck } from 'lucide-react'
+import { useState, type CSSProperties } from 'react'
+import { Command, ExternalLink, Info, Keyboard, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState } from '../setupModel'
@@ -28,6 +28,14 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+  const [section, setSection] = useState<'startup' | 'permissions' | 'mouse'>('startup')
+  const supportsMouse = platform === 'windows' || platform === 'macos'
+  const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
+  const sections = [
+    { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
+    { id: 'permissions' as const, label: '系统权限', icon: <ShieldCheck size={16} /> },
+    ...(supportsMouse ? [{ id: 'mouse' as const, label: '鼠标映射', icon: <Mouse size={16} /> }] : []),
+  ]
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
   const items = [
@@ -38,9 +46,20 @@ export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceler
   return <div className="settings-page">
     <header className="settings-page-head">
       <div><h2>设置</h2><p>管理 Axonkey 的启动方式、输入选项和系统权限。</p></div>
-      <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} />{loading ? '检测中' : '重新检测'}</button>
+      {currentSection === 'permissions' && <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} />{loading ? '检测中' : '重新检测'}</button>}
     </header>
-    <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />
+    <div className="settings-layout">
+      <nav className="settings-nav" aria-label="设置分类">
+        {sections.map((item) => <button key={item.id} id={`settings-nav-${item.id}`} type="button"
+          aria-current={currentSection === item.id ? 'page' : undefined} aria-controls={`settings-panel-${item.id}`}
+          onClick={() => setSection(item.id)}>{item.icon}<span>{item.label}</span></button>)}
+      </nav>
+      <div className="settings-panels">
+    <section id="settings-panel-startup" aria-labelledby="settings-nav-startup" hidden={currentSection !== 'startup'}>
+      <h3 className="settings-section-title">启动设置</h3>
+      <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />
+    </section>
+    <section id="settings-panel-permissions" aria-labelledby="settings-nav-permissions" hidden={currentSection !== 'permissions'}>
     <h3 className="settings-section-title">系统权限</h3>
     {!nativeRuntime && <p className="permission-drag-note"><Info size={17} />浏览器预览无法检测或更改系统权限，请在桌面版中操作。</p>}
     {platform === 'macos' ? <>
@@ -62,7 +81,8 @@ export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceler
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
     </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
-    {(platform === 'windows' || platform === 'macos') && <>
+    </section>
+    {supportsMouse && <section id="settings-panel-mouse" aria-labelledby="settings-nav-mouse" hidden={currentSection !== 'mouse'}>
       <div className="settings-mouse-heading"><h3 className="settings-section-title">鼠标映射</h3><span>更改自动保存</span></div>
       <div className="settings-mouse-options">
       <section className="settings-permission-row settings-mouse-row">
@@ -140,6 +160,8 @@ export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceler
         </div>
       </section>
       </div>
-    </>}
+    </section>}
+      </div>
+    </div>
   </div>
 }

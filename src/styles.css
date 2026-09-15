@@ -896,7 +896,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .key-picker-head h2 .reset-button { margin-left: 6px; font-size: 12px; }
 
 /* Application settings page. */
-.settings-page { --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 16px; border: 1px solid #d5dae0; border-radius: 12px; background: #f8f8f7; }
+.settings-page { display: flex; flex-direction: column; flex: 1 0 auto; --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 16px; border: 1px solid #d5dae0; border-radius: 12px; background: #f8f8f7; }
 .settings-page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .settings-page-head h2 { margin: 0; font-size: 20px; }
 .settings-page-head p { margin: 4px 0 0; }
@@ -1127,3 +1127,29 @@ body.permission-helper-mode #root { min-height: 100vh; }
 
 .settings-page > .permission-drag-note { margin: 8px 0; padding: 10px 12px; }
 .settings-page .dialog-secondary { min-height: 30px; padding: 6px 10px; }
+
+/* Settings categories keep navigation separate from the active content. */
+.settings-layout { display: grid; flex: 1; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: stretch; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 4px 12px 4px 0; border-right: 1px solid #dfe4e8; }
+.settings-nav button { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #6c7882; font-size: 13px; text-align: left; white-space: nowrap; }
+.settings-nav button:hover { background: #edf0f3; color: #354954; }
+.settings-nav button[aria-current='page'] { border-color: #d4e0e9; background: #e7eef4; color: #315b78; font-weight: 600; }
+.settings-nav button:focus-visible { outline: 2px solid #8aa8bd; outline-offset: 2px; }
+.settings-panels { min-width: 0; }
+.settings-panels > section > .settings-section-title, .settings-panels .settings-mouse-heading { margin-top: 0; }
+.settings-panels .permission-drag-note { margin: 8px 0; padding: 10px 12px; }
+.settings-panels .settings-mouse-row { grid-template-columns: 30px minmax(0, 1fr) 200px; }
+@media (max-width: 1000px) {
+  .settings-layout { grid-template-columns: 130px minmax(0, 1fr); gap: 14px; }
+  .settings-nav { padding-right: 8px; }
+  .settings-panels .settings-mouse-row { grid-template-columns: 30px minmax(0, 1fr); }
+  .settings-panels .settings-mouse-control { grid-column: 2; width: min(100%, 260px); }
+}
+@media (max-width: 700px) {
+  .settings-layout { grid-template-columns: 112px minmax(0, 1fr); gap: 10px; }
+  .settings-nav button { gap: 6px; padding: 8px 6px; font-size: 12px; }
+}
+
+.main-content:has(> .settings-page) { display: flex; flex-direction: column; }
+.main-content:has(> .settings-page) > .mapping-disabled-notice { flex-shrink: 0; }
+.settings-page-head { flex-shrink: 0; }
