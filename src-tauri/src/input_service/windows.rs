@@ -1131,7 +1131,7 @@ fn execute_behaviors(
 }
 
 /// System mouse mappings use SendInput, independently of any RC003 keyboard.
-pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior) {
+pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
     match behavior {
         NativeBehavior::Wheel { direction, .. } => {
             send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction))
@@ -1140,7 +1140,7 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Paste { text, .. } => send_unicode_text(text),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
-                if !send_mouse_chord_with(&keys, send_mouse_keyboard_inputs) {
+                if !send_mouse_chord_with(&keys, hold_ms, send_mouse_keyboard_inputs) {
                     log::warn!(target: "axonkey::input", "Mouse keyboard injection incomplete; target may have higher privileges");
                 }
             }
@@ -1165,9 +1165,9 @@ fn virtual_key_input(key: u16) -> Input {
     }
 }
 
-/// Submit a complete tap in one SendInput batch. Mouse wheel notches must not
-/// inherit the remote's 50 ms hold: it serializes rapid scrolling at 20 Hz.
-fn send_mouse_chord_with(keys: &[u16], mut send: impl FnMut(&[Input]) -> usize) -> bool {
+/// Zero hold submits a complete tap in one batch; a configured hold separates
+/// down and up for applications that need time to recognize a pressed key.
+fn send_mouse_chord_with(keys: &[u16], hold_ms: u64, mut send: impl FnMut(&[Input]) -> usize) -> bool {
     if keys.is_empty() {
         return true;
     }
@@ -1178,6 +1178,18 @@ fn send_mouse_chord_with(keys: &[u16], mut send: impl FnMut(&[Input]) -> usize) 
         }
         input
     };
+    if hold_ms > 0 {
+        let pressed = send(&downs).min(downs.len());
+        if pressed == downs.len() {
+            thread::sleep(Duration::from_millis(hold_ms.min(1000)));
+        }
+        let ups: Vec<Input> = downs[..pressed].iter().copied().rev().map(release).collect();
+        let released = if ups.is_empty() { 0 } else { send(&ups).min(ups.len()) };
+        if released < ups.len() {
+            send(&ups[released..]);
+        }
+        return pressed == downs.len() && released == ups.len();
+    }
     let mut inputs = Vec::with_capacity(downs.len() * 2);
     inputs.extend_from_slice(&downs);
     inputs.extend(downs.iter().copied().rev().map(release));
@@ -1700,7 +1712,7 @@ mod tests {
                 } else {
                     vec!["Ctrl".into(), "Tab".into()]
                 },
-            });
+            }, 0);
         }
         let elapsed = started.elapsed();
         println!("40 alternating mouse shortcut outputs (mock injection): {elapsed:?}");
@@ -1735,12 +1747,49 @@ mod tests {
     }
 
     #[test]
+    fn configured_mouse_hold_separates_down_and_up() {
+        let started = Instant::now();
+        let mut batches = Vec::new();
+        assert!(send_mouse_chord_with(&[0x11, 0x09], 20, |inputs| {
+            batches.push((started.elapsed(), inputs.iter().map(|input| unsafe {
+                (input.value.keyboard.virtual_key, input.value.keyboard.flags)
+            }).collect::<Vec<_>>()));
+            inputs.len()
+        }));
+        assert_eq!(batches.len(), 2);
+        assert!(batches[1].0 - batches[0].0 >= Duration::from_millis(20));
+        assert_eq!(batches[0].1, vec![(0x11, 0), (0x09, 0)]);
+        assert_eq!(batches[1].1, vec![(0x09, 2), (0x11, 2)]);
+    }
+
+    #[test]
+    fn configured_mouse_hold_cleans_up_partial_injection() {
+        for partial_release in [false, true] {
+            let mut calls = 0;
+            let mut held = Vec::new();
+            assert!(!send_mouse_chord_with(&[0x11, 0x09], 1, |inputs| {
+                calls += 1;
+                let sent = if (partial_release && calls == 2) || (!partial_release && calls == 1) {
+                    1
+                } else { inputs.len() };
+                for input in &inputs[..sent] {
+                    let key = unsafe { input.value.keyboard };
+                    if key.flags & 2 == 0 { held.push(key.virtual_key); }
+                    else { assert_eq!(held.pop(), Some(key.virtual_key)); }
+                }
+                sent
+            }));
+            assert!(held.is_empty());
+        }
+    }
+
+    #[test]
     fn partial_mouse_chord_injection_releases_only_unmatched_downs() {
         let keys = [0x11, 0x10, 0x09];
         for accepted in 0..=6 {
             let mut calls = 0;
             let mut held = Vec::new();
-            let complete = send_mouse_chord_with(&keys, |inputs| {
+            let complete = send_mouse_chord_with(&keys, 0, |inputs| {
                 calls += 1;
                 let sent = if calls == 1 { accepted } else { inputs.len() };
                 for input in &inputs[..sent] {

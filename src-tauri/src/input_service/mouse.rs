@@ -130,7 +130,12 @@ impl MouseService {
                                 }
                             } else {
                                 #[cfg(any(windows, target_os = "macos"))]
-                                platform::execute(behavior);
+                                {
+                                    let hold_ms = state.configuration.lock()
+                                        .map(|config| config.settings.mouse_key_hold_ms.min(1000))
+                                        .unwrap_or(0);
+                                    platform::execute(behavior, hold_ms);
+                                }
                             }
                         }
                         if !current_job(&state, job.revision) {

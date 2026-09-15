@@ -214,8 +214,8 @@ pub(super) fn run(shared: Arc<Shared>) {
     CAPTURE.with(|capture| *capture.borrow_mut() = None);
 }
 
-pub(super) fn execute(behavior: &NativeBehavior) {
-    super::super::windows::execute_mouse_behavior(behavior);
+pub(super) fn execute(behavior: &NativeBehavior, hold_ms: u64) {
+    super::super::windows::execute_mouse_behavior(behavior, hold_ms);
 }
 
 #[cfg(test)]

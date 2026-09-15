@@ -1091,13 +1091,24 @@ fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
     }
 }
 
+pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
+    execute_behaviors_with_hold(std::slice::from_ref(behavior), hold_ms);
+}
+
 pub(super) fn execute_behaviors(behaviors: &[NativeBehavior]) {
+    execute_behaviors_with_hold(behaviors, 0);
+}
+
+fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         log_behavior(behavior);
         match behavior {
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(keys) = behavior_chord(behavior) {
                     let mut pressed = PressedChord::press(&keys);
+                    if hold_ms > 0 && !pressed.is_empty() {
+                        thread::sleep(Duration::from_millis(hold_ms.min(1000)));
+                    }
                     pressed.release();
                 }
             }

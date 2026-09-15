@@ -132,6 +132,7 @@ function AppController() {
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
+  const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [inputSettingsReady, setInputSettingsReady] = useState(false)
   const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
   const [extraKeysOptionsOpen, setExtraKeysOptionsOpen] = useState(false)
@@ -256,13 +257,13 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled, mouseKeyHoldMs }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
       try {
         if ('__TAURI_INTERNALS__' in window) {
-          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled } })
+          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled, mouseKeyHoldMs } })
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
@@ -277,7 +278,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [behaviors, enabled, mouseEnabled, applyRetry])
+  }, [behaviors, enabled, mouseEnabled, mouseKeyHoldMs, applyRetry])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -1325,6 +1326,8 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          mouseKeyHoldMs={mouseKeyHoldMs}
+          onMouseKeyHoldMsChange={setMouseKeyHoldMs}
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}

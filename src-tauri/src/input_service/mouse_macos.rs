@@ -27,10 +27,8 @@ unsafe extern "C" fn stop(context: *mut c_void) -> bool {
     capture.shared.stop.load(Ordering::Acquire)
 }
 unsafe extern "C" fn ready(context: *mut c_void, value: bool) {
-    (*(context as *mut Capture))
-        .shared
-        .ready
-        .store(value, Ordering::Release);
+    let capture = &*(context as *mut Capture);
+    capture.shared.ready.store(value, Ordering::Release);
 }
 unsafe extern "C" fn scroll(
     context: *mut c_void,
@@ -111,6 +109,6 @@ pub(super) fn run(shared: Arc<Shared>) {
         }
     }
 }
-pub(super) fn execute(behavior: &NativeBehavior) {
-    super::super::macos::execute_behaviors(std::slice::from_ref(behavior));
+pub(super) fn execute(behavior: &NativeBehavior, hold_ms: u64) {
+    super::super::macos::execute_mouse_behavior(behavior, hold_ms);
 }

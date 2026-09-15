@@ -122,4 +122,5 @@ export type StoredSettings = {
   behaviors: BehaviorMap
   enabled: boolean
   mouseEnabled: boolean
+  mouseKeyHoldMs: number
 }

@@ -29,6 +29,8 @@ pub struct NativeSettings {
     pub(super) enabled: bool,
     #[serde(rename = "mouseEnabled", default = "mouse_enabled_by_default")]
     pub(super) mouse_enabled: bool,
+    #[serde(rename = "mouseKeyHoldMs", default)]
+    pub(super) mouse_key_hold_ms: u64,
     #[serde(default)]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
@@ -161,3 +163,16 @@ mod unsupported {
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub use unsupported::InputService;
+
+#[cfg(test)]
+mod settings_tests {
+    use super::NativeSettings;
+
+    #[test]
+    fn mouse_key_hold_defaults_to_zero_and_loads_saved_value() {
+        let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.mouse_key_hold_ms, 0);
+        let saved: NativeSettings = serde_json::from_str(r#"{"mouseKeyHoldMs":50}"#).unwrap();
+        assert_eq!(saved.mouse_key_hold_ms, 50);
+    }
+}
