@@ -64,7 +64,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }
+  const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: true, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
@@ -74,7 +74,7 @@ export function getStoredSettings(): StoredSettings {
       mouseEdgeWidth: typeof parsed.mouseEdgeWidth === 'number' && Number.isFinite(parsed.mouseEdgeWidth) ? Math.max(1, Math.min(100, Math.round(parsed.mouseEdgeWidth))) : 8,
       showRemoteKeyGrid: parsed.showRemoteKeyGrid !== false,
       behaviors: parseStoredBehaviors(parsed),
-      enabled: parsed.enabled === true,
+      enabled: parsed.enabled !== false,
       mouseEnabled: parsed.mouseEnabled !== false,
       mouseHorizontalScrollIntervalMs: typeof parsed.mouseHorizontalScrollIntervalMs === 'number' && Number.isFinite(parsed.mouseHorizontalScrollIntervalMs)
         ? Math.max(0, Math.min(10000, Math.round(parsed.mouseHorizontalScrollIntervalMs))) : 50,
