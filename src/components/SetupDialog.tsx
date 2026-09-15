@@ -223,7 +223,9 @@ function MacPermissionsSetupScreen({ permissions, state, onRequest, onAudioActio
       <span className="permission-step-icon"><AudioLines size={18} /></span>
       <div className="mac-audio-copy">
         <div><h3>MiRemoteV 2ch 虚拟麦克风</h3><span className="permission-status-label">{driverStatusLabel(audio.status)}</span></div>
-        <p>{audio.action.error ?? audio.message ?? '安装后，Axonkey 会把 RC003 语音直接转发给豆包输入法等应用。'}</p>
+        <p>{audio.action.error ?? audio.message ?? '安装后，Axonkey 会将 RC003 语音转发到虚拟麦克风。'}</p>
+        <p>请将语音输入法的麦克风设为 <strong>MiRemoteV 2ch</strong>，以接收遥控器语音。</p>
+        <p>豆包输入法：设置 → 语音输入 → 麦克风选择。</p>
       </div>
       <div className="mac-audio-actions">
         {!audioInstalled && <button type="button" className="dialog-secondary" disabled={audioRunning} onClick={() => onAudioAction('audio', 'install')}><Download size={14} /> {audioRunning ? '等待授权…' : '安装驱动'}</button>}

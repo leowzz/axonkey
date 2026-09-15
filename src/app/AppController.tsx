@@ -1369,6 +1369,13 @@ function AppController() {
           onRequestPermission={(kind) => void requestMacPermission(kind)}
           onOpenSettings={(kind) => void openSystemSettings(kind)}
           onRefresh={() => void probeSystemState(false)}
+          audioDriver={setupState.drivers.audio}
+          onAudioAction={(action) => void runDriverAction('audio', action)}
+          onProbeAudio={() => void probeAudioState()}
+          onOpenSound={() => void openSystemSettings('sound')}
+          device={setupState.device}
+          onOpenBluetooth={() => void openSystemSettings('bluetooth')}
+          onCheckDevice={checkDeviceConnection}
           onOpenDriver={() => openSetupStep('inputDriver')}
         /> : <HomeDashboard
           platform={platform}
@@ -1385,6 +1392,7 @@ function AppController() {
           audioGain={audioGain}
           enabled={enabled}
           onOpenSettings={() => setActivePage('settings')}
+          onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           onRefresh={() => void refreshHome()}
           onAudioGainChange={updateAudioGain}
           onTestAudio={() => setAudioTestOpen(true)}

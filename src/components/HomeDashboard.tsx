@@ -36,6 +36,7 @@ type HomeDashboardProps = {
   audioGain: number
   enabled: boolean
   onOpenSettings: () => void
+  onOpenPermissions: () => void
   onRefresh: () => void
   onAudioGainChange: (gain: number) => void
   onTestAudio: () => void
@@ -97,6 +98,7 @@ export function HomeDashboard({
   audioGain,
   enabled,
   onOpenSettings,
+  onOpenPermissions,
   onRefresh,
   onAudioGainChange,
   onTestAudio,
@@ -235,8 +237,8 @@ export function HomeDashboard({
             tone={inputTone}
             detail={inputDetail}
             action={macOS
-              ? <button type="button" className="home-row-action" onClick={onOpenSettings}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
-              : <button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>检查驱动<ChevronRight size={13} /></button>}
+              ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
+              : <button type="button" className="home-row-action" onClick={onOpenPermissions}>检查驱动<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
             icon={<Command size={18} />}
@@ -244,7 +246,7 @@ export function HomeDashboard({
             status={accessibilityStatus}
             tone={accessibilityTone}
             detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
-            action={macOS && <button type="button" className="home-row-action" onClick={onOpenSettings}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
+            action={macOS && <button type="button" className="home-row-action" onClick={onOpenPermissions}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
             icon={<AudioLines size={18} />}
@@ -253,7 +255,7 @@ export function HomeDashboard({
             tone={audioPresentation.tone}
             detail={audioDetail}
             leadingAction={<button type="button" className="home-audio-test-button" onClick={onTestAudio}><AudioLines size={20} aria-hidden="true" /><span>测试音频</span></button>}
-            action={<button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>音频设置<ChevronRight size={13} /></button>}
+            action={<button type="button" className="home-row-action" onClick={onOpenPermissions}>音频设置<ChevronRight size={13} /></button>}
           >
             <div className="home-audio-control">
               <label htmlFor="audio-gain">输入增益</label>
@@ -267,7 +269,7 @@ export function HomeDashboard({
             status={deviceStatus}
             tone={deviceTone}
             detail={deviceDetail}
-            action={<button type="button" className="home-row-action" onClick={() => onOpenStep('deviceConnection')}>连接设置<ChevronRight size={13} /></button>}
+            action={<button type="button" className="home-row-action" onClick={onOpenPermissions}>连接设置<ChevronRight size={13} /></button>}
           />
         </div>
       </section>

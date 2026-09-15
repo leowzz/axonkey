@@ -1,9 +1,9 @@
 import type { CSSProperties } from 'react'
-import { ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
+import { Bluetooth, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
-import type { SetupState } from '../setupModel'
+import type { DriverActionKind, SetupState } from '../setupModel'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse'
 
@@ -30,18 +30,25 @@ type SettingsPageProps = {
   permissions: MacPermissions
   inputAuthorizationStale: boolean
   inputDriver: SetupState['drivers']['input']
+  audioDriver: SetupState['drivers']['audio']
+  onAudioAction: (action: DriverActionKind) => void
+  onProbeAudio: () => void
+  onOpenSound: () => void
+  device: SetupState['device']
+  onOpenBluetooth: () => void
+  onCheckDevice: () => void
   onRequestPermission: (kind: MacPermissionKind) => void
   onOpenSettings: (kind: MacPermissionKind) => void
   onRefresh: () => void
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
     { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
-    { id: 'permissions' as const, label: '系统权限', icon: <ShieldCheck size={16} /> },
+    { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
     { id: 'remote' as const, label: '遥控器映射', icon: <Radio size={16} /> },
     ...(supportsMouse ? [{ id: 'mouse' as const, label: '鼠标映射', icon: <Mouse size={16} /> }] : []),
   ]
@@ -51,6 +58,12 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     { kind: 'inputMonitoring' as const, title: '输入监控', description: '读取 RC003 遥控器的按键，让自定义映射能够响应。', granted: permissions.inputMonitoring && !inputAuthorizationStale, stale: inputAuthorizationStale },
     { kind: 'accessibility' as const, title: '辅助功能', description: '发送映射后的按键、快捷键和文本。', granted: permissions.accessibility, stale: false },
   ]
+  const audioInstalled = audioDriver.status === 'installed' || audioDriver.status === 'restartRequired'
+  const audioBusy = audioDriver.action.status === 'running' || audioDriver.status === 'checking'
+  const audioStatus = !nativeRuntime ? '未检测' : audioDriver.action.status === 'running' ? '等待授权…' : ({ unknown: '未检测', checking: '检测中', missing: '未安装', installed: '已安装', restartRequired: '需要重启', error: '操作失败' })[audioDriver.status]
+  const audioError = audioDriver.action.error ?? (audioDriver.status === 'error' ? audioDriver.message : undefined)
+  const deviceBusy = device.status === 'checking' || device.status === 'connecting'
+  const deviceStatus = !nativeRuntime ? '未检测' : ({ unknown: '未检测', checking: '检测中', disconnected: '未连接', connecting: '连接中', connected: '已连接', unsupported: '暂不支持', error: '检测失败' })[device.status]
   const grantedCount = items.filter((item) => item.granted).length
   return <div className="settings-page settings-form-page">
     <div className="settings-layout">
@@ -66,7 +79,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     </section>
     <section id="settings-panel-permissions" aria-labelledby="settings-nav-permissions" hidden={currentSection !== 'permissions'}>
     <div className="settings-permissions-heading">
-      <h3 className="settings-section-title">系统权限</h3>
+      <h3 className="settings-section-title">设备与权限</h3>
       <button type="button" className="settings-refresh" aria-label={loading ? '正在检测系统权限' : '重新检测系统权限'}
         title={loading ? '检测中' : '重新检测'} aria-busy={loading}
         disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} /></button>
@@ -86,10 +99,41 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
             </div>
           </section>
         })}
+        <section className="settings-form-row" aria-labelledby="settings-audio-label">
+          <span id="settings-audio-label" className="settings-form-label">虚拟麦克风：</span>
+          <div className="settings-form-control">
+            <span>MiRemoteV 2ch</span>
+            <span className={`settings-permission-status ${nativeRuntime && audioInstalled && !audioBusy ? 'granted' : ''}`} aria-live="polite">{audioStatus}</span>
+            <button type="button" className={`dialog-secondary ${audioInstalled ? 'danger' : ''}`} disabled={!nativeRuntime || audioBusy} onClick={() => onAudioAction(audioInstalled ? 'uninstall' : 'install')}>{audioInstalled ? '卸载' : '安装驱动'}</button>
+            <button type="button" className="dialog-secondary" disabled={!nativeRuntime || audioBusy} onClick={onProbeAudio}><RotateCcw size={14} />重新检测</button>
+            <button type="button" className="dialog-secondary" disabled={!nativeRuntime || audioBusy} onClick={onOpenSound}>声音设置<ExternalLink size={14} /></button>
+            <SettingsHelp id="settings-audio-help" label="虚拟麦克风">将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch 作为麦克风。</SettingsHelp>
+          </div>
+        </section>
+        <div className="settings-form-row">
+          <span className="settings-form-label">语音输入法：</span>
+          <div className="settings-form-control">
+            <span>麦克风请选择 MiRemoteV 2ch</span>
+            <SettingsHelp id="settings-audio-input-help" label="语音输入法麦克风设置">豆包输入法：设置 → 语音输入 → 麦克风选择 → MiRemoteV 2ch。其他语音输入法请在各自的音频设置中选择此设备。</SettingsHelp>
+          </div>
+        </div>
       </div>
+      {nativeRuntime && audioError && <div className="permission-drag-note" role="alert"><Info size={17} /><div><strong>虚拟麦克风需要处理</strong><span>{audioError}</span></div></div>}
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
     </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
+    {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields">
+      <section className="settings-form-row" aria-labelledby="settings-device-label">
+        <span id="settings-device-label" className="settings-form-label">设备连接：</span>
+        <div className="settings-form-control">
+          <span>RC003</span>
+          <span className={`settings-permission-status ${nativeRuntime && device.status === 'connected' ? 'granted' : ''}`} aria-live="polite">{deviceStatus}</span>
+          <button type="button" className="dialog-secondary" disabled={!nativeRuntime} onClick={onOpenBluetooth}><Bluetooth size={14} />打开蓝牙设置</button>
+          <button type="button" className="dialog-secondary" disabled={!nativeRuntime || deviceBusy} onClick={onCheckDevice}><RotateCcw size={14} />重新检测</button>
+          <SettingsHelp id="settings-device-help" label="连接 RC003">先在系统蓝牙设置中配对小米遥控器 RC003，再按任意按键唤醒，然后返回这里重新检测。</SettingsHelp>
+        </div>
+      </section>
+    </div>}
     </section>
     <section id="settings-panel-remote" aria-labelledby="settings-nav-remote" hidden={currentSection !== 'remote'}>
       <div className="settings-mouse-heading"><h3 className="settings-section-title">遥控器映射</h3><span>更改自动保存</span></div>
