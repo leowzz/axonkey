@@ -190,7 +190,7 @@ export function HomeDashboard({
             <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
           </button>
           <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
-            <Settings2 size={15} /> {allReady ? '完整设置' : '处理待办'}
+            <Settings2 size={15} /> {allReady ? '设备引导' : '处理待办'}
           </button>
           <button type="button" className="home-icon-action" aria-label={refreshBusy ? '检测中' : '重新检测'} title={refreshBusy ? '检测中' : '重新检测'} onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>
             <RotateCcw className={refreshBusy ? 'home-summary-loading-icon' : ''} size={15} />
