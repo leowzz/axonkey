@@ -962,7 +962,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-overview { width: min(1440px, calc(100% - 32px)); height: calc(100dvh - var(--sticky-header-height) - 24px); max-height: 900px; margin: 12px auto; }
 .main-content:has(.mapping-disabled-notice) .mapping-overview { height: calc(100dvh - var(--sticky-header-height) - 40px); }
 .overview-surface { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; min-height: 520px; overflow: hidden; border: 0; border-radius: 0; background: #fafcfe; box-shadow: none; }
-.overview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; border-bottom: 1px solid #e6ebf0; }
+.overview-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; border-bottom: 0; }
 .overview-trigger-switch { display: flex; gap: 4px; padding: 4px; border: 1px solid #e2e7ed; border-radius: 10px; background: #edf1f5; }
 .overview-trigger-switch button { line-height: 1.35; min-width: 88px; min-height: 40px; padding: 9px 18px; border: 0; border-radius: 7px; background: transparent; color: #6b7886; font-size: 15px; font-weight: 500; }
 .overview-trigger-switch button.active { background: #fff; color: #1b62a8; box-shadow: 0 1px 5px #283c5120; font-weight: 700; }
