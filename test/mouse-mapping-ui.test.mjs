@@ -94,3 +94,22 @@ test('mouse model, input picker and scope preserve selection and expose supporte
   assert.equal(tabs().length, 3)
   act(() => view.unmount())
 })
+
+test('mouse status presents permission, switch, and settings action in order', () => {
+  let view, toggles = 0, opens = 0
+  act(() => { view = Renderer.create(React.createElement(DeviceStatusCard, { status: {
+    title: '鼠标状态', rows: [{label:'输入权限',value:'已授权',tone:'ready'}],
+    toggle: {checked:true,onChange:()=>toggles++}, onOpenSettings:()=>opens++,
+  } })) })
+  assert.equal(view.root.findAllByType('dd').length, 1)
+  assert.equal(view.root.findByType('dd').children.join(''), '已授权')
+  const buttons = view.root.findAllByType('button')
+  assert.equal(buttons.length, 2)
+  assert.equal(buttons[0].props.role, 'switch')
+  assert.equal(buttons[0].props['aria-checked'], true)
+  assert.equal(buttons[1].props['aria-label'], '鼠标映射设置')
+  act(() => { buttons[0].props.onClick(); buttons[1].props.onClick() })
+  assert.equal(toggles, 1)
+  assert.equal(opens, 1)
+  act(() => view.unmount())
+})

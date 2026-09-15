@@ -1153,3 +1153,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .main-content:has(> .settings-page) { display: flex; flex-direction: column; }
 .main-content:has(> .settings-page) > .mapping-disabled-notice { flex-shrink: 0; }
 .settings-page-head { flex-shrink: 0; }
+
+.device-status-card .device-settings-button { justify-content: center; width: 26px; height: 26px; margin-left: 2px; border-radius: 5px; }
+.device-status-card .device-settings-button:hover { color: #315b78; background: #e7eef4; }
+.device-status-card .device-settings-button:focus-visible { outline: 2px solid #8aa8bd; outline-offset: 2px; }

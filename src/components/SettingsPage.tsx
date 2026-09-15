@@ -1,10 +1,14 @@
-import { useState, type CSSProperties } from 'react'
+import type { CSSProperties } from 'react'
 import { Command, ExternalLink, Info, Keyboard, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState } from '../setupModel'
 
+export type SettingsSection = 'startup' | 'permissions' | 'mouse'
+
 type SettingsPageProps = {
+  section: SettingsSection
+  onSectionChange: (section: SettingsSection) => void
   platform: Platform
   nativeRuntime: boolean
   mouseIgnoreScrollAcceleration: boolean
@@ -27,8 +31,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
-  const [section, setSection] = useState<'startup' | 'permissions' | 'mouse'>('startup')
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -52,7 +55,7 @@ export function SettingsPage({ platform, nativeRuntime, mouseIgnoreScrollAcceler
       <nav className="settings-nav" aria-label="设置分类">
         {sections.map((item) => <button key={item.id} id={`settings-nav-${item.id}`} type="button"
           aria-current={currentSection === item.id ? 'page' : undefined} aria-controls={`settings-panel-${item.id}`}
-          onClick={() => setSection(item.id)}>{item.icon}<span>{item.label}</span></button>)}
+          onClick={() => onSectionChange(item.id)}>{item.icon}<span>{item.label}</span></button>)}
       </nav>
       <div className="settings-panels">
     <section id="settings-panel-startup" aria-labelledby="settings-nav-startup" hidden={currentSection !== 'startup'}>

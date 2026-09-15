@@ -55,7 +55,7 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
-import { SettingsPage } from '../components/SettingsPage'
+import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { devices, deviceForInput } from '../deviceModel'
@@ -172,6 +172,7 @@ function AppController() {
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>('home')
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>('startup')
   const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
@@ -1179,12 +1180,18 @@ function AppController() {
 
   const deviceStatus: DeviceStatus = isMouse ? {
     title: '鼠标状态',
-    rows: [
-      { label: '映射状态', value: !nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '应用失败' : mouseEnabled ? '已开启' : '已关闭', tone: autoSaveState === 'error' ? 'warning' : mouseEnabled && nativeRuntime ? 'ready' : undefined },
-      ...(platform === 'macos' && nativeRuntime ? [{ label: '输入权限', value: macPermissions.inputMonitoring && macPermissions.accessibility ? '已授权' : '待授权' }] : []),
-    ],
+    rows: [{
+      label: '输入权限',
+      value: !nativeRuntime ? '浏览器预览' : platform === 'macos'
+        ? systemProbeState === 'loading' ? '检测中' : systemProbeState === 'error' ? '检测失败'
+          : macPermissions.inputMonitoring && macPermissions.accessibility && !inputAuthorizationStale ? '已授权' : '待授权'
+        : platform === 'windows' ? '无需授权' : '不支持',
+      tone: nativeRuntime && platform === 'macos'
+        ? systemProbeState === 'ready' && macPermissions.inputMonitoring && macPermissions.accessibility && !inputAuthorizationStale ? 'ready' : 'warning'
+        : undefined,
+    }],
     toggle: { checked: mouseEnabled, onChange: () => setMouseEnabled((value) => !value) },
-    ...(platform === 'macos' && nativeRuntime && !(macPermissions.inputMonitoring && macPermissions.accessibility) ? { action: { label: '检查输入权限', onClick: () => openSetupStep('inputDriver') } } : {}),
+    onOpenSettings: () => { setSettingsSection('mouse'); setActivePage('settings') },
   } : {
     title: '遥控器状态',
     rows: [
@@ -1328,6 +1335,8 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          section={settingsSection}
+          onSectionChange={setSettingsSection}
           mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
           onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
           mouseScrollSensitivity={mouseScrollSensitivity}
