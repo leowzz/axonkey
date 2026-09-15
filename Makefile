@@ -21,7 +21,7 @@ build:
 	ENV_FILE="$(ENV_FILE)" node ./scripts/build.mjs
 
 release:
-	ENV_FILE="$(ENV_FILE)" node ./scripts/release.mjs "$(V)"
+	ENV_FILE="$(ENV_FILE)" node ./scripts/release.mjs "$(V)" "$(RC)"
 
 version-check:
 	node ./scripts/repo-version.mjs check --env-file "$(ENV_FILE)"

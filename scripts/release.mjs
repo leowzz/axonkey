@@ -13,6 +13,7 @@ import {
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const requestedTag = (process.argv[2] ?? '').trim()
+const requestedRc = process.argv[3] ?? process.env.RC ?? ''
 const envFile = process.env.ENV_FILE || '.env'
 
 function run(name, args, { capture = false, allowFailure = false } = {}) {
@@ -57,7 +58,21 @@ function main() {
   const currentTag = readEnvVersion(envFile)
   const currentVersion = numericVersion(currentTag)
   ensureCleanWorktree()
-  const tag = requestedTag || `v${nextPatchVersion(currentVersion)}`
+  if (requestedRc && !/^[1-9]\d*$/.test(requestedRc)) {
+    throw new Error('RC must be a positive integer without leading zeros, for example RC=1')
+  }
+  let tag
+  if (requestedTag) {
+    tag = requestedTag.startsWith('v') ? requestedTag : `v${requestedTag}`
+    numericVersion(tag)
+  } else {
+    const baseVersion = requestedRc ? currentVersion.split('-')[0] : currentVersion
+    tag = `v${nextPatchVersion(baseVersion)}`
+  }
+  if (requestedRc) {
+    if (tag.includes('-')) throw new Error('When RC is specified, V must be a base version such as V=0.2.30')
+    tag = `${tag}-rc.${requestedRc}`
+  }
   const version = numericVersion(tag)
   if (compareVersions(version, currentVersion) < 0) {
     throw new Error(`Requested version ${version} is older than current version ${currentVersion}`)

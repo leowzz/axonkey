@@ -263,13 +263,17 @@ make release V=v0.1.25
 
 ```bash
 make release V=v1.2.3-beta.1
+make release RC=1          # 当前为 v0.2.29 或 v0.2.29-alpha.1 时，生成 v0.2.30-rc.1
+make release V=0.2.30 RC=3 # 生成 v0.2.30-rc.3（V 也可带 v 前缀）
 # 后续显式指定 beta.2、rc.1，或正式版 v1.2.3
 ```
 
 `make release` 只同步版本、创建提交和本地 annotated tag，不自动推送。推送 `v*` tag 后，
 CI 先校验版本和远端分支归属，再运行测试并构建 Windows NSIS、macOS Universal 安装包。
 预发布使用相同的签名、公证配置，发布为 GitHub Pre-release，不占用 Latest；正式版发布为 Release。
-预发布版本必须显式传入 `V`，不传时会拒绝执行；正式版不传 `V` 仍递增 patch。
+当前为预发布版本时，必须显式传入 `V` 或 `RC`；两者均不传时会拒绝执行。正式版不传两者仍递增 patch。
+`RC=N` 要求 N 为无前导零的正整数；不传 `V` 时，去掉当前预发布后缀并递增 patch，再追加 `-rc.N`。
+同时传入 `V` 和 `RC` 时直接使用指定基础版本（支持带或不带 `v` 前缀），此时 `V` 不能附带预发布后缀。
 版本顺序为 `alpha.N < beta.N < rc.N < 正式版`，不接受低于当前版本的发版请求。
 
 仅正式版附带 `latest.json`。所有客户端继续从最新正式 Release 检查更新；预发布之间需手动安装，

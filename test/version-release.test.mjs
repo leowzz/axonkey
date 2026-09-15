@@ -68,6 +68,7 @@ function seedRepository(t) {
     // Fixtures must behave identically under Windows Git and bash/WSL Git.
     writeFileSync(join(root, 'scripts', script), readFileSync(join(projectRoot, 'scripts', script), 'utf8').replace(/\r\n/g, '\n'))
   }
+  writeFileSync(join(root, 'Makefile'), readFileSync(join(projectRoot, 'Makefile')))
   chmodSync(join(root, 'scripts', 'release.sh'), 0o755)
 
   git(root, 'init', '-q')
@@ -364,4 +365,52 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
       assert.ok(calls[uploadIndex].includes('--clobber'))
     })
   }
+}
+
+
+for (const current of ['v0.2.29', 'v0.2.29-alpha.1']) {
+  for (const [args, expected] of [
+    [['RC=1'], 'v0.2.30-rc.1'],
+    [['V=0.2.30', 'RC=3'], 'v0.2.30-rc.3'],
+    [['V=v0.2.30', 'RC=3'], 'v0.2.30-rc.3'],
+  ]) {
+    test(`make release ${args.join(' ')} from ${current}`, { skip: process.platform === 'win32' }, (t) => {
+      const root = seedRepository(t)
+      updateVersions(current, root)
+      git(root, 'add', '.')
+      git(root, 'commit', '-qm', 'set current version')
+      const result = run(root, 'make', ['release', ...args], {
+        check: false, env: { ...process.env, ENV_FILE: '.env', V: '', RC: '' },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      assert.equal(checkVersions(expected, root), expected)
+      assert.equal(git(root, 'cat-file', '-t', expected).stdout.trim(), 'tag')
+      assert.equal(git(root, 'status', '--porcelain').stdout.trim(), '')
+    })
+  }
+}
+
+test('bare V works without RC and the shell entry point forwards RC', (t) => {
+  const root = seedRepository(t)
+  let result = runRelease(root, '0.2.30', { RC: '3' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(checkVersions('v0.2.30-rc.3', root), 'v0.2.30-rc.3')
+  result = runRelease(root, '0.2.30', { RC: '' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(checkVersions('v0.2.30', root), 'v0.2.30')
+})
+
+for (const [version, rc] of [['0.2.30', '0'], ['0.2.30', '01'], ['0.2.30', '-1'],
+  ['0.2.30', '1.2'], ['0.2.30', 'x'], ['0.2.30', ' 1'], ['0.2.30-beta.1', '3']]) {
+  test(`invalid RC combination V=${version} RC=${rc} does not mutate versions`, (t) => {
+    const root = seedRepository(t)
+    const before = snapshotVersionFiles(root)
+    const head = git(root, 'rev-parse', 'HEAD').stdout.trim()
+    const result = runRelease(root, version, { RC: rc })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /RC/)
+    assert.deepEqual(snapshotVersionFiles(root), before)
+    assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), head)
+    assert.equal(git(root, 'tag', '--list').stdout.trim(), '')
+  })
 }
