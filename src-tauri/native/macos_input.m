@@ -1263,6 +1263,17 @@ typedef struct {
     CFMachPortRef tap;
 } AxonkeyMouseCapture;
 
+// Discrete wheel ticks must not wait for accelerated fractional line deltas
+// to reach one. Continuous devices retain pixel accumulation for fine motion.
+static double axonkey_mouse_scroll_amount(CGEventRef event, CGEventField lines,
+                                         CGEventField fixed, CGEventField points) {
+    if (CGEventGetIntegerValueField(event, kCGScrollWheelEventIsContinuous)) {
+        return CGEventGetDoubleValueField(event, points) / 10.0;
+    }
+    int64_t ticks = CGEventGetIntegerValueField(event, lines);
+    return ticks != 0 ? (double)ticks : CGEventGetDoubleValueField(event, fixed);
+}
+
 static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *context) {
     (void)proxy;
     AxonkeyMouseCapture *capture = context;
@@ -1285,13 +1296,10 @@ static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type
     }
     double vertical = 0, horizontal = 0;
     if (type == kCGEventScrollWheel) {
-        if (CGEventGetIntegerValueField(event, kCGScrollWheelEventIsContinuous)) {
-            vertical = CGEventGetDoubleValueField(event, kCGScrollWheelEventPointDeltaAxis1) / 10.0;
-            horizontal = CGEventGetDoubleValueField(event, kCGScrollWheelEventPointDeltaAxis2) / 10.0;
-        } else {
-            vertical = CGEventGetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis1);
-            horizontal = CGEventGetDoubleValueField(event, kCGScrollWheelEventFixedPtDeltaAxis2);
-        }
+        vertical = axonkey_mouse_scroll_amount(event, kCGScrollWheelEventDeltaAxis1,
+            kCGScrollWheelEventFixedPtDeltaAxis1, kCGScrollWheelEventPointDeltaAxis1);
+        horizontal = axonkey_mouse_scroll_amount(event, kCGScrollWheelEventDeltaAxis2,
+            kCGScrollWheelEventFixedPtDeltaAxis2, kCGScrollWheelEventPointDeltaAxis2);
     }
     bool consumed = capture->on_scroll(capture->context, point.x, point.y,
         CGRectGetMinX(bounds), CGRectGetMinY(bounds), CGRectGetMaxX(bounds), CGRectGetMaxY(bounds), vertical, horizontal);

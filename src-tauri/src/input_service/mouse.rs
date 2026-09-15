@@ -293,7 +293,12 @@ impl ScrollAccumulator {
             self.remainder = 0.0;
             self.key = Some(key);
         }
-        let total = self.remainder + amount;
+        // Derived NativeSettings::default() uses zero; treat it like legacy settings.
+        let sensitivity = match config.settings.mouse_scroll_sensitivity {
+            0 => 100,
+            value => value.clamp(25, 400),
+        };
+        let total = self.remainder + amount * f64::from(sensitivity) / 100.0;
         let repeats = total.floor() as usize;
         if repeats == 0 {
             self.remainder = total;
@@ -536,6 +541,54 @@ mod tests {
         shared.configuration.lock().unwrap().settings.enabled = false;
         assert!(!scroll.scroll(&shared, 0, 1.0));
     }
+    #[test]
+    fn side_edges_trigger_each_discrete_tick_from_the_first_tick() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.left.up": {"click":[{"type":"key","key":"VolumeUp"}]},
+            "mouse.left.down": {"click":[{"type":"key","key":"VolumeDown"}]},
+            "mouse.right.up": {"click":[{"type":"key","key":"VolumeUp"}]},
+            "mouse.right.down": {"click":[{"type":"key","key":"VolumeDown"}]}
+        }));
+        let mut scroll = ScrollAccumulator::default();
+        for edge in [Edge::Left, Edge::Right] {
+            scroll.enter(Some(edge));
+            for direction in [0, 1] {
+                for _ in 0..4 {
+                    assert!(scroll.scroll(&shared, direction, 1.0));
+                    assert_eq!(receiver.try_recv().unwrap().repeats, 1);
+                    assert!(receiver.try_recv().is_err());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scroll_sensitivity_scales_threshold_and_repeat_count() {
+        for (sensitivity, amount, events, repeats) in [
+            (100, 0.25, 4, 1),
+            (400, 0.25, 1, 1),
+            (25, 1.0, 4, 1),
+            (200, 1.0, 1, 2),
+            (0, 1.0, 1, 1),
+            (1, 1.0, 4, 1),
+            (1000, 0.25, 1, 1),
+        ] {
+            let (shared, receiver) = fixture(serde_json::json!({
+                "mouse.left.up": {"click":[{"type":"key","key":"VolumeUp"}]}
+            }));
+            shared.configuration.lock().unwrap().settings.mouse_scroll_sensitivity = sensitivity;
+            let mut scroll = ScrollAccumulator::default();
+            scroll.enter(Some(Edge::Left));
+            for _ in 1..events {
+                assert!(scroll.scroll(&shared, 0, amount));
+                assert!(receiver.try_recv().is_err());
+            }
+            assert!(scroll.scroll(&shared, 0, amount));
+            assert_eq!(receiver.try_recv().unwrap().repeats, repeats);
+            assert!(receiver.try_recv().is_err());
+        }
+    }
+
     fn fixture(behaviors: serde_json::Value) -> (Shared, mpsc::Receiver<Job>) {
         let (sender, receiver) = mpsc::sync_channel(32);
         let settings =

@@ -132,6 +132,7 @@ function AppController() {
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
   const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
+  const [mouseScrollSensitivity, setMouseScrollSensitivity] = useState(() => getStoredSettings().mouseScrollSensitivity)
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [inputSettingsReady, setInputSettingsReady] = useState(false)
   const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
@@ -257,13 +258,13 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled, mouseKeyHoldMs }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
       try {
         if ('__TAURI_INTERNALS__' in window) {
-          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled, mouseKeyHoldMs } })
+          await invoke('update_input_settings', { settings: { behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity } })
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
@@ -278,7 +279,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [behaviors, enabled, mouseEnabled, mouseKeyHoldMs, applyRetry])
+  }, [behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, applyRetry])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -1176,7 +1177,6 @@ function AppController() {
   const deviceStatus: DeviceStatus = isMouse ? {
     title: '鼠标状态',
     rows: [
-      { label: '输入来源', value: '系统鼠标' },
       { label: '映射状态', value: !nativeRuntime ? '浏览器预览' : autoSaveState === 'error' ? '应用失败' : mouseEnabled ? '已开启' : '已关闭', tone: autoSaveState === 'error' ? 'warning' : mouseEnabled && nativeRuntime ? 'ready' : undefined },
       ...(platform === 'macos' && nativeRuntime ? [{ label: '输入权限', value: macPermissions.inputMonitoring && macPermissions.accessibility ? '已授权' : '待授权' }] : []),
     ],
@@ -1326,6 +1326,8 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          mouseScrollSensitivity={mouseScrollSensitivity}
+          onMouseScrollSensitivityChange={setMouseScrollSensitivity}
           mouseKeyHoldMs={mouseKeyHoldMs}
           onMouseKeyHoldMsChange={setMouseKeyHoldMs}
           platform={platform}

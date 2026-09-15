@@ -123,4 +123,5 @@ export type StoredSettings = {
   enabled: boolean
   mouseEnabled: boolean
   mouseKeyHoldMs: number
+  mouseScrollSensitivity: number
 }

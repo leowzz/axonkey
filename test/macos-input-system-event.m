@@ -386,7 +386,43 @@ static int CheckPointerEvents(void) {
     return 0;
 }
 
+static int CheckMouseScrollAmounts(void) {
+    CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitLine, 2, 0, 0);
+    CGEventField lines[] = {kCGScrollWheelEventDeltaAxis1, kCGScrollWheelEventDeltaAxis2};
+    CGEventField fixed[] = {kCGScrollWheelEventFixedPtDeltaAxis1, kCGScrollWheelEventFixedPtDeltaAxis2};
+    CGEventField points[] = {kCGScrollWheelEventPointDeltaAxis1, kCGScrollWheelEventPointDeltaAxis2};
+    for (int axis = 0; axis < 2; axis++) {
+        for (int sign = -1; sign <= 1; sign += 2) {
+            CGEventSetIntegerValueField(event, kCGScrollWheelEventIsContinuous, 0);
+            CGEventSetIntegerValueField(event, lines[axis], sign);
+            CGEventSetDoubleValueField(event, fixed[axis], sign * 0.25);
+            if (axonkey_mouse_scroll_amount(event, lines[axis], fixed[axis], points[axis]) != sign) {
+                fprintf(stderr, "First discrete tick must trigger despite fractional line delta\n");
+                CFRelease(event);
+                return 1;
+            }
+            CGEventSetIntegerValueField(event, lines[axis], 0);
+            CGEventSetDoubleValueField(event, fixed[axis], sign * 0.25);
+            if (axonkey_mouse_scroll_amount(event, lines[axis], fixed[axis], points[axis]) != sign * 0.25) {
+                fprintf(stderr, "fraction actual=%f fixed=%f line=%lld\n", axonkey_mouse_scroll_amount(event, lines[axis], fixed[axis], points[axis]), CGEventGetDoubleValueField(event, fixed[axis]), (long long)CGEventGetIntegerValueField(event, lines[axis]));
+                CFRelease(event);
+                return 1;
+            }
+            CGEventSetIntegerValueField(event, kCGScrollWheelEventIsContinuous, 1);
+            CGEventSetIntegerValueField(event, points[axis], sign * 2);
+            if (axonkey_mouse_scroll_amount(event, lines[axis], fixed[axis], points[axis]) != sign * 0.2) {
+                fprintf(stderr, "Continuous scroll must retain fractional accumulation\n");
+                CFRelease(event);
+                return 1;
+            }
+        }
+    }
+    CFRelease(event);
+    return 0;
+}
+
 int main(void) {
+    if (CheckMouseScrollAmounts()) return 1;
     @autoreleasepool {
         Method method = class_getClassMethod([NSEvent class], @selector(eventWithCGEvent:));
         IMP original = method_setImplementation(method, (IMP)RejectEventWithCGEvent);

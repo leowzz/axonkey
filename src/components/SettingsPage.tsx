@@ -6,6 +6,8 @@ import type { SetupState } from '../setupModel'
 type SettingsPageProps = {
   platform: Platform
   nativeRuntime: boolean
+  mouseScrollSensitivity: number
+  onMouseScrollSensitivityChange: (value: number) => void
   mouseKeyHoldMs: number
   onMouseKeyHoldMsChange: (ms: number) => void
   systemProbeState: 'loading' | 'ready' | 'error'
@@ -18,7 +20,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ platform, nativeRuntime, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
   const items = [
@@ -55,6 +57,22 @@ export function SettingsPage({ platform, nativeRuntime, mouseKeyHoldMs, onMouseK
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
     {(platform === 'windows' || platform === 'macos') && <>
       <h3 className="settings-section-title">鼠标映射</h3>
+      <section className="settings-permission-row">
+        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
+        <div className="settings-permission-copy">
+          <div><h3><label htmlFor="mouse-scroll-sensitivity">滚动灵敏度</label></h3></div>
+          <p id="mouse-scroll-sensitivity-help">默认 100%。数值越高，轻微滚动越容易触发，连续滚动触发次数也越多；调低可减少误触。适用于任意位置和屏幕边缘的滚轮映射，自动保存。</p>
+        </div>
+        <div className="settings-sensitivity-control">
+          <input id="mouse-scroll-sensitivity" type="range" min={25} max={400} step={25}
+            aria-describedby="mouse-scroll-sensitivity-help" aria-valuetext={`${mouseScrollSensitivity}%`} value={mouseScrollSensitivity}
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              if (Number.isFinite(value)) onMouseScrollSensitivityChange(Math.max(25, Math.min(400, Math.round(value))))
+            }} />
+          <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}%</output>
+        </div>
+      </section>
       <section className="settings-permission-row">
         <span className="settings-permission-icon"><Keyboard size={18} /></span>
         <div className="settings-permission-copy">

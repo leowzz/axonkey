@@ -554,8 +554,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .remote-device-card .device-state-dot.connected { background: #4eaf83; box-shadow: 0 0 0 3px rgba(78,175,131,.14); }
 .mapping-active .remote-device-card .battery-level.low, .mapping-active .remote-device-card .battery-icon.low { color: #c53030; }
 .device-status-switch { width: 34px !important; height: 20px !important; margin: 0 0 0 auto !important; padding: 0 !important; border: 0 !important; }
-.device-status-card dl > div:nth-child(2) { flex: 1; }
-.device-status-card dl > div:nth-child(2) dd { margin: 0 auto; }
+.device-status-toggle-row { flex: 1; gap: 8px; }
 .device-status-switch span { width: 16px; height: 16px; }
 .device-status-switch.on span { transform: translateX(14px); }
 .mapping-active .remote-device-card .battery-level.full, .mapping-active .remote-device-card .battery-icon.full { color: #23834b; }
@@ -1093,3 +1092,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .mouse-gesture-options button { gap: 6px; padding: 10px 8px; }
   .mouse-condition-note { margin-left: 66px; }
 }
+
+.settings-sensitivity-control { display: flex; align-items: center; gap: 12px; flex: 0 0 auto; }
+.settings-sensitivity-control input[type='range'] { width: 150px; margin: 0; accent-color: var(--blue); cursor: pointer; }
+.settings-sensitivity-control output { min-width: 4ch; color: #30363b; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; }
