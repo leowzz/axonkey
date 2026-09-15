@@ -1258,9 +1258,53 @@ html.macos-vibrancy,
 .macos-vibrancy .home-audio-control,
 .macos-vibrancy .home-quick-button small,
 .macos-vibrancy .home-local-note span { color: #505e69; }
-.macos-vibrancy .settings-form-page { background: transparent; }
-.macos-vibrancy .settings-nav { background: rgb(230 235 240 / 16%); }
-.macos-vibrancy .settings-panels { background: rgb(255 255 255 / 20%); }
+/* Keep preference categories and their forms on one continuous glass panel. */
+.macos-vibrancy .settings-form-page {
+  border: 1px solid rgb(70 80 90 / 12%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 20%);
+}
+.macos-vibrancy .settings-nav {
+  border-right-color: rgb(70 80 90 / 12%);
+  border-radius: 11px 0 0 11px;
+  background: rgb(95 110 130 / 4%);
+}
+.macos-vibrancy .settings-panels { background: transparent; }
+.macos-vibrancy .settings-nav button { color: #536371; }
+.macos-vibrancy .settings-nav button:hover {
+  color: #315b78;
+  background: rgb(255 255 255 / 35%);
+}
+.macos-vibrancy .settings-nav button[aria-current='page'] {
+  border-color: rgb(20 120 232 / 22%);
+  color: #176fcf;
+  background: rgb(255 255 255 / 70%);
+  box-shadow: 0 1px 4px rgb(30 45 60 / 7%);
+}
+.macos-vibrancy .settings-number,
+.macos-vibrancy .settings-sensitivity-control output,
+.macos-vibrancy .settings-form-page .dialog-secondary,
+.macos-vibrancy .settings-refresh {
+  border-color: rgb(70 80 90 / 22%);
+  background: rgb(255 255 255 / 72%);
+}
+.macos-vibrancy .settings-number { border-radius: 6px; }
+.macos-vibrancy .settings-form-page .dialog-secondary:hover:not(:disabled),
+.macos-vibrancy .settings-refresh:hover:not(:disabled) {
+  border-color: #94b8df;
+  background: rgb(240 247 255 / 85%);
+}
+.macos-vibrancy .settings-help { color: #617487; }
+.macos-vibrancy .settings-help:hover,
+.macos-vibrancy .settings-help[aria-expanded='true'] {
+  color: #176fcf;
+  background: rgb(20 120 232 / 9%);
+}
+.macos-vibrancy .settings-mouse-heading > span { color: #536371; }
+.macos-vibrancy .settings-form-page .permission-drag-note {
+  border-color: rgb(70 80 90 / 14%);
+  background: rgb(255 255 255 / 30%);
+}
 /* One continuous mapping surface, with a quiet device rail and clear controls. */
 .macos-vibrancy .mapping-workbench {
   gap: 0;
@@ -1336,7 +1380,6 @@ html.macos-vibrancy,
   border-radius: 12px;
   background: rgb(255 255 255 / 20%);
 }
-.macos-vibrancy .overview-toolbar { border-bottom: 1px solid rgb(70 80 90 / 10%); }
 .macos-vibrancy .overview-canvas { background: transparent; }
 .macos-vibrancy .overview-trigger-switch {
   border-color: rgb(70 80 90 / 10%);
