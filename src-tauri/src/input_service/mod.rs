@@ -25,6 +25,8 @@ pub struct InputServiceStatus {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct NativeSettings {
+    #[serde(rename = "mouseEdgeWidth", default = "default_mouse_edge_width")]
+    pub(super) mouse_edge_width: u16,
     #[serde(default)]
     pub(super) enabled: bool,
     #[serde(rename = "mouseEnabled", default = "mouse_enabled_by_default")]
@@ -42,6 +44,8 @@ pub struct NativeSettings {
     #[serde(default)]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
+
+fn default_mouse_edge_width() -> u16 { 8 }
 
 fn default_scroll_sensitivity() -> u16 { 100 }
 

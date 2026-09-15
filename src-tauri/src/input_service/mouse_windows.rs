@@ -1,4 +1,4 @@
-use super::{screen_edge, ButtonTracker, ScrollAccumulator, Shared};
+use super::{edge_width, screen_edge, ButtonTracker, ScrollAccumulator, Shared};
 use crate::input_service::NativeBehavior;
 use std::{
     cell::RefCell,
@@ -128,6 +128,7 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
                     info.monitor.top as f64,
                     info.monitor.right as f64,
                     info.monitor.bottom as f64,
+                    edge_width(shared),
                 )
             } else {
                 None

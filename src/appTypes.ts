@@ -119,6 +119,7 @@ export type Connector = {
 export type HitPosition = { x: number; y: number }
 
 export type StoredSettings = {
+  mouseEdgeWidth: number
   showRemoteKeyGrid: boolean
   behaviors: BehaviorMap
   enabled: boolean

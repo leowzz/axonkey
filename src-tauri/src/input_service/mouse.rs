@@ -57,7 +57,13 @@ fn has_triggers(triggers: &TriggerBehaviors) -> bool {
         || has_actions(&triggers.double_click)
         || has_actions(&triggers.long_press)
 }
-const EDGE_WIDTH: f64 = 8.0;
+fn edge_width(shared: &Shared) -> f64 {
+    shared.configuration.lock().map(|config| normalized_edge_width(config.settings.mouse_edge_width)).unwrap_or(8.0)
+}
+
+fn normalized_edge_width(value: u16) -> f64 {
+    if value == 0 { 8.0 } else { f64::from(value.clamp(1, 100)) }
+}
 
 struct Configuration {
     settings: NativeSettings,
@@ -219,15 +225,15 @@ impl Edge {
 }
 
 /// Screen bounds, not the work area; corners consistently belong to the top.
-fn screen_edge(x: f64, y: f64, left: f64, top: f64, right: f64, bottom: f64) -> Option<Edge> {
+fn screen_edge(x: f64, y: f64, left: f64, top: f64, right: f64, bottom: f64, width: f64) -> Option<Edge> {
     if !(x >= left && x < right && y >= top && y < bottom) {
         return None;
     }
-    if y < top + EDGE_WIDTH {
+    if y < top + width {
         Some(Edge::Top)
-    } else if x < left + EDGE_WIDTH {
+    } else if x < left + width {
         Some(Edge::Left)
-    } else if x >= right - EDGE_WIDTH {
+    } else if x >= right - width {
         Some(Edge::Right)
     } else {
         None
@@ -499,27 +505,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn configurable_edge_width_applies_to_all_three_edges() {
+        for (x, y, edge) in [(50.0, 12.0, Edge::Top), (12.0, 50.0, Edge::Left), (87.0, 50.0, Edge::Right)] {
+            assert_eq!(screen_edge(x, y, 0.0, 0.0, 100.0, 100.0, 8.0), None);
+            assert_eq!(screen_edge(x, y, 0.0, 0.0, 100.0, 100.0, 16.0), Some(edge));
+        }
+        assert_eq!(screen_edge(16.0, 16.0, 0.0, 0.0, 100.0, 100.0, 16.0), None);
+        assert_eq!(screen_edge(84.0, 50.0, 0.0, 0.0, 100.0, 100.0, 16.0), Some(Edge::Right));
+        assert_eq!(screen_edge(2.0, 2.0, 0.0, 0.0, 100.0, 100.0, 16.0), Some(Edge::Top));
+        assert_eq!(normalized_edge_width(0), 8.0);
+        assert_eq!(normalized_edge_width(1), 1.0);
+        assert_eq!(normalized_edge_width(200), 100.0);
+        let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.mouse_edge_width, 8);
+        let saved: NativeSettings = serde_json::from_str(r#"{"mouseEdgeWidth":16}"#).unwrap();
+        assert_eq!(saved.mouse_edge_width, 16);
+    }
+
+    #[test]
     fn edge_detection_handles_offset_displays_and_excludes_work_area() {
         assert_eq!(
-            screen_edge(-100.0, -1079.0, -1920.0, -1080.0, 0.0, 0.0),
+            screen_edge(-100.0, -1079.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             Some(Edge::Top)
         );
         assert_eq!(
-            screen_edge(-100.0, -1072.0, -1920.0, -1080.0, 0.0, 0.0),
+            screen_edge(-100.0, -1072.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             None
         );
-        assert_eq!(screen_edge(0.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0), None);
-        assert_eq!(screen_edge(10.0, 30.0, 0.0, 0.0, 1920.0, 1080.0), None);
+        assert_eq!(screen_edge(0.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0, 8.0), None);
+        assert_eq!(screen_edge(10.0, 30.0, 0.0, 0.0, 1920.0, 1080.0, 8.0), None);
         assert_eq!(
-            screen_edge(-1919.0, -500.0, -1920.0, -1080.0, 0.0, 0.0),
+            screen_edge(-1919.0, -500.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             Some(Edge::Left)
         );
         assert_eq!(
-            screen_edge(-1.0, -500.0, -1920.0, -1080.0, 0.0, 0.0),
+            screen_edge(-1.0, -500.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             Some(Edge::Right)
         );
         assert_eq!(
-            screen_edge(-1919.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0),
+            screen_edge(-1919.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             Some(Edge::Top)
         );
     }

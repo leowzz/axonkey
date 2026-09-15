@@ -1,4 +1,4 @@
-use super::{screen_edge, ButtonTracker, ScrollAccumulator, Shared};
+use super::{edge_width, screen_edge, ButtonTracker, ScrollAccumulator, Shared};
 use crate::input_service::NativeBehavior;
 use std::{
     ffi::c_void,
@@ -47,7 +47,7 @@ unsafe extern "C" fn scroll(
             capture.scroll.reset();
             return false;
         }
-        let edge = screen_edge(x, y, left, top, right, bottom);
+        let edge = screen_edge(x, y, left, top, right, bottom, edge_width(&capture.shared));
         capture.scroll.enter(edge);
         // A diagonal gesture selects its dominant axis, so one event never runs
         // two unrelated mappings. Quartz positive values mean up / left.
@@ -77,7 +77,7 @@ unsafe extern "C" fn button(
             &capture.shared,
             index as usize,
             down,
-            screen_edge(x, y, left, top, right, bottom),
+            screen_edge(x, y, left, top, right, bottom, edge_width(&capture.shared)),
             (x, y),
             Instant::now(),
         )

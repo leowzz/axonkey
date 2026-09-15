@@ -22,6 +22,8 @@ type SettingsPageProps = {
   onMouseVerticalScrollIntervalMsChange: (ms: number) => void
   mouseHorizontalScrollIntervalMs: number
   onMouseHorizontalScrollIntervalMsChange: (ms: number) => void
+  mouseEdgeWidth: number
+  onMouseEdgeWidthChange: (value: number) => void
   mouseKeyHoldMs: number
   onMouseKeyHoldMsChange: (ms: number) => void
   systemProbeState: 'loading' | 'ready' | 'error'
@@ -34,7 +36,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -122,6 +124,15 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
               <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}<span>%</span></output>
             </div>
             <SettingsHelp id="mouse-scroll-sensitivity-help" label="滚动灵敏度">调高可让轻微滚动更容易触发；调低可减少误触。适用于所有滚轮映射。范围 25%–400%，默认 100%。</SettingsHelp>
+          </div>
+        </div>
+        <div className="settings-form-row">
+          <label className="settings-form-label" htmlFor="mouse-edge-width">边缘生效宽度：</label>
+          <div className="settings-form-control">
+            <input id="mouse-edge-width" className="settings-number" type="number" min={1} max={100} step={1} value={mouseEdgeWidth}
+              onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) onMouseEdgeWidthChange(Math.max(1, Math.min(100, Math.round(value)))) }} />
+            <span>px</span>
+            <SettingsHelp id="mouse-edge-width-help" label="边缘生效宽度">顶部、左侧和右侧边缘共用，适用于滚动和左右键映射。范围 1–100，默认 8。按屏幕坐标计算：Windows 为像素，macOS 为点；顶部角落优先使用上边缘规则。</SettingsHelp>
           </div>
         </div>
         {([
