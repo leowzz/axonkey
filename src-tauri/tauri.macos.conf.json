@@ -50,7 +50,8 @@
             "sidebar"
           ],
           "state": "active"
-        }
+        },
+        "titleBarStyle": "Overlay"
       }
     ]
   }

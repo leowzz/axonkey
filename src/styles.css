@@ -7,7 +7,8 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --topbar-height: 72px;
-  --sticky-header-height: var(--topbar-height);
+  --native-titlebar-height: 0px;
+  --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height));
   --disabled-notice-height: 76px;
   --ink: #202327;
   --muted: #73777d;
@@ -20,7 +21,7 @@
 }
 
 html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
-html:has(.mapping-disabled-notice) { --sticky-header-height: calc(var(--topbar-height) + var(--disabled-notice-height)); }
+html:has(.mapping-disabled-notice) { --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height) + var(--disabled-notice-height)); }
 
 * { box-sizing: border-box; }
 .app-recovery { max-width: 560px; margin: 18vh auto; padding: 32px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
@@ -1208,6 +1209,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-refresh:disabled { opacity: .45; cursor: default; }
 
 /* Native macOS Vibrancy supplies the blur behind these translucent surfaces. */
+html.macos-vibrancy { --native-titlebar-height: 28px; }
+.native-titlebar { height: var(--native-titlebar-height); flex-shrink: 0; background: rgb(255 255 255 / 24%); }
 html.macos-vibrancy,
 .macos-vibrancy body,
 .macos-vibrancy #root,

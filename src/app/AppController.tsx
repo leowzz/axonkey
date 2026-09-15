@@ -1227,6 +1227,7 @@ function AppController() {
 
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
+      {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
       <AppHeader
           activePage={activePage}
           hasUpdate={releaseUpdate.hasUpdate}
