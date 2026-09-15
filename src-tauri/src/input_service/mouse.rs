@@ -552,7 +552,7 @@ mod tests {
     fn mappings_pass_through_accumulate_cancel_and_do_not_cross_devices() {
         let (sender, receiver) = mpsc::sync_channel(1);
         let settings: NativeSettings =
-            serde_json::from_value(serde_json::json!({"enabled":true,"behaviors":{
+            serde_json::from_value(serde_json::json!({"enabled":true,"mouseIgnoreScrollAcceleration":false,"mouseVerticalScrollIntervalMs":0,"mouseHorizontalScrollIntervalMs":0,"behaviors":{
                 "mouse.top.up":{"click":[{"type":"key","key":"A"}]},
                 "mouse.top.down":{"click":[{"type":"disabled"}]},
                 "mouse.top.left":{"click":[{"type":"key","key":"B","enabled":false}]},
@@ -750,7 +750,7 @@ mod tests {
     fn fixture(behaviors: serde_json::Value) -> (Shared, mpsc::Receiver<Job>) {
         let (sender, receiver) = mpsc::sync_channel(32);
         let settings =
-            serde_json::from_value(serde_json::json!({ "enabled": true, "behaviors": behaviors }))
+            serde_json::from_value(serde_json::json!({ "enabled": true, "mouseIgnoreScrollAcceleration": false, "mouseVerticalScrollIntervalMs": 0, "mouseHorizontalScrollIntervalMs": 0, "behaviors": behaviors }))
                 .unwrap();
         (
             Shared {

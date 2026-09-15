@@ -64,7 +64,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 0, mouseKeyHoldMs: 0, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: false }
+  const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: false, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
@@ -77,14 +77,14 @@ export function getStoredSettings(): StoredSettings {
       enabled: parsed.enabled === true,
       mouseEnabled: parsed.mouseEnabled !== false,
       mouseHorizontalScrollIntervalMs: typeof parsed.mouseHorizontalScrollIntervalMs === 'number' && Number.isFinite(parsed.mouseHorizontalScrollIntervalMs)
-        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseHorizontalScrollIntervalMs))) : 0,
+        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseHorizontalScrollIntervalMs))) : 50,
       mouseVerticalScrollIntervalMs: typeof parsed.mouseVerticalScrollIntervalMs === 'number' && Number.isFinite(parsed.mouseVerticalScrollIntervalMs)
-        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseVerticalScrollIntervalMs))) : 0,
-      mouseIgnoreScrollAcceleration: parsed.mouseIgnoreScrollAcceleration === true,
+        ? Math.max(0, Math.min(10000, Math.round(parsed.mouseVerticalScrollIntervalMs))) : 50,
+      mouseIgnoreScrollAcceleration: parsed.mouseIgnoreScrollAcceleration !== false,
       mouseScrollSensitivity: typeof parsed.mouseScrollSensitivity === 'number' && Number.isFinite(parsed.mouseScrollSensitivity)
         ? Math.max(25, Math.min(400, Math.round(parsed.mouseScrollSensitivity))) : 100,
       mouseKeyHoldMs: typeof parsed.mouseKeyHoldMs === 'number' && Number.isFinite(parsed.mouseKeyHoldMs)
-        ? Math.max(0, Math.min(1000, Math.round(parsed.mouseKeyHoldMs))) : 0,
+        ? Math.max(0, Math.min(1000, Math.round(parsed.mouseKeyHoldMs))) : 10,
     }
   } catch {
     return fallback

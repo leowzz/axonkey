@@ -1214,11 +1214,12 @@ html.macos-vibrancy { --native-titlebar-height: 28px; }
 html.macos-vibrancy,
 .macos-vibrancy body,
 .macos-vibrancy #root,
-.macos-vibrancy .app-shell,
 .macos-vibrancy .main-content,
 .macos-vibrancy .main-content:has(> *) {
   background: transparent;
 }
+/* A single light wash softens dark desktop colors across every page. */
+.macos-vibrancy .app-shell { background: rgb(255 255 255 / 38%); }
 .macos-vibrancy .topbar { background: rgb(255 255 255 / 24%); border-bottom-color: rgb(70 80 90 / 14%); }
 /* Home uses one glass layer per panel; nested content stays transparent. */
 .macos-vibrancy .home-page { --home-surface: rgb(255 255 255 / 20%); --home-side-surface: rgb(95 110 130 / 4%); }

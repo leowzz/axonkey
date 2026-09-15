@@ -110,7 +110,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           <span className="settings-form-label">滚动加速：</span>
           <div className="settings-form-control">
             <label className="settings-checkbox"><input type="checkbox" checked={mouseIgnoreScrollAcceleration} onChange={(event) => onMouseIgnoreScrollAccelerationChange(event.target.checked)} />忽略滚动加速</label>
-            <SettingsHelp id="mouse-ignore-acceleration-help" label="忽略滚动加速">按事件次数触发，避免快速滚动时触发量激增。100% 灵敏度下每条事件触发一次；不会过滤惯性产生的额外事件。默认关闭。</SettingsHelp>
+            <SettingsHelp id="mouse-ignore-acceleration-help" label="忽略滚动加速">按事件次数触发，避免快速滚动时触发量激增。100% 灵敏度下每条事件触发一次；不会过滤惯性产生的额外事件。默认开启。</SettingsHelp>
           </div>
         </div>
         <div className="settings-form-row">
@@ -136,9 +136,9 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           </div>
         </div>
         {([
-          { id: 'vertical-interval', label: '垂直触发间隔', value: mouseVerticalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseVerticalScrollIntervalMsChange, help: '向上、向下共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 0 毫秒，不限制触发间隔。' },
-          { id: 'horizontal-interval', label: '横向触发间隔', value: mouseHorizontalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseHorizontalScrollIntervalMsChange, help: '向左、向右共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 0 毫秒，不限制触发间隔。' },
-          { id: 'key-hold-ms', label: '按键保持时间', value: mouseKeyHoldMs, max: 1000, step: 1, onChange: onMouseKeyHoldMsChange, help: '按下到松开的间隔。若按键或快捷键漏识别，可尝试 50 毫秒；数值越大，连续触发越慢。默认 0 毫秒，即时释放。' },
+          { id: 'vertical-interval', label: '垂直触发间隔', value: mouseVerticalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseVerticalScrollIntervalMsChange, help: '向上、向下共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 50 毫秒；设为 0 时不限制触发间隔。' },
+          { id: 'horizontal-interval', label: '横向触发间隔', value: mouseHorizontalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseHorizontalScrollIntervalMsChange, help: '向左、向右共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 50 毫秒；设为 0 时不限制触发间隔。' },
+          { id: 'key-hold-ms', label: '按键保持时间', value: mouseKeyHoldMs, max: 1000, step: 1, onChange: onMouseKeyHoldMsChange, help: '按下到松开的间隔。若按键或快捷键漏识别，可尝试 50 毫秒；数值越大，连续触发越慢。默认 10 毫秒；设为 0 时即时释放。' },
         ] as const).map(({ id, label, value, max, step, onChange, help }) => <div key={id} className="settings-form-row">
           <label className="settings-form-label" htmlFor={`mouse-${id}`}>{label}：</label>
           <div className="settings-form-control">
