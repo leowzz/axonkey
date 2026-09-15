@@ -896,14 +896,14 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .key-picker-head h2 .reset-button { margin-left: 6px; font-size: 12px; }
 
 /* Application settings page. */
-.settings-page { display: flex; flex-direction: column; flex: 1 0 auto; --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: min(1120px, calc(100% - 32px)); margin: 16px auto; padding: 16px; border: 1px solid #d5dae0; border-radius: 12px; background: #f8f8f7; }
+.settings-page { display: flex; flex-direction: column; flex: 1 0 auto; --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: calc(100% - 32px); margin: 16px; padding: 0; border: 0; border-radius: 0; background: #f8f8f7; }
 .settings-page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .settings-page-head h2 { margin: 0; font-size: 20px; }
 .settings-page-head p { margin: 4px 0 0; }
 .settings-page-head p, .settings-platform-note p { color: #65717d; font-size: 13px; line-height: 1.7; }
 .settings-platform-note { padding: 12px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-surface); }
 @media (max-width: 700px) {
-  .settings-page { --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: calc(100% - 24px); padding: 16px; }
+  .settings-page { --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: calc(100% - 24px); margin: 12px; padding: 0; }
   .settings-page-head { align-items: flex-start; flex-direction: column; }
 }
 
@@ -1129,8 +1129,8 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-page .dialog-secondary { min-height: 30px; padding: 6px 10px; }
 
 /* Settings categories keep navigation separate from the active content. */
-.settings-layout { display: grid; flex: 1; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: stretch; }
-.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 4px 12px 4px 0; border-right: 1px solid #dfe4e8; }
+.settings-layout { display: grid; flex: 1; grid-template-columns: 170px minmax(0, 1fr); gap: 0; align-items: stretch; }
+.settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid #dfe4e8; }
 .settings-nav button { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #6c7882; font-size: 13px; text-align: left; white-space: nowrap; }
 .settings-nav button:hover { background: #edf0f3; color: #354954; }
 .settings-nav button[aria-current='page'] { border-color: #d4e0e9; background: #e7eef4; color: #315b78; font-weight: 600; }
@@ -1140,13 +1140,13 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-panels .permission-drag-note { margin: 8px 0; padding: 10px 12px; }
 .settings-panels .settings-mouse-row { grid-template-columns: 30px minmax(0, 1fr) 200px; }
 @media (max-width: 1000px) {
-  .settings-layout { grid-template-columns: 130px minmax(0, 1fr); gap: 14px; }
+  .settings-layout { grid-template-columns: 150px minmax(0, 1fr); gap: 0; }
   .settings-nav { padding-right: 8px; }
   .settings-panels .settings-mouse-row { grid-template-columns: 30px minmax(0, 1fr); }
   .settings-panels .settings-mouse-control { grid-column: 2; width: min(100%, 260px); }
 }
 @media (max-width: 700px) {
-  .settings-layout { grid-template-columns: 112px minmax(0, 1fr); gap: 10px; }
+  .settings-layout { grid-template-columns: 130px minmax(0, 1fr); gap: 0; }
   .settings-nav button { gap: 6px; padding: 8px 6px; font-size: 12px; }
 }
 
@@ -1160,7 +1160,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 
 /* Preference-style forms: aligned labels, compact native controls, contextual help. */
 .settings-form-page { background: #f0f0f0; }
-.settings-form-page .settings-panels { padding: 8px 12px; }
+.settings-form-page .settings-panels { padding: 20px 24px; }
 .settings-form-page .settings-section-title { margin-bottom: 22px; font-weight: 600; }
 .settings-form-page .settings-mouse-heading { margin-bottom: 22px; }
 .settings-form-page .settings-mouse-heading .settings-section-title { margin-bottom: 0; }
@@ -1186,7 +1186,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-form-page .settings-permission-copy > div { margin-bottom: 0; }
 .settings-form-page .settings-permission-copy h3 { font-weight: 400; }
 @media (max-width: 1000px) {
-  .settings-form-page .settings-panels { padding: 8px 0; }
+  .settings-form-page .settings-panels { padding: 16px; }
   .settings-form-row { grid-template-columns: 126px minmax(0, 1fr); gap: 8px; }
   .settings-form-control .settings-sensitivity-control { width: 190px; }
 }
