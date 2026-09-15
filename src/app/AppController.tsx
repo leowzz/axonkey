@@ -1214,8 +1214,7 @@ function AppController() {
 
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
-      <main className="main-content">
-        <AppHeader
+      <AppHeader
           activePage={activePage}
           hasUpdate={releaseUpdate.hasUpdate}
           enabled={enabled}
@@ -1223,7 +1222,7 @@ function AppController() {
           onNavigate={setActivePage}
           onToggleEnabled={toggleEnabled}
         />
-
+      <main key={activePage} className="main-content">
         {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
           <Info size={20} aria-hidden="true" />
           <div className="mapping-disabled-copy">

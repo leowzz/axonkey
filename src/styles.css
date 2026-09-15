@@ -19,7 +19,7 @@
   --green: #2ab84c;
 }
 
-html { scroll-padding-top: var(--sticky-header-height); }
+html:has(.app-shell), body:has(.app-shell) { overflow: hidden; }
 html:has(.mapping-disabled-notice) { --sticky-header-height: calc(var(--topbar-height) + var(--disabled-notice-height)); }
 
 * { box-sizing: border-box; }
@@ -33,7 +33,7 @@ input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-sele
 a, img { -webkit-user-drag: none; }
 button { cursor: pointer; }
 
-.app-shell { display: flex; min-height: 100vh; background: #f2f3f4; }
+.app-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; background: #f2f3f4; }
 .brand-lockup { display: flex; align-items: center; gap: 9px; width: auto; padding: 0; }
 .brand-lockup.compact { display: flex; }
 .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; color: #fff; background: #202327; font-size: 18px; font-weight: 800; }
@@ -45,10 +45,12 @@ button { cursor: pointer; }
 .brand-version { display: block; color: #9da0a5; font-size: 12px; }
 .brand-version span { font-family: 'DM Mono', monospace; }
 
-.main-content { min-width: 0; flex: 1; background: #f1f2f3; }
-.topbar { position: sticky; top: 0; z-index: 10; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: 16px; height: var(--topbar-height); padding: 6px 30px; border-bottom: 1px solid #d8dade; background: #f4f5f6; }
+.main-content { min-width: 0; min-height: 0; flex: 1; overflow: auto; overscroll-behavior: contain; scroll-padding-top: 12px; background: #f1f2f3; }
+.main-content:has(.mapping-disabled-notice) { scroll-padding-top: calc(var(--disabled-notice-height) + 12px); }
+.app-shell:has(.audio-test-dialog[open]) > .main-content { overflow: hidden; }
+.topbar { position: relative; flex-shrink: 0; z-index: 10; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; column-gap: 16px; height: var(--topbar-height); padding: 6px 30px; border-bottom: 1px solid #d8dade; background: #f4f5f6; }
 /* Keep the disabled state visible after setup and on both main pages. */
-.mapping-disabled-notice { position: sticky; top: var(--topbar-height); z-index: 9; height: var(--disabled-notice-height); display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 72px)); margin: 16px auto 0; padding: 14px 16px; border: 1px solid #e6d3a9; border-radius: 8px; color: #795a23; background: #fff8e9; }
+.mapping-disabled-notice { position: sticky; top: 0; z-index: 9; height: var(--disabled-notice-height); display: flex; align-items: center; gap: 12px; width: min(1180px, calc(100% - 72px)); margin: 16px auto 0; padding: 14px 16px; border: 1px solid #e6d3a9; border-radius: 8px; color: #795a23; background: #fff8e9; }
 .mapping-disabled-notice > svg { flex-shrink: 0; }
 .mapping-disabled-copy { flex: 1; min-width: 0; }
 .mapping-disabled-copy strong { font-size: 14px; }
