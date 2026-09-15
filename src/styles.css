@@ -1328,11 +1328,12 @@ html.macos-vibrancy,
 .macos-vibrancy .mapping-active .behavior-current-panel {
   padding-inline: 0;
   border-radius: 0;
-  border-bottom-color: rgb(70 80 90 / 12%);
+  border-bottom: 0;
 }
 .macos-vibrancy .trigger-selector,
 .macos-vibrancy .mouse-trigger-selector {
   background: transparent;
+  border-bottom: 0;
   border-color: rgb(70 80 90 / 12%);
 }
 .macos-vibrancy .trigger-options {
