@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { Command, ExternalLink, Info, Keyboard, RotateCcw, ShieldCheck } from 'lucide-react'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
@@ -56,30 +57,36 @@ export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, 
     </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
     {(platform === 'windows' || platform === 'macos') && <>
-      <h3 className="settings-section-title">鼠标映射</h3>
-      <section className="settings-permission-row">
+      <div className="settings-mouse-heading"><h3 className="settings-section-title">鼠标映射</h3><span>更改自动保存</span></div>
+      <div className="settings-mouse-options">
+      <section className="settings-permission-row settings-mouse-row">
         <span className="settings-permission-icon"><RotateCcw size={18} /></span>
         <div className="settings-permission-copy">
           <div><h3><label htmlFor="mouse-scroll-sensitivity">滚动灵敏度</label></h3></div>
-          <p id="mouse-scroll-sensitivity-help">默认 100%。数值越高，轻微滚动越容易触发，连续滚动触发次数也越多；调低可减少误触。适用于任意位置和屏幕边缘的滚轮映射，自动保存。</p>
+          <p id="mouse-scroll-sensitivity-help">调高可让轻微滚动更容易触发；调低可减少误触。适用于所有滚轮映射。</p>
         </div>
-        <div className="settings-sensitivity-control">
+        <div className="settings-mouse-control">
+          <div className="settings-sensitivity-control">
           <input id="mouse-scroll-sensitivity" type="range" min={25} max={400} step={25}
+            style={{ '--sensitivity-progress': `${(mouseScrollSensitivity - 25) / 375 * 100}%` } as CSSProperties}
             aria-describedby="mouse-scroll-sensitivity-help" aria-valuetext={`${mouseScrollSensitivity}%`} value={mouseScrollSensitivity}
             onChange={(event) => {
               const value = Number(event.target.value)
               if (Number.isFinite(value)) onMouseScrollSensitivityChange(Math.max(25, Math.min(400, Math.round(value))))
             }} />
-          <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}%</output>
+          <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}<span>%</span></output>
+          </div>
+          <div className="settings-control-caption"><span>低 · 25%</span><span>默认 100%</span><span>高 · 400%</span></div>
         </div>
       </section>
-      <section className="settings-permission-row">
+      <section className="settings-permission-row settings-mouse-row">
         <span className="settings-permission-icon"><Keyboard size={18} /></span>
         <div className="settings-permission-copy">
-          <div><h3><label htmlFor="mouse-key-hold-ms">鼠标映射按键保持时间</label></h3></div>
-          <p id="mouse-key-hold-help">按键按下到松开的时间，自动保存。默认 0 毫秒，适合快速滚动；若目标应用漏识别按键，可尝试 50 毫秒。数值越大，连续触发越慢。仅影响鼠标映射输出的按键和快捷键。</p>
+          <div><h3><label htmlFor="mouse-key-hold-ms">按键保持时间</label></h3></div>
+          <p id="mouse-key-hold-help">按下到松开的间隔。若按键或快捷键漏识别，可尝试 50 毫秒；数值越大，连续触发越慢。</p>
         </div>
-        <div className="behavior-delay-row">
+        <div className="settings-mouse-control">
+          <div className="settings-hold-control">
           <input id="mouse-key-hold-ms" className="behavior-delay-input" type="number" min={0} max={1000} step={1}
             aria-describedby="mouse-key-hold-help" value={mouseKeyHoldMs}
             onChange={(event) => {
@@ -87,8 +94,11 @@ export function SettingsPage({ platform, nativeRuntime, mouseScrollSensitivity, 
               if (Number.isFinite(value)) onMouseKeyHoldMsChange(Math.max(0, Math.min(1000, Math.round(value))))
             }} />
           <span>毫秒</span>
+          </div>
+          <div className="settings-control-caption"><span>默认 0 毫秒 · 即时释放</span></div>
         </div>
       </section>
+      </div>
     </>}
   </div>
 }
