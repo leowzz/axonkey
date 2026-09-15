@@ -263,6 +263,11 @@ function AppController() {
   }, [])
 
   useEffect(() => {
+    document.documentElement.classList.toggle('macos-vibrancy', nativeRuntime && platform === 'macos')
+    return () => document.documentElement.classList.remove('macos-vibrancy')
+  }, [nativeRuntime, platform])
+
+  useEffect(() => {
     window.localStorage.setItem(settingsStorageKey, JSON.stringify({ showRemoteKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision

@@ -32,5 +32,26 @@
         }
       }
     }
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "windows": [
+      {
+        "title": "Axonkey",
+        "width": 1180,
+        "height": 820,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true,
+        "transparent": true,
+        "theme": "Light",
+        "windowEffects": {
+          "effects": [
+            "sidebar"
+          ],
+          "state": "active"
+        }
+      }
+    ]
   }
 }

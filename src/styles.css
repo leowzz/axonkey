@@ -1206,3 +1206,154 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-refresh:hover:not(:disabled) { background: #e5ecf3; color: #3375ac; }
 .settings-refresh:focus-visible { outline: 2px solid #93b8f2; outline-offset: 2px; }
 .settings-refresh:disabled { opacity: .45; cursor: default; }
+
+/* Native macOS Vibrancy supplies the blur behind these translucent surfaces. */
+html.macos-vibrancy,
+.macos-vibrancy body,
+.macos-vibrancy #root,
+.macos-vibrancy .app-shell,
+.macos-vibrancy .main-content,
+.macos-vibrancy .main-content:has(> *) {
+  background: transparent;
+}
+.macos-vibrancy .topbar { background: rgb(255 255 255 / 24%); border-bottom-color: rgb(70 80 90 / 14%); }
+.macos-vibrancy .home-page { --home-surface: rgb(255 255 255 / 18%); --home-side-surface: rgb(230 235 240 / 24%); }
+.macos-vibrancy .settings-form-page { background: transparent; }
+.macos-vibrancy .settings-nav { background: rgb(230 235 240 / 16%); }
+.macos-vibrancy .settings-panels { background: rgb(255 255 255 / 20%); }
+/* One continuous mapping surface, with a quiet device rail and clear controls. */
+.macos-vibrancy .mapping-workbench {
+  gap: 0;
+  border: 1px solid rgb(70 80 90 / 12%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 16%);
+}
+.macos-vibrancy .mapping-device-rail {
+  border-right: 1px solid rgb(70 80 90 / 12%);
+  border-radius: 11px 0 0 11px;
+  background: transparent;
+}
+.macos-vibrancy .mapping-main {
+  border-radius: 0 11px 11px 0;
+  background: rgb(255 255 255 / 12%);
+}
+.macos-vibrancy .mapping-active .behavior-editor,
+.macos-vibrancy .mapping-active .behavior-current-panel {
+  background: transparent;
+}
+.macos-vibrancy .mapping-active .behavior-current-panel {
+  padding-inline: 0;
+  border-radius: 0;
+  border-bottom-color: rgb(70 80 90 / 12%);
+}
+.macos-vibrancy .trigger-selector,
+.macos-vibrancy .mouse-trigger-selector {
+  background: transparent;
+  border-color: rgb(70 80 90 / 12%);
+}
+.macos-vibrancy .trigger-options {
+  border-color: rgb(70 80 90 / 10%);
+  border-radius: 10px;
+  background: rgb(95 110 130 / 8%);
+  box-shadow: none;
+}
+.macos-vibrancy .trigger-options > button { border-radius: 7px; }
+.macos-vibrancy .trigger-options > button.active {
+  border-color: rgb(255 255 255 / 65%);
+  color: var(--blue);
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 1px 4px rgb(30 45 60 / 10%);
+}
+.macos-vibrancy .trigger-options > button.active .trigger-option-copy strong { color: #176fcf; }
+.macos-vibrancy .trigger-options > button.active .trigger-option-copy small { color: #415b7c; }
+.macos-vibrancy .trigger-options > button.active .trigger-option-icon { background: rgb(20 120 232 / 8%); }
+.macos-vibrancy .trigger-options > button.active .trigger-option-dot { background: var(--blue); }
+.macos-vibrancy .mapping-active .voice-button-guidance {
+  border-left-color: rgb(90 120 150 / 35%);
+  background: rgb(255 255 255 / 18%);
+}
+.macos-vibrancy .mapping-active .behavior-item,
+.macos-vibrancy .mapping-active .behavior-empty,
+.macos-vibrancy .mapping-active .behavior-action-button,
+.macos-vibrancy .mapping-device-rail .device-status-card {
+  border-color: rgb(70 80 90 / 13%);
+  background: rgb(255 255 255 / 44%);
+}
+.macos-vibrancy .mapping-active .behavior-action-button:hover {
+  border-color: #94b8df;
+  background: rgb(240 247 255 / 82%);
+}
+.macos-vibrancy .mapping-device-rail .device-options button[aria-pressed="true"] {
+  border-color: rgb(20 120 232 / 22%);
+  background: rgb(255 255 255 / 64%);
+  box-shadow: 0 1px 4px rgb(30 45 60 / 5%);
+}
+
+/* Overview and About share the same restrained native glass surfaces. */
+.macos-vibrancy .overview-surface,
+.macos-vibrancy .about-intro {
+  border: 1px solid rgb(70 80 90 / 12%);
+  border-radius: 12px;
+  background: rgb(255 255 255 / 20%);
+}
+.macos-vibrancy .overview-toolbar { border-bottom: 1px solid rgb(70 80 90 / 10%); }
+.macos-vibrancy .overview-canvas { background: transparent; }
+.macos-vibrancy .overview-trigger-switch {
+  border-color: rgb(70 80 90 / 10%);
+  background: rgb(95 110 130 / 8%);
+}
+.macos-vibrancy .overview-trigger-switch button.active {
+  background: rgb(255 255 255 / 80%);
+  box-shadow: 0 1px 4px rgb(30 45 60 / 10%);
+}
+.macos-vibrancy .overview-key {
+  border-color: rgb(70 80 90 / 16%);
+  background: rgb(255 255 255 / 48%);
+  color: #4e6070;
+  box-shadow: none;
+}
+.macos-vibrancy .overview-key.configured { border-color: rgb(60 110 165 / 28%); }
+.macos-vibrancy .overview-key.highlighted {
+  border-color: #458edf;
+  background: rgb(240 247 255 / 82%);
+  box-shadow: 0 0 0 2px rgb(20 120 232 / 10%);
+}
+.macos-vibrancy .overview-key.pressed { background: #dfedff; }
+.macos-vibrancy .overview-key-icon { background: rgb(100 120 140 / 8%); color: #536b80; }
+.macos-vibrancy .overview-key.configured .overview-key-icon,
+.macos-vibrancy .overview-key.highlighted .overview-key-icon { background: rgb(20 120 232 / 9%); color: #2174c6; }
+.macos-vibrancy .overview-key-name,
+.macos-vibrancy .overview-key-name small,
+.macos-vibrancy .overview-key-actions > small,
+.macos-vibrancy .overview-device-label,
+.macos-vibrancy .overview-device-label span { color: #596d7e; }
+.macos-vibrancy .overview-save-state:not(.error),
+.macos-vibrancy .overview-legend { color: #526777; }
+.macos-vibrancy .overview-legend { border-top-color: rgb(70 80 90 / 12%); }
+.macos-vibrancy .overview-wires path:not(.active) { stroke: #7f95a8; opacity: .75; }
+.macos-vibrancy .about-features article,
+.macos-vibrancy .about-update {
+  border-color: rgb(70 80 90 / 12%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 28%);
+}
+.macos-vibrancy .about-update.available {
+  border-color: rgb(20 120 232 / 28%);
+  background: rgb(225 240 255 / 55%);
+}
+.macos-vibrancy .about-version,
+.macos-vibrancy .about-intro p,
+.macos-vibrancy .about-features p,
+.macos-vibrancy .about-update p,
+.macos-vibrancy .about-note,
+.macos-vibrancy .about-github-support > span { color: #505e69; }
+.macos-vibrancy .about-github-button,
+.macos-vibrancy .about-update-actions button:not(.about-install-update) {
+  border-color: rgb(70 80 90 / 18%);
+  background: rgb(255 255 255 / 64%);
+}
+.macos-vibrancy .about-github-button:hover,
+.macos-vibrancy .about-update-actions button:not(.about-install-update):hover:not(:disabled) {
+  border-color: #94b8df;
+  background: rgb(240 247 255 / 82%);
+}
