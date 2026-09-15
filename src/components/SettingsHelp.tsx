@@ -5,13 +5,12 @@ import type { ReactNode } from 'react'
 
 export function SettingsHelp({ id, label, children }: { id: string; label: string; children: ReactNode }) {
   const [open, setOpen] = useState(false)
-  const [pinned, setPinned] = useState(false)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const button = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>()
-  const close = () => { clearTimeout(timer.current); setOpen(false); setPinned(false) }
-  const leave = () => { if (!pinned) timer.current = setTimeout(() => setOpen(false), 140) }
+  const close = () => { clearTimeout(timer.current); setOpen(false) }
+  const leave = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(false), 140) }
   useEffect(() => () => clearTimeout(timer.current), [])
   useEffect(() => {
     if (!open) return
@@ -42,7 +41,7 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
     <button ref={button} type="button" className="settings-help" aria-label={`${label}说明`} aria-expanded={open} aria-describedby={open ? id : undefined}
       onMouseEnter={() => { clearTimeout(timer.current); setOpen(true) }} onMouseLeave={leave}
       onFocus={() => { clearTimeout(timer.current); setOpen(true) }} onBlur={close}
-      onClick={() => { clearTimeout(timer.current); if (pinned) close(); else { setPinned(true); setOpen(true) } }}><CircleHelp size={15} /></button>
+      onClick={() => { clearTimeout(timer.current); setOpen(true) }}><CircleHelp size={15} /></button>
     {open && createPortal(<div ref={panel} id={id} role="tooltip" className="settings-help-popover" style={position}
       onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</div>, document.body)}
   </>

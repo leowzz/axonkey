@@ -1190,3 +1190,13 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .settings-form-row { grid-template-columns: 126px minmax(0, 1fr); gap: 8px; }
   .settings-form-control .settings-sensitivity-control { width: 190px; }
 }
+
+.settings-form-control > .settings-permission-status { min-width: 4em; }
+.settings-form-control > .settings-permission-status.granted { color: #3a8650; }
+
+.settings-permissions-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 22px; }
+.settings-form-page .settings-permissions-heading .settings-section-title { margin: 0; }
+.settings-refresh { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; padding: 0; border: 1px solid #d0d5da; border-radius: 50%; background: #fafafa; color: #6b7782; }
+.settings-refresh:hover:not(:disabled) { background: #e5ecf3; color: #3375ac; }
+.settings-refresh:focus-visible { outline: 2px solid #93b8f2; outline-offset: 2px; }
+.settings-refresh:disabled { opacity: .45; cursor: default; }

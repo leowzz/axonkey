@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { Command, ExternalLink, Info, Keyboard, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
+import { ExternalLink, Info, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
@@ -43,15 +43,11 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
   const items = [
-    { kind: 'inputMonitoring' as const, title: '输入监控', description: '读取 RC003 遥控器的按键，让自定义映射能够响应。', granted: permissions.inputMonitoring && !inputAuthorizationStale, stale: inputAuthorizationStale, icon: <Keyboard size={18} /> },
-    { kind: 'accessibility' as const, title: '辅助功能', description: '发送映射后的按键、快捷键和文本。', granted: permissions.accessibility, stale: false, icon: <Command size={18} /> },
+    { kind: 'inputMonitoring' as const, title: '输入监控', description: '读取 RC003 遥控器的按键，让自定义映射能够响应。', granted: permissions.inputMonitoring && !inputAuthorizationStale, stale: inputAuthorizationStale },
+    { kind: 'accessibility' as const, title: '辅助功能', description: '发送映射后的按键、快捷键和文本。', granted: permissions.accessibility, stale: false },
   ]
   const grantedCount = items.filter((item) => item.granted).length
   return <div className="settings-page settings-form-page">
-    <header className="settings-page-head">
-      <div><h2>设置</h2></div>
-      {currentSection === 'permissions' && <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} />{loading ? '检测中' : '重新检测'}</button>}
-    </header>
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="设置分类">
         {sections.map((item) => <button key={item.id} id={`settings-nav-${item.id}`} type="button"
@@ -64,21 +60,25 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />
     </section>
     <section id="settings-panel-permissions" aria-labelledby="settings-nav-permissions" hidden={currentSection !== 'permissions'}>
-    <h3 className="settings-section-title">系统权限</h3>
+    <div className="settings-permissions-heading">
+      <h3 className="settings-section-title">系统权限</h3>
+      <button type="button" className="settings-refresh" aria-label={loading ? '正在检测系统权限' : '重新检测系统权限'}
+        title={loading ? '检测中' : '重新检测'} aria-busy={loading}
+        disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} /></button>
+    </div>
     {!nativeRuntime && <p className="permission-drag-note"><Info size={17} />浏览器预览无法检测或更改系统权限，请在桌面版中操作。</p>}
     {platform === 'macos' ? <>
-      <div className={`settings-permission-summary ${nativeRuntime && !loading && !failed && grantedCount === 2 ? 'ready' : ''}`} aria-live="polite">
-        <span className="settings-permission-icon"><ShieldCheck size={18} /></span>
-        <div><strong>{!nativeRuntime ? '等待桌面版检测' : loading ? '正在检测权限' : failed ? '权限检测失败' : grantedCount === 2 ? '系统权限已就绪' : `已完成 ${grantedCount} / 2 项授权`}</strong><span>{failed ? '请重新检测以获取最新的授权状态。' : grantedCount === 2 ? '可以读取遥控器按键并执行自定义映射。' : '授权后返回应用，状态会自动刷新。'}</span></div>
-      </div>
-      <div className="settings-permission-list">
+      <div className="settings-form-fields">
         {items.map((item) => {
           const known = nativeRuntime && !loading && !failed
           const granted = known && item.granted
-          return <section key={item.kind} className={`settings-permission-row ${granted ? 'granted' : ''}`}>
-            <span className="settings-permission-icon">{item.icon}</span>
-            <div className="settings-permission-copy"><div><h3>{item.title}</h3><span className="settings-permission-status">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span></div><SettingsHelp id={`permission-help-${item.kind}`} label={item.title}>{item.description}</SettingsHelp></div>
-            <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading} onClick={() => granted ? onOpenSettings(item.kind) : onRequestPermission(item.kind)}>{granted ? '打开设置' : item.stale ? '重新授权' : '开始授权'}<ExternalLink size={14} /></button>
+          return <section key={item.kind} className="settings-form-row" aria-labelledby={`permission-label-${item.kind}`}>
+            <span id={`permission-label-${item.kind}`} className="settings-form-label">{item.title}：</span>
+            <div className="settings-form-control">
+              <span className={`settings-permission-status ${granted ? 'granted' : ''}`} aria-live="polite">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span>
+              <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading} onClick={() => granted ? onOpenSettings(item.kind) : onRequestPermission(item.kind)}>{granted ? '打开设置' : item.stale ? '重新授权' : '开始授权'}<ExternalLink size={14} /></button>
+              <SettingsHelp id={`permission-help-${item.kind}`} label={item.title}>{item.description}</SettingsHelp>
+            </div>
           </section>
         })}
       </div>
