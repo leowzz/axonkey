@@ -72,9 +72,17 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${mappingTriggerLabel(button, trigger)}行为配置`}>
     {button.id === 'voice' && <div className="voice-button-guidance" role="note">
-      <strong>语音键配置建议</strong>
-      <p>建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。不建议配置双击或长按事件。</p>
-      <p>受遥控器硬件限制，只有长按语音键时才会产生音频流。</p>
+      <div>
+        <strong>语音键配置建议</strong>
+        <p>建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。</p>
+        <p><strong>不建议配置双击或长按事件。</strong></p>
+        <p>受遥控器硬件限制，只有长按语音键时才会产生音频流。</p>
+      </div>
+      <div>
+        <strong>切换语音输入法的麦克风</strong>
+        <p>请在语音输入法中将麦克风设为 <strong>{platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'}</strong>，以接收遥控器语音。</p>
+        <p>豆包输入法：设置 → 语音输入 → 麦克风选择。</p>
+      </div>
     </div>}
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
@@ -361,4 +369,3 @@ export function TextInputPresetDialog({ button, trigger, value, onChange, onClos
     </section>
   </div>
 }
-
