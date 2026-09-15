@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Power } from 'lucide-react'
+import { SettingsHelp } from './SettingsHelp'
 import { disable, enable, isEnabled } from '@tauri-apps/plugin-autostart'
 
 export function AutostartControl({ supported }: { supported: boolean }) {
@@ -55,11 +55,13 @@ export function AutostartControl({ supported }: { supported: boolean }) {
   }
 
   return <section className="settings-autostart" aria-label="启动设置">
-    <div className="settings-autostart-row">
-      <span className="settings-permission-icon settings-autostart-icon"><Power size={18} aria-hidden="true" /></span>
-      <div className="settings-autostart-copy"><strong id="autostart-label">开机自启</strong><p id="autostart-description">{supported ? '登录电脑后自动启动 Axonkey' : '请在 Windows 或 macOS 桌面应用中设置'}</p></div>
-      <span className="settings-autostart-status" role="status">{busy ? '正在同步系统设置…' : ''}</span>
-      <button type="button" role="switch" className={`switch ${enabled ? 'on' : ''}`} aria-checked={enabled === true} aria-labelledby="autostart-label" aria-describedby="autostart-description" aria-busy={busy} disabled={!supported || busy || enabled === null} onClick={() => void toggle()}><span /></button>
+    <div className="settings-form-row">
+      <span className="settings-form-label">启动：</span>
+      <div className="settings-form-control">
+        <label className="settings-checkbox"><input type="checkbox" checked={enabled === true} disabled={!supported || busy || enabled === null} onChange={() => void toggle()} />开机自启</label>
+        <SettingsHelp id="autostart-description" label="开机自启">{supported ? '登录电脑后自动启动 Axonkey。' : '请在 Windows 或 macOS 桌面应用中设置。'}</SettingsHelp>
+        <span className="settings-autostart-status" role="status">{busy ? '正在同步…' : ''}</span>
+      </div>
     </div>
     {error && <p className="settings-autostart-error" role="alert">{error}<button type="button" disabled={busy} onClick={() => setRefreshVersion(value => value + 1)}>重新读取</button></p>}
   </section>

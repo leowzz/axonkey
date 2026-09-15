@@ -1157,3 +1157,36 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-status-card .device-settings-button { justify-content: center; width: 26px; height: 26px; margin-left: 2px; border-radius: 5px; }
 .device-status-card .device-settings-button:hover { color: #315b78; background: #e7eef4; }
 .device-status-card .device-settings-button:focus-visible { outline: 2px solid #8aa8bd; outline-offset: 2px; }
+
+/* Preference-style forms: aligned labels, compact native controls, contextual help. */
+.settings-form-page { background: #f0f0f0; }
+.settings-form-page .settings-panels { padding: 8px 12px; }
+.settings-form-page .settings-section-title { margin-bottom: 22px; font-weight: 600; }
+.settings-form-page .settings-mouse-heading { margin-bottom: 22px; }
+.settings-form-page .settings-mouse-heading .settings-section-title { margin-bottom: 0; }
+.settings-form-fields { display: flex; flex-direction: column; gap: 18px; padding: 8px 0; }
+.settings-form-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 32px; }
+.settings-form-label { text-align: right; font-size: 14px; color: #303338; }
+.settings-form-control { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; min-width: 0; font-size: 14px; }
+.settings-checkbox { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.settings-checkbox input { width: 17px; height: 17px; margin: 0; accent-color: #1683f8; }
+.settings-number { width: 94px; height: 30px; padding: 3px 6px; border: 1px solid #c7c9cd; border-radius: 4px; background: white; color: #303338; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+.settings-number:focus-visible { outline: 3px solid #93b8f2; outline-offset: 1px; }
+.settings-form-control .settings-sensitivity-control { width: 240px; }
+.settings-form-page .settings-autostart { border: 0; padding: 8px 0; background: transparent; }
+.settings-form-page .settings-autostart-status { flex: none; }
+.settings-help { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #879099; cursor: help; flex-shrink: 0; }
+.settings-help:hover, .settings-help[aria-expanded='true'] { color: #3375ac; background: #e0e8f0; }
+.settings-help:focus-visible { outline: 2px solid #93b8f2; outline-offset: 1px; }
+.settings-help-popover { position: fixed; z-index: 1200; width: max-content; max-width: min(330px, calc(100vw - 16px)); padding: 11px 14px; border: 1px solid #cdd3d9; border-radius: 8px; background: #fff; color: #4c5964; font-size: 13px; line-height: 1.65; box-shadow: 0 5px 22px #26384824; user-select: text; }
+.settings-form-page .settings-permission-list { border: 0; background: transparent; }
+.settings-form-page .settings-permission-row { grid-template-columns: minmax(0, 1fr) auto; padding: 12px 0; border: 0; }
+.settings-form-page .settings-permission-row > .settings-permission-icon { display: none; }
+.settings-form-page .settings-permission-copy { display: flex; align-items: center; gap: 8px; }
+.settings-form-page .settings-permission-copy > div { margin-bottom: 0; }
+.settings-form-page .settings-permission-copy h3 { font-weight: 400; }
+@media (max-width: 1000px) {
+  .settings-form-page .settings-panels { padding: 8px 0; }
+  .settings-form-row { grid-template-columns: 126px minmax(0, 1fr); gap: 8px; }
+  .settings-form-control .settings-sensitivity-control { width: 190px; }
+}

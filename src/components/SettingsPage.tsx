@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import { Command, ExternalLink, Info, Keyboard, Mouse, Power, RotateCcw, ShieldCheck } from 'lucide-react'
+import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { SetupState } from '../setupModel'
@@ -46,9 +47,9 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     { kind: 'accessibility' as const, title: '辅助功能', description: '发送映射后的按键、快捷键和文本。', granted: permissions.accessibility, stale: false, icon: <Command size={18} /> },
   ]
   const grantedCount = items.filter((item) => item.granted).length
-  return <div className="settings-page">
+  return <div className="settings-page settings-form-page">
     <header className="settings-page-head">
-      <div><h2>设置</h2><p>管理 Axonkey 的启动方式、输入选项和系统权限。</p></div>
+      <div><h2>设置</h2></div>
       {currentSection === 'permissions' && <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading || platform === 'unsupported'} onClick={onRefresh}><RotateCcw size={14} />{loading ? '检测中' : '重新检测'}</button>}
     </header>
     <div className="settings-layout">
@@ -76,7 +77,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           const granted = known && item.granted
           return <section key={item.kind} className={`settings-permission-row ${granted ? 'granted' : ''}`}>
             <span className="settings-permission-icon">{item.icon}</span>
-            <div className="settings-permission-copy"><div><h3>{item.title}</h3><span className="settings-permission-status">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span></div><p>{item.description}</p></div>
+            <div className="settings-permission-copy"><div><h3>{item.title}</h3><span className="settings-permission-status">{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : item.stale ? '需要重新授权' : granted ? '已授权' : '未授权'}</span></div><SettingsHelp id={`permission-help-${item.kind}`} label={item.title}>{item.description}</SettingsHelp></div>
             <button type="button" className="dialog-secondary" disabled={!nativeRuntime || loading} onClick={() => granted ? onOpenSettings(item.kind) : onRequestPermission(item.kind)}>{granted ? '打开设置' : item.stale ? '重新授权' : '开始授权'}<ExternalLink size={14} /></button>
           </section>
         })}
@@ -87,81 +88,40 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     </section>
     {supportsMouse && <section id="settings-panel-mouse" aria-labelledby="settings-nav-mouse" hidden={currentSection !== 'mouse'}>
       <div className="settings-mouse-heading"><h3 className="settings-section-title">鼠标映射</h3><span>更改自动保存</span></div>
-      <div className="settings-mouse-options">
-      <section className="settings-permission-row settings-mouse-row">
-        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
-        <div className="settings-permission-copy">
-          <div><h3 id="mouse-ignore-acceleration-label">忽略滚动加速</h3></div>
-          <p id="mouse-ignore-acceleration-help">按事件次数触发，避免快速滚动时触发量激增。100% 灵敏度下每条事件触发一次；不会过滤惯性产生的额外事件。</p>
-        </div>
-        <div className="settings-mouse-control">
-          <button type="button" role="switch" aria-checked={mouseIgnoreScrollAcceleration}
-            aria-labelledby="mouse-ignore-acceleration-label" aria-describedby="mouse-ignore-acceleration-help"
-            className={`switch ${mouseIgnoreScrollAcceleration ? 'on' : ''}`}
-            onClick={() => onMouseIgnoreScrollAccelerationChange(!mouseIgnoreScrollAcceleration)}><span /></button>
-        </div>
-      </section>
-      <section className="settings-permission-row settings-mouse-row">
-        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
-        <div className="settings-permission-copy">
-          <div><h3><label htmlFor="mouse-scroll-sensitivity">滚动灵敏度</label></h3></div>
-          <p id="mouse-scroll-sensitivity-help">调高可让轻微滚动更容易触发；调低可减少误触。适用于所有滚轮映射。</p>
-        </div>
-        <div className="settings-mouse-control">
-          <div className="settings-sensitivity-control">
-          <input id="mouse-scroll-sensitivity" type="range" min={25} max={400} step={25}
-            style={{ '--sensitivity-progress': `${(mouseScrollSensitivity - 25) / 375 * 100}%` } as CSSProperties}
-            aria-describedby="mouse-scroll-sensitivity-help" aria-valuetext={`${mouseScrollSensitivity}%`} value={mouseScrollSensitivity}
-            onChange={(event) => {
-              const value = Number(event.target.value)
-              if (Number.isFinite(value)) onMouseScrollSensitivityChange(Math.max(25, Math.min(400, Math.round(value))))
-            }} />
-          <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}<span>%</span></output>
+      <div className="settings-form-fields">
+        <div className="settings-form-row">
+          <span className="settings-form-label">滚动加速：</span>
+          <div className="settings-form-control">
+            <label className="settings-checkbox"><input type="checkbox" checked={mouseIgnoreScrollAcceleration} onChange={(event) => onMouseIgnoreScrollAccelerationChange(event.target.checked)} />忽略滚动加速</label>
+            <SettingsHelp id="mouse-ignore-acceleration-help" label="忽略滚动加速">按事件次数触发，避免快速滚动时触发量激增。100% 灵敏度下每条事件触发一次；不会过滤惯性产生的额外事件。默认关闭。</SettingsHelp>
           </div>
-          <div className="settings-control-caption"><span>低 · 25%</span><span>默认 100%</span><span>高 · 400%</span></div>
         </div>
-      </section>
-      {([
-        { axis: 'vertical', label: '垂直滚轮触发间隔', directions: '向上、向下', value: mouseVerticalScrollIntervalMs, onChange: onMouseVerticalScrollIntervalMsChange },
-        { axis: 'horizontal', label: '横向滚轮触发间隔', directions: '向左、向右', value: mouseHorizontalScrollIntervalMs, onChange: onMouseHorizontalScrollIntervalMsChange },
-      ] as const).map(({ axis, label, directions, value, onChange }) => <section key={axis} className="settings-permission-row settings-mouse-row">
-        <span className="settings-permission-icon"><RotateCcw size={18} /></span>
-        <div className="settings-permission-copy">
-          <div><h3><label htmlFor={`mouse-${axis}-interval`}>{label}</label></h3></div>
-          <p id={`mouse-${axis}-interval-help`}>{directions}共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。</p>
+        <div className="settings-form-row">
+          <label className="settings-form-label" htmlFor="mouse-scroll-sensitivity">滚动灵敏度：</label>
+          <div className="settings-form-control">
+            <div className="settings-sensitivity-control">
+              <input id="mouse-scroll-sensitivity" type="range" min={25} max={400} step={25}
+                style={{ '--sensitivity-progress': `${(mouseScrollSensitivity - 25) / 375 * 100}%` } as CSSProperties}
+                aria-valuetext={`${mouseScrollSensitivity}%`} value={mouseScrollSensitivity}
+                onChange={(event) => onMouseScrollSensitivityChange(Number(event.target.value))} />
+              <output htmlFor="mouse-scroll-sensitivity">{mouseScrollSensitivity}<span>%</span></output>
+            </div>
+            <SettingsHelp id="mouse-scroll-sensitivity-help" label="滚动灵敏度">调高可让轻微滚动更容易触发；调低可减少误触。适用于所有滚轮映射。范围 25%–400%，默认 100%。</SettingsHelp>
+          </div>
         </div>
-        <div className="settings-mouse-control">
-          <div className="settings-hold-control">
-            <input id={`mouse-${axis}-interval`} className="behavior-delay-input" type="number" min={0} max={10000} step={10}
-              aria-describedby={`mouse-${axis}-interval-help`} value={value}
-              onChange={(event) => {
-                const ms = Number(event.target.value)
-                if (Number.isFinite(ms)) onChange(Math.max(0, Math.min(10000, Math.round(ms))))
-              }} />
+        {([
+          { id: 'vertical-interval', label: '垂直触发间隔', value: mouseVerticalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseVerticalScrollIntervalMsChange, help: '向上、向下共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 0 毫秒，不限制触发间隔。' },
+          { id: 'horizontal-interval', label: '横向触发间隔', value: mouseHorizontalScrollIntervalMs, max: 10000, step: 10, onChange: onMouseHorizontalScrollIntervalMsChange, help: '向左、向右共用间隔。设为 100 毫秒时，每次触发后 100 毫秒内忽略同轴滚动，不补发；两轴独立计时。默认 0 毫秒，不限制触发间隔。' },
+          { id: 'key-hold-ms', label: '按键保持时间', value: mouseKeyHoldMs, max: 1000, step: 1, onChange: onMouseKeyHoldMsChange, help: '按下到松开的间隔。若按键或快捷键漏识别，可尝试 50 毫秒；数值越大，连续触发越慢。默认 0 毫秒，即时释放。' },
+        ] as const).map(({ id, label, value, max, step, onChange, help }) => <div key={id} className="settings-form-row">
+          <label className="settings-form-label" htmlFor={`mouse-${id}`}>{label}：</label>
+          <div className="settings-form-control">
+            <input id={`mouse-${id}`} className="settings-number" type="number" min={0} max={max} step={step} value={value}
+              onChange={(event) => { const ms = Number(event.target.value); if (Number.isFinite(ms)) onChange(Math.max(0, Math.min(max, Math.round(ms)))) }} />
             <span>毫秒</span>
+            <SettingsHelp id={`mouse-${id}-help`} label={label}>{help}</SettingsHelp>
           </div>
-          <div className="settings-control-caption"><span>默认 0 毫秒 · 不限制触发间隔</span></div>
-        </div>
-      </section>)}
-      <section className="settings-permission-row settings-mouse-row">
-        <span className="settings-permission-icon"><Keyboard size={18} /></span>
-        <div className="settings-permission-copy">
-          <div><h3><label htmlFor="mouse-key-hold-ms">按键保持时间</label></h3></div>
-          <p id="mouse-key-hold-help">按下到松开的间隔。若按键或快捷键漏识别，可尝试 50 毫秒；数值越大，连续触发越慢。</p>
-        </div>
-        <div className="settings-mouse-control">
-          <div className="settings-hold-control">
-          <input id="mouse-key-hold-ms" className="behavior-delay-input" type="number" min={0} max={1000} step={1}
-            aria-describedby="mouse-key-hold-help" value={mouseKeyHoldMs}
-            onChange={(event) => {
-              const value = Number(event.target.value)
-              if (Number.isFinite(value)) onMouseKeyHoldMsChange(Math.max(0, Math.min(1000, Math.round(value))))
-            }} />
-          <span>毫秒</span>
-          </div>
-          <div className="settings-control-caption"><span>默认 0 毫秒 · 即时释放</span></div>
-        </div>
-      </section>
+        </div>)}
       </div>
     </section>}
       </div>
