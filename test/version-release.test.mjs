@@ -319,14 +319,17 @@ for (const channel of ['alpha', 'beta', 'rc']) {
 
 
 for (const prerelease of [false, true]) {
-  for (const exists of [false, true]) {
-    test(`publish workflow: prerelease=${prerelease}, existing release=${exists}`, { skip: process.platform === 'win32' }, (t) => {
+  for (const state of ['absent', 'draft', 'published']) {
+    const exists = state !== 'absent'
+    test(`publish workflow: prerelease=${prerelease}, release=${state}`, { skip: process.platform === 'win32' }, (t) => {
       const root = seedRepository(t)
       const bin = join(root, 'bin')
       mkdirSync(bin)
       mkdirSync(join(root, 'release-assets'))
       writeFileSync(join(root, 'release-assets', 'installer.exe'), 'fixture')
       const log = join(root, 'gh-calls.jsonl')
+      const notesFile = join(root, 'release-notes.md')
+      if (state !== 'published') writeFileSync(notesFile, 'Changes since the previous published commit')
       const gh = join(bin, 'gh')
       writeFileSync(gh, String.raw`#!/usr/bin/env node
 const fs = require('node:fs');
@@ -343,7 +346,7 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
         env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`,
           CALL_LOG: log, RELEASE_EXISTS: String(exists), PRERELEASE: String(prerelease),
           TAG_NAME: prerelease ? 'v1.2.3-beta.1' : 'v1.2.3', GITHUB_REPOSITORY: 'test/axonkey',
-          LLM_NOTES_OUTCOME: 'failure', RELEASE_NOTES_FILE: join(root, 'missing-notes.md') },
+          RELEASE_NOTES_FILE: notesFile },
       })
       assert.equal(result.status, 0, result.stderr)
       const calls = readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line))
@@ -351,7 +354,8 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
       assert.equal(Boolean(create), !exists)
       if (create) {
         assert.ok(create.includes('--draft'))
-        assert.ok(create.includes('--generate-notes'))
+        assert.ok(create.includes('--notes-file'))
+        assert.ok(create.includes(notesFile))
       }
       const edit = calls.find(args => args[1] === 'edit')
       for (const args of [create, edit].filter(Boolean)) {
@@ -359,7 +363,7 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
         assert.equal(args.includes('--latest=false'), prerelease)
       }
       assert.ok(edit.includes('--draft=false'))
-      assert.equal(edit.some(arg => arg.startsWith('--notes')), false)
+      assert.equal(edit.includes('--notes-file'), state !== 'published')
       const uploadIndex = calls.findIndex(args => args[1] === 'upload')
       assert.ok(uploadIndex < calls.indexOf(edit))
       assert.ok(calls[uploadIndex].includes('--clobber'))

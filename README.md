@@ -356,6 +356,12 @@ Interception 存在设备断开后重新连接可能无法输入的已知问题�
 
 遇到该现象时，重启电脑即可。详细现象、原因和既有排查证据见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
 
+### 长时间说话时音频延迟
+
+长时间按住 RC003 语音键连续说话时，音频可能逐渐出现延迟。目前在 macOS 上观察到约 1.8～2 秒的延迟，松开语音键时还可能丢失末尾的一部分语音。
+
+此问题尚未解决，需要完整录制长段语音时请留意这一限制。已知现象、测量结果和排查进展见 [RC003 音频延迟说明](./docs/RC003_AUDIO_LATENCY.md)。
+
 ## Interception 许可
 
 Interception 是独立的第三方组件，并采用双重许可。其上游许可允许在所列 LGPL 条款下进行非商业使用；商业分发需要向 Interception 作者取得单独授权。在取得相应许可前，请勿将包含 Interception 资源的 Axonkey 用于商业分发。
