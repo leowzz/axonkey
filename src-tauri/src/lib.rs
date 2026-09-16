@@ -153,23 +153,6 @@ fn show_main_window(app: &tauri::AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
-    } else {
-        #[cfg(target_os = "windows")]
-        {
-        // The main WebView is destroyed when the user closes the window to
-        // avoid keeping the WebView2 renderer process resident in the tray.
-        // Recreate it on demand when the tray action is used.
-        let _ = tauri::WebviewWindowBuilder::new(
-            app,
-            MAIN_WINDOW_LABEL,
-            tauri::WebviewUrl::App("index.html".into()),
-        )
-        .title("Axonkey")
-        .inner_size(1180.0, 820.0)
-        .min_inner_size(980.0, 680.0)
-        .resizable(true)
-        .build();
-        }
     }
 }
 
@@ -1188,11 +1171,8 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                #[cfg(target_os = "windows")]
-                let _ = window.destroy();
-                #[cfg(not(target_os = "windows"))]
                 let _ = window.hide();
-                log::debug!(target: "axonkey::runtime", "Main window close request handled");
+                log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 
                 #[cfg(target_os = "macos")]
                 let _ = window
