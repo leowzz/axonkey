@@ -306,6 +306,9 @@ mod authorization_tests {
     }
 }
 fn configure_stream(stream: &TcpStream) -> Result<(), String> {
+    // Windows accept() inherits the listener's nonblocking mode. Read timeouts
+    // only wait on blocking streams; otherwise both IPC readers spin when idle.
+    stream.set_nonblocking(false).map_err(|e| e.to_string())?;
     // All IPC directions carry small control/key messages. A read timeout is
     // only an idle health-check deadline; it must not become a batching delay.
     stream.set_nodelay(true).map_err(|e| e.to_string())?;
@@ -369,11 +372,34 @@ mod transport_tests {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let sender = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (receiver, _) = listener.accept().unwrap();
+        // Reproduce Windows' accepted-socket mode on every test platform.
+        receiver.set_nonblocking(true).unwrap();
         configure_stream(&sender).unwrap();
         configure_stream(&receiver).unwrap();
         assert!(sender.nodelay().unwrap());
         assert!(receiver.nodelay().unwrap());
         (sender, receiver)
+    }
+
+    #[test]
+    fn idle_ipc_waits_and_remains_usable_after_timeouts() {
+        let (mut sender, mut receiver) = pair();
+        let mut frames = Frames::default();
+        for _ in 0..3 {
+            let began = Instant::now();
+            assert!(frames.read(&mut receiver).unwrap().is_empty());
+            assert!(
+                began.elapsed() >= POLL / 2,
+                "idle read returned immediately instead of waiting for its timeout"
+            );
+        }
+
+        let edge = json!({"kind":"key", "usage":EXTRA_KEYS[0].0, "pressed":true});
+        send(&mut sender, &edge).unwrap();
+        assert_eq!(frames.read(&mut receiver).unwrap(), vec![edge]);
+
+        sender.shutdown(Shutdown::Both).unwrap();
+        assert!(frames.read(&mut receiver).is_err());
     }
 
     #[test]
