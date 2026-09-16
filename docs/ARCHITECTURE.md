@@ -82,8 +82,10 @@ ATVV session control, AVAudioEngine device binding, reconnect timeouts and
 sleep-safe audio-engine lifetime. The macOS service prepares Core Audio output
 when RC003 voice capabilities are confirmed and reuses the configured engine
 between presses. After five idle seconds it pauses IO while retaining the graph;
-disconnect and shutdown release the output. Playback generations isolate stale
-completion callbacks from a restarted player's queue.
+disconnect and shutdown release the output. A bounded single-producer,
+single-consumer PCM ring feeds an AVAudioSourceNode, with a 30 ms prebuffer and
+2 ms fades at underruns. The render callback performs no allocation, logging,
+or blocking synchronization; the main queue collects rendered-sample counters.
 
 The first-run guide presents Interception and VB-CABLE on one driver setup page
 so both installers can finish before the user reboots Windows once. It can

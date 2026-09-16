@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <string.h>
+#include "macos_pcm_queue.h"
 
 enum {
     AKAudioEventPacket = 1,
@@ -15,7 +16,7 @@ enum {
     AKAudioEventReceived = 5,
     AKAudioEventRejected = 6,
     AKAudioEventReadError = 7,
-    AKAudioEventPlayed = 8,
+    AKAudioEventRendered = 8,
     AKAudioEventDiagnostics = 9,
     AKAudioEventLog = 10,
     AKAudioEventControl = 11,
@@ -146,6 +147,19 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     return [approvedNames containsObject:normalized];
 }
 
+@interface AKAudioPCMStorage : NSObject {
+@public
+    AKPCMQueue queue;
+}
+@end
+@implementation AKAudioPCMStorage
+- (instancetype)init {
+    self = [super init];
+    if (self) AKPCMQueueInit(&queue);
+    return self;
+}
+@end
+
 @interface AKMacAudioBridge : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
 - (void)start;
@@ -186,8 +200,6 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     NSUInteger _frameSize;
     NSUInteger _connectionGeneration;
     NSUInteger _pendingAudioBuffers;
-    NSUInteger _outputGeneration;
-    NSUInteger _voiceGeneration;
     NSTimeInterval _voiceStartTime;
     BOOL _receivedFirstPacket;
     BOOL _playedFirstBuffer;
@@ -202,7 +214,11 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
-    AVAudioPlayerNode *_player;
+    AVAudioSourceNode *_sourceNode;
+    AKAudioPCMStorage *_pcmStorage;
+    NSMutableArray<NSNumber *> *_pendingSampleCounts;
+    uint64_t _reportedSamples;
+    NSTimer *_playbackTimer;
     AVAudioFormat *_sourceFormat;
     NSTimer *_diagnosticsTimer;
     NSTimeInterval _lastDiagnosticsTime;
@@ -221,6 +237,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _batteryServiceUUID = [CBUUID UUIDWithString:AKBatteryServiceUUIDString];
         _batteryLevelUUID = [CBUUID UUIDWithString:AKBatteryLevelUUIDString];
         _subscribedUUIDs = [NSMutableSet set];
+        _pendingSampleCounts = [NSMutableArray array];
         _protocolVersion = 0x0100;
         _selectedCodec = 0x02;
         _frameSize = 120;
@@ -280,7 +297,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 
 - (BOOL)isForwarding {
     @synchronized (self) {
-        return _streaming && _engine.isRunning && _player.isPlaying;
+        return _streaming && _engine.isRunning && _sourceNode != nil;
     }
 }
 
@@ -348,10 +365,12 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         gain = _gain;
     }
     NSString *context = [NSString stringWithFormat:
-        @"streaming=%d microphone_opened=%d session_id=%u pending_buffers=%lu engine_running=%d player_playing=%d drain_requested=%d gain_db=%.1f clipped_samples=%lu max_packet_gap_ms=%.1f",
+        @"streaming=%d microphone_opened=%d session_id=%u pending_buffers=%lu engine_running=%d output_prepared=%d drain_requested=%d gain_db=%.1f clipped_samples=%lu max_packet_gap_ms=%.1f underruns=%llu queued_samples=%lu",
         _streaming, _microphoneOpened, _sessionID, (unsigned long)_pendingAudioBuffers,
-        _engine.isRunning, _player.isPlaying, _drainRequested, 20.0f * log10f(gain),
-        (unsigned long)_clippedSamples, _maxPacketGapMilliseconds];
+        _engine.isRunning, _sourceNode != nil, _drainRequested, 20.0f * log10f(gain),
+        (unsigned long)_clippedSamples, _maxPacketGapMilliseconds,
+        (unsigned long long)(_pcmStorage != nil ? atomic_exchange(&_pcmStorage->queue.underruns, 0) : 0),
+        (unsigned long)(_pcmStorage != nil ? AKPCMQueueCount(&_pcmStorage->queue) : 0)];
     _clippedSamples = 0;
     _maxPacketGapMilliseconds = 0;
     [self emitEvent:AKAudioEventDiagnostics
@@ -551,7 +570,6 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 
 - (void)beginVoiceSession {
     if (!_streaming) {
-        _voiceGeneration += 1;
         _voiceStartTime = NSProcessInfo.processInfo.systemUptime;
         _receivedFirstPacket = NO;
         _playedFirstBuffer = NO;
@@ -559,6 +577,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _drainRequested = NO;
         _drainGeneration += 1;
         _lastVoiceStopTime = 0;
+        if (_pcmStorage != nil) atomic_store(&_pcmStorage->queue.draining, false);
         _streaming = YES;
         [self emitEvent:AKAudioEventSessionStart data:nil value1:_sessionID value2:0];
     }
@@ -577,6 +596,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     if (_capabilitiesConfirmed) {
         [self setState:AKAudioStateReady error:nil];
     }
+    if (_pcmStorage != nil) atomic_store(&_pcmStorage->queue.draining, true);
     _lastVoiceStopTime = CFAbsoluteTimeGetCurrent();
     _drainRequested = YES;
     _drainGeneration += 1;
@@ -593,7 +613,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
             if (self->_drainRequested && self->_drainGeneration == generation &&
                 !self->_streaming) {
                 // Clear a stalled tail, but retain the configured output device.
-                [self resetAudioPlayer];
+                [self resetAudioQueue];
                 [self scheduleAudioIdle];
             }
         }
@@ -709,26 +729,12 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (BOOL)ensureAudioOutput {
-    if (_engine.isRunning && _player.isPlaying) {
-        return YES;
-    }
-    // Device format changes stop AVAudioEngine asynchronously. Restart that
-    // engine instead of creating another default-device engine and triggering
-    // the same device-switch notification again for every incoming packet.
-    if (_engine != nil && _player != nil) {
-        [self resetAudioPlayer];
+    if (_engine.isRunning && _sourceNode != nil) return YES;
+    // Restart the configured graph after idle pause or a device format change.
+    if (_engine != nil && _sourceNode != nil) {
         NSError *error = nil;
         if (![_engine startAndReturnError:&error]) {
             [self setState:AKAudioStateError error:error.localizedDescription];
-            return NO;
-        }
-        @try {
-            [_player play];
-        } @catch (NSException *exception) {
-            [_engine stop];
-            [self setState:AKAudioStateError
-                     error:[NSString stringWithFormat:@"Cannot resume audio playback: %@",
-                                                       exception.reason ?: @"unknown exception"]];
             return NO;
         }
         [self logAudio:@"macOS audio output resumed" error:NO];
@@ -742,7 +748,6 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
 
     AVAudioEngine *engine = [[AVAudioEngine alloc] init];
-    AVAudioPlayerNode *player = [[AVAudioPlayerNode alloc] init];
     AudioUnit outputUnit = engine.outputNode.audioUnit;
     if (outputUnit == NULL) {
         [self setState:AKAudioStateError error:@"Core Audio output unit is unavailable"];
@@ -763,8 +768,20 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     }
     // Establish the graph only after choosing the device so the mixer doesn't
     // inherit the system default output's channel count and sample rate.
-    [engine attachNode:player];
-    [engine connect:player to:engine.mainMixerNode format:_sourceFormat];
+    AKAudioPCMStorage *storage = [[AKAudioPCMStorage alloc] init];
+    AVAudioSourceNode *source = [[AVAudioSourceNode alloc]
+        initWithFormat:_sourceFormat
+        renderBlock:^OSStatus(BOOL *isSilence, const AudioTimeStamp *timestamp,
+                              AVAudioFrameCount frameCount, AudioBufferList *output) {
+            (void)timestamp;
+            float *channel = output->mBuffers[0].mData;
+            AKPCMQueueRender(&storage->queue, channel, frameCount);
+            // Fades can contain nonzero samples even when a packet ends here.
+            *isSilence = NO;
+            return noErr;
+        }];
+    [engine attachNode:source];
+    [engine connect:source to:engine.mainMixerNode format:_sourceFormat];
     [engine connect:engine.mainMixerNode to:engine.outputNode
              format:[engine.outputNode inputFormatForBus:0]];
     NSError *startError = nil;
@@ -775,17 +792,9 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                                                    startError.localizedDescription ?: @"unknown error"]];
         return NO;
     }
-    @try {
-        [player play];
-    } @catch (NSException *exception) {
-        [engine stop];
-        [self setState:AKAudioStateError
-                 error:[NSString stringWithFormat:@"Cannot start audio playback: %@",
-                                                   exception.reason ?: @"unknown exception"]];
-        return NO;
-    }
     _engine = engine;
-    _player = player;
+    _sourceNode = source;
+    _pcmStorage = storage;
     AVAudioFormat *outputFormat = [engine.outputNode outputFormatForBus:0];
     [self logAudio:[NSString stringWithFormat:@"macOS audio output ready: device=MiRemoteV2ch_UID source_sample_rate=%.0f source_channels=%u source_format=float32 output_sample_rate=%.0f output_channels=%u",
                                               _sourceFormat.sampleRate, _sourceFormat.channelCount,
@@ -795,71 +804,50 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count {
-    if (samples == NULL || count == 0 || ![self ensureAudioOutput]) {
-        return NO;
-    }
-    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc]
-        initWithPCMFormat:_sourceFormat
-        frameCapacity:(AVAudioFrameCount)count];
-    if (buffer == nil || buffer.floatChannelData == NULL) {
-        return NO;
-    }
-    float *channel = buffer.floatChannelData[0];
-    float gain = 1.0f;
-    @synchronized (self) {
-        gain = _gain;
-    }
-    for (size_t index = 0; index < count; index++) {
-        float value = ((float)samples[index] / (float)INT16_MAX) * gain;
-        if (value < -1.0f || value > 1.0f) {
-            _clippedSamples += 1;
-        }
-        channel[index] = fminf(fmaxf(value, -1.0f), 1.0f);
-    }
-    buffer.frameLength = (AVAudioFrameCount)count;
+    if (samples == NULL || count == 0 || ![self ensureAudioOutput]) return NO;
+    float gain;
+    @synchronized (self) { gain = _gain; }
+    size_t clipped = 0;
+    if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) return NO;
+    _clippedSamples += clipped;
+    [_pendingSampleCounts addObject:@(count)];
     _pendingAudioBuffers += 1;
-    NSUInteger outputGeneration = _outputGeneration;
-    NSUInteger voiceGeneration = _voiceGeneration;
-    __weak AVAudioPlayerNode *scheduledPlayer = _player;
-    __weak AKMacAudioBridge *weakSelf = self;
-    [_player scheduleBuffer:buffer
-                     atTime:nil
-                     options:0
-      completionCallbackType:AVAudioPlayerNodeCompletionDataPlayedBack
-           completionHandler:^(AVAudioPlayerNodeCompletionCallbackType callbackType) {
-               if (callbackType != AVAudioPlayerNodeCompletionDataPlayedBack) {
-                   return;
-               }
-               dispatch_async(dispatch_get_main_queue(), ^{
-                   AKMacAudioBridge *strongSelf = weakSelf;
-                   if (strongSelf == nil || scheduledPlayer == nil ||
-                       strongSelf->_player != scheduledPlayer ||
-                       strongSelf->_outputGeneration != outputGeneration) {
-                       return;
-                   }
-                   [strongSelf emitEvent:AKAudioEventPlayed data:nil value1:(int)count value2:0];
-                   if (strongSelf->_voiceGeneration == voiceGeneration &&
-                       !strongSelf->_playedFirstBuffer) {
-                       strongSelf->_playedFirstBuffer = YES;
-                       [strongSelf logAudio:[NSString stringWithFormat:
-                           @"macOS voice first buffer played: session_id=%u elapsed_ms=%.1f",
-                           strongSelf->_sessionID,
-                           (NSProcessInfo.processInfo.systemUptime - strongSelf->_voiceStartTime) * 1000.0]
-                                    error:NO];
-                   }
-                   if (strongSelf->_pendingAudioBuffers > 0) {
-                       strongSelf->_pendingAudioBuffers -= 1;
-                   }
-                   if (strongSelf->_pendingAudioBuffers == 0 &&
-                       strongSelf->_drainRequested && !strongSelf->_streaming) {
-                       // Keep rendering silence between presses. Tearing down
-                       // the device here puts its startup cost on the next word.
-                       strongSelf->_drainRequested = NO;
-                       [strongSelf scheduleAudioIdle];
-                   }
-               });
-           }];
+    if (_playbackTimer == nil) {
+        __weak AKMacAudioBridge *weakSelf = self;
+        _playbackTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
+            [weakSelf collectRenderedAudio];
+        }];
+        [[NSRunLoop mainRunLoop] addTimer:_playbackTimer forMode:NSRunLoopCommonModes];
+    }
     return YES;
+}
+
+- (void)collectRenderedAudio {
+    if (_pcmStorage == nil) return;
+    uint64_t rendered = atomic_load_explicit(&_pcmStorage->queue.read, memory_order_acquire);
+    if (rendered > _reportedSamples && !_playedFirstBuffer) {
+        _playedFirstBuffer = YES;
+        [self logAudio:[NSString stringWithFormat:
+            @"macOS voice first audio rendered: session_id=%u elapsed_ms=%.1f",
+            _sessionID, (NSProcessInfo.processInfo.systemUptime - _voiceStartTime) * 1000.0]
+                 error:NO];
+    }
+    while (_pendingSampleCounts.count > 0) {
+        NSUInteger count = _pendingSampleCounts.firstObject.unsignedIntegerValue;
+        if (rendered - _reportedSamples < count) break;
+        _reportedSamples += count;
+        [_pendingSampleCounts removeObjectAtIndex:0];
+        _pendingAudioBuffers -= 1;
+        [self emitEvent:AKAudioEventRendered data:nil value1:(int)count value2:0];
+    }
+    if (_pendingAudioBuffers == 0 && !_streaming) {
+        [_playbackTimer invalidate];
+        _playbackTimer = nil;
+        if (_drainRequested) {
+            _drainRequested = NO;
+            [self scheduleAudioIdle];
+        }
+    }
 }
 
 - (void)scheduleAudioIdle {
@@ -875,21 +863,26 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     });
 }
 
-- (void)resetAudioPlayer {
+- (void)resetAudioQueue {
+    // Stop the render thread before resetting its single-consumer state.
+    [_engine stop];
+    [_playbackTimer invalidate];
+    _playbackTimer = nil;
     if (_pendingAudioBuffers > 0) {
         [self emitEvent:AKAudioEventOutputReset data:nil value1:(int)_pendingAudioBuffers value2:0];
     }
     _drainGeneration += 1;
     _drainRequested = NO;
     _pendingAudioBuffers = 0;
-    _outputGeneration += 1;
-    [_player stop];
+    [_pendingSampleCounts removeAllObjects];
+    _reportedSamples = 0;
+    if (_pcmStorage != nil) AKPCMQueueInit(&_pcmStorage->queue);
 }
 
 - (void)stopAudioOutput {
-    [self resetAudioPlayer];
-    [_engine stop];
-    _player = nil;
+    [self resetAudioQueue];
+    _sourceNode = nil;
+    _pcmStorage = nil;
     _engine = nil;
 }
 

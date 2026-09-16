@@ -15,7 +15,7 @@ const EVENT_SESSION_STOP: i32 = 4;
 const EVENT_RECEIVED: i32 = 5;
 const EVENT_REJECTED: i32 = 6;
 const EVENT_READ_ERROR: i32 = 7;
-const EVENT_PLAYED: i32 = 8;
+const EVENT_RENDERED: i32 = 8;
 const EVENT_DIAGNOSTICS: i32 = 9;
 const EVENT_LOG: i32 = 10;
 const EVENT_CONTROL: i32 = 11;
@@ -255,7 +255,7 @@ unsafe extern "C" fn native_event_callback(
         EVENT_RECEIVED => shared.diagnostics.received(value1.max(0) as usize),
         EVENT_REJECTED => shared.diagnostics.rejected(),
         EVENT_READ_ERROR => shared.diagnostics.read_error(),
-        EVENT_PLAYED => shared.diagnostics.output(value1.max(0) as usize, 0, false),
+        EVENT_RENDERED => shared.diagnostics.output(value1.max(0) as usize, 0, false),
         EVENT_CONTROL => shared.diagnostics.control(value1 as u8),
         EVENT_OUTPUT_RESET => shared.diagnostics.discarded_buffers(value1.max(0) as usize),
         EVENT_DIAGNOSTICS | EVENT_LOG if !data.is_null() => {
@@ -308,7 +308,7 @@ mod tests {
         assert!(report.contains("rx_packets=1 rx_bytes=120"));
         assert!(report.contains("decoded_samples=240"));
         assert!(report.contains(
-            "scheduled_samples=0 completed_buffers=0 played_samples=0 enqueue_failures=1"
+            "scheduled_samples=0 completed_buffers=0 rendered_samples=0 enqueue_failures=1"
         ));
     }
 
@@ -323,14 +323,14 @@ mod tests {
         let _guard = shared.decoder.lock().unwrap();
         unsafe {
             native_event_callback(context, EVENT_READ_ERROR, std::ptr::null(), 0, 0, 0);
-            native_event_callback(context, EVENT_PLAYED, std::ptr::null(), 0, 240, 0);
+            native_event_callback(context, EVENT_RENDERED, std::ptr::null(), 0, 240, 0);
             native_event_callback(context, EVENT_OUTPUT_RESET, std::ptr::null(), 0, 2, 0);
         }
         let report = shared
             .diagnostics
             .report_macos(false, Duration::from_secs(1))
             .unwrap();
-        assert!(report.contains("completed_buffers=1 played_samples=240"));
+        assert!(report.contains("completed_buffers=1 rendered_samples=240"));
         assert!(report.contains("notification_read_errors=1"));
         assert!(report.contains("discarded_pending_buffers=2"));
     }

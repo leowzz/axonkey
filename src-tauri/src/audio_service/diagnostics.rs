@@ -246,7 +246,7 @@ impl AudioDiagnostics {
             (energy as f64 / decoded as f64).sqrt()
         };
         let output = if macos {
-            format!("scheduled_samples={scheduled} completed_buffers={callbacks} played_samples={consumed} enqueue_failures={enqueue_failures} discarded_pending_buffers={discarded_buffers}")
+            format!("scheduled_samples={scheduled} completed_buffers={callbacks} rendered_samples={consumed} enqueue_failures={enqueue_failures} discarded_pending_buffers={discarded_buffers}")
         } else {
             format!("output_callbacks={callbacks} consumed_samples={consumed} unfilled_output_frames={silent_frames} queue_busy_callbacks={queue_busy} overflow_samples={overflow}")
         };
@@ -426,7 +426,7 @@ mod tests {
             .report_macos(false, Duration::from_secs(1))
             .unwrap();
         assert!(report.contains(
-            "scheduled_samples=240 completed_buffers=0 played_samples=0 enqueue_failures=1"
+            "scheduled_samples=240 completed_buffers=0 rendered_samples=0 enqueue_failures=1"
         ));
         assert!(!report.contains("unfilled_output_frames"));
         diagnostics.output(240, 0, false);
@@ -434,7 +434,7 @@ mod tests {
         let report = diagnostics
             .report_macos(false, Duration::from_secs(1))
             .unwrap();
-        assert!(report.contains("scheduled_samples=0 completed_buffers=1 played_samples=240"));
+        assert!(report.contains("scheduled_samples=0 completed_buffers=1 rendered_samples=240"));
         assert!(report.contains("discarded_pending_buffers=2"));
         assert!(diagnostics
             .report_macos(false, Duration::from_secs(1))

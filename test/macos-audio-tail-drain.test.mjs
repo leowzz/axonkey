@@ -5,7 +5,25 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-test('macOS audio drains the tail, reuses the output, and ignores stale callbacks', {
+test('PCM stream buffers jitter, smooths underruns, drains tails, and bounds its queue', {
+  skip: process.platform !== 'darwin',
+}, () => {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-pcm-queue-'))
+  const executable = join(temporaryDirectory, 'pcm-queue-test')
+  try {
+    const compile = spawnSync('xcrun', [
+      'clang', '-std=c11', '-fsanitize=address,undefined',
+      new URL('./macos-pcm-queue.c', import.meta.url).pathname, '-o', executable,
+    ], { encoding: 'utf8' })
+    assert.equal(compile.status, 0, compile.stderr)
+    const run = spawnSync(executable, [], { encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stderr)
+  } finally {
+    rmSync(temporaryDirectory, { recursive: true, force: true })
+  }
+})
+
+test('macOS audio drains short tails, reuses the output, and pauses when idle', {
   skip: process.platform !== 'darwin',
 }, () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-audio-drain-'))
