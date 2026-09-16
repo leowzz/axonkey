@@ -87,6 +87,12 @@ single-consumer PCM ring feeds an AVAudioSourceNode, with a 30 ms prebuffer and
 2 ms fades at underruns. The render callback performs no allocation, logging,
 or blocking synchronization; the main queue collects rendered-sample counters.
 
+Long presses can still exhibit approximately 1.8–2 seconds of cumulative delay
+and missing speech at release on RC003 firmware 2671. The investigation is
+paused; see [measurements, limitations, and shelved experiments](RC003_AUDIO_LATENCY.md).
+The experimental background queue and post-stop packet handling are not part of
+the current implementation and must not be described as confirmed fixes.
+
 The first-run guide presents Interception and VB-CABLE on one driver setup page
 so both installers can finish before the user reboots Windows once. It can
 launch the reviewed Interception installer and the official VB-Audio installer.

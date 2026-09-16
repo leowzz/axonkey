@@ -815,6 +815,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     if (_playbackTimer == nil) {
         __weak AKMacAudioBridge *weakSelf = self;
         _playbackTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
+            (void)timer;
             [weakSelf collectRenderedAudio];
         }];
         [[NSRunLoop mainRunLoop] addTimer:_playbackTimer forMode:NSRunLoopCommonModes];
