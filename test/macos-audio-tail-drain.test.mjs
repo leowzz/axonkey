@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-test('macOS audio output drains the last scheduled buffer before stopping', {
+test('macOS audio drains the tail, reuses the output, and ignores stale callbacks', {
   skip: process.platform !== 'darwin',
 }, () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-audio-drain-'))

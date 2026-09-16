@@ -10,6 +10,7 @@
 
 @interface FakeAudioEngine : NSObject
 @property(nonatomic) BOOL stopped;
+@property(nonatomic) int starts;
 @end
 
 @implementation FakeAudioEngine
@@ -19,6 +20,14 @@
 
 - (void)stop {
     self.stopped = YES;
+}
+- (void)pause {
+    self.stopped = YES;
+}
+- (BOOL)startAndReturnError:(NSError **)error {
+    self.stopped = NO;
+    self.starts += 1;
+    return YES;
 }
 @end
 
@@ -33,6 +42,7 @@
 }
 
 - (void)stop {}
+- (void)play {}
 
 - (void)scheduleBuffer:(AVAudioPCMBuffer *)buffer
      completionHandler:(void (^)(void))completionHandler {
@@ -134,23 +144,56 @@ int main(void) {
 
         player.playedBack();
         PumpMainRunLoop(0.05);
-        if (!engine.stopped) {
-            fputs("audio output did not stop after the tail buffer played back\n", stderr);
+        if (engine.stopped || [[bridge valueForKey:@"drainRequested"] boolValue]) {
+            fputs("audio output was not kept warm after draining the tail\n", stderr);
             return 1;
         }
         if (events.playedSamples != 4 || events.discardedBuffers != 0) {
             fputs("tail playback diagnostics are incorrect\n", stderr);
             return 1;
         }
+        void (^oldPlayback)(void) = player.playedBack;
+        // Simulate the asynchronous stop caused by a device format change.
+        engine.stopped = YES;
+        [bridge beginVoiceSession];
+        if ([bridge valueForKey:@"engine"] != engine || engine.starts != 1) {
+            fputs("configuration change replaced the engine instead of restarting it\n", stderr);
+            return 1;
+        }
+        if (![bridge enqueueSamples:samples count:4]) return 1;
+        [bridge endVoiceSession];
+        oldPlayback();
+        PumpMainRunLoop(0.05);
+        if (events.playedSamples != 4 ||
+            [[bridge valueForKey:@"pendingAudioBuffers"] intValue] != 1 ||
+            ![[bridge valueForKey:@"drainRequested"] boolValue]) {
+            fputs("stale callback changed the new playback queue or ended its drain\n", stderr);
+            return 1;
+        }
         player.playedBack();
         PumpMainRunLoop(0.05);
-        if (events.playedSamples != 4) {
-            fputs("stale player callback was counted as new playback\n", stderr);
+        if (events.playedSamples != 8 || engine.stopped ||
+            [[bridge valueForKey:@"pendingAudioBuffers"] intValue] != 0) {
+            fputs("second voice session did not drain on the existing engine\n", stderr);
+            return 1;
+        }
+        // An empty voice press must also preserve the prepared output.
+        [bridge beginVoiceSession];
+        [bridge endVoiceSession];
+        if (engine.stopped || [bridge valueForKey:@"engine"] != engine) return 1;
+        PumpMainRunLoop(5.1);
+        if (!engine.stopped || [bridge valueForKey:@"engine"] != engine) {
+            fputs("idle output did not pause while retaining the configured engine\n", stderr);
+            return 1;
+        }
+        [bridge beginVoiceSession];
+        if (engine.stopped || engine.starts != 2) {
+            fputs("idle output did not resume on the next voice press\n", stderr);
             return 1;
         }
         [bridge setValue:@2 forKey:@"pendingAudioBuffers"];
         [bridge stopAudioOutput];
-        if (events.discardedBuffers != 2) {
+        if (events.discardedBuffers != 2 || !engine.stopped) {
             fputs("discarded pending buffers were not counted\n", stderr);
             return 1;
         }

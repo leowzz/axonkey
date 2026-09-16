@@ -141,7 +141,7 @@ Axonkey 使用 x64 `interception.dll`，因此不支持 32 位 Windows。输入�
 
 macOS 按键映射不需要安装输入驱动。未启用自定义映射，或两项权限尚未同时授予时，Axonkey 只做非独占设备监听，不会吞掉遥控器原始按键。启用映射且权限就绪后，应用会优先独占匹配的 RC003 HID 设备；如果系统不允许独占，则继续监听 HID 报告，并通过事件过滤器只拦截对应的 RC003 原始按键，再发送映射后的输入。
 
-语音转发是独立链路：Axonkey 通过 CoreBluetooth 连接 RC003 的 ATVV 语音服务，将 16 kHz IMA ADPCM 解码为 PCM，再写入 `MiRemoteV 2ch` 的输出端；豆包输入法等应用选择同名输入端即可收音。音频引擎只在语音会话期间运行，退出 Axonkey 后不会继续转发。
+语音转发是独立链路：Axonkey 通过 CoreBluetooth 连接 RC003 的 ATVV 语音服务，将 16 kHz IMA ADPCM 解码为 PCM，再写入 `MiRemoteV 2ch` 的输出端；豆包输入法等应用选择同名输入端即可收音。连接就绪后会提前准备音频输出，连续说话时复用输出链路，减少按键后的启动延迟；空闲 5 秒后暂停音频引擎，遥控器断开或退出 Axonkey 后释放输出。
 
 ## Windows 首次使用
 
@@ -377,5 +377,3 @@ VB-CABLE 是 VB-Audio Software 提供的 Donationware。Axonkey 原样携带官�
 Axonkey 的产品灵感来自 [HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app)。macOS 原生后端参考了该项目经真机验证的 RC003 VID/PID、HID usage、ATVV 语音协议、IOKit 权限检查、CoreGraphics 键盘注入和 Core Audio 输出路径；Axonkey 仍维护独立的 Tauri 界面、设置格式、驱动构建和运行时服务。
 
 Axonkey 与 remote-mic-app 是相互独立的项目，本仓库不是其 fork。
-
-

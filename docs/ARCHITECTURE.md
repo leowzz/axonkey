@@ -79,8 +79,11 @@ owns frame accumulation, ADPCM decoding, gain, and audio diagnostics. On Windows
 the service uses Windows Bluetooth GATT APIs and CPAL to forward voice to
 VB-CABLE. On macOS, the Objective-C adapter hides CoreBluetooth,
 ATVV session control, AVAudioEngine device binding, reconnect timeouts and
-sleep-safe audio-engine lifetime. The macOS service starts with the app, but opens
-Core Audio IO only while RC003 is sending voice data.
+sleep-safe audio-engine lifetime. The macOS service prepares Core Audio output
+when RC003 voice capabilities are confirmed and reuses the configured engine
+between presses. After five idle seconds it pauses IO while retaining the graph;
+disconnect and shutdown release the output. Playback generations isolate stale
+completion callbacks from a restarted player's queue.
 
 The first-run guide presents Interception and VB-CABLE on one driver setup page
 so both installers can finish before the user reboots Windows once. It can
