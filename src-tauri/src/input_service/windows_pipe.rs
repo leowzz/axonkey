@@ -261,14 +261,18 @@ struct SecurityAttributes {
     inherit: i32,
 }
 
+// CreateFileW also checks FILE_READ_ATTRIBUTES (0x80) when opening a pipe,
+// even with Gadget's explicit data read/write + SYNCHRONIZE access mask.
+// Only owner/admin/SYSTEM may create instances; LocalService must not receive
+// FILE_APPEND_DATA (the same bit as FILE_CREATE_PIPE_INSTANCE).
+const PIPE_SDDL: &str = "D:P(A;;FA;;;OW)(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x00100083;;;LS)";
+
 fn create_server(name: &str, first: bool) -> io::Result<NamedPipeServer> {
-    // Owner, administrators and SYSTEM may create instances. WUDFHost's
-    // LocalService account may only read/write data and synchronize, NOT create
-    // a competing server (FILE_APPEND_DATA == FILE_CREATE_PIPE_INSTANCE).
-    let sddl: Vec<u16> = "D:P(A;;FA;;;OW)(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x00100003;;;LS)"
-        .encode_utf16()
-        .chain(Some(0))
-        .collect();
+    create_server_with_security(name, first, PIPE_SDDL)
+}
+
+fn create_server_with_security(name: &str, first: bool, sddl: &str) -> io::Result<NamedPipeServer> {
+    let sddl: Vec<u16> = sddl.encode_utf16().chain(Some(0)).collect();
     let mut descriptor = null_mut();
     if unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
@@ -326,7 +330,155 @@ extern "system" {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::windows::io::{FromRawHandle, IntoRawHandle};
     use std::sync::atomic::AtomicUsize;
+
+    #[repr(C)]
+    struct SidAndAttributes {
+        sid: *mut c_void,
+        attributes: u32,
+    }
+
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(process: *mut c_void, access: u32, token: *mut *mut c_void) -> i32;
+        fn ConvertStringSidToSidW(text: *const u16, sid: *mut *mut c_void) -> i32;
+        fn CreateRestrictedToken(
+            token: *mut c_void,
+            flags: u32,
+            disable_count: u32,
+            disable: *const SidAndAttributes,
+            delete_count: u32,
+            delete: *const c_void,
+            restrict_count: u32,
+            restrict: *const SidAndAttributes,
+            restricted: *mut *mut c_void,
+        ) -> i32;
+        fn ImpersonateLoggedOnUser(token: *mut c_void) -> i32;
+        fn RevertToSelf() -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+        fn CreateFileW(
+            name: *const u16,
+            access: u32,
+            share: u32,
+            security: *mut c_void,
+            disposition: u32,
+            flags: u32,
+            template: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    struct TestHandle(*mut c_void);
+    impl Drop for TestHandle {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+
+    struct TestImpersonation;
+    impl Drop for TestImpersonation {
+        fn drop(&mut self) {
+            assert_ne!(unsafe { RevertToSelf() }, 0);
+        }
+    }
+
+    // Limit the test client to the Users ACE so owner/admin rights cannot mask
+    // missing permissions. No UAC or real device host is needed.
+    fn restrict_to_client_rights() -> TestImpersonation {
+        let mut token = null_mut();
+        assert_ne!(
+            unsafe { OpenProcessToken(GetCurrentProcess(), 0xa, &mut token) },
+            0
+        );
+        let token = TestHandle(token);
+        let text: Vec<u16> = "S-1-5-32-545".encode_utf16().chain(Some(0)).collect();
+        let mut sid = null_mut();
+        assert_ne!(
+            unsafe { ConvertStringSidToSidW(text.as_ptr(), &mut sid) },
+            0
+        );
+        let restrict = SidAndAttributes { sid, attributes: 0 };
+        let mut restricted = null_mut();
+        let result = unsafe {
+            CreateRestrictedToken(
+                token.0,
+                0,
+                0,
+                std::ptr::null(),
+                0,
+                std::ptr::null(),
+                1,
+                &restrict,
+                &mut restricted,
+            )
+        };
+        unsafe { LocalFree(sid) };
+        assert_ne!(result, 0);
+        let restricted = TestHandle(restricted);
+        assert_ne!(unsafe { ImpersonateLoggedOnUser(restricted.0) }, 0);
+        TestImpersonation
+    }
+
+    #[test]
+    fn limited_client_can_exchange_data_but_cannot_create_server_instances() {
+        let name = name();
+        // Use our ordinary Users identity in place of LocalService for the
+        // access check. Keep the production permission masks, then restrict the
+        // client token so only this ACE can authorize it.
+        let security = PIPE_SDDL.replace(";;;LS)", ";;;BU)");
+        let mut listener = PipeListener {
+            name: name.clone(),
+            pending: create_server_with_security(&name, true, &security).unwrap(),
+        };
+        let client_name = name.clone();
+        let client = thread::spawn(move || {
+            let _identity = restrict_to_client_rights();
+            let denied = create_server(&client_name, false);
+            assert!(
+                matches!(denied, Err(error) if error.raw_os_error() == Some(5)),
+                "capture clients must not have FILE_CREATE_PIPE_INSTANCE"
+            );
+            let name: Vec<u16> = client_name.encode_utf16().chain(Some(0)).collect();
+            let handle = unsafe {
+                CreateFileW(
+                    name.as_ptr(),
+                    0x00100003,
+                    0,
+                    null_mut(),
+                    3,
+                    0x40100000,
+                    null_mut(),
+                )
+            };
+            if handle as isize == -1 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(unsafe { std::fs::File::from_raw_handle(handle) })
+            }
+        })
+        .join()
+        .unwrap()
+        .expect("limited capture client must connect");
+        let mut client = {
+            let _guard = runtime().unwrap().enter();
+            let pipe =
+                unsafe { NamedPipeClient::from_raw_handle(client.into_raw_handle()) }.unwrap();
+            PipeStream::new(Endpoint::Client(pipe))
+        };
+        let mut server = listener.accept().unwrap();
+        client.write_all(b"ready").unwrap();
+        let mut bytes = [0; 5];
+        server.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"ready");
+        server.write_all(b"hello").unwrap();
+        client.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"hello");
+    }
 
     fn name() -> String {
         static SERIAL: AtomicUsize = AtomicUsize::new(0);
