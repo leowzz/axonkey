@@ -8,6 +8,8 @@ mod extra_keys_protocol;
 #[cfg(windows)]
 mod extra_keys_winapi;
 #[cfg(windows)]
+mod windows_pipe;
+#[cfg(windows)]
 pub mod windows_extra_keys;
 
 #[derive(Debug, Clone, Default, Serialize)]

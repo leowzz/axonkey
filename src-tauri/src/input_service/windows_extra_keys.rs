@@ -2,13 +2,13 @@
 //! Optional, explicitly elevated HID acquisition. Mapping stays in the normal input worker.
 use super::extra_keys_protocol::{decode, ExtraKeyStream, EXTRA_KEYS};
 use super::extra_keys_winapi as os;
+use super::windows_pipe::{diagnostic, valid_app_pipe, PipeListener, PipeStream, APP_PIPE_PREFIX};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     io::{Read, Write},
-    net::{Shutdown, TcpListener, TcpStream},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -44,7 +44,7 @@ struct State {
     generation: u64,
     startup_attempted: bool,
     status: ExtraKeysStatus,
-    connection: Option<TcpStream>,
+    connection: Option<PipeStream>,
     events: VecDeque<(u16, bool)>,
 }
 impl State {
@@ -85,7 +85,7 @@ impl ExtraKeysService {
         state.startup_attempted = true;
         state.generation += 1;
         if let Some(stream) = state.connection.take() {
-            let _ = stream.shutdown(Shutdown::Both);
+            stream.shutdown();
         }
         state.events.clear();
         state.status = ExtraKeysStatus::default();
@@ -138,12 +138,13 @@ impl ExtraKeysService {
         Ok(())
     }
     fn connect(&self, generation: u64) -> Result<(), String> {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| e.to_string())?;
-        listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+        let pipe_name = format!("{APP_PIPE_PREFIX}{}", os::random_token()?);
+        let mut listener = PipeListener::bind(&pipe_name)
+            .map_err(|e| diagnostic("创建应用管道", &pipe_name, &e))?;
         let token = os::random_token()?;
         let args = format!(
             "--extra-keys-helper {} {} {}",
-            listener.local_addr().unwrap().port(),
+            pipe_name,
             std::process::id(),
             token
         );
@@ -168,21 +169,20 @@ impl ExtraKeysService {
                 return Err("按键辅助进程连接超时，请重试。".into());
             }
             match listener.accept() {
-                Ok((client, _)) if os::peer_pid(&client) == Some(pid) => break client,
-                Ok((client, _)) => {
-                    let _ = client.shutdown(Shutdown::Both);
+                Ok(client) if client.peer_pid() == Some(pid) => break client,
+                Ok(client) => {
+                    client.shutdown();
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(POLL),
-                Err(e) => return Err(e.to_string()),
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(e) => return Err(diagnostic("接受辅助进程连接", &pipe_name, &e)),
             }
         };
-        configure_stream(&stream)?;
         {
             let mut state = self.inner.lock().unwrap();
             if state.generation != generation {
                 return Ok(());
             }
-            state.connection = Some(stream.try_clone().map_err(|e| e.to_string())?);
+            state.connection = Some(stream.clone());
         }
         let mut framed = Frames::default();
         let mut authenticated = false;
@@ -254,7 +254,7 @@ impl ExtraKeysService {
                 }
             }
         }
-        let _ = stream.shutdown(Shutdown::Both);
+        stream.shutdown();
         Ok(())
     }
 }
@@ -305,26 +305,12 @@ mod authorization_tests {
         assert!(state.begin(false).is_some());
     }
 }
-fn configure_stream(stream: &TcpStream) -> Result<(), String> {
-    // Windows accept() inherits the listener's nonblocking mode. Read timeouts
-    // only wait on blocking streams; otherwise both IPC readers spin when idle.
-    stream.set_nonblocking(false).map_err(|e| e.to_string())?;
-    // All IPC directions carry small control/key messages. A read timeout is
-    // only an idle health-check deadline; it must not become a batching delay.
-    stream.set_nodelay(true).map_err(|e| e.to_string())?;
-    stream
-        .set_read_timeout(Some(POLL))
-        .map_err(|e| e.to_string())?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .map_err(|e| e.to_string())
-}
-fn send(stream: &mut TcpStream, message: &Value) -> Result<(), String> {
+fn send(stream: &mut PipeStream, message: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(message).map_err(|e| e.to_string())?;
     bytes.push(b'\n');
     stream.write_all(&bytes).map_err(|e| e.to_string())
 }
-fn report(stream: &mut TcpStream, state: &str, message: &str, step: usize) -> Result<(), String> {
+fn report(stream: &mut PipeStream, state: &str, message: &str, step: usize) -> Result<(), String> {
     send(
         stream,
         &json!({"kind":"status", "state":state, "message":message, "step":step}),
@@ -335,7 +321,7 @@ struct Frames {
     bytes: Vec<u8>,
 }
 impl Frames {
-    fn read(&mut self, stream: &mut TcpStream) -> Result<Vec<Value>, String> {
+    fn read(&mut self, stream: &mut PipeStream) -> Result<Vec<Value>, String> {
         let mut chunk = [0u8; 4096];
         match stream.read(&mut chunk) {
             Ok(0) => return Err("按键服务连接已关闭。".into()),
@@ -368,16 +354,13 @@ fn script_id() -> String {
 mod transport_tests {
     use super::*;
 
-    fn pair() -> (TcpStream, TcpStream) {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let sender = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        let (receiver, _) = listener.accept().unwrap();
-        // Reproduce Windows' accepted-socket mode on every test platform.
-        receiver.set_nonblocking(true).unwrap();
-        configure_stream(&sender).unwrap();
-        configure_stream(&receiver).unwrap();
-        assert!(sender.nodelay().unwrap());
-        assert!(receiver.nodelay().unwrap());
+    fn pair() -> (PipeStream, PipeStream) {
+        let name = format!("{APP_PIPE_PREFIX}{}", os::random_token().unwrap());
+        let mut listener = PipeListener::bind(&name).unwrap();
+        let sender = PipeStream::connect(&name, Duration::from_secs(1)).unwrap();
+        let receiver = listener.accept().unwrap();
+        assert_eq!(sender.peer_pid(), Some(std::process::id()));
+        assert_eq!(receiver.peer_pid(), Some(std::process::id()));
         (sender, receiver)
     }
 
@@ -398,7 +381,7 @@ mod transport_tests {
         send(&mut sender, &edge).unwrap();
         assert_eq!(frames.read(&mut receiver).unwrap(), vec![edge]);
 
-        sender.shutdown(Shutdown::Both).unwrap();
+        sender.shutdown();
         assert!(frames.read(&mut receiver).is_err());
     }
 
@@ -424,7 +407,7 @@ mod transport_tests {
         }
         times.sort_unstable();
         eprintln!(
-            "Two-hop loopback IPC (100 presses): median={}us p95={}us max={}us",
+            "Two-hop named-pipe IPC (100 presses): median={}us p95={}us max={}us",
             times[50], times[95], times[99]
         );
 
@@ -441,8 +424,8 @@ mod transport_tests {
         );
     }
 }
-fn gadget_port() -> u16 {
-    30000 + u16::from_str_radix(&script_id()[..4], 16).unwrap() % 20000
+fn gadget_pipe() -> String {
+    format!(r"\\.\pipe\Axonkey.ExtraKeys.gadget.{}", script_id())
 }
 fn prepare_runtime() -> Result<(PathBuf, String), String> {
     if format!("{:x}", Sha256::digest(DLL)) != DLL_SHA {
@@ -475,7 +458,7 @@ fn prepare_runtime() -> Result<(PathBuf, String), String> {
         return Err("按键组件会话校验失败，请检查安装。".into());
     }
     let dll_name = format!("AxonkeyExtraKeys_{}", script_id());
-    let config = serde_json::to_vec_pretty(&json!({"interaction":{"type":"script", "path":"rc003.js", "parameters":{"host":"127.0.0.1", "port":gadget_port(), "protocol_id":script_id(), "auth_token":token}, "on_change":"ignore"},"runtime":"qjs","teardown":"minimal"})).unwrap();
+    let config = serde_json::to_vec_pretty(&json!({"interaction":{"type":"script", "path":"rc003.js", "parameters":{"pipe_name":gadget_pipe(), "protocol_id":script_id(), "auth_token":token}, "on_change":"ignore"},"runtime":"qjs","teardown":"minimal"})).unwrap();
     for (name, content) in [
         (format!("{dll_name}.dll"), DLL),
         (format!("{dll_name}.config"), config.as_slice()),
@@ -507,18 +490,18 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
     if args.len() != 3 || !os::elevated() {
         return Err("此辅助进程需要管理员权限。".into());
     }
-    let port: u16 = args[0].parse().map_err(|_| "无效会话端口")?;
+    if !valid_app_pipe(&args[0]) {
+        return Err("无效本地管道名称".into());
+    }
     let parent_pid: u32 = args[1].parse().map_err(|_| "无效应用进程")?;
     if args[2].len() != 64 || !args[2].bytes().all(|c| c.is_ascii_hexdigit()) {
         return Err("无效会话".into());
     }
-    let mut parent =
-        TcpStream::connect_timeout(&([127, 0, 0, 1], port).into(), Duration::from_secs(5))
-            .map_err(|e| e.to_string())?;
-    if os::peer_pid(&parent) != Some(parent_pid) {
+    let mut parent = PipeStream::connect(&args[0], Duration::from_secs(5))
+        .map_err(|e| diagnostic("连接应用管道", &args[0], &e))?;
+    if parent.peer_pid() != Some(parent_pid) {
         return Err("应用进程身份不匹配。".into());
     }
-    configure_stream(&parent)?;
     send(&mut parent, &json!({"kind":"hello", "token":args[2]}))?;
     let mut framed = Frames::default();
     let start = Instant::now();
@@ -536,7 +519,7 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
     }
     let stop = Arc::new(AtomicBool::new(false));
     let watch_stop = stop.clone();
-    let mut watch = parent.try_clone().map_err(|e| e.to_string())?;
+    let mut watch = parent.clone();
     thread::spawn(move || {
         let mut byte = [0u8; 1];
         loop {
@@ -556,26 +539,27 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
     });
     let result = capture(&mut parent, &stop);
     if let Err(error) = &result {
-        let _ = report(&mut parent, "error", error, 0);
+        if report(&mut parent, "error", error, 0).is_ok() {
+            // A pipe write may still be queued. The app closes its connection
+            // after consuming an error; give it a bounded chance to log it
+            // before shutdown cancels any outstanding native writes.
+            let began = Instant::now();
+            while !stop.load(Ordering::Relaxed) && began.elapsed() < Duration::from_secs(2) {
+                thread::sleep(POLL);
+            }
+        }
     }
-    let _ = parent.shutdown(Shutdown::Both);
+    parent.shutdown();
     result
 }
 
-fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
+fn capture(parent: &mut PipeStream, stop: &AtomicBool) -> Result<(), String> {
     os::debug_privilege()?;
     let (dll, auth_token) = prepare_runtime()?;
-    let port = gadget_port();
-    // The helper runs before logging is initialized. Return the original error
-    // through IPC so the main process records it in the runtime log.
-    let server = TcpListener::bind(("127.0.0.1", port)).map_err(|error| {
-        format!(
-            "按键服务启动失败：无法监听 127.0.0.1:{port}；kind={:?}, os_error={:?}；{error}",
-            error.kind(),
-            error.raw_os_error(),
-        )
-    })?;
-    server.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let pipe_name = gadget_pipe();
+    // The helper has no logger; report diagnostics through the parent IPC.
+    let mut server =
+        PipeListener::bind(&pipe_name).map_err(|e| diagnostic("创建采集管道", &pipe_name, &e))?;
     let mut injected = None;
     while !stop.load(Ordering::Relaxed) {
         let Some(target) = os::target()? else {
@@ -613,22 +597,21 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
                 break None;
             }
             match server.accept() {
-                Ok((client, _)) if os::peer_pid(&client) == Some(target.0) => break Some(client),
-                Ok((client, _)) => {
-                    let _ = client.shutdown(Shutdown::Both);
+                Ok(client) if client.peer_pid() == Some(target.0) => break Some(client),
+                Ok(client) => {
+                    client.shutdown();
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
                     send(parent, &json!({"kind":"heartbeat"}))?;
                     thread::sleep(Duration::from_millis(500));
                 }
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(diagnostic("接受采集连接", &pipe_name, &e)),
             }
         };
         let Some(ref mut client) = client else {
             injected = None;
             continue;
         };
-        configure_stream(client)?;
         send(
             client,
             &json!({"kind":"configure", "devices":names, "auth_token":auth_token}),
@@ -715,7 +698,7 @@ fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
             }
             Ok(())
         })();
-        let _ = client.shutdown(Shutdown::Both); // Gadget observes EOF and detaches both hooks.
+        client.shutdown(); // Gadget observes closure and detaches both hooks.
         send(parent, &json!({"kind":"reset"}))?;
         session?;
     }

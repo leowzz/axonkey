@@ -4,8 +4,8 @@ const EXPECTED_OUTPUT_LENGTH = 9;
 const HEARTBEAT_INTERVAL_MS = 5000;
 const RECONNECT_DELAY_MS = 1000;
 
-let host = "127.0.0.1";
-let port = 30685;
+let pipeName = "";
+let pipeApi = null;
 let session = null;
 let connecting = false;
 let reconnectTimer = null;
@@ -87,25 +87,54 @@ function emit(payload) {
     .finally(() => { current.pendingWrites--; });
 }
 
+async function openPipe() {
+  if (pipeApi === null) {
+    const kernel32 = Process.findModuleByName("kernel32.dll");
+    pipeApi = {
+      open: new SystemFunction(kernel32.findExportByName("CreateFileW"), "pointer",
+        ["pointer", "uint", "uint", "pointer", "uint", "uint", "pointer"]),
+      close: new NativeFunction(kernel32.findExportByName("CloseHandle"), "int", ["pointer"])
+    };
+  }
+  // Read/write data + SYNCHRONIZE only: do not request the right to create a
+  // server instance. Anonymous SQOS prevents a pipe server impersonating us.
+  const result = pipeApi.open(Memory.allocUtf16String(pipeName), 0x00100003,
+    0, NULL, 3, 0x40000000 | 0x00100000, NULL);
+  const handle = result.value;
+  if (handle.equals(ptr(-1))) {
+    throw new Error("CreateFileW named pipe failed: " + result.lastError);
+  }
+  let input = null, output = null;
+  try {
+    // Both wrappers share one duplex handle. Cancel and drain their operations
+    // before closing that handle exactly once, including on write backpressure.
+    input = new Win32InputStream(handle, { autoClose: false });
+    output = new Win32OutputStream(handle, { autoClose: false });
+    let closing = null;
+    return {
+      input, output,
+      close() {
+        if (closing === null) {
+          closing = Promise.allSettled([input.close(), output.close()])
+            .then(() => { pipeApi.close(handle); });
+        }
+        return closing;
+      }
+    };
+  } catch (error) {
+    await Promise.allSettled([input?.close(), output?.close()]);
+    pipeApi.close(handle);
+    throw error;
+  }
+}
+
 async function connectToHub() {
   // A Windows connect may outlive the retry timer. Never let a later attempt
-  // replace the socket that the helper has already accepted and configured.
+  // replace the pipe that the helper has already accepted and configured.
   if (session !== null || connecting) return;
   connecting = true;
   try {
-    const connection = await Socket.connect({
-      family: "ipv4",
-      host: host,
-      port: port
-    });
-    try {
-      // Key edges are tiny writes. Do not hold a press behind an unacknowledged
-      // report while waiting for another packet or TCP's delayed ACK timer.
-      await connection.setNoDelay(true);
-    } catch (error) {
-      await connection.close().catch(() => {});
-      throw error;
-    }
+    const connection = await openPipe();
     const current = { connection, writeChain: Promise.resolve(), pendingWrites: 0 };
     session = current;
     // Wait for the receiver's current RC003 device name before attaching.
@@ -234,10 +263,13 @@ setInterval(() => {
 
 rpc.exports = {
   async init(_stage, parameters) {
-    host = parameters.host || host;
-    port = parameters.port || port;
     protocolId = parameters.protocol_id || "";
     authToken = parameters.auth_token || "";
+    pipeName = parameters.pipe_name || "";
+    if (!/^[0-9a-f]{12}$/.test(protocolId) ||
+        pipeName !== "\\\\.\\pipe\\Axonkey.ExtraKeys.gadget." + protocolId) {
+      throw new Error("Invalid local capture pipe");
+    }
     await connectToHub();
   }
 };

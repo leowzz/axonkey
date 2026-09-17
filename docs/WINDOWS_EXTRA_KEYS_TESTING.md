@@ -6,6 +6,30 @@ The packaged Windows app embeds Frida Gadget and starts its own native helper
 with `ShellExecuteExW` / `runas`. This replaces Python for production; the older
 standalone diagnostic remains available for comparison.
 
+## Named-pipe migration (2026-09-17)
+
+Both production TCP hops have been replaced with local-only Windows named pipes.
+The app/helper channel uses a random name per authorization; the helper/Gadget
+channel uses the script revision. PID checks, token authentication and the JSON
+framing remain in place. The listener reserves the pipe name across reconnects
+and rejects remote clients. LocalService gets data read/write rights without
+permission to create a competing server instance. Clients use anonymous SQOS.
+
+Rust uses Tokio overlapped pipe I/O with bounded idle reads and writes. Gadget
+opens the native handle with `CreateFileW`, wraps it in Frida's
+[`Win32InputStream` / `Win32OutputStream`](https://frida.re/docs/javascript-api/#win32inputstream), and closes the handle once both streams
+have canceled/drained. Bind/accept errors retain the pipe name, error kind and
+original Windows error code in the app's runtime log.
+
+Validation on macOS: the 8 Node tests and 43 available Rust input-service tests
+passed. The actual Windows pipe, helper, WinAPI and protocol modules, including
+their Windows-only tests, passed `cargo check --tests` for
+`x86_64-pc-windows-msvc` in an isolated harness. This checks types, not linking or
+native execution. Windows tests cover PID lookup, name ownership, timeout and
+reconnect, bidirectional transfer, clone shutdown and a peer that stops reading.
+They still need execution on Windows, followed by UAC / LocalService / RC003
+smoke testing. Historical TCP measurements below do not validate this transport.
+
 ## Automated checks (2026-09-10)
 
 - `npm run tauri build -- --bundles nsis`: passed, including pinned DLL hash check.

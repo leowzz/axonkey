@@ -28,6 +28,7 @@ log = "0.4"
 sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time"] }
 winreg = "0.55"
 cpal = "0.18.2"
 windows = { version = "0.61.3", features = [

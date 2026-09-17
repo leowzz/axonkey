@@ -291,6 +291,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tokio",
  "windows 0.61.3",
  "winreg 0.55.0",
 ]

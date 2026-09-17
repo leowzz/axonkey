@@ -15,7 +15,8 @@ Windows
     -> pinned Frida Gadget in RC003's current WUDFHost
     -> completed HID reads, per-handle lifetime identity
     -> automatically acquired extra-key stream (first press forwarded)
-    -> authenticated loopback IPC to the normal-privilege app
+    -> local-only named pipe to the auxiliary process (verified PID + credential)
+    -> per-session named pipe to the normal-privilege app (verified PID + token)
     -> the same gesture state and Interception output on RC003
 
   RC003 ATVV voice service

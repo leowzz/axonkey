@@ -3,7 +3,6 @@
 use std::os::windows::ffi::OsStrExt;
 use std::{
     ffi::c_void,
-    net::TcpStream,
     path::{Path, PathBuf},
     ptr::null_mut,
 };
@@ -87,35 +86,6 @@ pub fn alive(handle: &OwnedHandle) -> bool {
 }
 pub fn elevated() -> bool {
     unsafe { IsUserAnAdmin() != 0 }
-}
-
-pub fn peer_pid(stream: &TcpStream) -> Option<u32> {
-    let peer = stream.peer_addr().ok()?;
-    let local = stream.local_addr().ok()?;
-    if !peer.ip().is_loopback() || !local.ip().is_loopback() {
-        return None;
-    }
-    let mut size = 0u32;
-    unsafe {
-        GetExtendedTcpTable(null_mut(), &mut size, 0, 2, 5, 0);
-    }
-    if !(4..=16_777_216).contains(&size) {
-        return None;
-    }
-    let mut buffer = vec![0u32; (size as usize).div_ceil(4)];
-    if unsafe { GetExtendedTcpTable(buffer.as_mut_ptr().cast(), &mut size, 0, 2, 5, 0) } != 0 {
-        return None;
-    }
-    let count = buffer[0] as usize;
-    if 1 + count * 6 > buffer.len() {
-        return None;
-    }
-    buffer[1..1 + count * 6]
-        .chunks_exact(6)
-        .find(|r| {
-            u16::from_be(r[2] as u16) == peer.port() && u16::from_be(r[4] as u16) == local.port()
-        })
-        .map(|r| r[5])
 }
 
 pub fn random_token() -> Result<String, String> {
@@ -460,17 +430,6 @@ extern "system" {
 extern "system" {
     fn ShellExecuteExW(info: *mut ShellExecuteInfo) -> i32;
     fn IsUserAnAdmin() -> i32;
-}
-#[link(name = "iphlpapi")]
-extern "system" {
-    fn GetExtendedTcpTable(
-        table: Handle,
-        size: *mut u32,
-        order: i32,
-        family: u32,
-        class: u32,
-        reserved: u32,
-    ) -> u32;
 }
 #[link(name = "bcrypt")]
 extern "system" {
