@@ -565,8 +565,16 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
 fn capture(parent: &mut TcpStream, stop: &AtomicBool) -> Result<(), String> {
     os::debug_privilege()?;
     let (dll, auth_token) = prepare_runtime()?;
-    let server = TcpListener::bind(("127.0.0.1", gadget_port()))
-        .map_err(|_| "按键服务已被占用，请先关闭其他 Axonkey 按键采集窗口。")?;
+    let port = gadget_port();
+    // The helper runs before logging is initialized. Return the original error
+    // through IPC so the main process records it in the runtime log.
+    let server = TcpListener::bind(("127.0.0.1", port)).map_err(|error| {
+        format!(
+            "按键服务启动失败：无法监听 127.0.0.1:{port}；kind={:?}, os_error={:?}；{error}",
+            error.kind(),
+            error.raw_os_error(),
+        )
+    })?;
     server.set_nonblocking(true).map_err(|e| e.to_string())?;
     let mut injected = None;
     while !stop.load(Ordering::Relaxed) {
