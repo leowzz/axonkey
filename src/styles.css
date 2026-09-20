@@ -548,7 +548,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .auto-save-state.saving { color: #96743d; }
 
 .mapping-workbench { display: grid; width: min(1440px, calc(100% - 48px)); grid-template-columns: 228px minmax(0, 1fr); align-items: stretch; gap: 12px; margin: 0 auto; }
-.mapping-device-rail { position: relative; display: flex; min-height: 0; align-self: stretch; flex-direction: column; overflow: hidden; padding: 18px; border: 0; border-radius: 0; color: #2f4255; background: #edf3fa; box-shadow: none; }
+.mapping-device-rail { position: relative; display: flex; min-height: 0; align-self: stretch; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 18px; border: 0; border-radius: 0; color: #2f4255; background: #edf3fa; box-shadow: none; }
 .mapping-active .remote-device-card { flex-shrink: 0; margin-top: 0; padding: 11px 12px 10px; border-color: #c9d9e9; color: #24384b; background: rgba(255,255,255,.72); box-shadow: inset 0 1px rgba(255,255,255,.9), 0 5px 16px rgba(47, 83, 117, .05); }
 .mapping-active .remote-device-card:hover { border-color: #76a9dc; background: #fff; }
 .mapping-active .remote-device-card .device-card-head { color: #24384b; }
@@ -1051,21 +1051,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-status-card dd.ready::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; content: ''; }
 .device-status-card dd.warning { color: #ba6c2d; }
 .device-status-card button { display: flex; flex-shrink: 0; align-items: center; white-space: nowrap; margin: 0 0 0 auto; padding: 0; border: 0; background: transparent; color: #6483a4; font-size: 11px; line-height: 18px; cursor: pointer; }
-.mouse-model-section { padding-top: 20px; text-align: center; }
+.mouse-model-section { width: 100%; padding-top: 20px; text-align: center; }
 .mouse-model-title { margin-bottom: 16px; color: #72859a; font-size: 11px; }
 
-/* The model uses a fixed design grid so the control positions stay stable while
- * the rail itself remains compact. The reference artwork is a 2x capture of
- * this 178 by 238 CSS pixel surface. */
+/* The picker is a flat control map rather than a literal mouse drawing. */
 .mouse-input-model {
   position: relative;
-  width: 178px;
-  height: 238px;
+  width: min(188px, 100%);
+  height: 330px;
   margin: 0 auto 14px;
-  border: 1px solid #bdd1e6;
-  border-radius: 66px 66px 52px 52px;
-  background: linear-gradient(160deg, #f7fbff 0%, #eef5fa 47%, #e0ecf7 100%);
-  box-shadow: inset 0 1px 0 #ffffffb8, 0 10px 24px #315a8414;
+  background: transparent;
 }
 
 .mouse-part {
@@ -1086,81 +1081,97 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mouse-part:focus-visible { z-index: 5; outline: 2px solid #5a9de1; outline-offset: 2px; }
 .mouse-part[aria-pressed="true"] { border-color: #2385ee; background: #217de0; color: #fff; box-shadow: 0 4px 9px #267ee02b; }
 
-/* Left and right click plates follow the rounded top of the shell and meet
- * under the wheel rail. */
-.mouse-part-buttonLeft, .mouse-part-buttonRight {
+/* The two primary buttons share the top row. */
+.mouse-click-row {
   position: absolute;
-  z-index: 0;
-  top: 7px;
-  width: 67px;
-  height: 112px;
-  flex-direction: column;
-  gap: 9px;
-  font-size: 13px;
-  font-weight: 500;
+  top: 10px;
+  right: 8px;
+  left: 8px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 38px;
 }
-.mouse-part-buttonLeft { left: 7px; border-radius: 27px 15px 15px 15px; padding-right: 10px; }
-.mouse-part-buttonRight { right: 7px; border-radius: 15px 27px 15px 15px; padding-left: 10px; }
-.mouse-part-buttonLeft svg, .mouse-part-buttonRight svg { width: 26px; height: 26px; stroke-width: 1.9; }
+.mouse-click-row .mouse-part {
+  height: 48px;
+  border: 1px solid #c9daeb;
+  border-radius: 8px;
+  background: #f6faff;
+  color: #486b8f;
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 3px 10px #315a8410;
+}
+.mouse-click-row .mouse-part svg { width: 20px; height: 20px; stroke-width: 1.9; }
 
-/* The two auxiliary buttons sit just outside the left shell edge. Their
- * readable labels remain the original "前进"/"后退" text for assistive tech;
- * the visual order mirrors the reference artwork. */
-.mouse-part-buttonBack, .mouse-part-buttonForward {
+/* Up/down sit on the same centered axis as the horizontal wheel controls. */
+.mouse-wheel-map {
   position: absolute;
-  z-index: 3;
-  left: -18px;
-  width: 24px;
+  top: 68px;
+  right: 8px;
+  left: 8px;
+  display: grid;
+  grid-template-rows: 42px 50px 42px;
+  gap: 16px;
+  align-items: center;
+}
+.mouse-wheel-map > .mouse-part {
+  justify-self: center;
+  width: 52px;
+  height: 42px;
+  flex-direction: column;
+  border: 1px solid #c9daeb;
+  border-radius: 8px;
+  background: #f6faff;
+  color: #557796;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 3px 10px #315a8410;
+}
+.mouse-wheel-map > .mouse-part svg { width: 22px; height: 22px; stroke-width: 1.9; }
+.mouse-wheel-center {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.mouse-wheel-center .mouse-part {
+  height: 44px;
+  border: 1px solid #d3e0ed;
+  border-radius: 8px;
+  background: #f8fbfe;
+  color: #557796;
+  font-size: 14px;
+  font-weight: 600;
+}
+.mouse-wheel-center .mouse-part svg { width: 22px; height: 22px; stroke-width: 1.9; }
+.mouse-wheel-center > span { color: #557796; font-size: 20px; font-weight: 600; white-space: nowrap; }
+
+/* Auxiliary buttons form a simple vertical pair at the lower left. */
+.mouse-side-buttons {
+  position: absolute;
+  bottom: 4px;
+  left: 8px;
+  display: grid;
+  gap: 14px;
+}
+.mouse-side-buttons .mouse-part {
+  width: 62px;
   height: 34px;
-  flex-direction: column;
-  gap: 1px;
-  border-radius: 7px;
-  font-size: 8px;
-  line-height: 1;
+  justify-content: flex-start;
+  border: 1px solid #d3e0ed;
+  border-radius: 8px;
+  background: #f8fbfe;
+  color: #557796;
+  font-size: 15px;
+  font-weight: 600;
 }
-.mouse-part-buttonForward { top: 66px; }
-.mouse-part-buttonBack { top: 106px; }
-.mouse-part-buttonForward svg, .mouse-part-buttonBack svg { width: 22px; height: 22px; stroke-width: 2; }
-.mouse-part-buttonForward > span, .mouse-part-buttonBack > span { font-size: 0; white-space: nowrap; }
-.mouse-part-buttonForward > span::after { content: '进  前'; font-size: 8px; }
-.mouse-part-buttonBack > span::after { content: '退  后'; font-size: 8px; }
-
-/* Vertical wheel buttons float over the seam between click plates. */
-.mouse-wheel-track {
-  position: absolute;
-  z-index: 2;
-  left: 66px;
-  top: 38px;
-  display: grid;
-  width: 46px;
-  gap: 3px;
-  padding: 4px;
-  border-radius: 16px;
-  background: #d8e5f4;
-  box-shadow: inset 0 0 0 1px #cfdeed, 0 3px 8px #47749b20;
+.mouse-side-buttons .mouse-part svg { display: none; }
+.mouse-input-model .mouse-part[aria-pressed="true"] {
+  border-color: #2385ee;
+  background: #217de0;
+  color: #fff;
+  box-shadow: 0 4px 9px #267ee02b;
 }
-.mouse-wheel-track .mouse-part { height: 32px; border-radius: 10px; font-size: 9px; }
-.mouse-wheel-track .mouse-part svg { width: 23px; height: 23px; stroke-width: 2; }
-.mouse-wheel-track .mouse-part span { display: flex; flex-direction: column; width: 10px; font-size: 9px; line-height: 1.05; }
-
-/* Horizontal wheel controls occupy the broad lower band of the shell. */
-.mouse-horizontal-track {
-  position: absolute;
-  top: 137px;
-  left: 14px;
-  right: 14px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-}
-.mouse-horizontal-track .mouse-part { height: 36px; border-radius: 9px; font-size: 11px; }
-.mouse-horizontal-track .mouse-part svg { width: 24px; height: 24px; stroke-width: 2; }
-.mouse-track-label { grid-column: 1 / -1; color: #7892ad; font-size: 10px; font-weight: 500; letter-spacing: .04em; line-height: 1.3; text-align: center; }
-.mouse-horizontal-track .mouse-track-label { margin-bottom: -1px; }
-
-.mouse-model-mark { position: absolute; bottom: 20px; left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: 5px; color: #98adc3; font-size: 9px; letter-spacing: 2px; }
-.mouse-model-mark svg { flex: 0 0 auto; stroke-width: 1.8; }
-.mouse-model-mark > span { line-height: 1; }
 .mouse-model-selection { font-size: 13px; color: #30679c; }
 .mouse-model-section p { max-width: 220px; margin: 8px auto 0; color: #7a8da2; font-size: 11px; line-height: 1.8; }
 .mouse-control-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
