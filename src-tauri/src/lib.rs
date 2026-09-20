@@ -2,14 +2,17 @@ mod audio_service;
 mod input_service;
 
 use audio_service::{AudioService, AudioServiceStatus};
-use input_service::{InputService, NativeSettings};
 use input_service::mouse::MouseService;
+use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const TRAY_SHOW_ID: &str = "tray-show";
 const TRAY_QUIT_ID: &str = "tray-quit";
+const AUTOSTART_ARG: &str = "--autostart";
+const LEGACY_AUTOSTART_MARKER: &str = "autostart-initialized";
+const BACKGROUND_AUTOSTART_MARKER: &str = "autostart-background-initialized";
 const PERMISSION_HELPER_WIDTH: f64 = 430.0;
 const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
 const RUNTIME_LOG_FILE_BASENAME: &str = "axonkey";
@@ -31,21 +34,39 @@ fn initialize_autostart(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error
     use tauri_plugin_autostart::ManagerExt;
 
     let directory = app.path().app_config_dir()?;
-    let marker = directory.join("autostart-initialized");
-    // Apply the default once, preserving subsequent changes made by the user.
+    let marker = directory.join(BACKGROUND_AUTOSTART_MARKER);
+    // Apply the default once and migrate legacy entries, preserving user changes.
     if marker.try_exists()? {
         return Ok(());
     }
     std::fs::create_dir_all(&directory)?;
     let autostart = app.autolaunch();
-    if !autostart.is_enabled()? {
+    let was_enabled = autostart.is_enabled()?;
+    let legacy_marker = directory.join(LEGACY_AUTOSTART_MARKER);
+    let had_legacy_initialization = legacy_marker.try_exists()?;
+    let should_be_enabled = !had_legacy_initialization || was_enabled;
+    if should_be_enabled {
         autostart.enable()?;
     }
-    if !autostart.is_enabled()? {
+    if should_be_enabled && !autostart.is_enabled()? {
         return Err("Autostart did not become enabled".into());
     }
     std::fs::write(marker, b"initialized\n")?;
     Ok(())
+}
+
+fn args_request_autostart<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .any(|arg| arg.as_ref() == AUTOSTART_ARG)
+}
+
+fn launched_from_autostart() -> bool {
+    args_request_autostart(std::env::args())
 }
 
 fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
@@ -1113,7 +1134,11 @@ pub fn run() {
                 .level(log::LevelFilter::Info)
                 .build(),
         )
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args_request_autostart(args) {
+                log::info!(target: "axonkey::runtime", "Existing instance received an autostart launch");
+                return;
+            }
             log::info!(target: "axonkey::runtime", "Existing instance requested focus");
             show_main_window(app);
         }))
@@ -1122,7 +1147,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![AUTOSTART_ARG]),
         ))
         .setup(|app| {
             use tauri::Manager;
@@ -1161,6 +1186,13 @@ pub fn run() {
             if let Err(error) = install_tray(app) {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");
                 return Err(error.into());
+            }
+            if launched_from_autostart() {
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                log::info!(target: "axonkey::runtime", "Autostart launch will remain in the background");
+            } else {
+                show_main_window(app.handle());
             }
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
@@ -1221,7 +1253,21 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_bundle_for_executable, parse_battery_level, rc003_connected};
+    use super::{
+        app_bundle_for_executable, args_request_autostart, parse_battery_level, rc003_connected,
+    };
+
+    #[test]
+    fn recognizes_only_the_autostart_launch_argument() {
+        assert!(args_request_autostart(["axonkey", "--autostart"]));
+        assert!(args_request_autostart([
+            "axonkey",
+            "--other",
+            "--autostart",
+        ]));
+        assert!(!args_request_autostart(["axonkey"]));
+        assert!(!args_request_autostart(["axonkey", "--autostarted"]));
+    }
 
     #[test]
     fn macos_connection_uses_bluetooth_when_hid_is_not_visible() {

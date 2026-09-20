@@ -59,7 +59,7 @@ export function AutostartControl({ supported }: { supported: boolean }) {
       <span className="settings-form-label">启动：</span>
       <div className="settings-form-control">
         <label className="settings-checkbox"><input type="checkbox" checked={enabled === true} disabled={!supported || busy || enabled === null} onChange={() => void toggle()} />开机自启</label>
-        <SettingsHelp id="autostart-description" label="开机自启">{supported ? '登录电脑后自动启动 Axonkey。' : '请在 Windows 或 macOS 桌面应用中设置。'}</SettingsHelp>
+        <SettingsHelp id="autostart-description" label="开机自启">{supported ? '登录电脑后在后台启动 Axonkey，不会自动打开窗口。' : '请在 Windows 或 macOS 桌面应用中设置。'}</SettingsHelp>
         <span className="settings-autostart-status" role="status">{busy ? '正在同步…' : ''}</span>
       </div>
     </div>

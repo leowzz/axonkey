@@ -43,6 +43,7 @@
         "minWidth": 980,
         "minHeight": 680,
         "resizable": true,
+        "visible": false,
         "transparent": true,
         "theme": "Light",
         "windowEffects": {
