@@ -30,12 +30,15 @@ import {
   detectBrowserPlatform,
   formatCapturedKey,
   getStoredSettings,
+  getStoredUiState,
   iconFor,
   initialHitPositions,
+  saveStoredUiState,
   settingsStorageKey,
   textAndEnterValue,
   withTimeout,
 } from '../appConfig'
+import type { StoredUiState } from '../appConfig'
 import type {
   AdvancedBehaviorType,
   AppPage,
@@ -104,9 +107,10 @@ import {
 
 function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  const [initialUiState] = useState<StoredUiState>(getStoredUiState)
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
   const editableButtons = buttons
-  const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>('rc003')
+  const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>(initialUiState.selectedDeviceId)
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId)!
   const isMouse = selectedDevice.inputKind === 'mouse'
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
@@ -115,7 +119,7 @@ function AppController() {
     captureActive: false,
   })
   const [permissionHelperKind, setPermissionHelperKind] = useState<MacPermissionKind | null>(null)
-  const [activeId, setActiveId] = useState<ButtonId>('voice')
+  const [activeId, setActiveId] = useState<ButtonId>(initialUiState.activeId)
   const [behaviorHistory, dispatchBehaviorHistory] = useReducer(
     behaviorHistoryReducer,
     null,
@@ -157,7 +161,7 @@ function AppController() {
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [applyRetry, setApplyRetry] = useState(0)
   const [toast, setToast] = useState('')
-  const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: InputId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
+  const [selectedBehavior, setSelectedBehavior] = useState<{ buttonId: InputId; trigger: TriggerType }>(initialUiState.selectedBehavior)
   const [capturingBehaviorId, setCapturingBehaviorId] = useState<string | null>(null)
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
@@ -172,10 +176,10 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
-  const [activePage, setActivePage] = useState<AppPage>('home')
+  const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection>('startup')
-  const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>({ buttonId: 'voice', trigger: 'click' })
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
+  const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(initialUiState.overviewSelection)
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
@@ -184,6 +188,8 @@ function AppController() {
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const mappingMainRef = useRef<HTMLElement>(null)
+  const mainContentRef = useRef<HTMLElement>(null)
+  const pageScrollTopRef = useRef(initialUiState.scrollTop)
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
@@ -199,6 +205,50 @@ function AppController() {
   const escapeSequenceRef = useRef({ count: 0, lastAt: 0 })
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
+  const uiStateRef = useRef<StoredUiState>(initialUiState)
+  uiStateRef.current = {
+    activePage,
+    selectedDeviceId,
+    activeId,
+    selectedBehavior,
+    settingsSection,
+    overviewSelection,
+    scrollTop: pageScrollTopRef.current,
+  }
+
+  const persistUiState = useCallback(() => {
+    saveStoredUiState(uiStateRef.current)
+  }, [])
+
+  useEffect(() => {
+    persistUiState()
+  }, [activePage, selectedDeviceId, activeId, selectedBehavior, settingsSection, overviewSelection, persistUiState])
+
+  useEffect(() => {
+    const mainContent = mainContentRef.current
+    if (!mainContent) return
+    const page = activePage
+    const restoreFrame = window.requestAnimationFrame(() => {
+      mainContent.scrollTop = pageScrollTopRef.current[page] ?? 0
+    })
+    let persistFrame: number | undefined
+    const handleScroll = () => {
+      pageScrollTopRef.current[page] = mainContent.scrollTop
+      if (persistFrame !== undefined) return
+      persistFrame = window.requestAnimationFrame(() => {
+        persistFrame = undefined
+        persistUiState()
+      })
+    }
+    mainContent.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      window.cancelAnimationFrame(restoreFrame)
+      if (persistFrame !== undefined) window.cancelAnimationFrame(persistFrame)
+      pageScrollTopRef.current[page] = mainContent.scrollTop
+      persistUiState()
+      mainContent.removeEventListener('scroll', handleScroll)
+    }
+  }, [activePage, persistUiState])
 
   useEffect(() => {
     const handleEscapeFailsafe = (event: globalThis.KeyboardEvent) => {
@@ -1236,7 +1286,7 @@ function AppController() {
           onNavigate={setActivePage}
           onToggleEnabled={toggleEnabled}
         />
-      <main key={activePage} className="main-content">
+      <main ref={mainContentRef} key={activePage} className="main-content">
         {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
           <Info size={20} aria-hidden="true" />
           <div className="mapping-disabled-copy">

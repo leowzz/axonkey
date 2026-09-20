@@ -18,8 +18,11 @@ import {
   createDefaultBehaviorMap,
   parseStoredBehaviors,
 } from './behaviorModel'
-import type { Behavior, BehaviorType, ButtonId, TriggerType } from './behaviorModel'
-import type { HitPosition, ManualKeyOption, Platform, RemoteButton, StoredSettings } from './appTypes'
+import { triggerTypes } from './behaviorModel'
+import type { Behavior, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
+import { inputIds } from './deviceModel'
+import type { DeviceId } from './deviceModel'
+import type { AppPage, HitPosition, ManualKeyOption, Platform, RemoteButton, StoredSettings } from './appTypes'
 import type { KeyboardEvent } from 'react'
 
 export const detectBrowserPlatform = (): Platform => {
@@ -58,10 +61,96 @@ export const buttons: RemoteButton[] = [
 ]
 
 export const settingsStorageKey = 'axonkey.settings.v1'
+export const uiStateStorageKey = 'axonkey.ui-state.v1'
 export const audioSettingsStorageKey = 'axonkey.audio-settings.v2'
 export const audioGainMin = -30
 export const audioGainMax = 30
 export const defaultAudioGain = 0
+
+export type StoredUiState = {
+  activePage: AppPage
+  selectedDeviceId: DeviceId
+  activeId: ButtonId
+  selectedBehavior: { buttonId: InputId; trigger: TriggerType }
+  settingsSection: 'startup' | 'permissions' | 'remote' | 'mouse'
+  overviewSelection: { buttonId: ButtonId; trigger: TriggerType }
+  scrollTop: Partial<Record<AppPage, number>>
+}
+
+const appPages: readonly AppPage[] = ['home', 'overview', 'mapping', 'settings', 'about']
+const settingsSections = ['startup', 'permissions', 'remote', 'mouse'] as const
+const deviceIds: readonly DeviceId[] = ['rc003', 'mouse']
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isKnownTrigger(value: unknown): value is TriggerType {
+  return typeof value === 'string' && (triggerTypes as readonly string[]).includes(value)
+}
+
+function isKnownRemoteButton(value: unknown): value is ButtonId {
+  return typeof value === 'string' && buttons.some((button) => button.id === value)
+}
+
+function isKnownInput(value: unknown): value is InputId {
+  return typeof value === 'string' && (inputIds as readonly string[]).includes(value)
+}
+
+const defaultUiState: StoredUiState = {
+  activePage: 'home',
+  selectedDeviceId: 'rc003',
+  activeId: 'voice',
+  selectedBehavior: { buttonId: 'voice', trigger: 'click' },
+  settingsSection: 'startup',
+  overviewSelection: { buttonId: 'voice', trigger: 'click' },
+  scrollTop: {},
+}
+
+export function getStoredUiState(): StoredUiState {
+  if (typeof window === 'undefined') return defaultUiState
+  try {
+    const stored = window.localStorage.getItem(uiStateStorageKey)
+    if (!stored) return defaultUiState
+    const parsed = JSON.parse(stored) as unknown
+    if (!isRecord(parsed)) return defaultUiState
+
+    const selectedBehavior = isRecord(parsed.selectedBehavior) && isKnownInput(parsed.selectedBehavior.buttonId) && isKnownTrigger(parsed.selectedBehavior.trigger)
+      ? { buttonId: parsed.selectedBehavior.buttonId, trigger: parsed.selectedBehavior.trigger }
+      : defaultUiState.selectedBehavior
+    const overviewSelection = isRecord(parsed.overviewSelection) && isKnownRemoteButton(parsed.overviewSelection.buttonId) && isKnownTrigger(parsed.overviewSelection.trigger)
+      ? { buttonId: parsed.overviewSelection.buttonId, trigger: parsed.overviewSelection.trigger }
+      : defaultUiState.overviewSelection
+    const storedScrollTop = isRecord(parsed.scrollTop) ? parsed.scrollTop : null
+    const scrollTop = storedScrollTop
+      ? Object.fromEntries(appPages.flatMap((page) => {
+        const value = storedScrollTop[page]
+        return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? [[page, value]] : []
+      })) as Partial<Record<AppPage, number>>
+      : {}
+
+    return {
+      activePage: typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
+      selectedDeviceId: typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId) ? parsed.selectedDeviceId as DeviceId : defaultUiState.selectedDeviceId,
+      activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
+      selectedBehavior,
+      settingsSection: typeof parsed.settingsSection === 'string' && settingsSections.includes(parsed.settingsSection as StoredUiState['settingsSection']) ? parsed.settingsSection as StoredUiState['settingsSection'] : defaultUiState.settingsSection,
+      overviewSelection,
+      scrollTop,
+    }
+  } catch {
+    return defaultUiState
+  }
+}
+
+export function saveStoredUiState(state: StoredUiState) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(uiStateStorageKey, JSON.stringify(state))
+  } catch {
+    // UI state is best-effort and must not interrupt editing when storage is unavailable.
+  }
+}
 
 export function getStoredSettings(): StoredSettings {
   const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, behaviors: createDefaultBehaviorMap(), enabled: true, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }

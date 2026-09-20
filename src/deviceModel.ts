@@ -8,8 +8,8 @@ export const mouseScopes = [
 ] as const
 export const mouseControls = [
   { id: 'buttonLeft', label: '鼠标左键', kind: 'button', icon: 'center' },
-  { id: 'buttonForward', label: '鼠标前进键 (4)', kind: 'button', icon: 'center' },
-  { id: 'buttonBack', label: '鼠标后退键 (3)', kind: 'button', icon: 'center' },
+  { id: 'buttonForward', label: '鼠标前进键', kind: 'button', icon: 'center' },
+  { id: 'buttonBack', label: '鼠标后退键', kind: 'button', icon: 'center' },
   { id: 'buttonRight', label: '鼠标右键', kind: 'button', icon: 'center' },
   { id: 'up', label: '向上滚动', kind: 'wheel', icon: 'up' },
   { id: 'down', label: '向下滚动', kind: 'wheel', icon: 'down' },
