@@ -108,7 +108,7 @@ static int CheckModifierEvent(uint16_t code, CGEventFlags down_flags, bool down)
         & (kCGEventFlagMaskNumericPad | kCGEventFlagMaskSecondaryFn)
     ) | flags;
     CFRelease(reference);
-    if (!axonkey_macos_post_key(code, down, flags, false) || captured_posted_event == NULL) {
+    if (!axonkey_macos_post_key(code, down, flags, false, true) || captured_posted_event == NULL) {
         fputs("failed to post modifier event\n", stderr);
         return 1;
     }
@@ -144,7 +144,7 @@ static int CheckControlRightArrowEvent(bool down) {
         & (kCGEventFlagMaskNumericPad | kCGEventFlagMaskSecondaryFn)
     ) | flags;
     CFRelease(reference);
-    if (!axonkey_macos_post_key(124, down, flags, false) || captured_posted_event == NULL) {
+    if (!axonkey_macos_post_key(124, down, flags, false, false) || captured_posted_event == NULL) {
         fputs("failed to post Control-Right Arrow event\n", stderr);
         return 1;
     }

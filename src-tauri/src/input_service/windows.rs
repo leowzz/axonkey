@@ -25,7 +25,13 @@ const WAIT_TIMEOUT_MS: u32 = 50;
 #[cfg(windows)]
 const EXTRA_KEYS_WAIT_TIMEOUT_MS: u32 = 8;
 const LONG_PRESS_MS: u64 = 600;
+const LONG_PRESS_REPEAT_INITIAL_MS: u64 = 350;
+const LONG_PRESS_REPEAT_INTERVAL_MS: u64 = 100;
 const DOUBLE_CLICK_MS: u64 = 350;
+const REPEAT_INITIAL_MS: u64 = 500;
+const REPEAT_INTERVAL_MS: u64 = 50;
+const MEDIA_REPEAT_INITIAL_MS: u64 = 350;
+const MEDIA_REPEAT_INTERVAL_MS: u64 = 100;
 // Keep synthesized taps visible to applications that poll keyboard state.
 // Physical single-click holds already last until the remote's key-up.
 const OUTPUT_TAP_DURATION: Duration = Duration::from_millis(50);
@@ -292,75 +298,71 @@ struct SourceKey {
     id: &'static str,
     scan_code: u16,
     extended: Option<bool>,
+    repeat_initial_ms: u64,
+    repeat_interval_ms: u64,
+}
+
+impl SourceKey {
+    const fn new(id: &'static str, scan_code: u16, extended: Option<bool>) -> Self {
+        Self {
+            id,
+            scan_code,
+            extended,
+            repeat_initial_ms: REPEAT_INITIAL_MS,
+            repeat_interval_ms: REPEAT_INTERVAL_MS,
+        }
+    }
+
+    const fn with_repeat(
+        id: &'static str,
+        scan_code: u16,
+        extended: Option<bool>,
+        repeat_initial_ms: u64,
+        repeat_interval_ms: u64,
+    ) -> Self {
+        Self {
+            id,
+            scan_code,
+            extended,
+            repeat_initial_ms,
+            repeat_interval_ms,
+        }
+    }
 }
 
 const SOURCE_KEYS: [SourceKey; 13] = [
-    SourceKey {
-        id: "voice",
-        scan_code: 0x3f,
-        extended: Some(false),
-    },
-    SourceKey {
-        id: "power",
-        scan_code: 0x5e,
-        extended: Some(true),
-    },
-    SourceKey {
-        id: "home",
-        scan_code: 0x47,
-        extended: None,
-    },
-    SourceKey {
-        id: "tv",
-        scan_code: 0x29,
-        extended: None,
-    },
-    SourceKey {
-        id: "menu",
-        scan_code: 0x5d,
-        extended: None,
-    },
-    SourceKey {
-        id: "confirm",
-        scan_code: 0x1c,
-        extended: None,
-    },
-    SourceKey {
-        id: "up",
-        scan_code: 0x48,
-        extended: None,
-    },
-    SourceKey {
-        id: "down",
-        scan_code: 0x50,
-        extended: None,
-    },
-    SourceKey {
-        id: "left",
-        scan_code: 0x4b,
-        extended: None,
-    },
-    SourceKey {
-        id: "right",
-        scan_code: 0x4d,
-        extended: None,
-    },
+    SourceKey::new("voice", 0x3f, Some(false)),
+    SourceKey::new("power", 0x5e, Some(true)),
+    SourceKey::new("home", 0x47, None),
+    SourceKey::new("tv", 0x29, None),
+    SourceKey::new("menu", 0x5d, None),
+    SourceKey::new("confirm", 0x1c, None),
+    SourceKey::new("up", 0x48, None),
+    SourceKey::new("down", 0x50, None),
+    SourceKey::new("left", 0x4b, None),
+    SourceKey::new("right", 0x4d, None),
     // Output equivalents only; these are never recognized from Interception input.
-    SourceKey {
-        id: "back",
-        scan_code: 0x6a,
-        extended: Some(true),
-    },
-    SourceKey {
-        id: "volumeUp",
-        scan_code: 0x30,
-        extended: Some(true),
-    },
-    SourceKey {
-        id: "volumeDown",
-        scan_code: 0x2e,
-        extended: Some(true),
-    },
+    SourceKey::with_repeat(
+        "back",
+        0x6a,
+        Some(true),
+        MEDIA_REPEAT_INITIAL_MS,
+        MEDIA_REPEAT_INTERVAL_MS,
+    ),
+    SourceKey::with_repeat(
+        "volumeUp",
+        0x30,
+        Some(true),
+        MEDIA_REPEAT_INITIAL_MS,
+        MEDIA_REPEAT_INTERVAL_MS,
+    ),
+    SourceKey::with_repeat(
+        "volumeDown",
+        0x2e,
+        Some(true),
+        MEDIA_REPEAT_INITIAL_MS,
+        MEDIA_REPEAT_INTERVAL_MS,
+    ),
 ];
 
 fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
@@ -375,8 +377,11 @@ struct PressState {
     wheel_repeat: Option<(i32, bool, Instant)>,
     started_at: Instant,
     last_repeat_log: Instant,
+    next_repeat_at: Instant,
+    repeat_interval_ms: u64,
     original: KeyStroke,
     long_fired: bool,
+    long_repeat_due_at: Option<Instant>,
     passthrough_long: bool,
     held_outputs: Vec<KeyStroke>,
 }
@@ -799,8 +804,11 @@ fn process_source_stroke(
                 wheel_repeat: None,
                 started_at: Instant::now(),
                 last_repeat_log: Instant::now(),
+                next_repeat_at: Instant::now() + Duration::from_millis(source.repeat_initial_ms),
+                repeat_interval_ms: source.repeat_interval_ms,
                 original: stroke,
                 long_fired: false,
+                long_repeat_due_at: None,
                 passthrough_long: true,
                 held_outputs: vec![],
             });
@@ -820,8 +828,10 @@ fn process_source_stroke(
                 log::info!(target: "axonkey::input", "RC003 repeat handling: button={}, held_outputs={}, passthrough_long={}, long_fired={}", source.id, press.held_outputs.len(), press.passthrough_long, press.long_fired);
                 press.last_repeat_log = Instant::now();
             }
-            if let Some(repeat) = press.held_outputs.last().copied() {
-                send_stroke(api, context, device, repeat);
+            if !press.held_outputs.is_empty() {
+                // Repetition is driven by the timer below so report-polled and
+                // edge-only sources share the same cadence.
+                return;
             } else if press.passthrough_long {
                 send_stroke(api, context, device, stroke);
             } else if !has_enabled(&triggers.long_press)
@@ -856,8 +866,11 @@ fn process_source_stroke(
                 wheel_repeat,
                 started_at: Instant::now(),
                 last_repeat_log: Instant::now(),
+                next_repeat_at: Instant::now() + Duration::from_millis(source.repeat_initial_ms),
+                repeat_interval_ms: source.repeat_interval_ms,
                 original: stroke,
                 long_fired: false,
+                long_repeat_due_at: None,
                 passthrough_long: false,
                 held_outputs,
             });
@@ -982,12 +995,32 @@ fn process_timers(
                     log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
                     execute_behaviors(api, context, device, &triggers.long_press);
                     press.long_fired = true;
+                    press.long_repeat_due_at =
+                        Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
                 } else {
                     log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
                     send_original_down(api, context, device, press.original);
                     press.passthrough_long = true;
                 }
                 state.pending_click = None;
+            }
+            if let Some(due_at) = press.long_repeat_due_at {
+                if !has_enabled(&triggers.long_press) {
+                    press.long_repeat_due_at = None;
+                } else if now >= due_at {
+                    log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
+                    execute_behaviors(api, context, device, &triggers.long_press);
+                    press.long_repeat_due_at = Some(
+                        now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS),
+                    );
+                }
+            }
+            if !press.held_outputs.is_empty() && now >= press.next_repeat_at {
+                log::info!(target: "axonkey::input", "RC003 repeat: button={}, origin=timer, held_ms={}, passthrough={}", source.id, now.duration_since(press.started_at).as_millis(), press.passthrough_long);
+                if let Some(repeat) = press.held_outputs.last().copied() {
+                    send_stroke(api, context, device, repeat);
+                }
+                press.next_repeat_at = now + Duration::from_millis(press.repeat_interval_ms);
             }
         }
         if state
@@ -1970,6 +2003,67 @@ mod tests {
             WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 3));
         }
         shared.settings.write().unwrap().enabled = true;
+        // Single-click key mappings repeat from the timer even when the input
+        // source only reports press/release edges (as the extra-key helper does).
+        for source in &SOURCE_KEYS[10..] {
+            *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
+                "enabled": true,
+                "behaviors": { (source.id): {
+                    "click": [{"type":"key", "key":"Space"}]
+                }}
+            }))
+            .unwrap();
+            SENT.lock().unwrap().clear();
+            states.clear();
+            let down = KeyStroke {
+                code: source.scan_code,
+                state: KEY_E0,
+                information: 0,
+            };
+            let up = KeyStroke {
+                state: KEY_E0 | KEY_UP,
+                ..down
+            };
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
+            let first_repeat_at = states[source.id]
+                .pressed
+                .as_ref()
+                .unwrap()
+                .next_repeat_at;
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                first_repeat_at,
+            );
+            assert_eq!(SENT.lock().unwrap().len(), 2, "{} should repeat", source.id);
+            let second_repeat_at = states[source.id]
+                .pressed
+                .as_ref()
+                .unwrap()
+                .next_repeat_at;
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                second_repeat_at,
+            );
+            assert_eq!(SENT.lock().unwrap().len(), 3, "{} should keep repeating", source.id);
+            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
+            process_timers(
+                &api,
+                ctx,
+                5,
+                &shared,
+                &mut states,
+                second_repeat_at + Duration::from_secs(2),
+            );
+            assert_eq!(SENT.lock().unwrap().len(), 4, "{} should stop on release", source.id);
+        }
         // Single-click-only mappings must send key-down before a release or
         // timer tick, including when other gesture rows exist but are disabled.
         for source in &SOURCE_KEYS[10..] {
@@ -2067,7 +2161,8 @@ mod tests {
         assert_eq!(SENT.lock().unwrap().len(), 2);
         SENT.lock().unwrap().clear();
         states.clear();
-        // Long press is driven by timers even when HID sends no repeat reports.
+        // Long press is driven by timers even when HID sends no repeat reports,
+        // then repeats after a short pause until the key is released.
         shared.settings.write().unwrap().behaviors.insert(
             "back".into(),
             TriggerBehaviors {
@@ -2086,9 +2181,47 @@ mod tests {
             .as_mut()
             .unwrap()
             .started_at -= Duration::from_millis(650);
-        process_timers(&api, ctx, 5, &shared, &mut states, Instant::now());
+        let first_long_press_at = Instant::now();
+        process_timers(
+            &api,
+            ctx,
+            5,
+            &shared,
+            &mut states,
+            first_long_press_at,
+        );
+        let first_repeat_due_at = states["back"]
+            .pressed
+            .as_ref()
+            .unwrap()
+            .long_repeat_due_at
+            .unwrap();
+        process_timers(
+            &api,
+            ctx,
+            5,
+            &shared,
+            &mut states,
+            first_repeat_due_at - Duration::from_millis(1),
+        );
+        process_timers(
+            &api,
+            ctx,
+            5,
+            &shared,
+            &mut states,
+            first_repeat_due_at,
+        );
+        process_timers(
+            &api,
+            ctx,
+            5,
+            &shared,
+            &mut states,
+            first_repeat_due_at + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS),
+        );
         process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-        assert_eq!(SENT.lock().unwrap().len(), 2);
+        assert_eq!(SENT.lock().unwrap().len(), 6);
         SENT.lock().unwrap().clear();
         states.clear();
         // Default synthesized inputs are released too.

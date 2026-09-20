@@ -26,6 +26,8 @@ const CAPTURE_HARDWARE_MODIFIER_MAPPINGS: i32 = 0x04;
 const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
 const HID_FUNCTION_USAGE: u64 = 0x0000_00ff_0000_0003;
 const LONG_PRESS_MS: u64 = 600;
+const LONG_PRESS_REPEAT_INITIAL_MS: u64 = 350;
+const LONG_PRESS_REPEAT_INTERVAL_MS: u64 = 100;
 const DOUBLE_CLICK_MS: u64 = 350;
 const REPEAT_INITIAL_MS: u64 = 500;
 const REPEAT_INTERVAL_MS: u64 = 50;
@@ -64,7 +66,13 @@ extern "C" {
     fn axonkey_macos_accessibility_granted() -> bool;
     fn axonkey_macos_request_input_monitoring() -> bool;
     fn axonkey_macos_request_accessibility() -> bool;
-    fn axonkey_macos_post_key(code: u16, down: bool, flags: u64, autorepeat: bool) -> bool;
+    fn axonkey_macos_post_key(
+        code: u16,
+        down: bool,
+        flags: u64,
+        autorepeat: bool,
+        modifier: bool,
+    ) -> bool;
     fn axonkey_macos_post_system_key(kind: i32, down: bool) -> bool;
     #[cfg(not(test))]
     fn axonkey_macos_post_wheel(vertical: i32, horizontal: i32) -> bool;
@@ -640,7 +648,9 @@ impl PressedChord {
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
     let posted = unsafe {
         match key {
-            MacKey::Keyboard { code, .. } => axonkey_macos_post_key(code, down, flags, autorepeat),
+            MacKey::Keyboard { code, modifier } => {
+                axonkey_macos_post_key(code, down, flags, autorepeat, modifier != 0)
+            }
             MacKey::System { kind } => axonkey_macos_post_system_key(kind, down),
         }
     };
@@ -660,6 +670,7 @@ struct PressState {
     started_at: Instant,
     original: MacKey,
     long_fired: bool,
+    long_repeat_due_at: Option<Instant>,
     passthrough: bool,
     held_outputs: PressedChord,
     wheel_repeat: Option<WheelDirection>,
@@ -760,6 +771,7 @@ impl MacInputState {
                 started_at: now,
                 original: source.original,
                 long_fired: false,
+                long_repeat_due_at: None,
                 passthrough: true,
                 held_outputs: PressedChord { keys: Vec::new() },
                 wheel_repeat: None,
@@ -786,6 +798,7 @@ impl MacInputState {
             started_at: now,
             original: source.original,
             long_fired: false,
+            long_repeat_due_at: None,
             passthrough: false,
             held_outputs,
             wheel_repeat,
@@ -906,6 +919,8 @@ impl MacInputState {
                         log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
                         execute_behaviors(&triggers.long_press);
                         press.long_fired = true;
+                        press.long_repeat_due_at =
+                            Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
                     } else {
                         log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
                         post_key(press.original, true, 0, false);
@@ -914,6 +929,16 @@ impl MacInputState {
                             now + Duration::from_millis(press.repeat_interval_ms);
                     }
                     state.pending_click = None;
+                }
+                if let Some(due_at) = press.long_repeat_due_at {
+                    if !has_enabled(&triggers.long_press) {
+                        press.long_repeat_due_at = None;
+                    } else if now >= due_at {
+                        log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
+                        execute_behaviors(&triggers.long_press);
+                        press.long_repeat_due_at =
+                            Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS));
+                    }
                 }
                 if now >= press.next_repeat_at {
                     if !press.held_outputs.is_empty() || press.passthrough {
@@ -1462,6 +1487,69 @@ mod tests {
     }
 
     #[test]
+    fn long_press_behavior_repeats_after_pause_and_stops_on_release() {
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "up": {
+                    "longPress": [{"type": "wheel", "direction": "up"}]
+                }
+            }
+        }))
+        .unwrap();
+        let shared = Shared {
+            settings: RwLock::new(settings),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            restart: AtomicBool::new(false),
+        };
+        let source = source_for_usage(0x52).unwrap();
+        let mut state = MacInputState::default();
+        TEST_WHEELS.with(|events| events.borrow_mut().clear());
+
+        state.press_source(&shared, source);
+        let press = state
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap();
+        press.started_at = Instant::now() - Duration::from_millis(LONG_PRESS_MS + 1);
+        state.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 1));
+
+        let press = state
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap();
+        assert!(press.long_fired);
+        assert!(press.long_repeat_due_at.is_some());
+        press.long_repeat_due_at = Some(Instant::now());
+        state.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 2));
+
+        let press = state
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap();
+        press.long_repeat_due_at = Some(Instant::now());
+        state.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 3));
+
+        state.release_source(&shared, source);
+        state.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 3));
+    }
+
+    #[test]
     fn parses_real_rc003_hid_reports() {
         assert_eq!(
             parse_hid_report(1, &[0x52, 0x00, 0x28, 0x00, 0x00, 0x00]),
@@ -1745,6 +1833,7 @@ mod tests {
             started_at: now,
             original: MacKey::keyboard(53),
             long_fired: false,
+            long_repeat_due_at: None,
             passthrough: false,
             held_outputs: PressedChord { keys: Vec::new() },
             wheel_repeat: None,

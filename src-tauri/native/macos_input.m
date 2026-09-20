@@ -1114,13 +1114,20 @@ bool axonkey_macos_post_key(
     uint16_t code,
     bool down,
     uint64_t flags,
-    bool autorepeat
+    bool autorepeat,
+    bool modifier
 ) {
     CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
     if (source == NULL) {
         return false;
     }
-    CGEventRef event = CGEventCreateKeyboardEvent(source, code, down);
+    CGEventRef event = modifier
+        ? CGEventCreate(source)
+        : CGEventCreateKeyboardEvent(source, code, down);
+    if (event != NULL && modifier) {
+        CGEventSetType(event, kCGEventFlagsChanged);
+        CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, code);
+    }
     CFRelease(source);
     if (event == NULL) {
         return false;
