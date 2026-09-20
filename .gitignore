@@ -26,3 +26,4 @@ vite.config.js
 !website/vite.config.js
 vite.config.d.ts
 secrets
+src-tauri/gen/schemas/
