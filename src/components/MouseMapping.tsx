@@ -76,7 +76,6 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
   const triggers: TriggerType[] = control.kind === 'button' ? ['click', 'doubleClick', 'longPress'] : ['click']
   const triggerIcons = { click: control.kind === 'button' ? MousePointerClick : icons[control.id], doubleClick: MousePointerClick, longPress: Clock3 }
   const original = inheritGlobal ? '沿用任意位置' : control.kind === 'button' ? '保留原始点击' : '保留原始滚动'
-  const unsetNote = inheritGlobal ? '未设置时沿用任意位置规则' : control.kind === 'button' ? '未设置时保留原始点击' : '未设置时保留原始滚动'
   return <section className="mouse-trigger-selector" ref={(node) => { if (node) rowRefs.current[activeId] = node }} aria-label={`${control.label}触发条件`}>
     <div className="mouse-trigger-heading"><h2>触发条件</h2><span>{control.label}</span></div>
     <div className="mouse-condition-row">
@@ -101,6 +100,5 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
         })}
       </div>
     </div>
-    <p className="mouse-condition-note">{scope.id === 'global' ? '作为默认规则；已配置的屏幕边缘规则优先。' : `距屏幕${scope.label} 8 ${platform === 'macos' ? '点' : '像素'}内生效；${unsetNote}，顶部角落优先使用上边缘。`}{control.kind === 'button' ? ' 双击间隔 350 毫秒，长按 600 毫秒；配置后该按键用于触发行为，不用于拖拽。' : ' 每滚动一格执行一次。'}</p>
   </section>
 }
