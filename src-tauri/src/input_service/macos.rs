@@ -1536,10 +1536,10 @@ mod tests {
     #[test]
     fn cursor_move_hold_repeats_and_stops_on_release_settings_change_or_disable() {
         for (direction, delta) in [
-            ("up", (0, -20)),
-            ("down", (0, 20)),
-            ("left", (-20, 0)),
-            ("right", (20, 0)),
+            ("up", (0, -50)),
+            ("down", (0, 50)),
+            ("left", (-50, 0)),
+            ("right", (50, 0)),
         ] {
             let settings: NativeSettings = serde_json::from_value(serde_json::json!({
                 "enabled": true,

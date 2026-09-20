@@ -1973,7 +1973,7 @@ mod tests {
             repeatable_click(&cursor),
             Some(RepeatableClick::CursorMove {
                 direction: WheelDirection::Up,
-                distance: 20,
+                distance: 50,
             })
         );
         cursor.double_click.push(cursor.click[0].clone());
@@ -2116,7 +2116,7 @@ mod tests {
             WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 3));
         }
         shared.settings.write().unwrap().enabled = true;
-        for (button, direction, delta) in [("up", "up", (0, -20)), ("left", "left", (-20, 0))] {
+        for (button, direction, delta) in [("up", "up", (0, -50)), ("left", "left", (-50, 0))] {
             let source = *SOURCE_KEYS
                 .iter()
                 .find(|source| source.id == button)

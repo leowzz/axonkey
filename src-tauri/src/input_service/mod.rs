@@ -122,7 +122,7 @@ fn enabled_by_default() -> bool {
 }
 
 fn default_cursor_distance() -> u32 {
-    20
+    50
 }
 
 pub(super) fn normalize_cursor_distance(distance: u32) -> u32 {
@@ -293,7 +293,7 @@ mod settings_tests {
             } => {
                 assert!(enabled);
                 assert_eq!(direction, super::WheelDirection::Left);
-                assert_eq!(distance, 20);
+                assert_eq!(distance, 50);
             }
             _ => panic!("expected cursorMove"),
         }
@@ -305,7 +305,7 @@ mod settings_tests {
             super::repeatable_click(&triggers),
             Some(super::RepeatableClick::CursorMove {
                 direction: super::WheelDirection::Down,
-                distance: 20,
+                distance: 50,
             })
         );
         assert_eq!(super::cursor_delta(super::WheelDirection::Up, 20), (0, -20));

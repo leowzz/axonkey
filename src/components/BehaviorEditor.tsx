@@ -25,7 +25,8 @@ import {
   X,
 } from 'lucide-react'
 import type { Behavior, InputId, TriggerType } from '../behaviorModel'
-import { maxCursorDistance } from '../behaviorModel'
+import { defaultCursorDistance, maxCursorDistance } from '../behaviorModel'
+import { SettingsHelp } from './SettingsHelp'
 import {
   behaviorSummary,
   behaviorTypeLabels,
@@ -177,10 +178,10 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
               <BehaviorActionButton icon={<ArrowRight size={17} />} label="鼠标滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
-              <BehaviorActionButton icon={<MoveUp size={17} />} label="光标上移" detail="默认 20 像素" onClick={() => onApplyCommonBehavior('cursorUp')} />
-              <BehaviorActionButton icon={<MoveDown size={17} />} label="光标下移" detail="默认 20 像素" onClick={() => onApplyCommonBehavior('cursorDown')} />
-              <BehaviorActionButton icon={<MoveLeft size={17} />} label="光标左移" detail="默认 20 像素" onClick={() => onApplyCommonBehavior('cursorLeft')} />
-              <BehaviorActionButton icon={<MoveRight size={17} />} label="光标右移" detail="默认 20 像素" onClick={() => onApplyCommonBehavior('cursorRight')} />
+              <BehaviorActionButton icon={<MoveUp size={17} />} label="光标上移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorUp')} />
+              <BehaviorActionButton icon={<MoveDown size={17} />} label="光标下移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorDown')} />
+              <BehaviorActionButton icon={<MoveLeft size={17} />} label="光标左移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorLeft')} />
+              <BehaviorActionButton icon={<MoveRight size={17} />} label="光标右移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorRight')} />
             </>}
           </>}
           {activeTab === 'media' && <>
@@ -334,27 +335,42 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior, captur
             <option value="up">滚轮向上</option><option value="down">滚轮向下</option><option value="left">水平滚轮向左</option><option value="right">水平滚轮向右</option>
           </select>
           <p>{button.contextLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</p>
-        </div> : behavior.type === 'cursorMove' ? <div className="behavior-dialog-field">
-          <label htmlFor="behavior-cursor-direction">移动方向</label>
-          <select id="behavior-cursor-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'cursorMove' ? { ...current, direction: event.target.value as typeof current.direction } : current)}>
-            <option value="up">光标上移</option><option value="down">光标下移</option><option value="left">光标左移</option><option value="right">光标右移</option>
-          </select>
-          <label htmlFor="behavior-cursor-distance">移动距离</label>
-          <div className="behavior-delay-row">
-            <input
-              id="behavior-cursor-distance"
-              className="behavior-delay-input"
-              type="number"
-              min="1"
-              max={maxCursorDistance}
-              step="1"
-              value={behavior.distance}
-              onChange={(event) => onUpdate((current) => current.type === 'cursorMove' ? { ...current, distance: Math.max(1, Math.min(maxCursorDistance, Math.round(Number(event.target.value)) || 1)) } : current)}
-            />
-            <span>像素</span>
+        </div> : behavior.type === 'cursorMove' ? <>
+          <div className="behavior-current-value"><span>当前动作</span><strong>{behaviorSummary(behavior, platform)}</strong></div>
+          <div className="settings-form-fields behavior-dialog-form">
+            <div className="settings-form-row">
+              <span className="settings-form-label" id="behavior-cursor-direction-label">移动方向：</span>
+              <div className="settings-form-control">
+                <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
+                  {([['up', '上'], ['down', '下'], ['left', '左'], ['right', '右']] as const).map(([direction, label]) => {
+                    const selected = behavior.direction === direction
+                    return <button key={direction} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => onUpdate((current) => current.type === 'cursorMove' ? { ...current, direction } : current)}>{label}</button>
+                  })}
+                </div>
+                <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">从当前光标位置相对移动，不会跳到固定坐标。</SettingsHelp>
+              </div>
+            </div>
+            <div className="settings-form-row">
+              <label className="settings-form-label" htmlFor="behavior-cursor-distance">移动距离：</label>
+              <div className="settings-form-control">
+                <input
+                  id="behavior-cursor-distance"
+                  className="settings-number"
+                  type="number"
+                  min="1"
+                  max={maxCursorDistance}
+                  step="1"
+                  value={behavior.distance}
+                  onChange={(event) => onUpdate((current) => current.type === 'cursorMove' ? { ...current, distance: Math.max(1, Math.min(maxCursorDistance, Math.round(Number(event.target.value)) || 1)) } : current)}
+                />
+                <span>像素</span>
+                <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">{button.contextLabel
+                  ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
+                  : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}</SettingsHelp>
+              </div>
+            </div>
           </div>
-          <p>{button.contextLabel ? '每次触发从当前光标位置移动指定像素。' : '从当前光标位置相对移动。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。'}</p>
-        </div> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
+        </> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
           id="behavior-paste-text"
           className="behavior-paste-input"
           autoFocus={draft}

@@ -18,7 +18,7 @@ export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove',
 export type BehaviorType = (typeof behaviorTypes)[number]
 export const cursorDirections = ['up', 'down', 'left', 'right'] as const
 export type CursorDirection = (typeof cursorDirections)[number]
-export const defaultCursorDistance = 20
+export const defaultCursorDistance = 50
 export const maxCursorDistance = 500
 
 type BehaviorBase = {
