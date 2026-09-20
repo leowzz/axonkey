@@ -1312,7 +1312,7 @@ function AppController() {
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
             <aside className="mapping-device-rail panel-surface">
               <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
-                selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.global.up', 'click', false)
+                selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.top.up', 'click', false)
                 mappingMainRef.current?.scrollTo({ top: 0 })
               }} />
               <DeviceStatusCard status={deviceStatus} />

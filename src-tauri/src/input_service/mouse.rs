@@ -16,13 +16,7 @@ mod platform;
 #[path = "mouse_macos.rs"]
 mod platform;
 
-const WHEEL_INPUTS: [[&str; 4]; 4] = [
-    [
-        "mouse.global.up",
-        "mouse.global.down",
-        "mouse.global.left",
-        "mouse.global.right",
-    ],
+const WHEEL_INPUTS: [[&str; 4]; 3] = [
     [
         "mouse.top.up",
         "mouse.top.down",
@@ -42,6 +36,7 @@ const WHEEL_INPUTS: [[&str; 4]; 4] = [
         "mouse.right.right",
     ],
 ];
+const SIDE_BUTTON_GLOBAL: [&str; 2] = ["mouse.global.buttonBack", "mouse.global.buttonForward"];
 const BUTTON_INPUTS: [[&str; 4]; 3] = [
     [
         "mouse.top.buttonLeft",
@@ -191,7 +186,10 @@ impl MouseService {
             }) || BUTTON_INPUTS
                 .iter()
                 .flatten()
-                .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers)));
+                .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers))
+                || SIDE_BUTTON_GLOBAL
+                    .iter()
+                    .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers)));
         self.shared.active.store(active, Ordering::Release);
         if active && !self.shared.ready.load(Ordering::Acquire) {
             return Err("鼠标监听尚未就绪；macOS 请检查输入监控与辅助功能权限，然后重试".into());
@@ -232,9 +230,9 @@ enum Edge {
 impl Edge {
     fn scope(self) -> usize {
         match self {
-            Self::Top => 1,
-            Self::Left => 2,
-            Self::Right => 3,
+            Self::Top => 0,
+            Self::Left => 1,
+            Self::Right => 2,
         }
     }
 }
@@ -273,7 +271,6 @@ impl ScrollAccumulator {
     }
 
     fn reset(&mut self) {
-        self.edge = None;
         self.key = None;
         self.remainder = 0.0;
     }
@@ -291,25 +288,18 @@ impl ScrollAccumulator {
         let Ok(config) = shared.configuration.try_lock() else {
             return false;
         };
-        let global_id = WHEEL_INPUTS[0][direction];
-        let scoped_id = WHEEL_INPUTS[self.edge.map_or(0, Edge::scope)][direction];
-        let scoped = config
+        // Wheel mapping is edge-only. Ignore leftover global wheel rules.
+        let Some(edge) = self.edge else {
+            self.key = None;
+            self.remainder = 0.0;
+            return false;
+        };
+        let id = WHEEL_INPUTS[edge.scope()][direction];
+        let actions = config
             .settings
             .behaviors
-            .get(scoped_id)
+            .get(id)
             .map(|item| &item.click);
-        let (id, actions) = if scoped.is_some_and(|a| has_actions(a)) {
-            (scoped_id, scoped)
-        } else {
-            (
-                global_id,
-                config
-                    .settings
-                    .behaviors
-                    .get(global_id)
-                    .map(|item| &item.click),
-            )
-        };
         let Some(actions) = actions.filter(|a| config.settings.enabled && config.settings.mouse_enabled && has_actions(a)) else {
             self.key = None;
             self.remainder = 0.0;
@@ -402,10 +392,22 @@ fn button_rule(
     if !config.settings.enabled || !config.settings.mouse_enabled {
         return None;
     }
-    // Mouse buttons are edge-only. Never inherit legacy global button rules,
-    // including settings sent directly to the native service by an older UI.
-    let edge = edge?;
-    let input = BUTTON_INPUTS[edge.scope() - 1].get(button)?;
+    // Left/right stay edge-only. Back/forward use an edge rule when present,
+    // otherwise inherit the global side-button mapping.
+    if button < 2 {
+        let edge = edge?;
+        let input = BUTTON_INPUTS[edge.scope()].get(button)?;
+        let triggers = config.settings.behaviors.get(*input)?;
+        return has_triggers(triggers).then(|| (*input, triggers.clone()));
+    }
+    if let Some(edge) = edge {
+        if let Some(input) = BUTTON_INPUTS[edge.scope()].get(button) {
+            if let Some(triggers) = config.settings.behaviors.get(*input).filter(|item| has_triggers(item)) {
+                return Some((*input, triggers.clone()));
+            }
+        }
+    }
+    let input = SIDE_BUTTON_GLOBAL.get(button.checked_sub(2)?)?;
     let triggers = config.settings.behaviors.get(*input)?;
     has_triggers(triggers).then(|| (*input, triggers.clone()))
 }
@@ -697,10 +699,14 @@ mod tests {
     #[test]
     fn wheel_intervals_limit_each_axis_without_queued_repeats() {
         let (shared, receiver) = fixture(serde_json::json!({
-            "mouse.global.up": {"click":[{"type":"key","key":"A"}]},
-            "mouse.global.down": {"click":[{"type":"key","key":"B"}]},
-            "mouse.global.left": {"click":[{"type":"key","key":"C"}]},
-            "mouse.global.right": {"click":[{"type":"key","key":"D"}]}
+            "mouse.top.up": {"click":[{"type":"key","key":"A"}]},
+            "mouse.top.down": {"click":[{"type":"key","key":"B"}]},
+            "mouse.top.left": {"click":[{"type":"key","key":"C"}]},
+            "mouse.top.right": {"click":[{"type":"key","key":"D"}]},
+            "mouse.right.up": {"click":[{"type":"key","key":"A"}]},
+            "mouse.right.down": {"click":[{"type":"key","key":"B"}]},
+            "mouse.right.left": {"click":[{"type":"key","key":"C"}]},
+            "mouse.right.right": {"click":[{"type":"key","key":"D"}]}
         }));
         {
             let mut config = shared.configuration.lock().unwrap();
@@ -709,6 +715,7 @@ mod tests {
         }
         let start = Instant::now();
         let mut scroll = ScrollAccumulator::default();
+        scroll.enter(Some(Edge::Top));
         // Acceleration cannot create a burst of actions inside one interval.
         assert!(scroll.scroll_at(&shared, 0, 20.0, start));
         assert_eq!(receiver.try_recv().unwrap().repeats, 1);
@@ -746,12 +753,13 @@ mod tests {
     #[test]
     fn wheel_interval_starts_only_after_successful_enqueue() {
         let (mut shared, _) = fixture(serde_json::json!({
-            "mouse.global.up": {"click":[{"type":"key","key":"A"}]}
+            "mouse.top.up": {"click":[{"type":"key","key":"A"}]}
         }));
         shared.configuration.lock().unwrap().settings.mouse_vertical_scroll_interval_ms = 100;
         let (sender, receiver) = mpsc::sync_channel(1);
         shared.sender = sender;
         let mut scroll = ScrollAccumulator::default();
+        scroll.enter(Some(Edge::Top));
         let start = Instant::now();
         assert!(scroll.scroll_at(&shared, 0, 0.5, start));
         assert!(receiver.try_recv().is_err());
@@ -786,7 +794,7 @@ mod tests {
         assert!(matches!(&job.behaviors[0], NativeBehavior::Key { key, .. } if key == expected));
     }
     #[test]
-    fn wheel_rules_fall_back_per_direction_and_edge_rules_can_disable_global() {
+    fn wheel_rules_ignore_legacy_global_and_keep_unmapped_native() {
         let (shared, receiver) = fixture(serde_json::json!({
             "mouse.global.up": {"click":[{"type":"key","key":"G"}]},
             "mouse.global.left": {"click":[{"type":"key","key":"H"}]},
@@ -795,8 +803,7 @@ mod tests {
             "mouse.right.up": {"click":[{"type":"key","key":"R","enabled":false}]}
         }));
         let mut scroll = ScrollAccumulator::default();
-        assert!(scroll.scroll(&shared, 0, 1.0));
-        assert_key(receiver.try_recv().unwrap(), "G");
+        assert!(!scroll.scroll(&shared, 0, 1.0));
         scroll.enter(Some(Edge::Top));
         assert!(scroll.scroll(&shared, 0, 1.0));
         assert_key(receiver.try_recv().unwrap(), "T");
@@ -806,14 +813,11 @@ mod tests {
             receiver.try_recv().unwrap().behaviors[0],
             NativeBehavior::Disabled { .. }
         ));
-        assert!(scroll.scroll(&shared, 2, 1.0));
-        assert_key(receiver.try_recv().unwrap(), "H");
+        assert!(!scroll.scroll(&shared, 2, 1.0));
         scroll.enter(Some(Edge::Right));
-        assert!(scroll.scroll(&shared, 0, 1.0));
-        assert_key(receiver.try_recv().unwrap(), "G");
-        assert!(scroll.scroll(&shared, 0, 0.5));
+        assert!(!scroll.scroll(&shared, 0, 1.0));
         scroll.enter(None);
-        assert!(scroll.scroll(&shared, 0, 0.5));
+        assert!(!scroll.scroll(&shared, 0, 1.0));
         assert!(receiver.try_recv().is_err());
     }
     #[test]
@@ -847,6 +851,38 @@ mod tests {
         assert!(buttons.event(&shared, 3, true, Some(Edge::Top), (20.0, 0.0), now));
         assert!(buttons.event(&shared, 3, false, Some(Edge::Top), (20.0, 0.0), now));
         assert_key(receiver.try_recv().unwrap(), "F");
+        assert!(!buttons.event(&shared, 2, true, None, (50.0, 50.0), now));
+        assert!(!buttons.event(&shared, 3, true, None, (50.0, 50.0), now));
+    }
+    #[test]
+    fn side_buttons_inherit_global_anywhere_and_prefer_edge_rules() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonBack": {"click":[{"type":"key","key":"G"}]},
+            "mouse.global.buttonForward": {"click":[{"type":"key","key":"H"}]},
+            "mouse.top.buttonBack": {"click":[{"type":"key","key":"T"}]},
+            "mouse.left.buttonBack": {"click":[{"type":"disabled"}]},
+            "mouse.right.buttonBack": {"click":[{"type":"key","key":"R","enabled":false}]}
+        }));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), now));
+        assert!(buttons.event(&shared, 2, false, None, (50.0, 50.0), now));
+        assert_key(receiver.try_recv().unwrap(), "G");
+        assert!(buttons.event(&shared, 3, true, Some(Edge::Right), (20.0, 50.0), now));
+        assert!(buttons.event(&shared, 3, false, Some(Edge::Right), (20.0, 50.0), now));
+        assert_key(receiver.try_recv().unwrap(), "H");
+        assert!(buttons.event(&shared, 2, true, Some(Edge::Top), (20.0, 0.0), now));
+        assert!(buttons.event(&shared, 2, false, Some(Edge::Top), (20.0, 0.0), now));
+        assert_key(receiver.try_recv().unwrap(), "T");
+        assert!(buttons.event(&shared, 2, true, Some(Edge::Left), (0.0, 50.0), now));
+        assert!(buttons.event(&shared, 2, false, Some(Edge::Left), (0.0, 50.0), now));
+        assert!(matches!(
+            receiver.try_recv().unwrap().behaviors[0],
+            NativeBehavior::Disabled { .. }
+        ));
+        assert!(buttons.event(&shared, 2, true, Some(Edge::Right), (90.0, 50.0), now));
+        assert!(buttons.event(&shared, 2, false, Some(Edge::Right), (90.0, 50.0), now));
+        assert_key(receiver.try_recv().unwrap(), "G");
     }
     #[test]
     fn double_click_suppresses_singles_and_long_press_fires_once() {

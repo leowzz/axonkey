@@ -176,7 +176,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
             <input id="mouse-edge-width" className="settings-number" type="number" min={1} max={100} step={1} value={mouseEdgeWidth}
               onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) onMouseEdgeWidthChange(Math.max(1, Math.min(100, Math.round(value)))) }} />
             <span>px</span>
-            <SettingsHelp id="mouse-edge-width-help" label="边缘生效宽度">顶部、左侧和右侧边缘共用，适用于滚动和左右键映射。范围 1–100，默认 8。按屏幕坐标计算：Windows 为像素，macOS 为点；顶部角落优先使用上边缘规则。</SettingsHelp>
+            <SettingsHelp id="mouse-edge-width-help" label="边缘生效宽度">顶部、左侧和右侧边缘共用，适用于滚动和鼠标按键映射。范围 1–100，默认 8。按屏幕坐标计算：Windows 为像素，macOS 为点；顶部角落优先使用上边缘规则。</SettingsHelp>
           </div>
         </div>
         {([

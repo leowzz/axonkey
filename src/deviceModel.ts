@@ -19,9 +19,12 @@ export const mouseControls = [
 export type MouseScopeId = typeof mouseScopes[number]['id']
 export type MouseControlId = typeof mouseControls[number]['id']
 export type RemoteButtonId = typeof remoteButtonIds[number]
-export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonForward' | 'mouse.global.buttonBack' | 'mouse.global.buttonRight'>
+export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonRight' | 'mouse.global.up' | 'mouse.global.down' | 'mouse.global.left' | 'mouse.global.right'>
+export function mouseControlAllowsGlobal(control: MouseControlId) {
+  return control === 'buttonForward' || control === 'buttonBack'
+}
 export function mouseScopesForControl(control: MouseControlId) {
-  return mouseScopes.filter((scope) => scope.id !== 'global' || !control.startsWith('button'))
+  return mouseScopes.filter((scope) => scope.id !== 'global' || mouseControlAllowsGlobal(control))
 }
 export function mouseInputId(scope: MouseScopeId, control: MouseControlId): MouseInputId {
   const allowedScopes = mouseScopesForControl(control)

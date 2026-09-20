@@ -57,10 +57,10 @@ test('device selection exposes two rows and selected device owns its status card
 
 test('mouse model, input picker and scope preserve selection and expose supported triggers', () => {
   const behaviors = createDefaultBehaviorMap()
-  behaviors['mouse.global.buttonLeft'] = {click:[],doubleClick:[createBehavior({type:'key',key:'Enter'})],longPress:[]}
+  behaviors['mouse.global.buttonForward'] = {click:[],doubleClick:[createBehavior({type:'key',key:'Enter'})],longPress:[]}
   let view, selected
   function Harness() {
-    const [id,setId] = React.useState('mouse.global.up')
+    const [id,setId] = React.useState('mouse.top.up')
     const [trigger,setTrigger] = React.useState('click')
     selected = {id,trigger}
     const onSelect = (id, trigger) => {setId(id);setTrigger(trigger)}
@@ -73,7 +73,8 @@ test('mouse model, input picker and scope preserve selection and expose supporte
   const buttons = () => view.root.findAllByType('button')
   const tabs = () => buttons().filter(b=>b.props.role === 'tab')
   assert.equal(tabs().length, 1)
-  assert.ok(buttons().some(b=>text(b) === '任意位置'))
+  assert.ok(!buttons().some(b=>text(b) === '任意位置'))
+  assert.ok(text(tabs()[0]).includes('保留原始滚动'))
   act(() => buttons().find(b=>b.props['aria-label'] === '选择鼠标左键').props.onClick())
   assert.deepEqual(selected, {id:'mouse.top.buttonLeft',trigger:'click'})
   assert.equal(tabs().length, 3)
@@ -86,7 +87,14 @@ test('mouse model, input picker and scope preserve selection and expose supporte
   act(() => buttons().find(b=>b.props['aria-label'] === '选择向右滚动').props.onClick())
   assert.deepEqual(selected, {id:'mouse.right.right',trigger:'click'})
   assert.equal(tabs().length, 1)
+  assert.ok(!buttons().some(b=>text(b) === '任意位置'))
+  act(() => buttons().find(b=>b.props['aria-label'] === '选择鼠标前进键').props.onClick())
+  assert.deepEqual(selected, {id:'mouse.right.buttonForward',trigger:'click'})
+  assert.ok(buttons().some(b=>text(b) === '任意位置'))
+  assert.ok(text(tabs()[1]).includes('沿用'))
+  assert.ok(text(tabs()[1]).includes('Enter'))
   act(() => buttons().find(b=>text(b) === '任意位置').props.onClick())
+  assert.deepEqual(selected, {id:'mouse.global.buttonForward',trigger:'click'})
   // Exercise the right-side picker as well as the model on the left.
   act(() => buttons().find(b=>text(b) === '鼠标右键').props.onClick())
   assert.deepEqual(selected, {id:'mouse.top.buttonRight',trigger:'click'})
