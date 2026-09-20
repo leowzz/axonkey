@@ -1225,7 +1225,8 @@ bool axonkey_macos_post_mouse_click(int button) {
             down_type = kCGEventRightMouseDown;
             up_type = kCGEventRightMouseUp;
             break;
-        case kCGMouseButtonCenter:
+        case 3:
+        case 4:
             down_type = kCGEventOtherMouseDown;
             up_type = kCGEventOtherMouseUp;
             break;
@@ -1263,6 +1264,37 @@ typedef struct {
     CFMachPortRef tap;
 } AxonkeyMouseCapture;
 
+static CGRect axonkey_display_bounds_for_point(CGPoint point) {
+    CGDirectDisplayID displays[16];
+    uint32_t count = 0;
+    if (CGGetDisplaysWithPoint(point, 16, displays, &count) == kCGErrorSuccess && count > 0) {
+        return CGDisplayBounds(displays[0]);
+    }
+
+    // A point exactly on a display boundary may not match
+    // CGGetDisplaysWithPoint. Fall back to the nearest active display so
+    // edge clicks still get the correct coordinate space.
+    count = 0;
+    if (CGGetActiveDisplayList(16, displays, &count) != kCGErrorSuccess || count == 0) {
+        return CGRectZero;
+    }
+    CGRect nearest = CGRectZero;
+    CGFloat nearest_distance = CGFLOAT_MAX;
+    for (uint32_t index = 0; index < count; index++) {
+        CGRect candidate = CGDisplayBounds(displays[index]);
+        CGFloat dx = point.x < CGRectGetMinX(candidate) ? CGRectGetMinX(candidate) - point.x
+            : point.x > CGRectGetMaxX(candidate) ? point.x - CGRectGetMaxX(candidate) : 0;
+        CGFloat dy = point.y < CGRectGetMinY(candidate) ? CGRectGetMinY(candidate) - point.y
+            : point.y > CGRectGetMaxY(candidate) ? point.y - CGRectGetMaxY(candidate) : 0;
+        CGFloat distance = dx * dx + dy * dy;
+        if (distance < nearest_distance) {
+            nearest_distance = distance;
+            nearest = candidate;
+        }
+    }
+    return nearest;
+}
+
 // Discrete wheel ticks must not wait for accelerated fractional line deltas
 // to reach one. Continuous devices retain pixel accumulation for fine motion.
 static double axonkey_mouse_scroll_amount(CGEventRef event, CGEventField lines,
@@ -1283,14 +1315,14 @@ static CGEventRef axonkey_mouse_callback(CGEventTapProxy proxy, CGEventType type
     }
     if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == AXONKEY_SYNTHETIC_EVENT_MARKER) return event;
     CGPoint point = CGEventGetLocation(event);
-    CGDirectDisplayID displays[16];
-    uint32_t count = 0;
-    CGRect bounds = CGRectZero;
-    if (CGGetDisplaysWithPoint(point, 16, displays, &count) == kCGErrorSuccess && count > 0) bounds = CGDisplayBounds(displays[0]);
-    if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp || type == kCGEventRightMouseDown || type == kCGEventRightMouseUp) {
+    CGRect bounds = axonkey_display_bounds_for_point(point);
+    if (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp || type == kCGEventRightMouseDown || type == kCGEventRightMouseUp || type == kCGEventOtherMouseDown || type == kCGEventOtherMouseUp) {
+        int64_t button_number = CGEventGetIntegerValueField(event, kCGMouseEventButtonNumber);
+        // Quartz uses 0/1/2 for left/right/center. Keep the raw number so
+        // Rust can log and pass through side buttons (3 and above) explicitly.
         bool consumed = capture->on_button(capture->context,
-            (type == kCGEventLeftMouseDown || type == kCGEventLeftMouseUp) ? 0 : 1,
-            type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown, point.x, point.y,
+            (int32_t)button_number,
+            type == kCGEventLeftMouseDown || type == kCGEventRightMouseDown || type == kCGEventOtherMouseDown, point.x, point.y,
             CGRectGetMinX(bounds), CGRectGetMinY(bounds), CGRectGetMaxX(bounds), CGRectGetMaxY(bounds));
         return consumed ? NULL : event;
     }
@@ -1315,7 +1347,8 @@ bool axonkey_macos_mouse_run(void *context, bool (*should_stop)(void *), void (*
         capture.tap = CGEventTapCreate(kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault,
             CGEventMaskBit(kCGEventScrollWheel) | CGEventMaskBit(kCGEventMouseMoved)
             | CGEventMaskBit(kCGEventLeftMouseDown) | CGEventMaskBit(kCGEventLeftMouseUp)
-            | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp), axonkey_mouse_callback, &capture);
+            | CGEventMaskBit(kCGEventRightMouseDown) | CGEventMaskBit(kCGEventRightMouseUp)
+            | CGEventMaskBit(kCGEventOtherMouseDown) | CGEventMaskBit(kCGEventOtherMouseUp), axonkey_mouse_callback, &capture);
         if (capture.tap == NULL) return false;
         CFRunLoopSourceRef source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, capture.tap, 0);
         if (source == NULL) { CFRelease(capture.tap); return false; }

@@ -63,6 +63,14 @@ fn wheel_direction(message: usize, delta: i32, flags: u32) -> Option<usize> {
     }
 }
 
+fn xbutton_index(mouse_data: u32) -> Option<usize> {
+    match (mouse_data >> 16) as u16 {
+        1 => Some(2), // XBUTTON1: browser back
+        2 => Some(3), // XBUTTON2: browser forward
+        _ => None,
+    }
+}
+
 #[link(name = "user32")]
 extern "system" {
     fn SetWindowsHookExW(
@@ -97,7 +105,7 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
             || lparam == 0
             || !matches!(
                 wparam,
-                0x0200 | 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x020A | 0x020E
+                0x0200 | 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208 | 0x020A | 0x020E
             )
         {
             return false;
@@ -133,11 +141,18 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
             } else {
                 None
             };
-            if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205) {
+            if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208) {
+                let button = match wparam {
+                    0x0201 | 0x0202 => Some(0),
+                    0x0204 | 0x0205 => Some(1),
+                    0x0207 | 0x0208 => xbutton_index(event.mouse_data),
+                    _ => None,
+                };
+                let Some(button) = button else { return false };
                 return buttons.event(
                     shared,
-                    if wparam <= 0x0202 { 0 } else { 1 },
-                    matches!(wparam, 0x0201 | 0x0204),
+                    button,
+                    matches!(wparam, 0x0201 | 0x0204 | 0x0207),
                     edge,
                     (event.point.x as f64, event.point.y as f64),
                     Instant::now(),
@@ -222,6 +237,14 @@ pub(super) fn execute(behavior: &NativeBehavior, hold_ms: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn xbuttons_map_to_back_and_forward_inputs() {
+        assert_eq!(xbutton_index(1 << 16), Some(2));
+        assert_eq!(xbutton_index(2 << 16), Some(3));
+        assert_eq!(xbutton_index(3 << 16), None);
+    }
+
     #[test]
     fn native_wheel_axes_have_distinct_signs_and_never_reconsume_injected_events() {
         assert_eq!(wheel_direction(0x020A, 120, 0), Some(0));

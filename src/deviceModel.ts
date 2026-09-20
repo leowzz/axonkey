@@ -8,6 +8,8 @@ export const mouseScopes = [
 ] as const
 export const mouseControls = [
   { id: 'buttonLeft', label: '鼠标左键', kind: 'button', icon: 'center' },
+  { id: 'buttonForward', label: '鼠标前进键 (4)', kind: 'button', icon: 'center' },
+  { id: 'buttonBack', label: '鼠标后退键 (3)', kind: 'button', icon: 'center' },
   { id: 'buttonRight', label: '鼠标右键', kind: 'button', icon: 'center' },
   { id: 'up', label: '向上滚动', kind: 'wheel', icon: 'up' },
   { id: 'down', label: '向下滚动', kind: 'wheel', icon: 'down' },
@@ -17,9 +19,9 @@ export const mouseControls = [
 export type MouseScopeId = typeof mouseScopes[number]['id']
 export type MouseControlId = typeof mouseControls[number]['id']
 export type RemoteButtonId = typeof remoteButtonIds[number]
-export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonRight'>
+export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonForward' | 'mouse.global.buttonBack' | 'mouse.global.buttonRight'>
 export function mouseScopesForControl(control: MouseControlId) {
-  return mouseScopes.filter((scope) => scope.id !== 'global' || (control !== 'buttonLeft' && control !== 'buttonRight'))
+  return mouseScopes.filter((scope) => scope.id !== 'global' || !control.startsWith('button'))
 }
 export function mouseInputId(scope: MouseScopeId, control: MouseControlId): MouseInputId {
   const allowedScopes = mouseScopesForControl(control)
@@ -31,7 +33,7 @@ export function mouseInputParts(id: InputId) {
   const [, scopeId, controlId] = id.split('.')
   return {
     scope: mouseScopes.find((scope) => scope.id === scopeId) ?? mouseScopes[0],
-    control: mouseControls.find((control) => control.id === controlId) ?? mouseControls[2],
+    control: mouseControls.find((control) => control.id === controlId) ?? mouseControls[0],
   }
 }
 export type InputId = RemoteButtonId | MouseInputId

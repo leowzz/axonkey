@@ -42,10 +42,25 @@ const WHEEL_INPUTS: [[&str; 4]; 4] = [
         "mouse.right.right",
     ],
 ];
-const BUTTON_INPUTS: [[&str; 2]; 3] = [
-    ["mouse.top.buttonLeft", "mouse.top.buttonRight"],
-    ["mouse.left.buttonLeft", "mouse.left.buttonRight"],
-    ["mouse.right.buttonLeft", "mouse.right.buttonRight"],
+const BUTTON_INPUTS: [[&str; 4]; 3] = [
+    [
+        "mouse.top.buttonLeft",
+        "mouse.top.buttonRight",
+        "mouse.top.buttonBack",
+        "mouse.top.buttonForward",
+    ],
+    [
+        "mouse.left.buttonLeft",
+        "mouse.left.buttonRight",
+        "mouse.left.buttonBack",
+        "mouse.left.buttonForward",
+    ],
+    [
+        "mouse.right.buttonLeft",
+        "mouse.right.buttonRight",
+        "mouse.right.buttonBack",
+        "mouse.right.buttonForward",
+    ],
 ];
 const DOUBLE_CLICK: Duration = Duration::from_millis(350);
 const LONG_PRESS: Duration = Duration::from_millis(600);
@@ -351,8 +366,8 @@ impl ScrollAccumulator {
 // consume its matching up, but never swallow an up whose down passed through.
 #[derive(Default)]
 struct ButtonTracker {
-    pressed: [Option<Press>; 2],
-    pending: [Option<PendingClick>; 2],
+    pressed: [Option<Press>; 4],
+    pending: [Option<PendingClick>; 4],
 }
 struct Press {
     input: &'static str,
@@ -396,7 +411,7 @@ fn button_rule(
 }
 impl ButtonTracker {
     fn tick(&mut self, shared: &Shared, now: Instant) {
-        for index in 0..2 {
+        for index in 0..4 {
             if let Some(press) = self.pressed[index].as_mut() {
                 if !press.long_fired
                     && has_actions(&press.triggers.long_press)
@@ -423,7 +438,7 @@ impl ButtonTracker {
         position: (f64, f64),
         now: Instant,
     ) -> bool {
-        if button >= 2 {
+        if button >= 4 {
             return false;
         }
         self.tick(shared, now);
@@ -476,10 +491,11 @@ impl ButtonTracker {
                 } else {
                     vec![NativeBehavior::Mouse {
                         enabled: true,
-                        button: if button == 0 {
-                            MouseButton::Left
-                        } else {
-                            MouseButton::Right
+                        button: match button {
+                            0 => MouseButton::Left,
+                            1 => MouseButton::Right,
+                            2 => MouseButton::Back,
+                            _ => MouseButton::Forward,
                         },
                     }]
                 };
@@ -818,6 +834,21 @@ mod tests {
         assert_key(receiver.try_recv().unwrap(), "R");
     }
     #[test]
+    fn side_buttons_use_their_edge_mappings_and_restore_original_clicks() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.top.buttonBack": {"click":[{"type":"key","key":"B"}]},
+            "mouse.top.buttonForward": {"click":[{"type":"key","key":"F"}]}
+        }));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        assert!(buttons.event(&shared, 2, true, Some(Edge::Top), (20.0, 0.0), now));
+        assert!(buttons.event(&shared, 2, false, Some(Edge::Top), (20.0, 0.0), now));
+        assert_key(receiver.try_recv().unwrap(), "B");
+        assert!(buttons.event(&shared, 3, true, Some(Edge::Top), (20.0, 0.0), now));
+        assert!(buttons.event(&shared, 3, false, Some(Edge::Top), (20.0, 0.0), now));
+        assert_key(receiver.try_recv().unwrap(), "F");
+    }
+    #[test]
     fn double_click_suppresses_singles_and_long_press_fires_once() {
         let (shared, receiver) = fixture(serde_json::json!({
             "mouse.top.buttonLeft": {
@@ -940,7 +971,7 @@ mod tests {
         }));
         let mut buttons = ButtonTracker::default();
         let now = Instant::now();
-        for button in 0..2 {
+        for button in 0..4 {
             for edge in [None, Some(Edge::Left), Some(Edge::Right)] {
                 assert!(!buttons.event(&shared, button, true, edge, (50.0, 50.0), now));
                 buttons.tick(&shared, now + LONG_PRESS);

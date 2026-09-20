@@ -1599,10 +1599,11 @@ fn send_wheel_with_axis(delta: i32, horizontal: bool) {
 }
 
 fn send_mouse_click(button: super::MouseButton) {
-    let (down, up) = match button {
-        super::MouseButton::Left => (0x0002, 0x0004),
-        super::MouseButton::Middle => (0x0020, 0x0040),
-        super::MouseButton::Right => (0x0008, 0x0010),
+    let (down, up, mouse_data) = match button {
+        super::MouseButton::Left => (0x0002, 0x0004, 0),
+        super::MouseButton::Right => (0x0008, 0x0010, 0),
+        super::MouseButton::Back => (0x0080, 0x0100, 1),
+        super::MouseButton::Forward => (0x0080, 0x0100, 2),
     };
     for flags in [down, up] {
         let input = Input {
@@ -1611,7 +1612,7 @@ fn send_mouse_click(button: super::MouseButton) {
                 mouse: MouseInput {
                     dx: 0,
                     dy: 0,
-                    mouse_data: 0,
+                    mouse_data: mouse_data << 16,
                     flags,
                     time: 0,
                     extra_info: 0,

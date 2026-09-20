@@ -1131,7 +1131,8 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
                 let code = match button {
                     MouseButton::Left => 0,
                     MouseButton::Right => 1,
-                    MouseButton::Middle => 2,
+                    MouseButton::Back => 3,
+                    MouseButton::Forward => 4,
                 };
                 if !unsafe { axonkey_macos_post_mouse_click(code) } {
                     log::warn!(target: "axonkey::input", "Mouse button injection failed: {button:?}");
@@ -1380,7 +1381,7 @@ mod tests {
             "enabled": true,
             "behaviors": {"up": {"click": [
                 {"type": "wheel", "direction": "left"},
-                {"type": "mouse", "button": "middle"}
+                {"type": "mouse", "button": "back"}
             ]}}
         }))
         .unwrap();

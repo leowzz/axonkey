@@ -140,8 +140,9 @@ impl NativeBehavior {
 #[serde(rename_all = "camelCase")]
 pub(super) enum MouseButton {
     Left,
-    Middle,
     Right,
+    Back,
+    Forward,
 }
 
 #[cfg(target_os = "macos")]

@@ -1057,9 +1057,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mouse-part { display: flex; align-items: center; justify-content: center; gap: 3px; padding: 0; border: 1px solid #ccdaea; background: #f6faff; color: #607e9c; font: inherit; font-size: 11px; cursor: pointer; }
 .mouse-part:hover { border-color: #559cf0; background: #eaf4ff; }
 .mouse-part[aria-pressed="true"] { border-color: #2385ee; background: #227de0; color: #fff; box-shadow: 0 3px 8px #267ee02b; }
-.mouse-part-buttonLeft, .mouse-part-buttonRight { position: absolute; top: 7px; width: 73px; height: 112px; flex-direction: column; gap: 9px; }
+.mouse-part-buttonLeft, .mouse-part-buttonRight { position: absolute; top: 7px; width: 67px; height: 112px; flex-direction: column; gap: 9px; }
 .mouse-part-buttonLeft { left: 7px; border-radius: 58px 8px 8px 8px; padding-right: 10px; }
 .mouse-part-buttonRight { right: 7px; border-radius: 8px 58px 8px 8px; padding-left: 10px; }
+.mouse-part-buttonBack, .mouse-part-buttonForward { position: absolute; left: -18px; width: 24px; height: 34px; border-radius: 7px; writing-mode: vertical-rl; font-size: 8px; }
+.mouse-part-buttonForward { top: 66px; }
+.mouse-part-buttonBack { top: 106px; }
 .mouse-wheel-track { position: absolute; z-index: 1; left: 66px; top: 38px; display: grid; width: 46px; gap: 3px; padding: 4px; border-radius: 16px; background: #d8e5f4; box-shadow: 0 2px 5px #47749b20; }
 .mouse-wheel-track .mouse-part { height: 32px; border-radius: 10px; }
 .mouse-wheel-track .mouse-part span { font-size: 9px; }
@@ -1081,8 +1084,18 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mouse-condition-row { display: flex; align-items: center; gap: 18px; margin-bottom: 12px; }
 .mouse-condition-label { flex: 0 0 56px; color: #70849a; font-size: 12px; }
 .mouse-scope-options { display: flex; gap: 6px; flex-wrap: wrap; }
-.mouse-scope-options button { display: flex; align-items: center; gap: 7px; padding: 7px 15px; border: 1px solid #d9e4f0; border-radius: 6px; background: #fff; color: #657c95; font-size: 12px; cursor: pointer; }
+.mouse-scope-options button { display: flex; align-items: center; gap: 7px; padding: 6px 11px 6px 8px; border: 1px solid #d9e4f0; border-radius: 6px; background: #fff; color: #657c95; font-size: 12px; cursor: pointer; }
 .mouse-scope-options button[aria-pressed="true"] { color: #1875cf; border-color: #99c4ef; background: #e8f3ff; }
+.mouse-scope-diagram { position: relative; display: block; width: 22px; height: 16px; border: 1px solid #aebfd1; border-radius: 5px 5px 4px 4px; background: #f5f8fb; }
+.mouse-scope-diagram::before, .mouse-scope-diagram::after, .mouse-scope-diagram span { position: absolute; display: block; background: #77a9d8; content: ''; }
+.mouse-scope-diagram::before { top: -2px; left: 2px; right: 2px; height: 3px; }
+.mouse-scope-diagram::after { top: 2px; bottom: 2px; left: -2px; width: 3px; }
+.mouse-scope-diagram span { top: 2px; right: -2px; bottom: 2px; width: 3px; }
+.mouse-scope-global .mouse-scope-diagram::before, .mouse-scope-global .mouse-scope-diagram::after, .mouse-scope-global .mouse-scope-diagram span { display: none; }
+.mouse-scope-top .mouse-scope-diagram::after, .mouse-scope-top .mouse-scope-diagram span { display: none; }
+.mouse-scope-left .mouse-scope-diagram::before, .mouse-scope-left .mouse-scope-diagram span { display: none; }
+.mouse-scope-right .mouse-scope-diagram::before, .mouse-scope-right .mouse-scope-diagram::after { display: none; }
+.mouse-scope-options button[aria-pressed="true"] .mouse-scope-diagram { border-color: #5b9de0; background: #fff; }
 .mouse-configured-dot { width: 5px; height: 5px; border-radius: 50%; background: #2689e9; }
 .mouse-gesture-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 1; gap: 8px; min-width: 0; }
 .mouse-gesture-options.wheel-gesture { grid-template-columns: minmax(180px, 1fr) 2fr; }

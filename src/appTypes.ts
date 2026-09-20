@@ -71,7 +71,6 @@ export type CommonBehaviorPreset =
   | 'wheelLeft'
   | 'wheelRight'
   | 'mouseLeft'
-  | 'mouseMiddle'
   | 'mouseRight'
   | 'original'
   | 'disabled'

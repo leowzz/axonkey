@@ -171,7 +171,6 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
               <BehaviorActionButton icon={<ArrowLeft size={17} />} label="鼠标滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
               <BehaviorActionButton icon={<ArrowRight size={17} />} label="鼠标滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标中键" onClick={() => onApplyCommonBehavior('mouseMiddle')} />
               <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
             </>}
           </>}

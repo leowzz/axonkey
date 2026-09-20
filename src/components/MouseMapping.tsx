@@ -5,7 +5,7 @@ import { behaviorSummary, triggerLabels } from '../appConfig'
 import { mouseControls, mouseInputId, mouseInputIds, mouseInputParts, mouseScopesForControl } from '../deviceModel'
 import type { MouseControlId } from '../deviceModel'
 
-const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointer2, buttonRight: MousePointer2 }
+const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointer2, buttonForward: MousePointer2, buttonBack: MousePointer2, buttonRight: MousePointer2 }
 export const mouseInputs: MappingInput[] = mouseInputIds.map((id) => {
   const { scope, control } = mouseInputParts(id)
   return {
@@ -27,7 +27,7 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
   return <section className="mouse-model-section" aria-label="鼠标输入模型">
     <div className="mouse-model-title">选择输入部位</div>
     <div className="mouse-input-model">
-      {part('buttonLeft', '左键')}{part('buttonRight', '右键')}
+      {part('buttonLeft', '左键')}{part('buttonForward', '前进')}{part('buttonBack', '后退')}{part('buttonRight', '右键')}
       <div className="mouse-wheel-track" aria-label="垂直滚轮方向">
         {part('up', '向上')}{part('down', '向下')}
       </div>
@@ -74,7 +74,7 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
         {mouseScopesForControl(control.id).map((item) => {
           const id = mouseInputId(item.id, control.id)
           const count = Object.values(behaviors[id]).filter((list) => list.some((behavior) => behavior.enabled)).length
-          return <button type="button" key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id, trigger)}>{item.label}{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
+          return <button type="button" className={`mouse-scope-option mouse-scope-${item.id}`} key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id, trigger)}><span className="mouse-scope-diagram" aria-hidden="true"><span /></span><span>{item.label}</span>{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
         })}
       </div>
     </div>

@@ -12,6 +12,16 @@ struct Capture {
     scroll: ScrollAccumulator,
     buttons: ButtonTracker,
 }
+
+fn canonical_button(raw: i32) -> Option<usize> {
+    match raw {
+        0 => Some(0),
+        1 => Some(1),
+        3 => Some(2),
+        4 => Some(3),
+        _ => None,
+    }
+}
 extern "C" {
     fn axonkey_macos_mouse_run(
         context: *mut c_void,
@@ -48,7 +58,14 @@ unsafe extern "C" fn scroll(
             return false;
         }
         let edge = screen_edge(x, y, left, top, right, bottom, edge_width(&capture.shared));
+        let previous_edge = capture.scroll.edge;
         capture.scroll.enter(edge);
+        if previous_edge != edge {
+            log::info!(
+                target: "axonkey::input",
+                "Mouse edge changed: edge={edge:?}, position=({x:.1},{y:.1}), bounds=({left:.1},{top:.1})-({right:.1},{bottom:.1})",
+            );
+        }
         // A diagonal gesture selects its dominant axis, so one event never runs
         // two unrelated mappings. Quartz positive values mean up / left.
         let (direction, amount) = if horizontal.abs() > vertical.abs() {
@@ -73,14 +90,40 @@ unsafe extern "C" fn button(
 ) -> bool {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let capture = &mut *(context as *mut Capture);
-        capture.buttons.event(
-            &capture.shared,
-            index as usize,
-            down,
-            screen_edge(x, y, left, top, right, bottom, edge_width(&capture.shared)),
-            (x, y),
-            Instant::now(),
-        )
+        let width = edge_width(&capture.shared);
+        let edge = screen_edge(x, y, left, top, right, bottom, width);
+        let button = canonical_button(index);
+        let active = capture.shared.active.load(Ordering::Acquire);
+        let log_level = if edge.is_some() {
+            log::Level::Info
+        } else {
+            log::Level::Debug
+        };
+        log::log!(
+            target: "axonkey::input",
+            log_level,
+            "Mouse button received: raw_button={}, button={button:?}, phase={}, edge={edge:?}, edge_width={width:.1}, position=({x:.1},{y:.1}), bounds=({left:.1},{top:.1})-({right:.1},{bottom:.1}), active={active}",
+            index,
+            if down { "down" } else { "up" },
+        );
+        let consumed = button.is_some_and(|button| {
+            capture.buttons.event(
+                &capture.shared,
+                button,
+                down,
+                edge,
+                (x, y),
+                Instant::now(),
+            )
+        });
+        log::log!(
+            target: "axonkey::input",
+            log_level,
+            "Mouse button handled: raw_button={}, phase={}, edge={edge:?}, consumed={consumed}",
+            index,
+            if down { "down" } else { "up" },
+        );
+        consumed
     }))
     .unwrap_or(false)
 }
@@ -111,4 +154,19 @@ pub(super) fn run(shared: Arc<Shared>) {
 }
 pub(super) fn execute(behavior: &NativeBehavior, hold_ms: u64) {
     super::super::macos::execute_mouse_behavior(behavior, hold_ms);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_button;
+
+    #[test]
+    fn middle_is_ignored_and_side_buttons_keep_their_numbers() {
+        assert_eq!(canonical_button(0), Some(0));
+        assert_eq!(canonical_button(1), Some(1));
+        assert_eq!(canonical_button(2), None);
+        assert_eq!(canonical_button(3), Some(2));
+        assert_eq!(canonical_button(4), Some(3));
+        assert_eq!(canonical_button(5), None);
+    }
 }
