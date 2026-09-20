@@ -32,18 +32,18 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
         {part('buttonLeft', '左键')}
         {part('buttonRight', '右键')}
       </div>
+      <div className="mouse-side-buttons">
+        {part('buttonForward', '前进')}
+        {part('buttonBack', '后退')}
+      </div>
       <div className="mouse-wheel-map" aria-label="滚轮方向">
         {part('up', '上')}
         <div className="mouse-wheel-center">
           {part('left', '左')}
-          <span>滚轮</span>
+          <span className="mouse-wheel-label">滚轮</span>
           {part('right', '右')}
         </div>
         {part('down', '下')}
-      </div>
-      <div className="mouse-side-buttons">
-        {part('buttonForward', '前进')}
-        {part('buttonBack', '后退')}
       </div>
     </div>
     <strong className="mouse-model-selection">{selected.label}</strong>
