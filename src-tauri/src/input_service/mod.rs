@@ -81,6 +81,13 @@ pub(super) enum NativeBehavior {
         enabled: bool,
         button: MouseButton,
     },
+    CursorMove {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        direction: WheelDirection,
+        #[serde(default = "default_cursor_distance")]
+        distance: u32,
+    },
     Key {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -114,6 +121,65 @@ fn enabled_by_default() -> bool {
     true
 }
 
+fn default_cursor_distance() -> u32 {
+    20
+}
+
+pub(super) fn normalize_cursor_distance(distance: u32) -> u32 {
+    if distance == 0 {
+        default_cursor_distance()
+    } else {
+        distance.min(500)
+    }
+}
+
+pub(super) fn cursor_delta(direction: WheelDirection, distance: u32) -> (i32, i32) {
+    let distance = normalize_cursor_distance(distance) as i32;
+    match direction {
+        WheelDirection::Up => (0, -distance),
+        WheelDirection::Down => (0, distance),
+        WheelDirection::Left => (-distance, 0),
+        WheelDirection::Right => (distance, 0),
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum RepeatableClick {
+    Wheel(WheelDirection),
+    CursorMove {
+        direction: WheelDirection,
+        distance: u32,
+    },
+}
+
+pub(super) fn repeatable_click(triggers: &TriggerBehaviors) -> Option<RepeatableClick> {
+    if triggers
+        .double_click
+        .iter()
+        .any(NativeBehavior::enabled)
+        || triggers.long_press.iter().any(NativeBehavior::enabled)
+    {
+        return None;
+    }
+    let mut enabled = triggers.click.iter().filter(|behavior| behavior.enabled());
+    let first = enabled.next()?;
+    if enabled.next().is_some() {
+        return None;
+    }
+    match first {
+        NativeBehavior::Wheel { direction, .. } => Some(RepeatableClick::Wheel(*direction)),
+        NativeBehavior::CursorMove {
+            direction,
+            distance,
+            ..
+        } => Some(RepeatableClick::CursorMove {
+            direction: *direction,
+            distance: normalize_cursor_distance(*distance),
+        }),
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum WheelDirection {
@@ -126,7 +192,9 @@ pub(super) enum WheelDirection {
 impl NativeBehavior {
     pub(super) fn enabled(&self) -> bool {
         match self {
-            Self::Wheel { enabled, .. } | Self::Mouse { enabled, .. } => *enabled,
+            Self::Wheel { enabled, .. }
+            | Self::Mouse { enabled, .. }
+            | Self::CursorMove { enabled, .. } => *enabled,
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
             | Self::Paste { enabled, .. }
@@ -208,5 +276,39 @@ mod settings_tests {
         assert!(!explicit.mouse_ignore_scroll_acceleration);
         assert_eq!(explicit.mouse_vertical_scroll_interval_ms, 0);
         assert_eq!(explicit.mouse_horizontal_scroll_interval_ms, 0);
+    }
+
+    #[test]
+    fn cursor_move_defaults_distance_and_repeatable_click_rules() {
+        let behavior: super::NativeBehavior = serde_json::from_value(serde_json::json!({
+            "type": "cursorMove",
+            "direction": "left"
+        }))
+        .unwrap();
+        match behavior {
+            super::NativeBehavior::CursorMove {
+                enabled,
+                direction,
+                distance,
+            } => {
+                assert!(enabled);
+                assert_eq!(direction, super::WheelDirection::Left);
+                assert_eq!(distance, 20);
+            }
+            _ => panic!("expected cursorMove"),
+        }
+        let triggers: super::TriggerBehaviors = serde_json::from_value(serde_json::json!({
+            "click": [{"type":"cursorMove","direction":"down","distance":0}]
+        }))
+        .unwrap();
+        assert_eq!(
+            super::repeatable_click(&triggers),
+            Some(super::RepeatableClick::CursorMove {
+                direction: super::WheelDirection::Down,
+                distance: 20,
+            })
+        );
+        assert_eq!(super::cursor_delta(super::WheelDirection::Up, 20), (0, -20));
+        assert_eq!(super::cursor_delta(super::WheelDirection::Right, 501), (500, 0));
     }
 }
