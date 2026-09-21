@@ -62,6 +62,8 @@ extern "C" {
         capture: bool,
         modifier_mappings: *const HardwareModifierMapping,
         modifier_mapping_count: usize,
+        cleanup_modifier_mapping_sources: *const u64,
+        cleanup_modifier_mapping_source_count: usize,
     ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
@@ -300,6 +302,10 @@ fn worker_loop(shared: Arc<Shared>) {
             .iter()
             .map(|mapping| mapping.source as u16)
             .collect();
+        let cleanup_modifier_mapping_sources = SOURCE_KEYS
+            .iter()
+            .map(|source| HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage))
+            .collect::<Vec<_>>();
         log::info!(target: "axonkey::input", "macOS capture configuration: capture={capture}, hardware_modifier_mappings={hardware_modifier_mappings:?}");
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),
@@ -321,6 +327,8 @@ fn worker_loop(shared: Arc<Shared>) {
                 capture,
                 hardware_modifier_mappings.as_ptr(),
                 hardware_modifier_mappings.len(),
+                cleanup_modifier_mapping_sources.as_ptr(),
+                cleanup_modifier_mapping_sources.len(),
             )
         };
         if result != 0 {

@@ -92,6 +92,8 @@ typedef struct {
     bool modifier_mappings_active;
     IOHIDEventSystemClientRef event_system_client;
     CFMutableDictionaryRef original_modifier_mappings;
+    const uint64_t *cleanup_modifier_mapping_sources;
+    size_t cleanup_modifier_mapping_source_count;
 } AxonkeyInputState;
 
 static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
@@ -137,6 +139,22 @@ static bool axonkey_modifier_mapping_has_source(
     }
     for (size_t index = 0; index < state->modifier_mapping_count; index += 1) {
         if (state->modifier_mappings[index].source == source) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool axonkey_modifier_mapping_source_should_cleanup(
+    const AxonkeyInputState *state,
+    uint64_t source
+) {
+    if (state == NULL || state->cleanup_modifier_mapping_sources == NULL) {
+        return false;
+    }
+    for (size_t index = 0; index < state->cleanup_modifier_mapping_source_count; index += 1) {
+        if (state->cleanup_modifier_mapping_sources[index] == source &&
+            !axonkey_modifier_mapping_has_source(state, source)) {
             return true;
         }
     }
@@ -317,6 +335,48 @@ static void axonkey_restore_modifier_mappings(AxonkeyInputState *state) {
     }
     CFDictionaryRemoveAllValues(state->original_modifier_mappings);
     state->modifier_mappings_active = false;
+}
+
+static void axonkey_remove_unconfigured_modifier_mappings(AxonkeyInputState *state) {
+    // UserKeyMapping survives a crashed process, so remove managed sources that
+    // are no longer present in the current configuration before applying it.
+    if (state == NULL || state->event_system_client == NULL ||
+        state->cleanup_modifier_mapping_sources == NULL ||
+        state->cleanup_modifier_mapping_source_count == 0) {
+        return;
+    }
+    CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
+    if (services == NULL) {
+        return;
+    }
+    for (CFIndex index = 0; index < CFArrayGetCount(services); index += 1) {
+        IOHIDServiceClientRef service = (IOHIDServiceClientRef)CFArrayGetValueAtIndex(
+            services,
+            index
+        );
+        if (!axonkey_service_is_rc003(service)) {
+            continue;
+        }
+        CFMutableArrayRef current = axonkey_copy_service_mappings(service);
+        if (current == NULL) {
+            continue;
+        }
+        bool changed = false;
+        for (CFIndex mapping_index = CFArrayGetCount(current); mapping_index > 0; mapping_index -= 1) {
+            CFTypeRef mapping = CFArrayGetValueAtIndex(current, mapping_index - 1);
+            uint64_t source = 0;
+            if (axonkey_mapping_get_source(mapping, &source) &&
+                axonkey_modifier_mapping_source_should_cleanup(state, source)) {
+                CFArrayRemoveValueAtIndex(current, mapping_index - 1);
+                changed = true;
+            }
+        }
+        if (changed) {
+            IOHIDServiceClientSetProperty(service, CFSTR("UserKeyMapping"), current);
+        }
+        CFRelease(current);
+    }
+    CFRelease(services);
 }
 
 static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
@@ -830,6 +890,8 @@ static void axonkey_device_matched(
     }
     CFSetAddValue(state->devices, device);
 
+    axonkey_remove_unconfigured_modifier_mappings(state);
+
     if (state->capture && state->modifier_mapping_count > 0) {
         state->modifier_mappings_active = axonkey_apply_modifier_mappings(state);
     }
@@ -954,10 +1016,13 @@ int axonkey_macos_input_run(
     const AxonkeyCallbacks *callbacks,
     bool capture,
     const AxonkeyHardwareModifierMapping *modifier_mappings,
-    size_t modifier_mapping_count
+    size_t modifier_mapping_count,
+    const uint64_t *cleanup_modifier_mapping_sources,
+    size_t cleanup_modifier_mapping_source_count
 ) {
     if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL ||
-        (modifier_mapping_count > 0 && modifier_mappings == NULL)) {
+        (modifier_mapping_count > 0 && modifier_mappings == NULL) ||
+        (cleanup_modifier_mapping_source_count > 0 && cleanup_modifier_mapping_sources == NULL)) {
         return kIOReturnBadArgument;
     }
 
@@ -992,6 +1057,8 @@ int axonkey_macos_input_run(
         .monitored_devices = monitored_devices,
         .modifier_mappings = capture ? modifier_mappings : NULL,
         .modifier_mapping_count = capture ? modifier_mapping_count : 0,
+        .cleanup_modifier_mapping_sources = cleanup_modifier_mapping_sources,
+        .cleanup_modifier_mapping_source_count = cleanup_modifier_mapping_source_count,
     };
 
     int vendor_id = 0x2717;
@@ -1027,8 +1094,8 @@ int axonkey_macos_input_run(
         return kIOReturnNoMemory;
     }
 
+    state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
     if (state.modifier_mapping_count > 0) {
-        state.event_system_client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
         state.original_modifier_mappings = CFDictionaryCreateMutable(
             kCFAllocatorDefault,
             0,
@@ -1058,6 +1125,7 @@ int axonkey_macos_input_run(
 
     IOReturn result = IOHIDManagerOpen(manager, kIOHIDOptionsTypeNone);
     if (result == kIOReturnSuccess) {
+        axonkey_remove_unconfigured_modifier_mappings(&state);
         axonkey_emit(&state, AXONKEY_EVENT_BACKEND_READY, 0, NULL, 0, 0);
         while (!callbacks->should_stop(callbacks->context)) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.025, true);
