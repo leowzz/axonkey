@@ -360,29 +360,52 @@ static int CheckPointerEvents(void) {
             return 1;
         }
     }
+    const int buttons[] = {0, 1, 3};
     const CGEventType downs[] = {kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown};
     const CGEventType ups[] = {kCGEventLeftMouseUp, kCGEventRightMouseUp, kCGEventOtherMouseUp};
-    for (int button = 0; button < 3; button++) {
+    for (int i = 0; i < 3; i++) {
+        int button = buttons[i];
         int before = posted_event_count;
         if (!axonkey_macos_post_mouse_click(button) || posted_event_count != before + 2 ||
-            CGEventGetType(previous_posted_event) != downs[button] ||
-            CGEventGetType(captured_posted_event) != ups[button] ||
+            CGEventGetType(previous_posted_event) != downs[i] ||
+            CGEventGetType(captured_posted_event) != ups[i] ||
             !CGPointEqualToPoint(CGEventGetLocation(previous_posted_event), CGEventGetLocation(captured_posted_event))) {
             fputs("incorrect mouse down/up pair\n", stderr);
             return 1;
         }
         CGEventRef events[] = {previous_posted_event, captured_posted_event};
-        for (int i = 0; i < 2; i++) {
-            if (CGEventGetIntegerValueField(events[i], kCGMouseEventButtonNumber) != button ||
-                CGEventGetIntegerValueField(events[i], kCGMouseEventClickState) != 1 ||
-                CGEventGetIntegerValueField(events[i], kCGEventSourceUserData) != AXONKEY_SYNTHETIC_EVENT_MARKER) {
+        for (int field = 0; field < 2; field++) {
+            if (CGEventGetIntegerValueField(events[field], kCGMouseEventButtonNumber) != button ||
+                CGEventGetIntegerValueField(events[field], kCGMouseEventClickState) != 1 ||
+                CGEventGetIntegerValueField(events[field], kCGEventSourceUserData) != AXONKEY_SYNTHETIC_EVENT_MARKER) {
                 fputs("incorrect mouse event fields\n", stderr);
                 return 1;
             }
         }
     }
     int before = posted_event_count;
-    if (axonkey_macos_post_mouse_click(3) || posted_event_count != before) return 1;
+    if (axonkey_macos_post_mouse_click(2) || posted_event_count != before) return 1;
+    const int moves[][2] = {{0, -20}, {0, 20}, {-20, 0}, {20, 0}};
+    for (int i = 0; i < 4; i++) {
+        CGEventRef probe = CGEventCreate(NULL);
+        CGPoint origin = probe == NULL ? CGPointZero : CGEventGetLocation(probe);
+        if (probe != NULL) CFRelease(probe);
+        before = posted_event_count;
+        if (!axonkey_macos_post_mouse_move(moves[i][0], moves[i][1]) ||
+            posted_event_count != before + 1 ||
+            captured_posted_tap != kCGHIDEventTap ||
+            CGEventGetType(captured_posted_event) != kCGEventMouseMoved ||
+            CGEventGetIntegerValueField(captured_posted_event, kCGEventSourceUserData) != AXONKEY_SYNTHETIC_EVENT_MARKER) {
+            fputs("incorrect mouse move event\n", stderr);
+            return 1;
+        }
+        CGPoint moved = CGEventGetLocation(captured_posted_event);
+        if (moved.x != origin.x + moves[i][0] || moved.y != origin.y + moves[i][1]) {
+            fprintf(stderr, "mouse move location actual=(%f,%f) expected=(%f,%f)\n",
+                    moved.x, moved.y, origin.x + moves[i][0], origin.y + moves[i][1]);
+            return 1;
+        }
+    }
     return 0;
 }
 

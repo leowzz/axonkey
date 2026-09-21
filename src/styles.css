@@ -325,6 +325,9 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .manual-key-select-icon { position: absolute; top: 0; right: 0; display: grid; width: 36px; height: 100%; place-items: center; border-left: 1px solid #e2e5e8; color: #75808a; background: #f6f8f9; pointer-events: none; transition: color .16s ease, background .16s ease; }
 .manual-key-select:hover .manual-key-select-icon { color: #4f5c67; background: #f1f4f6; }
 .manual-key-select:focus-within .manual-key-select-icon { color: var(--blue); background: #eef6ff; }
+.behavior-dialog-form { margin-top: 18px; padding: 0; gap: 16px; }
+.behavior-dialog-form .settings-form-row { grid-template-columns: 92px minmax(0, 1fr); }
+.behavior-dialog-form .settings-form-label { color: #424a51; }
 .behavior-dialog-field { display: flex; flex-direction: column; gap: 8px; }
 .behavior-dialog-field .behavior-paste-input { min-height: 150px; margin-top: 0; }
 .behavior-dialog-field .behavior-delay-row { margin-top: 0; }

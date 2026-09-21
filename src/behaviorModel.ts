@@ -14,8 +14,12 @@ export type ButtonId = RemoteButtonId
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'paste', 'delay', 'disabled'] as const
+export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
+export const cursorDirections = ['up', 'down', 'left', 'right'] as const
+export type CursorDirection = (typeof cursorDirections)[number]
+export const defaultCursorDistance = 50
+export const maxCursorDistance = 500
 
 type BehaviorBase = {
   id: string
@@ -48,8 +52,9 @@ export type DisabledBehavior = BehaviorBase & {
 
 export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right' }
 export type MouseBehavior = BehaviorBase & { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward' }
+export type CursorMoveBehavior = BehaviorBase & { type: 'cursorMove'; direction: CursorDirection; distance: number }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
+export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -73,6 +78,7 @@ export type ImportedMapping = {
 export type CreateBehaviorOptions =
   | { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right'; enabled?: boolean; id?: string }
   | { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward'; enabled?: boolean; id?: string }
+  | { type: 'cursorMove'; direction: CursorDirection; distance?: number; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
@@ -80,6 +86,19 @@ export type CreateBehaviorOptions =
   | { type: 'disabled'; enabled?: boolean; id?: string }
 
 const maxDelayMs = 300_000
+
+function finiteCursorDistance(value: unknown, fallback = defaultCursorDistance) {
+  let number: number
+  try {
+    number = typeof value === 'number' ? value : Number(value)
+  } catch {
+    return fallback
+  }
+  if (!Number.isFinite(number)) return fallback
+  const rounded = Math.round(number)
+  if (rounded < 1) return fallback
+  return Math.min(maxCursorDistance, rounded)
+}
 
 function createBehaviorId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -118,6 +137,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { id, enabled, type: 'wheel', direction: options.direction }
     case 'mouse':
       return { id, enabled, type: 'mouse', button: options.button }
+    case 'cursorMove':
+      return { id, enabled, type: 'cursorMove', direction: options.direction, distance: finiteCursorDistance(options.distance) }
     case 'key':
       return { id, enabled, type: 'key', key: cleanKey(options.key) || 'Enter' }
     case 'shortcut': {
@@ -179,6 +200,10 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return ['up', 'down', 'left', 'right'].includes(String(value.direction)) ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] } : null
     case 'mouse':
       return ['left', 'right', 'back', 'forward'].includes(String(value.button)) ? { id, enabled, type, button: value.button as MouseBehavior['button'] } : null
+    case 'cursorMove':
+      return (cursorDirections as readonly string[]).includes(String(value.direction))
+        ? { id, enabled, type, direction: value.direction as CursorDirection, distance: finiteCursorDistance(value.distance) }
+        : null
     case 'key': {
       const key = cleanKey(value.key)
       return key ? { id, enabled, type, key } : null

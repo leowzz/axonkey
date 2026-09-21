@@ -219,6 +219,7 @@ export const triggerLabels: Record<TriggerType, string> = {
 export const behaviorTypeLabels: Record<BehaviorType, string> = {
   mouse: '鼠标按键',
   wheel: '鼠标滚轮',
+  cursorMove: '光标移动',
   key: '按键 / 组合键',
   shortcut: '按键 / 组合键',
   paste: '粘贴文本',
@@ -320,6 +321,7 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
   switch (behavior.type) {
     case 'wheel': return ({ up: '滚轮向上', down: '滚轮向下', left: '水平滚轮向左', right: '水平滚轮向右' })[behavior.direction]
     case 'mouse': return ({ left: '鼠标左键', right: '鼠标右键', back: '鼠标后退键', forward: '鼠标前进键' })[behavior.button]
+    case 'cursorMove': return ({ up: '光标上移', down: '光标下移', left: '光标左移', right: '光标右移' })[behavior.direction] + ` ${behavior.distance} 像素`
     case 'key': return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'

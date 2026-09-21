@@ -1,5 +1,6 @@
 use super::{
-    InputServiceStatus, MouseButton, NativeBehavior, NativeSettings, TriggerBehaviors, WheelDirection,
+    cursor_delta, repeatable_click, InputServiceStatus, MouseButton, NativeBehavior, NativeSettings,
+    RepeatableClick, TriggerBehaviors, WheelDirection,
 };
 use serde::Serialize;
 use std::{
@@ -77,6 +78,8 @@ extern "C" {
     #[cfg(not(test))]
     fn axonkey_macos_post_wheel(vertical: i32, horizontal: i32) -> bool;
     fn axonkey_macos_post_mouse_click(button: i32) -> bool;
+    #[cfg(not(test))]
+    fn axonkey_macos_post_mouse_move(dx: i32, dy: i32) -> bool;
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
 
@@ -673,7 +676,7 @@ struct PressState {
     long_repeat_due_at: Option<Instant>,
     passthrough: bool,
     held_outputs: PressedChord,
-    wheel_repeat: Option<WheelDirection>,
+    click_repeat: Option<RepeatableClick>,
     next_repeat_at: Instant,
     repeat_interval_ms: u64,
 }
@@ -774,16 +777,16 @@ impl MacInputState {
                 long_repeat_due_at: None,
                 passthrough: true,
                 held_outputs: PressedChord { keys: Vec::new() },
-                wheel_repeat: None,
+                click_repeat: None,
                 next_repeat_at: now + Duration::from_millis(source.repeat_initial_ms),
                 repeat_interval_ms: source.repeat_interval_ms,
             });
             return;
         }
 
-        let wheel_repeat = continuous_click_wheel(&triggers);
-        if let Some(direction) = wheel_repeat {
-            post_wheel(direction);
+        let click_repeat = repeatable_click(&triggers);
+        if let Some(action) = click_repeat {
+            execute_repeatable_click(action);
         }
         let held_outputs = continuous_click_chord(&triggers)
             .map(|keys| {
@@ -801,9 +804,9 @@ impl MacInputState {
             long_repeat_due_at: None,
             passthrough: false,
             held_outputs,
-            wheel_repeat,
+            click_repeat,
             next_repeat_at: now
-                + Duration::from_millis(if wheel_repeat.is_some() {
+                + Duration::from_millis(if click_repeat.is_some() {
                     400
                 } else {
                     source.repeat_initial_ms
@@ -832,7 +835,7 @@ impl MacInputState {
             return;
         };
         log::info!(target: "axonkey::input", "RC003 release handling: button={}, held_ms={}, held_outputs={}, passthrough={}, long_fired={}", source.id, press.started_at.elapsed().as_millis(), press.held_outputs.keys.len(), press.passthrough, press.long_fired);
-        if press.wheel_repeat.is_some() {
+        if press.click_repeat.is_some() {
             return;
         }
         if !press.held_outputs.is_empty() {
@@ -894,15 +897,15 @@ impl MacInputState {
                 .cloned()
                 .unwrap_or_default();
             if let Some(press) = state.pressed.as_mut() {
-                if let Some(direction) = press.wheel_repeat {
-                    if continuous_click_wheel(&triggers) != Some(direction) {
+                if let Some(action) = press.click_repeat {
+                    if repeatable_click(&triggers) != Some(action) {
                         // Consume the old gesture when its mapping changes during a hold.
-                        press.wheel_repeat = None;
+                        press.click_repeat = None;
                         press.long_fired = true;
                         state.pending_click = None;
                     } else {
                         if now >= press.next_repeat_at {
-                            post_wheel(direction);
+                            execute_repeatable_click(action);
                             press.next_repeat_at = now + Duration::from_millis(80);
                         }
                         continue;
@@ -1047,17 +1050,19 @@ fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<MacKey>> {
 }
 
 fn continuous_click_wheel(triggers: &TriggerBehaviors) -> Option<WheelDirection> {
-    if has_enabled(&triggers.double_click) || has_enabled(&triggers.long_press) {
-        return None;
-    }
-    let mut enabled = triggers.click.iter().filter(|behavior| behavior.enabled());
-    let behavior = enabled.next()?;
-    if enabled.next().is_some() {
-        return None;
-    }
-    match behavior {
-        NativeBehavior::Wheel { direction, .. } => Some(*direction),
+    match repeatable_click(triggers) {
+        Some(RepeatableClick::Wheel(direction)) => Some(direction),
         _ => None,
+    }
+}
+
+fn execute_repeatable_click(action: RepeatableClick) {
+    match action {
+        RepeatableClick::Wheel(direction) => post_wheel(direction),
+        RepeatableClick::CursorMove {
+            direction,
+            distance,
+        } => post_cursor_move(direction, distance),
     }
 }
 
@@ -1074,6 +1079,7 @@ fn wheel_axes(direction: WheelDirection) -> (i32, i32) {
 #[cfg(test)]
 thread_local! {
     static TEST_WHEELS: std::cell::RefCell<Vec<WheelDirection>> = const { std::cell::RefCell::new(Vec::new()) };
+    static TEST_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
@@ -1086,6 +1092,19 @@ fn post_wheel(direction: WheelDirection) {
     let (vertical, horizontal) = wheel_axes(direction);
     if !unsafe { axonkey_macos_post_wheel(vertical, horizontal) } {
         log::warn!(target: "axonkey::input", "Wheel injection failed: {direction:?}");
+    }
+}
+
+#[cfg(test)]
+fn post_cursor_move(direction: WheelDirection, distance: u32) {
+    TEST_MOVES.with(|events| events.borrow_mut().push(cursor_delta(direction, distance)));
+}
+
+#[cfg(not(test))]
+fn post_cursor_move(direction: WheelDirection, distance: u32) {
+    let (dx, dy) = cursor_delta(direction, distance);
+    if !unsafe { axonkey_macos_post_mouse_move(dx, dy) } {
+        log::warn!(target: "axonkey::input", "Cursor move injection failed: {direction:?}, distance={distance}");
     }
 }
 
@@ -1152,6 +1171,11 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
             }
             NativeBehavior::Disabled { .. } => {}
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
+            NativeBehavior::CursorMove {
+                direction,
+                distance,
+                ..
+            } => post_cursor_move(*direction, *distance),
             NativeBehavior::Mouse { button, .. } => {
                 let code = match button {
                     MouseButton::Left => 0,
@@ -1171,6 +1195,13 @@ fn log_behavior(behavior: &NativeBehavior) {
     match behavior {
         NativeBehavior::Wheel { direction, .. } => {
             log::info!(target: "axonkey::input", "Mapped wheel: {direction:?}")
+        }
+        NativeBehavior::CursorMove {
+            direction,
+            distance,
+            ..
+        } => {
+            log::info!(target: "axonkey::input", "Mapped cursor move: {direction:?}, distance={distance}")
         }
         NativeBehavior::Mouse { button, .. } => {
             log::info!(target: "axonkey::input", "Mapped mouse button: {button:?}")
@@ -1210,6 +1241,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
             (!chord.is_empty()).then_some(chord)
         }
         NativeBehavior::Wheel { .. }
+        | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::Delay { .. }
@@ -1421,6 +1453,21 @@ mod tests {
         triggers.double_click.clear();
         triggers.long_press.push(wheel);
         assert_eq!(continuous_click_wheel(&triggers), None);
+        triggers.long_press.clear();
+        triggers.click = vec![NativeBehavior::CursorMove {
+            enabled: true,
+            direction: WheelDirection::Up,
+            distance: 20,
+        }];
+        assert_eq!(
+            repeatable_click(&triggers),
+            Some(RepeatableClick::CursorMove {
+                direction: WheelDirection::Up,
+                distance: 20,
+            })
+        );
+        triggers.long_press.push(triggers.click[0].clone());
+        assert_eq!(repeatable_click(&triggers), None);
         assert_eq!(wheel_axes(WheelDirection::Up), (1, 0));
         assert_eq!(wheel_axes(WheelDirection::Down), (-1, 0));
         assert_eq!(wheel_axes(WheelDirection::Left), (0, 1));
@@ -1470,7 +1517,7 @@ mod tests {
             shared.settings.write().unwrap().behaviors.clear();
             state.process_timers(&shared);
             let press = state.button_states["up"].pressed.as_ref().unwrap();
-            assert!(press.wheel_repeat.is_none());
+            assert!(press.click_repeat.is_none());
             assert!(press.long_fired);
             assert!(!press.passthrough);
             state.release_source(&shared, source);
@@ -1483,6 +1530,70 @@ mod tests {
             assert!(state.button_states["up"].pressed.is_none());
             assert!(state.button_states["up"].pending_click.is_none());
             TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 4));
+        }
+    }
+
+    #[test]
+    fn cursor_move_hold_repeats_and_stops_on_release_settings_change_or_disable() {
+        for (direction, delta) in [
+            ("up", (0, -50)),
+            ("down", (0, 50)),
+            ("left", (-50, 0)),
+            ("right", (50, 0)),
+        ] {
+            let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+                "enabled": true,
+                "behaviors": {"up": {"click": [{"type":"cursorMove", "direction":direction}]}}
+            }))
+            .unwrap();
+            let shared = Shared {
+                settings: RwLock::new(settings.clone()),
+                status: Mutex::new(InputServiceStatus::default()),
+                event_app: RwLock::new(None),
+                stop: AtomicBool::new(false),
+                restart: AtomicBool::new(false),
+            };
+            let source = source_for_usage(0x52).unwrap();
+            let mut state = MacInputState::default();
+            TEST_MOVES.with(|events| events.borrow_mut().clear());
+            state.press_source(&shared, source);
+            state.press_source(&shared, source);
+            state.process_timers(&shared);
+            TEST_MOVES.with(|events| assert_eq!(*events.borrow(), vec![delta]));
+            let press = state
+                .button_states
+                .get_mut("up")
+                .unwrap()
+                .pressed
+                .as_mut()
+                .unwrap();
+            assert!(press.held_outputs.is_empty());
+            assert!(!press.passthrough);
+            press.started_at = Instant::now() - Duration::from_secs(1);
+            press.next_repeat_at = Instant::now();
+            state.process_timers(&shared);
+            TEST_MOVES.with(|events| assert_eq!(*events.borrow(), vec![delta, delta]));
+            state.release_source(&shared, source);
+            state.process_timers(&shared);
+            TEST_MOVES.with(|events| assert_eq!(events.borrow().len(), 2));
+
+            state.press_source(&shared, source);
+            shared.settings.write().unwrap().behaviors.clear();
+            state.process_timers(&shared);
+            let press = state.button_states["up"].pressed.as_ref().unwrap();
+            assert!(press.click_repeat.is_none());
+            assert!(press.long_fired);
+            assert!(!press.passthrough);
+            state.release_source(&shared, source);
+            TEST_MOVES.with(|events| assert_eq!(events.borrow().len(), 3));
+
+            *shared.settings.write().unwrap() = settings;
+            state.press_source(&shared, source);
+            shared.settings.write().unwrap().enabled = false;
+            state.process_timers(&shared);
+            assert!(state.button_states["up"].pressed.is_none());
+            assert!(state.button_states["up"].pending_click.is_none());
+            TEST_MOVES.with(|events| assert_eq!(events.borrow().len(), 4));
         }
     }
 
@@ -1836,7 +1947,7 @@ mod tests {
             long_repeat_due_at: None,
             passthrough: false,
             held_outputs: PressedChord { keys: Vec::new() },
-            wheel_repeat: None,
+            click_repeat: None,
             next_repeat_at: now,
             repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
