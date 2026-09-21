@@ -1,12 +1,13 @@
 # Axonkey
 
-[IMG0](https://github.com/leowzz/axonkey/releases/latest)
-[IMG0](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
-[IMG0](https://github.com/leowzz/axonkey/releases)
-[IMG0](#系统要求)
-[IMG0](#系统要求)
-[IMG0](./src-tauri/Cargo.toml)
-[IMG0](./package.json)
+
+[![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases/latest)
+[![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
+[![Downloads](https://img.shields.io/github/downloads/leowzz/axonkey/total?style=flat&color=brightgreen)](https://github.com/leowzz/axonkey/releases)
+[![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue?style=flat&logo=apple&logoColor=white)](#系统要求)
+[![Windows 11 x64](https://img.shields.io/badge/Windows-11%20x64-0078D4?style=flat)](#系统要求)
+[![Tauri 2](https://img.shields.io/badge/Tauri-2-24C8D8?style=flat&logo=tauri&logoColor=white)](./src-tauri/Cargo.toml)
+[![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=white)](./package.json)
 
 [**⬇ 下载 Axonkey（macOS / Windows）**](https://github.com/leowzz/axonkey/releases)
 
