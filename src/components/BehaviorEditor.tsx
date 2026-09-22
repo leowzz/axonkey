@@ -33,6 +33,7 @@ import {
   isStandaloneModifierKey,
   keyDisplayName,
   keyGroupsForPlatform,
+  rightModifierChoices,
   shortcutModifiers,
   triggerLabels,
 } from '../appConfig'
@@ -42,6 +43,17 @@ import { useState } from 'react'
 
 function mappingTriggerLabel(button: MappingInput, trigger: TriggerType) {
   return [button.contextLabel, button.triggerLabel ?? triggerLabels[trigger]].filter(Boolean).join(' · ')
+}
+
+function rightModifierGlyph(key: string, platform: Platform) {
+  if (platform === 'macos') {
+    if (key === 'RAlt') return 'Opt'
+    if (key === 'RWin') return 'Cmd'
+    return 'Ctrl'
+  }
+  if (key === 'RAlt') return 'Alt'
+  if (key === 'RWin') return 'Win'
+  return 'Ctrl'
 }
 
 type BehaviorEditorProps = {
@@ -154,6 +166,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
             <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 提交" onClick={() => onApplyCommonBehavior('enter')} />
             <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />
+            {rightModifierChoices().map(({ preset, key }) => <BehaviorActionButton key={preset} icon={<kbd>{rightModifierGlyph(key, platform)}</kbd>} label={keyDisplayName(key, platform)} onClick={() => onApplyCommonBehavior(preset)} />)}
             <BehaviorActionButton icon={<ArrowLeft size={17} />} label="上一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`} onClick={() => onApplyCommonBehavior('previousTab')} />
             <BehaviorActionButton icon={<ArrowRight size={17} />} label="下一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Tab`} onClick={() => onApplyCommonBehavior('nextTab')} />
             <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />

@@ -310,6 +310,23 @@ export function keyGroupsForPlatform(platform: Platform) {
     })
 }
 
+export const rightModifierKeys = {
+  rightCtrl: 'RCtrl',
+  rightAlt: 'RAlt',
+  rightCommand: 'RWin',
+} as const
+
+export function rightModifierChoices() {
+  return (Object.keys(rightModifierKeys) as (keyof typeof rightModifierKeys)[]).map((preset) => ({
+    preset,
+    key: rightModifierKeys[preset],
+  }))
+}
+
+export function isRightModifierPreset(preset: string): preset is keyof typeof rightModifierKeys {
+  return Object.prototype.hasOwnProperty.call(rightModifierKeys, preset)
+}
+
 export const shortcutModifiers = ['Ctrl', 'Shift', 'Alt', 'Win']
 export const standaloneModifierKeys = ['Ctrl', 'RCtrl', 'Shift', 'RShift', 'Alt', 'LAlt', 'RAlt', 'Win', 'RWin', 'Fn']
 

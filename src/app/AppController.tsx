@@ -25,7 +25,9 @@ import {
 import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerType } from '../behaviorModel'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
+  isRightModifierPreset,
   keyDisplayName,
+  rightModifierKeys,
   behaviorFromCapturedKey,
   buttons,
   detectBrowserPlatform,
@@ -644,6 +646,7 @@ function AppController() {
   }
 
   const applyCommonBehavior = (preset: CommonBehaviorPreset) => {
+    if (isRightModifierPreset(preset)) return replaceWithKey(rightModifierKeys[preset])
     switch (preset) {
       case 'wheelUp':
       case 'wheelDown':
