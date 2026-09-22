@@ -514,6 +514,12 @@ const FLAG_COMMAND: u64 = 1 << 20;
 const FLAG_FN: u64 = 1 << 23;
 const FLAG_DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
 const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
+const FLAG_DEVICE_LEFT_SHIFT: u64 = 0x0000_0002;
+const FLAG_DEVICE_RIGHT_SHIFT: u64 = 0x0000_0004;
+const FLAG_DEVICE_LEFT_COMMAND: u64 = 0x0000_0008;
+const FLAG_DEVICE_RIGHT_COMMAND: u64 = 0x0000_0010;
+const FLAG_DEVICE_LEFT_OPTION: u64 = 0x0000_0020;
+const FLAG_DEVICE_RIGHT_OPTION: u64 = 0x0000_0040;
 
 #[derive(Clone, Copy)]
 struct SourceKey {
@@ -1116,12 +1122,21 @@ fn post_cursor_move(direction: WheelDirection, distance: u32) {
     }
 }
 
+fn supports_hardware_modifier_remap(source: &SourceKey) -> bool {
+    // Back 0xF1 and volume 0x80/0x81 are raw RC003 usages. macOS does not
+    // translate them through HID UserKeyMapping, unlike Home and the other
+    // standard keyboard usages. A hardware entry for them suppresses the
+    // software chord and the browser receives nothing.
+    !matches!(source.usage, 0xf1 | 0x80 | 0x81)
+}
+
 fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
     if !settings.enabled {
         return Vec::new();
     }
     SOURCE_KEYS
         .iter()
+        .filter(|source| supports_hardware_modifier_remap(source))
         .filter_map(|source| {
             let keys = continuous_click_chord(settings.behaviors.get(source.id)?)?;
             if keys.len() != 1 {
@@ -1290,12 +1305,22 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
             62,
             FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL,
         )),
-        "SHIFT" | "LSHIFT" => Some(MacKey::modifier(56, FLAG_SHIFT)),
-        "RSHIFT" => Some(MacKey::modifier(60, FLAG_SHIFT)),
-        "ALT" | "LALT" | "OPTION" | "LOPTION" => Some(MacKey::modifier(58, FLAG_OPTION)),
-        "RALT" | "ROPTION" => Some(MacKey::modifier(61, FLAG_OPTION)),
-        "WIN" | "LWIN" | "CMD" | "COMMAND" => Some(MacKey::modifier(55, FLAG_COMMAND)),
-        "RWIN" | "RCMD" | "RCOMMAND" => Some(MacKey::modifier(54, FLAG_COMMAND)),
+        "SHIFT" | "LSHIFT" => Some(MacKey::modifier(56, FLAG_SHIFT | FLAG_DEVICE_LEFT_SHIFT)),
+        "RSHIFT" => Some(MacKey::modifier(60, FLAG_SHIFT | FLAG_DEVICE_RIGHT_SHIFT)),
+        "ALT" | "LALT" | "OPTION" | "LOPTION" => {
+            Some(MacKey::modifier(58, FLAG_OPTION | FLAG_DEVICE_LEFT_OPTION))
+        }
+        "RALT" | "ROPTION" => Some(MacKey::modifier(
+            61,
+            FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION,
+        )),
+        "WIN" | "LWIN" | "CMD" | "COMMAND" => {
+            Some(MacKey::modifier(55, FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND))
+        }
+        "RWIN" | "RCMD" | "RCOMMAND" => Some(MacKey::modifier(
+            54,
+            FLAG_COMMAND | FLAG_DEVICE_RIGHT_COMMAND,
+        )),
         "FN" => Some(MacKey::modifier(63, FLAG_FN)),
         "ESC" | "ESCAPE" => Some(MacKey::keyboard(53)),
         "ENTER" | "RETURN" => Some(MacKey::keyboard(36)),
@@ -1744,12 +1769,22 @@ mod tests {
         );
         assert_eq!(
             parse_chord("RAlt"),
-            Some(vec![MacKey::modifier(61, FLAG_OPTION)])
+            Some(vec![MacKey::modifier(
+                61,
+                FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION
+            )])
+        );
+        assert_eq!(
+            parse_chord("RWin"),
+            Some(vec![MacKey::modifier(
+                54,
+                FLAG_COMMAND | FLAG_DEVICE_RIGHT_COMMAND
+            )])
         );
         assert_eq!(
             parse_chord("Win+C"),
             Some(vec![
-                MacKey::modifier(55, FLAG_COMMAND),
+                MacKey::modifier(55, FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND),
                 MacKey::keyboard(8)
             ])
         );
@@ -1787,7 +1822,10 @@ mod tests {
         });
         assert_eq!(
             continuous_click_chord(&triggers),
-            Some(vec![MacKey::modifier(61, FLAG_OPTION)])
+            Some(vec![MacKey::modifier(
+                61,
+                FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION
+            )])
         );
         triggers.long_press.push(NativeBehavior::Key {
             enabled: true,
@@ -1825,15 +1863,24 @@ mod tests {
                         ..TriggerBehaviors::default()
                     },
                 );
-                assert_eq!(
-                    hardware_modifier_mappings(&settings),
-                    vec![HardwareModifierMapping {
-                        source: HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage),
-                        destination: HID_KEYBOARD_USAGE_PAGE | destination_usage,
-                    }],
-                    "source={} modifier={modifier}",
-                    source.id,
-                );
+                let mappings = hardware_modifier_mappings(&settings);
+                if supports_hardware_modifier_remap(&source) {
+                    assert_eq!(
+                        mappings,
+                        vec![HardwareModifierMapping {
+                            source: HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage),
+                            destination: HID_KEYBOARD_USAGE_PAGE | destination_usage,
+                        }],
+                        "source={} modifier={modifier}",
+                        source.id,
+                    );
+                } else {
+                    assert!(
+                        mappings.is_empty(),
+                        "source={} modifier={modifier} should stay on the software chord",
+                        source.id,
+                    );
+                }
             }
         }
 
