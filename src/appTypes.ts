@@ -101,6 +101,9 @@ export type CommonBehaviorPreset =
   | 'volumeDown'
   | 'volumeMute'
   | 'mediaPlayPause'
+  | 'mediaPrevious'
+  | 'mediaNext'
+  | 'mediaStop'
   | 'textAndEnter'
   | 'customKey'
 

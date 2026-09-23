@@ -1440,6 +1440,9 @@ fn output_stroke(virtual_key: u16, key_up: bool) -> Option<KeyStroke> {
             0xad => 0xe020,
             0xae => 0xe02e,
             0xaf => 0xe030,
+            0xb0 => 0xe019,
+            0xb1 => 0xe010,
+            0xb2 => 0xe024,
             0xb3 => 0xe022,
             _ => 0,
         };
@@ -1458,7 +1461,7 @@ fn output_stroke(virtual_key: u16, key_up: bool) -> Option<KeyStroke> {
 
 fn is_extended_key(key: u16) -> bool {
     matches!(key,
-        0xa3 | 0xa5 | 0x5b | 0x5c | 0x21..=0x28 | 0x2d | 0x2e | 0x5d | 0xad..=0xaf | 0xb3
+        0xa3 | 0xa5 | 0x5b | 0x5c | 0x21..=0x28 | 0x2d | 0x2e | 0x5d | 0xad..=0xaf | 0xb0..=0xb3
     )
 }
 
@@ -1517,6 +1520,9 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
         "VOLUMEDOWN" => 0xae,
         "VOLUMEUP" => 0xaf,
         "MEDIAPLAYPAUSE" => 0xb3,
+        "MEDIANEXT" => 0xb0,
+        "MEDIAPREVIOUS" => 0xb1,
+        "MEDIASTOP" => 0xb2,
         ";" | ":" => 0xba,
         "=" | "+" => 0xbb,
         "," | "，" | "<" => 0xbc,
@@ -2496,6 +2502,13 @@ mod tests {
         assert_eq!(parse_chord("]"), Some(vec![0xdd]));
         assert_eq!(parse_chord("】"), Some(vec![0xdd]));
         assert_eq!(parse_chord("Ctrl+C"), Some(vec![0x11, 0x43]));
+        assert_eq!(parse_chord("MediaNext"), Some(vec![0xb0]));
+        assert_eq!(parse_chord("MediaPrevious"), Some(vec![0xb1]));
+        assert_eq!(parse_chord("MediaStop"), Some(vec![0xb2]));
+        for (key, scan) in [(0xb0, 0x19), (0xb1, 0x10), (0xb2, 0x24)] {
+            let stroke = output_stroke(key, false).unwrap();
+            assert_eq!((stroke.code, stroke.state & KEY_E0), (scan, KEY_E0));
+        }
     }
 
     #[test]

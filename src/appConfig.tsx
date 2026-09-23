@@ -264,6 +264,8 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
     options: [
       { value: 'VolumeUp', label: '增大音量' }, { value: 'VolumeDown', label: '减小音量' },
       { value: 'VolumeMute', label: '静音' }, { value: 'MediaPlayPause', label: '播放 / 暂停' },
+      { value: 'MediaPrevious', label: '上一首' }, { value: 'MediaNext', label: '下一首' },
+      { value: 'MediaStop', label: '停止播放' },
     ],
   },
   {
@@ -299,15 +301,19 @@ export function keyDisplayName(key: string, platform: Platform) {
 
 export function keyGroupsForPlatform(platform: Platform) {
   if (platform !== 'macos') return manualKeyGroups
-  return manualKeyGroups.map((group) => group.label !== '单独修饰键'
-    ? group
-    : {
+  return manualKeyGroups.map((group) => {
+    if (group.label === '媒体按键') {
+      return { ...group, options: group.options.filter((option) => option.value !== 'MediaStop') }
+    }
+    if (group.label !== '单独修饰键') return group
+    return {
       ...group,
       options: [
         ...group.options.map((option) => ({ ...option, label: keyDisplayName(option.value, platform) })),
         { value: 'Fn', label: 'Fn' },
       ],
-    })
+    }
+  })
 }
 
 export const rightModifierKeys = {

@@ -1341,6 +1341,8 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
         "VOLUMEDOWN" => Some(MacKey::system(1)),
         "VOLUMEUP" => Some(MacKey::system(0)),
         "MEDIAPLAYPAUSE" => Some(MacKey::system(16)),
+        "MEDIANEXT" => Some(MacKey::system(17)),
+        "MEDIAPREVIOUS" => Some(MacKey::system(18)),
         ";" | ":" => Some(MacKey::keyboard(41)),
         "=" | "+" => Some(MacKey::keyboard(24)),
         "," | "，" | "<" => Some(MacKey::keyboard(43)),
@@ -1789,6 +1791,9 @@ mod tests {
             ])
         );
         assert_eq!(parse_chord("VolumeUp"), Some(vec![MacKey::system(0)]));
+        assert_eq!(parse_chord("MediaNext"), Some(vec![MacKey::system(17)]));
+        assert_eq!(parse_chord("MediaPrevious"), Some(vec![MacKey::system(18)]));
+        assert_eq!(parse_chord("MediaStop"), None);
         assert_eq!(parse_chord("Fn"), Some(vec![MacKey::modifier(63, FLAG_FN)]));
     }
 
