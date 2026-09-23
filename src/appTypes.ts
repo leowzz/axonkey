@@ -63,6 +63,39 @@ export type AudioProbe = {
   outputReady?: boolean
   eventVersion?: number
   error?: string | null
+  output?: WindowsAudioOutput | null
+}
+
+export type WindowsAudioOutput = {
+  state: 'selectionRequired' | 'adapterMissing' | 'enumerationFailed' | 'endpointDisabled' | 'endpointUnavailable' | 'unsupportedFormat' | 'openFailed' | 'ready' | 'configError' | 'switching'
+  selectedEndpointId: string | null
+  selectedEndpointName: string | null
+  captureEndpointId: string | null
+  captureEndpointName: string | null
+  error: string | null
+}
+
+export type WindowsAudioEndpoint = {
+  id: string
+  name: string
+  direction: 'render' | 'capture'
+  state: 'active' | 'disabled' | 'unplugged' | 'notPresent'
+  adapterId: string
+  hardwareIds: string[]
+  service: string
+  channels: number | null
+}
+
+export type WindowsAudioEndpoints = {
+  endpoints: WindowsAudioEndpoint[]
+  binding: {
+    schemaVersion: 1
+    renderEndpointId: string
+    captureEndpointId: string | null
+    adapterInstanceId: string
+  } | null
+  output: WindowsAudioOutput
+  error: string | null
 }
 
 export type CommonBehaviorPreset =
