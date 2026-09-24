@@ -32,6 +32,9 @@ type SettingsPageProps = {
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
   onAudioAction: (action: DriverActionKind) => void
+  audioRestarting: boolean
+  audioRestartError: string
+  onRestartAudio: () => void
   onProbeAudio: () => void
   onOpenSound: () => void
   device: SetupState['device']
@@ -43,7 +46,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -59,9 +62,9 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     { kind: 'accessibility' as const, title: '辅助功能', description: '发送映射后的按键、快捷键和文本。', granted: permissions.accessibility, stale: false },
   ]
   const audioInstalled = audioDriver.status === 'installed' || audioDriver.status === 'restartRequired'
-  const audioBusy = audioDriver.action.status === 'running' || audioDriver.status === 'checking'
-  const audioStatus = !nativeRuntime ? '未检测' : audioDriver.action.status === 'running' ? '等待授权…' : ({ unknown: '未检测', checking: '检测中', missing: '未安装', installed: '已安装', restartRequired: '需要重启', error: '操作失败' })[audioDriver.status]
-  const audioError = audioDriver.action.error ?? (audioDriver.status === 'error' ? audioDriver.message : undefined)
+  const audioBusy = audioRestarting || audioDriver.action.status === 'running' || audioDriver.status === 'checking'
+  const audioStatus = !nativeRuntime ? '未检测' : audioRestarting ? '重启中…' : audioDriver.action.status === 'running' ? '等待授权…' : ({ unknown: '未检测', checking: '检测中', missing: '未安装', installed: '已安装', restartRequired: '需要重启', error: '操作失败' })[audioDriver.status]
+  const audioError = audioRestartError || audioDriver.action.error || (audioDriver.status === 'error' ? audioDriver.message : undefined)
   const deviceBusy = device.status === 'checking' || device.status === 'connecting'
   const deviceStatus = !nativeRuntime ? '未检测' : ({ unknown: '未检测', checking: '检测中', disconnected: '未连接', connecting: '连接中', connected: '已连接', unsupported: '暂不支持', error: '检测失败' })[device.status]
   const grantedCount = items.filter((item) => item.granted).length
@@ -105,9 +108,10 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
             <span>MiRemoteV 2ch</span>
             <span className={`settings-permission-status ${nativeRuntime && audioInstalled && !audioBusy ? 'granted' : ''}`} aria-live="polite">{audioStatus}</span>
             <button type="button" className={`dialog-secondary ${audioInstalled ? 'danger' : ''}`} disabled={!nativeRuntime || audioBusy} onClick={() => onAudioAction(audioInstalled ? 'uninstall' : 'install')}>{audioInstalled ? '卸载' : '安装驱动'}</button>
+            <button type="button" className="dialog-secondary" disabled={!nativeRuntime || !audioInstalled || audioBusy} aria-busy={audioRestarting} onClick={onRestartAudio}>{audioRestarting ? '重启中…' : '重启驱动'}</button>
             <button type="button" className="dialog-secondary" disabled={!nativeRuntime || audioBusy} onClick={onProbeAudio}><RotateCcw size={14} />重新检测</button>
             <button type="button" className="dialog-secondary" disabled={!nativeRuntime || audioBusy} onClick={onOpenSound}>声音设置<ExternalLink size={14} /></button>
-            <SettingsHelp id="settings-audio-help" label="虚拟麦克风">将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch 作为麦克风。</SettingsHelp>
+            <SettingsHelp id="settings-audio-help" label="虚拟麦克风">将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch 作为麦克风。切换声音设备后若没有声音，可点击“重启驱动”重新连接虚拟麦克风和遥控器；当前语音会中断，请连接恢复后再试。</SettingsHelp>
           </div>
         </section>
         <div className="settings-form-row">

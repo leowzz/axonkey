@@ -270,7 +270,7 @@ function AppController() {
     window.addEventListener('keydown', handleEscapeFailsafe, true)
     return () => window.removeEventListener('keydown', handleEscapeFailsafe, true)
   }, [mouseEnabled])
-  const { audioGain, gainError, updateAudioGain } = useAudioControls({
+  const { audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
     platform,
     nativeRuntime,
     onToast: setToast,
@@ -1431,6 +1431,9 @@ function AppController() {
           onRefresh={() => void probeSystemState(false)}
           audioDriver={setupState.drivers.audio}
           onAudioAction={(action) => void runDriverAction('audio', action)}
+          audioRestarting={audioRestarting}
+          audioRestartError={audioRestartError}
+          onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
           onProbeAudio={() => void probeAudioState()}
           onOpenSound={() => void openSystemSettings('sound')}
           device={setupState.device}

@@ -16,13 +16,32 @@
 }
 @end
 
+// Replace hardware discovery, keeping the real restart/teardown lifecycle.
+@interface RestartAudioBridge : AKMacAudioBridge
+@property(nonatomic) BOOL failOutput;
+@property(nonatomic) int reconnects;
+@end
+@implementation RestartAudioBridge
+- (BOOL)ensureAudioOutput {
+    if (self.failOutput) {
+        [self setState:AKAudioStateError error:@"output selection failed"];
+        return NO;
+    }
+    [self setValue:[[FakeAudioEngine alloc] init] forKey:@"engine"];
+    [self setValue:[[NSObject alloc] init] forKey:@"sourceNode"];
+    [self setValue:[[AKAudioPCMStorage alloc] init] forKey:@"pcmStorage"];
+    return YES;
+}
+- (void)refresh { self.reconnects += 1; }
+@end
+
 static void PumpMainRunLoop(NSTimeInterval seconds) {
     [[NSRunLoop mainRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:seconds]];
 }
 
 typedef struct {
     int received, rejected, renderedSamples, discardedBuffers;
-    int reports, activeReports, lastWindow;
+    int reports, activeReports, lastWindow, sessionStops;
 } AudioEvents;
 static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
                               size_t length, int value1, int value2) {
@@ -31,6 +50,7 @@ static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
     if (event == AKAudioEventRejected) events->rejected++;
     if (event == AKAudioEventRendered) events->renderedSamples += value1;
     if (event == AKAudioEventOutputReset) events->discardedBuffers += value1;
+    if (event == AKAudioEventSessionStop) events->sessionStops++;
     if (event == AKAudioEventDiagnostics) {
         events->reports++;
         events->activeReports += value1 != 0;
@@ -104,6 +124,39 @@ int main(void) {
         int reports = events.reports;
         PumpMainRunLoop(1.1);
         CHECK(events.reports == reports, "diagnostic timer survived shutdown");
+
+        RestartAudioBridge *restartBridge = [[RestartAudioBridge alloc] initWithCallbacks:&callbacks];
+        FakeAudioEngine *oldEngine = [[FakeAudioEngine alloc] init];
+        [restartBridge setValue:oldEngine forKey:@"engine"];
+        [restartBridge setValue:storage forKey:@"pcmStorage"];
+        [restartBridge setValue:@YES forKey:@"streaming"];
+        [restartBridge setValue:@YES forKey:@"capabilitiesConfirmed"];
+        [restartBridge setValue:@2 forKey:@"pendingAudioBuffers"];
+        [restartBridge setGainDecibels:6];
+        int stops = events.sessionStops;
+        int discarded = events.discardedBuffers;
+        CHECK(axonkey_macos_audio_restart((__bridge void *)restartBridge), "manual restart failed");
+        CHECK(oldEngine.stopped && [restartBridge valueForKey:@"engine"] != oldEngine &&
+              [restartBridge valueForKey:@"pcmStorage"] != storage,
+              "restart reused the old output or PCM queue");
+        CHECK(events.sessionStops > stops && events.discardedBuffers == discarded + 2 &&
+              ![restartBridge isForwarding] &&
+              ![[restartBridge valueForKey:@"capabilitiesConfirmed"] boolValue],
+              "restart did not clear the old voice session");
+        CHECK(restartBridge.reconnects == 1 && [restartBridge currentState] == AKAudioStateScanning,
+              "restart did not request reconnection or prematurely claimed readiness");
+        CHECK(fabsf([[restartBridge valueForKey:@"gain"] floatValue] - powf(10, 0.3f)) < 0.0001f,
+              "restart lost the configured gain");
+        restartBridge.failOutput = YES;
+        CHECK(!axonkey_macos_audio_restart((__bridge void *)restartBridge) &&
+              [[restartBridge currentError] isEqualToString:@"output selection failed"] &&
+              [restartBridge valueForKey:@"engine"] == nil && restartBridge.reconnects == 1,
+              "output selection failure was hidden or reused stale output");
+        restartBridge.failOutput = NO;
+        CHECK(axonkey_macos_audio_restart((__bridge void *)restartBridge) &&
+              [restartBridge currentError] == nil && restartBridge.reconnects == 2,
+              "restart could not recover after output failure");
+        [restartBridge stop];
     }
     return 0;
 }

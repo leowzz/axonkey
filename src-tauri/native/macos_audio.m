@@ -164,6 +164,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
 - (void)start;
 - (void)refresh;
+- (BOOL)restart;
 - (void)stop;
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count;
 - (int)currentState;
@@ -406,6 +407,20 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     [self stopAudioOutput];
     [self setState:AKAudioStateStopped error:nil];
     [self reportDiagnostics];
+}
+
+- (BOOL)restart {
+    [self logAudio:@"Manually restarting macOS audio connections" error:NO];
+    // Run teardown and rebuild together on the main queue, so Bluetooth events
+    // cannot enqueue into the old graph between these operations.
+    [self stop];
+    _shouldRun = YES;
+    [self startDiagnostics];
+    if (![self ensureAudioOutput]) return NO;
+    [self setState:AKAudioStateScanning error:nil];
+    [self refresh];
+    [self scheduleAudioIdle];
+    return YES;
 }
 
 - (void)beginBluetooth {
@@ -792,6 +807,16 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                                                    startError.localizedDescription ?: @"unknown error"]];
         return NO;
     }
+    AudioDeviceID selectedDevice = kAudioObjectUnknown;
+    UInt32 selectedDeviceSize = sizeof(selectedDevice);
+    OSStatus readStatus = AudioUnitGetProperty(outputUnit,
+        kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+        &selectedDevice, &selectedDeviceSize);
+    if (readStatus != noErr || selectedDevice != deviceID) {
+        [engine stop];
+        [self setState:AKAudioStateError error:@"未能将音频输出连接到 MiRemoteV 2ch，请重试"];
+        return NO;
+    }
     _engine = engine;
     _sourceNode = source;
     _pcmStorage = storage;
@@ -1143,6 +1168,14 @@ void axonkey_macos_audio_refresh(void *rawBridge) {
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ [bridge refresh]; });
+}
+
+bool axonkey_macos_audio_restart(void *rawBridge) {
+    if (rawBridge == NULL) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    __block BOOL restarted = NO;
+    AKOnMainSync(^{ restarted = [bridge restart]; });
+    return restarted;
 }
 
 void axonkey_macos_audio_stop(void *rawBridge) {

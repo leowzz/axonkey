@@ -33,6 +33,7 @@ extern "C" {
     fn axonkey_macos_audio_create(callbacks: *const NativeCallbacks) -> *mut c_void;
     fn axonkey_macos_audio_start(bridge: *mut c_void);
     fn axonkey_macos_audio_refresh(bridge: *mut c_void);
+    fn axonkey_macos_audio_restart(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_stop(bridge: *mut c_void);
     fn axonkey_macos_audio_destroy(bridge: *mut c_void);
     fn axonkey_macos_audio_driver_installed() -> bool;
@@ -99,6 +100,19 @@ impl AudioService {
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_refresh(bridge) };
+        }
+    }
+
+    pub fn restart(&self) -> Result<(), String> {
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        if bridge.is_null() {
+            return Err("无法连接 macOS 音频服务".into());
+        }
+        if unsafe { axonkey_macos_audio_restart(bridge) } {
+            Ok(())
+        } else {
+            Err(native_error(bridge)
+                .unwrap_or_else(|| "未检测到 MiRemoteV 2ch，请安装驱动后重试".into()))
         }
     }
 
