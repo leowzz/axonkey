@@ -18,6 +18,9 @@ import {
   Pencil,
   Play,
   RotateCcw,
+  SkipBack,
+  SkipForward,
+  Square,
   Trash2,
   Volume1,
   Volume2,
@@ -199,6 +202,9 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           </>}
           {activeTab === 'media' && <>
             <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
+            <BehaviorActionButton icon={<SkipBack size={17} />} label="上一首" onClick={() => onApplyCommonBehavior('mediaPrevious')} />
+            <BehaviorActionButton icon={<SkipForward size={17} />} label="下一首" onClick={() => onApplyCommonBehavior('mediaNext')} />
+            {platform === 'windows' && <BehaviorActionButton icon={<Square size={17} />} label="停止播放" onClick={() => onApplyCommonBehavior('mediaStop')} />}
             <BehaviorActionButton icon={<Volume2 size={17} />} label="增大音量" onClick={() => onApplyCommonBehavior('volumeUp')} />
             <BehaviorActionButton icon={<Volume1 size={17} />} label="减小音量" onClick={() => onApplyCommonBehavior('volumeDown')} />
             <BehaviorActionButton icon={<VolumeX size={17} />} label="静音" onClick={() => onApplyCommonBehavior('volumeMute')} />

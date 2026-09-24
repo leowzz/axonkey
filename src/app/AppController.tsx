@@ -698,6 +698,9 @@ function AppController() {
       case 'volumeDown': return replaceWithKey('VolumeDown')
       case 'volumeMute': return replaceWithKey('VolumeMute')
       case 'mediaPlayPause': return replaceWithKey('MediaPlayPause')
+      case 'mediaPrevious': return replaceWithKey('MediaPrevious')
+      case 'mediaNext': return replaceWithKey('MediaNext')
+      case 'mediaStop': return replaceWithKey('MediaStop')
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
         return
