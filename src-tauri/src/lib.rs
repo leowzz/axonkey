@@ -907,7 +907,7 @@ fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Resul
     #[cfg(target_os = "windows")]
     {
         audio_service.refresh();
-        Ok(audio_service.status().output_ready)
+        Ok(audio_service.status().driver_installed)
     }
 
     #[cfg(target_os = "macos")]
@@ -926,61 +926,6 @@ fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Resul
 fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServiceStatus {
     audio_service.refresh();
     audio_service.status()
-}
-
-#[tauri::command]
-async fn get_windows_audio_endpoints(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    #[cfg(windows)]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            serde_json::to_value(app.state::<AudioService>().endpoints())
-                .map_err(|error| error.to_string())
-        })
-        .await
-        .map_err(|error| error.to_string())?
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = app;
-        Err("此功能仅适用于 Windows".into())
-    }
-}
-
-#[tauri::command]
-async fn set_windows_audio_endpoint(
-    app: tauri::AppHandle,
-    render_endpoint_id: String,
-    capture_endpoint_id: Option<String>,
-) -> Result<AudioServiceStatus, String> {
-    #[cfg(windows)]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            app.state::<AudioService>()
-                .select_endpoint(render_endpoint_id, capture_endpoint_id)
-        })
-        .await
-        .map_err(|error| error.to_string())?
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = (app, render_endpoint_id, capture_endpoint_id);
-        Err("此功能仅适用于 Windows".into())
-    }
-}
-
-#[tauri::command]
-async fn clear_windows_audio_endpoint(app: tauri::AppHandle) -> Result<AudioServiceStatus, String> {
-    #[cfg(windows)]
-    {
-        tauri::async_runtime::spawn_blocking(move || app.state::<AudioService>().clear_endpoint())
-            .await
-            .map_err(|error| error.to_string())?
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = app;
-        Err("此功能仅适用于 Windows".into())
-    }
 }
 
 #[tauri::command]
@@ -1232,9 +1177,6 @@ pub fn run() {
             if let Err(error) = initialize_autostart(app.handle()) {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
-            #[cfg(windows)]
-            app.manage(AudioService::start(app.path().app_config_dir()?.join("windows-audio-output.json")));
-            #[cfg(not(windows))]
             app.manage(AudioService::start());
             app.manage(InputService::start());
             app.manage(MouseService::start());
@@ -1285,9 +1227,6 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
-            get_windows_audio_endpoints,
-            set_windows_audio_endpoint,
-            clear_windows_audio_endpoint,
             get_audio_test_state,
             set_audio_gain,
             probe_rc003_connected,

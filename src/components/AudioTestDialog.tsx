@@ -4,7 +4,6 @@ import { useEffect, useReducer, useRef, useState } from 'react'
 import type { AudioProbe, Platform } from '../appTypes'
 import { audioGainMin, audioGainMax } from '../appConfig'
 import { audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone } from '../audioGain'
-import { audioTestReady, windowsAudioPresentation, windowsOutputPresentation } from '../windowsAudioEndpoints'
 
 type AudioLevel = { peak: number; rms: number }
 
@@ -39,7 +38,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
         const next = await invoke<[AudioProbe, AudioLevel]>('get_audio_test_state')
         if (active) {
           setSample(next)
-          const valid = audioTestReady(platform, next[0])
+          const valid = !next[0].error && next[0].driverInstalled && next[0].bluetoothConnected
           const forwarding = valid && next[0].forwarding
           if (!valid || (forwarding && !wasForwarding)) updateMeasurement({ type: 'reset' })
           if (valid && (forwarding || wasForwarding)) {
@@ -69,20 +68,18 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
   const [status, level] = sample ?? [null, { peak: 0, rms: 0 }]
   const supported = nativeRuntime && platform !== 'unsupported'
   const message = !supported ? '请在 macOS 或 Windows 桌面应用中测试，浏览器预览不提供真实音频。'
-    : error || (platform === 'windows' && status && !audioTestReady(platform, status) ? windowsAudioPresentation(status).detail : status?.error) || (!status ? '正在读取音频状态…'
-      : platform !== 'windows' && !status.driverInstalled ? '未检测到音频驱动，请先在音频设置中安装驱动。'
+    : error || status?.error || (!status ? '正在读取音频状态…'
+      : !status.driverInstalled ? '未检测到音频驱动，请先在音频设置中安装驱动。'
         : !status.bluetoothConnected ? '等待遥控器连接，请检查蓝牙连接并唤醒遥控器。'
           : level.peak > 0 ? '已收到音频信号，请观察说话和停顿时的电平变化。'
             : status.forwarding ? '语音通道已开启，暂未检测到声音。请靠近遥控器说话。'
               : '已连接，请按住遥控器语音键开始说话。')
-  const deviceName = platform === 'windows' ? status?.output?.captureEndpointName : 'MiRemoteV 2ch'
-  const outputName = platform === 'windows' ? status?.output?.selectedEndpointName : 'MiRemoteV 2ch'
-  const receivedData = platform === 'windows' ? status?.receivedData ?? status?.forwarding : status?.forwarding
+  const deviceName = platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'
   const adjustedPeak = gainAdjustedLevel(level.peak, audioGain)
   const adjustedMaximum = gainAdjustedLevel(maximum, audioGain)
   const tone = gainLevelTone(adjustedPeak)
   const meterValue = adjustedPeak > 0 ? Math.max(0, Math.min(100, (20 * Math.log10(adjustedPeak) + 60) / 60 * 100)) : 0
-  const ready = supported && audioTestReady(platform, status) && !error && !gainError
+  const ready = supported && !!status?.driverInstalled && !!status.bluetoothConnected && !error && !status.error && !gainError
   const resultTone = !ready || !completed ? 'silent' : maximum >= 0.999 ? 'clipping' : gainLevelTone(adjustedMaximum)
   const result = {
     silent: { title: '等待正常讲话', hint: '按住语音键，以日常距离和音量说“音频测试，一二三”，持续几秒。' },
@@ -126,8 +123,8 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
           <div className="audio-test-scale"><span>偏低</span><span>合适</span><span>偏高</span></div>
         </section>
       </div>
-      <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>{deviceName ? `在录音或通话应用中选择「${deviceName}」作为麦克风，录一小段，确认声音清晰。` : '尚未关联录音端。请到设置 → 设备与权限选择对应麦克风，再录音回放确认；当前电平不能证明录音应用已收到声音。'}</span></div>
-      <section className="audio-test-stage-panel" aria-label="语音通道状态"><h3>语音通道状态</h3><div className="audio-test-stage-list"><span>{platform === 'windows' ? `语音播放端：${windowsOutputPresentation(status?.output).label}` : `音频驱动：${!status ? '未检测' : status.driverInstalled ? '已安装' : '未安装'}`}</span><span>RC003 语音连接：{status?.bluetoothConnected ? '已连接' : '等待连接'}</span><span>语音收音：{receivedData ? '已收到数据' : '暂无数据'}</span><span>语音转发：{status?.forwarding && (platform !== 'windows' || status.output?.state === 'ready') ? `正在转发到 ${outputName || '已选择的播放端'}` : '未转发'}</span></div></section>
+      <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>在录音或通话应用中选择「{deviceName}」作为麦克风，录一小段，确认声音清晰。</span></div>
+      <section className="audio-test-stage-panel" aria-label="语音通道状态"><h3>语音通道状态</h3><div className="audio-test-stage-list"><span>音频驱动：{status?.driverInstalled ? '已安装' : '未安装'}</span><span>RC003 语音连接：{status?.bluetoothConnected ? '已连接' : '等待连接'}</span><span>语音收音：{status?.forwarding ? '已收到数据' : '暂无数据'}</span><span>语音转发：{status?.forwarding ? '正在转发到 CABLE Input' : '未转发'}</span></div></section>
       <details className="audio-test-details">
         <summary>详细电平与测量说明</summary>
         <dl><div><dt>原始峰值</dt><dd>{decibels(level.peak)}</dd></div><div><dt>增益后估算</dt><dd>{decibels(adjustedPeak)}</dd></div><div><dt>本次最高估算</dt><dd>{decibels(adjustedMaximum)}</dd></div></dl>

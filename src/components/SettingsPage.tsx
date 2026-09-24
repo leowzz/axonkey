@@ -2,8 +2,7 @@ import type { CSSProperties } from 'react'
 import { Bluetooth, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
-import { WindowsAudioEndpointControl } from './WindowsAudioEndpointControl'
-import type { AudioProbe, MacPermissionKind, MacPermissions, Platform, WindowsAudioOutput } from '../appTypes'
+import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, SetupState } from '../setupModel'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse'
@@ -32,9 +31,6 @@ type SettingsPageProps = {
   inputAuthorizationStale: boolean
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
-  audioProbe?: AudioProbe | null
-  onAudioProbeChange: (probe: AudioProbe) => void
-  onAudioOutputChange: (output: WindowsAudioOutput) => void
   onAudioAction: (action: DriverActionKind) => void
   onProbeAudio: () => void
   onOpenSound: () => void
@@ -47,7 +43,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, audioProbe, onAudioProbeChange, onAudioOutputChange, onAudioAction, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -124,13 +120,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       </div>
       {nativeRuntime && audioError && <div className="permission-drag-note" role="alert"><Info size={17} /><div><strong>虚拟麦克风需要处理</strong><span>{audioError}</span></div></div>}
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
-    </> : platform === 'windows' ? <>
-      <div className="settings-form-fields"><section className="settings-form-row">
-        <span className="settings-form-label">Windows 输入服务：</span>
-        <div className="settings-form-control"><span>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</span><button type="button" className="dialog-secondary" disabled={!nativeRuntime} onClick={onOpenDriver}>打开驱动设置</button><SettingsHelp id="windows-input-help" label="Windows 输入服务">按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</SettingsHelp></div>
-      </section></div>
-      <WindowsAudioEndpointControl supported={nativeRuntime} output={audioProbe?.output} driverBusy={audioBusy} driverError={audioDriver.action.error} onProbeChange={onAudioProbeChange} onOutputChange={onAudioOutputChange} onInstall={() => onAudioAction('install')} onOpenSound={onOpenSound} />
-    </>
+    </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
     {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields">
       <section className="settings-form-row" aria-labelledby="settings-device-label">
