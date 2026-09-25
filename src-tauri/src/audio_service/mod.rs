@@ -18,7 +18,27 @@ pub struct AudioServiceStatus {
     pub event_version: u64,
     pub battery_level: Option<u8>,
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<AudioOutputStatus>,
 }
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioOutputStatus {
+    pub state: String,
+    pub selected_endpoint_id: Option<String>,
+    pub selected_endpoint_name: Option<String>,
+    pub capture_endpoint_id: Option<String>,
+    pub capture_endpoint_name: Option<String>,
+    pub error: Option<String>,
+}
+
+#[cfg(any(target_os = "windows", test))]
+mod endpoint_config;
+#[cfg(any(target_os = "windows", test))]
+mod endpoint_selection;
+#[cfg(target_os = "windows")]
+mod windows_endpoints;
 
 pub(crate) const AUDIO_GAIN_MIN_DB: i16 = -30;
 pub(crate) const AUDIO_GAIN_MAX_DB: i16 = 30;

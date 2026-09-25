@@ -1285,6 +1285,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-checkbox input { width: 17px; height: 17px; margin: 0; accent-color: #1683f8; }
 .settings-number { width: 94px; height: 30px; padding: 3px 6px; border: 1px solid #c7c9cd; border-radius: 4px; background: white; color: #303338; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
 .settings-number:focus-visible { outline: 3px solid #93b8f2; outline-offset: 1px; }
+.settings-audio-select { width: min(440px, 100%); min-width: 0; height: 32px; padding: 3px 6px; border: 1px solid #c7c9cd; border-radius: 4px; background: white; color: #303338; font-size: 14px; text-overflow: ellipsis; }
+.settings-audio-select:focus-visible { outline: 3px solid #93b8f2; outline-offset: 1px; }
+.settings-audio-select:disabled { color: #747982; background: #f3f4f5; }
+.settings-form-control.settings-audio-current { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; line-height: 1.5; overflow-wrap: anywhere; }
+.settings-audio-error { color: #b42318; font-size: 14px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.windows-audio-endpoints { margin: 12px 0; }
 .settings-form-control .settings-sensitivity-control { width: 240px; }
 .settings-form-page .settings-autostart { border: 0; padding: 8px 0; background: transparent; }
 .settings-form-page .settings-autostart-status { flex: none; }
