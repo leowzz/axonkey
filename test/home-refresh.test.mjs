@@ -6,6 +6,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import * as windowsAudioEndpoints from '../src/windowsAudioEndpoints.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -14,6 +15,7 @@ vm.runInNewContext(ts.transpileModule(readFileSync('src/components/HomeDashboard
 }).outputText, {
   module, exports: module.exports,
   require: name => name === '../appConfig' ? { audioGainMin: -30, audioGainMax: 30 }
+    : name === '../windowsAudioEndpoints' ? windowsAudioEndpoints
     : name === '../openGitHub' ? { openGitHub() {} }
       : name === './BatteryIndicator' ? { BatteryIndicator: () => null, BatteryDebugControls: () => null }
         : require(name),
