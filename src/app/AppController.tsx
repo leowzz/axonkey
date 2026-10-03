@@ -639,7 +639,10 @@ function AppController() {
   const beginBehaviorDraft = (type: AdvancedBehaviorType, mode: DraftBehaviorState['mode']) => {
     const behavior = type === 'key'
       ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
-      : createBehavior(type === 'paste' ? { type, text: '' } : { type, ms: 300 })
+      : createBehavior(type === 'paste' ? { type, text: '' }
+        : type === 'openApp' ? { type, path: '' }
+        : type === 'openWebsite' ? { type, url: '' }
+        : { type, ms: 300 })
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
     setCapturingBehaviorId(type === 'key' ? behavior.id : null)
@@ -703,6 +706,10 @@ function AppController() {
       case 'mediaStop': return replaceWithKey('MediaStop')
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
+        return
+      case 'openApp':
+      case 'openWebsite':
+        beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':
         setTextInputDraft(textAndEnterValue(behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]) ?? '')

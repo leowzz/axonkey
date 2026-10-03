@@ -1198,6 +1198,7 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
             NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,
@@ -1249,6 +1250,7 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
+        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {}
     }
 }
 
@@ -1272,6 +1274,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }

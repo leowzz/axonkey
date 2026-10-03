@@ -1156,6 +1156,7 @@ fn execute_behaviors(
             NativeBehavior::Disabled { .. } => {
                 log::info!(target: "axonkey::input", "Mapped action: type=disabled")
             }
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {}
         }
         match behavior {
             NativeBehavior::Wheel { direction, .. } => {
@@ -1176,6 +1177,7 @@ fn execute_behaviors(
                 }
             }
             NativeBehavior::Paste { text, .. } => send_unicode_text(text),
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Delay { ms, .. } => {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
@@ -1200,6 +1202,7 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         }
         NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
         NativeBehavior::Paste { text, .. } => send_unicode_text(text),
+        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
                 if !send_mouse_chord_with(&keys, hold_ms, send_mouse_keyboard_inputs) {
@@ -1317,6 +1320,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }

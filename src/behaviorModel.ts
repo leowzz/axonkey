@@ -14,7 +14,7 @@ export type ButtonId = RemoteButtonId
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'disabled'] as const
+export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'openApp', 'openWebsite', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 export const cursorDirections = ['up', 'down', 'left', 'right'] as const
 export type CursorDirection = (typeof cursorDirections)[number]
@@ -53,8 +53,10 @@ export type DisabledBehavior = BehaviorBase & {
 export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right' }
 export type MouseBehavior = BehaviorBase & { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward' }
 export type CursorMoveBehavior = BehaviorBase & { type: 'cursorMove'; direction: CursorDirection; distance: number }
+export type OpenAppBehavior = BehaviorBase & { type: 'openApp'; path: string }
+export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | DisabledBehavior
+export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | OpenAppBehavior | OpenWebsiteBehavior | DisabledBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -83,9 +85,31 @@ export type CreateBehaviorOptions =
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
+  | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
+  | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
 
 const maxDelayMs = 300_000
+
+export function normalizeApplicationPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const path = value.trim().replace(/^"(.*)"$/, '$1')
+  if (/[\u0000-\u001f\u007f]/.test(path)) return null
+  if (!/^(?:[a-z]:[\\/]|\\\\[^\\]+\\|\/)/i.test(path)) return null
+  return /\.(?:exe|com|lnk|app)$/i.test(path) ? path : null
+}
+
+export function normalizeWebsiteUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value.trim() || /[\u0000-\u0020\u007f]/.test(value.trim())) return null
+  const input = value.trim()
+  try {
+    const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(input) && !/^[^/?#:\s]+:\d+(?:[/?#]|$)/.test(input)
+    const url = new URL(hasScheme ? input : `https://${input}`)
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname && !url.username && !url.password ? url.href : null
+  } catch {
+    return null
+  }
+}
 
 function finiteCursorDistance(value: unknown, fallback = defaultCursorDistance) {
   let number: number
@@ -149,6 +173,10 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { id, enabled, type: 'paste', text: typeof options.text === 'string' ? options.text : '' }
     case 'delay':
       return { id, enabled, type: 'delay', ms: finiteDelay(options.ms) }
+    case 'openApp':
+      return { id, enabled, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
+    case 'openWebsite':
+      return { id, enabled, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
     case 'disabled':
       return { id, enabled, type: 'disabled' }
   }
@@ -216,6 +244,14 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return typeof value.text === 'string' ? { id, enabled, type, text: value.text } : null
     case 'delay':
       return { id, enabled, type, ms: finiteDelay(value.ms) }
+    case 'openApp': {
+      const path = normalizeApplicationPath(value.path)
+      return path ? { id, enabled, type, path } : null
+    }
+    case 'openWebsite': {
+      const url = normalizeWebsiteUrl(value.url)
+      return url ? { id, enabled, type, url } : null
+    }
     case 'disabled':
       return { id, enabled, type }
   }

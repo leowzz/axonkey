@@ -338,6 +338,14 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .behavior-dialog-field { display: flex; flex-direction: column; gap: 8px; }
 .behavior-dialog-field .behavior-paste-input { min-height: 150px; margin-top: 0; }
 .behavior-dialog-field .behavior-delay-row { margin-top: 0; }
+.behavior-launch-label, .behavior-launch-row { display: flex; align-items: center; gap: 8px; }
+.behavior-launch-input { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #cfd5da; border-radius: 6px; color: #30383f; background: #fff; font-size: 14px; }
+.behavior-launch-input:focus-visible { outline: 2px solid rgba(20,120,232,.45); outline-offset: 2px; }
+.behavior-launch-input[aria-invalid="true"] { border-color: #c64444; }
+.behavior-dialog.application-drag-over .behavior-dialog-body { background: #eef6ff; }
+.behavior-dialog.application-drag-over .behavior-launch-input { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(20,120,232,.12); }
+.behavior-launch-row .icon-button { flex: 0 0 38px; height: 38px; }
+.behavior-dialog-field .behavior-launch-error { margin: 0; color: #b42323; font-size: 13px; overflow-wrap: anywhere; }
 .behavior-dialog-actions { display: flex; min-height: 62px; align-items: center; justify-content: space-between; padding: 12px 22px; border-top: 1px solid #dde0e3; background: #f0f2f3; }
 .behavior-dialog-actions > span { display: inline-flex; align-items: center; gap: 5px; color: #738078; font-size: 12px; }
 .behavior-dialog-buttons { display: flex; align-items: center; gap: 8px; }

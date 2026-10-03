@@ -10,6 +10,8 @@ import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
 const cache = new Map()
+const testWindow = { devicePixelRatio: 2 }
+const dropListeners = new Set()
 
 function load(file) {
   file = resolve(file)
@@ -20,13 +22,21 @@ function load(file) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText
   const localRequire = name => {
+    if (name === '@tauri-apps/api/webviewWindow') return {
+      getCurrentWebviewWindow: () => ({
+        onDragDropEvent: callback => {
+          dropListeners.add(callback)
+          return Promise.resolve(() => dropListeners.delete(callback))
+        },
+      }),
+    }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
     if (extname(path)) return load(path)
     if (existsSync(`${path}.tsx`)) return load(`${path}.tsx`)
     return load(`${path}.ts`)
   }
-  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console }, { filename: file })
+  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console, URL, setTimeout, clearTimeout, window: testWindow }, { filename: file })
   return module.exports
 }
 
@@ -116,7 +126,9 @@ function renderDialog(platform, initial, draft = true) {
       view.update(React.createElement(BehaviorEditDialog, { ...props, behavior }))
     },
   }
-  act(() => { view = Renderer.create(React.createElement(BehaviorEditDialog, { ...props, behavior })) })
+  act(() => { view = Renderer.create(React.createElement(BehaviorEditDialog, { ...props, behavior }), {
+    createNodeMock: element => element.type === 'section' ? { getBoundingClientRect: () => ({ left: 100, right: 700, top: 100, bottom: 500 }) } : null,
+  }) })
   return {
     view,
     behavior: () => JSON.parse(JSON.stringify(behavior)),
@@ -126,6 +138,86 @@ function renderDialog(platform, initial, draft = true) {
     save: () => view.root.findAllByType('button').find(node => text(node) === '保存'),
   }
 }
+
+test('launch dialogs validate drafts and retain existing targets during incomplete edits', () => {
+  for (const [type, field, target, invalid] of [
+    ['openApp', 'path', 'C:\\Program Files\\Tool.exe', 'relative.exe'],
+    ['openWebsite', 'url', 'https://example.com/', 'javascript:alert(1)'],
+  ]) {
+    const initial = { id: 'launch', enabled: true, type, [field]: target }
+    const draft = renderDialog('windows', { ...initial, [field]: '' })
+    const existing = renderDialog('windows', initial, false)
+    const change = (dialog, value) => act(() => dialog.view.root.findByProps({ id: 'behavior-launch-target' }).props.onChange({ target: { value } }))
+    try {
+      assert.equal(draft.save().props.disabled, true)
+      change(draft, invalid)
+      assert.equal(draft.save().props.disabled, true)
+      assert.ok(draft.view.root.findByProps({ role: 'alert' }))
+      change(draft, target)
+      assert.equal(draft.save().props.disabled, false)
+      assert.equal(draft.behavior()[field], target)
+      change(existing, invalid)
+      assert.deepEqual(existing.behavior(), initial)
+      change(existing, target)
+      assert.equal(existing.behavior()[field], target)
+      if (type === 'openApp') assert.equal(draft.view.root.findByProps({ 'aria-label': '选择应用' }).props.disabled, true)
+    } finally {
+      act(() => draft.view.unmount())
+      act(() => existing.view.unmount())
+    }
+  }
+})
+
+test('native application drops preserve shortcut paths, reject invalid drops and clean up listeners', async () => {
+  testWindow.__TAURI_INTERNALS__ = {}
+  const dialog = renderDialog('windows', { id: 'drop', enabled: true, type: 'openApp', path: '' })
+  const send = payload => act(() => { for (const callback of dropListeners) callback({ payload }) })
+  const position = { x: 600, y: 400 }
+  try {
+    await act(async () => {})
+    assert.equal(dropListeners.size, 1)
+    send({ type: 'enter', paths: ['C:\\桌面\\Tool.lnk'], position })
+    assert.ok(dialog.view.root.findByProps({ role: 'dialog' }).props.className.includes('application-drag-over'))
+    send({ type: 'leave' })
+    assert.equal(dialog.view.root.findByProps({ role: 'dialog' }).props.className.includes('application-drag-over'), false)
+    send({ type: 'drop', paths: ['C:\\桌面\\Tool.lnk'], position })
+    assert.equal(dialog.behavior().path, 'C:\\桌面\\Tool.lnk')
+    assert.equal(dialog.save().props.disabled, false)
+    assert.equal(dialog.view.root.findByProps({ id: 'behavior-launch-target' }).props.value, 'C:\\桌面\\Tool.lnk')
+    send({ type: 'drop', paths: ['C:\\Other.exe'], position: { x: 20, y: 20 } })
+    assert.equal(dialog.behavior().path, 'C:\\桌面\\Tool.lnk')
+    send({ type: 'drop', paths: ['C:\\A.exe', 'C:\\B.exe'], position })
+    assert.ok(text(dialog.view.root.findByProps({ role: 'alert' })).includes('一个'))
+    send({ type: 'drop', paths: ['C:\\File.txt'], position })
+    assert.ok(text(dialog.view.root.findByProps({ role: 'alert' })).includes('不支持'))
+    assert.equal(dialog.behavior().path, 'C:\\桌面\\Tool.lnk')
+    send({ type: 'drop', paths: ['C:\\Program Files\\Tool.exe'], position })
+    assert.equal(dialog.behavior().path, 'C:\\Program Files\\Tool.exe')
+    assert.equal(dialog.view.root.findAllByProps({ role: 'alert' }).length, 0)
+    assert.equal(dropListeners.size, 1)
+  } finally {
+    act(() => dialog.view.unmount())
+    delete testWindow.__TAURI_INTERNALS__
+  }
+  assert.equal(dropListeners.size, 0)
+})
+
+test('native drag listener is removed when its subscription resolves after dialog close', async () => {
+  testWindow.__TAURI_INTERNALS__ = {}
+  const dialog = renderDialog('macos', { id: 'drop', enabled: true, type: 'openApp', path: '/Applications/Test.app' })
+  act(() => dialog.view.unmount())
+  delete testWindow.__TAURI_INTERNALS__
+  await act(async () => {})
+  assert.equal(dropListeners.size, 0)
+  testWindow.__TAURI_INTERNALS__ = {}
+  const website = renderDialog('windows', { id: 'web', enabled: true, type: 'openWebsite', url: 'https://example.com/' })
+  try {
+    assert.equal(dropListeners.size, 0)
+  } finally {
+    act(() => website.view.unmount())
+    delete testWindow.__TAURI_INTERNALS__
+  }
+})
 
 for (const platform of ['macos', 'windows']) {
   test(`${platform}: both sides can be selected together and retained while editing`, () => {
