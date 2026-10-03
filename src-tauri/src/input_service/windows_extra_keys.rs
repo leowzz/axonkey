@@ -97,7 +97,7 @@ impl ExtraKeysService {
         let mut state = self.inner.lock().unwrap();
         if state.generation == generation {
             if state.status.state != status.state || state.status.step != status.step {
-                log::info!(target: "axonkey::input", "Extra keys: state={}, step={}", status.state, status.step);
+                log::info!(target: "axonkey::input", "Extra keys: state={}, step={}, message={}", status.state, status.step, status.message);
             }
             state.status = status;
         }
@@ -187,12 +187,28 @@ impl ExtraKeysService {
         let mut framed = Frames::default();
         let mut authenticated = false;
         let mut last = os::awake_ticks();
+        let mut waiting_status = None;
         while self.current(generation) {
             if !os::alive(&process) {
                 return Err("按键辅助进程已退出，请重新授权。".into());
             }
-            if os::awake_ticks().saturating_sub(last) > 35 * 10_000_000 {
-                return Err("按键服务失去响应，请关闭后重试。".into());
+            if os::awake_ticks().saturating_sub(last) > 35 * 10_000_000
+                && waiting_status.is_none()
+            {
+                if !authenticated {
+                    return Err("按键服务身份验证超时，请重新授权。".into());
+                }
+                // Modern Standby can suspend the helper independently of the app.
+                // Keep its authorized process/pipe alive and release stale holds.
+                let mut state = self.inner.lock().unwrap();
+                if state.generation != generation {
+                    return Ok(());
+                }
+                waiting_status = Some(state.status.clone());
+                state.events.clear();
+                state.events.push_back((0, false));
+                state.status = status("starting", "正在等待按键服务恢复，无需重新授权。", 0);
+                log::warn!(target: "axonkey::input", "Extra key helper heartbeat paused; retaining authorized session");
             }
             for message in framed.read(&mut stream)? {
                 last = os::awake_ticks();
@@ -205,7 +221,13 @@ impl ExtraKeysService {
                     continue;
                 }
                 match message["kind"].as_str() {
+                    Some("heartbeat") => {
+                        if let Some(previous) = waiting_status.take() {
+                            self.status_for(generation, previous);
+                        }
+                    }
                     Some("status") => {
+                        waiting_status = None;
                         let mode = message["state"].as_str().unwrap_or("error");
                         if !["waitingDevice", "starting", "ready", "error"].contains(&mode) {
                             return Err("按键服务状态无效。".into());
@@ -362,6 +384,82 @@ mod transport_tests {
         assert_eq!(sender.peer_pid(), Some(std::process::id()));
         assert_eq!(receiver.peer_pid(), Some(std::process::id()));
         (sender, receiver)
+    }
+
+    fn drain_frames(stream: &mut PipeStream) -> Vec<Value> {
+        let mut frames = Frames::default();
+        let mut messages = Vec::new();
+        loop {
+            let batch = frames.read(stream).unwrap();
+            if batch.is_empty() {
+                return messages;
+            }
+            messages.extend(batch);
+        }
+    }
+
+    #[test]
+    fn heartbeat_timeout_reconnects_and_forwards_first_press_on_same_parent_pipe() {
+        let (mut parent, mut app) = pair();
+        let pipe_name = format!("{APP_PIPE_PREFIX}{}", os::random_token().unwrap());
+        let mut listener = PipeListener::bind(&pipe_name).unwrap();
+        let names = vec![r"\device\rc003".to_owned()];
+        let stop = AtomicBool::new(false);
+        for attempt in 0..2 {
+            let mut gadget = PipeStream::connect(&pipe_name, Duration::from_secs(1)).unwrap();
+            let mut client = listener.accept().unwrap();
+            send(&mut gadget, &json!({
+                "kind":"ready", "protocol_id":script_id(), "hook_installed":true
+            })).unwrap();
+            // The first session loses key-up while suspended. The replacement
+            // session must accept that key's first down and up without a restart.
+            for raw in if attempt == 0 {
+                vec!["010000f10000000000"]
+            } else {
+                vec!["010000f10000000000", "010000000000000000"]
+            } {
+                send(&mut gadget, &json!({
+                    "kind":"gatt_read", "protocol_id":script_id(), "scope":"RC003",
+                    "device":names[0], "stream":format!("{}:1", names[0]), "raw":raw
+                })).unwrap();
+            }
+            let result = capture_session(
+                &mut parent, &mut client, &names, &stop, || Ok(true),
+                Duration::from_millis(250),
+            );
+            assert!(matches!(result, Err(CaptureFailure::Reconnect(_))));
+            finish_capture_session(&mut parent, &mut client, result).unwrap();
+            let messages = drain_frames(&mut app);
+            assert_eq!(messages[0]["state"], "ready");
+            let keys: Vec<_> = messages.iter().filter(|m| m["kind"] == "key").collect();
+            assert_eq!(keys.len(), if attempt == 0 { 1 } else { 2 });
+            assert_eq!(keys[0]["usage"], 0xf1);
+            assert_eq!(keys[0]["pressed"], true);
+            if attempt == 1 {
+                assert_eq!(keys[1]["pressed"], false);
+            }
+            assert_eq!(messages[messages.len() - 2]["kind"], "reset");
+            assert_eq!(messages.last().unwrap()["state"], "starting");
+        }
+    }
+
+    #[test]
+    fn capture_pipe_closure_retries_but_protocol_mismatch_remains_fatal() {
+        let (mut parent, _app) = pair();
+        let (gadget, mut client) = pair();
+        gadget.shutdown();
+        let stop = AtomicBool::new(false);
+        let result = capture_session(&mut parent, &mut client, &[], &stop,
+            || Ok(true), Duration::from_secs(1));
+        assert!(matches!(result, Err(CaptureFailure::Reconnect(_))));
+        finish_capture_session(&mut parent, &mut client, result).unwrap();
+
+        let (mut gadget, mut client) = pair();
+        send(&mut gadget, &json!({"kind":"ready", "protocol_id":"wrong", "hook_installed":true})).unwrap();
+        let result = capture_session(&mut parent, &mut client, &[], &stop,
+            || Ok(true), Duration::from_secs(1));
+        assert!(matches!(result, Err(CaptureFailure::Fatal(_))));
+        assert!(finish_capture_session(&mut parent, &mut client, result).is_err());
     }
 
     #[test]
@@ -553,6 +651,18 @@ pub fn run_helper(args: &[String]) -> Result<(), String> {
     result
 }
 
+#[derive(Debug)]
+enum CaptureFailure {
+    Reconnect(String),
+    Fatal(String),
+}
+
+impl From<String> for CaptureFailure {
+    fn from(message: String) -> Self {
+        Self::Fatal(message)
+    }
+}
+
 fn capture(parent: &mut PipeStream, stop: &AtomicBool) -> Result<(), String> {
     os::debug_privilege()?;
     let (dll, auth_token) = prepare_runtime()?;
@@ -585,13 +695,16 @@ fn capture(parent: &mut PipeStream, stop: &AtomicBool) -> Result<(), String> {
             os::inject(target.0, &dll)?;
             injected = Some(target.0);
         }
-        let connecting = Instant::now();
+        let mut connecting = os::awake_ticks();
         let mut client = loop {
             if stop.load(Ordering::Relaxed) {
                 return Ok(());
             }
-            if connecting.elapsed() > Duration::from_secs(25) {
-                return Err("按键组件连接超时，请关闭后重试。".into());
+            if os::awake_ticks().saturating_sub(connecting) > 25 * 10_000_000 {
+                // The existing Gadget retries when its host resumes. Retain the
+                // listener and elevation instead of requiring another UAC dialog.
+                report(parent, "starting", "正在等待按键组件恢复，无需重新授权。", 0)?;
+                connecting = os::awake_ticks();
             }
             if os::target()?.as_ref() != Some(&target) {
                 break None;
@@ -612,95 +725,128 @@ fn capture(parent: &mut PipeStream, stop: &AtomicBool) -> Result<(), String> {
             injected = None;
             continue;
         };
-        send(
+        if let Err(error) = send(
             client,
             &json!({"kind":"configure", "devices":names, "auth_token":auth_token}),
-        )?;
-        let mut input = ExtraKeyStream::default();
-        let mut frames = Frames::default();
-        let mut heartbeat = os::awake_ticks();
-        let mut probe = Instant::now();
-        let mut capture_ready = false;
-        let session: Result<(), String> = (|| {
-            while !stop.load(Ordering::Relaxed) {
-                if probe.elapsed() > Duration::from_secs(1) {
-                    if os::target()?.as_ref() != Some(&target)
-                        || os::device_names().ok().as_ref() != Some(&names)
-                    {
-                        return Ok(());
-                    }
-                    send(parent, &json!({"kind":"heartbeat"}))?;
-                    probe = Instant::now();
-                }
-                if os::awake_ticks().saturating_sub(heartbeat) > 15 * 10_000_000 {
-                    return Err(if capture_ready {
-                        "按键采集失去响应，请关闭后重试。"
-                    } else {
-                        "按键组件未确认就绪，请关闭后重试。"
-                    }
-                    .into());
-                }
-                for message in frames.read(client)? {
-                    if message["protocol_id"].as_str() != Some(&script_id()) {
-                        return Err("按键组件版本不匹配，请重启 Windows 后重试。".into());
-                    }
-                    match message["kind"].as_str() {
-                        Some("ready") | Some("heartbeat") => {
-                            if message["hook_installed"] != true {
-                                return Err("Windows 未允许启用按键采集。".into());
-                            }
-                            heartbeat = os::awake_ticks();
-                            if !capture_ready {
-                                // Publish readiness before any key in this same batch:
-                                // the parent only accepts keys while the service is ready.
-                                report(parent, "ready", "已启用", 0)?;
-                                capture_ready = true;
-                            }
-                        }
-                        Some("error") => {
-                            return Err("按键组件无法读取输入报告，请关闭后重试。".into())
-                        }
-                        Some("stream_closed") => {
-                            if input.closed(message["stream"].as_str().unwrap_or("")) {
-                                send(parent, &json!({"kind":"reset"}))?;
-                            }
-                        }
-                        Some("gatt_read") => {
-                            if !capture_ready {
-                                continue;
-                            }
-                            let Some(stream) =
-                                message["stream"].as_str().filter(|s| s.len() <= 256)
-                            else {
-                                continue;
-                            };
-                            let device = message["device"].as_str().unwrap_or("");
-                            let direct =
-                                message["scope"] == "RC003" && names.iter().any(|n| n == device);
-                            let proxy = message["scope"] == "UMDF_PROXY_UNVERIFIED"
-                                && device.starts_with("\\device\\umdfctrldev-");
-                            if !(direct || proxy) || !stream.starts_with(&format!("{device}:")) {
-                                continue;
-                            }
-                            let Some(usages) = message["raw"].as_str().and_then(decode) else {
-                                continue;
-                            };
-                            for (usage, pressed) in input.report(stream, usages) {
-                                send(
-                                    parent,
-                                    &json!({"kind":"key", "usage":usage, "pressed":pressed}),
-                                )?;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        ) {
+            client.shutdown();
+            send(parent, &json!({"kind":"reset"}))?;
+            report(parent, "starting", &format!("按键连接中断，正在自动重连：{error}"), 0)?;
+            thread::sleep(POLL);
+            continue;
+        }
+        let session = capture_session(parent, client, &names, stop, || {
+            Ok(os::target()?.as_ref() == Some(&target)
+                && os::device_names().ok().as_ref() == Some(&names))
+        }, Duration::from_secs(15));
+        finish_capture_session(parent, client, session)?;
+    }
+    Ok(())
+}
+
+fn finish_capture_session(
+    parent: &mut PipeStream,
+    client: &mut PipeStream,
+    result: Result<(), CaptureFailure>,
+) -> Result<(), String> {
+    client.shutdown(); // Gadget observes closure, detaches hooks and reconnects.
+    // Reset precedes reconnection: old holds/delayed clicks must not survive it.
+    send(parent, &json!({"kind":"reset"}))?;
+    match result {
+        Ok(()) => report(parent, "starting", "设备连接已变化，正在恢复按键采集。", 0),
+        Err(CaptureFailure::Reconnect(message)) => {
+            report(parent, "starting", &message, 0)?;
+            thread::sleep(POLL);
             Ok(())
-        })();
-        client.shutdown(); // Gadget observes closure and detaches both hooks.
-        send(parent, &json!({"kind":"reset"}))?;
-        session?;
+        }
+        Err(CaptureFailure::Fatal(message)) => Err(message),
+    }
+}
+
+fn capture_session(
+    parent: &mut PipeStream,
+    client: &mut PipeStream,
+    names: &[String],
+    stop: &AtomicBool,
+    mut session_is_current: impl FnMut() -> Result<bool, String>,
+    heartbeat_timeout: Duration,
+) -> Result<(), CaptureFailure> {
+    let mut input = ExtraKeyStream::default();
+    let mut frames = Frames::default();
+    let mut heartbeat = os::awake_ticks();
+    let mut probe = Instant::now();
+    let mut capture_ready = false;
+    while !stop.load(Ordering::Relaxed) {
+        if probe.elapsed() > Duration::from_secs(1) {
+            if !session_is_current()? {
+                return Ok(());
+            }
+            send(parent, &json!({"kind":"heartbeat"}))?;
+            probe = Instant::now();
+        }
+        if Duration::from_nanos(os::awake_ticks().saturating_sub(heartbeat).saturating_mul(100)) > heartbeat_timeout {
+            return Err(CaptureFailure::Reconnect(if capture_ready {
+                "按键采集暂停，正在自动重连，无需重新授权。"
+            } else {
+                "按键组件尚未就绪，正在自动重连，无需重新授权。"
+            }
+            .into()));
+        }
+        for message in frames.read(client).map_err(CaptureFailure::Reconnect)? {
+            if message["protocol_id"].as_str() != Some(&script_id()) {
+                return Err(CaptureFailure::Fatal("按键组件版本不匹配，请重启 Windows 后重试。".into()));
+            }
+            match message["kind"].as_str() {
+                Some("ready") | Some("heartbeat") => {
+                    if message["hook_installed"] != true {
+                        return Err(CaptureFailure::Fatal("Windows 未允许启用按键采集。".into()));
+                    }
+                    heartbeat = os::awake_ticks();
+                    if !capture_ready {
+                        // Publish readiness before any key in this same batch:
+                        // the parent only accepts keys while the service is ready.
+                        report(parent, "ready", "已启用", 0)?;
+                        capture_ready = true;
+                    }
+                }
+                Some("error") => {
+                    return Err(CaptureFailure::Fatal("按键组件无法读取输入报告，请关闭后重试。".into()))
+                }
+                Some("stream_closed") => {
+                    if input.closed(message["stream"].as_str().unwrap_or("")) {
+                        send(parent, &json!({"kind":"reset"}))?;
+                    }
+                }
+                Some("gatt_read") => {
+                    if !capture_ready {
+                        continue;
+                    }
+                    let Some(stream) =
+                        message["stream"].as_str().filter(|s| s.len() <= 256)
+                    else {
+                        continue;
+                    };
+                    let device = message["device"].as_str().unwrap_or("");
+                    let direct =
+                        message["scope"] == "RC003" && names.iter().any(|n| n == device);
+                    let proxy = message["scope"] == "UMDF_PROXY_UNVERIFIED"
+                        && device.starts_with("\\device\\umdfctrldev-");
+                    if !(direct || proxy) || !stream.starts_with(&format!("{device}:")) {
+                        continue;
+                    }
+                    let Some(usages) = message["raw"].as_str().and_then(decode) else {
+                        continue;
+                    };
+                    for (usage, pressed) in input.report(stream, usages) {
+                        send(
+                            parent,
+                            &json!({"kind":"key", "usage":usage, "pressed":pressed}),
+                        )?;
+                    }
+                }
+                _ => {}
+            }
+        }
     }
     Ok(())
 }
