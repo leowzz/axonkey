@@ -1,13 +1,24 @@
-use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use super::{
+    atvv::AtvvDecoder,
+    clamp_gain_db,
+    diagnostics::AudioDiagnostics,
+    endpoint_config,
+    endpoint_selection::{
+        select_render_endpoint, AudioEndpoint, EndpointBinding, EndpointSelectionError,
+    },
+    windows_endpoints::enumerate_endpoints,
+    AudioOutputStatus, AudioServiceStatus,
+};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, Sample, SampleFormat, SizedSample, StreamConfig, I24, U24,
 };
 use std::{
     collections::VecDeque,
+    path::PathBuf,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering},
-        mpsc::{self, Receiver, RecvTimeoutError},
+        atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
+        mpsc::{self, Receiver, RecvTimeoutError, Sender},
         Arc, Mutex,
     },
     thread::{self, JoinHandle},
@@ -75,6 +86,8 @@ struct Shared {
     audio_refresh: AtomicBool,
     ble_refresh: AtomicBool,
     output_failed: AtomicBool,
+    output_generation: AtomicU64,
+    binding: Mutex<Option<EndpointBinding>>,
 }
 
 impl Shared {
@@ -84,7 +97,11 @@ impl Shared {
         Self {
             diagnostics: AudioDiagnostics::default(),
             status: Mutex::new(AudioServiceStatus {
-                state: "driverMissing".into(),
+                state: "stopped".into(),
+                output: Some(AudioOutputStatus {
+                    state: "switching".into(),
+                    ..Default::default()
+                }),
                 ..AudioServiceStatus::default()
             }),
             protocol: Mutex::new(protocol),
@@ -95,19 +112,22 @@ impl Shared {
             audio_refresh: AtomicBool::new(false),
             ble_refresh: AtomicBool::new(false),
             output_failed: AtomicBool::new(false),
+            output_generation: AtomicU64::new(0),
+            binding: Mutex::new(None),
         }
     }
 
     fn update_status(&self, update: impl FnOnce(&mut AudioServiceStatus)) {
         if let Ok(mut status) = self.status.lock() {
             update(&mut status);
+            status.event_version = status.event_version.wrapping_add(1);
         }
     }
 
     fn output_available(&self) -> bool {
         self.status
             .lock()
-            .map(|status| status.driver_installed)
+            .map(|status| status.output_ready)
             .unwrap_or(false)
     }
 
@@ -128,7 +148,8 @@ impl Shared {
         }
         self.update_status(|status| {
             status.forwarding = false;
-            if status.driver_installed && status.bluetooth_connected {
+            status.received_data = false;
+            if status.output_ready && status.bluetooth_connected {
                 status.state = "ready".into();
             }
         });
@@ -165,6 +186,27 @@ pub struct AudioService {
     shared: Arc<Shared>,
     audio_worker: Mutex<Option<JoinHandle<()>>>,
     ble_worker: Mutex<Option<JoinHandle<()>>>,
+    output_commands: Sender<OutputCommand>,
+}
+
+enum OutputCommand {
+    Select {
+        render_id: String,
+        capture_id: Option<String>,
+        reply: Sender<Result<(), String>>,
+    },
+    Clear {
+        reply: Sender<Result<(), String>>,
+    },
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioEndpointInventory {
+    endpoints: Vec<AudioEndpoint>,
+    binding: Option<EndpointBinding>,
+    output: AudioOutputStatus,
+    error: Option<String>,
 }
 
 impl AudioService {
@@ -172,13 +214,14 @@ impl AudioService {
         self.shared.diagnostics.level()
     }
 
-    pub fn start() -> Self {
+    pub fn start(config_path: PathBuf) -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows audio service");
         let shared = Arc::new(Shared::new());
         let audio_shared = Arc::clone(&shared);
+        let (output_commands, output_requests) = mpsc::channel();
         let audio_worker = thread::Builder::new()
             .name("Axonkey CABLE audio output".into())
-            .spawn(move || audio_output_loop(audio_shared))
+            .spawn(move || audio_output_loop(audio_shared, config_path, output_requests))
             .ok();
         let ble_shared = Arc::clone(&shared);
         let ble_worker = thread::Builder::new()
@@ -198,18 +241,65 @@ impl AudioService {
             shared,
             audio_worker: Mutex::new(audio_worker),
             ble_worker: Mutex::new(ble_worker),
+            output_commands,
         }
     }
 
     pub fn refresh(&self) {
         let status = self.status();
         log::debug!(target: "axonkey::audio", "Refreshing Windows audio state");
-        if !status.driver_installed {
-            self.shared.audio_refresh.store(true, Ordering::Release);
-        }
-        if status.driver_installed && !status.bluetooth_connected {
+        self.shared.audio_refresh.store(true, Ordering::Release);
+        if status.output_ready && !status.bluetooth_connected {
             self.shared.ble_refresh.store(true, Ordering::Release);
         }
+    }
+
+    pub fn endpoints(&self) -> AudioEndpointInventory {
+        let (endpoints, error) = match enumerate_endpoints() {
+            Ok(endpoints) => (endpoints, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
+        AudioEndpointInventory {
+            endpoints,
+            binding: self
+                .shared
+                .binding
+                .lock()
+                .ok()
+                .and_then(|binding| binding.clone()),
+            output: self.status().output.unwrap_or_default(),
+            error,
+        }
+    }
+
+    pub fn select_endpoint(
+        &self,
+        render_id: String,
+        capture_id: Option<String>,
+    ) -> Result<AudioServiceStatus, String> {
+        let (reply, receiver) = mpsc::channel();
+        self.output_commands
+            .send(OutputCommand::Select {
+                render_id,
+                capture_id,
+                reply,
+            })
+            .map_err(|_| "音频工作线程不可用".to_string())?;
+        receiver
+            .recv()
+            .map_err(|_| "音频工作线程已停止".to_string())??;
+        Ok(self.status())
+    }
+
+    pub fn clear_endpoint(&self) -> Result<AudioServiceStatus, String> {
+        let (reply, receiver) = mpsc::channel();
+        self.output_commands
+            .send(OutputCommand::Clear { reply })
+            .map_err(|_| "音频工作线程不可用".to_string())?;
+        receiver
+            .recv()
+            .map_err(|_| "音频工作线程已停止".to_string())??;
+        Ok(self.status())
     }
 
     pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
@@ -251,81 +341,138 @@ impl Drop for AudioService {
     }
 }
 
-fn audio_output_loop(shared: Arc<Shared>) {
-    while !shared.stop.load(Ordering::Acquire) {
-        shared.audio_refresh.store(false, Ordering::Release);
-        shared.output_failed.store(false, Ordering::Release);
-        match start_cable_output(Arc::clone(&shared)) {
-            Ok((_stream, device_name)) => {
-                shared.update_status(|status| {
-                    status.driver_installed = true;
-                    if status.state == "driverMissing" {
-                        status.state = "scanning".into();
-                    }
-                    if status
-                        .error
-                        .as_deref()
-                        .is_some_and(|error| error.contains("CABLE Input"))
-                    {
-                        status.error = None;
-                    }
-                });
-                log::info!(target: "axonkey::audio", "Windows audio output ready: {device_name}");
-                while !shared.stop.load(Ordering::Acquire)
-                    && !shared.audio_refresh.swap(false, Ordering::AcqRel)
-                    && !shared.output_failed.load(Ordering::Acquire)
-                {
-                    thread::sleep(Duration::from_millis(200));
-                }
-            }
-            Err(error) => {
-                let error_message = error.to_string();
-                let should_log = shared
-                    .status
-                    .lock()
-                    .map(|status| status.error.as_deref() != Some(error_message.as_str()))
-                    .unwrap_or(true);
-                shared.update_status(|status| {
-                    status.driver_installed = false;
-                    status.forwarding = false;
-                    status.state = "driverMissing".into();
-                    status.error = Some(error_message.clone());
-                });
-                if should_log {
-                    log::warn!(target: "axonkey::audio", "Windows audio output unavailable: {error_message}");
-                }
-                wait_or_stop(&shared, RETRY_DELAY, &shared.audio_refresh);
-            }
-        }
+fn output_error(state: &str, error: impl Into<String>) -> EndpointSelectionError {
+    EndpointSelectionError {
+        state: state.into(),
+        error: error.into(),
     }
 }
 
-fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), String> {
-    let host = cpal::default_host();
-    let mut selected = None;
+fn publish_output_error(shared: &Shared, error: &EndpointSelectionError) {
+    shared.update_status(|status| {
+        status.output_ready = false;
+        status.forwarding = false;
+        let output = status.output.get_or_insert_with(Default::default);
+        if output.state != error.state || output.error.as_deref() != Some(&error.error) {
+            log::warn!(target: "axonkey::audio", "Windows audio output {}: {}", error.state, error.error);
+        }
+        output.state = error.state.clone();
+        output.error = Some(error.error.clone());
+    });
+}
+
+fn publish_endpoint(
+    shared: &Shared,
+    endpoint: &AudioEndpoint,
+    endpoints: &[AudioEndpoint],
+    binding: &EndpointBinding,
+) {
+    let capture = binding
+        .capture_endpoint_id
+        .as_ref()
+        .and_then(|id| endpoints.iter().find(|endpoint| &endpoint.id == id));
+    shared.update_status(|status| {
+        if shared.output_failed.load(Ordering::Acquire) {
+            return;
+        }
+        status.output_ready = true;
+        status.output = Some(AudioOutputStatus {
+            state: "ready".into(),
+            selected_endpoint_id: Some(endpoint.id.clone()),
+            selected_endpoint_name: Some(endpoint.name.clone()),
+            capture_endpoint_id: binding.capture_endpoint_id.clone(),
+            capture_endpoint_name: capture.map(|endpoint| endpoint.name.clone()),
+            error: None,
+        });
+    });
+    log::info!(target: "axonkey::audio", "Windows audio output ready: {} (bound by endpoint ID)", endpoint.name);
+}
+
+fn stop_output(shared: &Shared, stream: &mut Option<cpal::Stream>) {
+    if stream.is_some() {
+        shared.ble_refresh.store(true, Ordering::Release);
+    }
+    shared.output_generation.fetch_add(1, Ordering::AcqRel);
+    shared.update_status(|status| {
+        status.output_ready = false;
+        status.forwarding = false;
+    });
+    // Make callbacks from the old stream obsolete before dropping it.
+    *stream = None;
+    shared.output_failed.store(false, Ordering::Release);
+    shared.reset_voice_session();
+}
+
+fn make_binding(
+    endpoint: &AudioEndpoint,
+    endpoints: &[AudioEndpoint],
+    capture_id: Option<String>,
+) -> Result<EndpointBinding, EndpointSelectionError> {
+    let captures: Vec<_> = endpoints
+        .iter()
+        .filter(|candidate| {
+            candidate.direction == "capture"
+                && candidate.adapter_id == endpoint.adapter_id
+                && candidate.state == "active"
+        })
+        .collect();
+    let capture_id = match capture_id {
+        Some(id) => {
+            if !captures.iter().any(|candidate| candidate.id == id) {
+                return Err(output_error(
+                    "endpointUnavailable",
+                    "录音端必须是同一虚拟声卡上可用的录音设备",
+                ));
+            }
+            Some(id)
+        }
+        None if captures.len() == 1 => Some(captures[0].id.clone()),
+        None => None,
+    };
+    Ok(EndpointBinding {
+        schema_version: 1,
+        render_endpoint_id: endpoint.id.clone(),
+        capture_endpoint_id: capture_id,
+        adapter_instance_id: endpoint.adapter_id.clone(),
+    })
+}
+
+type PreparedOutput = (cpal::Device, StreamConfig, SampleFormat);
+
+fn prepare_output(endpoint: &AudioEndpoint) -> Result<PreparedOutput, EndpointSelectionError> {
+    let host = cpal::host_from_id(cpal::HostId::Wasapi)
+        .map_err(|error| output_error("enumerationFailed", format!("无法访问 WASAPI：{error}")))?;
     let devices = host
         .output_devices()
-        .map_err(|error| format!("Cannot enumerate Windows playback devices: {error}"))?;
-    for device in devices {
-        let Ok(description) = device.description() else {
-            continue;
-        };
-        if cable_output_name(description.name()) {
-            selected = Some((device, description.name().to_string()));
-            break;
-        }
-    }
-    let (device, device_name) = selected.ok_or_else(|| {
-        "CABLE Input playback endpoint was not found; install VB-CABLE and restart Windows"
-            .to_string()
+        .map_err(|error| output_error("enumerationFailed", format!("无法枚举播放设备：{error}")))?;
+    let device = devices
+        .into_iter()
+        .find(|device| device.id().is_ok_and(|id| id.id() == endpoint.id))
+        .ok_or_else(|| output_error("endpointUnavailable", "所选播放端已不可用，请重新检测"))?;
+    let supported = device.default_output_config().map_err(|error| {
+        output_error(
+            "unsupportedFormat",
+            format!("无法读取所选设备的音频格式：{error}"),
+        )
     })?;
-    let supported = device
-        .default_output_config()
-        .map_err(|error| format!("Cannot read CABLE Input audio format: {error}"))?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
-    log::info!(target: "axonkey::audio", "Windows audio output format: device={device_name} sample_rate={} channels={} sample_format={sample_format:?} source_sample_rate={SOURCE_SAMPLE_RATE}", config.sample_rate, config.channels);
-    let stream = match sample_format {
+    if config.channels == 0 || config.sample_rate == 0 {
+        return Err(output_error(
+            "unsupportedFormat",
+            "所选设备没有有效的声道或采样率",
+        ));
+    }
+    Ok((device, config, sample_format))
+}
+
+fn start_output(
+    shared: Arc<Shared>,
+    prepared: PreparedOutput,
+) -> Result<cpal::Stream, EndpointSelectionError> {
+    let (device, config, sample_format) = prepared;
+    log::info!(target: "axonkey::audio", "Windows audio output format: sample_rate={} channels={} sample_format={sample_format:?} source_sample_rate={SOURCE_SAMPLE_RATE}", config.sample_rate, config.channels);
+    let (stream, startup) = match sample_format {
         SampleFormat::I8 => build_output_stream::<i8>(&device, config, shared),
         SampleFormat::I16 => build_output_stream::<i16>(&device, config, shared),
         SampleFormat::I24 => build_output_stream::<I24>(&device, config, shared),
@@ -338,21 +485,226 @@ fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), Str
         SampleFormat::U64 => build_output_stream::<u64>(&device, config, shared),
         SampleFormat::F32 => build_output_stream::<f32>(&device, config, shared),
         SampleFormat::F64 => build_output_stream::<f64>(&device, config, shared),
-        unsupported => Err(format!(
-            "CABLE Input uses an unsupported sample format: {unsupported}"
-        )),
-    }?;
+        unsupported => {
+            return Err(output_error(
+                "unsupportedFormat",
+                format!("所选设备使用不支持的采样格式：{unsupported}"),
+            ))
+        }
+    }
+    .map_err(|error| output_error("openFailed", error))?;
     stream
         .play()
-        .map_err(|error| format!("Cannot start CABLE Input playback: {error}"))?;
-    Ok((stream, device_name))
+        .map_err(|error| output_error("openFailed", format!("无法启动所选播放设备：{error}")))?;
+    // WASAPI play() enqueues a command. Only a real callback confirms that
+    // IAudioClient::Start succeeded; never persist a queued but failed start.
+    wait_for_output_start(startup, Duration::from_secs(5))?;
+    Ok(stream)
+}
+
+fn wait_for_output_start(
+    startup: Receiver<Result<(), String>>,
+    timeout: Duration,
+) -> Result<(), EndpointSelectionError> {
+    startup
+        .recv_timeout(timeout)
+        .map_err(|error| output_error("openFailed", format!("等待音频设备启动失败：{error}")))?
+        .map_err(|error| output_error("openFailed", error))
+}
+
+fn audio_output_loop(shared: Arc<Shared>, config_path: PathBuf, requests: Receiver<OutputCommand>) {
+    let (mut binding, mut config_error) = match endpoint_config::load(&config_path) {
+        Ok(binding) => (binding, None),
+        Err(error) => (None, Some(error)),
+    };
+    *shared.binding.lock().unwrap() = binding.clone();
+    if let Some(binding) = &binding {
+        shared.update_status(|status| {
+            let output = status.output.as_mut().unwrap();
+            output.selected_endpoint_id = Some(binding.render_endpoint_id.clone());
+            output.capture_endpoint_id = binding.capture_endpoint_id.clone();
+        });
+    }
+    let mut automatic_allowed = config_error.is_none();
+    let mut stream = None;
+    let mut next_probe = Instant::now();
+    while !shared.stop.load(Ordering::Acquire) {
+        if shared.output_failed.swap(false, Ordering::AcqRel) {
+            stop_output(&shared, &mut stream);
+            next_probe = Instant::now() + RETRY_DELAY;
+        }
+        if shared.audio_refresh.swap(false, Ordering::AcqRel) || Instant::now() >= next_probe {
+            next_probe = Instant::now()
+                + if stream.is_some() {
+                    Duration::from_secs(5)
+                } else {
+                    RETRY_DELAY
+                };
+            match enumerate_endpoints() {
+                Err(error) => {
+                    // A discovery error must not tear down an otherwise healthy stream.
+                    if stream.is_none() {
+                        publish_output_error(&shared, &output_error("enumerationFailed", error));
+                    }
+                }
+                Ok(endpoints) => {
+                    shared.update_status(|status| status.driver_installed = !endpoints.is_empty());
+                    let selection = if let Some(error) = &config_error {
+                        Err(output_error("configError", error.clone()))
+                    } else if binding.is_none() && !automatic_allowed {
+                        Err(output_error(
+                            "selectionRequired",
+                            "请选择语音播放端，选择成功后会记住该设备",
+                        ))
+                    } else {
+                        select_render_endpoint(&endpoints, binding.as_ref())
+                    };
+                    match selection {
+                        Err(error) => {
+                            if stream.is_some() {
+                                stop_output(&shared, &mut stream);
+                            }
+                            publish_output_error(&shared, &error);
+                        }
+                        Ok(endpoint) if stream.is_some() => {
+                            // Renames only refresh labels; identity and the healthy stream stay unchanged.
+                            shared.update_status(|status| {
+                                if let Some(output) = &mut status.output {
+                                    output.selected_endpoint_name = Some(endpoint.name.clone());
+                                    output.capture_endpoint_name =
+                                        output.capture_endpoint_id.as_ref().and_then(|id| {
+                                            endpoints
+                                                .iter()
+                                                .find(|candidate| &candidate.id == id)
+                                                .map(|candidate| candidate.name.clone())
+                                        });
+                                }
+                            });
+                        }
+                        Ok(endpoint) => {
+                            let result = (|| {
+                                let selected = match &binding {
+                                    Some(binding) => binding.clone(),
+                                    None => make_binding(&endpoint, &endpoints, None)?,
+                                };
+                                let output =
+                                    start_output(Arc::clone(&shared), prepare_output(&endpoint)?)?;
+                                if binding.is_none() {
+                                    endpoint_config::save(&config_path, &selected)
+                                        .map_err(|error| output_error("configError", error))?;
+                                }
+                                Ok::<_, EndpointSelectionError>((output, selected))
+                            })();
+                            match result {
+                                Ok((output, selected)) => {
+                                    binding = Some(selected.clone());
+                                    *shared.binding.lock().unwrap() = binding.clone();
+                                    stream = Some(output);
+                                    publish_endpoint(&shared, &endpoint, &endpoints, &selected);
+                                }
+                                Err(error) => {
+                                    stop_output(&shared, &mut stream);
+                                    if error.state == "configError" {
+                                        config_error = Some(error.error.clone());
+                                    }
+                                    publish_output_error(&shared, &error);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        match requests.recv_timeout(Duration::from_millis(200)) {
+            Ok(OutputCommand::Clear { reply }) => {
+                let result = endpoint_config::clear(&config_path);
+                if result.is_ok() {
+                    stop_output(&shared, &mut stream);
+                    binding = None;
+                    *shared.binding.lock().unwrap() = None;
+                    automatic_allowed = false;
+                    config_error = None;
+                    shared.update_status(|status| {
+                        status.output = Some(AudioOutputStatus {
+                            state: "selectionRequired".into(),
+                            error: Some("设备选择已清除，请重新选择语音播放端".into()),
+                            ..Default::default()
+                        })
+                    });
+                }
+                let _ = reply.send(result);
+            }
+            Ok(OutputCommand::Select {
+                render_id,
+                capture_id,
+                reply,
+            }) => {
+                // Requests are processed serially; no stale async result can overwrite a later selection.
+                let result = (|| {
+                    let endpoints = enumerate_endpoints()
+                        .map_err(|error| output_error("enumerationFailed", error))?;
+                    let endpoint = endpoints
+                        .iter()
+                        .find(|endpoint| endpoint.id == render_id && endpoint.direction == "render")
+                        .ok_or_else(|| output_error("endpointUnavailable", "所选播放端已不可用"))?;
+                    let selected = make_binding(endpoint, &endpoints, capture_id)?;
+                    select_render_endpoint(&endpoints, Some(&selected))?;
+                    let prepared = prepare_output(endpoint)?;
+                    stop_output(&shared, &mut stream);
+                    shared.update_status(|status| {
+                        status.output.as_mut().unwrap().state = "switching".into()
+                    });
+                    let opened = start_output(Arc::clone(&shared), prepared).and_then(|output| {
+                        endpoint_config::save(&config_path, &selected)
+                            .map_err(|error| output_error("configError", error))?;
+                        Ok(output)
+                    });
+                    match opened {
+                        Ok(output) => {
+                            binding = Some(selected.clone());
+                            *shared.binding.lock().unwrap() = binding.clone();
+                            stream = Some(output);
+                            config_error = None;
+                            publish_endpoint(&shared, endpoint, &endpoints, &selected);
+                            Ok(())
+                        }
+                        Err(error) => {
+                            stop_output(&shared, &mut stream);
+                            // Preserve the persisted binding and restore the old stream when possible.
+                            let restored = binding.as_ref().and_then(|old| {
+                                let endpoint =
+                                    select_render_endpoint(&endpoints, Some(old)).ok()?;
+                                let output = start_output(
+                                    Arc::clone(&shared),
+                                    prepare_output(&endpoint).ok()?,
+                                )
+                                .ok()?;
+                                publish_endpoint(&shared, &endpoint, &endpoints, old);
+                                Some(output)
+                            });
+                            stream = restored;
+                            if stream.is_none() {
+                                publish_output_error(&shared, &error);
+                            }
+                            Err(error)
+                        }
+                    }
+                })();
+                let _ = reply.send(result.map_err(|error| error.error));
+                next_probe = Instant::now() + RETRY_DELAY;
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+    }
+    stop_output(&shared, &mut stream);
 }
 
 fn build_output_stream<T>(
     device: &cpal::Device,
     config: StreamConfig,
     shared: Arc<Shared>,
-) -> Result<cpal::Stream, String>
+) -> Result<(cpal::Stream, Receiver<Result<(), String>>), String>
 where
     T: SizedSample + Sample + FromSample<f32>,
 {
@@ -360,25 +712,32 @@ where
     let output_rate = config.sample_rate;
     let callback_shared = Arc::clone(&shared);
     let error_shared = Arc::clone(&shared);
+    let generation = shared.output_generation.load(Ordering::Acquire);
+    let (startup_sender, startup) = mpsc::channel();
+    let error_startup = startup_sender.clone();
+    let mut startup_sender = Some(startup_sender);
     let mut cursor = OutputCursor::new(output_rate);
     device
         .build_output_stream(
             config,
-            move |output: &mut [T], _| fill_output(output, channels, &mut cursor, &callback_shared),
+            move |output: &mut [T], _| {
+                fill_output(output, channels, &mut cursor, &callback_shared);
+                if let Some(sender) = startup_sender.take() { let _ = sender.send(Ok(())); }
+            },
             move |error| {
-                if !error_shared.output_failed.swap(true, Ordering::AcqRel) {
-                    log::warn!(target: "axonkey::audio", "CABLE Input playback callback failed: {error}");
+                if error_shared.output_generation.load(Ordering::Acquire) != generation {
+                    return;
                 }
-                error_shared.update_status(|status| {
-                    status.driver_installed = false;
-                    status.forwarding = false;
-                    status.state = "error".into();
-                    status.error = Some(format!("CABLE Input playback failed: {error}"));
-                });
+                let _ = error_startup.send(Err(format!("无法启动或维持音频播放：{error}")));
+                if !error_shared.output_failed.swap(true, Ordering::AcqRel) {
+                    log::warn!(target: "axonkey::audio", "Selected playback endpoint callback failed: {error}");
+                }
+                publish_output_error(&error_shared, &output_error("openFailed", format!("播放设备连接失败：{error}")));
             },
             None,
         )
-        .map_err(|error| format!("Cannot create CABLE Input playback stream: {error}"))
+        .map(|stream| (stream, startup))
+        .map_err(|error| format!("无法打开所选播放设备：{error}"))
 }
 
 struct OutputCursor {
@@ -481,11 +840,6 @@ where
 
 fn pcm_to_f32(sample: i16) -> f32 {
     f32::from(sample) / f32::from(i16::MAX)
-}
-
-fn cable_output_name(name: &str) -> bool {
-    let normalized = name.trim().to_ascii_lowercase();
-    normalized.starts_with("cable input") && !normalized.contains("16ch")
 }
 
 fn ble_worker_loop(shared: Arc<Shared>) {
@@ -694,7 +1048,7 @@ impl VoiceConnection {
         shared.update_status(|status| {
             status.bluetooth_connected = false;
             status.forwarding = false;
-            if status.driver_installed {
+            if status.output_ready {
                 status.state = "scanning".into();
             }
         });
@@ -942,7 +1296,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
 
 fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
     shared.diagnostics.received(bytes.len());
-    if bytes.is_empty() {
+    if bytes.is_empty() || !shared.output_available() {
         shared.diagnostics.rejected();
         return;
     }
@@ -981,6 +1335,7 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
     if frames.is_empty() {
         return;
     }
+    shared.update_status(|status| status.received_data = true);
     for frame in &frames {
         shared.diagnostics.decoded(frame);
     }
@@ -1011,8 +1366,15 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 }
 
 #[cfg(test)]
+#[path = "windows_output_tests.rs"]
+mod output_integration_tests;
+
+#[cfg(test)]
 mod tests {
-    use super::{approved_remote_service_id, cable_output_name, fill_output, OutputCursor, Shared};
+    use super::{
+        approved_remote_service_id, fill_output, handle_audio_packet, output_error,
+        publish_output_error, OutputCursor, Shared,
+    };
     use std::time::Duration;
 
     #[test]
@@ -1062,10 +1424,61 @@ mod tests {
     }
 
     #[test]
-    fn selects_only_the_vb_cable_playback_endpoint() {
-        assert!(cable_output_name("CABLE Input (VB-Audio Virtual Cable)"));
-        assert!(!cable_output_name("CABLE Output (VB-Audio Virtual Cable)"));
-        assert!(!cable_output_name("CABLE In 16ch (VB-Audio Virtual Cable)"));
+    fn output_failure_does_not_claim_the_driver_is_missing() {
+        let shared = Shared::new();
+        shared.update_status(|status| {
+            status.driver_installed = true;
+            status.output_ready = true;
+        });
+        publish_output_error(&shared, &output_error("openFailed", "busy"));
+        let status = shared.status.lock().unwrap();
+        assert!(status.driver_installed);
+        assert!(!status.output_ready);
+        assert_eq!(status.output.as_ref().unwrap().state, "openFailed");
+    }
+
+    #[test]
+    fn received_packets_do_not_report_forwarding_without_an_output() {
+        let shared = Shared::new();
+        shared.protocol.lock().unwrap().capabilities_confirmed = true;
+        handle_audio_packet(&shared, &[1, 2, 3]);
+        assert!(!shared.status.lock().unwrap().forwarding);
+        assert!(shared.samples.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn decoded_audio_updates_and_resets_received_state() {
+        let shared = Shared::new();
+        shared.update_status(|status| status.output_ready = true);
+        {
+            let mut protocol = shared.protocol.lock().unwrap();
+            protocol.capabilities_confirmed = true;
+            protocol.frame_size = 3;
+        }
+        handle_audio_packet(&shared, &[0x11, 0x22]);
+        assert!(!shared.status.lock().unwrap().received_data);
+        handle_audio_packet(&shared, &[0x33]);
+        assert!(shared.status.lock().unwrap().received_data);
+        shared.reset_voice_session();
+        assert!(!shared.status.lock().unwrap().received_data);
+        assert!(!shared.status.lock().unwrap().forwarding);
+    }
+
+    #[test]
+    fn startup_requires_callback_success_and_rejects_async_failure_or_timeout() {
+        use std::sync::mpsc;
+        let (sender, receiver) = mpsc::channel();
+        sender
+            .send(Err("IAudioClient::Start failed".into()))
+            .unwrap();
+        let error = super::wait_for_output_start(receiver, Duration::ZERO).unwrap_err();
+        assert_eq!(error.state, "openFailed");
+        assert!(error.error.contains("Start failed"));
+        let (_sender, receiver) = mpsc::channel();
+        assert!(super::wait_for_output_start(receiver, Duration::ZERO).is_err());
+        let (sender, receiver) = mpsc::channel();
+        sender.send(Ok(())).unwrap();
+        assert!(super::wait_for_output_start(receiver, Duration::ZERO).is_ok());
     }
 
     #[test]
