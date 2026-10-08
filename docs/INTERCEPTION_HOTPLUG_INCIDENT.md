@@ -51,6 +51,6 @@ Axonkey 的 VID/PID 过滤、重新创建 context 或退出时清理过滤条件
 
 遇到该现象时，重启电脑即可。
 
-## 可选实验方案
+## 集成方案
 
-本分支增加固定 v0.5.2 的 `interception-driver-fix` 源码集成，保持 `lockdown=no`，默认不安装服务。其补充系统对象链接的思路来自上游，不能据此认定本文历史问题已经修复。需要 Windows 实机测试并验证重启后的回滚，步骤见[重连兼容修复验证指南](./INTERCEPTION_FIX_TESTING.md)。
+本分支增加固定 v0.5.2 的 `interception-driver-fix` 源码集成，保持 `lockdown=no`。Windows 输入驱动安装流程会一并安装服务，已安装驱动的用户会在升级后自动补齐。其补充系统对象链接的思路来自上游，不能据此认定本文历史问题已经修复。需要 Windows 实机测试并验证重启后的回滚，步骤见[重连兼容修复验证指南](./INTERCEPTION_FIX_TESTING.md)。

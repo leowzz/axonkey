@@ -4,7 +4,7 @@
   "version": "0.3.23-rc.2",
   "identifier": "com.axonkey.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build:tauri",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../web-dist"

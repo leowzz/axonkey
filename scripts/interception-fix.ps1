@@ -24,6 +24,16 @@ function Assert-OwnedService($Service) {
         throw 'An unexpected service uses the Axonkey name. Refusing to overwrite or remove it.'
     }
 }
+function Assert-InterceptionDrivers {
+    # The Interception installer can omit the registry ImagePath value. Ask
+    # Windows for the resolved driver path instead of requiring that value.
+    foreach ($driver in @('keyboard', 'mouse')) {
+        $service = Get-CimInstance Win32_SystemDriver -Filter "Name='$driver'"
+        if (-not $service -or $service.PathName -notmatch "(?i)(^|[\\/])$driver\.sys$") {
+            throw 'Install the Interception input driver and restart Windows first.'
+        }
+    }
+}
 function Assert-NoReparse([string]$Path) {
     $item = $Path
     while ($item) {
@@ -103,7 +113,7 @@ if ($isAdmin) {
 function Write-FixLog([string]$Message) { "$(Get-Date -Format o) $Message" | Add-Content -LiteralPath $LogPath -Encoding UTF8 }
 trap { Write-FixLog "ERROR: $_"; Write-Error -ErrorAction Continue "$_ Log: $LogPath"; exit 1 }
 if (-not $Confirmed) {
-    Write-Host 'Optional reconnect workaround: installs/removes a system-wide boot service. Restart Windows afterwards.'
+    Write-Host 'Reconnect compatibility service: installs/removes a system-wide boot service. Restart Windows afterwards.'
     Write-Host 'Uses lockdown=no. It does not restore old ACLs or immediately undo existing links.'
     if ((Read-Host "Type $($Action.ToUpperInvariant()) to continue") -cne $Action.ToUpperInvariant()) { exit 2 }
 }
@@ -111,7 +121,7 @@ if (-not $isAdmin) {
     $scriptPath = $PSCommandPath -replace '^\\\\\?\\', ''
     if ($scriptPath.Contains('"')) { throw 'Invalid path' }
     $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $scriptPath), '-Action', $Action, '-Confirmed')
-    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -ArgumentList $arguments -Wait -PassThru
+    $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList $arguments -Wait -PassThru
     Write-FixLog "Elevated process exited: $($process.ExitCode)"
     exit $process.ExitCode
 }
@@ -147,10 +157,7 @@ try {
     $package = Join-Path $root 'vendor\interception-fix'
     $manifest = Assert-Package $package
     # Require Interception keyboard and mouse filters, not merely a bundled DLL.
-    foreach ($driver in @('keyboard', 'mouse')) {
-        $path = "HKLM:\SYSTEM\CurrentControlSet\Services\$driver"
-        if (-not (Test-Path $path) -or (Get-ItemProperty $path).ImagePath -notmatch "(?i)(^|[\\/])$driver\.sys$") { throw 'Install the Interception input driver and restart Windows first.' }
-    }
+    Assert-InterceptionDrivers
     Protect-Directory $installDir
     Protect-Directory $dataDir
     Protect-Directory (Join-Path $dataDir 'logs')
@@ -168,7 +175,7 @@ try {
     [DateTime]::UtcNow.ToString('o') | Set-Content -LiteralPath (Join-Path $dataDir 'installed-at.txt') -Encoding ascii
     $created = $false
     try {
-        New-Service -Name $serviceName -BinaryPathName $binaryPath -DisplayName 'Axonkey Interception reconnect fix' -StartupType Manual -Description 'Optional boot-time Interception workaround; lockdown=no; restart after removal.' | Out-Null
+        New-Service -Name $serviceName -BinaryPathName $binaryPath -DisplayName 'Axonkey Interception reconnect fix' -StartupType Manual -Description 'Boot-time Interception reconnect compatibility service; lockdown=no; restart after removal.' | Out-Null
         $created = $true
         Invoke-ServiceControl @('privs', $serviceName, 'SeCreatePermanentPrivilege')
         Invoke-ServiceControl @('config', $serviceName, 'start=', 'auto')

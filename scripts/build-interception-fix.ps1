@@ -18,6 +18,17 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     & $Program @Arguments
     if ($LASTEXITCODE -ne 0) { throw "$Program failed: $LASTEXITCODE" }
 }
+$cmake = Get-Command cmake -ErrorAction SilentlyContinue
+if ($cmake) {
+    $cmakePath = $cmake.Source
+} else {
+    # Visual Studio may provide CMake without adding it to the user's PATH.
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    $vsRoot = if (Test-Path -LiteralPath $vswhere) { & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath }
+    if (-not $vsRoot) { throw 'CMake >= 3.24 is required. Install CMake or the Visual Studio C++ CMake tools.' }
+    $cmakePath = Join-Path $vsRoot 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+    if (-not (Test-Path -LiteralPath $cmakePath)) { throw 'CMake >= 3.24 is required. Install CMake or the Visual Studio C++ CMake tools.' }
+}
 Invoke-Checked 'node' @((Join-Path $PSScriptRoot 'verify-interception-fix.mjs'), '--source-only')
 New-Item -ItemType Directory -Force $work, $source, $output | Out-Null
 if (-not (Test-Path (Join-Path $vcpkg '.git'))) {
@@ -31,8 +42,8 @@ if ($LASTEXITCODE -ne 0 -or $dirty) { throw 'vcpkg has local source changes; use
 Invoke-Checked (Join-Path $vcpkg 'bootstrap-vcpkg.bat') @('-disableMetrics')
 Copy-Item -Path (Join-Path $root 'third_party\interception-driver-fix\*') -Destination $source -Recurse -Force
 Copy-Item (Join-Path $source 'Axonkey.CMakeLists.txt') (Join-Path $source 'CMakeLists.txt') -Force
-Invoke-Checked 'cmake' @('-S', $source, '-B', $build, '-G', 'Visual Studio 17 2022', '-A', 'x64', "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake", '-DVCPKG_TARGET_TRIPLET=x64-windows-static', '-DVCPKG_HOST_TRIPLET=x64-windows-static')
-Invoke-Checked 'cmake' @('--build', $build, '--config', 'Release', '--target', 'axonkey-interception-fix', '--parallel')
+Invoke-Checked $cmakePath @('-S', $source, '-B', $build, '-G', 'Visual Studio 17 2022', '-A', 'x64', "-DCMAKE_TOOLCHAIN_FILE=$vcpkg/scripts/buildsystems/vcpkg.cmake", '-DVCPKG_TARGET_TRIPLET=x64-windows-static', '-DVCPKG_HOST_TRIPLET=x64-windows-static')
+Invoke-Checked $cmakePath @('--build', $build, '--config', 'Release', '--target', 'axonkey-interception-fix', '--parallel')
 Copy-Item (Join-Path $build 'Release\axonkey-interception-fix.exe') $output -Force
 $licenses = Join-Path $output 'licenses'
 New-Item -ItemType Directory -Force $licenses | Out-Null

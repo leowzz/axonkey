@@ -6,6 +6,7 @@
   "scripts": {
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "dev": "vite",
+    "dev:tauri": "node scripts/prepare-interception-fix.mjs --if-missing && vite",
     "build": "tsc -b && vite build",
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && node scripts/verify-windows-extra-keys.mjs && node scripts/prepare-interception-fix.mjs && npm run build",
     "test:windows-extra-keys": "node --test test/windows-extra-keys-gadget.test.mjs test/windows-extra-keys-ui.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",

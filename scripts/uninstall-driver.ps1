@@ -106,8 +106,16 @@ if (-not $isAdmin) {
     exit $process.ExitCode
 }
 
-if (Get-Service -Name 'AxonkeyInterceptionFix' -ErrorAction SilentlyContinue) {
-    throw 'Remove the optional reconnect fix in Settings > Device and permissions before uninstalling Interception. Restart Windows afterwards.'
+$fixScript = Join-Path $scriptRoot 'interception-fix.ps1'
+if (-not (Test-Path -LiteralPath $fixScript -PathType Leaf)) {
+    throw "Interception reconnect fix script was not found: $fixScript"
+}
+Write-DriverLog "Removing the bundled Interception reconnect fix: $fixScript"
+& powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $fixScript -Action uninstall -Confirmed 2>&1 | Tee-Object -FilePath $LogPath -Append
+$fixExitCode = $LASTEXITCODE
+Write-DriverLog "Reconnect fix uninstaller exited with code $fixExitCode."
+if ($fixExitCode -ne 0) {
+    throw "Interception reconnect fix removal failed with exit code $fixExitCode. Log: $LogPath"
 }
 
 Write-DriverLog "Launching installer: $installer /uninstall"

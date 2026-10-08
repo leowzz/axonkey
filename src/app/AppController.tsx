@@ -204,6 +204,8 @@ function AppController() {
   const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
+  const interceptionFixEnsureRunningRef = useRef(false)
+  const interceptionFixEnsureAttemptedRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const escapeSequenceRef = useRef({ count: 0, lastAt: 0 })
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
@@ -795,7 +797,7 @@ function AppController() {
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
       const driverName = driver === 'audio'
         ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
-        : '按键驱动'
+        : platform === 'windows' ? '按键驱动及重连修复' : '按键驱动'
       const restartRequired = platform === 'windows'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
@@ -815,6 +817,25 @@ function AppController() {
         status: 'error',
         error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
       }))
+    }
+  }
+
+  const ensureInterceptionFix = async () => {
+    if (!nativeRuntime || interceptionFixEnsureRunningRef.current || interceptionFixEnsureAttemptedRef.current) return
+    interceptionFixEnsureRunningRef.current = true
+    interceptionFixEnsureAttemptedRef.current = true
+    try {
+      await invoke('ensure_interception_fix')
+      logInfo('Interception reconnect fix is enabled for the existing installation')
+    } catch (error) {
+      logError('Failed to enable the Interception reconnect fix', error)
+      updateSetup((current) => setDriverStatus(current, 'input', current.drivers.input.status, {
+        message: `Interception 重连修复未能自动启用：${String(error)}`,
+      }))
+      setToast(`重连修复未能自动启用：${String(error)}`)
+      window.setTimeout(() => setToast(''), 3200)
+    } finally {
+      interceptionFixEnsureRunningRef.current = false
     }
   }
 
@@ -998,6 +1019,7 @@ function AppController() {
         return setDeviceConnection(next, device)
       })
       setSystemProbeState('ready')
+      if (probe.platform === 'windows' && probe.input_driver_installed) void ensureInterceptionFix()
       return true
     } catch (error) {
       logError('System probe failed', error)

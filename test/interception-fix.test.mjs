@@ -5,6 +5,49 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { verifyFiles, verifyArtifact } from '../scripts/verify-interception-fix.mjs'
+import { prepareInterceptionFix } from '../scripts/prepare-interception-fix.mjs'
+import { mkdirSync } from 'node:fs'
+
+function writeValidArtifact(directory) {
+  mkdirSync(resolve(directory, 'licenses'), { recursive: true })
+  const bytes = Buffer.alloc(128)
+  bytes.write('MZ')
+  bytes.writeUInt32LE(64, 0x3c)
+  bytes.writeUInt32LE(0x4550, 64)
+  bytes.writeUInt16LE(0x8664, 68)
+  const files = {}
+  for (const name of ['axonkey-interception-fix.exe', ...['interception-driver-fix', 'scope-guard-MIT', 'cli11', 'fmt', 'spdlog', 'boost-algorithm', 'phnt'].map(name => `licenses/${name}.txt`)]) {
+    const content = name.endsWith('.exe') ? bytes : Buffer.from('test license')
+    writeFileSync(resolve(directory, name), content)
+    files[name] = createHash('sha256').update(content).digest('hex')
+  }
+  writeFileSync(resolve(directory, 'manifest.json'), JSON.stringify({
+    upstreamCommit: 'e1a7720863f514d51caf06b020da5c0d2e345c41',
+    vcpkgCommit: '2750401336fb7c95f6619657a46a7e798661341c',
+    files,
+  }))
+}
+
+test('development prepares missing Windows resources, reuses valid resources and rejects tampering', () => {
+  const directory = mkdtempSync(resolve(tmpdir(), 'axonkey-fix-dev-'))
+  let builds = 0
+  const options = { platform: 'win32', reuseExisting: true, directory, build: () => { builds++; writeValidArtifact(directory) } }
+  try {
+    prepareInterceptionFix(options)
+    assert.equal(builds, 1)
+    prepareInterceptionFix(options)
+    assert.equal(builds, 1)
+    // Production still rebuilds from the pinned source even when a cache exists.
+    prepareInterceptionFix({ ...options, reuseExisting: false })
+    assert.equal(builds, 2)
+    writeFileSync(resolve(directory, 'axonkey-interception-fix.exe'), 'tampered')
+    assert.throws(() => prepareInterceptionFix(options), /mismatch/)
+    assert.equal(builds, 2)
+    prepareInterceptionFix({ ...options, platform: 'darwin' })
+    prepareInterceptionFix({ ...options, platform: 'linux' })
+    assert.equal(builds, 2)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
 
 test('fixed source snapshot validates; production code cannot write device ACLs', () => {
   const dir = resolve('third_party/interception-driver-fix')
@@ -34,7 +77,7 @@ test('hash verification fails closed on tampering, missing files and traversal',
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('packaging includes management and licensed service; install remains opt-in', () => {
+test('packaging includes management and licensed service; driver lifecycle installs the fix', () => {
   const config = JSON.parse(readFileSync('src-tauri/tauri.windows.conf.json'))
   assert.equal(config.bundle.resources['../vendor/interception-fix/'], 'vendor/interception-fix/')
   assert.equal(config.bundle.resources['../scripts/interception-fix.ps1'], 'scripts/interception-fix.ps1')
@@ -43,5 +86,9 @@ test('packaging includes management and licensed service; install remains opt-in
   assert.match(manager, /lockdown=no/)
   assert.match(manager, /-StartupType Manual/)
   assert.match(manager, /SeCreatePermanentPrivilege/)
-  assert.match(readFileSync('scripts/uninstall-driver.ps1', 'utf8'), /Remove the optional reconnect fix/)
+  const installDriver = readFileSync('scripts/install-driver.ps1', 'utf8')
+  const uninstallDriver = readFileSync('scripts/uninstall-driver.ps1', 'utf8')
+  assert.match(installDriver, /-Action install -Confirmed/)
+  assert.match(uninstallDriver, /-Action uninstall -Confirmed/)
+  assert.match(uninstallDriver, /Removing the bundled Interception reconnect fix/)
 })

@@ -134,6 +134,21 @@ Write-DriverLog "Installer exited with code $exitCode."
 if ($exitCode -ne 0) {
     throw "Interception installer failed with exit code $exitCode. Log: $LogPath"
 }
+
+# The reconnect fix is part of the Windows input stack now. Install it in the
+# same elevated transaction so a newly configured user gets both components
+# without a second prompt or a separate settings flow.
+$fixScript = Join-Path $scriptRoot 'interception-fix.ps1'
+if (-not (Test-Path -LiteralPath $fixScript -PathType Leaf)) {
+    throw "Interception reconnect fix script was not found: $fixScript"
+}
+Write-DriverLog "Installing the bundled Interception reconnect fix: $fixScript"
+& powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File $fixScript -Action install -Confirmed 2>&1 | Tee-Object -FilePath $LogPath -Append
+$fixExitCode = $LASTEXITCODE
+Write-DriverLog "Reconnect fix installer exited with code $fixExitCode."
+if ($fixExitCode -ne 0) {
+    throw "Interception reconnect fix installation failed with exit code $fixExitCode. Log: $LogPath"
+}
 Write-DriverLog 'Interception installation completed successfully. Reboot is required.'
 
 Write-Host ''

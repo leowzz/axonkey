@@ -29,19 +29,19 @@ export function InterceptionFixControl({ supported }: { supported: boolean }) {
     } catch (cause) { setError(String(cause)) }
     finally { setBusy(false) }
   }
-  const label = !supported ? '仅桌面版可用' : busy ? '处理中…' : !status ? '未检测' : !status.installed ? '未启用' : !status.configured ? '配置异常' : status.restartRequired ? '等待重启' : status.exitCode !== 0 ? '服务执行异常' : '已安装'
+  const label = !supported ? '仅桌面版可用' : busy ? '处理中…' : !status ? '未检测' : !status.installed ? '未安装' : !status.configured ? '配置异常' : status.restartRequired ? '等待重启' : status.exitCode !== 0 ? '服务执行异常' : '已安装'
   return <section className="settings-form-fields" aria-label="重连兼容修复">
     <div className="settings-form-row">
       <span className="settings-form-label">重连兼容修复：</span>
       <div className="settings-form-control">
         <span role="status">{label}</span>
-        <button type="button" className="dialog-secondary" disabled={!supported || busy || !status || status.installed} onClick={() => void change('install')}>启用并授权</button>
+        <button type="button" className="dialog-secondary" disabled={!supported || busy || !status || status.installed} onClick={() => void change('install')}>补装并授权</button>
         <button type="button" className="dialog-secondary" disabled={!supported || busy} onClick={() => void change('uninstall')}>卸载修复</button>
         <button type="button" className="dialog-secondary" disabled={!supported || busy} onClick={() => void refresh()}>重新检测</button>
-        <SettingsHelp id="interception-fix-help" label="重连兼容修复">可选实验功能，尝试改善断连或睡眠后遥控器无输入。会安装系统启动服务，影响所有使用 Interception 的设备，需管理员授权。保留普通权限访问（lockdown=no）。启用和卸载后都需重启 Windows；不保证已失效设备能立即恢复，也不还原以前修改过的权限。卸载 Axonkey 前请先卸载此修复。</SettingsHelp>
+        <SettingsHelp id="interception-fix-help" label="重连兼容修复">Windows 输入驱动的一部分，用于改善断连或睡眠后遥控器无输入。安装 Interception 时会一起安装系统启动服务，影响所有使用 Interception 的设备，需管理员授权。保留普通权限访问（lockdown=no）。安装和卸载后都需重启 Windows；不保证已失效设备能立即恢复，也不还原以前修改过的权限。卸载 Axonkey 前请先卸载输入驱动。</SettingsHelp>
       </div>
     </div>
-    <p className="permission-drag-note">实验功能：安装系统启动服务；启用或卸载后需重启 Windows，效果待实机验证。</p>
+    <p className="permission-drag-note">随 Interception 输入驱动自动安装；安装或卸载后需重启 Windows。</p>
     {message && <p role="status" className="permission-drag-note">{message}</p>}
     {error && <p role="alert" className="permission-drag-note">操作未完成：{error}</p>}
   </section>

@@ -1,4 +1,4 @@
-# Windows 重连兼容修复（实验功能）
+# Windows 重连兼容修复
 
 此分支集成 [interception-driver-fix v0.5.2](https://github.com/hygorostrowskij/interception-driver-fix/tree/e1a7720863f514d51caf06b020da5c0d2e345c41)。它以 LocalSystem 启动时一次性服务创建系统级 KeyboardClass/PointerClass 链接；不替换 Interception 驱动，也不持续监听设备。影响所有使用 Interception 的设备，不仅 RC003。
 
@@ -34,6 +34,8 @@ npm run tauri build -- --bundles nsis
 
 Tauri 的 `beforeBuildCommand` 自动执行 `scripts/build-interception-fix.ps1`。它只构建服务，不运行服务或安装器。生成文件在 `vendor/interception-fix/`，包含 exe、完整性 manifest 和 vcpkg 依赖版权文件；缺失许可证、哈希不符或架构不符会停止构建。NSIS 安装包位于 `src-tauri/target/release/bundle/nsis/`。
 
+`make dev` 或 `npm run tauri dev` 也会在启动 Vite 前准备 Windows 修复服务资源；首次启动需要上述构建工具和网络。后续开发启动复用通过完整性校验的 `vendor/interception-fix/`，正式构建仍从固定源码构建。CMake 未加入 PATH 时会尝试使用 Visual Studio 自带的 CMake。修改修复服务源码后，使用下面的命令重新构建资源。
+
 只构建修复服务：
 
 ```powershell
@@ -43,10 +45,10 @@ node scripts\verify-interception-fix.mjs --artifact
 
 Mac 检查不能代替 MSVC/CMake/vcpkg 构建、NSIS 包和 Windows 服务启动验证。CI 构建通过也不能代替以下 Windows 实机验收。
 
-## 启用
+## 安装与启用
 
-1. 先安装 Axonkey 所用的 Interception 输入驱动并重启 Windows。若曾安装上游 `InterceptionDriverFix`，先用其原卸载器卸载并重启；此集成拒绝覆盖它。
-2. 打开 **设置 → 设备与权限 → 重连兼容修复 → 启用并授权**，接受 UAC。也可在仓库运行：
+1. 从 Axonkey 首次设置中的“驱动安装”启动 Interception 安装。修复会在同一条管理员流程中自动安装；若曾安装上游 `InterceptionDriverFix`，先用其原卸载器卸载并重启，此集成拒绝覆盖它。
+2. 对已经安装 Interception 的用户，Axonkey 首次检测到输入驱动时会自动补齐修复并请求一次 UAC。也可在仓库运行：
 
    ```powershell
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\interception-fix.ps1 -Action install
@@ -94,9 +96,9 @@ Get-Content "$env:ProgramData\Axonkey Interception Fix\logs\interception-driver-
 
 ## 回滚
 
-1. 在设置页点击 **卸载修复**，接受 UAC。或者运行同一脚本 `-Action uninstall`。脚本先禁用服务，等待一次性执行结束，再删除服务；超时会报告“已禁用但仍在运行”，需要重启后重试。
+1. 卸载 Axonkey 的 Interception 输入驱动时，驱动卸载流程会先卸载修复。也可在设置页点击 **卸载修复**，或运行同一脚本 `-Action uninstall`。脚本先禁用服务，等待一次性执行结束，再删除服务；超时会报告“已禁用但仍在运行”，需要重启后重试。
 2. **重启 Windows**，检查服务已不存在，再测试 RC003。删除服务不移除本次启动内已有的对象链接，不恢复旧 ACL，退出 Axonkey 也不能代替重启。
-3. 修复服务独立于当前用户安装的 Axonkey。卸载整个 Axonkey **之前**先卸载修复；应用更新不会自动替换已安装服务。若已经卸载应用，可用保留的备用脚本：
+3. 修复服务独立于当前用户安装的 Axonkey。卸载整个 Axonkey **之前**先卸载输入驱动和修复；应用更新不会自动替换已安装服务。若已经卸载应用，可用保留的备用脚本：
 
    ```powershell
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$env:ProgramFiles\Axonkey Interception Fix\manage.ps1" -Action uninstall
@@ -104,4 +106,4 @@ Get-Content "$env:ProgramData\Axonkey Interception Fix\logs\interception-driver-
 
 4. 卸载后保留服务文件、配置和日志以便诊断。确认服务删除且已重启后，可用管理员权限手动删除上述两个 `Axonkey Interception Fix` 专用目录。升级修复服务时先卸载、重启，再通过新版本 Axonkey 启用。
 
-Interception 驱动本身使用原有驱动设置卸载；若修复服务仍在，驱动卸载脚本会要求先卸载修复。若机器已无输入，请使用可靠的备用输入或系统恢复路径；本方案未承诺即时救回已有故障。
+Interception 驱动本身使用原有驱动设置卸载，流程会先卸载修复。若机器已无输入，请使用可靠的备用输入或系统恢复路径；本方案未承诺即时救回已有故障。

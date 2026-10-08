@@ -7,7 +7,7 @@ $tokens = $null
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts/interception-fix.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors | Out-String) }
-foreach ($name in @('Assert-Package', 'Assert-OwnedService', 'Assert-NoReparse')) {
+foreach ($name in @('Assert-Package', 'Assert-OwnedService', 'Assert-NoReparse', 'Assert-InterceptionDrivers')) {
     $functionAst = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression $functionAst.Extent.Text
 }
@@ -20,6 +20,31 @@ Assert-OwnedService $null
 Assert-OwnedService ([pscustomobject]@{ PathName = $binaryPath; StartName = 'LocalSystem' })
 Expect-Failure { Assert-OwnedService ([pscustomobject]@{ PathName = 'C:\foreign.exe'; StartName = 'LocalSystem' }) } 'unexpected service'
 Expect-Failure { Assert-OwnedService ([pscustomobject]@{ PathName = $binaryPath; StartName = 'OtherUser' }) } 'unexpected service'
+# Model Windows' resolved paths, including a driver installed without a registry
+# ImagePath. These mocks never read/write the registry or manage real drivers.
+$driverPaths = @{
+    keyboard = 'C:\Windows\System32\drivers\keyboard.sys'
+    mouse = '\SystemRoot\System32\drivers\mouse.sys'
+}
+$driverQueries = [Collections.Generic.List[string]]::new()
+function Get-CimInstance([string]$ClassName, [string]$Filter) {
+    if ($ClassName -ne 'Win32_SystemDriver' -or $Filter -notmatch "^Name='(keyboard|mouse)'$") { throw 'Unexpected driver query' }
+    $driver = $Matches[1]
+    $driverQueries.Add($driver)
+    if ($driverPaths.ContainsKey($driver)) { [pscustomobject]@{ Name = $driver; PathName = $driverPaths[$driver] } }
+}
+Assert-InterceptionDrivers
+if (($driverQueries -join ',') -ne 'keyboard,mouse') { throw 'Both Interception filters must be checked' }
+$driverPaths.Remove('mouse')
+Expect-Failure { Assert-InterceptionDrivers } 'Install the Interception input driver'
+$driverPaths.mouse = 'C:\Windows\System32\drivers\other.sys'
+Expect-Failure { Assert-InterceptionDrivers } 'Install the Interception input driver'
+$driverPaths.mouse = $null
+Expect-Failure { Assert-InterceptionDrivers } 'Install the Interception input driver'
+$driverPaths.mouse = 'C:\Windows\System32\drivers\mouse.sys'
+$driverPaths.Remove('keyboard')
+Expect-Failure { Assert-InterceptionDrivers } 'Install the Interception input driver'
+Remove-Item Function:\Get-CimInstance
 $temp = Join-Path $root ('.build/fix-test-' + [Guid]::NewGuid().ToString())
 try {
     New-Item -ItemType Directory (Join-Path $temp 'licenses') -Force | Out-Null
@@ -46,4 +71,4 @@ try {
     Remove-Item (Join-Path $temp 'licenses/cli11.txt')
     Expect-Failure { Assert-Package $temp } 'Cannot find path|Could not find file|SHA-256 mismatch'
 } finally { Remove-Item -LiteralPath $temp -Recurse -Force }
-Write-Host 'PASS: syntax, service ownership, valid payload, traversal, tamper and missing-file rejection; no service/ACL operations.'
+Write-Host 'PASS: syntax, service ownership, resolved driver paths, missing/invalid filters, valid payload, traversal, tamper and missing-file rejection; no service/ACL operations.'

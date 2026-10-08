@@ -18,6 +18,46 @@ pub async fn interception_fix_action(
     Err("Reconnect fix is available only on Windows".into())
 }
 
+/// Bring an existing Windows installation onto the current input-stack
+/// default. This is intentionally separate from the user-facing action
+/// command: startup can call it once after detecting Interception without
+/// exposing a new manual action in the UI.
+#[tauri::command]
+pub async fn ensure_interception_fix(
+    _app: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        let resources = _app.path().resource_dir().map_err(|e| e.to_string())?;
+        return tauri::async_runtime::spawn_blocking(move || {
+            let status = run(&resources, "status")?;
+            let installed = status
+                .get("installed")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let configured = status
+                .get("configured")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if installed && configured {
+                return Ok(status);
+            }
+            if installed {
+                return Err(
+                    "Reconnect-fix service is installed but its configuration is invalid. Use Settings > Device and permissions to uninstall it, restart Windows, then retry.".into(),
+                );
+            }
+            run(&resources, "install")?;
+            run(&resources, "status")
+        })
+        .await
+        .map_err(|e| format!("Reconnect-fix task failed: {e}"))?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    Err("Reconnect fix is available only on Windows".into())
+}
+
 #[cfg(target_os = "windows")]
 fn run(resources: &std::path::Path, action: &str) -> Result<serde_json::Value, String> {
     use std::{os::windows::process::CommandExt, process::Command};
