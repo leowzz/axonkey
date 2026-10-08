@@ -62,6 +62,7 @@ import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryInd
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
+import { InterceptionFixPrompt } from '../components/InterceptionFixPrompt'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { devices, deviceForInput } from '../deviceModel'
@@ -107,6 +108,8 @@ import {
   useRef,
   useState,
 } from 'react'
+
+const interceptionFixPromptStorageKey = 'axonkey.interception-fix-prompt.v1'
 
 function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -204,8 +207,10 @@ function AppController() {
   const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
-  const interceptionFixEnsureRunningRef = useRef(false)
-  const interceptionFixEnsureAttemptedRef = useRef(false)
+  const interceptionFixPromptCheckedRef = useRef(false)
+  const [interceptionFixPromptOpen, setInterceptionFixPromptOpen] = useState(false)
+  const [interceptionFixPromptBusy, setInterceptionFixPromptBusy] = useState(false)
+  const [interceptionFixPromptError, setInterceptionFixPromptError] = useState('')
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const escapeSequenceRef = useRef({ count: 0, lastAt: 0 })
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
@@ -820,22 +825,47 @@ function AppController() {
     }
   }
 
-  const ensureInterceptionFix = async () => {
-    if (!nativeRuntime || interceptionFixEnsureRunningRef.current || interceptionFixEnsureAttemptedRef.current) return
-    interceptionFixEnsureRunningRef.current = true
-    interceptionFixEnsureAttemptedRef.current = true
+  const checkInterceptionFixUpgradePrompt = async () => {
+    if (platform !== 'windows' || !nativeRuntime || !isSetupComplete(setupState) || interceptionFixPromptCheckedRef.current) return
+    interceptionFixPromptCheckedRef.current = true
     try {
-      await invoke('ensure_interception_fix')
-      logInfo('Interception reconnect fix is enabled for the existing installation')
+      const decision = window.localStorage.getItem(interceptionFixPromptStorageKey)
+      if (decision === 'dismissed' || decision === 'installed') return
+    } catch {
+      // Prompting remains safe when local storage is unavailable.
+    }
+    try {
+      const status = await invoke<{ installed: boolean }>('interception_fix_action', { action: 'status' })
+      if (!status.installed) {
+        setInterceptionFixPromptError('')
+        setInterceptionFixPromptOpen(true)
+      }
     } catch (error) {
-      logError('Failed to enable the Interception reconnect fix', error)
-      updateSetup((current) => setDriverStatus(current, 'input', current.drivers.input.status, {
-        message: `Interception 重连修复未能自动启用：${String(error)}`,
-      }))
-      setToast(`重连修复未能自动启用：${String(error)}`)
+      logError('Failed to check the Interception reconnect fix status', error)
+    }
+  }
+
+  const skipInterceptionFixPrompt = () => {
+    try { window.localStorage.setItem(interceptionFixPromptStorageKey, 'dismissed') } catch { /* best effort */ }
+    setInterceptionFixPromptOpen(false)
+  }
+
+  const installInterceptionFixFromPrompt = async () => {
+    if (interceptionFixPromptBusy) return
+    setInterceptionFixPromptBusy(true)
+    setInterceptionFixPromptError('')
+    try {
+      await invoke('interception_fix_action', { action: 'install' })
+      try { window.localStorage.setItem(interceptionFixPromptStorageKey, 'installed') } catch { /* best effort */ }
+      setInterceptionFixPromptOpen(false)
+      setToast('重连兼容增强已安装，请重启 Windows 后生效')
       window.setTimeout(() => setToast(''), 3200)
+      logInfo('Interception reconnect enhancement was installed from the upgrade prompt')
+    } catch (error) {
+      logError('Failed to install the Interception reconnect enhancement', error)
+      setInterceptionFixPromptError(String(error))
     } finally {
-      interceptionFixEnsureRunningRef.current = false
+      setInterceptionFixPromptBusy(false)
     }
   }
 
@@ -1019,7 +1049,7 @@ function AppController() {
         return setDeviceConnection(next, device)
       })
       setSystemProbeState('ready')
-      if (probe.platform === 'windows' && probe.input_driver_installed) void ensureInterceptionFix()
+      if (probe.platform === 'windows' && probe.input_driver_installed) void checkInterceptionFixUpgradePrompt()
       return true
     } catch (error) {
       logError('System probe failed', error)
@@ -1495,6 +1525,12 @@ function AppController() {
         />}
       </main>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+      {interceptionFixPromptOpen && <InterceptionFixPrompt
+        busy={interceptionFixPromptBusy}
+        error={interceptionFixPromptError}
+        onInstall={() => void installInterceptionFixFromPrompt()}
+        onSkip={skipInterceptionFixPrompt}
+      />}
       {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
         <section className="coordinate-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinate-title">
           <div className="coordinate-dialog-head"><div><span className="section-kicker">DEBUG POSITION</span><h2 id="coordinate-title">坐标已生成</h2></div><button type="button" className="dialog-close" aria-label="关闭" onClick={() => setCoordinateSnippet('')}><X size={16} /></button></div>

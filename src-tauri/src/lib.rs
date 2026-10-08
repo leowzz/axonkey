@@ -1236,7 +1236,6 @@ pub fn run() {
             open_log_directory,
             launch_driver_action,
             interception_fix::interception_fix_action,
-            interception_fix::ensure_interception_fix,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,

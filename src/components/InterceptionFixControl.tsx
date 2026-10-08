@@ -30,7 +30,7 @@ export function InterceptionFixControl({ supported }: { supported: boolean }) {
     finally { setBusy(false) }
   }
   const label = !supported ? '仅桌面版可用' : busy ? '处理中…' : !status ? '未检测' : !status.installed ? '未安装' : !status.configured ? '配置异常' : status.restartRequired ? '等待重启' : status.exitCode !== 0 ? '服务执行异常' : '已安装'
-  return <section className="settings-form-fields" aria-label="重连兼容修复">
+  return <section className="settings-form-fields settings-interception-fix" aria-label="重连兼容修复">
     <div className="settings-form-row">
       <span className="settings-form-label">重连兼容修复：</span>
       <div className="settings-form-control">

@@ -125,10 +125,20 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       </div>
       {nativeRuntime && audioError && <div className="permission-drag-note" role="alert"><Info size={17} /><div><strong>虚拟麦克风需要处理</strong><span>{audioError}</span></div></div>}
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
-    </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
+    </> : platform === 'windows' ? <section className="settings-platform-note settings-windows-driver-note" aria-labelledby="windows-input-service-title">
+      <span className="settings-platform-note-icon"><ShieldCheck size={24} /></span>
+      <div className="settings-platform-note-copy">
+        <h3 id="windows-input-service-title">Windows 输入服务</h3>
+        <p>按键映射通过 Interception 驱动运行，需要管理员权限。</p>
+        <div className="settings-platform-note-actions">
+          <span className="settings-inline-status">驱动状态：<strong>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</strong></span>
+          <button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button>
+        </div>
+      </div>
+    </section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
     {platform === 'windows' && <InterceptionFixControl supported={nativeRuntime} />}
-    {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields">
+    {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields settings-device-fields">
       <section className="settings-form-row" aria-labelledby="settings-device-label">
         <span id="settings-device-label" className="settings-form-label">设备连接：</span>
         <div className="settings-form-control">

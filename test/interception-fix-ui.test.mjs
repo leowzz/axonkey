@@ -27,6 +27,32 @@ async function environment({ supported = true, failStatus = false, failInstall =
   await act(async () => { renderer = Renderer.create(React.createElement(module.exports.InterceptionFixControl, { supported })) })
   return { requests, renderer, button: name => renderer.root.findAllByType('button').find(b => b.children.join('') === name) }
 }
+
+test('upgrade prompt explains the optional enhancement and supports skipping', async () => {
+  const module = { exports: {} }
+  const source = ts.transpileModule(readFileSync('src/components/InterceptionFixPrompt.tsx', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX } }).outputText
+  vm.runInNewContext(source, { module, exports: module.exports, require })
+  let installed = 0
+  let skipped = 0
+  let renderer
+  await act(async () => {
+    renderer = Renderer.create(React.createElement(module.exports.InterceptionFixPrompt, {
+      busy: false,
+      error: '',
+      onInstall: () => { installed++ },
+      onSkip: () => { skipped++ },
+    }))
+  })
+  assert.match(JSON.stringify(renderer.toJSON()), /可选功能/)
+  assert.match(JSON.stringify(renderer.toJSON()), /设置 → 设备与权限/)
+  const buttons = renderer.root.findAllByType('button')
+  buttons.find(button => button.children.join('') === '暂不安装').props.onClick()
+  buttons.find(button => button.children.join('') === '安装增强').props.onClick()
+  assert.equal(skipped, 1)
+  assert.equal(installed, 1)
+  renderer.unmount()
+})
+
 test('mount only probes; enabling is explicit, needs reboot; removal remains available', async () => {
   const env = await environment()
   assert.deepEqual(env.requests, ['status'])

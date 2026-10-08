@@ -48,7 +48,7 @@ Mac 检查不能代替 MSVC/CMake/vcpkg 构建、NSIS 包和 Windows 服务启�
 ## 安装与启用
 
 1. 从 Axonkey 首次设置中的“驱动安装”启动 Interception 安装。修复会在同一条管理员流程中自动安装；若曾安装上游 `InterceptionDriverFix`，先用其原卸载器卸载并重启，此集成拒绝覆盖它。
-2. 对已经安装 Interception 的用户，Axonkey 首次检测到输入驱动时会自动补齐修复并请求一次 UAC。也可在仓库运行：
+2. 对已经安装 Interception 的升级用户，Axonkey 首次检测到输入驱动时会弹出可选增强提示。选择“安装增强”后才会请求 UAC；选择“暂不安装”不会影响基本按键映射，之后仍可在“设置 → 设备与权限”中手动安装。也可在仓库运行：
 
    ```powershell
    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\interception-fix.ps1 -Action install
