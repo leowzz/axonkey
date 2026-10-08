@@ -4,6 +4,9 @@ param()
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT') { throw 'Build this service on Windows x64 with Visual Studio 2022 C++ tools and CMake.' }
+# PowerShell 7 CI can pass its PSModulePath to this Windows PowerShell 5.1
+# child. Load this host's built-in utility module explicitly for hashing/JSON.
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
 $root = Split-Path -Parent $PSScriptRoot
 $revision = '2750401336fb7c95f6619657a46a7e798661341c'
 $work = Join-Path $root '.build\interception-fix'
