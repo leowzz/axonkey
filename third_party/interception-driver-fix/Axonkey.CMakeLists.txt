@@ -1,0 +1,21 @@
+# Axonkey builds the audited service only, never the upstream installer.
+cmake_minimum_required(VERSION 3.24)
+project(axonkey-interception-fix VERSION 0.5.2 LANGUAGES CXX)
+if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "Use the MSVC x64 Windows toolchain")
+endif()
+find_package(fmt CONFIG REQUIRED)
+find_package(spdlog CONFIG REQUIRED)
+find_package(CLI11 CONFIG REQUIRED)
+find_package(Boost REQUIRED COMPONENTS algorithm)
+add_executable(axonkey-interception-fix src/main.cpp
+  cmake/supported_os_win10_win11.manifest
+  cmake/long_path_aware.manifest
+  cmake/utf_8_active_code_page.manifest)
+target_compile_features(axonkey-interception-fix PRIVATE cxx_std_20)
+target_compile_options(axonkey-interception-fix PRIVATE /utf-8 /W4)
+set_property(TARGET axonkey-interception-fix PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+target_include_directories(axonkey-interception-fix PRIVATE include vendor/include "${CMAKE_CURRENT_BINARY_DIR}/generated/include")
+target_link_libraries(axonkey-interception-fix PRIVATE fmt::fmt spdlog::spdlog CLI11::CLI11 Boost::algorithm ntdll advapi32 shell32 ole32)
+target_link_options(axonkey-interception-fix PRIVATE "/manifestuac:level='asInvoker'")
+configure_file(src/version.hpp.in generated/include/hy_version.hpp @ONLY)

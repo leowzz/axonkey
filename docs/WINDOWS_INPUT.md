@@ -84,6 +84,10 @@ Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Outpu
 [架构说明](./ARCHITECTURE.md)，驱动来源与校验值见
 [Interception 来源说明](../vendor/interception/SOURCE.md)。
 
+## 重连兼容修复（可选）
+
+设置 → 设备与权限提供默认关闭的重连兼容修复，使用固定版本源码构建，保持 `lockdown=no`。启用仅安装启动服务，重启 Windows 后运行一次；卸载也需要重启，不恢复旧 ACL。详细构建、测试和回滚步骤见[验证指南](./INTERCEPTION_FIX_TESTING.md)。这不是对既有断连问题已修复的保证。
+
 ## 故障排查
 
 若 RC003 断连后重新连接，Windows 显示设备正常但所有按键都无响应，

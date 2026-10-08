@@ -15,6 +15,8 @@ Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地
 
 设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
 
+> Windows 重连/睡眠后无输入：此分支提供默认关闭的[重连兼容修复（实验功能）](docs/INTERCEPTION_FIX_TESTING.md)，需要启用后重启，尚待 Windows 实机验证。
+
 ## 界面截图
 
 ### 首页

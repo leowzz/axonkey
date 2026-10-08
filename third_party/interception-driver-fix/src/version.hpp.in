@@ -1,0 +1,12 @@
+// Copyright (c) 2026 Hygor Ostrowskij de Morais <hygor.o.morais@gmail.com>
+
+#pragma once
+
+
+namespace hy {
+
+
+constexpr auto MY_APP_VERSION = "@PROJECT_VERSION@";
+
+
+}  // namespace

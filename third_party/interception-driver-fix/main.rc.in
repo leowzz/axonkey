@@ -1,0 +1,37 @@
+#pragma code_page(65001)
+#include <winver.h>
+
+
+1 ICON "@HY_APP_ICON@"
+
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION    @HY_VERSION_COMMAS@
+PRODUCTVERSION @HY_VERSION_COMMAS@
+FILEOS VOS_NT_WINDOWS32
+#ifdef _WINDLL
+FILETYPE VFT_DLL
+#else
+FILETYPE VFT_APP
+#endif
+{
+	BLOCK "StringFileInfo"
+	{
+		BLOCK "040904B0"
+		{
+			VALUE "FileDescription",  "@HY_FILE_DESCRIPTION@"
+			VALUE "InternalName",     "@HY_INTERNAL_NAME@"
+			VALUE "OriginalFilename", "@HY_ORIGINAL_FILENAME@"
+			VALUE "FileVersion",      "@PROJECT_VERSION@"
+			VALUE "ProductVersion",   "@PROJECT_VERSION@"
+			VALUE "ProductName",      "@HY_PRODUCT_NAME@"
+			VALUE "CompanyName",      "@HY_COMPANY_NAME@"
+			VALUE "LegalCopyright",   "@HY_COPYRIGHT@"
+		}
+	}
+
+	BLOCK "VarFileInfo"
+	{
+		VALUE "Translation", 0x0409, 0x04B0
+	}
+}

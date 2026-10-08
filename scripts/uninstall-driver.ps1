@@ -106,6 +106,10 @@ if (-not $isAdmin) {
     exit $process.ExitCode
 }
 
+if (Get-Service -Name 'AxonkeyInterceptionFix' -ErrorAction SilentlyContinue) {
+    throw 'Remove the optional reconnect fix in Settings > Device and permissions before uninstalling Interception. Restart Windows afterwards.'
+}
+
 Write-DriverLog "Launching installer: $installer /uninstall"
 & $installer /uninstall 2>&1 | Tee-Object -FilePath $LogPath -Append
 $exitCode = $LASTEXITCODE

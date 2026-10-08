@@ -22,7 +22,9 @@
       "../vendor/frida/SOURCE.md": "vendor/frida/SOURCE.md",
       "../vendor/frida/LICENSE-Frida.txt": "vendor/frida/LICENSE-Frida.txt",
       "../vendor/frida/LICENSE-GPL-3.0.txt": "vendor/frida/LICENSE-GPL-3.0.txt",
-      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../scripts/interception-fix.ps1": "scripts/interception-fix.ps1",
+      "../vendor/interception-fix/": "vendor/interception-fix/"
     },
     "windows": {
       "nsis": {

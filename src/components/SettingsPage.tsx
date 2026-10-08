@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react'
 import { Bluetooth, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
+import { InterceptionFixControl } from './InterceptionFixControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, SetupState } from '../setupModel'
 
@@ -126,6 +127,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
     </> : platform === 'windows' ? <section className="settings-platform-note"><ShieldCheck size={28} /><h3>Windows 输入服务</h3><p>按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</p><p>驱动状态：{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</p><button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button></section>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
+    {platform === 'windows' && <InterceptionFixControl supported={nativeRuntime} />}
     {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields">
       <section className="settings-form-row" aria-labelledby="settings-device-label">
         <span id="settings-device-label" className="settings-form-label">设备连接：</span>

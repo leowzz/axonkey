@@ -104,3 +104,7 @@ Reviewed binary hashes (SHA-256):
 
 The upstream package contains its complete end-user license in `readme.txt`.
 Additional provenance is recorded in `vendor/vbcable/SOURCE.md`.
+
+## Interception Driver Fix (optional Windows reconnect service)
+
+Based on [v0.5.2](https://github.com/hygorostrowskij/interception-driver-fix/tree/e1a7720863f514d51caf06b020da5c0d2e345c41), copyright Hygor Ostrowskij de Morais, BSD-3-Clause. The complete notice and auditable source modifications are in [third_party/interception-driver-fix](third_party/interception-driver-fix/AXONKEY.md). Windows builds include its BSD license and all vcpkg dependency copyright files under `vendor/interception-fix/licenses/`; service installation copies these notices alongside the executable. This service does not change the licensing of the separately bundled Interception driver.

@@ -1,5 +1,6 @@
 mod audio_service;
 mod input_service;
+mod interception_fix;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
@@ -1234,6 +1235,7 @@ pub fn run() {
             get_log_info,
             open_log_directory,
             launch_driver_action,
+            interception_fix::interception_fix_action,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,

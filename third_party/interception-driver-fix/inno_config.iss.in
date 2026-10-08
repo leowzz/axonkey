@@ -1,0 +1,55 @@
+#define MY_ABS_DATA_DIR "{commonappdata}\@CPACK_PACKAGE_INSTALL_DIRECTORY@"
+#define MY_CFG_INI_NAME "interception-driver-fix.ini"
+#define MY_APP_EXE      "{app}\bin\interception-driver-fix.exe"
+
+
+[Tasks]
+Name: settings_lockdown; Description: "Set permission settings"; GroupDescription: "Settings:"; Flags: unchecked
+Name: settings_lockdown\enable; Description: "&Lockdown driver permissions (yes)"; GroupDescription: "Settings:"; Flags: unchecked exclusive
+Name: settings_lockdown\disable; Description: "&Lockdown driver permissions (no)"; GroupDescription: "Settings:"; Flags: unchecked exclusive
+
+
+[Run]
+Filename: "{#MY_APP_EXE}"; Parameters: "install-service"; Flags: runhidden waituntilterminated logoutput
+
+
+[UninstallRun]
+Filename: "{#MY_APP_EXE}"; Parameters: "uninstall-service"; Flags: runhidden waituntilterminated logoutput; RunOnceId: "UninstallService"
+
+
+[Setup]
+DisableWelcomePage=no
+ChangesEnvironment=yes
+ChangesAssociations=yes
+; WizardStyle=modern
+WizardSizePercent=120, 150
+SetupMutex=Global\interception-driver-fix-setup-mutex,interception-driver-fix-setup-mutex
+WizardImageStretch     = yes
+WizardKeepAspectRatio  = yes
+WizardImageAlphaFormat = defined
+WizardImageBackColor                 = none
+WizardImageBackColorDynamicDark      = none
+WizardSmallImageBackColor            = none
+WizardSmallImageBackColorDynamicDark = none
+WizardBackImageFile             = "@CMAKE_CURRENT_SOURCE_DIR@/assets/gradient-light.bmp"
+WizardBackImageFileDynamicDark  = "@CMAKE_CURRENT_SOURCE_DIR@/assets/gradient-dark.bmp"
+WizardImageFile                 = "@CMAKE_CURRENT_SOURCE_DIR@/assets/chip-vertical.bmp"
+WizardImageFileDynamicDark      = "@CMAKE_CURRENT_SOURCE_DIR@/assets/chip-vertical.bmp"
+WizardSmallImageFile            = "@CMAKE_CURRENT_SOURCE_DIR@/assets/chip-square.bmp"
+WizardSmallImageFileDynamicDark = "@CMAKE_CURRENT_SOURCE_DIR@/assets/chip-square.bmp"
+SetupIconFile                   = "@CMAKE_CURRENT_SOURCE_DIR@/assets/chip.ico"
+UninstallDisplayIcon            = "{#MY_APP_EXE}"
+
+
+[Dirs]
+Name: "{#MY_ABS_DATA_DIR}"; Flags: uninsalwaysuninstall
+Name: "{#MY_ABS_DATA_DIR}\logs"; Flags: uninsalwaysuninstall
+
+
+[INI]
+Filename: "{#MY_ABS_DATA_DIR}\{#MY_CFG_INI_NAME}"; Section: "default"; Key: "lockdown"; String: "yes"; Tasks: settings_lockdown\enable
+Filename: "{#MY_ABS_DATA_DIR}\{#MY_CFG_INI_NAME}"; Section: "default"; Key: "lockdown"; String: "no"; Tasks: settings_lockdown\disable
+
+
+[Icons]
+Name: "{group}\{cm:UninstallProgram,Interception Driver Fix}"; Filename: "{uninstallexe}"; IconFilename: "{uninstallexe}"
