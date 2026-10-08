@@ -101,6 +101,12 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.updater.conf.json
 
+      - name: Verify reconnect service management without running the service
+        shell: pwsh
+        run: |
+          ./test/interception-fix.test.ps1
+          node scripts/verify-interception-fix.mjs --artifact
+
       - name: Create SHA-256 checksum
         shell: pwsh
         run: |
@@ -486,7 +492,11 @@ jobs:
             echo "Release already published; preserving its notes."
             exit 0
           fi
-          node scripts/generate-release-notes.mjs
+          if [[ -s "docs/releases/$TAG_NAME.md" ]]; then
+            cp "docs/releases/$TAG_NAME.md" "$RELEASE_NOTES_FILE"
+          else
+            node scripts/generate-release-notes.mjs
+          fi
 
       - name: Create or update GitHub Release
         shell: bash

@@ -6,7 +6,9 @@
 
 ## 构建与获取
 
-本分支未推送、未发布安装包。可将本地 Git bundle 转移到 Windows，在已有仓库导入：
+预发布安装包在 [GitHub Releases](https://github.com/leowzz/axonkey/releases) 的 RC 版本下提供，需等待对应 Windows 构建完成。也可拉取 `feat/interception-reconnect-fix` 分支自行构建。
+
+需要离线转移源码时，可将本地 Git bundle 转移到 Windows，在已有仓库导入：
 
 ```powershell
 git fetch C:\transfer\axonkey-interception-fix.bundle feat/interception-reconnect-fix:feat/interception-reconnect-fix
@@ -39,7 +41,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\build-intercepti
 node scripts\verify-interception-fix.mjs --artifact
 ```
 
-本次 Mac 检查不能验证 MSVC/CMake/vcpkg 构建、NSIS 包和 Windows 服务启动；首次 Windows 构建也是验收的一部分。
+Mac 检查不能代替 MSVC/CMake/vcpkg 构建、NSIS 包和 Windows 服务启动验证。CI 构建通过也不能代替以下 Windows 实机验收。
 
 ## 启用
 
