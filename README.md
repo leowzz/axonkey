@@ -15,7 +15,7 @@ Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地
 
 设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
 
-> Windows 重连/睡眠后无输入：Windows 版会在安装 Interception 输入驱动时一并安装[重连兼容修复](docs/INTERCEPTION_FIX_TESTING.md)，需要重启后生效；已安装驱动的用户升级后会先看到可选增强提示，可跳过并在设置中手动安装。
+> Windows 重连/睡眠后无输入：从 [v0.3.24 正式版](https://github.com/leowzz/axonkey/releases/tag/v0.3.24) 起，Windows 版会在安装 Interception 输入驱动时一并安装[重连兼容修复](#windows-断连或休眠后按键无响应)，需要重启后生效；已有驱动的升级用户可选择安装或跳过，之后仍可在设置中补装。
 
 ## 界面截图
 
@@ -351,13 +351,19 @@ macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标�
 - Windows 中退出 Axonkey 会释放用户态 Interception context，停止处理自定义映射。
 - macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
-### Windows 断连后按键无响应
+### Windows 断连或休眠后按键无响应
 
-Interception 存在设备断开后重新连接可能无法输入的已知问题：RC003 在 Windows 中仍显示已连接，但按键没有响应，退出或重启 Axonkey 也可能无法恢复。原始报告见 [Interception issue #25](https://github.com/oblitum/Interception/issues/25)。
+原 Interception 驱动存在热插拔、断连重连或休眠唤醒后可能无法输入的已知问题：RC003 在 Windows 中仍显示已连接，但按键没有响应，退出或重启 Axonkey 也可能无法恢复。原始报告见 [Interception issue #25](https://github.com/oblitum/Interception/issues/25)。
 
-问题涉及驱动对重新枚举设备的处理。上游 [issue #193](https://github.com/oblitum/Interception/issues/193) 将其归因于固定设备编号范围：反复断连、重连可能生成超出驱动支持范围的设备编号，即使是同一台设备也可能触发。Axonkey 只过滤 RC003 的用户态逻辑无法修复该内核驱动状态；这也不意味着每次重连都会失败。
+上游 [issue #193](https://github.com/oblitum/Interception/issues/193) 提到了固定设备编号范围与重新枚举的限制。这是相关排查线索，不代表每次重连都会失败，也不能据此认定所有键鼠失效反馈都是同一原因。
 
-遇到该现象时，重启电脑即可。详细现象、原因和既有排查证据见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+从 [v0.3.24 正式版](https://github.com/leowzz/axonkey/releases/tag/v0.3.24) 起，Axonkey 内置基于 [interception-driver-fix v0.5.2](https://github.com/hygorostrowskij/interception-driver-fix/tree/e1a7720863f514d51caf06b020da5c0d2e345c41) 的重连兼容修复。感谢 [#32](https://github.com/leowzz/axonkey/issues/32) 用户提供方案与测试反馈。该服务在系统启动时执行一次，补充设备链接，不替换原 Interception 驱动。
+
+- **安装与生效**：新装 Interception 时会一并安装；已有驱动的升级用户会看到可选增强提示，可选择“安装增强”或“暂不安装”。手动入口为“设置 → 设备与权限 → 重连兼容修复 → 补装并授权”。安装需要管理员授权，完成后必须重启 Windows，再以普通权限运行 Axonkey。
+- **权限与范围**：明确使用 `lockdown=no`，此集成移除了设备 ACL 写入代码，保留普通权限输入访问；不会恢复旧工具曾修改的权限。服务影响所有使用 Interception 的设备，不仅 RC003；返回与音量键的 Frida 增强通道仍需单独开启。
+- **卸载与回滚**：在同一设置入口选择“卸载修复”，然后重启 Windows；卸载服务不会立即撤销当前启动中的设备链接。卸载输入驱动会一并卸载修复，卸载 Axonkey 前请先卸载输入驱动。
+
+修复用于改善重连兼容性，不保证已失效设备能免重启恢复，也不代表 Axonkey #25、#20 的所有问题已解决。若仍无输入，可先重启 Windows，并提供版本、设备型号及日志继续排查。详细安装、日志与测试步骤见 [重连兼容修复说明](./docs/INTERCEPTION_FIX_TESTING.md)，历史证据见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
 
 ### 长时间说话时音频延迟
 
