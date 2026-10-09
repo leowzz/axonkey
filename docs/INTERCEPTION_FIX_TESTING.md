@@ -2,6 +2,8 @@
 
 此分支集成 [interception-driver-fix v0.5.2](https://github.com/hygorostrowskij/interception-driver-fix/tree/e1a7720863f514d51caf06b020da5c0d2e345c41)。它以 LocalSystem 启动时一次性服务创建系统级 KeyboardClass/PointerClass 链接；不替换 Interception 驱动，也不持续监听设备。影响所有使用 Interception 的设备，不仅 RC003。
 
+编号问题、符号链接算法及服务生命周期的解释见[重连问题说明：修复原理](./INTERCEPTION_HOTPLUG_INCIDENT.md#修复原理)。
+
 [Axonkey #32 用户反馈](https://github.com/leowzz/axonkey/issues/32#issuecomment-6037064284) 提供了断连和睡眠后恢复的个案依据。本集成尚未完成 Windows 实机验证，不代表 #25、#20 已解决，也不保证已失效设备免重启恢复。
 
 ## 构建与获取
