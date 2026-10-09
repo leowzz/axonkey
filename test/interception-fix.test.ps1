@@ -7,7 +7,7 @@ $tokens = $null
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts/interception-fix.ps1'), [ref]$tokens, [ref]$errors)
 if ($errors) { throw ($errors | Out-String) }
-foreach ($name in @('Assert-Package', 'Assert-OwnedService', 'Assert-NoReparse', 'Assert-InterceptionDrivers')) {
+foreach ($name in @('Assert-Package', 'Assert-OwnedService', 'Assert-NoReparse', 'Assert-InterceptionDrivers', 'Convert-ToProviderPath')) {
     $functionAst = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
     Invoke-Expression $functionAst.Extent.Text
 }
@@ -15,6 +15,9 @@ function Expect-Failure([scriptblock]$Work, [string]$Expected) {
     try { & $Work } catch { if ($_ -match $Expected) { return }; throw }
     throw "Expected rejection: $Expected"
 }
+if ((Convert-ToProviderPath '\\?\D:\Tools\AboutSystem\Axonkey\scripts') -ne 'D:\Tools\AboutSystem\Axonkey\scripts') { throw 'Extended drive paths must be normalized for PowerShell providers' }
+if ((Convert-ToProviderPath '\\?\UNC\server\share\scripts') -ne '\\?\UNC\server\share\scripts') { throw 'Extended UNC paths must be preserved' }
+Expect-Failure { Convert-ToProviderPath '' } 'path is empty'
 $binaryPath = '"C:\Program Files\Axonkey Interception Fix\axonkey-interception-fix.exe"'
 Assert-OwnedService $null
 Assert-OwnedService ([pscustomobject]@{ PathName = $binaryPath; StartName = 'LocalSystem' })
