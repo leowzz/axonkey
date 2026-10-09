@@ -7,6 +7,19 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitProcess) { throw 'Requires 64-bit Windows PowerShell.' }
 $serviceName = 'AxonkeyInterceptionFix'
+function Convert-ToProviderPath([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { throw 'A required Windows path is empty.' }
+    if ($Path.StartsWith('\\?\') -and $Path.Length -gt 6 -and $Path[5] -eq ':') {
+        return $Path.Substring(4)
+    }
+    return $Path
+}
+$scriptRoot = Convert-ToProviderPath $PSScriptRoot
+# Tauri can launch a bundled resource through the Win32 extended path form
+# (\\?\C:\...). PowerShell's file-system provider does not consistently
+# resolve that form as a provider drive, which can surface as a null `drive`
+# argument while validating package paths. Keep normal drive paths for all
+# provider operations; preserve extended UNC paths.
 $programFiles = [Environment]::GetFolderPath('ProgramFiles')
 $programData = [Environment]::GetFolderPath('CommonApplicationData')
 $installDir = Join-Path $programFiles 'Axonkey Interception Fix'
@@ -118,7 +131,7 @@ if (-not $Confirmed) {
     if ((Read-Host "Type $($Action.ToUpperInvariant()) to continue") -cne $Action.ToUpperInvariant()) { exit 2 }
 }
 if (-not $isAdmin) {
-    $scriptPath = $PSCommandPath -replace '^\\\\\?\\', ''
+    $scriptPath = Convert-ToProviderPath $PSCommandPath
     if ($scriptPath.Contains('"')) { throw 'Invalid path' }
     $arguments = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f $scriptPath), '-Action', $Action, '-Confirmed')
     $process = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList $arguments -Wait -PassThru
@@ -153,7 +166,7 @@ try {
     }
     if (Get-CimInstance Win32_Service -Filter "Name='InterceptionDriverFix'") { throw 'The upstream InterceptionDriverFix service is installed. Remove it with its own uninstaller and restart Windows first.' }
     if ($service) { throw 'Already installed. Remove the reconnect fix, restart Windows, then enable again to replace it.' }
-    $root = Split-Path -Parent $PSScriptRoot
+    $root = Split-Path -Parent $scriptRoot
     $package = Join-Path $root 'vendor\interception-fix'
     $manifest = Assert-Package $package
     # Require Interception keyboard and mouse filters, not merely a bundled DLL.
