@@ -4,14 +4,67 @@
 @interface FakeAudioEngine : NSObject
 @property(nonatomic) BOOL stopped;
 @property(nonatomic) int starts;
+@property(nonatomic) BOOL redirected;
+@property(nonatomic) BOOL redirectOnStart;
+@property(nonatomic) AudioDeviceID deviceID;
+@property(nonatomic) BOOL failStart;
+@property(nonatomic, copy) void (^onStart)(void);
 @end
 @implementation FakeAudioEngine
 - (BOOL)isRunning { return !self.stopped; }
 - (void)stop { self.stopped = YES; }
 - (void)pause { self.stopped = YES; }
 - (BOOL)startAndReturnError:(NSError **)error {
+    if (self.onStart) self.onStart();
+    if (self.failStart) return NO;
     self.stopped = NO;
     self.starts += 1;
+    if (self.redirectOnStart) self.redirected = YES;
+    return YES;
+}
+@end
+
+// Exercise the real route guard without changing any system audio devices.
+@interface RouteAudioBridge : AKMacAudioBridge
+@property(nonatomic) int rebuilds;
+@property(nonatomic) AudioDeviceID availableDeviceID;
+@property(nonatomic) OSStatus selectStatus;
+@property(nonatomic) BOOL ignoreSelection;
+@property(nonatomic) int selections;
+@end
+@implementation RouteAudioBridge
+- (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks {
+    self = [super initWithCallbacks:callbacks];
+    if (self) self.availableDeviceID = 113;
+    return self;
+}
+- (AudioDeviceID)driverDeviceID { return self.availableDeviceID; }
+- (OSStatus)selectOutputDevice:(AudioDeviceID)deviceID {
+    self.selections += 1;
+    if (self.selectStatus != noErr) return self.selectStatus;
+    if (!self.ignoreSelection) {
+        FakeAudioEngine *engine = [self valueForKey:@"engine"];
+        engine.deviceID = deviceID;
+        engine.redirected = NO;
+    }
+    return noErr;
+}
+- (BOOL)outputTargetsDriver {
+    FakeAudioEngine *engine = [self valueForKey:@"engine"];
+    return engine != nil && !engine.redirected &&
+           engine.deviceID == self.availableDeviceID &&
+           engine.deviceID == [[self valueForKey:@"outputDeviceID"] unsignedIntValue];
+}
+- (BOOL)createAudioOutput {
+    self.rebuilds += 1;
+    FakeAudioEngine *engine = [[FakeAudioEngine alloc] init];
+    engine.deviceID = self.availableDeviceID;
+    [self setValue:engine forKey:@"engine"];
+    [self setValue:@(self.availableDeviceID) forKey:@"outputDeviceID"];
+    [self setValue:[[NSObject alloc] init] forKey:@"sourceNode"];
+    AKAudioPCMStorage *storage = [[AKAudioPCMStorage alloc] init];
+    atomic_store(&storage->outputVerified, true);
+    [self setValue:storage forKey:@"pcmStorage"];
     return YES;
 }
 @end
@@ -63,10 +116,12 @@ int main(void) {
     @autoreleasepool {
         AudioEvents events = {0};
         AKAudioCallbacks callbacks = {.context = &events, .on_event = CaptureAudioEvent};
-        AKMacAudioBridge *bridge = [[AKMacAudioBridge alloc] initWithCallbacks:&callbacks];
+        RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:&callbacks];
         [bridge handleAudioData:[NSData dataWithBytes:"\x11" length:1]];
         CHECK(events.received == 1 && events.rejected == 1, "rejected notification not counted");
         FakeAudioEngine *engine = [[FakeAudioEngine alloc] init];
+        engine.deviceID = bridge.availableDeviceID;
+        [bridge setValue:@(engine.deviceID) forKey:@"outputDeviceID"];
         AKAudioPCMStorage *storage = [[AKAudioPCMStorage alloc] init];
         [bridge setValue:engine forKey:@"engine"];
         [bridge setValue:[[NSObject alloc] init] forKey:@"sourceNode"];
@@ -94,13 +149,14 @@ int main(void) {
               "tail metrics or warm output incorrect");
         CHECK(![[bridge valueForKey:@"drainRequested"] boolValue], "tail drain did not finish");
 
-        // Device changes must resume the same graph without discarding queued PCM.
+        // A paused graph still targeting MiRemoteV preserves queued PCM.
         [bridge beginVoiceSession];
         CHECK([bridge enqueueSamples:samples count:4], "second enqueue failed");
         engine.stopped = YES;
         CHECK([bridge ensureAudioOutput], "output resume failed");
         CHECK([bridge valueForKey:@"engine"] == engine && engine.starts == 1 &&
-              AKPCMQueueCount(&storage->queue) == 4, "resume replaced the graph or dropped PCM");
+              AKPCMQueueCount(&storage->queue) == 4 && bridge.selections == 1,
+              "resume failed to rebind or replaced the graph/dropped PCM");
         [bridge endVoiceSession];
         AKPCMQueueRender(&storage->queue, output, 512);
         PumpMainRunLoop(0.05);
@@ -124,6 +180,71 @@ int main(void) {
         int reports = events.reports;
         PumpMainRunLoop(1.1);
         CHECK(events.reports == reports, "diagnostic timer survived shutdown");
+
+        // A running graph redirected to speakers must be stopped before enqueue.
+        RouteAudioBridge *routeBridge = [[RouteAudioBridge alloc] initWithCallbacks:NULL];
+        CHECK([routeBridge ensureAudioOutput], "initial output creation failed");
+        FakeAudioEngine *redirectedEngine = [routeBridge valueForKey:@"engine"];
+        AKAudioPCMStorage *oldStorage = [routeBridge valueForKey:@"pcmStorage"];
+        redirectedEngine.redirected = YES;
+        CHECK([routeBridge enqueueSamples:samples count:4], "route recovery failed");
+        CHECK(redirectedEngine.stopped && routeBridge.rebuilds == 2 &&
+              AKPCMQueueCount(&oldStorage->queue) == 0,
+              "speech was enqueued into the redirected graph");
+        AKAudioPCMStorage *newStorage = [routeBridge valueForKey:@"pcmStorage"];
+        CHECK(AKPCMQueueCount(&newStorage->queue) == 4, "recovered output lost new speech");
+
+        // A driver reload changes its numeric ID; the old ID now belongs to
+        // another device. Re-resolve by identity and bind before starting.
+        FakeAudioEngine *reloadedEngine = [routeBridge valueForKey:@"engine"];
+        reloadedEngine.stopped = YES;
+        routeBridge.availableDeviceID = 211;
+        __block BOOL silentAtStart = NO;
+        reloadedEngine.onStart = ^{
+            float startup[512];
+            atomic_store(&newStorage->queue.draining, true);
+            size_t consumed = AKRenderAudio(newStorage, startup, 512);
+            silentAtStart = consumed == 0 && AKPCMQueueCount(&newStorage->queue) == 4;
+            for (int i = 0; i < 512; i++) silentAtStart &= startup[i] == 0;
+        };
+        CHECK([routeBridge ensureAudioOutput] && reloadedEngine.deviceID == 211 &&
+              reloadedEngine.starts == 1 && routeBridge.rebuilds == 2 && silentAtStart,
+              "resume used stale ID, discarded PCM, or rendered before route verification");
+        CHECK(AKRenderAudio(newStorage, output, 512) == 4,
+              "verified route did not release preserved PCM");
+        reloadedEngine.onStart = nil;
+
+        // Starting an apparently correct paused graph can itself redirect it.
+        FakeAudioEngine *resumeEngine = [routeBridge valueForKey:@"engine"];
+        resumeEngine.stopped = YES;
+        resumeEngine.redirectOnStart = YES;
+        CHECK([routeBridge ensureAudioOutput] && resumeEngine.stopped &&
+              routeBridge.rebuilds == 3 && [routeBridge outputTargetsDriver],
+              "resume accepted a redirected output device");
+        [routeBridge stop];
+
+        // Missing device, rejected bind, failed read-back, and failed start
+        // must leave no live output and must not accept new microphone samples.
+        for (int failure = 0; failure < 4; failure++) {
+            RouteAudioBridge *failed = [[RouteAudioBridge alloc] initWithCallbacks:NULL];
+            CHECK([failed ensureAudioOutput], "failure fixture creation failed");
+            FakeAudioEngine *paused = [failed valueForKey:@"engine"];
+            AKAudioPCMStorage *failedStorage = [failed valueForKey:@"pcmStorage"];
+            paused.stopped = YES;
+            if (failure == 0) failed.availableDeviceID = kAudioObjectUnknown;
+            if (failure == 1) failed.selectStatus = kAudio_ParamError;
+            if (failure == 2) { paused.redirected = YES; failed.ignoreSelection = YES; }
+            if (failure == 3) paused.failStart = YES;
+            CHECK(![failed enqueueSamples:samples count:4] && paused.stopped &&
+                  [failed valueForKey:@"engine"] == nil &&
+                  !atomic_load(&failedStorage->outputVerified) &&
+                  AKPCMQueueCount(&failedStorage->queue) == 0,
+                  "failed restore retained output or accepted speech");
+            CHECK([failed currentState] == (failure == 0 ? AKAudioStateDriverMissing : AKAudioStateError),
+                  "restore failure was not surfaced");
+            CHECK(paused.starts == 0, "failed binding started the engine");
+            [failed stop];
+        }
 
         RestartAudioBridge *restartBridge = [[RestartAudioBridge alloc] initWithCallbacks:&callbacks];
         FakeAudioEngine *oldEngine = [[FakeAudioEngine alloc] init];

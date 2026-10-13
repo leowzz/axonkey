@@ -1,8 +1,111 @@
 # RC003 cumulative audio delay investigation — 2026-09-16
 
-Status: paused at the user's request; unresolved on the physical remote. The user still hears approximately
-1.8–2 seconds of delay during long presses and reports missing speech at release.
-Do not describe the application-side changes as a verified fix for this symptom.
+Status: investigation resumed on 2026-10-13 after another report of stuttering;
+unresolved on the physical remote. The September report included approximately
+1.8–2 seconds of delay during long presses and missing speech at release.
+Do not describe the application-side changes as a verified fix for these symptoms.
+
+## Follow-up — 2026-10-13
+
+The user confirms that the **same RC003 and Axonkey on Windows** do not exhibit
+the obvious stutter/delay. This is a useful host comparison, but no simultaneous
+Windows packet-rate measurements are available. The installed macOS app reports
+0.3.25; MiRemoteV2ch.driver reports 0.7.1. Source inspection at 6b0fbd3 shows both
+platforms send the same capability request (`0a 01 00 00 03 03`) and share the
+16 kHz ADPCM decoder. Windows prebuffers 20 ms and macOS 30 ms; that difference
+does not account for seconds of missing delivery.
+
+Evidence from `~/Library/Logs/com.axonkey.app/axonkey.log`, sessions 60–63 around
+11:22–11:23 China time, excluding windows containing START/STOP and keeping
+950–1050 ms windows:
+
+| Session | Observed seconds | Received packets/s | Decoded audio seconds | Queue exhaustions/s | Largest packet gap | Largest sampled queue |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 60 | 5.997 | 45.69 | 4.110 | 8.50 | 88.1 ms | 30.0 ms |
+| 61 | 4.998 | 45.22 | 3.390 | 8.60 | 104.7 ms | 32.3 ms |
+| 62 | 14.994 | 45.89 | 10.320 | 9.00 | 89.6 ms | 28.0 ms |
+| 63 | 12.993 | 43.48 | 8.475 | 8.54 | 119.9 ms | 30.0 ms |
+
+All these windows have zero enqueue failures, discarded pending buffers,
+notification read errors, rejected packets, and codec syncs. Each packet carries
+120 bytes / 240 samples / 15 ms; realtime delivery requires 66.67 packets/s.
+Session 63 therefore supplies only about 65% of realtime PCM. These are delivery
+deficits, **not a measured packet-loss percentage or end-to-end delay**. Queue
+sizes are periodic snapshots, not continuous maxima. First packet / first render
+for session 63 occur 17.1 / 48.1 ms after the application session starts; this is
+not measured from the physical button press or at the receiving application.
+
+Independent macOS unified logs from bluetoothd between 11:20:00 and 11:24:20
+contain 92 `HID lag issue is detected` messages for VID 0x2717 / PID 0x32b8,
+matching RC003. This corroborates a contemporaneous Bluetooth/HID issue but does
+not identify the ATVV cause or distinguish radio retries, controller scheduling,
+remote buffering, and application callback scheduling. The filtered logs did not
+provide current connection interval, MTU, or retransmission counts; the September
+values below must not be treated as October measurements.
+
+The supplied `~/Downloads/axon麦克风卡顿.m4a` is approximately 15.3 seconds,
+48 kHz stereo AAC. FFmpeg decoding at the original stereo rate produced 1,466,240
+scalar samples, **all exactly zero**. Mono decoding also produced only zeros.
+It cannot establish the audible stutter or acoustic latency; its creation metadata
+alone cannot align its capture interval to a voice session.
+
+Current evidence locates a sufficient cause of discontinuous output before the
+virtual driver's input: the source PCM queue repeatedly runs out because too
+little audio arrives. A separate downstream fault is not excluded. The historical
+driver-only loopback measurement below is evidence against blaming MiRemoteV
+alone, but was not repeated today. Increasing prebuffering cannot repair sustained
+delivery at 43–46 packets/s and would add delay.
+
+Next discriminating measurements are a matching Windows diagnostics sample and a
+macOS controller/GATT trace aligned with application callback timestamps. A fresh
+remote connection and a controlled mapping-enabled/disabled comparison can test
+connection state and HID interaction; no such comparison has yet been performed.
+Avoid claiming a specific Bluetooth driver or firmware defect without that evidence.
+
+Validation: `node --test test/macos-audio-tail-drain.test.mjs` passed both native
+tests, including PCM queue AddressSanitizer/UndefinedBehaviorSanitizer coverage.
+This verifies queue behavior, not physical Bluetooth delivery. No production code,
+driver installation, or shelved experiment was changed during that initial check.
+
+### Subsequent speaker feedback and silent recording
+
+At approximately 11:31 the user reported hearing remote speech through the real
+output after quitting QuickTime. QuickTime was absent from the process list.
+Read-only Core Audio process/device snapshots during two reproductions showed
+Axonkey as the only active audio-output process and EDIFIER W820NB as the active
+device, while MiRemoteV was idle. The initial snapshots used the global scope for
+per-process device lists (which returned empty); device activity and process
+activity were observed separately. This establishes a downstream routing problem
+in addition to the receive-rate deficit, and explains how recording MiRemoteV can
+produce silence. It does not establish when or what redirected the engine.
+
+The existing Settings → Device and permissions → Restart driver action was run
+at 11:32:37. The user confirmed feedback disappeared. Subsequent snapshots at
+11:34:19 and 11:34:34, using the correct output scope, showed Axonkey outputting
+to device 113, MiRemoteV 2ch. Doubao IME was also observed with input active.
+This verifies recovery of routing, not resolution of Bluetooth stuttering.
+
+The source now resolves `MiRemoteV2ch_UID` again before resuming a paused engine,
+explicitly selects its current device ID, and verifies both the selected ID and
+UID before and after starting. It does not trust an old numeric ID after driver
+reload. An atomic render gate outputs silence without consuming queued PCM until
+post-start verification succeeds. Missing devices, binding/read-back errors, and
+start failures stop the output and surface an error. A running graph or resumed
+graph redirected elsewhere is stopped and rebuilt. Normal resume preserves the
+graph and queued PCM. Core Audio property strings now release their owned CF
+reference because identity verification also runs on the active enqueue path.
+
+All three native audio/queue/battery tests and 16 Rust audio-service tests passed.
+Regression cases cover changed IDs, running/resume redirection, startup silence,
+preserved PCM, and missing-device/bind/read-back/start failures. A temporary native
+probe using the production bridge also passed three real Core Audio cycles on this
+Mac: pause its own empty graph, redirect that graph to the real default output,
+resume, and verify it selects MiRemoteV while retaining the same engine. The probe
+sent no audio, captured none, and did not alter the system default devices. It
+does not reproduce actual driver reload or explain the original trigger.
+
+The source change has not yet replaced the installed app; immediate recovery used
+its existing restart operation. Bluetooth throughput remains a separate issue.
 
 ## Runtime evidence
 

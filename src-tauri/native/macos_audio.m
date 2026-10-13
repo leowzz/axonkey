@@ -87,7 +87,7 @@ static NSString *AKAudioObjectStringProperty(
     if (status != noErr || value == NULL) {
         return nil;
     }
-    return [(__bridge NSString *)value copy];
+    return CFBridgingRelease(value);
 }
 
 static AudioDeviceID AKFindDriverDevice(void) {
@@ -150,15 +150,29 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 @interface AKAudioPCMStorage : NSObject {
 @public
     AKPCMQueue queue;
+    atomic_bool outputVerified;
 }
 @end
 @implementation AKAudioPCMStorage
 - (instancetype)init {
     self = [super init];
-    if (self) AKPCMQueueInit(&queue);
+    if (self) {
+        AKPCMQueueInit(&queue);
+        atomic_init(&outputVerified, false);
+    }
     return self;
 }
 @end
+
+static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t count) {
+    // Starting a graph can change its device. Retain queued speech until the
+    // control thread has verified the actual destination after start returns.
+    if (!atomic_load_explicit(&storage->outputVerified, memory_order_acquire)) {
+        memset(output, 0, count * sizeof(float));
+        return 0;
+    }
+    return AKPCMQueueRender(&storage->queue, output, count);
+}
 
 @interface AKMacAudioBridge : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
@@ -215,6 +229,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
+    AudioDeviceID _outputDeviceID;
     AVAudioSourceNode *_sourceNode;
     AKAudioPCMStorage *_pcmStorage;
     NSMutableArray<NSNumber *> *_pendingSampleCounts;
@@ -743,20 +758,76 @@ static BOOL AKRemoteNameMatches(NSString *name) {
              value2:0];
 }
 
+- (AudioDeviceID)driverDeviceID {
+    // Resolve the stable UID again: numeric IDs can change after driver reload.
+    return AKFindDriverDevice();
+}
+
+- (OSStatus)selectOutputDevice:(AudioDeviceID)deviceID {
+    AudioUnit unit = _engine.outputNode.audioUnit;
+    if (unit == NULL) return kAudio_ParamError;
+    return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                               kAudioUnitScope_Global, 0, &deviceID, sizeof(deviceID));
+}
+
+- (BOOL)outputTargetsDriver {
+    if (_outputDeviceID == kAudioObjectUnknown) return NO;
+    AudioUnit unit = _engine.outputNode.audioUnit;
+    if (unit == NULL) return NO;
+    AudioDeviceID selected = kAudioObjectUnknown;
+    UInt32 size = sizeof(selected);
+    return AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                               kAudioUnitScope_Global, 0, &selected, &size) == noErr &&
+           selected == _outputDeviceID &&
+           [AKAudioObjectStringProperty(selected, kAudioDevicePropertyDeviceUID)
+               isEqualToString:AKDriverUID];
+}
+
 - (BOOL)ensureAudioOutput {
+    // Core Audio can redirect an existing graph when output devices change.
+    // Never enqueue remote speech into a graph now targeting real speakers.
+    if (_engine.isRunning && _sourceNode != nil && ![self outputTargetsDriver]) {
+        [self logAudio:@"macOS audio output device changed; rebuilding MiRemoteV connection" error:YES];
+        [self stopAudioOutput];
+    }
     if (_engine.isRunning && _sourceNode != nil) return YES;
     // Restart the configured graph after idle pause or a device format change.
     if (_engine != nil && _sourceNode != nil) {
-        NSError *error = nil;
-        if (![_engine startAndReturnError:&error]) {
-            [self setState:AKAudioStateError error:error.localizedDescription];
+        atomic_store_explicit(&_pcmStorage->outputVerified, false, memory_order_release);
+        AudioDeviceID deviceID = [self driverDeviceID];
+        if (deviceID == kAudioObjectUnknown) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateDriverMissing error:nil];
             return NO;
         }
+        OSStatus selectStatus = [self selectOutputDevice:deviceID];
+        _outputDeviceID = deviceID;
+        if (selectStatus != noErr || ![self outputTargetsDriver]) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateError error:@"未能将音频输出连接到 MiRemoteV 2ch，请重试"];
+            return NO;
+        }
+        NSError *error = nil;
+        if (![_engine startAndReturnError:&error]) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateError error:error.localizedDescription ?: @"Cannot resume MiRemoteV 2ch"];
+            return NO;
+        }
+        if (![self outputTargetsDriver]) {
+            [self logAudio:@"macOS audio output redirected during resume; rebuilding MiRemoteV connection" error:YES];
+            [self stopAudioOutput];
+            return [self createAudioOutput];
+        }
+        atomic_store_explicit(&_pcmStorage->outputVerified, true, memory_order_release);
         [self logAudio:@"macOS audio output resumed" error:NO];
         return YES;
     }
+    return [self createAudioOutput];
+}
+
+- (BOOL)createAudioOutput {
     [self stopAudioOutput];
-    AudioDeviceID deviceID = AKFindDriverDevice();
+    AudioDeviceID deviceID = [self driverDeviceID];
     if (deviceID == kAudioObjectUnknown) {
         [self setState:AKAudioStateDriverMissing error:nil];
         return NO;
@@ -790,7 +861,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                               AVAudioFrameCount frameCount, AudioBufferList *output) {
             (void)timestamp;
             float *channel = output->mBuffers[0].mData;
-            AKPCMQueueRender(&storage->queue, channel, frameCount);
+            AKRenderAudio(storage, channel, frameCount);
             // Fades can contain nonzero samples even when a packet ends here.
             *isSilence = NO;
             return noErr;
@@ -812,14 +883,18 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     OSStatus readStatus = AudioUnitGetProperty(outputUnit,
         kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
         &selectedDevice, &selectedDeviceSize);
-    if (readStatus != noErr || selectedDevice != deviceID) {
+    if (readStatus != noErr || selectedDevice != deviceID ||
+        ![AKAudioObjectStringProperty(selectedDevice, kAudioDevicePropertyDeviceUID)
+            isEqualToString:AKDriverUID]) {
         [engine stop];
         [self setState:AKAudioStateError error:@"未能将音频输出连接到 MiRemoteV 2ch，请重试"];
         return NO;
     }
     _engine = engine;
+    _outputDeviceID = deviceID;
     _sourceNode = source;
     _pcmStorage = storage;
+    atomic_store_explicit(&storage->outputVerified, true, memory_order_release);
     AVAudioFormat *outputFormat = [engine.outputNode outputFormatForBus:0];
     [self logAudio:[NSString stringWithFormat:@"macOS audio output ready: device=MiRemoteV2ch_UID source_sample_rate=%.0f source_channels=%u source_format=float32 output_sample_rate=%.0f output_channels=%u",
                                               _sourceFormat.sampleRate, _sourceFormat.channelCount,
@@ -884,6 +959,8 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                    dispatch_get_main_queue(), ^{
         if (self->_drainGeneration == generation && !self->_streaming &&
             !self->_microphoneOpened && self->_pendingAudioBuffers == 0) {
+            if (self->_pcmStorage != nil)
+                atomic_store_explicit(&self->_pcmStorage->outputVerified, false, memory_order_release);
             [self->_engine pause];
         }
     });
@@ -906,10 +983,13 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)stopAudioOutput {
+    if (_pcmStorage != nil)
+        atomic_store_explicit(&_pcmStorage->outputVerified, false, memory_order_release);
     [self resetAudioQueue];
     _sourceNode = nil;
     _pcmStorage = nil;
     _engine = nil;
+    _outputDeviceID = kAudioObjectUnknown;
 }
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
