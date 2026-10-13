@@ -22,6 +22,8 @@ const EVENT_DEVICE_DISCONNECTED: i32 = 3;
 const EVENT_INPUT_REPORT: i32 = 4;
 const EVENT_BACKEND_ERROR: i32 = 5;
 const EVENT_TICK: i32 = 6;
+const EVENT_MODIFIER_MAPPINGS_CHANGED: i32 = 7;
+const EVENT_MODIFIER_MAPPING_DIAGNOSTIC: i32 = 8;
 const CAPTURE_MODE_MASK: i32 = 0x03;
 const CAPTURE_HARDWARE_MODIFIER_MAPPINGS: i32 = 0x04;
 const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
@@ -38,6 +40,7 @@ const DENIED_RETRY_MS: u64 = 2_000;
 const IO_RETURN_NOT_PERMITTED: i32 = 0xe00002e2_u32 as i32;
 const STALE_INPUT_MONITORING_ERROR: &str =
     "macOS Input Monitoring authorization is stale for this build; remove the old Axonkey entry and add the current Axonkey.app again";
+const MODIFIER_MAPPING_ERROR: &str = "RC003 modifier hardware mappings could not be applied";
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
@@ -271,6 +274,19 @@ fn record_backend_error(status: &mut InputServiceStatus, code: i32) {
     }
 }
 
+fn update_modifier_mapping_status(status: &mut InputServiceStatus, active: bool) {
+    if !status.device_connected || !status.capture_active || status.input_monitoring_open_denied {
+        return;
+    }
+    if active {
+        if status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+            status.error = None;
+        }
+    } else if status.error.is_none() || status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+        status.error = Some(MODIFIER_MAPPING_ERROR.into());
+    }
+}
+
 struct WorkerContext {
     shared: Arc<Shared>,
     capture: bool,
@@ -402,7 +418,7 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_DEVICE_CONNECTED => {
-            log::info!(target: "axonkey::input", "RC003 HID device connected (capture={})", context.capture);
+            log::info!(target: "axonkey::input", "RC003 HID device connected (capture={}, capture_mode={}, hardware_mappings_active={})", context.capture, code & CAPTURE_MODE_MASK, code & CAPTURE_HARDWARE_MODIFIER_MAPPINGS != 0);
             let capture_mode = code & CAPTURE_MODE_MASK;
             context.device_seen = true;
             context.hardware_modifier_mappings_active =
@@ -419,8 +435,7 @@ unsafe extern "C" fn event_callback(
                 } else if !context.hardware_modifier_mapping_usages.is_empty()
                     && !context.hardware_modifier_mappings_active
                 {
-                    status.error =
-                        Some("RC003 modifier hardware mappings could not be applied".into());
+                    status.error = Some(MODIFIER_MAPPING_ERROR.into());
                 } else if context.capture {
                     status.error = None;
                 }
@@ -429,10 +444,31 @@ unsafe extern "C" fn event_callback(
         EVENT_DEVICE_DISCONNECTED => {
             log::info!(target: "axonkey::input", "RC003 HID device disconnected");
             context.input.release_all();
+            context.hardware_modifier_mappings_active = false;
             if let Ok(mut status) = context.shared.status.lock() {
                 status.device_connected = false;
                 status.hardware_id = None;
                 status.capture_active = false;
+                if status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+                    status.error = None;
+                }
+            }
+        }
+        EVENT_MODIFIER_MAPPINGS_CHANGED => {
+            context.hardware_modifier_mappings_active = code != 0;
+            if let Ok(mut status) = context.shared.status.lock() {
+                update_modifier_mapping_status(
+                    &mut status,
+                    context.hardware_modifier_mappings_active,
+                );
+            }
+        }
+        EVENT_MODIFIER_MAPPING_DIAGNOSTIC if !bytes.is_null() && length > 0 => {
+            let message = String::from_utf8_lossy(std::slice::from_raw_parts(bytes, length));
+            if code != 0 {
+                log::warn!(target: "axonkey::input", "{message}");
+            } else {
+                log::info!(target: "axonkey::input", "{message}");
             }
         }
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
@@ -2088,6 +2124,115 @@ mod tests {
             repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
         assert!(!pending_click_is_due(&state, now));
+    }
+
+    #[test]
+    fn modifier_mapping_retry_updates_routing_and_clears_only_its_error() {
+        let shared = Arc::new(Shared {
+            settings: RwLock::new(NativeSettings::default()),
+            status: Mutex::new(InputServiceStatus {
+                backend_ready: true,
+                device_connected: true,
+                capture_active: true,
+                ..InputServiceStatus::default()
+            }),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            restart: AtomicBool::new(false),
+        });
+        let mut context = WorkerContext {
+            shared: Arc::clone(&shared),
+            capture: true,
+            hardware_modifier_mapping_usages: HashSet::from([0x3e]),
+            hardware_modifier_mappings_active: false,
+            device_seen: true,
+            input: MacInputState::default(),
+            next_permission_check: Instant::now(),
+        };
+        let context_ptr = (&mut context as *mut WorkerContext).cast();
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+        }
+        assert_eq!(
+            shared.status.lock().unwrap().error.as_deref(),
+            Some(MODIFIER_MAPPING_ERROR)
+        );
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                1,
+            );
+        }
+        assert!(context.hardware_modifier_mappings_active);
+        let status = shared.status.lock().unwrap().clone();
+        assert!(status.capture_active && status.device_connected && status.backend_ready);
+        assert!(status.error.is_none());
+
+        shared.status.lock().unwrap().error = Some("other input failure".into());
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                1,
+            );
+        }
+        assert_eq!(
+            shared.status.lock().unwrap().error.as_deref(),
+            Some("other input failure")
+        );
+
+        shared.status.lock().unwrap().error = Some(MODIFIER_MAPPING_ERROR.into());
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_DEVICE_DISCONNECTED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+        }
+        assert!(!context.hardware_modifier_mappings_active);
+        let status = shared.status.lock().unwrap();
+        assert!(!status.device_connected && !status.capture_active);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn modifier_mapping_recovery_preserves_permission_denial() {
+        let mut status = InputServiceStatus {
+            device_connected: true,
+            capture_active: true,
+            input_monitoring_open_denied: true,
+            error: Some(STALE_INPUT_MONITORING_ERROR.into()),
+            ..InputServiceStatus::default()
+        };
+        update_modifier_mapping_status(&mut status, false);
+        update_modifier_mapping_status(&mut status, true);
+        assert_eq!(status.error.as_deref(), Some(STALE_INPUT_MONITORING_ERROR));
+        assert!(!effective_input_monitoring_granted(true, &status));
     }
 
     #[test]

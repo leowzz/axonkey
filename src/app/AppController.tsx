@@ -182,6 +182,7 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
+  const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
@@ -984,6 +985,9 @@ function AppController() {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
+      const mappingRecovering = probe.platform === 'macos'
+        && probe.input_backend_error === 'RC003 modifier hardware mappings could not be applied'
+      setInputMappingRecovering(mappingRecovering)
       setMacPermissions({
         inputMonitoring: probe.input_monitoring_granted === true,
         accessibility: probe.accessibility_granted === true,
@@ -1027,7 +1031,9 @@ function AppController() {
             : !macPermissionsReady
             ? '需要授予输入监控和辅助功能权限。'
             : probe.input_backend_error
-              ? `原生输入服务启动失败：${probe.input_backend_error}`
+              ? mappingRecovering
+                ? 'RC003 硬件按键映射尚未恢复，正在自动重试。'
+                : `输入服务异常：${probe.input_backend_error}`
               : probe.capture_active
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
@@ -1508,6 +1514,7 @@ function AppController() {
           systemProbeState={systemProbeState}
           permissions={macPermissions}
           inputAuthorizationStale={inputAuthorizationStale}
+          inputMappingRecovering={inputMappingRecovering}
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
           refreshing={homeRefreshing}
