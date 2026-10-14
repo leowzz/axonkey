@@ -23,6 +23,9 @@ typedef struct {
     atomic_uint_fast64_t written;
     atomic_uint_fast64_t read;
     atomic_uint_fast64_t underruns;
+    atomic_uint_fast64_t emptyTransitions;
+    atomic_uint_fast64_t monitorUnderruns;
+    size_t monitorPeak; // Producer-owned high-water mark since the last monitor read.
     atomic_bool draining;
     bool primed;
     float envelope;
@@ -37,6 +40,9 @@ static void AKPCMQueueInit(AKPCMQueue *queue) {
     atomic_init(&queue->written, 0);
     atomic_init(&queue->read, 0);
     atomic_init(&queue->underruns, 0);
+    atomic_init(&queue->emptyTransitions, 0);
+    atomic_init(&queue->monitorUnderruns, 0);
+    queue->monitorPeak = 0;
     atomic_init(&queue->draining, false);
     queue->primed = false;
     queue->envelope = 0;
@@ -63,6 +69,8 @@ static bool AKPCMQueuePush(AKPCMQueue *queue, const int16_t *samples, size_t cou
         if (value < -1.0f) { value = -1.0f; (*clipped)++; }
         queue->samples[(written + i) % AKPCMCapacity] = value;
     }
+    size_t occupancy = (size_t)(written - read) + count;
+    if (occupancy > queue->monitorPeak) queue->monitorPeak = occupancy;
     atomic_store_explicit(&queue->written, written + count, memory_order_release);
     return true;
 }
@@ -93,7 +101,11 @@ static size_t AKPCMQueueRenderPlain(AKPCMQueue *queue, float *output, size_t cou
     atomic_store_explicit(&queue->read, read + consumed, memory_order_release);
     if (consumed == available) {
         queue->primed = false;
-        if (!draining) atomic_fetch_add_explicit(&queue->underruns, 1, memory_order_relaxed);
+        if (consumed > 0) atomic_fetch_add_explicit(&queue->emptyTransitions, 1, memory_order_relaxed);
+        if (!draining) {
+            atomic_fetch_add_explicit(&queue->underruns, 1, memory_order_relaxed);
+            atomic_fetch_add_explicit(&queue->monitorUnderruns, 1, memory_order_relaxed);
+        }
     }
     return consumed;
 }
@@ -147,6 +159,7 @@ static size_t AKPCMQueueRenderStretch(AKPCMQueue *queue, float *output, size_t c
                 queue->primed = false;
                 s->haveTail = false;
                 atomic_fetch_add_explicit(&queue->underruns, 1, memory_order_relaxed);
+                atomic_fetch_add_explicit(&queue->monitorUnderruns, 1, memory_order_relaxed);
                 break;
             }
             // Queue feedback settles near the actual delivery rate, without

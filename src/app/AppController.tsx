@@ -293,7 +293,7 @@ function AppController() {
     try {
       await invoke('open_signal_monitor')
     } catch (error) {
-      setSignalMonitorError(`无法打开信号监测：${String(error)}`)
+      setSignalMonitorError(`无法打开语音链路监测：${String(error)}`)
     } finally {
       setSignalMonitorOpening(false)
     }

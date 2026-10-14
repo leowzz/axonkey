@@ -51,6 +51,13 @@ typedef struct {
     AKAudioEventCallback on_event;
 } AKAudioCallbacks;
 
+// Fixed-width FFI layout, mirrored by NativeMonitorSnapshot in Rust.
+// No payloads, audio capture, or render-thread locks are involved.
+typedef struct {
+    uint64_t uptimeMs, packets, session, streaming, queued, peak, capacity;
+    uint64_t underruns, emptied, full, resets, discarded, draining, running;
+} AKMonitorSnapshot;
+
 static NSString *const AKDriverUID = @"MiRemoteV2ch_UID";
 static NSString *const AKServiceUUIDString = @"AB5E0001-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKTransmitUUIDString = @"AB5E0002-5A21-4F05-BC7D-AF01F617B664";
@@ -207,6 +214,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 - (int)currentState;
 - (BOOL)isBluetoothConnected;
 - (BOOL)requestRSSI;
+- (void)readMonitor:(AKMonitorSnapshot *)snapshot;
 - (BOOL)isForwarding;
 - (int)currentBatteryLevel;
 - (NSString *)currentError;
@@ -218,6 +226,10 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     AKAudioCallbacks _callbacks;
     CBCentralManager *_central;
     NSTimeInterval _lastRSSIRequest;
+    BOOL _rssiPending;
+    uint64_t _monitorPackets, _monitorUnderruns, _monitorEmptied;
+    uint64_t _monitorFull, _monitorResets, _monitorDiscarded;
+    size_t _monitorPeak;
     CBPeripheral *_peripheral;
     CBCharacteristic *_transmitCharacteristic;
     CBCharacteristic *_audioCharacteristic;
@@ -350,7 +362,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 - (BOOL)requestRSSI {
     if (![self isBluetoothConnected]) return NO;
     NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
-    if (now - _lastRSSIRequest >= 1.0) {
+    if ((!_rssiPending || now - _lastRSSIRequest >= 2.0) && now - _lastRSSIRequest >= 0.2) {
+        _rssiPending = YES;
         _lastRSSIRequest = now;
         [_peripheral readRSSI];
     }
@@ -359,8 +372,26 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 
 - (void)peripheral:(CBPeripheral *)peripheral didReadRSSI:(NSNumber *)RSSI error:(NSError *)error {
     if (peripheral != _peripheral || peripheral.state != CBPeripheralStateConnected) return;
+    _rssiPending = NO;
     [self emitEvent:AKAudioEventRSSI data:nil
             value1:RSSI.intValue value2:(error != nil || RSSI == nil ? 1 : 0)];
+}
+
+- (void)readMonitor:(AKMonitorSnapshot *)snapshot {
+    AKPCMQueue *q = _pcmStorage != nil ? &_pcmStorage->queue : NULL;
+    uint64_t queued = q != NULL ? AKPCMQueueCount(q) : 0;
+    *snapshot = (AKMonitorSnapshot){
+        .uptimeMs = (uint64_t)(NSProcessInfo.processInfo.systemUptime * 1000),
+        .packets = _monitorPackets, .session = _sessionID, .streaming = _streaming,
+        .queued = queued, .peak = MAX(_monitorPeak, q != NULL ? q->monitorPeak : 0),
+        .capacity = AKPCMCapacity,
+        .underruns = _monitorUnderruns + (q != NULL ? atomic_load(&q->monitorUnderruns) : 0),
+        .emptied = _monitorEmptied + (q != NULL ? atomic_load(&q->emptyTransitions) : 0),
+        .full = _monitorFull, .resets = _monitorResets, .discarded = _monitorDiscarded,
+        .draining = q != NULL && atomic_load(&q->draining), .running = _engine.isRunning,
+    };
+    _monitorPeak = 0;
+    if (q != NULL) q->monitorPeak = queued;
 }
 
 - (BOOL)isForwarding {
@@ -538,6 +569,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 
 - (void)resetPeripheral {
     _lastRSSIRequest = 0;
+    _rssiPending = NO;
     [self emitEvent:AKAudioEventConnectionReset data:nil value1:0 value2:0];
     _peripheral.delegate = nil;
     _peripheral = nil;
@@ -1015,6 +1047,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     size_t clipped = 0;
     if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) {
         _audioWindow.enqueueFull += 1;
+        _monitorFull += 1;
         return NO;
     }
     _clippedSamples += clipped;
@@ -1088,7 +1121,13 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     [_pendingSampleCounts removeAllObjects];
     _reportedSamples = 0;
     if (_pcmStorage != nil) {
-        _audioWindow.discardedSamples += AKPCMQueueCount(&_pcmStorage->queue);
+        size_t discarded = AKPCMQueueCount(&_pcmStorage->queue);
+        _monitorResets += 1;
+        _monitorDiscarded += discarded;
+        _monitorUnderruns += atomic_load(&_pcmStorage->queue.monitorUnderruns);
+        _monitorEmptied += atomic_load(&_pcmStorage->queue.emptyTransitions);
+        _monitorPeak = MAX(_monitorPeak, _pcmStorage->queue.monitorPeak);
+        _audioWindow.discardedSamples += discarded;
         AKPCMQueueInit(&_pcmStorage->queue);
         _pcmStorage->queue.stretchEnabled = _stretchCompensation;
     }
@@ -1386,6 +1425,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     if ([characteristic.UUID isEqual:_controlUUID]) {
         [self handleControlData:characteristic.value];
     } else if ([characteristic.UUID isEqual:_audioUUID]) {
+        _monitorPackets += 1;
         [self handleAudioData:characteristic.value];
     }
 }
@@ -1536,4 +1576,15 @@ bool axonkey_macos_audio_set_stretch_compensation(void *rawBridge, bool enabled)
     __block BOOL accepted = NO;
     AKOnMainSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
     return accepted;
+}
+
+bool axonkey_macos_audio_monitor(void *rawBridge, AKMonitorSnapshot *snapshot) {
+    if (rawBridge == NULL || snapshot == NULL) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    __block BOOL connected = NO;
+    AKOnMainSync(^{
+        connected = [bridge requestRSSI];
+        [bridge readMonitor:snapshot];
+    });
+    return connected;
 }

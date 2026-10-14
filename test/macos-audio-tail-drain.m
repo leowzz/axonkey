@@ -226,8 +226,41 @@ static int CheckStretchConfiguration(void) {
     return 0;
 }
 
+static int CheckMonitorSnapshots(void) {
+    RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:NULL];
+    CHECK([bridge ensureAudioOutput], "monitor fixture failed");
+    [bridge beginVoiceSession];
+    int16_t samples[AKPCMCapacity] = {0};
+    float output[AKPCMCapacity];
+    AKMonitorSnapshot before, full, drained, reset;
+    [bridge readMonitor:&before];
+    CHECK([bridge enqueueSamples:samples count:AKPCMCapacity], "full queue enqueue failed");
+    CHECK(![bridge enqueueSamples:samples count:240], "full queue should reject input");
+    [bridge readMonitor:&full];
+    CHECK(full.queued == AKPCMCapacity && full.peak == AKPCMCapacity && full.full == before.full + 1,
+          "monitor missed capacity or rejection");
+    AKAudioPCMStorage *storage = [bridge valueForKey:@"pcmStorage"];
+    CHECK(AKRenderAudio(storage, output, AKPCMCapacity) == AKPCMCapacity, "queue did not empty");
+    [bridge readMonitor:&drained];
+    CHECK(drained.queued == 0 && drained.emptied == full.emptied + 1 && drained.underruns == full.underruns + 1,
+          "monitor missed transient empty/underrun");
+    // Reading telemetry cannot reset the actual PCM or the logging counters.
+    CHECK([bridge enqueueSamples:samples count:240], "tail enqueue failed");
+    [bridge readMonitor:&reset];
+    CHECK(AKPCMQueueCount(&storage->queue) == 240 && atomic_load(&storage->queue.underruns) == 1,
+          "monitor altered playback or diagnostics");
+    [bridge resetAudioQueue];
+    [bridge readMonitor:&reset];
+    CHECK(reset.resets == drained.resets + 1 && reset.discarded == drained.discarded + 240 &&
+          reset.emptied == drained.emptied && reset.underruns == drained.underruns,
+          "reset lost counters or pretended discarded audio was played");
+    [bridge stop];
+    return 0;
+}
+
 int main(void) {
     @autoreleasepool {
+        CHECK(CheckMonitorSnapshots() == 0, "queue monitor snapshots failed");
         CHECK(CheckStretchConfiguration() == 0, "stretch settings failed");
         CHECK(CheckWindowDiagnostics() == 0, "window diagnostics failed");
         AudioEvents events = {0};

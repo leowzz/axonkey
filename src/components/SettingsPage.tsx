@@ -166,10 +166,10 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
         </div>
       </section>
       {platform === 'macos' && <section className="settings-form-row" aria-labelledby="settings-signal-label">
-        <span id="settings-signal-label" className="settings-form-label">遥控器信号：</span>
+        <span id="settings-signal-label" className="settings-form-label">语音链路监测：</span>
         <div className="settings-form-control">
-          <button type="button" className="dialog-secondary" disabled={!nativeRuntime || signalMonitorOpening} aria-busy={signalMonitorOpening} onClick={onOpenSignalMonitor}>{signalMonitorOpening ? '正在打开…' : '查看信号与收包'}</button>
-          <SettingsHelp id="settings-signal-help" label="遥控器信号监测">在应用内查看蓝牙信号强度和语音收包速率的实时曲线。移动遥控器或改变握法，再按住语音键说话，比较前后变化。关闭监测窗口后停止采集信号读数。</SettingsHelp>
+          <button type="button" className="dialog-secondary" disabled={!nativeRuntime || signalMonitorOpening} aria-busy={signalMonitorOpening} onClick={onOpenSignalMonitor}>{signalMonitorOpening ? '正在打开…' : '打开监测'}</button>
+          <SettingsHelp id="settings-signal-help" label="语音链路监测">查看遥控器蓝牙信号、语音收包速度和应用音频队列的实时曲线，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。</SettingsHelp>
           {signalMonitorError && <span role="alert" className="settings-form-error">{signalMonitorError}</span>}
         </div>
       </section>}

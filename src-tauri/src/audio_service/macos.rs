@@ -1,4 +1,4 @@
-use super::signal_monitor::{now_ms, SignalMonitor};
+use super::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
 use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use std::{
     ffi::{c_char, c_void},
@@ -42,7 +42,7 @@ extern "C" {
     fn axonkey_macos_audio_driver_installed() -> bool;
     fn axonkey_macos_audio_state(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_bluetooth_connected(bridge: *mut c_void) -> bool;
-    fn axonkey_macos_audio_request_rssi(bridge: *mut c_void) -> bool;
+    fn axonkey_macos_audio_monitor(bridge: *mut c_void, snapshot: *mut NativeMonitorSnapshot) -> bool;
     fn axonkey_macos_audio_forwarding(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_battery_level(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_copy_error(
@@ -71,18 +71,26 @@ unsafe impl Send for AudioService {}
 unsafe impl Sync for AudioService {}
 
 impl AudioService {
-    pub fn signal_snapshot(&self) -> serde_json::Value {
-        let now = now_ms();
-        self.shared.signal_monitor.lock().unwrap().poll(now);
-        // Do not hold the monitor mutex while dispatching to the native main
-        // thread: delegate callbacks update the same cache.
+    pub fn signal_snapshot(&self, after: Option<u64>, clear: bool) -> serde_json::Value {
+        let generation = {
+            let mut monitor = self.shared.signal_monitor.lock().unwrap();
+            if clear {
+                monitor.clear();
+            }
+            monitor.poll(now_ms());
+            monitor.generation
+        };
+        // Never hold the monitor mutex while dispatching to the native main thread.
         let bridge = self.shared.bridge.load(Ordering::Acquire);
-        let connected = !bridge.is_null() && unsafe { axonkey_macos_audio_request_rssi(bridge) };
-        self.shared
-            .signal_monitor
-            .lock()
-            .unwrap()
-            .snapshot(now, connected)
+        let mut sample = NativeMonitorSnapshot::default();
+        let connected = !bridge.is_null() && unsafe { axonkey_macos_audio_monitor(bridge, &mut sample) };
+        let now = now_ms();
+        let mut monitor = self.shared.signal_monitor.lock().unwrap();
+        // Ignore a read overtaken by clearing/closing the monitor.
+        if monitor.generation == generation && !bridge.is_null() {
+            monitor.observe(now, sample);
+        }
+        monitor.snapshot(now, connected, if clear { None } else { after })
     }
 
     pub fn stop_signal_monitor(&self) {
@@ -341,9 +349,6 @@ unsafe extern "C" fn native_event_callback(
                     .diagnostics
                     .report_macos(value1 & 1 != 0, Duration::from_millis(value2.max(0) as u64))
                 {
-                    if let Ok(mut monitor) = shared.signal_monitor.lock() {
-                        monitor.audio(now_ms(), &report, &message);
-                    }
                     log::info!(target: "axonkey::audio", "macOS RC003 audio diagnostics: {report} {message}");
                 }
             } else if value1 != 0 {

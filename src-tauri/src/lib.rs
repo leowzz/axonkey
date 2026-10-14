@@ -959,32 +959,38 @@ async fn open_signal_monitor(app: tauri::AppHandle) -> Result<(), String> {
             "signal-monitor",
             tauri::WebviewUrl::App("bluetooth-signal.html".into()),
         )
-        .title("遥控器信号 · Axonkey")
-        .inner_size(1080.0, 820.0)
+        .title("语音链路监测 · Axonkey")
+        .inner_size(1080.0, 760.0)
         .min_inner_size(680.0, 540.0)
         .build()
-        .map_err(|e| format!("无法打开信号监测：{e}"))?;
+        .map_err(|e| format!("无法打开语音链路监测：{e}"))?;
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {
         let _ = app;
-        Err("信号监测目前仅支持 macOS".into())
+        Err("语音链路监测目前仅支持 macOS".into())
     }
 }
 
 #[tauri::command]
-async fn get_signal_monitor_state(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+async fn get_signal_monitor_state(
+    app: tauri::AppHandle,
+    after: Option<u64>,
+    clear: Option<bool>,
+) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "macos")]
     {
-        tauri::async_runtime::spawn_blocking(move || app.state::<AudioService>().signal_snapshot())
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AudioService>().signal_snapshot(after, clear.unwrap_or(false))
+        })
             .await
-            .map_err(|e| format!("无法读取信号：{e}"))
+            .map_err(|e| format!("无法读取监测数据：{e}"))
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
-        Err("信号监测目前仅支持 macOS".into())
+        let _ = (app, after, clear);
+        Err("语音链路监测目前仅支持 macOS".into())
     }
 }
 
@@ -1002,7 +1008,7 @@ async fn export_signal_monitor(
             .dialog()
             .file()
             .set_parent(&window)
-            .set_file_name("遥控器信号读数.csv")
+            .set_file_name("语音链路监测读数.csv")
             .add_filter("CSV", &["csv"])
             .blocking_save_file()
         else {
