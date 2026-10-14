@@ -76,3 +76,51 @@ test('CSV includes millisecond timestamps, capacity and transient queue events',
   assert.match(h.calls[1].args.content, /\.234,队列,,,0,4096,4096,1,1,0,0,1/)
   h.calls[1].resolve(true); await exporting
 })
+
+test('waveform replaces unfinished bins, renders silence without bridging gaps, and clears with history', async () => {
+  const h = harness(), first = state(1200)
+  first.waveform = { samples: [{ t: 1000, min: -32768, max: 32767, count: 240 }, { t: 1100, min: 0, max: 0, count: 240 }] }
+  h.calls[0].resolve(first); await settle()
+  const next = state(1400)
+  next.waveform = { samples: [{ t: 1100, min: -10, max: 20, count: 480 }] }
+  h.context.next = next
+  h.run('feed=mergeFeed(feed,next); render()')
+  assert.equal(h.run('feed.waveform.samples.length'), 2)
+  assert.equal(h.run('feed.waveform.samples[1].count'), 480)
+  assert.equal(h.elements.get('waveform-empty').hidden, true)
+  assert.match(h.elements.get('waveform-summary').textContent, /0.0 dBFS/)
+  const path = h.elements.get('waveform-chart').innerHTML.split('<path').at(-1)
+  assert.match(path, /M.*V/)
+  assert.doesNotMatch(path, /L[0-9]/) // Each bin is separate, including across gaps.
+  h.elements.get('pause').handlers.click()
+  const clear = h.elements.get('clear').handlers.click()
+  h.calls.at(-1).resolve(state(1600, 2)); await clear
+  assert.equal(h.run('feed.waveform.samples.length'), 0)
+  assert.equal(h.elements.get('waveform-empty').hidden, false)
+})
+test('CSV exports waveform envelopes without PCM audio', async () => {
+  const h = harness(), s = state(1200)
+  s.waveform = { samples: [{ t: 1100, min: -20, max: 40, count: 240 }] }
+  h.calls[0].resolve(s); await settle()
+  const exporting = h.elements.get('export').handlers.click()
+  const call = h.calls.at(-1)
+  assert.equal(call.command, 'export_signal_monitor')
+  assert.match(call.args.content, /波形最小值/)
+  assert.match(call.args.content, /音频波形,.*-20,40,240/)
+  call.resolve(true); await exporting
+})
+
+test('waveform scales quiet speech to readable height while keeping silence and full-scale bounded', async () => {
+ const h=harness(); h.calls[0].resolve(state()); await settle()
+ assert.equal(h.run('waveformScale([])'), .01)
+ assert.equal(h.run('waveformScale([{min:0,max:0}])'), .01)
+ assert.equal(h.run('waveformScale([{min:-32768,max:32767}])'), 1)
+ const scale=h.run('waveformScale([{min:-500,max:800}])')
+ assert.equal(scale, 800/32768*1.05)
+ assert.equal(h.run('waveformScale([{min:-1,max:1}])'), 1/32768*1.05)
+ assert.ok(h.run('waveformScale([{min:-50,max:80}])')<scale)
+ h.run('plotWaveform([{t:1000,min:-500,max:800}])')
+ const svg=h.elements.get('waveform-chart').innerHTML
+ assert.match(svg, />0.0256<\/text>/)
+ assert.doesNotMatch(svg, /NaN|Infinity/)
+})

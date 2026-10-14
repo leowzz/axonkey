@@ -169,7 +169,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
         <span id="settings-signal-label" className="settings-form-label">语音链路监测：</span>
         <div className="settings-form-control">
           <button type="button" className="dialog-secondary" disabled={!nativeRuntime || signalMonitorOpening} aria-busy={signalMonitorOpening} onClick={onOpenSignalMonitor}>{signalMonitorOpening ? '正在打开…' : '打开监测'}</button>
-          <SettingsHelp id="settings-signal-help" label="语音链路监测">查看遥控器蓝牙信号、语音收包速度和应用音频队列的实时曲线，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。</SettingsHelp>
+          <SettingsHelp id="settings-signal-help" label="语音链路监测">查看遥控器蓝牙信号、语音收包速度、音频波形和应用音频队列的实时图表，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。</SettingsHelp>
           {signalMonitorError && <span role="alert" className="settings-form-error">{signalMonitorError}</span>}
         </div>
       </section>}

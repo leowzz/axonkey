@@ -10,19 +10,20 @@
 @media(max-width:740px){.page{padding:10px}header{gap:8px}header>div:first-child{gap:3px}h1{font-size:20px}.status{font-size:12px}.intro{font-size:13px}.metric{padding:9px 10px}.metric-value{font-size:25px}.metric-value small{font-size:12px}.toolbar{padding:7px 10px;gap:6px}.toolbar>.legend{display:none}.actions{flex-wrap:wrap;gap:6px;width:100%}.range{margin-right:auto}.actions button{padding:5px 8px}.chart-wrap{padding:0 3px}.chart-summary{padding:3px 10px 6px}.chart-head{padding:7px 10px 2px;min-height:62px}.bottom{flex-wrap:wrap}.empty{font-size:13px;padding:24px}.metrics{margin-bottom:8px}}
 @media(max-width:599px){.charts{grid-template-columns:minmax(0,1fr)}.chart-column+.chart-column{border-left:0;border-top:1px solid var(--line)}}
 .queue-details{padding:0 14px 7px;color:var(--muted);font-size:12px}.queue-details summary{cursor:pointer;width:fit-content}.queue-details summary:focus-visible{outline:2px solid #a7c8ff;outline-offset:2px}#queue-chart{height:150px}.queue-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 14px 2px}.queue-head .legend i{background:#159377}.queue-summary{display:flex;gap:14px;flex-wrap:wrap;padding:3px 14px 6px;font-size:13px;color:var(--muted)}.queue-events{margin:0;padding:4px 0 2px;list-style:none;font-size:12px;line-height:1.7;color:#5c6877}.queue-events li{font-variant-numeric:tabular-nums}.queue-meter{height:3px;background:#e8efed;border-radius:4px;margin-top:5px;overflow:hidden}.queue-meter span{display:block;height:100%;background:#159377;width:0}.queue-value{color:#159377}.chart-wrap svg{overflow:visible}
+#waveform-chart{height:230px}.waveform-head .legend i{background:#d08a36}
 </style>
 </head>
 <body>
 <main class="page">
-<header><div><h1>语音链路监测</h1><p class="intro">对照蓝牙信号、语音收包与音频队列，排查卡顿和延迟。</p></div><div id="status" class="status" data-state="waiting"><span class="dot"></span><span id="status-text">正在连接</span></div></header>
+<header><div><h1>语音链路监测</h1><p class="intro">对照信号、收包、音频波形与队列，排查卡顿和延迟。</p></div><div id="status" class="status" data-state="waiting"><span class="dot"></span><span id="status-text">正在连接</span></div></header>
 <div class="notice" id="notice" role="status" hidden></div>
 <section class="metrics" aria-label="当前读数">
 <div class="metric"><div class="metric-label">蓝牙信号 · RSSI</div><div class="metric-value signal-value"><span id="rssi">—</span><small>dBm</small></div><div class="metric-note" id="rssi-note">等待遥控器信号</div></div>
 <div class="metric"><div class="metric-label">语音接收速度</div><div class="metric-value audio-value"><span id="pps">—</span><small>包 / 秒</small></div><div class="metric-note" id="audio-note">按住语音键后显示</div></div>
 <div class="metric"><div class="metric-label">内部音频队列</div><div class="metric-value queue-value"><span id="queued">—</span><small id="queue-unit">毫秒 / 256 毫秒</small></div><div class="queue-meter"><span id="queue-meter"></span></div><div class="metric-note" id="queue-note">等待应用队列读数</div></div>
 </section>
-<section class="panel" aria-label="蓝牙信号、语音收包与音频队列实时折线图">
-<div class="toolbar"><div class="legend">实时曲线</div><div class="actions"><div class="range" aria-label="显示时间范围"><button data-range="30" aria-pressed="true">30 秒</button><button data-range="60" aria-pressed="false">1 分钟</button><button data-range="180" aria-pressed="false">3 分钟</button><button data-range="600" aria-pressed="false">10 分钟</button></div><button id="mark">标记位置</button><button id="pause">暂停显示</button><button id="clear" title="清空图表历史与标记，不影响音频播放">清空历史</button></div></div>
+<section class="panel" aria-label="蓝牙信号、语音收包、音频波形与队列实时图表">
+<div class="toolbar"><div class="legend">实时曲线</div><div class="actions"><div class="range" aria-label="显示时间范围"><button data-range="5" aria-pressed="false">5 秒</button><button data-range="30" aria-pressed="true">30 秒</button><button data-range="60" aria-pressed="false">1 分钟</button><button data-range="180" aria-pressed="false">3 分钟</button><button data-range="600" aria-pressed="false">10 分钟</button></div><button id="mark">标记位置</button><button id="pause">暂停显示</button><button id="clear" title="清空图表历史与标记，不影响音频播放">清空历史</button></div></div>
 <div class="charts">
 <section class="chart-column" aria-labelledby="signal-title">
 <div class="chart-head"><div class="legend" id="signal-title"><i></i>信号强度</div><span class="hint">数值越接近 0，接收信号越强。</span></div>
@@ -35,6 +36,11 @@
 <div class="chart-summary"><span id="marker-help">改变位置时点「标记位置」，方便前后对照。</span><span id="audio-age">所有图表使用同一时间轴</span></div>
 </section>
 </div>
+<section aria-labelledby="waveform-title">
+<div class="queue-head waveform-head"><div class="legend" id="waveform-title"><i></i>接收音频波形</div><span class="hint">解码后、增益与拉伸前 · 按可见峰值缩放</span></div>
+<div class="chart-wrap" id="waveform-wrap"><svg id="waveform-chart" role="img" aria-label="接收到的音频振幅包络，空白表示已过滤按键起始音频或该区间没有解码数据" viewBox="0 0 1100 230"></svg><div id="waveform-empty" class="empty">按住语音键说话后显示波形。</div></div>
+<div class="chart-summary"><span>忽略按键开始的前 200 毫秒音频，仅影响波形；空白也可能为无数据。</span><span id="waveform-summary">等待音频数据</span></div>
+</section>
 <section aria-labelledby="queue-title">
 <div class="queue-head"><div class="legend" id="queue-title"><i></i>内部音频队列</div><span class="hint">实线：当前占用　淡线：刷新间峰值　虚线：容量上限</span></div>
 <div class="chart-wrap" id="queue-wrap"><svg id="queue-chart" role="img" aria-label="应用音频队列占用和峰值随时间变化的折线图" viewBox="0 0 1100 150"></svg><div id="queue-empty" class="empty">等待应用提供队列读数…</div></div>
@@ -50,7 +56,7 @@ const $=id=>document.getElementById(id);
 const nativeInvoke=window.__TAURI__?.core?.invoke;
 $('source-note').textContent=nativeInvoke
  ? '每 200 毫秒采样队列并请求信号，RSSI 以实际回调为准。队列为 Axonkey 待输出的 PCM，不包含遥控器或输入法内部缓存；毫秒按 16 kHz 源音频折算。'
- : '日志模式：刷新不会提高系统日志的采集频率，内部队列需在Axonkey 的语音链路监测窗口查看。';
+ : '日志模式：刷新不会提高系统日志的采集频率，波形和内部队列需在 Axonkey 的语音链路监测窗口查看。';
 document.addEventListener('keydown',event=>{if(event.key==='F5')event.preventDefault()},true);
 const fmtTime=t=>new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(t));
 const preciseTime=t=>fmtTime(t)+'.'+String(Math.floor(t%1000)).padStart(3,'0');
@@ -67,12 +73,12 @@ function nearest(points,t,max=500){let best=null,diff=max;for(const p of points|
 function mergeFeed(previous,next){
  const result={...next};
  const same=previous&&previous.generation===next.generation&&previous.startedAt===next.startedAt;
- for(const key of ['bluetooth','audio','queue']){
+ for(const key of ['bluetooth','audio','queue','waveform']){
   const incoming=next[key]||{status:'waiting',samples:[]};
   const points=new Map();
   for(const p of [...(same?previous[key]?.samples||[]:[]),...(incoming.samples||[])])
    if(number(p.t)&&p.t>localCutoff&&p.t>=next.now-600000)points.set(p.t,p);
-  result[key]={...incoming,samples:[...points.values()].sort((a,b)=>a.t-b.t).slice(-3100)};
+  result[key]={...incoming,samples:[...points.values()].sort((a,b)=>a.t-b.t).slice(key==='waveform'?-30100:-3100)};
  }
  return result;
 }
@@ -81,7 +87,7 @@ function plot(id,points,key,height,min,max,color,step,target,peakKey){
  $(id).setAttribute('viewBox',`0 0 ${W} ${height}`);
  const top=18,bottom=height-31,y=v=>top+(max-v)/(max-min)*(bottom-top);
  let out='';
- for(let v=Math.ceil(min/step)*step;v<=max;v+=step){const py=y(v);out+=`<line x1="${L}" x2="${W-R}" y1="${py}" y2="${py}" stroke="#eaf0f5"/><text x="${L-12}" y="${py+4}" text-anchor="end">${v}</text>`}
+ for(let v=Math.ceil(min/step)*step;v<=max;v+=step){const py=y(v);out+=`<line x1="${L}" x2="${W-R}" y1="${py}" y2="${py}" stroke="#eaf0f5"/><text x="${L-12}" y="${py+4}" text-anchor="end">${id==='waveform-chart'?Number(v.toPrecision(3)):Number(v.toFixed(4))}</text>`}
  const ticks=W<600?2:4;
  for(let i=0;i<=ticks;i++){const t=start()+i*range*1000/ticks;out+=`<text x="${x(t)}" y="${height-8}" text-anchor="${i===0?'start':i===ticks?'end':'middle'}">${fmtTime(t)}</text>`}
  if(number(target))out+=`<line x1="${L}" x2="${W-R}" y1="${y(target)}" y2="${y(target)}" stroke="#aaa" stroke-dasharray="5 5"/>`;
@@ -102,6 +108,27 @@ function plot(id,points,key,height,min,max,color,step,target,peakKey){
  if(hoverTime&&hoverTime>=start()&&hoverTime<=end())out+=`<line x1="${x(hoverTime)}" x2="${x(hoverTime)}" y1="${top}" y2="${bottom}" stroke="#637388" opacity=".5"/>`;
  $(id).innerHTML=out;
 }
+function waveformScale(points){
+ const peak=points.reduce((v,p)=>Math.max(v,Math.abs(p.min||0),Math.abs(p.max||0)),0)/32768;
+ // Follow the visible peak directly; silence alone uses a stable fallback.
+ return peak>0?Math.min(1,peak*1.05):.01;
+}
+function plotWaveform(points){
+ const scale=waveformScale(points);
+ plot('waveform-chart',[],'min',230,-scale,scale,'#d08a36',scale/2);
+ const height=230,top=18,bottom=height-31,y=v=>top+(scale-v)/(2*scale)*(bottom-top),bins=new Map();
+ for(const p of points){
+  if(!number(p.min)||!number(p.max))continue;
+  const px=Math.round(x(p.t)),bin=bins.get(px);
+  if(bin){bin.min=Math.min(bin.min,p.min);bin.max=Math.max(bin.max,p.max)}
+  else bins.set(px,{min:p.min,max:p.max});
+ }
+ const path=[...bins].map(([px,p])=>{
+  const a=y(p.max/32768),b=y(p.min/32768);
+  return `M${px},${Math.min(a,b-.7).toFixed(2)}V${b.toFixed(2)}`;
+ }).join(' ');
+ $('waveform-chart').innerHTML+=`<path d="${path}" stroke="#d08a36" stroke-width="1.5" fill="none"/>`;
+}
 function queueEvent(p){
  const items=[];
  if(p.full)items.push(`容量不足，拒收 ${p.full} 次`);
@@ -112,7 +139,7 @@ function queueEvent(p){
 function render(){
  const d=data();if(!d)return;
  const b=d.bluetooth||{},a=d.audio||{},q=d.queue||{},now=d.now||Date.now();
- const bp=inRange(b.samples),ap=inRange(a.samples),qp=inRange(q.samples);
+ const bp=inRange(b.samples),ap=inRange(a.samples),qp=inRange(q.samples),wp=inRange(d.waveform?.samples);
  const lastB=latest(b.samples),lastA=latest(a.samples),lastQ=latest(q.samples);
  const liveB=!!lastB&&!fetchError&&b.status==='live'&&age(now,b.lastSampleAt)<=2;
  const liveA=number(lastA?.pps)&&!fetchError&&a.status==='live'&&age(now,a.lastSampleAt)<=2;
@@ -135,12 +162,17 @@ function render(){
  plot('signal-chart',bp,'rssi',170,Math.floor(Math.min(-90,...values)/10)*10,Math.ceil(Math.max(-30,...values)/10)*10,'#286be8',10);
  plot('audio-chart',ap,'pps',170,0,Math.ceil(Math.max(80,...ap.map(p=>p.pps||0))/20)*20,'#7c59c5',20,66.667);
  plot('queue-chart',qp,'queuedMs',150,0,Math.ceil(capacity/64)*64,'#159377',64,capacity,'peakMs');
+ plotWaveform(wp);
+ $('waveform-empty').hidden=wp.length>0;
+ setText('waveform-empty',nativeInvoke?'按住语音键说话后显示波形。':'请在 Axonkey 内打开语音链路监测查看波形');
+ const peak=wp.reduce((v,p)=>Math.max(v,Math.abs(p.min),Math.abs(p.max)),0)/32768;
+ setText('waveform-summary',wp.length?`纵轴 ±${Number(waveformScale(wp).toPrecision(3))} · 过滤后峰值 ${peak>0?(20*Math.log10(peak)).toFixed(1):'−∞'} dBFS`:'等待音频数据');
  $('queue-chart').style.height='150px';
  $('signal-empty').hidden=bp.length>0;$('audio-empty').hidden=ap.some(p=>number(p.pps));$('queue-empty').hidden=qp.length>0;
  setText('queue-empty',nativeInvoke?'等待应用提供队列读数…':'请在新版 Axonkey 内打开此页面查看实时队列');
  setText('summary',values.length?`均值 ${(values.reduce((sum,v)=>sum+v,0)/values.length).toFixed(1)} dBm · 最低 ${Math.min(...values)} / 最高 ${Math.max(...values)}`:'等待信号数据');
  setText('sample-age',number(b.lastSampleAt)?`最近信号 ${preciseTime(b.lastSampleAt)}`:'每 200 毫秒请求 · 以实际回调为准');
- setText('audio-age',number(a.lastSampleAt)?`最近统计 ${preciseTime(a.lastSampleAt)}`:'三张图使用同一时间轴');
+ setText('audio-age',number(a.lastSampleAt)?`最近统计 ${preciseTime(a.lastSampleAt)}`:'所有图表使用同一时间轴');
  const sum=key=>qp.reduce((total,p)=>total+(p[key]||0),0);
  setText('queue-peak',`范围内峰值 ${qp.length?Math.max(...qp.map(p=>p.peakMs)).toFixed(1):'—'} 毫秒`);
  setText('queue-counts',`排空 ${sum('emptied')} 次 · 满载拒收 ${sum('full')} 次 · 重置 ${sum('resets')} 次`);
@@ -176,13 +208,14 @@ $('clear').addEventListener('click',async()=>{
  }catch(error){setText('marker-help','清空失败：'+String(error));}
  finally{clearing=false;render();}
 });
-for(const wrapId of ['signal-wrap','audio-wrap','queue-wrap']){
+for(const wrapId of ['signal-wrap','audio-wrap','waveform-wrap','queue-wrap']){
  const wrap=$(wrapId);
  wrap.addEventListener('pointermove',event=>{
   if(!data())return;const rect=wrap.querySelector('svg').getBoundingClientRect();W=Math.max(240,Math.round(rect.width));const px=(event.clientX-rect.left)/rect.width*W;if(px<L||px>W-R)return;
-  hoverTime=start()+(px-L)/(W-L-R)*range*1000;render();const d=data(),b=nearest(d.bluetooth?.samples,hoverTime),a=nearest(d.audio?.samples,hoverTime),q=nearest(d.queue?.samples,hoverTime);
+  hoverTime=start()+(px-L)/(W-L-R)*range*1000;render();const d=data(),b=nearest(d.bluetooth?.samples,hoverTime),a=nearest(d.audio?.samples,hoverTime),q=nearest(d.queue?.samples,hoverTime),w=nearest(d.waveform?.samples,hoverTime,20);
   const tip=$('tooltip');tip.replaceChildren();const time=document.createElement('strong');time.textContent=preciseTime(hoverTime);tip.append(time);
   const lines=[`信号　${b?b.rssi+' dBm':'无读数'}`,`收包　${number(a?.pps)?a.pps.toFixed(1)+' 包/秒':'无读数'}`,`队列　${q?q.queuedMs.toFixed(1)+' / '+q.capacityMs+' 毫秒':'无读数'}`,`区间峰值　${q?q.peakMs.toFixed(1)+' 毫秒':'无读数'}`];
+  lines.push(`波形振幅　${w?(w.min/32768).toFixed(3)+' ～ '+(w.max/32768).toFixed(3):'无解码数据'}`);
   if(q&&queueEvent(q))lines.push(queueEvent(q));
   for(const text of lines){const line=document.createElement('div');line.textContent=text;tip.append(line)}
   wrap.append(tip);tip.hidden=false;const host=wrap.getBoundingClientRect();tip.style.left=Math.max(8,Math.min(host.width-tip.offsetWidth-8,event.clientX-host.left+14))+'px';tip.style.top='24px';
@@ -191,8 +224,8 @@ for(const wrapId of ['signal-wrap','audio-wrap','queue-wrap']){
 }
 $('export').addEventListener('click',async()=>{
  const d=data();if(!d)return;
- const rows=[['时间（上海）','来源','RSSI(dBm)','包/秒','队列采样','区间峰值采样','容量采样','排空次数','满载拒收','重置次数','重置丢弃采样','欠载次数','会话']];
- const events=[...(d.bluetooth.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'蓝牙信号',p.rssi]})),...(d.audio.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'收包','',p.pps??'','','','','','','','',p.underruns,p.sessionId]})),...(d.queue?.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'队列','','',p.samples,p.peakSamples,p.capacity,p.emptied,p.full,p.resets,p.discarded,p.underruns]}))].sort((a,b)=>a.t-b.t);
+ const rows=[['时间（上海）','来源','RSSI(dBm)','包/秒','队列采样','区间峰值采样','容量采样','排空次数','满载拒收','重置次数','重置丢弃采样','欠载次数','会话','波形最小值(int16)','波形最大值(int16)','解码采样数']];
+ const events=[...(d.bluetooth.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'蓝牙信号',p.rssi]})),...(d.audio.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'收包','',p.pps??'','','','','','','','',p.underruns,p.sessionId]})),...(d.queue?.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'队列','','',p.samples,p.peakSamples,p.capacity,p.emptied,p.full,p.resets,p.discarded,p.underruns]})),...(d.waveform?.samples||[]).map(p=>({t:p.t,row:[preciseTime(p.t),'音频波形','','','','','','','','','','','',p.min,p.max,p.count]}))].sort((a,b)=>a.t-b.t);
  rows.push(...events.map(p=>p.row));const content='\ufeff'+rows.map(r=>r.join(',')).join('\n');
  if(nativeInvoke){try{const saved=await nativeInvoke('export_signal_monitor',{content});if(saved)setText('marker-help','读数已导出');}catch(error){setText('marker-help',String(error));}return;}
  const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download='语音链路监测读数.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);

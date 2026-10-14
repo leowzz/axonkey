@@ -9,6 +9,9 @@ use std::{
 const HISTORY_MS: u64 = 600_000;
 const FRESH_MS: u64 = 2_000;
 const MAX_POINTS: usize = 3_100;
+const WAVEFORM_BIN_MS: u64 = 20;
+const MAX_WAVEFORM_POINTS: usize = 30_100;
+const WAVEFORM_ATTACK_SAMPLES: usize = 3_200; // 200 ms at 16 kHz; visualization only.
 
 pub(super) fn now_ms() -> u64 {
     SystemTime::now()
@@ -66,6 +69,14 @@ struct QueueSample {
     underruns: u64,
     state: &'static str,
 }
+// Amplitude envelope only; raw PCM is never retained by the monitor.
+#[derive(Clone, Serialize)]
+struct WaveformSample {
+    t: u64,
+    min: i16,
+    max: i16,
+    count: u64,
+}
 #[derive(Default)]
 pub(super) struct SignalMonitor {
     pub generation: u64,
@@ -74,6 +85,8 @@ pub(super) struct SignalMonitor {
     signals: VecDeque<SignalSample>,
     audio: VecDeque<AudioSample>,
     queue: VecDeque<QueueSample>,
+    waveform: VecDeque<WaveformSample>,
+    waveform_skip_remaining: usize,
     last_signal: Option<u64>,
     last_audio: Option<u64>,
     signal_error: bool,
@@ -97,6 +110,7 @@ impl SignalMonitor {
     pub fn clear(&mut self) {
         *self = Self {
             streaming: self.streaming,
+            waveform_skip_remaining: self.waveform_skip_remaining,
             generation: self.generation.wrapping_add(1),
             ..Self::default()
         };
@@ -107,6 +121,9 @@ impl SignalMonitor {
         self.session(false);
     }
     pub fn session(&mut self, streaming: bool) {
+        if streaming {
+            self.waveform_skip_remaining = WAVEFORM_ATTACK_SAMPLES;
+        }
         self.streaming = streaming;
         self.last_audio = None;
         self.rates.clear();
@@ -122,6 +139,39 @@ impl SignalMonitor {
         self.signals.push_back(SignalSample { t: now, rssi });
         self.last_signal = Some(now);
         self.prune(now);
+    }
+    pub fn waveform(&mut self, now: u64, samples: &[i16]) {
+        // Track source samples even with the monitor closed, so opening/clearing
+        // it mid-sentence does not discard another 200 ms of speech.
+        let skipped = self.waveform_skip_remaining.min(samples.len());
+        self.waveform_skip_remaining -= skipped;
+        let samples = &samples[skipped..];
+        if !self.active(now) || samples.is_empty() {
+            return;
+        }
+        let t = now / WAVEFORM_BIN_MS * WAVEFORM_BIN_MS;
+        let min = *samples.iter().min().unwrap();
+        let max = *samples.iter().max().unwrap();
+        if let Some(last) = self.waveform.back_mut().filter(|p| p.t == t) {
+            last.min = last.min.min(min);
+            last.max = last.max.max(max);
+            last.count += samples.len() as u64;
+        } else {
+            self.waveform.push_back(WaveformSample {
+                t,
+                min,
+                max,
+                count: samples.len() as u64,
+            });
+        }
+        while self
+            .waveform
+            .front()
+            .is_some_and(|p| now.saturating_sub(p.t) > HISTORY_MS)
+            || self.waveform.len() > MAX_WAVEFORM_POINTS
+        {
+            self.waveform.pop_front();
+        }
     }
     pub fn observe(&mut self, now: u64, s: NativeMonitorSnapshot) {
         if !self.active(now) {
@@ -212,6 +262,13 @@ impl SignalMonitor {
         prune!(signals);
         prune!(audio);
         prune!(queue);
+        while self
+            .waveform
+            .front()
+            .is_some_and(|p| now.saturating_sub(p.t) > HISTORY_MS)
+        {
+            self.waveform.pop_front();
+        }
     }
     pub fn snapshot(&self, now: u64, connected: bool, after: Option<u64>) -> Value {
         let status = if !connected {
@@ -250,6 +307,10 @@ impl SignalMonitor {
             "audio": { "status": audio_status, "lastSampleAt": self.last_audio,
                 "message": if !self.streaming { "等待按住语音键。" } else { "等待新的收包统计。" },
                 "samples": self.audio.iter().filter(|p| p.t > cutoff).collect::<Vec<_>>() },
+            // Re-send the unfinished arrival-time bin so incremental reads cannot lose
+            // samples that arrive in the same bin after the previous poll.
+            "waveform": { "binMs": WAVEFORM_BIN_MS,
+                "samples": self.waveform.iter().filter(|p| p.t >= cutoff.saturating_sub(WAVEFORM_BIN_MS)).collect::<Vec<_>>() },
             "queue": { "status": if self.previous.is_some() && self.active(now) { "live" } else { "waiting" },
                 "samples": self.queue.iter().filter(|p| p.t > cutoff).collect::<Vec<_>>() }
         })
@@ -269,6 +330,72 @@ mod tests {
             running: 1,
             ..Default::default()
         }
+    }
+    #[test]
+    fn waveform_preserves_extrema_silence_and_missing_intervals() {
+        let mut m = SignalMonitor::default();
+        m.waveform(900, &[100]);
+        assert!(m.waveform.is_empty());
+        m.poll(1000);
+        m.waveform(1001, &[-32768, 32767, 20]);
+        m.waveform(1019, &[-5, 12]);
+        m.waveform(1100, &[0, 0]);
+        assert_eq!(m.waveform.len(), 2); // No fabricated samples during the gap.
+        let first = &m.waveform[0];
+        assert_eq!(
+            (first.t, first.min, first.max, first.count),
+            (1000, -32768, 32767, 5)
+        );
+        assert_eq!((m.waveform[1].min, m.waveform[1].max), (0, 0));
+        // Late data in the same 20 ms bin is returned again for replacement.
+        let v = m.snapshot(1110, true, Some(1105));
+        assert_eq!(v["waveform"]["samples"].as_array().unwrap().len(), 1);
+        m.waveform(1115, &[-80, 100]);
+        let v = m.snapshot(1120, true, Some(1110));
+        assert_eq!(v["waveform"]["samples"][0]["max"], 100);
+        m.clear();
+        assert!(m.waveform.is_empty());
+        m.waveform(1130, &[1]);
+        assert!(m.waveform.is_empty());
+    }
+    #[test]
+    fn waveform_skips_each_key_attack_without_modifying_pcm_or_restarting_on_clear() {
+        let mut m = SignalMonitor::default();
+        m.session(true);
+        let click = vec![i16::MAX; 3000];
+        m.waveform(1000, &click); // Counts even before opening the monitor.
+        m.poll(1200);
+        m.clear();
+        m.poll(1200);
+        let mut mixed = vec![i16::MIN; 200];
+        mixed.extend_from_slice(&[-100, 120]);
+        m.waveform(1200, &mixed);
+        assert_eq!(mixed[0], i16::MIN);
+        let p = &m.waveform[0];
+        assert_eq!((p.min, p.max, p.count), (-100, 120, 2));
+        m.clear();
+        m.poll(1400);
+        m.waveform(1400, &[50]);
+        assert_eq!(m.waveform[0].count, 1);
+        m.session(false);
+        m.session(true);
+        m.waveform(1600, &[32767; WAVEFORM_ATTACK_SAMPLES]);
+        assert_eq!(m.waveform.len(), 1);
+        m.waveform(1620, &[-80, 90]);
+        assert_eq!(m.waveform.back().unwrap().max, 90);
+    }
+    #[test]
+    fn waveform_history_is_bounded_and_expires_when_idle() {
+        let mut m = SignalMonitor::default();
+        for i in 0..31_000 {
+            let t = 1000 + i * 20;
+            m.poll(t);
+            m.waveform(t, &[-1, 1]);
+        }
+        assert!(m.waveform.len() <= MAX_WAVEFORM_POINTS);
+        assert!(m.waveform.front().unwrap().t >= 620980 - HISTORY_MS);
+        m.poll(1_300_000);
+        assert!(m.waveform.is_empty());
     }
     #[test]
     fn rolling_rate_uses_monotonic_elapsed_and_stops_at_session_boundaries() {

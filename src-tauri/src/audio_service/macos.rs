@@ -293,6 +293,10 @@ unsafe extern "C" fn native_event_callback(
             let bridge = shared.bridge.load(Ordering::Acquire);
             for samples in frames {
                 shared.diagnostics.decoded(&samples);
+                // Bluetooth/decode callback, never the realtime audio render callback.
+                if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                    monitor.waveform(now_ms(), &samples);
+                }
                 let success = !bridge.is_null()
                     && axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len());
                 shared.diagnostics.scheduled(samples.len(), success);

@@ -1000,7 +1000,7 @@ async fn export_signal_monitor(
     content: String,
 ) -> Result<bool, String> {
     use tauri_plugin_dialog::DialogExt;
-    if content.len() > 1_000_000 {
+    if content.len() > 4_000_000 {
         return Err("导出数据过大，请缩短采集时间后重试".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
