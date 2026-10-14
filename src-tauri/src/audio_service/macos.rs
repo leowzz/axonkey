@@ -241,6 +241,9 @@ unsafe extern "C" fn native_event_callback(
             };
             let packet = std::slice::from_raw_parts(data, length);
             let frames = decoder.append(packet, value1.max(1) as usize);
+            shared
+                .diagnostics
+                .decoder_pending(decoder.pending_bytes(), 0);
             drop(decoder);
             let bridge = shared.bridge.load(Ordering::Acquire);
             for samples in frames {
@@ -252,11 +255,17 @@ unsafe extern "C" fn native_event_callback(
         }
         EVENT_CODEC_SYNC => {
             if let Ok(mut decoder) = shared.decoder.lock() {
+                shared
+                    .diagnostics
+                    .decoder_pending(0, decoder.pending_bytes());
                 decoder.synchronize(value1, value2);
             }
         }
         EVENT_SESSION_START | EVENT_SESSION_STOP => {
             if let Ok(mut decoder) = shared.decoder.lock() {
+                shared
+                    .diagnostics
+                    .decoder_pending(0, decoder.pending_bytes());
                 decoder.reset_session();
             }
             let state = if event == EVENT_SESSION_START {
@@ -275,9 +284,12 @@ unsafe extern "C" fn native_event_callback(
         EVENT_DIAGNOSTICS | EVENT_LOG if !data.is_null() => {
             let message = String::from_utf8_lossy(std::slice::from_raw_parts(data, length));
             if event == EVENT_DIAGNOSTICS {
+                if value1 & 2 != 0 {
+                    shared.diagnostics.note_native_activity();
+                }
                 if let Some(report) = shared
                     .diagnostics
-                    .report_macos(value1 != 0, Duration::from_millis(value2.max(0) as u64))
+                    .report_macos(value1 & 1 != 0, Duration::from_millis(value2.max(0) as u64))
                 {
                     log::info!(target: "axonkey::audio", "macOS RC003 audio diagnostics: {report} {message}");
                 }
@@ -324,6 +336,51 @@ mod tests {
         assert!(report.contains(
             "scheduled_samples=0 completed_buffers=0 rendered_samples=0 enqueue_failures=1"
         ));
+    }
+
+    #[test]
+    fn partial_decoder_frames_are_accounted_on_sync_and_stop() {
+        let shared = Shared {
+            diagnostics: AudioDiagnostics::default(),
+            bridge: AtomicPtr::new(std::ptr::null_mut()),
+            decoder: Mutex::new(AtvvDecoder::default()),
+        };
+        let context = (&shared as *const Shared).cast_mut().cast();
+        let packet = [0x11; 60];
+        unsafe {
+            native_event_callback(
+                context,
+                EVENT_AUDIO_PACKET,
+                packet.as_ptr(),
+                packet.len(),
+                120,
+                0,
+            );
+        }
+        let report = shared
+            .diagnostics
+            .report_macos(true, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("decoded_samples=0"));
+        assert!(report.contains("decoder_pending_bytes=60 decoder_discarded_bytes=0"));
+        unsafe {
+            native_event_callback(context, EVENT_CODEC_SYNC, std::ptr::null(), 0, 0, 0);
+            native_event_callback(
+                context,
+                EVENT_AUDIO_PACKET,
+                packet.as_ptr(),
+                packet.len(),
+                120,
+                0,
+            );
+            native_event_callback(context, EVENT_SESSION_STOP, std::ptr::null(), 0, 0, 0);
+        }
+        let report = shared
+            .diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .unwrap();
+        assert!(report.contains("decoder_pending_bytes=0 decoder_discarded_bytes=120"));
+        assert!(report.contains("decoded_samples=0"));
     }
 
     #[test]

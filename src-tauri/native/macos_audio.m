@@ -147,6 +147,26 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     return [approvedNames containsObject:normalized];
 }
 
+// Main-thread window counters only. Callback entry is observable; radio arrival
+// and time spent waiting for the CoreBluetooth delegate queue are not.
+typedef struct {
+    NSUInteger callbacks, bytes, minBytes, maxBytes;
+    NSUInteger stale, readErrors, missingValue;
+    NSUInteger notReady, empty, afterStop, accepted, acceptedBytes;
+    NSUInteger gap20, gap50, gap100, gap250;
+    NSUInteger enqueueInvalid, enqueueUnavailable, enqueueFull;
+    NSUInteger discardedSamples;
+    double maxGapMs, maxHandlerMs;
+} AKAudioWindow;
+
+static void AKRecordCallbackGap(AKAudioWindow *window, double milliseconds) {
+    window->maxGapMs = fmax(window->maxGapMs, milliseconds);
+    window->gap20 += milliseconds >= 20;
+    window->gap50 += milliseconds >= 50;
+    window->gap100 += milliseconds >= 100;
+    window->gap250 += milliseconds >= 250;
+}
+
 @interface AKAudioPCMStorage : NSObject {
 @public
     AKPCMQueue queue;
@@ -219,6 +239,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     BOOL _receivedFirstPacket;
     BOOL _playedFirstBuffer;
     NSTimeInterval _lastPacketTime;
+    NSTimeInterval _lastAudioCallbackTime;
+    AKAudioWindow _audioWindow;
     double _maxPacketGapMilliseconds;
     NSUInteger _clippedSamples;
     NSUInteger _drainGeneration;
@@ -387,11 +409,31 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
         (unsigned long)_clippedSamples, _maxPacketGapMilliseconds,
         (unsigned long long)(_pcmStorage != nil ? atomic_exchange(&_pcmStorage->queue.underruns, 0) : 0),
         (unsigned long)(_pcmStorage != nil ? AKPCMQueueCount(&_pcmStorage->queue) : 0)];
+    AKAudioWindow w = _audioWindow;
+    context = [context stringByAppendingFormat:
+        @" audio_callbacks=%lu callback_bytes=%lu notification_min_bytes=%lu notification_max_bytes=%lu callback_stale=%lu callback_read_errors=%lu callback_missing_value=%lu rejected_not_ready=%lu rejected_empty=%lu rejected_after_stop=%lu accepted_packets=%lu accepted_bytes=%lu callback_gap_ge20=%lu callback_gap_ge50=%lu callback_gap_ge100=%lu callback_gap_ge250=%lu max_callback_gap_ms=%.1f max_callback_handler_ms=%.3f callback_wait_ms=unknown transport_arrival=unknown enqueue_invalid=%lu enqueue_output_unavailable=%lu enqueue_queue_full=%lu discarded_queued_samples=%lu output_verified=%d connection_generation=%lu",
+        (unsigned long)w.callbacks, (unsigned long)w.bytes,
+        (unsigned long)w.minBytes, (unsigned long)w.maxBytes,
+        (unsigned long)w.stale, (unsigned long)w.readErrors, (unsigned long)w.missingValue,
+        (unsigned long)w.notReady, (unsigned long)w.empty, (unsigned long)w.afterStop,
+        (unsigned long)w.accepted, (unsigned long)w.acceptedBytes,
+        (unsigned long)w.gap20, (unsigned long)w.gap50,
+        (unsigned long)w.gap100, (unsigned long)w.gap250, w.maxGapMs, w.maxHandlerMs,
+        (unsigned long)w.enqueueInvalid, (unsigned long)w.enqueueUnavailable,
+        (unsigned long)w.enqueueFull, (unsigned long)w.discardedSamples,
+        _pcmStorage != nil && atomic_load(&_pcmStorage->outputVerified),
+        (unsigned long)_connectionGeneration];
+    BOOL nativeActivity = w.callbacks || w.notReady || w.empty || w.afterStop ||
+        w.accepted || w.enqueueInvalid || w.enqueueUnavailable || w.enqueueFull || w.discardedSamples;
+    _audioWindow = (AKAudioWindow){0};
     _clippedSamples = 0;
     _maxPacketGapMilliseconds = 0;
     [self emitEvent:AKAudioEventDiagnostics
                data:[context dataUsingEncoding:NSUTF8StringEncoding]
-             value1:_streaming || _microphoneOpened || _pendingAudioBuffers > 0
+             // Bit 0 is forwarding state; bit 1 preserves native-only activity
+             // (including stale callbacks) without claiming the session is active.
+             value1:((_streaming || _microphoneOpened || _pendingAudioBuffers > 0) ? 1 : 0) |
+                    (nativeActivity ? 2 : 0)
              value2:windowMilliseconds];
 }
 
@@ -728,17 +770,22 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 - (void)handleAudioData:(NSData *)data {
     [self emitEvent:AKAudioEventReceived data:nil value1:(int)data.length value2:0];
     if (!_capabilitiesConfirmed || data.length == 0) {
+        if (!_capabilitiesConfirmed) _audioWindow.notReady += 1;
+        else _audioWindow.empty += 1;
         [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
         return;
     }
     if (!_streaming) {
         if (_lastVoiceStopTime > 0 &&
             CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3) {
+            _audioWindow.afterStop += 1;
             [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
             return;
         }
         [self beginVoiceSession];
     }
+    _audioWindow.accepted += 1;
+    _audioWindow.acceptedBytes += data.length;
     NSTimeInterval packetTime = NSProcessInfo.processInfo.systemUptime;
     if (_lastPacketTime > 0) {
         _maxPacketGapMilliseconds = fmax(_maxPacketGapMilliseconds,
@@ -904,11 +951,21 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count {
-    if (samples == NULL || count == 0 || ![self ensureAudioOutput]) return NO;
+    if (samples == NULL || count == 0) {
+        _audioWindow.enqueueInvalid += 1;
+        return NO;
+    }
+    if (![self ensureAudioOutput]) {
+        _audioWindow.enqueueUnavailable += 1;
+        return NO;
+    }
     float gain;
     @synchronized (self) { gain = _gain; }
     size_t clipped = 0;
-    if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) return NO;
+    if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) {
+        _audioWindow.enqueueFull += 1;
+        return NO;
+    }
     _clippedSamples += clipped;
     [_pendingSampleCounts addObject:@(count)];
     _pendingAudioBuffers += 1;
@@ -979,7 +1036,10 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     _pendingAudioBuffers = 0;
     [_pendingSampleCounts removeAllObjects];
     _reportedSamples = 0;
-    if (_pcmStorage != nil) AKPCMQueueInit(&_pcmStorage->queue);
+    if (_pcmStorage != nil) {
+        _audioWindow.discardedSamples += AKPCMQueueCount(&_pcmStorage->queue);
+        AKPCMQueueInit(&_pcmStorage->queue);
+    }
 }
 
 - (void)stopAudioOutput {
@@ -1203,6 +1263,34 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 - (void)peripheral:(CBPeripheral *)peripheral
  didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
               error:(NSError *)error {
+    BOOL audio = [characteristic.UUID isEqual:_audioUUID];
+    NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    if (audio) {
+        NSUInteger bytes = characteristic.value.length;
+        if (_audioWindow.callbacks == 0) _audioWindow.minBytes = bytes;
+        _audioWindow.callbacks += 1;
+        _audioWindow.bytes += bytes;
+        _audioWindow.minBytes = MIN(_audioWindow.minBytes, bytes);
+        _audioWindow.maxBytes = MAX(_audioWindow.maxBytes, bytes);
+        if (peripheral != _peripheral) _audioWindow.stale += 1;
+        else {
+            if (error != nil) _audioWindow.readErrors += 1;
+            else if (characteristic.value == nil) _audioWindow.missingValue += 1;
+            // Do not count button-up silence as a transport gap. Retain the
+            // previous callback across diagnostic windows within a session.
+            if (_streaming && _receivedFirstPacket && _lastAudioCallbackTime > 0)
+                AKRecordCallbackGap(&_audioWindow, (started - _lastAudioCallbackTime) * 1000.0);
+            _lastAudioCallbackTime = started;
+        }
+    }
+    [self handleValueForPeripheral:peripheral characteristic:characteristic error:error];
+    if (audio) _audioWindow.maxHandlerMs = fmax(_audioWindow.maxHandlerMs,
+        (NSProcessInfo.processInfo.systemUptime - started) * 1000.0);
+}
+
+- (void)handleValueForPeripheral:(CBPeripheral *)peripheral
+                 characteristic:(CBCharacteristic *)characteristic
+                          error:(NSError *)error {
     if (peripheral == _peripheral &&
         [characteristic.UUID isEqual:_batteryLevelUUID]) {
         [self setBatteryLevel:error == nil ? AKParseBatteryLevel(characteristic.value) : -1];

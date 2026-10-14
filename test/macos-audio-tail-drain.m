@@ -94,7 +94,8 @@ static void PumpMainRunLoop(NSTimeInterval seconds) {
 
 typedef struct {
     int received, rejected, renderedSamples, discardedBuffers;
-    int reports, activeReports, lastWindow, sessionStops;
+    int reports, activeReports, lastWindow, sessionStops, lastFlags;
+    char lastReport[4096];
 } AudioEvents;
 static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
                               size_t length, int value1, int value2) {
@@ -106,14 +107,101 @@ static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
     if (event == AKAudioEventSessionStop) events->sessionStops++;
     if (event == AKAudioEventDiagnostics) {
         events->reports++;
-        events->activeReports += value1 != 0;
+        events->activeReports += (value1 & 1) != 0;
+        events->lastFlags = value1;
+        size_t copied = MIN(length, sizeof(events->lastReport) - 1);
+        memcpy(events->lastReport, data, copied);
+        events->lastReport[copied] = 0;
         events->lastWindow = value2;
     }
 }
 #define CHECK(condition, message) do { if (!(condition)) { fputs(message "\n", stderr); return 1; } } while (0)
 
+@interface FakeAudioCharacteristic : NSObject
+@property(nonatomic, strong) CBUUID *UUID;
+@property(nonatomic, strong) NSData *value;
+@end
+@implementation FakeAudioCharacteristic
+@end
+
+static int CheckWindowDiagnostics(void) {
+    AudioEvents events = {0};
+    AKAudioCallbacks callbacks = {.context = &events, .on_event = CaptureAudioEvent};
+    RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:&callbacks];
+    NSObject *remote = [[NSObject alloc] init];
+    [bridge setValue:remote forKey:@"peripheral"];
+    FakeAudioCharacteristic *audio = [[FakeAudioCharacteristic alloc] init];
+    audio.UUID = [bridge valueForKey:@"audioUUID"];
+    audio.value = [NSMutableData dataWithLength:120];
+    void (^deliver)(id, NSError *) = ^(id peripheral, NSError *error) {
+        [bridge peripheral:peripheral didUpdateValueForCharacteristic:(id)audio error:error];
+    };
+    deliver([[NSObject alloc] init], nil); // Stale connection must not reach decoding.
+    deliver(remote, [NSError errorWithDomain:@"test" code:1 userInfo:nil]);
+    audio.value = nil;
+    deliver(remote, nil);
+    audio.value = [NSMutableData dataWithLength:120];
+    deliver(remote, nil); // Not ready.
+    [bridge setValue:@YES forKey:@"capabilitiesConfirmed"];
+    audio.value = [NSData data];
+    deliver(remote, nil);
+    audio.value = [NSMutableData dataWithLength:120];
+    [bridge setValue:@(CFAbsoluteTimeGetCurrent()) forKey:@"lastVoiceStopTime"];
+    deliver(remote, nil);
+    [bridge reportDiagnostics];
+    CHECK(events.lastFlags == 2 && events.received == 3 && events.rejected == 3,
+          "native-only activity or rejection behavior changed");
+    NSString *report = @(events.lastReport);
+    for (NSString *field in @[@"audio_callbacks=6", @"callback_bytes=480",
+          @"notification_min_bytes=0 notification_max_bytes=120", @"callback_stale=1",
+          @"callback_read_errors=1", @"callback_missing_value=1", @"rejected_not_ready=1",
+          @"rejected_empty=1", @"rejected_after_stop=1", @"accepted_packets=0",
+          @"callback_wait_ms=unknown transport_arrival=unknown"])
+        CHECK([report containsString:field], "callback rejection diagnostic missing");
+    [bridge reportDiagnostics];
+    CHECK(events.lastFlags == 0 && strstr(events.lastReport, "audio_callbacks=0"),
+          "window counters leaked into the next idle window");
+
+    [bridge setValue:@0 forKey:@"lastVoiceStopTime"];
+    deliver(remote, nil); // Starts a new session, no inter-session gap.
+    [bridge setValue:@(NSProcessInfo.processInfo.systemUptime - 0.3) forKey:@"lastAudioCallbackTime"];
+    deliver(remote, nil);
+    [bridge reportDiagnostics];
+    CHECK(strstr(events.lastReport, "accepted_packets=2 accepted_bytes=240") &&
+          strstr(events.lastReport, "callback_gap_ge20=1 callback_gap_ge50=1 callback_gap_ge100=1 callback_gap_ge250=1"),
+          "accepted callbacks or in-session gap not recorded");
+    CHECK(events.received == 5 && events.rejected == 3, "telemetry changed accepted packet behavior");
+    int16_t pcm[AKPCMCapacity + 1] = {0};
+    CHECK(![bridge enqueueSamples:NULL count:1], "invalid enqueue accepted");
+    CHECK(![bridge enqueueSamples:pcm count:AKPCMCapacity + 1], "oversized enqueue accepted");
+    CHECK([bridge enqueueSamples:pcm count:480], "diagnostic test enqueue failed");
+    AKAudioPCMStorage *storage = [bridge valueForKey:@"pcmStorage"];
+    float output[100];
+    CHECK(AKRenderAudio(storage, output, 100) == 100, "partial render failed");
+    FakeAudioEngine *engine = [bridge valueForKey:@"engine"];
+    engine.stopped = YES;
+    bridge.availableDeviceID = kAudioObjectUnknown;
+    CHECK(![bridge enqueueSamples:pcm count:1], "unavailable output accepted PCM");
+    [bridge reportDiagnostics];
+    CHECK(strstr(events.lastReport, "enqueue_invalid=1 enqueue_output_unavailable=1 enqueue_queue_full=1"),
+          "enqueue failure causes were not distinguished");
+    CHECK(strstr(events.lastReport, "discarded_queued_samples=380") && events.discardedBuffers == 1,
+          "queue discard counted already rendered samples");
+    [bridge setValue:nil forKey:@"peripheral"];
+    [bridge stop];
+    CHECK(strstr(events.lastReport, "discarded_queued_samples=0"), "discard window did not reset");
+
+    // Thresholds are inclusive and cumulative, not disjoint buckets.
+    AKAudioWindow w = {0};
+    for (double ms = 0; ms <= 250; ms += 10) AKRecordCallbackGap(&w, ms);
+    CHECK(w.gap20 == 24 && w.gap50 == 21 && w.gap100 == 16 && w.gap250 == 1,
+          "callback gap thresholds incorrect");
+    return 0;
+}
+
 int main(void) {
     @autoreleasepool {
+        CHECK(CheckWindowDiagnostics() == 0, "window diagnostics failed");
         AudioEvents events = {0};
         AKAudioCallbacks callbacks = {.context = &events, .on_event = CaptureAudioEvent};
         RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:&callbacks];
