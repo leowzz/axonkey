@@ -1,3 +1,4 @@
+use super::signal_monitor::{now_ms, SignalMonitor};
 use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use std::{
     ffi::{c_char, c_void},
@@ -20,6 +21,8 @@ const EVENT_DIAGNOSTICS: i32 = 9;
 const EVENT_LOG: i32 = 10;
 const EVENT_CONTROL: i32 = 11;
 const EVENT_OUTPUT_RESET: i32 = 12;
+const EVENT_RSSI: i32 = 13;
+const EVENT_CONNECTION_RESET: i32 = 14;
 
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, *const u8, usize, i32, i32);
 
@@ -39,6 +42,7 @@ extern "C" {
     fn axonkey_macos_audio_driver_installed() -> bool;
     fn axonkey_macos_audio_state(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_bluetooth_connected(bridge: *mut c_void) -> bool;
+    fn axonkey_macos_audio_request_rssi(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_forwarding(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_battery_level(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_copy_error(
@@ -47,6 +51,7 @@ extern "C" {
         capacity: usize,
     ) -> usize;
     fn axonkey_macos_audio_enqueue(bridge: *mut c_void, samples: *const i16, count: usize) -> bool;
+    fn axonkey_macos_audio_set_stretch_compensation(bridge: *mut c_void, enabled: bool) -> bool;
     fn axonkey_macos_audio_set_gain_db(bridge: *mut c_void, gain_db: f32);
 }
 
@@ -54,6 +59,7 @@ struct Shared {
     diagnostics: AudioDiagnostics,
     bridge: AtomicPtr<c_void>,
     decoder: Mutex<AtvvDecoder>,
+    signal_monitor: Mutex<SignalMonitor>,
 }
 
 pub struct AudioService {
@@ -65,6 +71,24 @@ unsafe impl Send for AudioService {}
 unsafe impl Sync for AudioService {}
 
 impl AudioService {
+    pub fn signal_snapshot(&self) -> serde_json::Value {
+        let now = now_ms();
+        self.shared.signal_monitor.lock().unwrap().poll(now);
+        // Do not hold the monitor mutex while dispatching to the native main
+        // thread: delegate callbacks update the same cache.
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        let connected = !bridge.is_null() && unsafe { axonkey_macos_audio_request_rssi(bridge) };
+        self.shared
+            .signal_monitor
+            .lock()
+            .unwrap()
+            .snapshot(now, connected)
+    }
+
+    pub fn stop_signal_monitor(&self) {
+        self.shared.signal_monitor.lock().unwrap().clear();
+    }
+
     pub fn level(&self) -> super::AudioLevel {
         self.shared.diagnostics.level()
     }
@@ -75,6 +99,7 @@ impl AudioService {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
+            signal_monitor: Mutex::new(SignalMonitor::default()),
         });
         let callback_context = Arc::into_raw(Arc::clone(&shared));
         let callbacks = NativeCallbacks {
@@ -129,6 +154,18 @@ impl AudioService {
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_start(bridge) };
+        }
+    }
+
+    pub fn set_stretch_compensation(&self, enabled: bool) -> Result<(), String> {
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        if bridge.is_null() {
+            return Err("无法连接 macOS 音频服务".into());
+        }
+        if unsafe { axonkey_macos_audio_set_stretch_compensation(bridge, enabled) } {
+            Ok(())
+        } else {
+            Err("请松开语音键，等待尾音结束后再切换补偿".into())
         }
     }
 
@@ -253,6 +290,16 @@ unsafe extern "C" fn native_event_callback(
                 shared.diagnostics.scheduled(samples.len(), success);
             }
         }
+        EVENT_RSSI => {
+            if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                monitor.rssi(now_ms(), value1, value2 != 0);
+            }
+        }
+        EVENT_CONNECTION_RESET => {
+            if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                monitor.disconnected();
+            }
+        }
         EVENT_CODEC_SYNC => {
             if let Ok(mut decoder) = shared.decoder.lock() {
                 shared
@@ -267,6 +314,9 @@ unsafe extern "C" fn native_event_callback(
                     .diagnostics
                     .decoder_pending(0, decoder.pending_bytes());
                 decoder.reset_session();
+            }
+            if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                monitor.session(event == EVENT_SESSION_START);
             }
             let state = if event == EVENT_SESSION_START {
                 "started"
@@ -291,6 +341,9 @@ unsafe extern "C" fn native_event_callback(
                     .diagnostics
                     .report_macos(value1 & 1 != 0, Duration::from_millis(value2.max(0) as u64))
                 {
+                    if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                        monitor.audio(now_ms(), &report, &message);
+                    }
                     log::info!(target: "axonkey::audio", "macOS RC003 audio diagnostics: {report} {message}");
                 }
             } else if value1 != 0 {
@@ -313,6 +366,7 @@ mod tests {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
+            signal_monitor: Mutex::new(SignalMonitor::default()),
         };
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 120];
@@ -344,6 +398,7 @@ mod tests {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
+            signal_monitor: Mutex::new(SignalMonitor::default()),
         };
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 60];
@@ -389,6 +444,7 @@ mod tests {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             decoder: Mutex::new(AtvvDecoder::default()),
+            signal_monitor: Mutex::new(SignalMonitor::default()),
         };
         let context = (&shared as *const Shared).cast_mut().cast();
         let _guard = shared.decoder.lock().unwrap();

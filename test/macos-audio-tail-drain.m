@@ -199,8 +199,36 @@ static int CheckWindowDiagnostics(void) {
     return 0;
 }
 
+static int CheckStretchConfiguration(void) {
+    RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:NULL];
+    CHECK([bridge ensureAudioOutput], "stretch fixture output failed");
+    AKAudioPCMStorage *storage = [bridge valueForKey:@"pcmStorage"];
+    CHECK(!storage->queue.stretchEnabled, "stretch must default off");
+    CHECK(axonkey_macos_audio_set_stretch_compensation((__bridge void *)bridge, true), "idle stretch enable failed");
+    CHECK(storage->queue.stretchEnabled, "stretch setting did not reach render queue");
+    [bridge beginVoiceSession];
+    int16_t samples[960] = {0};
+    CHECK([bridge enqueueSamples:samples count:960], "stretch enqueue failed");
+    CHECK(![bridge setStretchCompensation:NO] && storage->queue.stretchEnabled &&
+          AKPCMQueueCount(&storage->queue) == 960, "active toggle modified or discarded queued audio");
+    [bridge endVoiceSession];
+    CHECK(![bridge setStretchCompensation:NO], "toggle discarded unplayed tail");
+    float output[128];
+    for (int i = 0; i < 30 && AKPCMQueueCount(&storage->queue); i++) AKRenderAudio(storage, output, 128);
+    [bridge collectRenderedAudio];
+    CHECK(AKPCMQueueCount(&storage->queue) == 0, "stretch tail remained queued");
+    CHECK([bridge setStretchCompensation:NO] && !storage->queue.stretchEnabled,
+          "could not restore normal playback after drain");
+    CHECK([bridge setStretchCompensation:YES], "re-enable failed");
+    [bridge resetAudioQueue];
+    CHECK(storage->queue.stretchEnabled, "output reset lost configured compensation");
+    [bridge stop];
+    return 0;
+}
+
 int main(void) {
     @autoreleasepool {
+        CHECK(CheckStretchConfiguration() == 0, "stretch settings failed");
         CHECK(CheckWindowDiagnostics() == 0, "window diagnostics failed");
         AudioEvents events = {0};
         AKAudioCallbacks callbacks = {.context = &events, .on_event = CaptureAudioEvent};

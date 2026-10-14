@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>遥控器信号 · Axonkey</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:#202a38;background:#f4f6f8;font-synthesis:none;--muted:#697687;--line:#e5eaf0;--blue:#286be8;--purple:#7c59c5}
+*{box-sizing:border-box}body{margin:0}button,select{font:inherit}button{cursor:pointer;border:1px solid #dce2e9;background:white;color:#344154;border-radius:9px;padding:9px 13px;white-space:nowrap}button:hover{background:#f2f5f9}button:focus-visible,select:focus-visible{outline:3px solid #a7c8ff;outline-offset:2px}button:disabled{opacity:.4;cursor:default}.page{max-width:1200px;margin:auto;padding:30px 32px 24px}header{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:25px}h1{font-size:27px;letter-spacing:-.7px;margin:0 0 9px;font-weight:650}.intro{color:var(--muted);font-size:14px;line-height:1.7;margin:0}.status{display:flex;align-items:center;gap:7px;color:#536171;font-size:13px;padding-top:10px;white-space:nowrap}.dot{width:7px;height:7px;display:inline-block;border-radius:50%;background:#9aa5b3}.status[data-state=live] .dot{background:#29a37a;box-shadow:0 0 0 4px #29a37a13}.status[data-state=error] .dot{background:#d55e47}.status[data-state=stale] .dot{background:#c99337}
+.metrics{display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:18px}.metric{background:#fff;padding:19px 23px 17px}.metric-label{color:var(--muted);font-size:13px;margin-bottom:10px}.metric-value{font-size:34px;line-height:1.15;letter-spacing:-1px;font-variant-numeric:tabular-nums;min-height:40px;font-weight:600}.metric-value small{font-size:13px;color:var(--muted);font-weight:400;letter-spacing:0;margin-left:7px}.metric-note{font-size:12px;color:var(--muted);margin-top:9px;line-height:1.5;min-height:18px}.signal-value{color:var(--blue)}.audio-value{color:var(--purple)}.panel{background:white;border:1px solid var(--line);border-radius:14px;overflow:hidden}.toolbar{padding:18px 22px;display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;border-bottom:1px solid #eef1f5}.legend{font-size:14px;font-weight:550;display:flex;gap:10px;align-items:center}.legend i{display:inline-block;width:20px;height:3px;border-radius:4px;background:var(--blue)}.actions{display:flex;align-items:center;gap:8px;font-size:13px}.range{display:flex;background:#f3f5f8;padding:3px;border-radius:8px;margin-right:5px}.range button{border:0;background:transparent;padding:5px 10px;font-size:12px;border-radius:6px;color:var(--muted)}.range button[aria-pressed=true]{color:#263449;background:white;box-shadow:0 1px 4px #20304714}.charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.chart-column{min-width:0}.chart-column+.chart-column{border-left:1px solid var(--line)}.chart-head{min-height:78px;padding:18px 22px 8px;display:flex;flex-direction:column;gap:8px}.chart-head .hint{line-height:1.5}.audio-head .legend i{background:var(--purple)}.chart-wrap{position:relative;padding:0 12px}.chart-wrap svg{display:block;width:100%;height:280px;touch-action:pan-y}.chart-wrap text{font-family:inherit;font-size:12px;fill:#8190a2;font-variant-numeric:tabular-nums}.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px;pointer-events:none;padding:50px;text-align:center}.empty[hidden]{display:none}.chart-summary{font-size:12px;color:var(--muted);padding:8px 24px 18px;display:flex;flex-direction:column;gap:6px;line-height:1.5}.hint{font-size:12px;color:var(--muted)}.tooltip{position:absolute;z-index:3;border:1px solid #e5e9ee;background:#fffffff5;box-shadow:0 5px 24px #24314216;padding:12px 15px;border-radius:9px;font-size:13px;line-height:1.9;pointer-events:none;min-width:180px;backdrop-filter:blur(8px)}.tooltip[hidden]{display:none}.tooltip strong{display:block;font-size:12px;color:var(--muted);font-weight:500}.tooltip b{font-variant-numeric:tabular-nums}.bottom{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;padding:16px 2px;color:var(--muted);font-size:12px;line-height:1.7}.bottom p{margin:0}.bottom button{font-size:12px;padding:6px 10px}.notice{border:1px solid #e3ddca;background:#fffaf0;color:#836326;border-radius:9px;padding:11px 15px;margin-bottom:16px;font-size:13px;line-height:1.6}.notice[hidden]{display:none}.marker-help{font-size:12px;color:var(--muted)}
+@media(max-width:740px){.page{padding:20px 14px}header{gap:10px}h1{font-size:23px}.status{font-size:12px}.intro{font-size:13px}.metric{padding:16px 12px}.metric-value{font-size:29px}.metric-value small{display:block;margin:4px 0 0;font-size:11px}.metric-note{font-size:11px}.toolbar{padding:14px;gap:12px}.actions{flex-wrap:wrap;gap:6px;width:100%}.range{margin-right:auto}.actions button{font-size:12px;padding:7px 10px}.chart-wrap{padding:0 3px}.chart-summary{padding:0 16px 14px;font-size:11px}.chart-head{padding:16px 14px 8px;min-height:90px}.hint{font-size:12px}.bottom{flex-wrap:wrap}.empty{font-size:12px;padding:40px}.metrics{margin-bottom:14px}header{margin-bottom:20px}}
+@media(max-width:599px){.charts{grid-template-columns:minmax(0,1fr)}.chart-column+.chart-column{border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<main class="page">
+<header><div><h1>遥控器信号</h1><p class="intro">移动位置或改变握法，观察信号与语音收包是否同时变化。</p></div><div id="status" class="status" data-state="waiting"><span class="dot"></span><span id="status-text">正在连接</span></div></header>
+<div class="notice" id="notice" role="status" hidden></div>
+<section class="metrics" aria-label="当前读数">
+<div class="metric"><div class="metric-label">蓝牙信号 · RSSI</div><div class="metric-value signal-value"><span id="rssi">—</span><small>dBm</small></div><div class="metric-note" id="rssi-note">等待遥控器信号</div></div>
+<div class="metric"><div class="metric-label">语音接收速度</div><div class="metric-value audio-value"><span id="pps">—</span><small>包 / 秒</small></div><div class="metric-note" id="audio-note">按住语音键后显示</div></div>
+<div class="metric"><div class="metric-label">音频队列欠载</div><div class="metric-value"><span id="underruns">—</span><small>次 / 统计窗口</small></div><div class="metric-note">队列耗尽计数，不等于丢包数</div></div>
+</section>
+<section class="panel" aria-label="信号与音频实时折线图">
+<div class="toolbar"><div class="legend">实时曲线</div><div class="actions"><div class="range" aria-label="显示时间范围"><button data-range="60" aria-pressed="false">1 分钟</button><button data-range="180" aria-pressed="true">3 分钟</button><button data-range="600" aria-pressed="false">10 分钟</button></div><button id="mark">标记位置</button><button id="pause">暂停显示</button></div></div>
+<div class="charts">
+<section class="chart-column" aria-labelledby="signal-title">
+<div class="chart-head"><div class="legend" id="signal-title"><i></i>信号强度</div><span class="hint">数值越接近 0，接收信号越强。</span></div>
+<div class="chart-wrap" id="signal-wrap"><svg id="signal-chart" role="img" aria-label="遥控器 RSSI 随时间变化的折线图" viewBox="0 0 1100 280"></svg><div id="signal-empty" class="empty">等待 macOS 提供遥控器信号数据…</div><div id="tooltip" class="tooltip" hidden></div></div>
+<div class="chart-summary"><span id="summary">数值越接近 0，接收信号越强。</span><span id="sample-age">每秒读取 · 不平滑原始数据</span></div>
+</section>
+<section class="chart-column" aria-labelledby="audio-title">
+<div class="chart-head audio-head"><div class="legend" id="audio-title"><i></i>语音接收速度</div><span class="hint">虚线：连续音频约需 66.7 包 / 秒</span></div>
+<div class="chart-wrap" id="audio-wrap"><svg id="audio-chart" role="img" aria-label="遥控器语音收包速度随时间变化的折线图" viewBox="0 0 1100 280"></svg><div id="audio-empty" class="empty">按住语音键说话，这里会显示接收速度。</div></div>
+<div class="chart-summary"><span id="marker-help">改变位置时点「标记位置」，方便前后对照。</span><span id="audio-age">两张图使用同一时间轴</span></div>
+</section>
+</div>
+</section>
+<footer class="bottom"><p id="source-note">只读取本机日志，不录音、不重连设备。RSSI 不是距离测量，收包速度也不是丢包率。<br>数据中断时曲线会断开；语音收包以 Axonkey 的统计窗口为准。</p><div style="display:flex;gap:8px"><button id="clear-marks" hidden>清空标记</button><button id="export" disabled>导出读数</button></div></footer>
+</main>
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const nativeInvoke=window.__TAURI__?.core?.invoke;
+if(nativeInvoke)$('source-note').innerHTML='实时读取已连接遥控器的蓝牙信号和语音收包统计，不保存声音。<br>关闭窗口后停止采集信号读数；RSSI 不是距离测量，收包速度也不是丢包率。';
+document.addEventListener('keydown',event=>{if(event.key==='F5')event.preventDefault()},true);
+const fmtTime=t=>new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date(t));
+let feed=null,frozen=null,range=180,marks=[],markCount=0,hoverTime=null,fetchError=false,W=1100;
+const L=60,R=20;
+const number=v=>typeof v==='number'&&Number.isFinite(v);
+const data=()=>frozen||feed;
+const end=()=>data()?.now||Date.now();
+const start=()=>end()-range*1000;
+const inRange=points=>(points||[]).filter(p=>number(p.t)&&p.t>=start()&&p.t<=end());
+const age=(now,t)=>number(t)?Math.max(0,(now-t)/1000):Infinity;
+function latest(points){return points?.length?points[points.length-1]:null}
+function nearest(points,t,max=1800){let best=null,diff=max;for(const p of points||[]){const d=Math.abs(p.t-t);if(d<=diff){diff=d;best=p}}return best}
+function setText(id,text){$(id).textContent=text}
+function x(t){return L+(t-start())/(range*1000)*(W-L-R)}
+function plot(id,points,key,height,min,max,color,step,target){
+ const top=18,bottom=height-31,y=v=>top+(max-v)/(max-min)*(bottom-top);
+ let out='';
+ for(let v=Math.ceil(min/step)*step;v<=max;v+=step){let py=y(v);out+=`<line x1="${L}" x2="${W-R}" y1="${py}" y2="${py}" stroke="#eaf0f5"/><text x="${L-12}" y="${py+4}" text-anchor="end">${v}</text>`}
+ const ticks=W<600?2:4;
+ for(let i=0;i<=ticks;i++){let t=start()+i*range*1000/ticks;out+=`<text x="${x(t)}" y="${height-8}" text-anchor="${i===0?'start':i===ticks?'end':'middle'}">${fmtTime(t)}</text>`}
+ if(number(target))out+=`<line x1="${L}" x2="${W-R}" y1="${y(target)}" y2="${y(target)}" stroke="#b0a3ce" stroke-dasharray="5 5"/>`;
+ let path='',previous=null;
+ for(const p of points){if(!number(p[key])){previous=null;continue}const value=Math.max(min,Math.min(max,p[key]));path+=`${previous&&p.t-previous.t<=4500?'L':'M'}${x(p.t).toFixed(2)},${y(value).toFixed(2)} `;previous=p}
+ out+=`<path d="${path}" stroke="${color}" stroke-width="2.5" fill="none" stroke-linejoin="round" stroke-linecap="round"/>`;
+ // A single real sample still has a visible point. Never extend it into the future.
+ if(points.length){const p=latest(points);if(number(p[key]))out+=`<circle cx="${x(p.t)}" cy="${y(Math.max(min,Math.min(max,p[key])))}" r="3.5" fill="${color}" stroke="white" stroke-width="1.5"/>`}
+ for(const m of marks.filter(m=>m.t>=start()&&m.t<=end()))out+=`<line x1="${x(m.t)}" x2="${x(m.t)}" y1="${top}" y2="${bottom}" stroke="#b6c0cb" stroke-dasharray="3 4"/>${id==='signal-chart'?`<text x="${Math.min(x(m.t)+5,W-66)}" y="${top+11}" fill="#68778b">${m.label}</text>`:''}`;
+ if(hoverTime&&hoverTime>=start()&&hoverTime<=end())out+=`<line x1="${x(hoverTime)}" x2="${x(hoverTime)}" y1="${top}" y2="${bottom}" stroke="#637388" opacity=".5"/>`;
+ $(id).innerHTML=out;
+}
+function render(){
+ const d=data();if(!d)return;
+ W=Math.max(240,Math.round($('signal-chart').getBoundingClientRect().width));
+ $('signal-chart').setAttribute('viewBox',`0 0 ${W} 280`);$('audio-chart').setAttribute('viewBox',`0 0 ${W} 280`);
+ const b=d.bluetooth||{},a=d.audio||{},now=d.now||Date.now();
+ const bp=inRange(b.samples),ap=inRange(a.samples),lastB=latest(b.samples),lastA=latest(a.samples);
+ const liveB=!fetchError&&b.status==='live'&&age(now,b.lastSampleAt)<=5;
+ const liveA=!fetchError&&a.status==='live'&&age(now,a.lastSampleAt)<=10;
+ $('status').dataset.state=frozen?'waiting':fetchError?'error':b.status;
+ setText('status-text',frozen?'显示已暂停':fetchError?'连接已中断':liveB?'实时更新':b.status==='error'?'信号读取失败':b.status==='stale'?'信号数据已暂停':'等待信号');
+ setText('rssi',liveB&&number(lastB?.rssi)?String(lastB.rssi).replace('-','−'):'—');
+ setText('rssi-note',liveB?'小米蓝牙语音遥控器 · 数值越大越强':b.message||'等待新的信号读数');
+ setText('pps',liveA&&number(lastA?.pps)?lastA.pps.toFixed(1):'—');
+ setText('underruns',liveA&&number(lastA?.underruns)?String(lastA.underruns):'—');
+ setText('audio-note',liveA?`语音会话 ${lastA.sessionId??'—'}`:a.message||'按住语音键后显示');
+ const notice=fetchError?'本地采集服务连接中断。历史曲线仍保留，连接恢复后会自动继续。':b.status==='error'?b.message||'无法读取系统蓝牙日志。':frozen?'已暂停显示，后台仍在采集。点「继续显示」回到实时曲线。':'';
+ $('notice').hidden=!notice;setText('notice',notice);
+ const values=bp.map(p=>p.rssi).filter(number);
+ let low=Math.min(-90,...values),high=Math.max(-30,...values);
+ low=Math.floor(low/10)*10;high=Math.ceil(high/10)*10;
+ plot('signal-chart',bp,'rssi',280,low,high,'#286be8',10);
+ const audioMax=Math.max(80,...ap.map(p=>number(p.pps)?p.pps:0));
+ plot('audio-chart',ap,'pps',280,0,Math.ceil(audioMax/20)*20,'#7c59c5',20,66.667);
+ $('signal-empty').hidden=bp.length>0;$('audio-empty').hidden=ap.some(p=>p.pps>0);
+ setText('signal-empty',b.status==='error'?'暂时无法读取信号，请查看上方说明。':b.status==='stale'?'当前范围内没有新的信号数据。':'等待 macOS 提供遥控器信号数据…');
+ setText('summary',values.length?`范围内均值 ${(values.reduce((s,v)=>s+v,0)/values.length).toFixed(1)} dBm　·　最低 ${Math.min(...values)} / 最高 ${Math.max(...values)} dBm`:'数值越接近 0，接收信号越强。');
+ setText('sample-age',number(b.lastSampleAt)?`最近信号 ${fmtTime(b.lastSampleAt)}${liveB?'':` · ${Math.floor(age(now,b.lastSampleAt))} 秒前`}`:'每秒读取 · 不平滑原始数据');
+ setText('audio-age',number(a.lastSampleAt)?`最近音频统计 ${fmtTime(a.lastSampleAt)}`:'两张图使用同一时间轴');
+ $('export').disabled=!(b.samples?.length||a.samples?.length);$('mark').disabled=!!frozen||fetchError;$('clear-marks').hidden=!marks.length;
+}
+async function readState(){
+ if(nativeInvoke)return nativeInvoke('get_signal_monitor_state');
+ const response=await fetch('/api/state',{cache:'no-store',signal:AbortSignal.timeout(4000)});
+ if(!response.ok)throw new Error('HTTP '+response.status);
+ return response.json();
+}
+async function poll(){try{const next=await readState();if(!next.bluetooth||!next.audio||!number(next.now))throw new Error('Invalid data');feed=next;fetchError=false;}catch{fetchError=true;if(feed)feed={...feed,now:Date.now()};else{feed={now:Date.now(),bluetooth:{status:'error',samples:[]},audio:{samples:[]}}}}render();setTimeout(poll,1000)}
+for(const button of document.querySelectorAll('[data-range]'))button.addEventListener('click',()=>{range=Number(button.dataset.range);for(const b of document.querySelectorAll('[data-range]'))b.setAttribute('aria-pressed',String(b===button));hoverTime=null;$('tooltip').hidden=true;render()});
+$('pause').addEventListener('click',()=>{frozen=frozen?null:feed?structuredClone(feed):null;setText('pause',frozen?'继续显示':'暂停显示');render()});
+$('mark').addEventListener('click',()=>{if(!feed)return;marks.push({t:feed.now,label:'标记 '+(++markCount)});if(marks.length>20)marks.shift();setText('marker-help',`已标记 ${fmtTime(feed.now)} · ${marks.length} 个位置标记`);render()});
+$('clear-marks').addEventListener('click',()=>{marks=[];markCount=0;setText('marker-help','改变位置时点「标记位置」，方便前后对照。');render()});
+for(const wrapId of ['signal-wrap','audio-wrap']){
+ const wrap=$(wrapId);
+ wrap.addEventListener('pointermove',event=>{if(!data())return;const rect=wrap.querySelector('svg').getBoundingClientRect();const px=(event.clientX-rect.left)/rect.width*W;if(px<L||px>W-R)return;hoverTime=start()+(px-L)/(W-L-R)*range*1000;render();const d=data(),b=nearest(d.bluetooth?.samples,hoverTime),a=nearest(d.audio?.samples,hoverTime);const tip=$('tooltip');tip.replaceChildren();let time=document.createElement('strong');time.textContent=fmtTime(hoverTime);tip.append(time);for(const text of [`信号　${b?b.rssi+' dBm':'无读数'}`,`收包　${a?a.pps.toFixed(1)+' 包/秒':'无读数'}`,`欠载　${a?a.underruns+' 次':'无读数'}`]){let line=document.createElement('div');line.textContent=text;tip.append(line)}wrap.append(tip);tip.hidden=false;const host=wrap.getBoundingClientRect();tip.style.left=Math.max(8,Math.min(host.width-tip.offsetWidth-8,event.clientX-host.left+14))+'px';tip.style.top='24px'});
+ wrap.addEventListener('pointerleave',()=>{hoverTime=null;$('tooltip').hidden=true;render()});
+}
+$('export').addEventListener('click',async()=>{const d=data();if(!d)return;const rows=[['时间（上海）','来源','RSSI(dBm)','包/秒','欠载次数','语音会话']];const events=[...(d.bluetooth.samples||[]).map(p=>({t:p.t,row:[fmtTime(p.t),'蓝牙信号',p.rssi,'','','']})),...(d.audio.samples||[]).map(p=>({t:p.t,row:[fmtTime(p.t),'音频统计','',p.pps,p.underruns,p.sessionId]}))].sort((a,b)=>a.t-b.t);rows.push(...events.map(p=>p.row));const content='\ufeff'+rows.map(r=>r.join(',')).join('\n');if(nativeInvoke){try{const saved=await nativeInvoke('export_signal_monitor',{content});if(saved)setText('marker-help','读数已导出');}catch(error){setText('marker-help',String(error));}return;}const url=URL.createObjectURL(new Blob([content],{type:'text/csv;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download='遥控器信号读数.csv';anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+window.addEventListener('resize',()=>{hoverTime=null;$('tooltip').hidden=true;render()});
+poll();
+</script>
+</body>
+</html>

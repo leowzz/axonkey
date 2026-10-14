@@ -33,6 +33,10 @@ type SettingsPageProps = {
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
   onAudioAction: (action: DriverActionKind) => void
+  stretchCompensation: boolean
+  stretchError: string
+  stretchUpdating: boolean
+  onStretchCompensationChange: (enabled: boolean) => void
   audioRestarting: boolean
   audioRestartError: string
   onRestartAudio: () => void
@@ -41,13 +45,16 @@ type SettingsPageProps = {
   device: SetupState['device']
   onOpenBluetooth: () => void
   onCheckDevice: () => void
+  onOpenSignalMonitor: () => void
+  signalMonitorOpening: boolean
+  signalMonitorError: string
   onRequestPermission: (kind: MacPermissionKind) => void
   onOpenSettings: (kind: MacPermissionKind) => void
   onRefresh: () => void
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -115,6 +122,15 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
             <SettingsHelp id="settings-audio-help" label="虚拟麦克风">将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch 作为麦克风。切换声音设备后若没有声音，可点击“重启驱动”重新连接虚拟麦克风和遥控器；当前语音会中断，请连接恢复后再试。</SettingsHelp>
           </div>
         </section>
+        <section className="settings-form-row" aria-labelledby="settings-audio-stretch-label">
+          <span id="settings-audio-stretch-label" className="settings-form-label">语音补偿：</span>
+          <div className="settings-form-control">
+            <label className="settings-checkbox"><input type="checkbox" checked={stretchCompensation} disabled={!nativeRuntime || stretchUpdating || audioBusy} onChange={(event) => onStretchCompensationChange(event.target.checked)} />软件拉伸补偿（实验）</label>
+            {stretchUpdating && <span role="status">正在应用…</span>}
+            <SettingsHelp id="settings-audio-stretch-help" label="软件拉伸补偿">默认关闭，更改自动保存。实验性功能，会拉长收到的声音；收包不稳定时可能加重停顿或拖音，无法恢复缺失的字。出现卡顿加重时请关闭。请松开语音键、等待尾音结束后切换，下次讲话生效。</SettingsHelp>
+            {stretchError && <span role="alert" className="settings-form-error">{stretchError}</span>}
+          </div>
+        </section>
         <div className="settings-form-row">
           <span className="settings-form-label">语音输入法：</span>
           <div className="settings-form-control">
@@ -149,6 +165,14 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           <SettingsHelp id="settings-device-help" label="连接 RC003">先在系统蓝牙设置中配对小米遥控器 RC003，再按任意按键唤醒，然后返回这里重新检测。</SettingsHelp>
         </div>
       </section>
+      {platform === 'macos' && <section className="settings-form-row" aria-labelledby="settings-signal-label">
+        <span id="settings-signal-label" className="settings-form-label">遥控器信号：</span>
+        <div className="settings-form-control">
+          <button type="button" className="dialog-secondary" disabled={!nativeRuntime || signalMonitorOpening} aria-busy={signalMonitorOpening} onClick={onOpenSignalMonitor}>{signalMonitorOpening ? '正在打开…' : '查看信号与收包'}</button>
+          <SettingsHelp id="settings-signal-help" label="遥控器信号监测">在应用内查看蓝牙信号强度和语音收包速率的实时曲线。移动遥控器或改变握法，再按住语音键说话，比较前后变化。关闭监测窗口后停止采集信号读数。</SettingsHelp>
+          {signalMonitorError && <span role="alert" className="settings-form-error">{signalMonitorError}</span>}
+        </div>
+      </section>}
     </div>}
     </section>
     <section id="settings-panel-remote" aria-labelledby="settings-nav-remote" hidden={currentSection !== 'remote'}>

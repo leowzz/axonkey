@@ -278,11 +278,26 @@ function AppController() {
     window.addEventListener('keydown', handleEscapeFailsafe, true)
     return () => window.removeEventListener('keydown', handleEscapeFailsafe, true)
   }, [mouseEnabled])
-  const { audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
+  const { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
     platform,
     nativeRuntime,
     onToast: setToast,
   })
+
+  const [signalMonitorOpening, setSignalMonitorOpening] = useState(false)
+  const [signalMonitorError, setSignalMonitorError] = useState('')
+  const openSignalMonitor = async () => {
+    if (!nativeRuntime || platform !== 'macos' || signalMonitorOpening) return
+    setSignalMonitorOpening(true)
+    setSignalMonitorError('')
+    try {
+      await invoke('open_signal_monitor')
+    } catch (error) {
+      setSignalMonitorError(`无法打开信号监测：${String(error)}`)
+    } finally {
+      setSignalMonitorOpening(false)
+    }
+  }
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
@@ -1472,6 +1487,13 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          onOpenSignalMonitor={() => void openSignalMonitor()}
+          signalMonitorOpening={signalMonitorOpening}
+          signalMonitorError={signalMonitorError}
+          stretchCompensation={stretchCompensation}
+          stretchError={stretchError}
+          stretchUpdating={stretchUpdating}
+          onStretchCompensationChange={updateStretchCompensation}
           section={settingsSection}
           onSectionChange={setSettingsSection}
           showRemoteKeyGrid={showRemoteKeyGrid}

@@ -15,6 +15,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=IOKit");
         println!("cargo:rerun-if-changed=native/macos_audio.m");
         println!("cargo:rerun-if-changed=native/macos_pcm_queue.h");
+        println!("cargo:rerun-if-changed=native/macos_audio_trace.h");
         println!("cargo:rerun-if-changed=native/macos_input.m");
     }
     tauri_build::build()

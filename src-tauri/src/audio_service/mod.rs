@@ -37,6 +37,9 @@ mod diagnostics;
 mod macos;
 
 #[cfg(target_os = "macos")]
+mod signal_monitor;
+
+#[cfg(target_os = "macos")]
 pub use macos::AudioService;
 
 #[cfg(target_os = "windows")]

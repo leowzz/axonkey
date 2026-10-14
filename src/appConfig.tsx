@@ -191,6 +191,14 @@ export function getStoredAudioGain() {
   }
 }
 
+export function getStoredAudioStretchCompensation() {
+  if (typeof window === 'undefined') return false
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(audioSettingsStorageKey) ?? '{}')
+    return isRecord(parsed) && parsed.stretchCompensation === true
+  } catch { return false }
+}
+
 export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
   const props = { size, strokeWidth: 1.8 }
   switch (kind) {

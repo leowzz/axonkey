@@ -1324,6 +1324,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-form-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 32px; }
 .settings-form-label { text-align: right; font-size: 14px; color: #303338; }
 .settings-form-control { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; min-width: 0; font-size: 14px; }
+.settings-form-error { flex-basis: 100%; color: #b43e3e; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .settings-checkbox { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .settings-checkbox input { width: 17px; height: 17px; margin: 0; accent-color: #1683f8; }
 .settings-number { width: 94px; height: 30px; padding: 3px 6px; border: 1px solid #c7c9cd; border-radius: 4px; background: white; color: #303338; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }

@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include "macos_pcm_queue.h"
+#include "macos_audio_trace.h"
 
 enum {
     AKAudioEventPacket = 1,
@@ -21,6 +22,8 @@ enum {
     AKAudioEventLog = 10,
     AKAudioEventControl = 11,
     AKAudioEventOutputReset = 12,
+    AKAudioEventRSSI = 13,
+    AKAudioEventConnectionReset = 14,
 };
 
 enum {
@@ -203,15 +206,18 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count;
 - (int)currentState;
 - (BOOL)isBluetoothConnected;
+- (BOOL)requestRSSI;
 - (BOOL)isForwarding;
 - (int)currentBatteryLevel;
 - (NSString *)currentError;
 - (void)setGainDecibels:(float)decibels;
+- (BOOL)setStretchCompensation:(BOOL)enabled;
 @end
 
 @implementation AKMacAudioBridge {
     AKAudioCallbacks _callbacks;
     CBCentralManager *_central;
+    NSTimeInterval _lastRSSIRequest;
     CBPeripheral *_peripheral;
     CBCharacteristic *_transmitCharacteristic;
     CBCharacteristic *_audioCharacteristic;
@@ -248,6 +254,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     CFAbsoluteTime _lastVoiceStopTime;
     int _batteryLevel;
     float _gain;
+    BOOL _stretchCompensation;
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
@@ -260,6 +267,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     AVAudioFormat *_sourceFormat;
     NSTimer *_diagnosticsTimer;
     NSTimeInterval _lastDiagnosticsTime;
+    AKAudioPacketTrace *_packetTrace;
 }
 
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks {
@@ -282,6 +290,10 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
         _batteryLevel = -1;
         _gain = 1.0f;
         _state = AKAudioStateStopped;
+        NSString *tracePath = NSProcessInfo.processInfo.environment[@"AXONKEY_AUDIO_TRACE_PATH"];
+        if (tracePath.length > 0) {
+            _packetTrace = [[AKAudioPacketTrace alloc] initWithPath:tracePath];
+        }
         _sourceFormat = [[AVAudioFormat alloc]
             initWithCommonFormat:AVAudioPCMFormatFloat32
             sampleRate:16000
@@ -331,6 +343,24 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     @synchronized (self) {
         return _peripheral != nil && _peripheral.state == CBPeripheralStateConnected;
     }
+}
+
+// Requested only by the monitor page; closing it stops polling. Reuse the
+// existing connection, and bound requests even if the UI polls too quickly.
+- (BOOL)requestRSSI {
+    if (![self isBluetoothConnected]) return NO;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (now - _lastRSSIRequest >= 1.0) {
+        _lastRSSIRequest = now;
+        [_peripheral readRSSI];
+    }
+    return YES;
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral didReadRSSI:(NSNumber *)RSSI error:(NSError *)error {
+    if (peripheral != _peripheral || peripheral.state != CBPeripheralStateConnected) return;
+    [self emitEvent:AKAudioEventRSSI data:nil
+            value1:RSSI.intValue value2:(error != nil || RSSI == nil ? 1 : 0)];
 }
 
 - (BOOL)isForwarding {
@@ -428,6 +458,10 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     _audioWindow = (AKAudioWindow){0};
     _clippedSamples = 0;
     _maxPacketGapMilliseconds = 0;
+    context = [context stringByAppendingFormat:@" stretch_enabled=%d stretch_rate=%.3f stretch_output_samples=%llu",
+        _stretchCompensation,
+        _pcmStorage != nil ? atomic_load(&_pcmStorage->queue.stretchRatePermille) / 1000.0 : 1.0,
+        (unsigned long long)(_pcmStorage != nil ? atomic_exchange(&_pcmStorage->queue.stretchOutputSamples, 0) : 0)];
     [self emitEvent:AKAudioEventDiagnostics
                data:[context dataUsingEncoding:NSUTF8StringEncoding]
              // Bit 0 is forwarding state; bit 1 preserves native-only activity
@@ -455,6 +489,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (void)stop {
+    [self finishPacketTrace];
     [_diagnosticsTimer invalidate];
     _diagnosticsTimer = nil;
     _shouldRun = NO;
@@ -502,6 +537,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (void)resetPeripheral {
+    _lastRSSIRequest = 0;
+    [self emitEvent:AKAudioEventConnectionReset data:nil value1:0 value2:0];
     _peripheral.delegate = nil;
     _peripheral = nil;
     _transmitCharacteristic = nil;
@@ -902,6 +939,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     // Establish the graph only after choosing the device so the mixer doesn't
     // inherit the system default output's channel count and sample rate.
     AKAudioPCMStorage *storage = [[AKAudioPCMStorage alloc] init];
+    storage->queue.stretchEnabled = _stretchCompensation;
     AVAudioSourceNode *source = [[AVAudioSourceNode alloc]
         initWithFormat:_sourceFormat
         renderBlock:^OSStatus(BOOL *isSilence, const AudioTimeStamp *timestamp,
@@ -947,6 +985,19 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
                                               _sourceFormat.sampleRate, _sourceFormat.channelCount,
                                               outputFormat.sampleRate, outputFormat.channelCount]
              error:NO];
+    return YES;
+}
+
+- (BOOL)setStretchCompensation:(BOOL)enabled {
+    if (_stretchCompensation == enabled) return YES;
+    // Do not reset or modify consumer-owned DSP state while it is rendering.
+    // The caller can retry after releasing the key and draining the final audio.
+    [self collectRenderedAudio];
+    if (_streaming || _microphoneOpened || _pendingAudioBuffers > 0) return NO;
+    [self resetAudioQueue];
+    _stretchCompensation = enabled;
+    if (_pcmStorage != nil) _pcmStorage->queue.stretchEnabled = enabled;
+    [self logAudio:[NSString stringWithFormat:@"macOS audio stretch compensation: enabled=%d", enabled] error:NO];
     return YES;
 }
 
@@ -1039,6 +1090,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     if (_pcmStorage != nil) {
         _audioWindow.discardedSamples += AKPCMQueueCount(&_pcmStorage->queue);
         AKPCMQueueInit(&_pcmStorage->queue);
+        _pcmStorage->queue.stretchEnabled = _stretchCompensation;
     }
 }
 
@@ -1265,6 +1317,18 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
               error:(NSError *)error {
     BOOL audio = [characteristic.UUID isEqual:_audioUUID];
     NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    if (audio && _packetTrace != nil && !_packetTrace.sealed) {
+        BOOL first = !_packetTrace.started;
+        uint32_t flags = (peripheral != _peripheral ? 1 : 0) |
+                         (error != nil ? 2 : 0) | (characteristic.value == nil ? 4 : 0);
+        [_packetTrace recordData:characteristic.value uptime:started
+            unixTime:CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970
+            session:_sessionID flags:flags];
+        if (first) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC),
+                dispatch_get_main_queue(), ^{ [self finishPacketTrace]; });
+        }
+    }
     if (audio) {
         NSUInteger bytes = characteristic.value.length;
         if (_audioWindow.callbacks == 0) _audioWindow.minBytes = bytes;
@@ -1286,6 +1350,20 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     [self handleValueForPeripheral:peripheral characteristic:characteristic error:error];
     if (audio) _audioWindow.maxHandlerMs = fmax(_audioWindow.maxHandlerMs,
         (NSProcessInfo.processInfo.systemUptime - started) * 1000.0);
+}
+
+- (void)finishPacketTrace {
+    AKAudioPacketTrace *trace = _packetTrace;
+    if (trace == nil || trace.sealed || !trace.started) return;
+    [trace seal];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        BOOL saved = [trace writeCSV];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self logAudio:[NSString stringWithFormat:
+                @"macOS packet trace: callbacks=%lu saved=%d (one-shot capture ended)",
+                (unsigned long)trace.count, saved] error:!saved];
+        });
+    });
 }
 
 - (void)handleValueForPeripheral:(CBPeripheral *)peripheral
@@ -1388,6 +1466,14 @@ bool axonkey_macos_audio_bluetooth_connected(void *rawBridge) {
     return connected;
 }
 
+bool axonkey_macos_audio_request_rssi(void *rawBridge) {
+    if (rawBridge == NULL) return false;
+    __block BOOL connected = NO;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ connected = [bridge requestRSSI]; });
+    return connected;
+}
+
 bool axonkey_macos_audio_forwarding(void *rawBridge) {
     if (rawBridge == NULL) {
         return false;
@@ -1442,4 +1528,12 @@ void axonkey_macos_audio_set_gain_db(void *rawBridge, float gain_db) {
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ [bridge setGainDecibels:gain_db]; });
+}
+
+bool axonkey_macos_audio_set_stretch_compensation(void *rawBridge, bool enabled) {
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    if (bridge == nil) return false;
+    __block BOOL accepted = NO;
+    AKOnMainSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
+    return accepted;
 }
