@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,7 @@ const TEST_WARMUP_SAMPLES: usize = 16_000 / 5;
 
 struct TestLevel {
     remaining: usize,
+    waveform: VecDeque<super::AudioWaveformPoint>,
     sample: Option<(Instant, f64, f64)>,
 }
 
@@ -14,6 +16,7 @@ impl Default for TestLevel {
     fn default() -> Self {
         Self {
             remaining: TEST_WARMUP_SAMPLES,
+            waveform: VecDeque::new(),
             sample: None,
         }
     }
@@ -109,6 +112,23 @@ impl AudioDiagnostics {
                     .iter()
                     .map(|sample| f64::from(*sample).powi(2))
                     .sum();
+                let t = self.epoch.elapsed().as_millis() as u64 / 20 * 20;
+                let peak = trimmed_peak as f64 / 32768.0;
+                if let Some(last) = level.waveform.back_mut().filter(|p| p.t == t) {
+                    last.peak = last.peak.max(peak);
+                } else {
+                    level
+                        .waveform
+                        .push_back(super::AudioWaveformPoint { t, peak });
+                }
+                while level.waveform.len() > 501
+                    || level
+                        .waveform
+                        .front()
+                        .is_some_and(|p| t.saturating_sub(p.t) > 10_000)
+                {
+                    level.waveform.pop_front();
+                }
                 level.sample = Some((
                     Instant::now(),
                     trimmed_peak as f64 / 32768.0,
@@ -119,20 +139,20 @@ impl AudioDiagnostics {
     }
 
     pub(super) fn level(&self) -> super::AudioLevel {
-        self.level
-            .lock()
-            .ok()
-            .and_then(|level| {
-                level
-                    .sample
-                    .as_ref()
-                    .filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
-                    .map(|(_, peak, rms)| super::AudioLevel {
-                        peak: *peak,
-                        rms: *rms,
-                    })
-            })
-            .unwrap_or_default()
+        let Ok(level) = self.level.lock() else {
+            return super::AudioLevel::default();
+        };
+        let fresh = level
+            .sample
+            .as_ref()
+            .filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300));
+        super::AudioLevel {
+            peak: fresh.map_or(0.0, |(_, peak, _)| *peak),
+            rms: fresh.map_or(0.0, |(_, _, rms)| *rms),
+            now_ms: self.epoch.elapsed().as_millis() as u64,
+            // Keep the last spoken segment visible after release. New START clears it.
+            waveform: level.waveform.iter().cloned().collect(),
+        }
     }
 
     pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
@@ -373,6 +393,40 @@ mod tests {
         diagnostics.decoded(&[2000]);
         assert_eq!(diagnostics.level().peak, 2000.0 / 32768.0);
         assert_eq!(diagnostics.level().rms, 2000.0 / 32768.0);
+    }
+
+    #[test]
+    fn calibration_waveform_uses_filtered_peaks_survives_stop_and_resets_on_start() {
+        let d = AudioDiagnostics::default();
+        d.control(0x04);
+        d.decoded(&[i16::MAX; TEST_WARMUP_SAMPLES]);
+        assert!(d.level().waveform.is_empty());
+        let mut samples = vec![1000; 200];
+        samples[0] = i16::MAX;
+        d.decoded(&samples);
+        let state = d.level();
+        assert_eq!(state.waveform.len(), 1);
+        assert_eq!(state.waveform[0].peak, state.peak);
+        assert_eq!(state.peak, 1000.0 / 32768.0);
+        d.control(0x00);
+        d.level.lock().unwrap().sample = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
+        assert_eq!(d.level().peak, 0.0);
+        assert_eq!(d.level().waveform[0].peak, 1000.0 / 32768.0);
+        d.control(0x04);
+        assert!(d.level().waveform.is_empty());
+    }
+
+    #[test]
+    fn calibration_waveform_history_is_bounded() {
+        let mut d = AudioDiagnostics::default();
+        d.level.lock().unwrap().remaining = 0;
+        for i in 0..650 {
+            d.epoch = Instant::now() - Duration::from_millis(i * 20);
+            d.decoded(&[1000; 240]);
+        }
+        let state = d.level();
+        assert!(state.waveform.len() <= 501);
+        assert!(state.waveform.last().unwrap().t - state.waveform[0].t <= 10_000);
     }
 
     #[test]

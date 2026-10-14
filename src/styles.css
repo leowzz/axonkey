@@ -1632,3 +1632,22 @@ html.macos-vibrancy,
   border-color: #94b8df;
   background: rgb(240 247 255 / 82%);
 }
+
+.audio-calibration-waveform { margin-top: 18px; padding: 14px 16px 10px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; }
+.audio-calibration-waveform-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.audio-calibration-waveform-heading h3 { margin: 0; font-size: 14px; }
+.audio-calibration-waveform-heading span, .audio-calibration-waveform-note { color: #687581; font-size: 12px; }
+.audio-calibration-waveform-plot { position: relative; margin-top: 8px; }
+.audio-calibration-waveform svg { display: block; width: 100%; height: auto; min-height: 180px; }
+.audio-calibration-waveform svg text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.audio-calibration-grid line { stroke: #e8edf1; }
+.audio-calibration-grid text, .audio-calibration-time { fill: #788693; }
+.audio-calibration-threshold line { stroke-dasharray: 5 4; stroke-width: 1; }
+.audio-calibration-threshold.good line { stroke: #46956d; }
+.audio-calibration-threshold.good text { fill: #317b55; }
+.audio-calibration-threshold.clipping line { stroke: #c85b56; }
+.audio-calibration-threshold.clipping text { fill: #ac3f3a; }
+.audio-calibration-envelope { stroke: #b77d2e; stroke-width: 1.8; fill: none; stroke-linejoin: round; }
+.audio-calibration-waveform-empty { position: absolute; inset: 0 16% 0 6%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 12px; font-size: 13px; color: #687581; text-align: center; pointer-events: none; }
+.audio-calibration-waveform-note { margin: 2px 0 0; line-height: 1.6; }
+@media (max-width: 640px) { .audio-calibration-waveform { padding: 12px 8px 8px; } }

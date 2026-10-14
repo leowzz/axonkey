@@ -1,3 +1,16 @@
+export const audioCalibrationThresholds = { low: -24, high: -6, clipping: 0 } as const
+export type CalibrationWaveformPoint = { t: number; peak: number }
+
+export function calibrationWaveform(points: CalibrationWaveformPoint[], gain: number, now: number, forwarding: boolean) {
+  const valid = points.filter(p => Number.isFinite(p.t) && Number.isFinite(p.peak) && p.peak >= 0)
+  const end = forwarding ? now : (valid[valid.length - 1]?.t ?? now)
+  const start = end - 10_000
+  return { start, end, points: valid.filter(p => p.t >= start && p.t <= end).map(p => {
+    const level = gainAdjustedLevel(p.peak, gain)
+    return { t: p.t, db: level > 0 ? 20 * Math.log10(level) : -60 }
+  }) }
+}
+
 export function gainAdjustedLevel(level: number, gain: number) {
   return level > 0 && Number.isFinite(level) ? level * 10 ** (gain / 20) : 0
 }
@@ -11,8 +24,8 @@ export function gainLevelTone(peak: number): 'silent' | 'low' | 'good' | 'hot' |
   if (!(peak > 0)) return 'silent'
   if (peak >= 1) return 'clipping'
   const decibels = 20 * Math.log10(peak)
-  if (decibels > -6) return 'hot'
-  return decibels < -24 ? 'low' : 'good'
+  if (decibels > audioCalibrationThresholds.high) return 'hot'
+  return decibels < audioCalibrationThresholds.low ? 'low' : 'good'
 }
 
 export type AudioTestMeasurement = {
