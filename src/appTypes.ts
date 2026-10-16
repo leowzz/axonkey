@@ -43,6 +43,11 @@ export type SystemProbe = {
   input_authorization_stale?: boolean | null
   accessibility_granted?: boolean | null
   capture_active: boolean
+  legacy_components?: {
+    frida: boolean
+    interception: boolean
+    namedPipeServer: boolean
+  } | null
 }
 
 export type RemoteKeyEvent = {

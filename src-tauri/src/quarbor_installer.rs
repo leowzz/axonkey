@@ -46,6 +46,7 @@ struct Reply {
     exit_code: i32,
     reboot_required: bool,
     message: String,
+    #[serde(default)]
     devices: Vec<Device>,
 }
 
@@ -153,9 +154,17 @@ fn targets<'a>(devices: &'a [Device], action: &str) -> Result<Vec<&'a Device>, S
 pub(crate) fn run(action: &str, resource_dir: &Path, log: &Path) -> Result<bool, String> {
     let result = (|| {
         let exe = find(resource_dir)?;
+        if action == "uninstall" {
+            // Full removal deliberately uses the installer's offline-aware
+            // command. A targeted uninstall requires the devnode to be
+            // present and returns ERROR_DEVICE_NOT_CONNECTED (1167).
+            let reply = invoke(&exe, "uninstall-all", None, Some(log))?;
+            return Ok(reply.reboot_required || reply.exit_code == 3010);
+        }
         let devices = invoke(&exe, "list", None, Some(log))?.devices;
         let mut reboot = false;
-        for device in targets(&devices, action)? {
+        let selected = targets(&devices, action)?;
+        for device in &selected {
             let reply = invoke(&exe, action, Some(&device.instance_id), Some(log))?;
             reboot |= reply.reboot_required || reply.exit_code == 3010;
         }
@@ -229,6 +238,10 @@ mod tests {
             .contains("取消"));
         assert!(decode_reply(b"not json", Some(0), "list").is_err());
         assert!(decode_reply(br#"{"version":1,"action":"install","outcome":"failed","exitCode":1,"rebootRequired":false,"message":"failure","devices":[]}"#, Some(1), "install").is_err());
+        let offline_failure = br#"{"version":1,"action":"uninstall","outcome":"failed","exitCode":1167,"rebootRequired":false,"message":"device offline"}"#;
+        assert!(decode_reply(offline_failure, Some(1167), "uninstall")
+            .unwrap_err()
+            .contains("device offline"));
         let list = br#"{"version":1,"action":"list","outcome":"success","exitCode":0,"rebootRequired":false,"message":"ok","devices":[]}"#;
         assert!(decode_reply(list, Some(0), "list")
             .unwrap()

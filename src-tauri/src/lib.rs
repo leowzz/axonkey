@@ -318,13 +318,14 @@ fn get_platform() -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn find_driver_script(
+fn find_driver_helper(
     driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
+        ("legacy", "cleanup") => "uninstall-old-driver.exe",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
     };
@@ -350,7 +351,7 @@ fn find_driver_script(
         }
     }
 
-    Err(format!("Driver script was not found: {file_name}"))
+    Err(format!("Driver helper was not found: {file_name}"))
 }
 
 #[derive(serde::Serialize)]
@@ -371,6 +372,8 @@ fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, Str
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
     let file_name = if driver == "audio" {
         format!("vbcable-{action}.log")
+    } else if driver == "legacy" {
+        "old-driver-uninstall.log".to_string()
     } else {
         format!("quarbor-{action}.log")
     };
@@ -493,7 +496,7 @@ fn run_driver_action(
         });
     }
 
-    let script = find_driver_script(driver, action, resource_dir).map_err(|error| {
+    let helper = find_driver_helper(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
         format!("{error}. Log: {}", log_path.display())
     })?;
@@ -502,32 +505,35 @@ fn run_driver_action(
         .open(&log_path)
         .and_then(|mut file| {
             use std::io::Write;
-            writeln!(file, "Script: {}", script.display())
+            writeln!(file, "Helper: {}", helper.display())
         });
-    let mut command = std::process::Command::new("powershell.exe");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .arg("-NoProfile")
-        .arg("-NonInteractive")
-        .arg("-WindowStyle")
-        .arg("Hidden")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-File")
-        .arg(script);
-    if matches!(driver, "input" | "audio") {
-        command.arg("-Action").arg(action);
-    }
+    let mut command = if driver == "legacy" {
+        let mut command = std::process::Command::new(&helper);
+        command.arg("--confirmed").arg("--log-path").arg(&log_path);
+        command
+    } else {
+        let mut command = std::process::Command::new("powershell.exe");
+        command
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-WindowStyle")
+            .arg("Hidden")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
+            .arg(&helper)
+            .arg("-Action")
+            .arg(action);
+        command
+    };
+    command.creation_flags(CREATE_NO_WINDOW);
     let output = command
-        .arg("-Confirmed")
-        .arg("-LogPath")
-        .arg(&log_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .map_err(|error| {
-            let message = format!("Cannot launch the driver script: {error}");
+            let message = format!("Cannot launch the driver helper: {error}");
             let _ = std::fs::write(&log_path, format!("ERROR: {message}\r\n"));
             format!("{message}. Log: {}", log_path.display())
         })?;
@@ -590,10 +596,12 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if !matches!(driver.as_str(), "input" | "audio") {
+    if !matches!(driver.as_str(), "input" | "audio" | "legacy") {
         return Err("Unsupported driver kind".into());
     }
-    if !matches!(action.as_str(), "install" | "uninstall") {
+    if !matches!(action.as_str(), "install" | "uninstall")
+        && !(driver == "legacy" && action == "cleanup")
+    {
         return Err("Unsupported driver action".into());
     }
     log::info!(target: "axonkey::runtime", "Driver action requested: {driver}/{action}");
@@ -645,9 +653,10 @@ async fn launch_driver_action(
 
 #[tauri::command]
 fn open_windows_settings(page: String) -> Result<(), String> {
-    let uri = match page.as_str() {
+    let target = match page.as_str() {
         "bluetooth" => "ms-settings:bluetooth",
         "sound" => "ms-settings:sound",
+        "services" => "services.msc",
         _ => return Err("Unsupported settings page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening Windows settings page: {page}");
@@ -658,7 +667,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
             .arg("/C")
             .arg("start")
             .arg("")
-            .arg(uri)
+            .arg(target)
             .spawn()
             .map_err(|error| format!("Cannot open Windows settings: {error}"))?;
         Ok(())
@@ -666,7 +675,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = uri;
+        let _ = target;
         Err("Windows settings are only available on Windows".into())
     }
 }
@@ -827,6 +836,24 @@ struct SystemProbe {
     input_authorization_stale: Option<bool>,
     accessibility_granted: Option<bool>,
     capture_active: bool,
+    legacy_components: Option<LegacyComponents>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyComponents {
+    frida: bool,
+    interception: bool,
+    named_pipe_server: bool,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyComponentsProbe {
+    frida: bool,
+    interception: bool,
+    named_pipe_server: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -854,6 +881,48 @@ fn powershell_output(expression: &str) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
+}
+
+#[cfg(target_os = "windows")]
+fn legacy_components(resource_dir: &std::path::Path) -> LegacyComponents {
+    // These checks intentionally inspect only the legacy process/service names
+    // and files that Axonkey used. The current Quarbor per-device named pipe is
+    // not a process or service and is therefore never reported here.
+    let process_and_services = powershell_output(
+        r#"$items = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue; Get-CimInstance Win32_Service -ErrorAction SilentlyContinue; Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue)
+$interception = @($items | Where-Object { $_.Name -match '(?i)interception' -or $_.DisplayName -match '(?i)interception' -or $_.PathName -match '(?i)interception' }).Count -gt 0
+foreach ($target in @(
+    @{ Name = 'keyboard'; ClassId = '{4D36E96B-E325-11CE-BFC1-08002BE10318}' },
+    @{ Name = 'mouse'; ClassId = '{4D36E96F-E325-11CE-BFC1-08002BE10318}' }
+)) {
+    $service = Test-Path -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($target.Name)"
+    $filters = @((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$($target.ClassId)" -ErrorAction SilentlyContinue).UpperFilters)
+    if ($service -or ($filters -contains $target.Name)) { $interception = $true }
+}
+[ordered]@{
+    frida = @($items | Where-Object { $_.Name -match '(?i)^frida(-server)?(\.exe)?$' -or $_.DisplayName -match '(?i)frida' -or $_.PathName -match '(?i)\\frida([\\.]|$)' -or $_.ExecutablePath -match '(?i)\\frida([\\.]|$)' }).Count -gt 0
+    interception = $interception
+    namedPipeServer = @($items | Where-Object { $_.Name -match '(?i)NamedPipeServer' -or $_.DisplayName -match '(?i)NamedPipeServer' -or $_.PathName -match '(?i)NamedPipeServer' -or $_.ExecutablePath -match '(?i)NamedPipeServer' }).Count -gt 0
+} | ConvertTo-Json -Compress"#,
+    )
+    .and_then(|value| serde_json::from_str::<LegacyComponentsProbe>(&value).ok())
+    .unwrap_or(LegacyComponentsProbe {
+        frida: false,
+        interception: false,
+        named_pipe_server: false,
+    });
+    let frida =
+        process_and_services.frida || resource_dir.join("vendor/frida/frida-gadget.dll").is_file();
+    // The bundled uninstall helper is not evidence that the old driver is
+    // installed. Interception is detected from its registered service/driver.
+    let interception = process_and_services.interception;
+    let named_pipe_server = process_and_services.named_pipe_server
+        || resource_dir.join("NamedPipeServer.exe").is_file();
+    LegacyComponents {
+        frida,
+        interception,
+        named_pipe_server,
+    }
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -1067,6 +1136,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             .path()
             .resource_dir()
             .map_err(|error| error.to_string())?;
+        let legacy_resource_dir = resource_dir.clone();
         let devices =
             tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
                 .await
@@ -1083,6 +1153,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: input_status.capture_active,
+            legacy_components: Some(legacy_components(&legacy_resource_dir)),
         })
     }
 
@@ -1105,6 +1176,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: Some(input_status.input_monitoring_open_denied),
             accessibility_granted: input_status.accessibility_granted,
             capture_active: input_status.capture_active,
+            legacy_components: None,
         })
     }
 
@@ -1121,6 +1193,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: false,
+            legacy_components: None,
         })
     }
 }

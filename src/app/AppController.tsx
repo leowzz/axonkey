@@ -75,10 +75,12 @@ import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialo
 import { useAudioControls } from '../hooks/useAudioControls'
 import { logError, logInfo } from '../runtimeLogging'
 import {
+  beginLegacyCleanup,
   beginDriverAction,
   completeSetupStep,
   driverDefinitions,
   finishDriverAction,
+  finishLegacyCleanup,
   isSetupComplete,
   loadSetupState,
   resetSetup,
@@ -86,6 +88,7 @@ import {
   setCurrentSetupStep,
   setDeviceConnection,
   setDriverStatus,
+  setLegacyCleanupProbe,
   skipDriverAction,
   skipSetup,
   skipSetupStep,
@@ -189,6 +192,7 @@ function AppController() {
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
   const systemProbeRunningRef = useRef(false)
+  const legacyCleanupPromptedRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
@@ -751,12 +755,22 @@ function AppController() {
   }
 
   const openSetupStep = (step: SetupStepId) => {
+    if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
+      step = 'legacyCleanup'
+    }
     updateSetup((current) => setCurrentSetupStep(current, step))
     setSetupOpen(true)
   }
 
   const completeCurrentSetupStep = () => {
-    updateSetup((current) => completeSetupStep(current, current.currentStep))
+    updateSetup((current) => {
+      const next = completeSetupStep(current, current.currentStep)
+      // The shared setup model follows the Windows dependency order. macOS
+      // still starts with permissions/audio and connects the remote second.
+      return platform === 'macos' && current.currentStep === 'welcome'
+        ? setCurrentSetupStep(next, 'inputDriver')
+        : next
+    })
   }
 
   const skipCurrentSetupStep = () => {
@@ -764,6 +778,18 @@ function AppController() {
   }
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
+    if (platform === 'windows' && driver === 'input' && action === 'install' && setupState.device.status !== 'connected') {
+      const message = setupState.device.status === 'checking'
+        ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
+        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor HID 按键过滤驱动。'
+      updateSetup((current) => finishDriverAction(current, driver, action, {
+        success: false,
+        status: 'error',
+        error: message,
+      }))
+      logError(`Driver action blocked: ${driver}/${action}`, message)
+      return
+    }
     updateSetup((current) => beginDriverAction(current, driver, action))
     try {
       logInfo(`Starting driver action: ${driver}/${action}`)
@@ -793,7 +819,31 @@ function AppController() {
     }
   }
 
-  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => {
+  const runLegacyCleanup = async () => {
+    updateSetup((current) => beginLegacyCleanup(current))
+    try {
+      logInfo('Starting legacy Windows input component cleanup')
+      const result = await invoke<DriverActionResult>('launch_driver_action', { driver: 'legacy', action: 'cleanup' })
+      updateSetup((current) => finishLegacyCleanup(current, {
+        success: true,
+        logPath: result.logPath,
+        rebootRequired: result.rebootRequired,
+      }))
+      setToast(result.rebootRequired ? '旧组件已卸载，请重启 Windows 后重新检测' : '旧组件已卸载，请重新检测')
+      window.setTimeout(() => setToast(''), 3200)
+      await probeSystemState(true)
+      logInfo('Legacy Windows input component cleanup completed')
+    } catch (error) {
+      logError('Legacy Windows input component cleanup failed', error)
+      const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
+      updateSetup((current) => finishLegacyCleanup(current, {
+        success: false,
+        error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
+      }))
+    }
+  }
+
+  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility') => {
     try {
       await invoke('open_system_settings', { page })
       return true
@@ -913,6 +963,19 @@ function AppController() {
         accessibility: probe.accessibility_granted === true,
         captureActive: probe.capture_active,
       })
+      if (probe.platform === 'windows' && probe.legacy_components) {
+        const legacy = probe.legacy_components
+        const legacyPresent = legacy.frida || legacy.interception || legacy.namedPipeServer
+        updateSetup((current) => setLegacyCleanupProbe(current, legacy))
+        if (legacyPresent) {
+          if (!legacyCleanupPromptedRef.current) {
+            legacyCleanupPromptedRef.current = true
+            setSetupOpen(true)
+          }
+        } else {
+          legacyCleanupPromptedRef.current = false
+        }
+      }
       updateSetup((current) => {
         const connectedDevice = {
           status: 'connected' as const,
@@ -1086,10 +1149,19 @@ function AppController() {
   }, [setupOpen])
 
   useEffect(() => {
+    // Move an unfinished setup saved by the old Windows order to the device
+    // check before allowing Quarbor installation.
+    if (!setupOpen || platform !== 'windows' || setupState.currentStep !== 'inputDriver') return
+    if (setupState.steps.deviceConnection.status === 'pending') {
+      updateSetup((current) => current.currentStep === 'inputDriver' && current.steps.deviceConnection.status === 'pending'
+        ? setCurrentSetupStep(current, 'deviceConnection')
+        : current)
+    }
+  }, [platform, setupOpen, setupState.currentStep, setupState.steps.deviceConnection.status])
+
+  useEffect(() => {
     if (!setupOpen || platform !== 'macos' || setupState.currentStep !== 'welcome') return
-    updateSetup((current) => current.currentStep === 'welcome'
-      ? completeSetupStep(current, 'welcome')
-      : current)
+    completeCurrentSetupStep()
   }, [platform, setupOpen, setupState.currentStep])
 
   useEffect(() => {
@@ -1491,6 +1563,8 @@ function AppController() {
         onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
         onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装 Quarbor 驱动；重新连接 RC003 或重启 Windows 后生效。' }))}
         onProbeAudio={() => void probeAudioState()}
+        onProbeLegacyCleanup={() => void probeSystemState(true)}
+        onCleanupLegacy={() => void runLegacyCleanup()}
         onOpenSystemSettings={(page) => void openSystemSettings(page)}
         onRequestMacPermission={(kind) => void requestMacPermission(kind)}
         onOpenExternalPage={(page) => void openExternalPage(page)}

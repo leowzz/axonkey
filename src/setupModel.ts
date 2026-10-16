@@ -11,8 +11,9 @@ export const setupStorageKey = 'axonkey.setup.v1'
 
 export const setupStepIds = [
   'welcome',
-  'inputDriver',
+  'legacyCleanup',
   'deviceConnection',
+  'inputDriver',
   'complete',
 ] as const
 
@@ -26,9 +27,30 @@ export type SetupStepDefinition = {
   skippable: boolean
 }
 
+export const legacyComponentKinds = ['frida', 'interception', 'namedPipeServer'] as const
+export type LegacyComponentKind = (typeof legacyComponentKinds)[number]
+
+export type LegacyCleanupState = {
+  status: 'unknown' | 'checking' | 'present' | 'clear' | 'error'
+  components: Record<LegacyComponentKind, boolean>
+  action: LegacyCleanupActionState
+  checkedAt?: number
+  message?: string
+}
+
+export type LegacyCleanupActionStatus = 'idle' | 'running' | 'succeeded' | 'failed'
+export type LegacyCleanupActionState = {
+  status: LegacyCleanupActionStatus
+  startedAt?: number
+  finishedAt?: number
+  error?: string
+  logPath?: string
+  rebootRequired?: boolean
+}
+
 export const skippableSetupStepIds = [
-  'inputDriver',
   'deviceConnection',
+  'inputDriver',
 ] as const satisfies readonly SetupStepId[]
 
 export type SkippableSetupStepId = (typeof skippableSetupStepIds)[number]
@@ -41,15 +63,21 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
     skippable: false,
   },
   {
-    id: 'inputDriver',
-    title: '配置输入环境',
-    description: '按当前系统安装 Windows 驱动或授予 macOS 原生输入权限。',
-    skippable: true,
+    id: 'legacyCleanup',
+    title: '卸载旧驱动',
+    description: '清理旧版输入组件，再安装新的 Quarbor HID 驱动。',
+    skippable: false,
   },
   {
     id: 'deviceConnection',
     title: '连接遥控器',
     description: '在系统蓝牙设置中配对并唤醒 Xiaomi RC003。',
+    skippable: true,
+  },
+  {
+    id: 'inputDriver',
+    title: '配置输入环境',
+    description: '按当前系统安装 Windows 驱动或授予 macOS 原生输入权限。',
     skippable: true,
   },
   {
@@ -120,6 +148,7 @@ export type SetupState = {
   currentStep: SetupStepId
   setupSkipped: boolean
   steps: Record<SetupStepId, SetupStepState>
+  legacyCleanup: LegacyCleanupState
   drivers: Record<DriverKind, DriverState>
   device: DeviceConnectionState
   updatedAt: number
@@ -167,6 +196,14 @@ function createDriverState(): DriverState {
   }
 }
 
+function createLegacyCleanupState(): LegacyCleanupState {
+  return {
+    status: 'clear',
+    components: { frida: false, interception: false, namedPipeServer: false },
+    action: { status: 'idle' },
+  }
+}
+
 /** Returns a fresh setup object suitable for a new user. */
 export function createDefaultSetupState(): SetupState {
   return {
@@ -175,6 +212,7 @@ export function createDefaultSetupState(): SetupState {
     setupSkipped: false,
     steps: {
       welcome: createStepState('active'),
+      legacyCleanup: createStepState('skipped'),
       inputDriver: createStepState('pending'),
       deviceConnection: createStepState('pending'),
       complete: createStepState('pending'),
@@ -183,6 +221,7 @@ export function createDefaultSetupState(): SetupState {
       input: createDriverState(),
       audio: createDriverState(),
     },
+    legacyCleanup: createLegacyCleanupState(),
     device: { status: 'unknown' },
     updatedAt: defaultTimestamp,
   }
@@ -291,6 +330,35 @@ function normalizeDevice(value: unknown, fallback: DeviceConnectionState): Devic
   }
 }
 
+function normalizeLegacyCleanup(value: unknown, fallback: LegacyCleanupState): LegacyCleanupState {
+  if (!isRecord(value)) return { ...fallback, components: { ...fallback.components } }
+  const components = {
+    frida: Boolean(value.components && isRecord(value.components) && value.components.frida === true),
+    interception: Boolean(value.components && isRecord(value.components) && value.components.interception === true),
+    namedPipeServer: Boolean(value.components && isRecord(value.components) && value.components.namedPipeServer === true),
+  }
+  const statuses = ['unknown', 'checking', 'present', 'clear', 'error'] as const
+  const status = isStatus(value.status, statuses) ? value.status : fallback.status
+  const rawAction = isRecord(value.action) ? value.action : {}
+  const actionStatuses = ['idle', 'running', 'succeeded', 'failed'] as const
+  let actionStatus = isStatus(rawAction.status, actionStatuses) ? rawAction.status : 'idle'
+  if (actionStatus === 'running') actionStatus = 'idle'
+  return {
+    status,
+    components,
+    action: {
+      status: actionStatus,
+      startedAt: cleanTime(rawAction.startedAt),
+      finishedAt: cleanTime(rawAction.finishedAt),
+      error: cleanText(rawAction.error),
+      logPath: cleanText(rawAction.logPath),
+      rebootRequired: rawAction.rebootRequired === true,
+    },
+    checkedAt: cleanTime(value.checkedAt),
+    message: cleanText(value.message),
+  }
+}
+
 /**
  * Parse persisted setup data and merge only valid fields into defaults.
  * Accepts either localStorage JSON or an already parsed object.
@@ -328,6 +396,7 @@ export function parseStoredSetup(value: unknown): SetupState {
       input: normalizeDriver(rawDrivers.input, fallback.drivers.input),
       audio: normalizeDriver(rawDrivers.audio, fallback.drivers.audio),
     },
+    legacyCleanup: normalizeLegacyCleanup(parsed.legacyCleanup, fallback.legacyCleanup),
     device: normalizeDevice(parsed.device, fallback.device),
     updatedAt: cleanTime(parsed.updatedAt) ?? defaultTimestamp,
   }
@@ -391,6 +460,11 @@ function cloneState(state: SetupState): SetupState {
       input: { ...state.drivers.input, action: { ...state.drivers.input.action } },
       audio: { ...state.drivers.audio, action: { ...state.drivers.audio.action } },
     },
+    legacyCleanup: {
+      ...state.legacyCleanup,
+      components: { ...state.legacyCleanup.components },
+      action: { ...state.legacyCleanup.action },
+    },
     device: { ...state.device },
   }
 }
@@ -416,6 +490,67 @@ export function setCurrentSetupStep(state: SetupState, step: SetupStepId): Setup
   next.currentStep = step
   next.steps[step] = { ...next.steps[step], visited: true, status: next.steps[step].status === 'pending' ? 'active' : next.steps[step].status }
   next.updatedAt = Date.now()
+  return next
+}
+
+export function setLegacyCleanupProbe(
+  state: SetupState,
+  components: Record<LegacyComponentKind, boolean>,
+  options: { checking?: boolean; error?: string; checkedAt?: number } = {},
+): SetupState {
+  const next = cloneState(state)
+  const present = Object.values(components).some(Boolean)
+  next.legacyCleanup = {
+    ...next.legacyCleanup,
+    status: options.error ? 'error' : options.checking ? 'checking' : present ? 'present' : 'clear',
+    components: { ...components },
+    checkedAt: options.checkedAt ?? Date.now(),
+    message: options.error,
+  }
+  if (present) {
+    next.steps.legacyCleanup = { status: 'active', visited: true }
+    // Keep the welcome page first, but insert migration before every later step.
+    if (next.currentStep !== 'welcome' && next.currentStep !== 'legacyCleanup') {
+      next.currentStep = 'legacyCleanup'
+    }
+    next.setupSkipped = false
+  } else if (!options.error && !options.checking) {
+    next.steps.legacyCleanup = { status: 'skipped', visited: true }
+    if (next.currentStep === 'legacyCleanup') {
+      next.currentStep = getNextSetupStep(next)
+      next.steps[next.currentStep] = {
+        ...next.steps[next.currentStep],
+        visited: true,
+        status: next.currentStep === 'complete' ? 'complete' : next.steps[next.currentStep].status === 'pending' ? 'active' : next.steps[next.currentStep].status,
+      }
+    }
+  }
+  next.updatedAt = Date.now()
+  return next
+}
+
+export function beginLegacyCleanup(state: SetupState, now = Date.now()): SetupState {
+  const next = cloneState(state)
+  next.legacyCleanup.action = { status: 'running', startedAt: now }
+  next.updatedAt = now
+  return next
+}
+
+export function finishLegacyCleanup(
+  state: SetupState,
+  result: { success: boolean; error?: string; logPath?: string; rebootRequired?: boolean },
+  now = Date.now(),
+): SetupState {
+  const next = cloneState(state)
+  next.legacyCleanup.action = {
+    status: result.success ? 'succeeded' : 'failed',
+    startedAt: state.legacyCleanup.action.startedAt,
+    finishedAt: now,
+    error: result.error,
+    logPath: result.logPath,
+    rebootRequired: result.rebootRequired,
+  }
+  next.updatedAt = now
   return next
 }
 

@@ -161,7 +161,7 @@ $rc003Id = 'RC003 的完整设备实例 ID'
 & $installer --install $rc003Id
 ```
 
-查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用只对 RC003 的 HID 键盘实例执行操作，卸载包含离线实例。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](vendor/QuarborHIDFilterUserDriver/Docs/quarbor-hid-user-installer-cli.md)。
+查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用安装时只对 RC003 的 HID 键盘实例执行操作，卸载时调用 `--uninstall-all` 彻底移除 Quarbor 绑定，因此设备离线也可以处理。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](vendor/QuarborHIDFilterUserDriver/Docs/quarbor-hid-user-installer-cli.md)。
 
 也可以手动启动仓库中经过校验的 VB-CABLE 安装流程：
 
@@ -212,7 +212,7 @@ $rc003Id = 'RC003 的完整设备实例 ID（可以离线）'
 & $installer --uninstall $rc003Id
 ```
 
-安装器会申请管理员权限，并返回是否需要重启 Windows。也可以运行 `make uninstall-driver DEVICE="设备实例 ID"`。应用内卸载只处理 RC003；安装器的 `--uninstall-all` 会解除所有设备的 Quarbor 绑定并清理未使用的驱动包，仅在需要完整移除时手动使用。
+安装器会申请管理员权限，并返回是否需要重启 Windows。也可以运行 `make uninstall-driver DEVICE="设备实例 ID"`。应用内“卸载驱动”使用安装器的 `--uninstall-all`，会解除所有设备的 Quarbor 绑定并清理未使用的驱动包。
 
 ## 本地开发
 

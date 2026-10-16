@@ -80,7 +80,7 @@ paused; see [measurements, limitations, and shelved experiments](RC003_AUDIO_LAT
 The experimental background queue and post-stop packet handling are not part of
 the current implementation and must not be described as confirmed fixes.
 
-The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborHIDFilterUserDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install/--uninstall target only RC003 HID keyboard instances and let the installer request UAC. Uninstall includes offline instances with a binding or active recovery record. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
+The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborHIDFilterUserDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install targets only RC003 HID keyboard instances and lets the installer request UAC. App uninstall invokes --uninstall-all so the installer can restore online and offline instances before removing every published Quarbor package. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
 The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
 the archive hash, extracted x64 installer hash, and Authenticode publisher
 signature before requesting elevation. Driver readiness is detected from the

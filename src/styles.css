@@ -357,6 +357,7 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .setup-step small { margin-left: auto; color: #9ca2a8; font-size: 11px; }
 .setup-skip-all { margin-top: auto; padding: 9px; border: 0; color: #8a9096; background: transparent; font-size: 13px; }
 .setup-skip-all:hover { color: #555e66; }
+.setup-skip-all:disabled { cursor: default; opacity: .45; }
 .setup-content { position: relative; min-width: 0; padding: 40px 44px 32px; }
 .setup-close { position: absolute; top: 15px; right: 15px; }
 .setup-screen { display: flex; min-height: 490px; flex-direction: column; align-items: flex-start; }
@@ -378,9 +379,32 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .setup-status-panel.installed .setup-status-dot, .setup-status-panel.connected .setup-status-dot { background: #3da052; box-shadow: 0 0 0 3px #d8efdd; }
 .setup-status-panel.restartRequired .setup-status-dot { background: #e28c24; box-shadow: 0 0 0 3px #f7e6d1; }
 .setup-status-panel.error .setup-status-dot, .setup-status-panel.disconnected .setup-status-dot { background: #d45555; box-shadow: 0 0 0 3px #f4dddd; }
+.setup-status-panel.success .setup-status-dot { background: #3da052; box-shadow: 0 0 0 3px #d8efdd; }
 .drivers-setup-screen .setup-hero-icon { width: 40px; height: 40px; margin-bottom: 10px; }
 .drivers-setup-screen h2 { margin-top: 4px; font-size: 24px; }
 .drivers-setup-screen .setup-lead { margin-top: 6px; line-height: 1.55; }
+.legacy-cleanup-screen .setup-hero-icon { width: 40px; height: 40px; margin-bottom: 10px; color: #a66a24; background: #f8ead6; }
+.legacy-cleanup-screen h2 { margin-top: 4px; font-size: 24px; }
+.legacy-cleanup-screen .setup-lead { margin-top: 6px; line-height: 1.55; }
+.legacy-cleanup-summary { display: flex; align-items: flex-start; gap: 10px; width: 100%; margin-top: 15px; padding: 11px 12px; border: 1px solid #ead6b9; border-radius: 8px; background: #fff8ec; }
+.legacy-cleanup-summary.ready { border-color: #c8e3cf; background: #eff9f1; }
+.legacy-cleanup-summary.checking { border-color: #cbdced; background: #f1f6fb; }
+.legacy-cleanup-summary .setup-status-dot { margin-top: 4px; background: #d28a2d; }
+.legacy-cleanup-summary.ready .setup-status-dot { background: #4b9b5d; box-shadow: 0 0 0 3px #d8efdd; }
+.legacy-cleanup-summary.checking .setup-status-dot { background: #538bc4; }
+.legacy-cleanup-summary strong, .legacy-cleanup-summary span:not(.setup-status-dot) { display: block; }
+.legacy-cleanup-summary strong { color: #4d3b26; font-size: 13px; }
+.legacy-cleanup-summary span:not(.setup-status-dot) { margin-top: 3px; color: #7b6b58; font-size: 12px; line-height: 1.45; }
+.legacy-cleanup-list { display: flex; width: 100%; flex-direction: column; gap: 7px; margin-top: 11px; }
+.legacy-cleanup-item { padding: 10px 12px; border: 1px solid #d7dce0; border-radius: 8px; background: #f7f8f8; }
+.legacy-cleanup-item.present { border-color: #ead6b9; background: #fffaf1; }
+.legacy-cleanup-item-heading { display: flex; align-items: center; gap: 8px; color: #3e464d; font-size: 13px; }
+.legacy-cleanup-item-heading .setup-status-dot { width: 7px; height: 7px; background: #d28a2d; }
+.legacy-cleanup-item.clear .setup-status-dot { background: #4b9b5d; }
+.legacy-cleanup-item-heading > span:last-child { margin-left: auto; color: #8a9298; font-size: 11px; }
+.legacy-cleanup-item p { margin: 5px 0 0 15px; color: #747d84; font-size: 12px; line-height: 1.45; }
+.legacy-cleanup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.legacy-cleanup-actions .dialog-secondary { height: 30px; padding: 0 10px; font-size: 12px; }
 .driver-setup-list { display: flex; width: 100%; flex-direction: column; gap: 8px; margin-top: 13px; }
 .driver-setup-item { width: 100%; padding: 11px 12px; border: 1px solid #d7dce0; border-radius: 8px; background: #f1f3f4; }
 .driver-setup-heading { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 10px; }
@@ -393,6 +417,9 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .driver-setup-item.restartRequired .setup-status-dot { background: #e28c24; box-shadow: 0 0 0 3px #f7e6d1; }
 .driver-setup-item.error .setup-status-dot { background: #d45555; box-shadow: 0 0 0 3px #f4dddd; }
 .driver-setup-message { max-width: calc(100% - 44px); margin: 8px 0 0 44px; overflow: visible; color: #69737c; font-size: 12px; line-height: 1.45; white-space: normal; overflow-wrap: anywhere; }
+.driver-setup-item > .setup-status-panel { width: calc(100% - 44px); margin: 10px 0 0 44px; padding: 10px 11px; }
+.driver-setup-item > .setup-status-panel strong { font-size: 13px; }
+.driver-setup-item > .setup-status-panel span:not(.setup-status-dot) { font-size: 12px; }
 .driver-setup-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 0 44px; }
 .driver-setup-actions .dialog-secondary { height: 30px; padding: 0 10px; font-size: 12px; }
 .driver-restart-notice { display: flex; gap: 10px; width: 100%; margin-top: 9px; padding: 9px 12px; border-left: 3px solid #83a9ce; color: #66717b; background: #eef2f5; }
