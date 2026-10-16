@@ -7,10 +7,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $Frida) {
+    throw '该诊断 Demo 仅支持 Frida 模式；Axonkey Windows 输入使用 Quarbor HID 管道。'
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $sourcePaths = @(
     (Join-Path $repoRoot 'tools\keycode-demo\KeycodeDemo.cs'),
-    (Join-Path $repoRoot 'tools\keycode-demo\InterceptionCapture.cs'),
     (Join-Path $repoRoot 'tools\keycode-demo\FridaCapture.cs')
 )
 $helperSource = Join-Path $repoRoot 'tools\keycode-demo\rc003_hid'
@@ -47,13 +49,6 @@ if ($Frida) {
     if (-not $SelfTest) {
         & (Join-Path $PSScriptRoot 'fetch-frida-gadget.ps1') -Destination (Join-Path $helperDestination 'frida_assets')
     }
-} else {
-$runtimePath = Join-Path $repoRoot 'vendor\interception\interception.dll'
-if ((Get-FileHash -LiteralPath $runtimePath -Algorithm SHA256).Hash -ne 'AB88164C11B1B48488772D4C3BFAA4509D5B0AE9DBC5A691DC4F96F0260443C8') {
-    throw 'The bundled Interception runtime hash does not match the reviewed version.'
-}
-$runtimeCopy = Join-Path $outputDirectory 'interception.dll'
-if (-not (Test-Path -LiteralPath $runtimeCopy)) { Copy-Item -LiteralPath $runtimePath -Destination $runtimeCopy }
 }
 Write-Output "Built: $executablePath"
 

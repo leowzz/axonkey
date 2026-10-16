@@ -36,4 +36,4 @@ test-release:
 	npm run test:release
 
 uninstall-driver:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"
+	./vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe --uninstall "$(DEVICE)"

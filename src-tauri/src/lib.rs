@@ -1,5 +1,7 @@
 mod audio_service;
 mod input_service;
+#[cfg(target_os = "windows")]
+mod quarbor_installer;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
@@ -322,8 +324,6 @@ fn find_driver_script(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("input", "install") => "install-driver.ps1",
-        ("input", "uninstall") => "uninstall-driver.ps1",
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -357,6 +357,7 @@ fn find_driver_script(
 #[serde(rename_all = "camelCase")]
 struct DriverActionResult {
     log_path: String,
+    reboot_required: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -371,7 +372,7 @@ fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, Str
     let file_name = if driver == "audio" {
         format!("vbcable-{action}.log")
     } else {
-        format!("driver-{action}.log")
+        format!("quarbor-{action}.log")
     };
     Ok(directory.join(file_name))
 }
@@ -462,6 +463,7 @@ end run"#;
     }
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: false,
     })
 }
 
@@ -483,10 +485,25 @@ fn run_driver_action(
     std::fs::write(&log_path, started)
         .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
 
+    if driver == "input" {
+        let reboot_required = quarbor_installer::run(action, resource_dir, &log_path)?;
+        return Ok(DriverActionResult {
+            log_path: log_path.to_string_lossy().into_owned(),
+            reboot_required,
+        });
+    }
+
     let script = find_driver_script(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
         format!("{error}. Log: {}", log_path.display())
     })?;
+    let _ = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&log_path)
+        .and_then(|mut file| {
+            use std::io::Write;
+            writeln!(file, "Script: {}", script.display())
+        });
     let mut command = std::process::Command::new("powershell.exe");
     command
         .creation_flags(CREATE_NO_WINDOW)
@@ -498,35 +515,72 @@ fn run_driver_action(
         .arg("Bypass")
         .arg("-File")
         .arg(script);
-    if driver == "audio" {
+    if matches!(driver, "input" | "audio") {
         command.arg("-Action").arg(action);
     }
-    let status = command
+    let output = command
         .arg("-Confirmed")
         .arg("-LogPath")
         .arg(&log_path)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
         .map_err(|error| {
             let message = format!("Cannot launch the driver script: {error}");
             let _ = std::fs::write(&log_path, format!("ERROR: {message}\r\n"));
             format!("{message}. Log: {}", log_path.display())
         })?;
 
-    if !status.success() {
-        let exit_code = status
+    if let Ok(mut log) = std::fs::OpenOptions::new().append(true).open(&log_path) {
+        use std::io::Write;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            let _ = writeln!(log, "stdout:\r\n{stdout}");
+        }
+        if !stderr.trim().is_empty() {
+            let _ = writeln!(log, "stderr:\r\n{stderr}");
+        }
+    }
+
+    if !output.status.success() {
+        let exit_code = output
+            .status
             .code()
             .map_or_else(|| "unknown".to_string(), |code| code.to_string());
+        let detail = std::fs::read_to_string(&log_path)
+            .ok()
+            .and_then(|contents| {
+                let lines = contents
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .rev()
+                    .take(3)
+                    .collect::<Vec<_>>();
+                if lines.is_empty() {
+                    None
+                } else {
+                    let mut text = lines.into_iter().rev().collect::<Vec<_>>().join(" | ");
+                    if text.len() > 800 {
+                        text = text.chars().take(800).collect();
+                        text.push('…');
+                    }
+                    Some(text)
+                }
+            });
+        let detail_suffix = detail
+            .map(|text| format!(" 详情: {text}."))
+            .unwrap_or_default();
         return Err(format!(
-            "Driver {action} failed with exit code {exit_code}. Log: {}",
-            log_path.display()
+            "Driver {action} failed with exit code {exit_code}.{detail_suffix} Log: {}",
+            log_path.display(),
         ));
     }
 
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: true,
     })
 }
 
@@ -1035,12 +1089,10 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        let input_driver_installed = std::path::PathBuf::from(windows)
-            .join("System32")
-            .join("drivers")
-            .join("keyboard.sys")
-            .is_file();
+        let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
+        let devices = tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
+            .await.map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
+        let input_driver_installed = devices.iter().any(|device| device.needs_uninstall());
         Ok(SystemProbe {
             platform: "windows",
             input_driver_installed,

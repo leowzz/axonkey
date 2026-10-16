@@ -11,9 +11,9 @@
 
 [**⬇ 下载 Axonkey（macOS / Windows）**](https://github.com/leowzz/axonkey/releases)
 
-Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 Interception 过滤目标设备输入，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
+Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 QuarborHIDFilterUserDriver 按设备实例过滤并转发目标 HID 报告，并将 RC003 语音转发到 VB-CABLE。Windows 还提供默认关闭的 Frida 增强通道，用于读取返回和音量键。
 
-设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖 AutoHotkey、AutoHotInterception 或 Karabiner-Elements，配置和诊断数据均保存在本机。
+设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖第三方自动化键盘工具，配置和诊断数据均保存在本机。
 
 ## 界面截图
 
@@ -53,7 +53,7 @@ Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地
 - Windows 和 macOS 均可调节 RC003 语音输入增益（`-30 dB` 至 `+30 dB`）；Windows 输出到 `CABLE Input`，macOS 输出到 `MiRemoteV 2ch`。
 - 修改后自动保存并立即应用，无需为普通映射变更重启应用或系统。
 - 基础输入通道按 VID/PID 匹配 RC003；Windows 可选增强通道的共享宿主识别限制见下文。
-- Windows 首次引导可安装并检查 Interception 与 VB-Audio VB-CABLE；macOS 引导可完成系统权限、安装 MiRemoteV 2ch 虚拟麦克风并连接设备。
+- Windows 首次引导可为 RC003 安装并检查 Quarbor HID 过滤驱动与 VB-Audio VB-CABLE；macOS 引导可完成系统权限、安装 MiRemoteV 2ch 虚拟麦克风并连接设备。
 - macOS 授权时提供置顶小窗，可直接打开对应设置、在 Finder 中定位当前 `Axonkey.app` 并重新检测权限。
 - 关闭主窗口后继续常驻 Windows 系统托盘或 macOS 菜单栏，可从托盘菜单重新显示或完全退出。
 
@@ -61,7 +61,7 @@ Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地
 
 当前支持小米 RC003 蓝牙遥控器和系统鼠标的左右键、四向滚动。macOS 可以配置全部 13 个已识别实体按键：语音、电源、四向、确认、返回、音量 `+ / -`、主页、菜单和 TV 键。返回键默认保持 Delete（退格）行为，音量键默认保持 macOS 系统音量行为与连续按压节奏，也可以改成其他单击、双击或长按映射。长按行为首次在持续按住 600 毫秒后触发，稍作等待后会按固定节奏连续触发，松开按键即停止。
 
-Windows 编辑器提供 13 个按键，其中返回和独立音量 `+ / -` 需要开启可选增强支持，其余 10 个使用 Interception。增强支持默认关闭，不属于首次使用的必做步骤；开启方式见下方“可选：返回与音量键增强”。
+Windows 编辑器提供 13 个按键，其中返回和独立音量 `+ / -` 需要开启可选增强支持，其余 10 个使用 Quarbor HID 过滤驱动。增强支持默认关闭，不属于首次使用的必做步骤；开启方式见下方“可选：返回与音量键增强”。
 
 增强通道会自动匹配当前 RC003 宿主中的按键报告流。如果其他蓝牙设备共用该宿主，且先发送相同格式和 usage 的报告，仍可能误匹配，不能保证这类设备之间的硬件隔离。技术依据和限制见 [Windows 输入](./docs/WINDOWS_INPUT.md)。
 
@@ -82,7 +82,7 @@ Windows 编辑器提供 13 个按键，其中返回和独立音量 `+ / -` 需�
 
 四向滚动在三个屏幕边缘均可配置；左右方向需要水平滚轮或横向滚动手势。映射可复用按键、组合键、媒体控制、文本和多步骤序列。自定义输出的滚轮和鼠标点击不会再次触发映射。
 
-Windows 使用独立的系统鼠标监听与 SendInput，不需要连接 RC003 或安装 Interception；macOS 使用独立的 Quartz 事件监听，需要输入监控和辅助功能权限。这里的“鼠标”代表系统鼠标输入，多个鼠标共用这组映射。
+Windows 使用独立的系统鼠标监听与 SendInput，不需要连接 RC003 或安装 Quarbor HID 过滤驱动；macOS 使用独立的 Quartz 事件监听，需要输入监控和辅助功能权限。这里的“鼠标”代表系统鼠标输入，多个鼠标共用这组映射。
 
 映射修改自动保存；导入／导出包含所有设备，兼容旧版 RC003 配置和已有边缘滚动配置；“恢复默认”只重置当前设备。鼠标初始所有输入均保持原始行为，具体映射由用户自行配置。
 
@@ -120,18 +120,18 @@ Windows 使用独立的系统鼠标监听与 SendInput，不需要连接 RC003 �
 | 平台 | 按键输入 | 可配置按键 | RC003 语音 | 当前结论 |
 | --- | --- | ---: | --- | --- |
 | macOS 13+ | IOKit 原始 HID + CoreGraphics / AppKit | 13 | ATVV -> IMA ADPCM -> `MiRemoteV 2ch` | 支持按键映射与语音；需要输入监控与辅助功能权限 |
-| Windows 11 x64 | Interception 1.0.1 + 可选 Frida 增强通道 | 13（其中 3 个需单独开启增强支持） | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 基础映射需要 Interception；返回与音量键增强默认关闭，需管理员授权；语音另需 VB-CABLE |
+| Windows 11 x64 | Quarbor HID 过滤驱动 + 可选 Frida 增强通道 | 13（其中 3 个需单独开启增强支持） | ATVV -> IMA ADPCM -> `CABLE Input`，应用从 `CABLE Output` 收音 | 基础映射需要为 RC003 绑定 Quarbor 驱动；返回与音量键增强默认关闭，需管理员授权；语音另需 VB-CABLE |
 
 ### Windows
 
 - 64 位 Windows 11；
 - 已通过 Windows 蓝牙设置配对的 RC003；
-- Interception v1.0.1 输入驱动；
+- QuarborHIDFilterUserDriver UMDF 输入过滤驱动（只绑定 RC003 枚举 HID 设备）；
 - 需要虚拟麦克风时安装 VB-Audio VB-CABLE Pack45；
-- 首次安装或卸载上述驱动时需要管理员权限，并需要重启 Windows 一次。
+- 首次安装或卸载上述驱动时需要管理员权限；设备重新连接或 Windows 重启可能由系统按需要求。
 - 可选的返回与音量键增强需要为采集辅助进程授予管理员权限；未开启时不会启动该辅助进程或发起 Frida 注入。
 
-Axonkey 使用 x64 `interception.dll`，因此不支持 32 位 Windows。输入服务按硬件 ID 只为 RC003 设置过滤条件。
+Axonkey 使用 QuarborHIDFilterUserDriver 的 x64 UMDF 包，因此不支持 32 位 Windows。输入服务按设备实例和 VID/PID 只为 RC003 连接对应管道。
 
 ### macOS
 
@@ -148,19 +148,23 @@ macOS 按键映射不需要安装输入驱动。未启用自定义映射，或�
 
 1. 在 Windows 蓝牙设置中配对并唤醒 RC003。
 2. 启动 Axonkey，按照首次使用引导检查设备和驱动。
-3. 在“驱动安装”页面安装 Interception；需要语音时同时安装 VB-CABLE。完成所需驱动安装后重启 Windows 一次。
+3. 在“驱动安装”页面为当前 RC003 安装 Quarbor HID 过滤驱动；需要语音时同时安装 VB-CABLE。按页面提示重新连接设备或重启 Windows。
 4. 重新打开 Axonkey，选择遥控器按键及触发方式，然后设置目标行为。
 5. 打开“启用自定义按键功能”开关。
 
-Interception 和 VB-CABLE 只需安装一次。之后添加、删除或修改映射不需要再次重启。
+Quarbor 和 VB-CABLE 只需安装一次。之后添加、删除或修改映射不需要再次重启。
 
-从源码目录或解压后的发行目录也可以手动运行安装脚本：
+从源码目录或解压后的发行目录也可以直接使用安装器 CLI：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\install-driver.ps1
+$installer = '.\vendor\QuarborHIDFilterUserDriver\QuarborHIDFilterUserDriverInstaller.exe'
+& $installer --list
+# 将下方字符串替换为 --list 中 RC003 的 instanceId。
+$rc003Id = 'RC003 的完整设备实例 ID'
+& $installer --install $rc003Id
 ```
 
-脚本会校验随项目提供的 Interception 安装程序和运行库，说明系统变更，要求输入 `INSTALL` 确认，然后申请管理员权限。
+查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用只对 RC003 的 HID 键盘实例执行操作，卸载包含离线实例。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](vendor/QuarborHIDFilterUserDriver/Docs/quarbor-hid-user-installer-cli.md)。
 
 也可以手动启动仓库中经过校验的 VB-CABLE 安装流程：
 
@@ -178,9 +182,9 @@ Windows 语音链路由 Axonkey 直接维护：应用通过 Bluetooth GATT 连�
 
 此功能默认关闭，入口位于“按键映射”页面底部收起的“高级选项”，不会出现在主页顶部。未开启时，返回、音量加和音量减会标注“需开启增强”；选中后显示“映射尚未生效”，点击“查看说明并开启”可直达该入口。仅保存 `VolumeUp` / `VolumeDown` 映射不会启用采集。
 
-**开启前请了解：** 此功能通过 Frida 向 Windows 蓝牙设备宿主进程注入 DLL，无法保证与游戏反作弊兼容；有顾虑请保持关闭。这个开关只控制增强采集通道，不控制 Interception 驱动，也不代表整个软件已通过游戏反作弊兼容性认证。
+**开启前请了解：** 此功能通过 Frida 向 Windows 蓝牙设备宿主进程注入 DLL，无法保证与游戏反作弊兼容；有顾虑请保持关闭。这个开关只控制增强采集通道，不控制 Quarbor HID 过滤驱动，也不代表整个软件已通过游戏反作弊兼容性认证。
 
-1. 连接 RC003，完成 Interception 设置，并打开“启用自定义按键功能”。
+1. 连接 RC003，完成 Quarbor 驱动设置，并打开“启用自定义按键功能”。
 2. 展开“高级选项”，阅读“返回与音量键增强”的说明，自行决定是否点击“开启并授权”或打开“启用增强支持”开关。
 3. Windows 弹出管理员授权时选择“是”。应用主体保持普通权限，仅采集辅助进程提权。
 4. 状态显示“已启用”后，三个按键直接执行已保存的单击、双击或长按映射，首次按键即可使用，无需测试或校准。
@@ -219,13 +223,16 @@ Windows 语音链路由 Axonkey 直接维护：应用通过 Bluetooth GATT 连�
 
 ## 卸载输入驱动
 
-先退出 Axonkey 和其他使用 Interception 的工具，再运行：
+先退出 Axonkey 和其他使用 Quarbor 驱动的工具，再运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\uninstall-driver.ps1
+$installer = '.\vendor\QuarborHIDFilterUserDriver\QuarborHIDFilterUserDriverInstaller.exe'
+& $installer --list
+$rc003Id = 'RC003 的完整设备实例 ID（可以离线）'
+& $installer --uninstall $rc003Id
 ```
 
-脚本要求输入 `UNINSTALL` 并申请管理员权限。卸载完成后需要重启 Windows。
+安装器会申请管理员权限，并返回是否需要重启 Windows。也可以运行 `make uninstall-driver DEVICE="设备实例 ID"`。应用内卸载只处理 RC003；安装器的 `--uninstall-all` 会解除所有设备的 Quarbor 绑定并清理未使用的驱动包，仅在需要完整移除时手动使用。
 
 ## 本地开发
 
@@ -311,7 +318,7 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 ## 工作原理
 
 ```text
-Windows input: RC003 -> Interception -> 扫描码 -> 行为状态机 -> 同设备发送
+Windows input: RC003 -> Quarbor HID pipe -> HID usage -> 扫描码 -> 行为状态机 -> SendInput
 Windows voice: RC003 -> Bluetooth GATT ATVV -> IMA ADPCM -> PCM -> CABLE Input -> CABLE Output
 macOS input:   RC003 -> IOHIDManager -> HID usage -> 行为状态机 -> CoreGraphics / AppKit 发送
 macOS voice:   RC003 -> CoreBluetooth ATVV -> IMA ADPCM -> PCM -> MiRemoteV 2ch
@@ -346,16 +353,12 @@ macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标�
 - 映射配置保存在本机应用数据中。
 - Windows 驱动安装和卸载日志位于 `%LOCALAPPDATA%\Axonkey\logs`。
 - macOS MiRemoteV 安装和卸载日志位于 `~/Library/Logs/Axonkey`。
-- Windows 中退出 Axonkey 会释放用户态 Interception context，停止处理自定义映射。
+- Windows 中退出 Axonkey 会关闭 Quarbor HID 管道，停止处理自定义映射。
 - macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
 ### Windows 断连后按键无响应
 
-Interception 存在设备断开后重新连接可能无法输入的已知问题：RC003 在 Windows 中仍显示已连接，但按键没有响应，退出或重启 Axonkey 也可能无法恢复。原始报告见 [Interception issue #25](https://github.com/oblitum/Interception/issues/25)。
-
-问题涉及驱动对重新枚举设备的处理。上游 [issue #193](https://github.com/oblitum/Interception/issues/193) 将其归因于固定设备编号范围：反复断连、重连可能生成超出驱动支持范围的设备编号，即使是同一台设备也可能触发。Axonkey 只过滤 RC003 的用户态逻辑无法修复该内核驱动状态；这也不意味着每次重连都会失败。
-
-遇到该现象时，重启电脑即可。详细现象、原因和既有排查证据见 [Interception 重连问题说明](./docs/INTERCEPTION_HOTPLUG_INCIDENT.md)。
+Quarbor 驱动按设备实例发布独立管道。设备重新枚举后，Axonkey 会按新的实例 ID 重连对应管道；若驱动安装状态异常，请在引导中重新检测或重新绑定 RC003。
 
 ### 长时间说话时音频延迟
 
@@ -363,11 +366,9 @@ Interception 存在设备断开后重新连接可能无法输入的已知问题�
 
 此问题尚未解决，需要完整录制长段语音时请留意这一限制。已知现象、测量结果和排查进展见 [RC003 音频延迟说明](./docs/RC003_AUDIO_LATENCY.md)。
 
-## Interception 许可
+## Quarbor HID 许可
 
-Interception 是独立的第三方组件，并采用双重许可。其上游许可允许在所列 LGPL 条款下进行非商业使用；商业分发需要向 Interception 作者取得单独授权。在取得相应许可前，请勿将包含 Interception 资源的 Axonkey 用于商业分发。
-
-具体版本、文件哈希、许可文本和上游链接见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) 与 [vendor/interception/SOURCE.md](./vendor/interception/SOURCE.md)。
+QuarborHIDFilterUserDriver 按随驱动包提供的免费使用／禁止转售许可证分发。具体条款见 [vendor/QuarborHIDFilterUserDriver/License](./vendor/QuarborHIDFilterUserDriver/License) 和 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## VB-CABLE 许可
 

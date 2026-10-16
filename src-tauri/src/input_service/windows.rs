@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
-    path::PathBuf,
+    io::{ErrorKind, Read},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex, OnceLock, RwLock,
@@ -23,7 +23,7 @@ const FILTER_KEY_ALL: u16 = 0xffff;
 const KEY_UP: u16 = 0x0001;
 const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
-// Frida edges do not wake Interception's wait handle. Poll their queue at a
+// Frida edges do not wake the Quarbor pipe reader. Poll their queue at a
 // shorter interval only while that optional capture channel is ready.
 #[cfg(windows)]
 const EXTRA_KEYS_WAIT_TIMEOUT_MS: u32 = 8;
@@ -72,8 +72,7 @@ struct KeyStroke {
     information: u32,
 }
 
-struct InterceptionApi {
-    _library: libloading::Library,
+struct InputApi {
     create_context: CreateContext,
     destroy_context: DestroyContext,
     set_filter: SetFilter,
@@ -83,80 +82,283 @@ struct InterceptionApi {
     get_hardware_id: GetHardwareId,
 }
 
-impl InterceptionApi {
+impl InputApi {
     fn load() -> Result<Self, String> {
-        let mut failures = Vec::new();
-        for path in interception_dll_candidates() {
-            if !path.is_file() {
-                continue;
+        Ok(Self {
+            create_context: quarbor_create_context,
+            destroy_context: quarbor_destroy_context,
+            set_filter: quarbor_set_filter,
+            wait_with_timeout: quarbor_wait_with_timeout,
+            receive: quarbor_receive,
+            send: quarbor_send,
+            get_hardware_id: quarbor_get_hardware_id,
+        })
+    }
+}
+
+#[cfg(windows)]
+struct QuarborContext {
+    pipe: Option<super::windows_pipe::PipeStream>,
+    bytes: Vec<u8>,
+    reports: std::collections::VecDeque<KeyStroke>,
+    active_usages: std::collections::HashSet<u16>,
+    device_id: Option<String>,
+    last_pipe_attempt: Instant,
+}
+
+#[cfg(windows)]
+impl Default for QuarborContext {
+    fn default() -> Self {
+        Self {
+            pipe: None,
+            bytes: Vec::new(),
+            reports: std::collections::VecDeque::new(),
+            active_usages: std::collections::HashSet::new(),
+            device_id: None,
+            last_pipe_attempt: Instant::now() - Duration::from_secs(2),
+        }
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_create_context() -> Context {
+    Box::into_raw(Box::new(QuarborContext::default())).cast()
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_destroy_context(context: Context) {
+    if !context.is_null() {
+        drop(Box::from_raw(context.cast::<QuarborContext>()));
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_set_filter(_context: Context, _predicate: DevicePredicate, _filter: u16) {}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32) -> i32 {
+    let context = &mut *context.cast::<QuarborContext>();
+    if !context.reports.is_empty() {
+        return 1;
+    }
+    let Some(device_id) = rc003_keyboard_device_id() else {
+        context.pipe = None;
+        quarbor_release_active_usages(context);
+        context.device_id = None;
+        thread::sleep(Duration::from_millis(timeout_ms as u64));
+        return 0;
+    };
+    let device_changed = context
+        .device_id
+        .as_deref()
+        .is_none_or(|current| !current.eq_ignore_ascii_case(&device_id));
+    if device_changed {
+        context.pipe = None;
+        quarbor_release_active_usages(context);
+        context.device_id = Some(device_id.clone());
+    }
+    if context.pipe.is_none() && context.last_pipe_attempt.elapsed() >= Duration::from_millis(250) {
+        context.last_pipe_attempt = Instant::now();
+        context.pipe = super::windows_pipe::PipeStream::connect_read_only(
+            &quarbor_pipe_name(&device_id),
+            Duration::from_millis(1),
+        )
+        .ok();
+    }
+    let Some(pipe) = context.pipe.as_mut() else {
+        thread::sleep(Duration::from_millis(timeout_ms as u64));
+        return 0;
+    };
+    let mut buffer = [0u8; 8192];
+    match pipe.read(&mut buffer) {
+        Ok(size) => {
+            if size == 0 {
+                context.pipe = None;
+                quarbor_release_active_usages(context);
+                0
+            } else {
+                context.bytes.extend_from_slice(&buffer[..size]);
+                quarbor_parse_frames(context);
+                i32::from(!context.reports.is_empty())
             }
-            let library = match unsafe { libloading::Library::new(&path) } {
-                Ok(library) => library,
-                Err(error) => {
-                    failures.push(format!("{}: {error}", path.display()));
-                    continue;
+        }
+        Err(error) if error.kind() == ErrorKind::TimedOut => 0,
+        Err(_) => {
+            context.pipe = None;
+            quarbor_release_active_usages(context);
+            0
+        }
+    }
+}
+
+#[cfg(windows)]
+fn quarbor_release_active_usages(context: &mut QuarborContext) {
+    let active = std::mem::take(&mut context.active_usages);
+    for usage in active {
+        if let Some(stroke) = rc003_usage_stroke(usage, true) {
+            context.reports.push_back(stroke);
+        }
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_receive(context: Context, _device: i32, stroke: *mut KeyStroke, _count: u32) -> i32 {
+    let context = &mut *context.cast::<QuarborContext>();
+    match context.reports.pop_front() {
+        Some(value) => {
+            *stroke = value;
+            1
+        }
+        None => 0,
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_send(_context: Context, _device: i32, stroke: *const KeyStroke, count: u32) -> i32 {
+    if stroke.is_null() || count == 0 {
+        return 0;
+    }
+    let stroke = *stroke;
+    let mut input = Input {
+        kind: 1,
+        value: InputValue {
+            keyboard: KeyboardInput {
+                virtual_key: 0,
+                scan_code: stroke.code,
+                flags: 0x0008
+                    | if stroke.state & KEY_E0 != 0 { 0x0001 } else { 0 }
+                    | if stroke.state & KEY_UP != 0 { 0x0002 } else { 0 },
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    SendInput(1, &mut input, std::mem::size_of::<Input>() as i32) as i32
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_get_hardware_id(context: Context, _device: i32, buffer: *mut u8, length: u32) -> u32 {
+    let context = &*context.cast::<QuarborContext>();
+    let Some(id) = context.device_id.as_deref() else {
+        return 0;
+    };
+    let encoded: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    let bytes = encoded.len() * 2;
+    if buffer.is_null() || length < bytes as u32 {
+        return bytes as u32;
+    }
+    std::ptr::copy_nonoverlapping(encoded.as_ptr().cast::<u8>(), buffer, bytes);
+    bytes as u32
+}
+
+#[cfg(windows)]
+fn quarbor_pipe_name(instance_id: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for unit in instance_id.to_ascii_uppercase().encode_utf16() {
+        for byte in unit.to_le_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!(r"\\.\pipe\Quarbor.HidUserFilter.v1.{hash:016X}")
+}
+
+#[cfg(windows)]
+fn quarbor_parse_frames(context: &mut QuarborContext) {
+    const HEADER: usize = 48;
+    while context.bytes.len() >= HEADER {
+        if u32::from_le_bytes(context.bytes[0..4].try_into().unwrap()) != 0x31464851 {
+            context.bytes.remove(0);
+            continue;
+        }
+        let version = u16::from_le_bytes(context.bytes[4..6].try_into().unwrap());
+        let kind = u16::from_le_bytes(context.bytes[6..8].try_into().unwrap());
+        let header_bytes = u32::from_le_bytes(context.bytes[8..12].try_into().unwrap());
+        let payload = u32::from_le_bytes(context.bytes[12..16].try_into().unwrap()) as usize;
+        let frame = HEADER + payload;
+        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3) {
+            context.bytes.drain(..4);
+            continue;
+        }
+        if context.bytes.len() < frame {
+            break;
+        }
+        let data = context.bytes[HEADER..frame].to_vec();
+        context.bytes.drain(..frame);
+        if kind == 1 {
+            if data.len() >= 2 && data.len() % 2 == 0 {
+                let units = data
+                    .chunks_exact(2)
+                    .map(|part| u16::from_le_bytes([part[0], part[1]]))
+                    .collect::<Vec<_>>();
+                if units.last() == Some(&0) {
+                    context.device_id = String::from_utf16(&units[..units.len() - 1]).ok();
                 }
-            };
-            let result = unsafe {
-                Ok(Self {
-                    create_context: load_symbol(&library, b"interception_create_context\0")?,
-                    destroy_context: load_symbol(&library, b"interception_destroy_context\0")?,
-                    set_filter: load_symbol(&library, b"interception_set_filter\0")?,
-                    wait_with_timeout: load_symbol(&library, b"interception_wait_with_timeout\0")?,
-                    receive: load_symbol(&library, b"interception_receive\0")?,
-                    send: load_symbol(&library, b"interception_send\0")?,
-                    get_hardware_id: load_symbol(&library, b"interception_get_hardware_id\0")?,
-                    _library: library,
-                })
-            };
-            return result.map_err(|error: String| format!("{}: {error}", path.display()));
+            }
+        } else if kind == 2 {
+            quarbor_decode_report(context, &data);
         }
-
-        let detail = if failures.is_empty() {
-            "interception.dll was not found".to_string()
-        } else {
-            failures.join("; ")
-        };
-        Err(detail)
     }
 }
 
-unsafe fn load_symbol<T: Copy>(library: &libloading::Library, name: &[u8]) -> Result<T, String> {
-    library
-        .get::<T>(name)
-        .map(|symbol| *symbol)
-        .map_err(|error| error.to_string())
-}
-
-fn interception_dll_candidates() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(current) = std::env::current_dir() {
-        roots.push(current.clone());
-        if let Some(parent) = current.parent() {
-            roots.push(parent.to_path_buf());
+#[cfg(windows)]
+fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
+    let mut current = std::collections::HashSet::new();
+    for offset in 0..=1.min(payload.len()) {
+        if (payload.len() - offset) % 2 != 0 {
+            continue;
         }
-    }
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(parent) = executable.parent() {
-            roots.push(parent.to_path_buf());
-            if let Some(grandparent) = parent.parent() {
-                roots.push(grandparent.to_path_buf());
+        for pair in payload[offset..].chunks_exact(2) {
+            let usage = u16::from_le_bytes([pair[0], pair[1]]);
+            if known_rc003_usage(usage) {
+                current.insert(usage);
             }
         }
+        if !current.is_empty() {
+            break;
+        }
     }
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."));
+    for usage in current.difference(&context.active_usages).copied() {
+        if let Some(stroke) = rc003_usage_stroke(usage, false) {
+            context.reports.push_back(stroke);
+        }
+    }
+    for usage in context.active_usages.difference(&current).copied() {
+        if let Some(stroke) = rc003_usage_stroke(usage, true) {
+            context.reports.push_back(stroke);
+        }
+    }
+    context.active_usages = current;
+}
 
-    let mut candidates = Vec::new();
-    for root in roots {
-        candidates.push(root.join("interception.dll"));
-        candidates.push(
-            root.join("vendor")
-                .join("interception")
-                .join("interception.dll"),
-        );
-        candidates.push(root.join("resources").join("interception.dll"));
-    }
-    candidates
+#[cfg(windows)]
+fn known_rc003_usage(usage: u16) -> bool {
+    matches!(usage, 0x003E | 0x00F1 | 0x0028 | 0x0035 | 0x004A | 0x004F | 0x0050 | 0x0051 | 0x0052 | 0x0065 | 0x0066 | 0x0080 | 0x0081)
+}
+
+#[cfg(windows)]
+fn rc003_usage_stroke(usage: u16, key_up: bool) -> Option<KeyStroke> {
+    let (code, extended) = match usage {
+        0x003E => (0x3F, false),
+        0x00F1 => (0x6A, true),
+        0x0028 => (0x1C, false),
+        0x0035 => (0x29, false),
+        0x004A => (0x47, true),
+        0x004F => (0x4D, true),
+        0x0050 => (0x4B, true),
+        0x0051 => (0x50, true),
+        0x0052 => (0x48, true),
+        0x0065 => (0x5D, true),
+        0x0066 => (0x5E, true),
+        0x0080 => (0x30, true),
+        0x0081 => (0x2E, true),
+        _ => return None,
+    };
+    Some(KeyStroke {
+        code,
+        state: (u16::from(extended) * KEY_E0) | (u16::from(key_up) * KEY_UP),
+        information: 0,
+    })
 }
 
 #[cfg(not(test))]
@@ -191,7 +393,7 @@ impl InputService {
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
-            .name("Axonkey Interception input".into())
+            .name("Axonkey Quarbor HID input".into())
             .spawn(move || worker_loop(worker_shared))
             .ok();
         if worker.is_none() {
@@ -344,7 +546,7 @@ const SOURCE_KEYS: [SourceKey; 13] = [
     SourceKey::new("down", 0x50, None),
     SourceKey::new("left", 0x4b, None),
     SourceKey::new("right", 0x4d, None),
-    // Output equivalents only; these are never recognized from Interception input.
+    // Output equivalents only; these are never recognized from Quarbor HID input.
     SourceKey::with_repeat(
         "back",
         0x6a,
@@ -401,15 +603,15 @@ struct ButtonState {
 }
 
 fn worker_loop(shared: Arc<Shared>) {
-    let api = match InterceptionApi::load() {
+    let api = match InputApi::load() {
         Ok(api) => api,
         Err(error) => {
-            log::error!(target: "axonkey::input", "Failed to load Interception backend: {error}");
+            log::error!(target: "axonkey::input", "Failed to load Quarbor HID backend: {error}");
             shared.status.lock().unwrap().error = Some(error);
             return;
         }
     };
-    log::info!(target: "axonkey::input", "Interception backend loaded");
+    log::info!(target: "axonkey::input", "Quarbor HID backend loaded");
     {
         let mut status = shared.status.lock().unwrap();
         status.backend_ready = true;
@@ -424,10 +626,10 @@ fn worker_loop(shared: Arc<Shared>) {
 
         let context = unsafe { (api.create_context)() };
         if context.is_null() {
-            log::warn!(target: "axonkey::input", "Interception could not create an input context; retrying");
+            log::warn!(target: "axonkey::input", "Quarbor HID could not create an input context; retrying");
             let mut status = shared.status.lock().unwrap();
             status.backend_ready = false;
-            status.error = Some("Interception could not create an input context".into());
+            status.error = Some("Quarbor HID could not create an input context".into());
             drop(status);
             thread::sleep(DEVICE_POLL_INTERVAL);
             continue;
@@ -453,12 +655,10 @@ fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Inst
         let target_present = hardware_id.is_some();
         update_device_status(shared, hardware_id, last_target_seen_at, now);
 
-        let mapping_enabled = shared
-            .settings
-            .read()
-            .map(|settings| settings.enabled)
-            .unwrap_or(false);
-        if target_present && mapping_enabled {
+        // The Quarbor filter blocks the HID read even when mappings are
+        // disabled, so keep the pipe connected and forward original strokes
+        // in that mode as well.
+        if target_present {
             let first_stable = *stable_since.get_or_insert(now);
             if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
                 return true;
@@ -473,7 +673,7 @@ fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Inst
 }
 
 fn run_context(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     shared: &Shared,
     last_target_seen_at: &mut Option<Instant>,
@@ -486,14 +686,9 @@ fn run_context(
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let mapping_enabled = shared
-                .settings
-                .read()
-                .map(|settings| settings.enabled)
-                .unwrap_or(false);
             let hardware_id = rc003_keyboard_device_id();
             update_device_status(shared, hardware_id.clone(), last_target_seen_at, now);
-            if !mapping_enabled || hardware_id.is_none() {
+            if hardware_id.is_none() {
                 break;
             }
             let next_target = probe_devices(
@@ -591,7 +786,7 @@ fn run_context(
 }
 
 fn probe_devices(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     old_target: i32,
     last_target_seen_at: Option<Instant>,
@@ -600,6 +795,15 @@ fn probe_devices(
 ) -> i32 {
     let mut found = 0;
     let mut found_id = None;
+    #[cfg(not(test))]
+    if let Some(device_id) = rc003_keyboard_device_id() {
+        // Quarbor owns the per-device pipe rather than exposing native device
+        // handles. Keep the existing state machine's logical target
+        // slot while the backend connects to this exact instance ID.
+        found = 1;
+        found_id = Some(device_id);
+    }
+    #[cfg(test)]
     for device in 1..=MAX_KEYBOARD {
         let ids = hardware_ids(api, context, device);
         if is_target_hardware_id(&ids) {
@@ -705,17 +909,17 @@ fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
         })
 }
 
-fn set_device_filter(api: &InterceptionApi, context: Context, device: i32, filter: u16) {
+fn set_device_filter(api: &InputApi, context: Context, device: i32, filter: u16) {
     FILTER_TARGET.store(device, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, selected_device, filter) };
 }
 
-fn clear_keyboard_filters(api: &InterceptionApi, context: Context) {
+fn clear_keyboard_filters(api: &InputApi, context: Context) {
     FILTER_TARGET.store(0, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, keyboard_device, FILTER_KEY_NONE) };
 }
 
-fn hardware_ids(api: &InterceptionApi, context: Context, device: i32) -> String {
+fn hardware_ids(api: &InputApi, context: Context, device: i32) -> String {
     let mut buffer = [0u8; 2048];
     let length =
         unsafe { (api.get_hardware_id)(context, device, buffer.as_mut_ptr(), buffer.len() as u32) }
@@ -738,7 +942,7 @@ fn is_target_hardware_id(value: &str) -> bool {
 }
 
 fn process_target_stroke(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -754,7 +958,7 @@ fn process_target_stroke(
 }
 
 fn process_source_stroke(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -943,7 +1147,7 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
 }
 
 fn process_timers(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -1091,7 +1295,7 @@ fn execute_repeatable_click(action: RepeatableClick) {
 }
 
 fn execute_click_or_original(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     behaviors: &[NativeBehavior],
@@ -1111,7 +1315,7 @@ fn execute_click_or_original(
 }
 
 fn send_original_down(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     mut original: KeyStroke,
@@ -1121,7 +1325,7 @@ fn send_original_down(
 }
 
 fn execute_behaviors(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     behaviors: &[NativeBehavior],
@@ -1323,7 +1527,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
 }
 
 fn press_chord(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     keys: &[u16],
@@ -1342,7 +1546,7 @@ fn press_chord(
     pressed
 }
 
-fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: &[KeyStroke]) {
+fn release_chord(api: &InputApi, context: Context, device: i32, pressed: &[KeyStroke]) {
     if !pressed.is_empty() {
         log::info!(target: "axonkey::input", "Mapped chord release: device={device}, keys={}", pressed.len());
     }
@@ -1352,7 +1556,7 @@ fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: 
     }
 }
 
-fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16]) {
+fn tap_chord(api: &InputApi, context: Context, device: i32, keys: &[u16]) {
     let pressed = press_chord(api, context, device, keys);
     if !pressed.is_empty() {
         log::info!(target: "axonkey::input", "Mapped tap: device={device}, hold_ms={}", OUTPUT_TAP_DURATION.as_millis());
@@ -1362,7 +1566,7 @@ fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16])
 }
 
 fn release_all_held_outputs(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     states: &mut HashMap<&'static str, ButtonState>,
@@ -1392,7 +1596,7 @@ fn emit_remote_key_event(_shared: &Shared, _button: &'static str, _pressed: bool
 
 #[cfg(windows)]
 fn release_extra_outputs(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -1408,7 +1612,7 @@ fn release_extra_outputs(
     release_all_held_outputs(api, context, device, &mut extra);
 }
 
-fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
+fn send_stroke(api: &InputApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
     let sent = unsafe { (api.send)(context, device, &stroke, 1) };
     let is_up = stroke.state & KEY_UP != 0;
     static OUTPUT_LOGS: OnceLock<Mutex<HashMap<(i32, u16, u16), Instant>>> = OnceLock::new();
@@ -1821,6 +2025,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn accepts_case_only_changes_in_quarbor_hello_device_id() {
+        let setup_api = "HID\\{00001812}_DEV_VID&012717_PID&32B8";
+        let hello = "HID\\{00001812}_Dev_VID&012717_PID&32b8";
+        assert!(setup_api.eq_ignore_ascii_case(hello));
+    }
+
+    #[test]
+    fn decodes_report_id_before_rc003_usage() {
+        let mut context = QuarborContext::default();
+        quarbor_decode_report(&mut context, &[1, 0, 0, 0x28, 0, 0, 0, 0, 0]);
+        let stroke = context.reports.pop_front().expect("usage report");
+        assert_eq!(stroke.code, 0x1c);
+        assert_eq!(stroke.state, 0);
+        assert!(context.active_usages.contains(&0x28));
+    }
+
+    #[test]
     fn mouse_shortcut_burst_has_no_per_event_hold_delay() {
         MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
         let started = Instant::now();
@@ -2019,8 +2240,7 @@ mod tests {
             0
         }
         // No input APIs are called: only output conversion and recording send stubs.
-        let api = InterceptionApi {
-            _library: unsafe { libloading::Library::new("kernel32.dll").unwrap() },
+        let api = InputApi {
             create_context: create,
             destroy_context: destroy,
             set_filter: filter,

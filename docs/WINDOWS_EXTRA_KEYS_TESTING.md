@@ -221,7 +221,7 @@ the mapper received down. It did not establish physical end-to-end latency:
 log timestamps had only second precision. Review found two avoidable sources
 of delay upstream: both TCP hops used default Nagle behavior, and Frida events
 could sit in a queue while the mapping worker waited up to 50 ms for an
-Interception event that these three usages never generate.
+legacy scan-code event that these three usages never generate.
 
 Every Gadget connection now awaits `setNoDelay(true)` before capture starts,
 including reconnects. Failure closes that socket before retrying. All native IPC
@@ -240,7 +240,7 @@ real TCP connections in one process: 100 small reports measured median 48 us,
 p95 126 us and maximum 210 us in one run, with no release or following packet
 needed to deliver a press. It also checks partial and multiple JSON frames.
 These measurements exclude BLE, the actual Gadget runtime, worker scheduling,
-Interception output and the target application; no physical latency reduction
+driver output and the target application; no physical latency reduction
 has yet been measured. The shorter wait is not an end-to-end latency guarantee.
 
 ## Visible activation guidance (2026-09-10)

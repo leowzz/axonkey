@@ -1,4 +1,5 @@
-//! Local-only byte-stream IPC for the elevated extra-key helper and Gadget.
+//! Local-only byte-stream IPC for Quarbor HID reports, the elevated extra-key helper,
+//! and the optional Gadget channel.
 //! Tokio owns overlapped I/O and its cancellation buffers; the input worker keeps
 //! its synchronous, bounded-read interface. No TCP sockets are opened here.
 use std::{
@@ -146,12 +147,25 @@ impl PipeStream {
     }
 
     pub fn connect(name: &str, wait: Duration) -> io::Result<Self> {
+        Self::connect_with_access(name, wait, true)
+    }
+
+    /// Connect to a producer-only pipe using the minimum read access. Quarbor's
+    /// user filter grants interactive clients read access but deliberately does
+    /// not grant them write access.
+    pub fn connect_read_only(name: &str, wait: Duration) -> io::Result<Self> {
+        Self::connect_with_access(name, wait, false)
+    }
+
+    fn connect_with_access(name: &str, wait: Duration, write: bool) -> io::Result<Self> {
         let began = Instant::now();
         let _guard = runtime()?.enter();
         loop {
-            // SECURITY_ANONYMOUS: even an elevated client must not grant the
-            // server impersonation rights. PID verification follows connect.
-            match ClientOptions::new().security_qos_flags(0).open(name) {
+            // Tokio's named-pipe client defaults to SECURITY_IDENTIFICATION;
+            // keep that level so the server cannot impersonate this client.
+            let mut options = ClientOptions::new();
+            options.read(true).write(write);
+            match options.open(name) {
                 Ok(pipe) => return Ok(Self::new(Endpoint::Client(pipe))),
                 Err(error)
                     if matches!(error.raw_os_error(), Some(2 | 231)) && began.elapsed() < wait =>

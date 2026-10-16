@@ -130,33 +130,24 @@ export type DriverDefinition = {
   title: string
   description: string
   required: boolean
-  installScript: string | null
-  uninstallScript: string | null
-  rebootAfterInstall: boolean
-  rebootAfterUninstall: boolean
+  installerPath: string
 }
 
-/** Paths mirror the reviewed scripts shipped in the repository. */
+/** Paths mirror the installers shipped in the repository. */
 export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
   input: {
     kind: 'input',
-    title: '按键拦截驱动',
-    description: 'Interception 过滤驱动，用于只拦截 RC003 的按键事件。',
+    title: 'Quarbor HID 按键过滤驱动',
+    description: 'QuarborHIDFilterUserDriver驱动，获取遥控器按键输入。',
     required: true,
-    installScript: 'scripts/install-driver.ps1',
-    uninstallScript: 'scripts/uninstall-driver.ps1',
-    rebootAfterInstall: true,
-    rebootAfterUninstall: true,
+    installerPath: 'vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe',
   },
   audio: {
     kind: 'audio',
     title: 'CABLE 虚拟麦克风',
     description: '安装 VB-Audio VB-CABLE，使 Windows 出现 CABLE Output 虚拟录音设备。',
     required: false,
-    installScript: 'scripts/vbcable-driver.ps1',
-    uninstallScript: 'scripts/vbcable-driver.ps1',
-    rebootAfterInstall: true,
-    rebootAfterUninstall: true,
+    installerPath: 'scripts/vbcable-driver.ps1',
   },
 }
 

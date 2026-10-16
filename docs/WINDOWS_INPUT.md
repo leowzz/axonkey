@@ -1,105 +1,29 @@
 # Windows 输入
 
-Axonkey 在 Windows 11 x64 上使用 Interception 1.0.1 处理 RC003 按键映射。
-首次使用时通过应用引导安装驱动并重启 Windows，之后修改映射无需重启。
+Axonkey 在 Windows 11 x64 上使用 QuarborHIDFilterUserDriver 处理 RC003 按键映射。首次使用时，引导会把驱动包的私有模型显式绑定到当前 RC003 的枚举 HID 键盘设备；卸载时使用保存的原驱动信息恢复设备，即使设备暂时离线也会保留恢复记录。
 
 ## 输入链路
 
-Rust 后端通过 `libloading` 加载随应用提供的 x64 `interception.dll`，按硬件 ID
-匹配小米 RC003（`VID_2717&PID_32B8`），只为目标设备设置输入过滤条件。
-按键事件经过单击、双击和长按状态机处理，再从同一设备发送映射后的输入。
-普通键盘不进入 RC003 映射流程。
+Quarbor UMDF 过滤器只安装到选中的 RC003 设备实例，不注册全局 Keyboard 类过滤器。驱动将原始 HID 报告发送到 `\\.\pipe\Quarbor.HidUserFilter.v1.<16 位实例哈希>`。Rust 后端按设备实例计算管道名，校验 48 字节协议头，处理 Hello/Report 帧，并把 RC003 的 HID usage 边沿转换为内部按键事件。映射状态机继续处理单击、双击、长按和行为序列，输出通过 Windows `SendInput` 发送。
 
-Windows 提供 13 个可配置按键。其中返回键和独立音量 `+ / -` 通过可选 Frida
-通道读取，其他 10 个按键继续使用 Interception。三个额外键的 usage 分别为
-`0xF1`、`0x80`、`0x81`；均进入现有单击、双击、长按和行为序列流程。
+普通键盘不会进入 RC003 映射流程。管道客户端使用 `SECURITY_IDENTIFICATION`，只读取当前设备对应的本机管道；设备重新枚举后，客户端会按新的实例 ID 重连。
+
+Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28`、TV `0x35`、语音 `0x3E`、主页 `0x4A`、方向 `0x4F/0x50/0x51/0x52`、菜单 `0x65`、电源 `0x66`、返回 `0xF1` 和音量 `0x80/0x81`。驱动报告保留 Report ID 和原始字节，客户端只对已知 RC003 usage 生成按键边沿。
 
 ## 返回键与音量键授权
 
-1. 开启顶部“启用自定义按键功能”，完成 Interception 驱动设置并连接 RC003。
-2. 进入“按键映射”，展开底部“高级选项”，阅读“返回与音量键增强”的兼容性说明后自行决定是否点击“开启并授权”。未开启时三个键标注“需开启增强”，选中后可点击“查看说明并开启”直达。仅保存映射不会启用增强支持。开启后 Windows 会弹出 UAC，选择“是”。
-3. 采集组件连接就绪后显示“已启用”，三个按键直接执行已保存的映射，无需测试或校准。
-
-该功能默认关闭，不属于首次使用的必做步骤，也不影响首页就绪状态。新版不沿用
-旧版 `axonkey.extra-keys.v1` 的开启状态，需在看到注入说明后重新选择；新的选择保存在
-`axonkey.extra-keys.v2`。未开启时不启动 Frida 辅助进程或发起注入，浏览器界面重建时
-也会停止可能遗留的旧采集会话。
-
-此通道通过 Frida 向 Windows 蓝牙设备宿主进程注入 DLL，无法保证与游戏反作弊
-兼容。关闭仅停止采集和解除 Hook，已加载的 DLL 仍可能驻留；需要清除时，请关闭
-该功能并重启 Windows。此开关不控制 Interception 驱动，也不代表整个软件通过了
-游戏反作弊兼容性认证。Gadget 的加载和卸载机制见 [Frida 官方说明](https://frida.re/docs/gadget/)。
-
-应用主体保持普通权限，只有不带界面的采集辅助进程获得管理员权限。拒绝授权、
-组件加载失败和连接超时都会显示原因，并提供重新授权入口。保持开关打开且
-自定义按键功能已启用时，下次启动应用会在恢复设置后自动请求一次 UAC 授权。
-取消后本次运行不会重复弹窗，界面重建也不会再次请求，可手动重试；导入或修改映射不会再次触发启动授权。
-关闭开关、关闭自定义按键
-功能或从托盘退出，会停止采集并释放已按下的映射输出，取消尚未触发的手势。
-关闭主窗口仍继续托盘运行。
-
-Frida Gadget 17.15.3 已嵌入 Windows 程序，用户开启并授权后校验并释放至受保护的
-`%ProgramData%\Axonkey\extra-keys` 目录。无需安装 Python、Frida 命令行或新的
-内核驱动。辅助进程退出后 Hook 解除；DLL 本身由 Windows 回收 WUDFHost 时卸载。
-
-Windows 可让多个蓝牙设备共用 WUDFHost。应用验证 RC003 的宿主和当前设备，
-在允许的设备对象内，自动接入首个符合报告格式且包含三个额外 usage 之一的流，
-首次按键立即进入映射。普通键和空报告不触发接入，接入后其他报告流不进入映射。
-UMDF 代理本身不带可验证的 RC003 VID/PID；如果同一宿主内另一设备先发送相同格式
-和 usage，仍可能误匹配，不能据此保证这类设备之间的硬件隔离。句柄关闭、设备对象
-或宿主变化后释放旧输出并自动重新接入，无需用户确认。不会持久化代理名或句柄。
-保留原行为时，返回发送 Windows 浏览器返回键，音量加减发送系统音量键。
-关闭此支持时，Windows 原生路径仍可能丢弃三个 usage。
-
-双击、长按和行为序列产生的模拟短按会保持 50 毫秒后松开，以兼容轮询键盘
-状态的软件。长按行为首次在持续按住 600 毫秒后触发，等待 350 毫秒后每 100
-毫秒连续触发，松开按键即停止。只有单击映射时，按键仍跟随遥控器实际按住和松开的时机。
-
-三个额外按键通过两段本机命名管道传输，不再监听 TCP 端口，收到完整报告即转发。
-应用与辅助进程使用每次授权独立的管道；辅助进程与 Gadget 使用按脚本版本隔离的管道，
-保留进程身份和令牌校验，并拒绝远程管道连接。管道句柄随进程退出释放。
-增强采集就绪时，映射线程对该通道的队列检查间隔从 50 毫秒缩短为 8 毫秒；
-未启用时保留原来的等待间隔。8 毫秒是线程请求的等待时间，不是端到端延迟保证。
-未配置启用的双击或长按行为、且单击为单个按键或快捷键时，收到按下就发送输出，
-无需等待松开或手势计时器。配置了双击时，单击仍需等待双击判定窗口。
-
-来源、许可证与校验值见 [Frida 来源说明](../vendor/frida/SOURCE.md)，
-原始实测依据见 [三个额外按键的诊断结论](./WINDOWS_RC003_EXTRA_KEYS.md)。
-
-关闭主窗口后，Axonkey 继续常驻系统托盘并处理映射。
-关闭“启用自定义按键功能”可恢复原按键行为；从托盘退出应用会释放
-Interception context，停止处理自定义映射。
+返回键和音量 `+ / -` 的增强采集仍由可选 Frida 通道提供。它不改变 Quarbor 的基础输入管道，也不属于首次安装的必做步骤。开启方式、UAC 行为和兼容性边界见应用内“高级选项”及 [Frida 来源说明](../vendor/frida/SOURCE.md)。
 
 ## 安装与语音
 
-Interception 的安装和卸载需要管理员权限及 Windows 重启。
-安装脚本在提权前校验随项目提供的安装器和运行库哈希。
-卸载输入驱动后，自定义按键映射需要重新安装驱动才能使用。
+Tauri 直接运行随包提供的 `QuarborHIDFilterUserDriverInstaller.exe`：`--list` 以普通权限查询设备，`--install <instanceId>` 和 `--uninstall <instanceId>` 由安装器自行请求 UAC。应用只选择 RC003 HID 键盘；安装要求在线，卸载包含离线且仍绑定或存在活动恢复记录的实例。包暂存、绑定和恢复记录都由安装器管理。状态查询使用 JSON 的 `bound` / `recoveryActive` 字段，已恢复的历史记录不会误报为安装；操作按退出码和 `rebootRequired` 提示重启，取消 UAC 单独显示。接口见 [安装器 CLI 文档](../vendor/QuarborHIDFilterUserDriver/Docs/quarbor-hid-user-installer-cli.md)。
 
-RC003 语音由独立的 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；
-Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
-按键映射不要求安装 VB-CABLE。
-
-详细安装步骤见 [README](../README.md)，双平台实现见
-[架构说明](./ARCHITECTURE.md)，驱动来源与校验值见
-[Interception 来源说明](../vendor/interception/SOURCE.md)。
+RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
 
 ## 故障排查
 
-若 RC003 断连后重新连接，Windows 显示设备正常但所有按键都无响应，
-可能遇到了 Interception 的设备重新枚举问题。退出 Axonkey 释放的是用户态
-context，无法修复已经异常的内核驱动状态。
-原因、原始 issue 和恢复步骤见 [Interception 重连问题说明](./INTERCEPTION_HOTPLUG_INCIDENT.md)。
+若设备已连接但按键没有响应，请查询安装器 `--list`，确认 RC003 的 `present` 和 `bound` 状态，并重新连接 RC003。运行日志和驱动操作日志位于 `%LOCALAPPDATA%\Axonkey\logs`，驱动日志包含安装器命令、退出码及 JSON 输出。
 
 ## 返回键与音量键采集 Demo
 
-需要确定返回、音量加、音量减的实际 Windows 按键码时，可以运行独立的
-[按键码诊断 Demo](../tools/keycode-demo/README.md)：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\keycode-demo.ps1
-```
-
-Demo 同时记录 Interception 原始扫描码、Raw Input、HID 报告、全局键盘事件和窗口媒体命令，
-并标注设备来源与实时采集状态。Interception 通道仅过滤 RC003，收到的事件立即原样转发。
-从托盘退出 Axonkey 后，按窗口提示分三组采集；日志自动保存在本机，便于后续兼容分析。
+需要检查额外按键的设备报告时，可以运行独立的 [按键码诊断 Demo](../tools/keycode-demo/README.md)。该 Demo 使用 Frida 实验通道；Axonkey 主程序通过 Quarbor HID 管道接收正式输入。

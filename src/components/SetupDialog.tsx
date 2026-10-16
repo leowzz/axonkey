@@ -93,7 +93,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装经过校验的 Interception 驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>为 RC003 安装 Quarbor HID 过滤驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -321,7 +321,7 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const message = driver.action.error ?? driver.message ?? (kind === 'input'
-    ? '经过校验的 Interception 驱动，仅用于识别 RC003 按键。'
+    ? 'QuarborHIDFilterUserDriver驱动，获取遥控器按键输入。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">
@@ -332,7 +332,7 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
     <p className="driver-setup-message">{message}</p>
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
-      {!installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装驱动'}</button>}
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
       {installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '卸载 VB-CABLE' : '卸载驱动'}</button>}
       {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
@@ -356,12 +356,12 @@ function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, on
     <span className="setup-hero-icon"><Download size={24} /></span>
     <span className="section-kicker">DRIVERS</span>
     <h2 id="setup-title">一次完成两个驱动</h2>
-    <p className="setup-lead">依次完成按键驱动和 CABLE 虚拟麦克风安装。两个安装器都结束后再重启 Windows，避免重复重启。</p>
+    <p className="setup-lead">依次为已连接的 RC003 绑定 Quarbor HID 过滤驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 只绑定当前遥控器的 HID 设备实例，不会安装全局键盘过滤器。</p>
     <div className="driver-setup-list">
       <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
       <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
-    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>两个驱动安装完成后统一重启一次</strong><span>重启前可以先完成剩余引导；驱动将在下一次进入 Windows 后生效。</span></div></div>
+    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按安装结果重新连接设备或重启 Windows</strong><span>安装前请连接并唤醒 RC003；卸载支持离线设备。安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
     <div className="setup-actions"><button type="button" className="setup-text-button" disabled={anyRunning} onClick={skipDrivers}>稍后安装</button><button type="button" className="button primary setup-primary" disabled={anyRunning} onClick={onContinue}>{allInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
   </div>
 }

@@ -1,4 +1,4 @@
-// Standalone .NET Framework / WinForms diagnostic with optional Interception passthrough.
+// Standalone .NET Framework / WinForms diagnostic for the optional Frida channel.
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -138,7 +138,6 @@ namespace Axonkey.KeycodeDemo
         private readonly string logPath;
         private readonly bool preview;
         private readonly bool captureOnOpen;
-        private readonly InterceptionCapture interception;
         private readonly FridaCapture frida;
         private IntPtr hook;
         private volatile string stage = "PAUSED";
@@ -154,11 +153,6 @@ namespace Axonkey.KeycodeDemo
             logPath = path;
             this.preview = preview;
             this.captureOnOpen = captureOnOpen;
-            interception = new InterceptionCapture(Write, delegate(int slot, InterceptionCapture.Stroke stroke, int sent) {
-                if (!recording) return;
-                Interlocked.Increment(ref EventCount);
-                Write("INTERCEPTION", InterceptionCapture.Format(slot, stroke, sent));
-            });
             if (fridaMode) frida = new FridaCapture(delegate(string kind, string text) {
                 if (recording || (kind != "FRIDA_HID" && kind != "FRIDA_KEY")) Write(kind, text);
             }, delegate { if (recording) Interlocked.Increment(ref EventCount); });
@@ -206,7 +200,7 @@ namespace Axonkey.KeycodeDemo
             status.Text = "已暂停 · 点击一个测试按钮开始；按键会继续执行原来的系统功能。";
             layout.Controls.Add(status, 0, 2);
             inputStatus.Dock = DockStyle.Fill;
-            inputStatus.Text = fridaMode ? "Frida HID：暂停 · 报告 0 / 全部事件 0" : "Interception：暂停 · 驱动事件 0 / 全部事件 0";
+            inputStatus.Text = "Frida HID：暂停 · 报告 0 / 全部事件 0";
             layout.Controls.Add(inputStatus, 0, 3);
             output.Multiline = true;
             output.ReadOnly = true;
@@ -222,7 +216,7 @@ namespace Axonkey.KeycodeDemo
             timer.Tick += delegate {
                 if (frida != null) frida.RefreshStatus();
                 inputStatus.Text = frida != null ? frida.Status + " · 报告 " + frida.Events + " / 全部事件 " + EventCount :
-                    interception.Status + " · 驱动事件 " + interception.Events + " / 全部事件 " + EventCount;
+                    "Frida HID：未启动 · 报告 0 / 全部事件 " + EventCount;
                 if (recording && EventCount == captureStartCount && (DateTime.Now - captureStarted).TotalSeconds >= 8)
                     status.Text = "本阶段尚无按键事件。请先按遥控器确认键，再按普通键盘 A 作对照。";
                 FlushPending();
@@ -230,8 +224,8 @@ namespace Axonkey.KeycodeDemo
             timer.Start();
             Write("INFO", "Started " + DateTimeOffset.Now.ToString("o") + "; OS=" + Environment.OSVersion + "; pointerBytes=" + IntPtr.Size);
             Write("INFO", "RAW_KEYBOARD / RAW_HID have device identity when Windows provides it; LL_KEYBOARD / APP_COMMAND do not.");
-            Write("INFO", "Stage is a manual label, NOT proof of device origin. Interception forwards original strokes unchanged; no remapping.");
-            if (fridaMode) Write("INFO", "FRIDA MODE: Interception capture is disabled. Native HID usage values are recorded before keyboard translation.");
+            Write("INFO", "Stage is a manual label, NOT proof of device origin. This diagnostic observes reports and does not remap input.");
+            Write("INFO", "FRIDA MODE: Native HID usage values are recorded before keyboard translation.");
         }
 
         private static void AddButton(FlowLayoutPanel panel, string text, EventHandler handler)
@@ -360,7 +354,7 @@ namespace Axonkey.KeycodeDemo
             captureStartCount = EventCount;
             captureStarted = DateTime.Now;
             Write("MARK", "Capture started. Press and release only the button named in this stage.");
-            if (!preview) { if (frida != null) frida.Start(); else interception.Start(); }
+            if (!preview && frida != null) frida.Start();
             status.Text = "正在采集：" + label + " · 每个按键按 2–3 次，再切换到下一项。";
             output.Focus();
         }
@@ -369,7 +363,6 @@ namespace Axonkey.KeycodeDemo
         {
             if (recording) Write("MARK", "Capture paused.");
             recording = false;
-            interception.Stop();
             if (frida != null) frida.Stop();
             stage = "PAUSED";
             status.Text = "已暂停 · 日志已保存，可复制或切换测试按键继续。";
@@ -498,7 +491,7 @@ namespace Axonkey.KeycodeDemo
             while (pending.TryDequeue(out line)) batch.AppendLine(line);
             string text = batch.ToString();
             try { log.Write(text); log.Flush(); }
-            catch (IOException error) { recording = false; interception.Stop(); if (frida != null) frida.Stop(); status.Text = "日志写入失败，采集已暂停：" + error.Message; }
+            catch (IOException error) { recording = false; if (frida != null) frida.Stop(); status.Text = "日志写入失败，采集已暂停：" + error.Message; }
             if (output.TextLength > 500000) output.Clear(); // Full history stays in the file.
             output.AppendText(text);
         }
@@ -509,7 +502,6 @@ namespace Axonkey.KeycodeDemo
             {
                 stopped = true;
                 recording = false;
-                interception.Dispose();
                 if (frida != null) frida.Dispose();
                 Application.RemoveMessageFilter(this);
                 if (hook != IntPtr.Zero) Native.UnhookWindowsHookEx(hook);
@@ -565,69 +557,11 @@ namespace Axonkey.KeycodeDemo
             if (!passed) throw new Exception("FAIL: " + description);
         }
 
-        private sealed class DriverFixture : InterceptionCapture.Driver
-        {
-            internal readonly Queue<InterceptionCapture.Stroke> Input = new Queue<InterceptionCapture.Stroke>();
-            internal readonly List<InterceptionCapture.Stroke> Forwarded = new List<InterceptionCapture.Stroke>();
-            internal readonly List<string> Calls = new List<string>();
-            internal Action OnEmpty;
-            internal bool FailSend, OnlyTarget = true, Destroyed;
-            internal ushort ActiveFilter;
-            internal override IntPtr Create() { return new IntPtr(1); }
-            internal override string HardwareId(IntPtr context, int slot) { return slot == 5 ? "HID#VID_2717&PID_32B8" : "HID#VID_1234&PID_5678"; }
-            internal override void Filter(IntPtr context, InterceptionCapture.Predicate predicate, ushort filter)
-            {
-                for (int slot = 1; slot <= 20; slot++) OnlyTarget &= predicate(slot) == (slot == 5 ? 1 : 0);
-                ActiveFilter = filter;
-                Calls.Add("filter:" + filter);
-            }
-            internal override ushort GetFilter(IntPtr context, int slot) { return 0; }
-            internal override int Wait(IntPtr context) { if (Input.Count == 0) { if (ActiveFilter != 0) OnEmpty(); return 0; } return 5; }
-            internal override int Receive(IntPtr context, int device, out InterceptionCapture.Stroke stroke) { stroke = Input.Dequeue(); return 1; }
-            internal override int Send(IntPtr context, int device, ref InterceptionCapture.Stroke stroke) { Forwarded.Add(stroke); Calls.Add("send"); return FailSend ? 0 : 1; }
-            internal override void Destroy(IntPtr context) { Destroyed = true; Calls.Add("destroy"); }
-        }
-
-        private static void TestInterception()
-        {
-            Check(Marshal.SizeOf(typeof(InterceptionCapture.Stroke)) == 20, "Interception stroke union ABI");
-            var driver = new DriverFixture();
-            driver.Input.Enqueue(new InterceptionCapture.Stroke { Code = 0, State = 0, Information = 0x12345678 });
-            driver.Input.Enqueue(new InterceptionCapture.Stroke { Code = 0xf1, State = 7, Information = 0x87654321 });
-            int observed = 0;
-            bool forwardedFirst = true;
-            using (var capture = new InterceptionCapture(delegate { }, delegate(int slot, InterceptionCapture.Stroke stroke, int sent) {
-                observed++;
-                forwardedFirst &= driver.Forwarded.Count == observed;
-            }))
-            {
-                driver.OnEmpty = capture.Stop;
-                capture.Run(driver);
-            }
-            Check(driver.OnlyTarget, "ordinary keyboards and mice never enter the Interception filter");
-            Check(observed == 2 && forwardedFirst, "each event is forwarded before observation");
-            Check(observed == 2, "zero filter readback does not prematurely stop real event observation");
-            Check(driver.Forwarded[0].Code == 0 && driver.Forwarded[0].Information == 0x12345678 &&
-                driver.Forwarded[1].Code == 0xf1 && driver.Forwarded[1].State == 7 && driver.Forwarded[1].Information == 0x87654321,
-                "zero/unknown scans, extension/release flags and extra info are preserved");
-            Check(driver.ActiveFilter == 0 && driver.Destroyed, "stop clears filter and destroys context");
-            var failure = new DriverFixture { FailSend = true };
-            failure.Input.Enqueue(new InterceptionCapture.Stroke { Code = 0x1c });
-            using (var capture = new InterceptionCapture(delegate { }, delegate { }))
-            {
-                failure.OnEmpty = capture.Stop;
-                capture.Run(failure);
-                Check(capture.Status.Contains("转发失败"), "send failure is visible");
-            }
-            Check(failure.ActiveFilter == 0 && failure.Destroyed, "send failure also releases the filter and context");
-        }
-
         private static int SelfTest()
         {
             string folder = AppDomain.CurrentDomain.BaseDirectory;
             try
             {
-                TestInterception();
                 Check(Marshal.SizeOf(typeof(Native.RawHeader)) == 24, "x64 RAWINPUTHEADER layout");
                 Check(Marshal.SizeOf(typeof(Native.RawDevice)) == 16, "x64 RAWINPUTDEVICE layout");
                 Check(Marshal.SizeOf(typeof(Native.HookData)) == 24, "x64 KBDLLHOOKSTRUCT layout");
@@ -675,7 +609,7 @@ namespace Axonkey.KeycodeDemo
                 Check(saved.Contains("[WINDOW_KEY] DOWN vk=0x0087"), "window keyboard fallback is captured");
                 Check(saved.Contains("Stopped; input observation released."), "shutdown flushes log and releases listeners");
                 Check(!saved.Contains("[ERROR]"), "native registration/device enumeration completed without errors");
-                File.WriteAllText(Path.Combine(folder, "self-test.txt"), "PASS: decoding, source identity, native registration/hook lifecycle, paused capture, logging, window rendering, Interception target isolation, lossless forwarding and failure cleanup.\r\nPhysical RC003 button values still require manual capture.\r\n");
+                File.WriteAllText(Path.Combine(folder, "self-test.txt"), "PASS: decoding, source identity, native registration/hook lifecycle, paused capture, logging, window rendering, Frida diagnostic capture.\r\nPhysical RC003 button values still require manual capture.\r\n");
                 return 0;
             }
             catch (Exception error)
@@ -685,4 +619,4 @@ namespace Axonkey.KeycodeDemo
             }
         }
     }
-}
+}\n

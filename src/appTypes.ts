@@ -52,6 +52,7 @@ export type RemoteKeyEvent = {
 
 export type DriverActionResult = {
   logPath: string
+  rebootRequired: boolean
 }
 
 export type AudioProbe = {

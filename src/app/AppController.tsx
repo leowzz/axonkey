@@ -786,14 +786,14 @@ function AppController() {
       const driverName = driver === 'audio'
         ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
         : '按键驱动'
-      const restartRequired = platform === 'windows'
+      const restartRequired = result.rebootRequired
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
         status: action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing',
         restartRequired,
         message: platform === 'macos'
           ? `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，Core Audio 已刷新。日志：${result.logPath}`
-          : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，请重启 Windows。日志：${result.logPath}`,
+          : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，${restartRequired ? '请重启 Windows' : '无需重启 Windows'}。日志：${result.logPath}`,
       }))
       if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
       logInfo(`Driver action completed: ${driver}/${action}`)
@@ -940,7 +940,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -971,12 +971,12 @@ function AppController() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Interception 按键驱动。'
+            ? '未检测到 Quarbor HID 过滤驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Interception 按键服务工作正常。'
-                : '已检测到 Interception 按键驱动，输入服务正在启动。'
+                ? 'Quarbor HID 输入服务工作正常。'
+                : '已检测到 Quarbor HID 过滤驱动，输入服务正在启动。'
         const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         if (!showChecking) {
           const unchanged = next.device.status === device.status
@@ -1071,7 +1071,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -1515,7 +1515,7 @@ function AppController() {
         onReset={() => setSetupState(resetSetup())}
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
         onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
-        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装，重启 Windows 后驱动生效。' }))}
+        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装 Quarbor 驱动；重新连接 RC003 或重启 Windows 后生效。' }))}
         onProbeAudio={() => void probeAudioState()}
         onOpenSystemSettings={(page) => void openSystemSettings(page)}
         onRequestMacPermission={(kind) => void requestMacPermission(kind)}

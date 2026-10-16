@@ -7,7 +7,7 @@ using System.Threading;
 namespace Axonkey.KeycodeDemo
 {
     // The Python helper owns the verified Gadget and the device-scoped receiver.
-    // It writes diagnostics only; no key injection or Interception calls.
+    // It writes diagnostics only; no key injection or driver calls.
     internal sealed class FridaCapture : IDisposable
     {
         private readonly Action<string, string> log;
