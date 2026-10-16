@@ -1,5 +1,4 @@
-//! Local-only byte-stream IPC for Quarbor HID reports, the elevated extra-key helper,
-//! and the optional Gadget channel.
+//! Local-only byte-stream IPC for Quarbor HID reports.
 //! Tokio owns overlapped I/O and its cancellation buffers; the input worker keeps
 //! its synchronous, bounded-read interface. No TCP sockets are opened here.
 use std::{
@@ -22,7 +21,6 @@ use tokio::{
 
 const POLL: Duration = Duration::from_millis(100);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
-pub const APP_PIPE_PREFIX: &str = r"\\.\pipe\Axonkey.ExtraKeys.app.";
 
 fn runtime() -> io::Result<&'static Runtime> {
     static RUNTIME: OnceLock<io::Result<Runtime>> = OnceLock::new();
@@ -44,11 +42,6 @@ pub fn diagnostic(operation: &str, name: &str, error: &io::Error) -> String {
         error.kind(),
         error.raw_os_error()
     )
-}
-
-pub fn valid_app_pipe(name: &str) -> bool {
-    name.strip_prefix(APP_PIPE_PREFIX)
-        .is_some_and(|id| id.len() == 64 && id.bytes().all(|c| c.is_ascii_hexdigit()))
 }
 
 pub struct PipeListener {
@@ -497,7 +490,7 @@ mod tests {
     fn name() -> String {
         static SERIAL: AtomicUsize = AtomicUsize::new(0);
         format!(
-            r"\\.\pipe\Axonkey.ExtraKeys.test.{}.{}",
+            r"\\.\pipe\Axonkey.Quarbor.test.{}.{}",
             std::process::id(),
             SERIAL.fetch_add(1, Ordering::Relaxed)
         )
@@ -528,16 +521,6 @@ mod tests {
                 result => panic!("expected pipe closure, got {result:?}"),
             }
         }
-    }
-
-    #[test]
-    fn helper_accepts_only_its_local_application_namespace() {
-        let name = format!("{APP_PIPE_PREFIX}{}", "a".repeat(64));
-        assert!(valid_app_pipe(&name));
-        assert!(!valid_app_pipe(&name.replace(r"\\.\", r"\\remote\")));
-        assert!(!valid_app_pipe(&name.replace("app.", "gadget.")));
-        assert!(!valid_app_pipe(&format!("{name}\\extra")));
-        assert!(!valid_app_pipe(&format!("{APP_PIPE_PREFIX}short")));
     }
 
     #[test]

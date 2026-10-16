@@ -1041,32 +1041,6 @@ fn update_input_settings(
 }
 
 #[tauri::command]
-fn get_extra_keys_status(input_service: tauri::State<'_, InputService>) -> serde_json::Value {
-    #[cfg(windows)]
-    return serde_json::to_value(input_service.extra_keys_status()).unwrap_or_default();
-    #[cfg(not(windows))]
-    {
-        let _ = input_service;
-        serde_json::json!({"state":"unsupported", "message":"仅 Windows 需要此功能。", "step":0})
-    }
-}
-
-#[tauri::command]
-fn set_extra_keys_enabled(
-    enabled: bool,
-    automatic: Option<bool>,
-    input_service: tauri::State<'_, InputService>,
-) -> Result<(), String> {
-    #[cfg(windows)]
-    return input_service.set_extra_keys_enabled(enabled, automatic.unwrap_or(false));
-    #[cfg(not(windows))]
-    {
-        let _ = (enabled, automatic, input_service);
-        Err("仅 Windows 需要此功能。".into())
-    }
-}
-
-#[tauri::command]
 fn write_mapping_file(path: String, content: String) -> Result<(), String> {
     if path.trim().is_empty() {
         return Err("Mapping file path is empty".into());
@@ -1152,25 +1126,6 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(windows)]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        #[cfg(debug_assertions)]
-        if args
-            .get(1)
-            .is_some_and(|arg| arg == "--extra-keys-smoke-test")
-        {
-            let result = input_service::windows_extra_keys::smoke_test();
-            if let Err(error) = &result {
-                eprintln!("{error}");
-            }
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
-        }
-        if args.get(1).is_some_and(|arg| arg == "--extra-keys-helper") {
-            let result = input_service::windows_extra_keys::run_helper(&args[2..]);
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
-        }
-    }
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1284,8 +1239,6 @@ pub fn run() {
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
-            get_extra_keys_status,
-            set_extra_keys_enabled,
             write_mapping_file,
         ])
         .build(tauri::generate_context!())

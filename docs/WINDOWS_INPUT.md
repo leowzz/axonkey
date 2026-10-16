@@ -10,9 +10,7 @@ Quarbor UMDF 过滤器只安装到选中的 RC003 设备实例，不注册全局
 
 Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28`、TV `0x35`、语音 `0x3E`、主页 `0x4A`、方向 `0x4F/0x50/0x51/0x52`、菜单 `0x65`、电源 `0x66`、返回 `0xF1` 和音量 `0x80/0x81`。驱动报告保留 Report ID 和原始字节，客户端只对已知 RC003 usage 生成按键边沿。
 
-## 返回键与音量键授权
-
-返回键和音量 `+ / -` 的增强采集仍由可选 Frida 通道提供。它不改变 Quarbor 的基础输入管道，也不属于首次安装的必做步骤。开启方式、UAC 行为和兼容性边界见应用内“高级选项”及 [Frida 来源说明](../vendor/frida/SOURCE.md)。
+返回键和音量 `+ / -` 与其他 RC003 按键一样，由 Quarbor HID 报告直接解析，不需要单独开启功能或额外授权。映射页对这三个按键使用与其他按键相同的行为编辑器。
 
 ## 安装与语音
 
@@ -23,7 +21,3 @@ RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 VB-CAB
 ## 故障排查
 
 若设备已连接但按键没有响应，请查询安装器 `--list`，确认 RC003 的 `present` 和 `bound` 状态，并重新连接 RC003。运行日志和驱动操作日志位于 `%LOCALAPPDATA%\Axonkey\logs`，驱动日志包含安装器命令、退出码及 JSON 输出。
-
-## 返回键与音量键采集 Demo
-
-需要检查额外按键的设备报告时，可以运行独立的 [按键码诊断 Demo](../tools/keycode-demo/README.md)。该 Demo 使用 Frida 实验通道；Axonkey 主程序通过 Quarbor HID 管道接收正式输入。

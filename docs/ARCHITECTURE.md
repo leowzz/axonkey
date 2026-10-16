@@ -10,15 +10,6 @@ Windows
     -> mapping snapshot and gesture state
     -> SendInput mapped output
 
-  Optional Back / Volume +/-
-    -> explicit UAC for the native auxiliary process
-    -> pinned Frida Gadget in RC003's current WUDFHost
-    -> completed HID reads, per-handle lifetime identity
-    -> automatically acquired extra-key stream (first press forwarded)
-    -> local-only named pipe to the auxiliary process (verified PID + credential)
-    -> per-session named pipe to the normal-privilege app (verified PID + token)
-    -> the same gesture state and SendInput output
-
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
     -> Rust frame accumulator and 16 kHz IMA ADPCM decoder

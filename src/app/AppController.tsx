@@ -73,8 +73,6 @@ import { MappingOverview } from '../components/MappingOverview'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
-import { useExtraKeys } from '../hooks/useExtraKeys'
-import { ExtraKeysControl, ExtraKeysNotice } from '../components/ExtraKeysControl'
 import { logError, logInfo } from '../runtimeLogging'
 import {
   beginDriverAction,
@@ -145,17 +143,6 @@ function AppController() {
   const [mouseEdgeWidth, setMouseEdgeWidth] = useState(() => getStoredSettings().mouseEdgeWidth)
   const [mouseHorizontalScrollIntervalMs, setMouseHorizontalScrollIntervalMs] = useState(() => getStoredSettings().mouseHorizontalScrollIntervalMs)
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
-  const [inputSettingsReady, setInputSettingsReady] = useState(false)
-  const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
-  const [extraKeysOptionsOpen, setExtraKeysOptionsOpen] = useState(false)
-  const extraKeysOptionsRef = useRef<HTMLDetailsElement>(null)
-  const openExtraKeysOptions = () => {
-    setExtraKeysOptionsOpen(true)
-    window.requestAnimationFrame(() => {
-      extraKeysOptionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      extraKeysOptionsRef.current?.querySelector('summary')?.focus({ preventScroll: true })
-    })
-  }
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(initialHitPositions)
@@ -332,13 +319,11 @@ function AppController() {
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
-          setInputSettingsReady(true)
         }
       } catch (error) {
         if (saveRevisionRef.current !== revision) return
         logError('Failed to apply input mapping settings', error)
         setAutoSaveState('error')
-        setInputSettingsReady(false)
         setToast(`映射已保存，但尚未应用：${String(error)}`)
       }
     }
@@ -1317,7 +1302,6 @@ function AppController() {
           enabled={enabled}
           saveState={autoSaveState}
           pressedId={pressedId}
-          extraKeysNotice={platform !== 'windows' ? undefined : !extraKeys.wanted ? '需开启返回与音量键增强' : !enabled || extraKeys.status.state !== 'ready' ? '返回与音量键增强未就绪' : undefined}
           onEdit={(buttonId, trigger) => { setActivePage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
         /> : activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
@@ -1365,9 +1349,6 @@ function AppController() {
                   behaviors={behaviors}
                   activeId={activeId}
                   pressedId={pressedId}
-                  extraKeysNotice={platform !== 'windows' ? undefined
-                    : !extraKeys.wanted ? '需开启增强'
-                      : !enabled || extraKeys.status.state !== 'ready' ? '增强未就绪' : undefined}
                   rowRefs={rowRefs}
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
                 />}
@@ -1379,9 +1360,7 @@ function AppController() {
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
-                auxiliary={platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && extraKeys.wanted && extraKeys.status.state === 'ready' ? <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} /> : undefined}
               />}
-              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && !(extraKeys.wanted && extraKeys.status.state === 'ready') && <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} />}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
                 attention={behaviorEditorAttention}
@@ -1396,11 +1375,6 @@ function AppController() {
                 onEditBehavior={setEditingBehaviorId}
                 onReturnToMappings={returnToSelectedMapping}
               />
-              {!isMouse && platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
-                open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
-                <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
-                <ExtraKeysControl control={extraKeys} />
-              </details>}
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
