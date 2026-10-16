@@ -14,6 +14,10 @@
       "../vendor/QuarborHIDFilterUserDriver/Quarborhidfilteruserdriver.cat": "vendor/QuarborHIDFilterUserDriver/Quarborhidfilteruserdriver.cat",
       "../vendor/QuarborHIDFilterUserDriver/License": "vendor/QuarborHIDFilterUserDriver/License",
       "../scripts/vbcable-driver.ps1": "scripts/vbcable-driver.ps1",
+      "../scripts/uninstall-old-driver.ps1": "scripts/uninstall-old-driver.ps1",
+      "../vendor/interception/install-interception.exe": "vendor/interception/install-interception.exe",
+      "../vendor/interception/interception.dll": "vendor/interception/interception.dll",
+      "../vendor/interception/LICENSE-LGPL-3.0.txt": "vendor/interception/LICENSE-LGPL-3.0.txt",
       "../vendor/vbcable/VBCABLE_Driver_Pack45.zip": "vendor/vbcable/VBCABLE_Driver_Pack45.zip",
       "../vendor/vbcable/SOURCE.md": "vendor/vbcable/SOURCE.md",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
