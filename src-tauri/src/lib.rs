@@ -1063,9 +1063,14 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
-        let devices = tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
-            .await.map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        let devices =
+            tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
+                .await
+                .map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
         let input_driver_installed = devices.iter().any(|device| device.needs_uninstall());
         Ok(SystemProbe {
             platform: "windows",

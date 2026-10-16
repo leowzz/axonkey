@@ -1,6 +1,6 @@
 use super::{
-    cursor_delta, repeatable_click, InputServiceStatus, NativeBehavior, NativeSettings, RepeatableClick,
-    TriggerBehaviors, WheelDirection,
+    cursor_delta, repeatable_click, InputServiceStatus, NativeBehavior, NativeSettings,
+    RepeatableClick, TriggerBehaviors, WheelDirection,
 };
 use serde::Serialize;
 use std::{
@@ -129,7 +129,12 @@ unsafe extern "C" fn quarbor_destroy_context(context: Context) {
 }
 
 #[cfg(windows)]
-unsafe extern "C" fn quarbor_set_filter(_context: Context, _predicate: DevicePredicate, _filter: u16) {}
+unsafe extern "C" fn quarbor_set_filter(
+    _context: Context,
+    _predicate: DevicePredicate,
+    _filter: u16,
+) {
+}
 
 #[cfg(windows)]
 unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32) -> i32 {
@@ -198,7 +203,12 @@ fn quarbor_release_active_usages(context: &mut QuarborContext) {
 }
 
 #[cfg(windows)]
-unsafe extern "C" fn quarbor_receive(context: Context, _device: i32, stroke: *mut KeyStroke, _count: u32) -> i32 {
+unsafe extern "C" fn quarbor_receive(
+    context: Context,
+    _device: i32,
+    stroke: *mut KeyStroke,
+    _count: u32,
+) -> i32 {
     let context = &mut *context.cast::<QuarborContext>();
     match context.reports.pop_front() {
         Some(value) => {
@@ -210,7 +220,12 @@ unsafe extern "C" fn quarbor_receive(context: Context, _device: i32, stroke: *mu
 }
 
 #[cfg(windows)]
-unsafe extern "C" fn quarbor_send(_context: Context, _device: i32, stroke: *const KeyStroke, count: u32) -> i32 {
+unsafe extern "C" fn quarbor_send(
+    _context: Context,
+    _device: i32,
+    stroke: *const KeyStroke,
+    count: u32,
+) -> i32 {
     if stroke.is_null() || count == 0 {
         return 0;
     }
@@ -222,8 +237,16 @@ unsafe extern "C" fn quarbor_send(_context: Context, _device: i32, stroke: *cons
                 virtual_key: 0,
                 scan_code: stroke.code,
                 flags: 0x0008
-                    | if stroke.state & KEY_E0 != 0 { 0x0001 } else { 0 }
-                    | if stroke.state & KEY_UP != 0 { 0x0002 } else { 0 },
+                    | if stroke.state & KEY_E0 != 0 {
+                        0x0001
+                    } else {
+                        0
+                    }
+                    | if stroke.state & KEY_UP != 0 {
+                        0x0002
+                    } else {
+                        0
+                    },
                 time: 0,
                 extra_info: 0,
             },
@@ -233,7 +256,12 @@ unsafe extern "C" fn quarbor_send(_context: Context, _device: i32, stroke: *cons
 }
 
 #[cfg(windows)]
-unsafe extern "C" fn quarbor_get_hardware_id(context: Context, _device: i32, buffer: *mut u8, length: u32) -> u32 {
+unsafe extern "C" fn quarbor_get_hardware_id(
+    context: Context,
+    _device: i32,
+    buffer: *mut u8,
+    length: u32,
+) -> u32 {
     let context = &*context.cast::<QuarborContext>();
     let Some(id) = context.device_id.as_deref() else {
         return 0;
@@ -272,7 +300,8 @@ fn quarbor_parse_frames(context: &mut QuarborContext) {
         let header_bytes = u32::from_le_bytes(context.bytes[8..12].try_into().unwrap());
         let payload = u32::from_le_bytes(context.bytes[12..16].try_into().unwrap()) as usize;
         let frame = HEADER + payload;
-        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3) {
+        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3)
+        {
             context.bytes.drain(..4);
             continue;
         }
@@ -329,7 +358,22 @@ fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
 
 #[cfg(windows)]
 fn known_rc003_usage(usage: u16) -> bool {
-    matches!(usage, 0x003E | 0x00F1 | 0x0028 | 0x0035 | 0x004A | 0x004F | 0x0050 | 0x0051 | 0x0052 | 0x0065 | 0x0066 | 0x0080 | 0x0081)
+    matches!(
+        usage,
+        0x003E
+            | 0x00F1
+            | 0x0028
+            | 0x0035
+            | 0x004A
+            | 0x004F
+            | 0x0050
+            | 0x0051
+            | 0x0052
+            | 0x0065
+            | 0x0066
+            | 0x0080
+            | 0x0081
+    )
 }
 
 #[cfg(windows)]
@@ -1108,9 +1152,8 @@ fn process_timers(
                 } else if now >= due_at {
                     log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
                     execute_behaviors(api, context, device, &triggers.long_press);
-                    press.long_repeat_due_at = Some(
-                        now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS),
-                    );
+                    press.long_repeat_due_at =
+                        Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS));
                 }
             }
             if !press.held_outputs.is_empty() && now >= press.next_repeat_at {
@@ -1209,22 +1252,12 @@ fn execute_click_or_original(
     }
 }
 
-fn send_original_down(
-    api: &InputApi,
-    context: Context,
-    device: i32,
-    mut original: KeyStroke,
-) {
+fn send_original_down(api: &InputApi, context: Context, device: i32, mut original: KeyStroke) {
     original.state &= !KEY_UP;
     send_stroke(api, context, device, original);
 }
 
-fn execute_behaviors(
-    api: &InputApi,
-    context: Context,
-    device: i32,
-    behaviors: &[NativeBehavior],
-) {
+fn execute_behaviors(api: &InputApi, context: Context, device: i32, behaviors: &[NativeBehavior]) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
             NativeBehavior::Wheel { direction, .. } => {
@@ -1328,7 +1361,11 @@ fn virtual_key_input(key: u16) -> Input {
 
 /// Zero hold submits a complete tap in one batch; a configured hold separates
 /// down and up for applications that need time to recognize a pressed key.
-fn send_mouse_chord_with(keys: &[u16], hold_ms: u64, mut send: impl FnMut(&[Input]) -> usize) -> bool {
+fn send_mouse_chord_with(
+    keys: &[u16],
+    hold_ms: u64,
+    mut send: impl FnMut(&[Input]) -> usize,
+) -> bool {
     if keys.is_empty() {
         return true;
     }
@@ -1344,8 +1381,17 @@ fn send_mouse_chord_with(keys: &[u16], hold_ms: u64, mut send: impl FnMut(&[Inpu
         if pressed == downs.len() {
             thread::sleep(Duration::from_millis(hold_ms.min(1000)));
         }
-        let ups: Vec<Input> = downs[..pressed].iter().copied().rev().map(release).collect();
-        let released = if ups.is_empty() { 0 } else { send(&ups).min(ups.len()) };
+        let ups: Vec<Input> = downs[..pressed]
+            .iter()
+            .copied()
+            .rev()
+            .map(release)
+            .collect();
+        let released = if ups.is_empty() {
+            0
+        } else {
+            send(&ups).min(ups.len())
+        };
         if released < ups.len() {
             send(&ups[released..]);
         }
@@ -1421,12 +1467,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
     }
 }
 
-fn press_chord(
-    api: &InputApi,
-    context: Context,
-    device: i32,
-    keys: &[u16],
-) -> Vec<KeyStroke> {
+fn press_chord(api: &InputApi, context: Context, device: i32, keys: &[u16]) -> Vec<KeyStroke> {
     let mut pressed = Vec::new();
     log::info!(target: "axonkey::input", "Mapped chord press: device={device}, virtual_keys={keys:X?}");
     for key in keys {
@@ -1488,7 +1529,6 @@ fn release_all_held_outputs(
 
 #[cfg(test)]
 fn emit_remote_key_event(_shared: &Shared, _button: &'static str, _pressed: bool) {}
-
 
 fn send_stroke(api: &InputApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
     let sent = unsafe { (api.send)(context, device, &stroke, 1) };
@@ -1935,14 +1975,17 @@ mod tests {
         MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
         let started = Instant::now();
         for index in 0..40 {
-            execute_mouse_behavior(&NativeBehavior::Shortcut {
-                enabled: true,
-                keys: if index % 2 == 0 {
-                    vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
-                } else {
-                    vec!["Ctrl".into(), "Tab".into()]
+            execute_mouse_behavior(
+                &NativeBehavior::Shortcut {
+                    enabled: true,
+                    keys: if index % 2 == 0 {
+                        vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
+                    } else {
+                        vec!["Ctrl".into(), "Tab".into()]
+                    },
                 },
-            }, 0);
+                0,
+            );
         }
         let elapsed = started.elapsed();
         println!("40 alternating mouse shortcut outputs (mock injection): {elapsed:?}");
@@ -1981,9 +2024,15 @@ mod tests {
         let started = Instant::now();
         let mut batches = Vec::new();
         assert!(send_mouse_chord_with(&[0x11, 0x09], 20, |inputs| {
-            batches.push((started.elapsed(), inputs.iter().map(|input| unsafe {
-                (input.value.keyboard.virtual_key, input.value.keyboard.flags)
-            }).collect::<Vec<_>>()));
+            batches.push((
+                started.elapsed(),
+                inputs
+                    .iter()
+                    .map(|input| unsafe {
+                        (input.value.keyboard.virtual_key, input.value.keyboard.flags)
+                    })
+                    .collect::<Vec<_>>(),
+            ));
             inputs.len()
         }));
         assert_eq!(batches.len(), 2);
@@ -2001,11 +2050,16 @@ mod tests {
                 calls += 1;
                 let sent = if (partial_release && calls == 2) || (!partial_release && calls == 1) {
                     1
-                } else { inputs.len() };
+                } else {
+                    inputs.len()
+                };
                 for input in &inputs[..sent] {
                     let key = unsafe { input.value.keyboard };
-                    if key.flags & 2 == 0 { held.push(key.virtual_key); }
-                    else { assert_eq!(held.pop(), Some(key.virtual_key)); }
+                    if key.flags & 2 == 0 {
+                        held.push(key.virtual_key);
+                    } else {
+                        assert_eq!(held.pop(), Some(key.virtual_key));
+                    }
                 }
                 sent
             }));

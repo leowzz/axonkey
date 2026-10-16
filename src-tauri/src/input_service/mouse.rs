@@ -68,11 +68,19 @@ fn has_triggers(triggers: &TriggerBehaviors) -> bool {
         || has_actions(&triggers.long_press)
 }
 fn edge_width(shared: &Shared) -> f64 {
-    shared.configuration.lock().map(|config| normalized_edge_width(config.settings.mouse_edge_width)).unwrap_or(8.0)
+    shared
+        .configuration
+        .lock()
+        .map(|config| normalized_edge_width(config.settings.mouse_edge_width))
+        .unwrap_or(8.0)
 }
 
 fn normalized_edge_width(value: u16) -> f64 {
-    if value == 0 { 8.0 } else { f64::from(value.clamp(1, 100)) }
+    if value == 0 {
+        8.0
+    } else {
+        f64::from(value.clamp(1, 100))
+    }
 }
 
 struct Configuration {
@@ -147,7 +155,9 @@ impl MouseService {
                             } else {
                                 #[cfg(any(windows, target_os = "macos"))]
                                 {
-                                    let hold_ms = state.configuration.lock()
+                                    let hold_ms = state
+                                        .configuration
+                                        .lock()
                                         .map(|config| config.settings.mouse_key_hold_ms.min(1000))
                                         .unwrap_or(0);
                                     platform::execute(behavior, hold_ms);
@@ -177,7 +187,8 @@ impl MouseService {
             .map_err(|_| "Mouse settings lock is unavailable")?;
         configuration.revision = configuration.revision.wrapping_add(1);
         configuration.settings = settings.clone();
-        let active = settings.enabled && settings.mouse_enabled
+        let active = settings.enabled
+            && settings.mouse_enabled
             && (WHEEL_INPUTS.iter().flatten().any(|id| {
                 settings
                     .behaviors
@@ -215,10 +226,9 @@ impl Drop for MouseService {
 
 fn current_job(shared: &Shared, revision: u64) -> bool {
     !shared.stop.load(Ordering::Acquire)
-        && shared
-            .configuration
-            .lock()
-            .is_ok_and(|config| config.revision == revision && config.settings.enabled && config.settings.mouse_enabled)
+        && shared.configuration.lock().is_ok_and(|config| {
+            config.revision == revision && config.settings.enabled && config.settings.mouse_enabled
+        })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -238,7 +248,15 @@ impl Edge {
 }
 
 /// Screen bounds, not the work area; corners consistently belong to the top.
-fn screen_edge(x: f64, y: f64, left: f64, top: f64, right: f64, bottom: f64, width: f64) -> Option<Edge> {
+fn screen_edge(
+    x: f64,
+    y: f64,
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+    width: f64,
+) -> Option<Edge> {
     if !(x >= left && x < right && y >= top && y < bottom) {
         return None;
     }
@@ -295,12 +313,10 @@ impl ScrollAccumulator {
             return false;
         };
         let id = WHEEL_INPUTS[edge.scope()][direction];
-        let actions = config
-            .settings
-            .behaviors
-            .get(id)
-            .map(|item| &item.click);
-        let Some(actions) = actions.filter(|a| config.settings.enabled && config.settings.mouse_enabled && has_actions(a)) else {
+        let actions = config.settings.behaviors.get(id).map(|item| &item.click);
+        let Some(actions) = actions
+            .filter(|a| config.settings.enabled && config.settings.mouse_enabled && has_actions(a))
+        else {
             self.key = None;
             self.remainder = 0.0;
             return false;
@@ -315,10 +331,14 @@ impl ScrollAccumulator {
             config.settings.mouse_vertical_scroll_interval_ms
         } else {
             config.settings.mouse_horizontal_scroll_interval_ms
-        }.min(10_000);
-        if interval_ms > 0 && self.last_trigger[axis].is_some_and(|(revision, last)| {
-            revision == config.revision && now.saturating_duration_since(last) < Duration::from_millis(interval_ms)
-        }) {
+        }
+        .min(10_000);
+        if interval_ms > 0
+            && self.last_trigger[axis].is_some_and(|(revision, last)| {
+                revision == config.revision
+                    && now.saturating_duration_since(last) < Duration::from_millis(interval_ms)
+            })
+        {
             self.remainder = 0.0;
             return true;
         }
@@ -329,7 +349,11 @@ impl ScrollAccumulator {
         };
         // Event normalization removes magnitude-based acceleration, not momentum
         // events or OS event coalescing. Sensitivity still scales event counts.
-        let amount = if config.settings.mouse_ignore_scroll_acceleration { 1.0 } else { amount };
+        let amount = if config.settings.mouse_ignore_scroll_acceleration {
+            1.0
+        } else {
+            amount
+        };
         let total = self.remainder + amount * f64::from(sensitivity) / 100.0;
         let repeats = total.floor() as usize;
         if repeats == 0 {
@@ -402,7 +426,12 @@ fn button_rule(
     }
     if let Some(edge) = edge {
         if let Some(input) = BUTTON_INPUTS[edge.scope()].get(button) {
-            if let Some(triggers) = config.settings.behaviors.get(*input).filter(|item| has_triggers(item)) {
+            if let Some(triggers) = config
+                .settings
+                .behaviors
+                .get(*input)
+                .filter(|item| has_triggers(item))
+            {
                 return Some((*input, triggers.clone()));
             }
         }
@@ -524,13 +553,23 @@ mod tests {
 
     #[test]
     fn configurable_edge_width_applies_to_all_three_edges() {
-        for (x, y, edge) in [(50.0, 12.0, Edge::Top), (12.0, 50.0, Edge::Left), (87.0, 50.0, Edge::Right)] {
+        for (x, y, edge) in [
+            (50.0, 12.0, Edge::Top),
+            (12.0, 50.0, Edge::Left),
+            (87.0, 50.0, Edge::Right),
+        ] {
             assert_eq!(screen_edge(x, y, 0.0, 0.0, 100.0, 100.0, 8.0), None);
             assert_eq!(screen_edge(x, y, 0.0, 0.0, 100.0, 100.0, 16.0), Some(edge));
         }
         assert_eq!(screen_edge(16.0, 16.0, 0.0, 0.0, 100.0, 100.0, 16.0), None);
-        assert_eq!(screen_edge(84.0, 50.0, 0.0, 0.0, 100.0, 100.0, 16.0), Some(Edge::Right));
-        assert_eq!(screen_edge(2.0, 2.0, 0.0, 0.0, 100.0, 100.0, 16.0), Some(Edge::Top));
+        assert_eq!(
+            screen_edge(84.0, 50.0, 0.0, 0.0, 100.0, 100.0, 16.0),
+            Some(Edge::Right)
+        );
+        assert_eq!(
+            screen_edge(2.0, 2.0, 0.0, 0.0, 100.0, 100.0, 16.0),
+            Some(Edge::Top)
+        );
         assert_eq!(normalized_edge_width(0), 8.0);
         assert_eq!(normalized_edge_width(1), 1.0);
         assert_eq!(normalized_edge_width(200), 100.0);
@@ -550,7 +589,10 @@ mod tests {
             screen_edge(-100.0, -1072.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
             None
         );
-        assert_eq!(screen_edge(0.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0, 8.0), None);
+        assert_eq!(
+            screen_edge(0.0, -1080.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
+            None
+        );
         assert_eq!(screen_edge(10.0, 30.0, 0.0, 0.0, 1920.0, 1080.0, 8.0), None);
         assert_eq!(
             screen_edge(-1919.0, -500.0, -1920.0, -1080.0, 0.0, 0.0, 8.0),
@@ -640,7 +682,12 @@ mod tests {
             let (shared, receiver) = fixture(serde_json::json!({
                 "mouse.left.up": {"click":[{"type":"key","key":"VolumeUp"}]}
             }));
-            shared.configuration.lock().unwrap().settings.mouse_scroll_sensitivity = sensitivity;
+            shared
+                .configuration
+                .lock()
+                .unwrap()
+                .settings
+                .mouse_scroll_sensitivity = sensitivity;
             let mut scroll = ScrollAccumulator::default();
             scroll.enter(Some(Edge::Left));
             for _ in 1..events {
@@ -755,7 +802,12 @@ mod tests {
         let (mut shared, _) = fixture(serde_json::json!({
             "mouse.top.up": {"click":[{"type":"key","key":"A"}]}
         }));
-        shared.configuration.lock().unwrap().settings.mouse_vertical_scroll_interval_ms = 100;
+        shared
+            .configuration
+            .lock()
+            .unwrap()
+            .settings
+            .mouse_vertical_scroll_interval_ms = 100;
         let (sender, receiver) = mpsc::sync_channel(1);
         shared.sender = sender;
         let mut scroll = ScrollAccumulator::default();
