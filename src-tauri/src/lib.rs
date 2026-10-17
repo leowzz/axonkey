@@ -512,7 +512,7 @@ fn run_driver_action(
         let mut command = std::process::Command::new(&helper);
         command
             .arg("--confirmed")
-            .arg("--headless")
+            .arg("--auto-close")
             .arg("--log-path")
             .arg(&log_path);
         command
@@ -531,7 +531,9 @@ fn run_driver_action(
             .arg(action);
         command
     };
-    command.creation_flags(CREATE_NO_WINDOW);
+    if driver != "legacy" {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     let output = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

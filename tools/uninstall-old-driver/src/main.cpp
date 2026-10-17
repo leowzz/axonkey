@@ -1,8 +1,6 @@
 #include <windows.h>
-#include <commctrl.h>
 #include <shellapi.h>
 #include <tlhelp32.h>
-#include <uxtheme.h>
 #include <winsvc.h>
 #include <winreg.h>
 
@@ -38,6 +36,7 @@ struct Options {
     bool confirmed = false;
     bool status = false;
     bool headless = false;
+    bool autoClose = false;
     std::wstring logPath;
     bool autoStart() const { return confirmed || headless || !logPath.empty(); }
 };
@@ -125,6 +124,7 @@ int elevate(const Options& options) {
     std::wstring parameters;
     if (options.confirmed) parameters += L" --confirmed";
     if (options.headless) parameters += L" --headless";
+    if (options.autoClose) parameters += L" --auto-close";
     if (!options.logPath.empty()) parameters += L" --log-path " + quote(options.logPath);
     SHELLEXECUTEINFOW info{sizeof(info)};
     info.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -382,9 +382,10 @@ bool parseOptions(int argc, wchar_t** argv, Options& options) {
         std::wstring arg(argv[i]);
         if (arg == L"--confirmed" || arg == L"-y") options.confirmed = true;
         else if (arg == L"--headless") options.headless = true;
+        else if (arg == L"--auto-close") options.autoClose = true;
         else if (arg == L"--status") options.status = true;
         else if (arg == L"--log-path" && i + 1 < argc) options.logPath = argv[++i];
-        else if (arg == L"--help" || arg == L"-h") { printErr(L"Usage: uninstall-old-driver.exe [--confirmed] [--headless] [--status] [--log-path PATH]\n"); return false; }
+        else if (arg == L"--help" || arg == L"-h") { printErr(L"Usage: uninstall-old-driver.exe [--confirmed] [--auto-close] [--headless] [--status] [--log-path PATH]\n"); return false; }
         else { printErr(L"Unknown argument: " + arg + L"\n"); return false; }
     }
     return true;
@@ -397,16 +398,16 @@ public:
 private:
     static LRESULT CALLBACK windowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     void start(HWND hwnd);
-    void update();
+    void update(HWND hwnd);
     Options options_;
     bool started_ = false;
     std::atomic<bool> finished_{false};
     std::atomic<int> result_{1};
     bool timedOut_ = false;
     ULONGLONG startedAt_ = 0;
+    ULONGLONG completedAt_ = 0;
     HWND label_ = nullptr;
     HWND button_ = nullptr;
-    HWND progress_ = nullptr;
     std::mutex mutex_;
     std::wstring latest_;
     std::thread worker_;
@@ -418,10 +419,12 @@ void GuiApp::start(HWND hwnd) {
     startedAt_ = GetTickCount64();
     SetWindowTextW(label_, L"正在准备卸载…");
     EnableWindow(button_, FALSE);
-    SendMessageW(progress_, PBM_SETMARQUEE, TRUE, 40);
     worker_ = std::thread([this, hwnd] {
         Logger log(logPath(options_), [this, hwnd](const auto& message) { std::lock_guard lock(mutex_); latest_ = message; PostMessageW(hwnd, kProgressMessage, 0, 0); });
-        if (!log.good()) { result_ = 1; finished_ = true; PostMessageW(hwnd, kProgressMessage, 0, 0); return; }
+        if (!log.good()) {
+            { std::lock_guard lock(mutex_); latest_ = L"无法创建卸载日志，请检查日志目录权限后重试。"; }
+            result_ = 1; finished_ = true; PostMessageW(hwnd, kProgressMessage, 0, 0); return;
+        }
         try { cleanup(log); log.line(L"Old driver cleanup completed successfully."); result_ = 0; }
         catch (...) { log.line(L"ERROR: cleanup failed unexpectedly."); result_ = 1; }
         finished_ = true;
@@ -429,22 +432,24 @@ void GuiApp::start(HWND hwnd) {
     });
 }
 
-void GuiApp::update() {
+void GuiApp::update(HWND hwnd) {
     std::wstring message;
     { std::lock_guard lock(mutex_); message = latest_; }
     if (!message.empty()) SetWindowTextW(label_, message.c_str());
     if (started_ && !finished_ && !timedOut_ && GetTickCount64() - startedAt_ > kCleanupTimeoutMs) {
         timedOut_ = true;
         SetWindowTextW(label_, L"卸载等待时间过长，请查看日志。可强制关闭窗口后重试。");
-        SendMessageW(progress_, PBM_SETMARQUEE, FALSE, 0);
         SetWindowTextW(button_, L"强制关闭");
         EnableWindow(button_, TRUE);
     }
     if (finished_) {
-        SendMessageW(progress_, PBM_SETMARQUEE, FALSE, 0);
+        if (!completedAt_) completedAt_ = GetTickCount64();
         SetWindowTextW(button_, L"关闭");
         EnableWindow(button_, TRUE);
         if (result_ == 0) SetWindowTextW(label_, L"卸载完成，请重启 Windows 使更改生效。");
+        if (result_ == 0 && options_.autoClose && GetTickCount64() - completedAt_ >= 800) {
+            DestroyWindow(hwnd);
+        }
     }
 }
 
@@ -455,9 +460,7 @@ LRESULT CALLBACK GuiApp::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPAR
     switch (message) {
     case WM_CREATE:
         app->label_ = CreateWindowW(L"STATIC", L"准备就绪，点击下方按钮开始卸载。", WS_CHILD | WS_VISIBLE | SS_NOPREFIX, 20, 28, 460, 42, hwnd, nullptr, nullptr, nullptr);
-        app->progress_ = CreateWindowW(PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | PBS_MARQUEE | PBS_SMOOTH, 20, 88, 460, 10, hwnd, nullptr, nullptr, nullptr);
-        SetWindowTheme(app->progress_, L"Explorer", nullptr);
-        app->button_ = CreateWindowW(L"BUTTON", L"开始卸载", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 344, 120, 136, 32, hwnd, reinterpret_cast<HMENU>(1), nullptr, nullptr);
+        app->button_ = CreateWindowW(L"BUTTON", L"开始卸载", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 344, 90, 136, 32, hwnd, reinterpret_cast<HMENU>(1), nullptr, nullptr);
         SetTimer(hwnd, kTimer, 100, nullptr);
         if (app->options_.autoStart()) PostMessageW(hwnd, WM_COMMAND, 1, 0);
         return 0;
@@ -475,8 +478,8 @@ LRESULT CALLBACK GuiApp::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPAR
             return 0;
         }
         break;
-    case kProgressMessage: app->update(); return 0;
-    case WM_TIMER: app->update(); return 0;
+    case kProgressMessage: app->update(hwnd); return 0;
+    case WM_TIMER: app->update(hwnd); return 0;
     case WM_CLOSE:
         if (app->timedOut_) TerminateProcess(GetCurrentProcess(), 124);
         if (app->started_ && !app->finished_) return 0;
@@ -490,8 +493,6 @@ LRESULT CALLBACK GuiApp::windowProc(HWND hwnd, UINT message, WPARAM wParam, LPAR
 }
 
 int GuiApp::run(HINSTANCE instance) {
-    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_PROGRESS_CLASS};
-    InitCommonControlsEx(&controls);
     const wchar_t className[] = L"AxonkeyUninstallOldDriverWindow";
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = windowProc;
@@ -500,7 +501,7 @@ int GuiApp::run(HINSTANCE instance) {
     windowClass.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     windowClass.lpszClassName = className;
     RegisterClassW(&windowClass);
-    HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, className, L"Axonkey · 卸载旧组件", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, 520, 205, nullptr, nullptr, instance, this);
+    HWND hwnd = CreateWindowExW(WS_EX_APPWINDOW, className, L"Axonkey · 卸载旧组件", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, CW_USEDEFAULT, CW_USEDEFAULT, 520, 175, nullptr, nullptr, instance, this);
     if (!hwnd) return 1;
     ShowWindow(hwnd, SW_SHOWNORMAL);
     UpdateWindow(hwnd);

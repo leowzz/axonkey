@@ -12,6 +12,7 @@ const solution = readFileSync(join(root, 'tools', 'uninstall-old-driver', 'unins
 const buildScript = readFileSync(join(root, 'scripts', 'build-uninstall-old-driver.mjs'), 'utf8')
 const packageJson = readFileSync(join(root, 'package.json'), 'utf8')
 const config = readFileSync(join(root, 'src-tauri', 'tauri.windows.conf.json'), 'utf8')
+const tauriSource = readFileSync(join(root, 'src-tauri', 'src', 'lib.rs'), 'utf8')
 
 test('legacy cleanup is provided by the standalone C++ Windows executable', () => {
   assert.equal(existsSync(join(root, 'scripts', 'uninstall-old-driver.ps1')), false)
@@ -34,9 +35,12 @@ test('legacy cleanup is provided by the standalone C++ Windows executable', () =
   assert.match(source, /CreateWindow(?:Ex)?W/)
   assert.match(source, /WM_CTLCOLORSTATIC/)
   assert.match(source, /SetBkMode\([^\n]+TRANSPARENT/)
-  assert.match(source, /SetWindowTheme\([^\n]+L"Explorer"/)
   assert.doesNotMatch(source, /CreateFont|WM_SETFONT/)
   assert.match(source, /--headless/)
+  const legacyLaunch = tauriSource.slice(tauriSource.indexOf('let mut command = if driver == "legacy"'), tauriSource.indexOf('command.creation_flags(CREATE_NO_WINDOW)', tauriSource.indexOf('let mut command = if driver == "legacy"')))
+  assert.match(legacyLaunch, /\.arg\("--confirmed"\)/)
+  assert.match(legacyLaunch, /\.arg\("--auto-close"\)/)
+  assert.doesNotMatch(legacyLaunch, /--headless/)
   assert.match(source, /开始卸载/)
   assert.doesNotMatch(source, /重启保护标志/)
   assert.doesNotMatch(source, /currentBootId|rebootPending|old-driver-uninstall-reboot-required/)
@@ -49,7 +53,7 @@ test('status returns both legacy driver flags without creating logs or prompting
   const directory = mkdtempSync(join(tmpdir(), 'axonkey-status-test-'))
   const logPath = join(directory, 'logs', 'should-not-exist.log')
   try {
-    const result = spawnSync(join(root, 'scripts', 'uninstall-old-driver.exe'), ['--status', '--log-path', logPath], {
+    const result = spawnSync(join(root, 'scripts', 'uninstall-old-driver.exe'), ['--status', '--auto-close', '--log-path', logPath], {
       cwd: directory,
       encoding: 'utf8',
       windowsHide: true,
