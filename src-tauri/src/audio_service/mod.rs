@@ -1,9 +1,18 @@
 use serde::Serialize;
 
+#[derive(Clone, Debug, Serialize)]
+pub struct AudioWaveformPoint {
+    pub t: u64,
+    pub peak: f64,
+}
+
 #[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioLevel {
     pub peak: f64,
     pub rms: f64,
+    pub now_ms: u64,
+    pub waveform: Vec<AudioWaveformPoint>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -35,6 +44,9 @@ mod diagnostics;
 
 #[cfg(target_os = "macos")]
 mod macos;
+
+#[cfg(target_os = "macos")]
+mod signal_monitor;
 
 #[cfg(target_os = "macos")]
 pub use macos::AudioService;

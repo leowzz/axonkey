@@ -94,12 +94,6 @@ function runRelease(root, version, envOverrides = {}) {
     bash = candidates.find(existsSync) ?? bash
   }
   const args = ['scripts/release.sh']
-  if (process.platform === 'win32' && envOverrides.PATH) {
-    env.AXONKEY_TEST_PATH = envOverrides.PATH
-    // The Git Bash launcher prepends its own git directory; restore the test
-    // shim after shell startup so the intentional tag failure is exercised.
-    args.splice(0, 1, '-c', 'export PATH="$(cygpath -p -u "$AXONKEY_TEST_PATH")"; exec "$BASH" scripts/release.sh')
-  }
   return run(root, bash, args, { check: false, env })
 }
 
@@ -238,21 +232,17 @@ test('a failing commit hook prevents tag creation and leaves changes visible', (
 
 test('a tag failure leaves the release commit visible for diagnosis', (t) => {
   const root = seedRepository(t)
-  const wrapperDirectory = mkdtempSync(join(tmpdir(), 'axonkey-git-wrapper-'))
-  t.after(() => rmSync(wrapperDirectory, { recursive: true, force: true }))
-  const wrapper = join(wrapperDirectory, 'git')
+  // A real Git hook rejects only tag refs, including under Windows where
+  // Node cannot execute an extensionless shell script as a PATH git shim.
+  const hook = join(root, '.git', 'hooks', 'reference-transaction')
   writeFileSync(
-    wrapper,
-    '#!/bin/bash\nif [[ "$1" == "tag" ]]; then\n  echo tag creation failed >&2\n  exit 1\nfi\nif command -v cygpath >/dev/null; then ORIGINAL_PATH="$(cygpath -p -u "$ORIGINAL_PATH")"; fi\nPATH="$ORIGINAL_PATH" exec git "$@"\n',
+    hook,
+    '#!/bin/sh\nif [ "$1" = "prepared" ]; then\n  while read -r old new ref; do\n    case "$ref" in refs/tags/*) echo tag creation failed >&2; exit 1 ;; esac\n  done\nfi\nexit 0\n',
   )
-  chmodSync(wrapper, 0o755)
+  chmodSync(hook, 0o755)
 
   const originalHead = git(root, 'rev-parse', 'HEAD').stdout.trim()
-  const originalPath = process.env.PATH ?? ''
-  const result = runRelease(root, undefined, {
-    ORIGINAL_PATH: originalPath,
-    PATH: `${wrapperDirectory}${delimiter}${originalPath}`,
-  })
+  const result = runRelease(root)
 
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /tag creation failed/)

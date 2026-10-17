@@ -171,6 +171,7 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
+  const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
@@ -266,11 +267,26 @@ function AppController() {
     window.addEventListener('keydown', handleEscapeFailsafe, true)
     return () => window.removeEventListener('keydown', handleEscapeFailsafe, true)
   }, [mouseEnabled])
-  const { audioGain, gainError, updateAudioGain } = useAudioControls({
+  const { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
     platform,
     nativeRuntime,
     onToast: setToast,
   })
+
+  const [signalMonitorOpening, setSignalMonitorOpening] = useState(false)
+  const [signalMonitorError, setSignalMonitorError] = useState('')
+  const openSignalMonitor = async () => {
+    if (!nativeRuntime || platform !== 'macos' || signalMonitorOpening) return
+    setSignalMonitorOpening(true)
+    setSignalMonitorError('')
+    try {
+      await invoke('open_signal_monitor')
+    } catch (error) {
+      setSignalMonitorError(`无法打开语音链路监测：${String(error)}`)
+    } finally {
+      setSignalMonitorOpening(false)
+    }
+  }
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
@@ -633,7 +649,10 @@ function AppController() {
   const beginBehaviorDraft = (type: AdvancedBehaviorType, mode: DraftBehaviorState['mode']) => {
     const behavior = type === 'key'
       ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
-      : createBehavior(type === 'paste' ? { type, text: '' } : { type, ms: 300 })
+      : createBehavior(type === 'paste' ? { type, text: '' }
+        : type === 'openApp' ? { type, path: '' }
+        : type === 'openWebsite' ? { type, url: '' }
+        : { type, ms: 300 })
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
     setCapturingBehaviorId(type === 'key' ? behavior.id : null)
@@ -692,8 +711,15 @@ function AppController() {
       case 'volumeDown': return replaceWithKey('VolumeDown')
       case 'volumeMute': return replaceWithKey('VolumeMute')
       case 'mediaPlayPause': return replaceWithKey('MediaPlayPause')
+      case 'mediaPrevious': return replaceWithKey('MediaPrevious')
+      case 'mediaNext': return replaceWithKey('MediaNext')
+      case 'mediaStop': return replaceWithKey('MediaStop')
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
+        return
+      case 'openApp':
+      case 'openWebsite':
+        beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':
         setTextInputDraft(textAndEnterValue(behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]) ?? '')
@@ -1007,6 +1033,9 @@ function AppController() {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
+      const mappingRecovering = probe.platform === 'macos'
+        && probe.input_backend_error === 'RC003 modifier hardware mappings could not be applied'
+      setInputMappingRecovering(mappingRecovering)
       setMacPermissions({
         inputMonitoring: probe.input_monitoring_granted === true,
         accessibility: probe.accessibility_granted === true,
@@ -1050,7 +1079,9 @@ function AppController() {
             : !macPermissionsReady
             ? '需要授予输入监控和辅助功能权限。'
             : probe.input_backend_error
-              ? `原生输入服务启动失败：${probe.input_backend_error}`
+              ? mappingRecovering
+                ? 'RC003 硬件按键映射尚未恢复，正在自动重试。'
+                : `输入服务异常：${probe.input_backend_error}`
               : probe.capture_active
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
@@ -1499,6 +1530,13 @@ function AppController() {
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          onOpenSignalMonitor={() => void openSignalMonitor()}
+          signalMonitorOpening={signalMonitorOpening}
+          signalMonitorError={signalMonitorError}
+          stretchCompensation={stretchCompensation}
+          stretchError={stretchError}
+          stretchUpdating={stretchUpdating}
+          onStretchCompensationChange={updateStretchCompensation}
           section={settingsSection}
           onSectionChange={setSettingsSection}
           showRemoteKeyGrid={showRemoteKeyGrid}
@@ -1526,6 +1564,9 @@ function AppController() {
           onRefresh={() => void probeSystemState(false)}
           audioDriver={setupState.drivers.audio}
           onAudioAction={(action) => void runDriverAction('audio', action)}
+          audioRestarting={audioRestarting}
+          audioRestartError={audioRestartError}
+          onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
           onProbeAudio={() => void probeAudioState()}
           onOpenSound={() => void openSystemSettings('sound')}
           device={setupState.device}
@@ -1538,6 +1579,7 @@ function AppController() {
           systemProbeState={systemProbeState}
           permissions={macPermissions}
           inputAuthorizationStale={inputAuthorizationStale}
+          inputMappingRecovering={inputMappingRecovering}
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
           refreshing={homeRefreshing}

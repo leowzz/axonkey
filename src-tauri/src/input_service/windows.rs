@@ -1288,6 +1288,7 @@ fn execute_behaviors(api: &InputApi, context: Context, device: i32, behaviors: &
             NativeBehavior::Disabled { .. } => {
                 log::info!(target: "axonkey::input", "Mapped action: type=disabled")
             }
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {}
         }
         match behavior {
             NativeBehavior::Wheel { direction, .. } => {
@@ -1308,6 +1309,7 @@ fn execute_behaviors(api: &InputApi, context: Context, device: i32, behaviors: &
                 }
             }
             NativeBehavior::Paste { text, .. } => send_unicode_text(text),
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Delay { ms, .. } => {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
@@ -1332,6 +1334,7 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         }
         NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
         NativeBehavior::Paste { text, .. } => send_unicode_text(text),
+        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
                 if !send_mouse_chord_with(&keys, hold_ms, send_mouse_keyboard_inputs) {
@@ -1462,6 +1465,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
@@ -1562,6 +1567,9 @@ fn output_stroke(virtual_key: u16, key_up: bool) -> Option<KeyStroke> {
             0xad => 0xe020,
             0xae => 0xe02e,
             0xaf => 0xe030,
+            0xb0 => 0xe019,
+            0xb1 => 0xe010,
+            0xb2 => 0xe024,
             0xb3 => 0xe022,
             _ => 0,
         };
@@ -1580,7 +1588,7 @@ fn output_stroke(virtual_key: u16, key_up: bool) -> Option<KeyStroke> {
 
 fn is_extended_key(key: u16) -> bool {
     matches!(key,
-        0xa3 | 0xa5 | 0x5b | 0x5c | 0x21..=0x28 | 0x2d | 0x2e | 0x5d | 0xad..=0xaf | 0xb3
+        0xa3 | 0xa5 | 0x5b | 0x5c | 0x21..=0x28 | 0x2d | 0x2e | 0x5d | 0xad..=0xaf | 0xb0..=0xb3
     )
 }
 
@@ -1639,6 +1647,9 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
         "VOLUMEDOWN" => 0xae,
         "VOLUMEUP" => 0xaf,
         "MEDIAPLAYPAUSE" => 0xb3,
+        "MEDIANEXT" => 0xb0,
+        "MEDIAPREVIOUS" => 0xb1,
+        "MEDIASTOP" => 0xb2,
         ";" | ":" => 0xba,
         "=" | "+" => 0xbb,
         "," | "，" | "<" => 0xbc,
@@ -2205,6 +2216,13 @@ mod tests {
         assert_eq!(parse_chord("]"), Some(vec![0xdd]));
         assert_eq!(parse_chord("】"), Some(vec![0xdd]));
         assert_eq!(parse_chord("Ctrl+C"), Some(vec![0x11, 0x43]));
+        assert_eq!(parse_chord("MediaNext"), Some(vec![0xb0]));
+        assert_eq!(parse_chord("MediaPrevious"), Some(vec![0xb1]));
+        assert_eq!(parse_chord("MediaStop"), Some(vec![0xb2]));
+        for (key, scan) in [(0xb0, 0x19), (0xb1, 0x10), (0xb2, 0x24)] {
+            let stroke = output_stroke(key, false).unwrap();
+            assert_eq!((stroke.code, stroke.state & KEY_E0), (scan, KEY_E0));
+        }
     }
 
     #[test]
@@ -2216,6 +2234,40 @@ mod tests {
         })
         .unwrap();
         assert_eq!(source.id, "confirm");
+    }
+
+    #[test]
+    fn modifier_shortcuts_keep_both_sides() {
+        let triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
+            "click": [{ "type": "shortcut", "keys": ["Win", "RWin"] }]
+        }))
+        .unwrap();
+        assert_eq!(continuous_click_chord(&triggers), Some(vec![0x5b, 0x5c]));
+    }
+
+    #[test]
+    fn modifier_shortcuts_preserve_independent_sides() {
+        let triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
+            "click": [{ "type": "shortcut", "keys": ["RCtrl", "Shift", "RAlt", "Win"] }]
+        }))
+        .unwrap();
+        let keys = continuous_click_chord(&triggers).unwrap();
+        assert_eq!(keys, vec![0xa3, 0x10, 0xa5, 0x5b]);
+        // Scan codes require the real Windows MapVirtualKeyW implementation.
+        #[cfg(target_os = "windows")]
+        {
+            let strokes: Vec<_> = keys
+                .into_iter()
+                .map(|key| {
+                    let stroke = output_stroke(key, false).unwrap();
+                    (stroke.code, stroke.state & KEY_E0)
+                })
+                .collect();
+            assert_eq!(
+                strokes,
+                vec![(0x1d, KEY_E0), (0x2a, 0), (0x38, KEY_E0), (0x5b, KEY_E0)]
+            );
+        }
     }
 
     #[test]

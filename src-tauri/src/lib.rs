@@ -1018,10 +1018,121 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
+async fn restart_audio_service(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        tauri::async_runtime::spawn_blocking(move || app.state::<AudioService>().restart())
+            .await
+            .map_err(|error| format!("音频重启失败：{error}"))?
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("手动重启虚拟麦克风仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+async fn open_signal_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(window) = app.get_webview_window("signal-monitor") {
+            window.unminimize().map_err(|e| e.to_string())?;
+            window.show().map_err(|e| e.to_string())?;
+            return window.set_focus().map_err(|e| e.to_string());
+        }
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "signal-monitor",
+            tauri::WebviewUrl::App("bluetooth-signal.html".into()),
+        )
+        .title("语音链路监测 · Axonkey")
+        .inner_size(1080.0, 760.0)
+        .min_inner_size(680.0, 540.0)
+        .build()
+        .map_err(|e| format!("无法打开语音链路监测：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("语音链路监测目前仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+async fn get_signal_monitor_state(
+    app: tauri::AppHandle,
+    after: Option<u64>,
+    clear: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AudioService>().signal_snapshot(after, clear.unwrap_or(false))
+        })
+            .await
+            .map_err(|e| format!("无法读取监测数据：{e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, after, clear);
+        Err("语音链路监测目前仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+async fn export_signal_monitor(
+    window: tauri::WebviewWindow,
+    content: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if content.len() > 4_000_000 {
+        return Err("导出数据过大，请缩短采集时间后重试".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name("语音链路监测读数.csv")
+            .add_filter("CSV", &["csv"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path
+            .into_path()
+            .map_err(|e| format!("无法使用所选位置：{e}"))?;
+        std::fs::write(path, content).map_err(|e| format!("无法保存读数：{e}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("导出失败：{e}"))?
+}
+
+#[tauri::command]
 fn get_audio_test_state(
     audio_service: tauri::State<'_, AudioService>,
 ) -> (AudioServiceStatus, audio_service::AudioLevel) {
     (audio_service.status(), audio_service.level())
+}
+
+#[tauri::command]
+fn set_audio_stretch_compensation(
+    enabled: bool,
+    audio_service: tauri::State<'_, AudioService>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        audio_service.set_stretch_compensation(enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (enabled, audio_service);
+        Err("拉伸补偿实验仅支持 macOS".into())
+    }
 }
 
 #[tauri::command]
@@ -1246,6 +1357,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "signal-monitor" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<AudioService>().stop_signal_monitor();
+            }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
             }
@@ -1276,8 +1391,13 @@ pub fn run() {
             probe_legacy_components,
             probe_audio_available,
             probe_audio_state,
+            restart_audio_service,
             get_audio_test_state,
             set_audio_gain,
+            set_audio_stretch_compensation,
+            open_signal_monitor,
+            get_signal_monitor_state,
+            export_signal_monitor,
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,

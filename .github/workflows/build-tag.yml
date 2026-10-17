@@ -486,7 +486,11 @@ jobs:
             echo "Release already published; preserving its notes."
             exit 0
           fi
-          node scripts/generate-release-notes.mjs
+          if [[ -s "docs/releases/$TAG_NAME.md" ]]; then
+            cp "docs/releases/$TAG_NAME.md" "$RELEASE_NOTES_FILE"
+          else
+            node scripts/generate-release-notes.mjs
+          fi
 
       - name: Create or update GitHub Release
         shell: bash

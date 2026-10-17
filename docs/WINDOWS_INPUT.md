@@ -18,6 +18,12 @@ Tauri 直接运行随包提供的 `QuarborHIDFilterUserDriverInstaller.exe`：`-
 
 RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
 
+## 从旧版迁移
+
+旧版 Interception 驱动和 AxonkeyInterceptionFix 重连修复服务不再参与输入链路，也不会随新版本安装。启动时检测到旧驱动或修复服务残留，会先显示清理步骤；按提示清理、重新检测，并在需要时重启 Windows，然后为在线 RC003 安装 Quarbor 驱动。
+
+旧版本的问题记录保留在 [Interception 重连问题说明](./INTERCEPTION_HOTPLUG_INCIDENT.md)，仅供历史排查参考。
+
 ## 故障排查
 
 若设备已连接但按键没有响应，请查询安装器 `--list`，确认 RC003 的 `present` 和 `bound` 状态，并重新连接 RC003。运行日志和驱动操作日志位于 `%LOCALAPPDATA%\Axonkey\logs`，驱动日志包含安装器命令、退出码及 JSON 输出。

@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
@@ -7,6 +8,7 @@ const TEST_WARMUP_SAMPLES: usize = 16_000 / 5;
 
 struct TestLevel {
     remaining: usize,
+    waveform: VecDeque<super::AudioWaveformPoint>,
     sample: Option<(Instant, f64, f64)>,
 }
 
@@ -14,6 +16,7 @@ impl Default for TestLevel {
     fn default() -> Self {
         Self {
             remaining: TEST_WARMUP_SAMPLES,
+            waveform: VecDeque::new(),
             sample: None,
         }
     }
@@ -41,7 +44,10 @@ pub(super) struct AudioDiagnostics {
     syncs: AtomicU64,
     scheduled: AtomicU64,
     enqueue_failures: AtomicU64,
+    enqueue_failed_samples: AtomicU64,
     discarded_buffers: AtomicU64,
+    decoder_pending_bytes: AtomicU64,
+    decoder_discarded_bytes: AtomicU64,
 }
 
 impl Default for AudioDiagnostics {
@@ -68,7 +74,10 @@ impl Default for AudioDiagnostics {
             syncs: AtomicU64::new(0),
             scheduled: AtomicU64::new(0),
             enqueue_failures: AtomicU64::new(0),
+            enqueue_failed_samples: AtomicU64::new(0),
             discarded_buffers: AtomicU64::new(0),
+            decoder_pending_bytes: AtomicU64::new(0),
+            decoder_discarded_bytes: AtomicU64::new(0),
         }
     }
 }
@@ -103,6 +112,23 @@ impl AudioDiagnostics {
                     .iter()
                     .map(|sample| f64::from(*sample).powi(2))
                     .sum();
+                let t = self.epoch.elapsed().as_millis() as u64 / 20 * 20;
+                let peak = trimmed_peak as f64 / 32768.0;
+                if let Some(last) = level.waveform.back_mut().filter(|p| p.t == t) {
+                    last.peak = last.peak.max(peak);
+                } else {
+                    level
+                        .waveform
+                        .push_back(super::AudioWaveformPoint { t, peak });
+                }
+                while level.waveform.len() > 501
+                    || level
+                        .waveform
+                        .front()
+                        .is_some_and(|p| t.saturating_sub(p.t) > 10_000)
+                {
+                    level.waveform.pop_front();
+                }
                 level.sample = Some((
                     Instant::now(),
                     trimmed_peak as f64 / 32768.0,
@@ -113,20 +139,20 @@ impl AudioDiagnostics {
     }
 
     pub(super) fn level(&self) -> super::AudioLevel {
-        self.level
-            .lock()
-            .ok()
-            .and_then(|level| {
-                level
-                    .sample
-                    .as_ref()
-                    .filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300))
-                    .map(|(_, peak, rms)| super::AudioLevel {
-                        peak: *peak,
-                        rms: *rms,
-                    })
-            })
-            .unwrap_or_default()
+        let Ok(level) = self.level.lock() else {
+            return super::AudioLevel::default();
+        };
+        let fresh = level
+            .sample
+            .as_ref()
+            .filter(|(updated, _, _)| updated.elapsed() < Duration::from_millis(300));
+        super::AudioLevel {
+            peak: fresh.map_or(0.0, |(_, peak, _)| *peak),
+            rms: fresh.map_or(0.0, |(_, _, rms)| *rms),
+            now_ms: self.epoch.elapsed().as_millis() as u64,
+            // Keep the last spoken segment visible after release. New START clears it.
+            waveform: level.waveform.iter().cloned().collect(),
+        }
     }
 
     pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
@@ -142,6 +168,7 @@ impl AudioDiagnostics {
     }
 
     pub(super) fn rejected(&self) {
+        self.activity.store(true, Relaxed);
         self.rejected_packets.fetch_add(1, Relaxed);
     }
 
@@ -176,6 +203,8 @@ impl AudioDiagnostics {
             self.scheduled.fetch_add(samples as u64, Relaxed);
         } else {
             self.enqueue_failures.fetch_add(1, Relaxed);
+            self.enqueue_failed_samples
+                .fetch_add(samples as u64, Relaxed);
         }
     }
 
@@ -190,6 +219,21 @@ impl AudioDiagnostics {
     #[cfg(any(target_os = "windows", test))]
     pub(super) fn report(&self, active: bool, window: Duration) -> Option<String> {
         self.report_platform(active, window, false)
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn decoder_pending(&self, pending: usize, discarded: usize) {
+        self.decoder_pending_bytes.store(pending as u64, Relaxed);
+        if discarded > 0 {
+            self.activity.store(true, Relaxed);
+            self.decoder_discarded_bytes
+                .fetch_add(discarded as u64, Relaxed);
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn note_native_activity(&self) {
+        self.activity.store(true, Relaxed);
     }
 
     #[cfg(any(target_os = "macos", test))]
@@ -216,7 +260,10 @@ impl AudioDiagnostics {
         let syncs = self.syncs.swap(0, Relaxed);
         let scheduled = self.scheduled.swap(0, Relaxed);
         let enqueue_failures = self.enqueue_failures.swap(0, Relaxed);
+        let failed_samples = self.enqueue_failed_samples.swap(0, Relaxed);
         let discarded_buffers = self.discarded_buffers.swap(0, Relaxed);
+        let decoder_pending = self.decoder_pending_bytes.load(Relaxed);
+        let decoder_discarded = self.decoder_discarded_bytes.swap(0, Relaxed);
         if !active
             && !activity
             && packets == 0
@@ -246,7 +293,21 @@ impl AudioDiagnostics {
             (energy as f64 / decoded as f64).sqrt()
         };
         let output = if macos {
-            format!("scheduled_samples={scheduled} completed_buffers={callbacks} rendered_samples={consumed} enqueue_failures={enqueue_failures} discarded_pending_buffers={discarded_buffers}")
+            let seconds = window.as_secs_f64();
+            let packets_per_second = if seconds > 0.0 {
+                packets as f64 / seconds
+            } else {
+                0.0
+            };
+            let decoded_ms = decoded as f64 / 16.0;
+            // A delivery rate over the whole timer window, not a loss estimate.
+            // Session edges and delayed batches can make this exceed 100%.
+            let coverage = if seconds > 0.0 {
+                decoded_ms / (seconds * 10.0)
+            } else {
+                0.0
+            };
+            format!("scheduled_samples={scheduled} completed_buffers={callbacks} rendered_samples={consumed} enqueue_failures={enqueue_failures} discarded_pending_buffers={discarded_buffers} enqueue_failed_samples={failed_samples} rx_packets_per_second={packets_per_second:.2} decoded_ms={decoded_ms:.1} decoded_window_percent={coverage:.1} decoder_pending_bytes={decoder_pending} decoder_discarded_bytes={decoder_discarded}")
         } else {
             format!("output_callbacks={callbacks} consumed_samples={consumed} unfilled_output_frames={silent_frames} queue_busy_callbacks={queue_busy} overflow_samples={overflow}")
         };
@@ -270,6 +331,42 @@ fn trimmed_sample_peak(samples: &[i16]) -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn macos_delivery_rates_use_actual_window_and_reset_deltas() {
+        let diagnostics = AudioDiagnostics::default();
+        diagnostics.received(120);
+        diagnostics.decoded(&[0; 240]);
+        diagnostics.scheduled(240, false);
+        diagnostics.decoder_pending(3, 7);
+        let report = diagnostics
+            .report_macos(false, Duration::from_millis(500))
+            .unwrap();
+        for field in [
+            "enqueue_failed_samples=240",
+            "rx_packets_per_second=2.00",
+            "decoded_ms=15.0",
+            "decoded_window_percent=3.0",
+            "decoder_pending_bytes=3 decoder_discarded_bytes=7",
+        ] {
+            assert!(report.contains(field), "missing {field}: {report}");
+        }
+        assert!(diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .is_none());
+        diagnostics.note_native_activity();
+        let report = diagnostics.report_macos(false, Duration::ZERO).unwrap();
+        assert!(report.contains("active=false"));
+        assert!(report.contains("enqueue_failed_samples=0"));
+        assert!(report.contains("rx_packets_per_second=0.00"));
+        assert!(report.contains("decoded_window_percent=0.0"));
+        assert!(report.contains("decoder_pending_bytes=3 decoder_discarded_bytes=0"));
+        diagnostics.rejected();
+        assert!(diagnostics
+            .report_macos(false, Duration::from_secs(1))
+            .unwrap()
+            .contains("rejected_packets=1"));
+    }
 
     #[test]
     fn test_level_skips_first_200ms_across_batches_and_preserves_diagnostics() {
@@ -296,6 +393,40 @@ mod tests {
         diagnostics.decoded(&[2000]);
         assert_eq!(diagnostics.level().peak, 2000.0 / 32768.0);
         assert_eq!(diagnostics.level().rms, 2000.0 / 32768.0);
+    }
+
+    #[test]
+    fn calibration_waveform_uses_filtered_peaks_survives_stop_and_resets_on_start() {
+        let d = AudioDiagnostics::default();
+        d.control(0x04);
+        d.decoded(&[i16::MAX; TEST_WARMUP_SAMPLES]);
+        assert!(d.level().waveform.is_empty());
+        let mut samples = vec![1000; 200];
+        samples[0] = i16::MAX;
+        d.decoded(&samples);
+        let state = d.level();
+        assert_eq!(state.waveform.len(), 1);
+        assert_eq!(state.waveform[0].peak, state.peak);
+        assert_eq!(state.peak, 1000.0 / 32768.0);
+        d.control(0x00);
+        d.level.lock().unwrap().sample = Some((Instant::now() - Duration::from_secs(1), 1.0, 1.0));
+        assert_eq!(d.level().peak, 0.0);
+        assert_eq!(d.level().waveform[0].peak, 1000.0 / 32768.0);
+        d.control(0x04);
+        assert!(d.level().waveform.is_empty());
+    }
+
+    #[test]
+    fn calibration_waveform_history_is_bounded() {
+        let mut d = AudioDiagnostics::default();
+        d.level.lock().unwrap().remaining = 0;
+        for i in 0..650 {
+            d.epoch = Instant::now() - Duration::from_millis(i * 20);
+            d.decoded(&[1000; 240]);
+        }
+        let state = d.level();
+        assert!(state.waveform.len() <= 501);
+        assert!(state.waveform.last().unwrap().t - state.waveform[0].t <= 10_000);
     }
 
     #[test]

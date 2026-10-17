@@ -312,8 +312,10 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .behavior-field-title { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 9px; }
 .behavior-field-title strong, .behavior-dialog-field label { color: #424a51; font-size: 14px; }
 .behavior-field-title span { color: #8b9298; font-size: 12px; }
-.shortcut-manual-builder { display: grid; grid-template-columns: minmax(0, auto) auto minmax(160px, 1fr); gap: 9px; align-items: center; }
+.shortcut-manual-builder { display: grid; grid-template-columns: minmax(0, auto) auto minmax(160px, 1fr); gap: 9px; align-items: start; }
+.shortcut-manual-builder > .shortcut-plus { line-height: 38px; }
 .shortcut-modifiers { display: flex; flex-wrap: wrap; gap: 5px; }
+.shortcut-modifier-choice { display: grid; min-width: 88px; gap: 5px; }
 .shortcut-modifiers button { min-width: 44px; height: 34px; padding: 0 8px; border: 1px solid #cfd5da; border-radius: 6px; color: #66717a; background: #fff; font-size: 13px; }
 .shortcut-modifiers button.selected { border-color: #71a9e7; color: #176fcf; background: #e8f3ff; }
 .shortcut-manual-builder.standalone .shortcut-modifiers, .shortcut-manual-builder.standalone .shortcut-plus { opacity: .38; }
@@ -325,12 +327,25 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .manual-key-select-icon { position: absolute; top: 0; right: 0; display: grid; width: 36px; height: 100%; place-items: center; border-left: 1px solid #e2e5e8; color: #75808a; background: #f6f8f9; pointer-events: none; transition: color .16s ease, background .16s ease; }
 .manual-key-select:hover .manual-key-select-icon { color: #4f5c67; background: #f1f4f6; }
 .manual-key-select:focus-within .manual-key-select-icon { color: var(--blue); background: #eef6ff; }
+.modifier-side-select { height: 28px; border-radius: 6px; }
+.modifier-side-select select { padding: 0 24px 0 8px; font-size: 13px; font-weight: 400; }
+.modifier-side-select .manual-key-select-icon { width: 20px; }
+.modifier-side-select:has(select:disabled) { opacity: .45; }
+.modifier-side-select select:disabled { cursor: default; }
 .behavior-dialog-form { margin-top: 18px; padding: 0; gap: 16px; }
 .behavior-dialog-form .settings-form-row { grid-template-columns: 92px minmax(0, 1fr); }
 .behavior-dialog-form .settings-form-label { color: #424a51; }
 .behavior-dialog-field { display: flex; flex-direction: column; gap: 8px; }
 .behavior-dialog-field .behavior-paste-input { min-height: 150px; margin-top: 0; }
 .behavior-dialog-field .behavior-delay-row { margin-top: 0; }
+.behavior-launch-label, .behavior-launch-row { display: flex; align-items: center; gap: 8px; }
+.behavior-launch-input { width: 100%; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #cfd5da; border-radius: 6px; color: #30383f; background: #fff; font-size: 14px; }
+.behavior-launch-input:focus-visible { outline: 2px solid rgba(20,120,232,.45); outline-offset: 2px; }
+.behavior-launch-input[aria-invalid="true"] { border-color: #c64444; }
+.behavior-dialog.application-drag-over .behavior-dialog-body { background: #eef6ff; }
+.behavior-dialog.application-drag-over .behavior-launch-input { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(20,120,232,.12); }
+.behavior-launch-row .icon-button { flex: 0 0 38px; height: 38px; }
+.behavior-dialog-field .behavior-launch-error { margin: 0; color: #b42323; font-size: 13px; overflow-wrap: anywhere; }
 .behavior-dialog-actions { display: flex; min-height: 62px; align-items: center; justify-content: space-between; padding: 12px 22px; border-top: 1px solid #dde0e3; background: #f0f2f3; }
 .behavior-dialog-actions > span { display: inline-flex; align-items: center; gap: 5px; color: #738078; font-size: 12px; }
 .behavior-dialog-buttons { display: flex; align-items: center; gap: 8px; }
@@ -885,6 +900,14 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-page-head p { margin: 4px 0 0; }
 .settings-page-head p, .settings-platform-note p { color: #65717d; font-size: 13px; line-height: 1.7; }
 .settings-platform-note { padding: 12px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-surface); }
+.settings-windows-driver-note { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: start; gap: 12px; margin-bottom: 2px; padding: 16px 18px; }
+.settings-platform-note-icon { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; color: #315f82; background: #e8f0f6; }
+.settings-platform-note-copy { min-width: 0; }
+.settings-platform-note-copy h3 { margin: 0; color: #27343e; font-size: 16px; line-height: 1.4; }
+.settings-platform-note-copy p { margin: 3px 0 10px; }
+.settings-platform-note-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.settings-inline-status { color: #687581; font-size: 13px; }
+.settings-inline-status strong { color: #3a8650; font-weight: 500; }
 @media (max-width: 700px) {
   .settings-page { --settings-border: #d5dae0; --settings-surface: #fafbfb; --settings-muted: #707a83; width: calc(100% - 24px); margin: 12px; padding: 0; }
   .settings-page-head { align-items: flex-start; flex-direction: column; }
@@ -1254,9 +1277,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .settings-form-page .settings-mouse-heading { margin-bottom: 22px; }
 .settings-form-page .settings-mouse-heading .settings-section-title { margin-bottom: 0; }
 .settings-form-fields { display: flex; flex-direction: column; gap: 18px; padding: 8px 0; }
+.settings-device-fields { gap: 8px; padding-top: 14px; }
+.settings-device-fields .settings-form-row { min-height: 38px; }
 .settings-form-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 12px; min-height: 32px; }
 .settings-form-label { text-align: right; font-size: 14px; color: #303338; }
 .settings-form-control { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; min-width: 0; font-size: 14px; }
+.settings-form-error { flex-basis: 100%; color: #b43e3e; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
 .settings-checkbox { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .settings-checkbox input { width: 17px; height: 17px; margin: 0; accent-color: #1683f8; }
 .settings-number { width: 94px; height: 30px; padding: 3px 6px; border: 1px solid #c7c9cd; border-radius: 4px; background: white; color: #303338; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -1563,3 +1589,22 @@ html.macos-vibrancy,
   border-color: #94b8df;
   background: rgb(240 247 255 / 82%);
 }
+
+.audio-calibration-waveform { margin-top: 18px; padding: 14px 16px 10px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; }
+.audio-calibration-waveform-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.audio-calibration-waveform-heading h3 { margin: 0; font-size: 14px; }
+.audio-calibration-waveform-heading span, .audio-calibration-waveform-note { color: #687581; font-size: 12px; }
+.audio-calibration-waveform-plot { position: relative; margin-top: 8px; }
+.audio-calibration-waveform svg { display: block; width: 100%; height: auto; min-height: 180px; }
+.audio-calibration-waveform svg text { font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+.audio-calibration-grid line { stroke: #e8edf1; }
+.audio-calibration-grid text, .audio-calibration-time { fill: #788693; }
+.audio-calibration-threshold line { stroke-dasharray: 5 4; stroke-width: 1; }
+.audio-calibration-threshold.good line { stroke: #46956d; }
+.audio-calibration-threshold.good text { fill: #317b55; }
+.audio-calibration-threshold.clipping line { stroke: #c85b56; }
+.audio-calibration-threshold.clipping text { fill: #ac3f3a; }
+.audio-calibration-envelope { stroke: #b77d2e; stroke-width: 1.8; fill: none; stroke-linejoin: round; }
+.audio-calibration-waveform-empty { position: absolute; inset: 0 16% 0 6%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 12px; font-size: 13px; color: #687581; text-align: center; pointer-events: none; }
+.audio-calibration-waveform-note { margin: 2px 0 0; line-height: 1.6; }
+@media (max-width: 640px) { .audio-calibration-waveform { padding: 12px 8px 8px; } }

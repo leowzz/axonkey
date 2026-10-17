@@ -191,6 +191,14 @@ export function getStoredAudioGain() {
   }
 }
 
+export function getStoredAudioStretchCompensation() {
+  if (typeof window === 'undefined') return false
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(audioSettingsStorageKey) ?? '{}')
+    return isRecord(parsed) && parsed.stretchCompensation === true
+  } catch { return false }
+}
+
 export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
   const props = { size, strokeWidth: 1.8 }
   switch (kind) {
@@ -224,6 +232,8 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   shortcut: '按键 / 组合键',
   paste: '粘贴文本',
   delay: '等待',
+  openApp: '打开应用',
+  openWebsite: '打开网站',
   disabled: '禁用按键',
 }
 
@@ -264,6 +274,8 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
     options: [
       { value: 'VolumeUp', label: '增大音量' }, { value: 'VolumeDown', label: '减小音量' },
       { value: 'VolumeMute', label: '静音' }, { value: 'MediaPlayPause', label: '播放 / 暂停' },
+      { value: 'MediaPrevious', label: '上一首' }, { value: 'MediaNext', label: '下一首' },
+      { value: 'MediaStop', label: '停止播放' },
     ],
   },
   {
@@ -299,15 +311,19 @@ export function keyDisplayName(key: string, platform: Platform) {
 
 export function keyGroupsForPlatform(platform: Platform) {
   if (platform !== 'macos') return manualKeyGroups
-  return manualKeyGroups.map((group) => group.label !== '单独修饰键'
-    ? group
-    : {
+  return manualKeyGroups.map((group) => {
+    if (group.label === '媒体按键') {
+      return { ...group, options: group.options.filter((option) => option.value !== 'MediaStop') }
+    }
+    if (group.label !== '单独修饰键') return group
+    return {
       ...group,
       options: [
         ...group.options.map((option) => ({ ...option, label: keyDisplayName(option.value, platform) })),
         { value: 'Fn', label: 'Fn' },
       ],
-    })
+    }
+  })
 }
 
 export const rightModifierKeys = {
@@ -343,6 +359,8 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
     case 'shortcut': return behavior.keys.length > 0 ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ') : '未录入'
     case 'paste': return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
     case 'delay': return `等待 ${behavior.ms} 毫秒`
+    case 'openApp': return behavior.path.split(/[\\/]/).pop() || '打开应用'
+    case 'openWebsite': return behavior.url || '打开网站'
     case 'disabled': return '不发送任何按键'
   }
 }

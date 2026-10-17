@@ -7,6 +7,11 @@ pub(super) struct AtvvDecoder {
 }
 
 impl AtvvDecoder {
+    #[cfg(any(target_os = "macos", test))]
+    pub(super) fn pending_bytes(&self) -> usize {
+        self.pending.len()
+    }
+
     pub(super) fn reset_session(&mut self) {
         self.pending.clear();
         self.predictor = 0;

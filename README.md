@@ -15,6 +15,8 @@ Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地
 
 设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖第三方自动化键盘工具，配置和诊断数据均保存在本机。
 
+> Windows 重连/睡眠后无输入：从 [v0.3.24 正式版](https://github.com/leowzz/axonkey/releases/tag/v0.3.24) 起，Windows 版会在安装 Interception 输入驱动时一并安装[重连兼容修复](#windows-断连或休眠后按键无响应)，需要重启后生效；已有驱动的升级用户可选择安装或跳过，之后仍可在设置中补装。
+
 ## 界面截图
 
 ### 首页
@@ -324,8 +326,13 @@ Windows 音频链路常驻 INFO 级诊断，不需要开启调试模式。连接
 
 macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标识，共用收包、拒收、通知读取错误、增益前 PCM 电平和控制事件统计。每秒汇总，空闲不写日志，暂停或停止服务时补记并取消定时器；不保存语音内容。状态变化、协议协商、输出格式和语音命令提交也会进入运行日志。
 
-- macOS 输出采用 AVAudioPlayerNode 缓冲调度，不使用 Windows 的输出回调/欠载字段。`scheduled_samples` 是成功排入播放器的源样本数，`enqueue_failures` 是排入失败的缓冲次数；`completed_buffers/played_samples` 仅在当前播放器返回 `DataPlayedBack` 完成回调后累加，不能据此证明下游输入法已收音。
-- `pending_buffers/engine_running/player_playing/drain_requested` 表示待完成缓冲数、引擎/播放器状态和尾音排空状态；`discarded_pending_buffers` 是输出重置时仍未确认完成的缓冲数量，不等于丢弃样本数。播放完成计数在主线程处理回调时记录，跨统计窗口延迟是正常现象。
+- macOS 输出采用 AVAudioSourceNode 和有界 PCM 环形队列。`scheduled_samples` 是成功入队的 16 kHz 单声道样本数；`completed_buffers/rendered_samples` 由主线程轮询已取出的完整 PCM 块后累加，会有统计延迟，也不能证明下游录音应用已收音。`enqueue_failures/enqueue_failed_samples` 为入队失败的块数和样本数；`enqueue_invalid/enqueue_output_unavailable/enqueue_queue_full` 区分无效输入、输出未就绪和队列容量不足（Rust 桥未建立时不会调用原生入队，因此可能只有总失败数）。
+- `pending_buffers/engine_running/output_prepared/output_verified/drain_requested` 表示待完成块数、引擎运行、输出节点存在、路由验证和尾音排空状态。`queued_samples` 是当前剩余样本，`underruns` 是窗口内非排空状态下队列耗尽次数。输出重置时，`discarded_pending_buffers` 统计尚未确认完成的块数，`discarded_queued_samples` 统计确实仍留在队列中的样本；部分已取出的块可能仍在待完成列表，二者不能直接按块大小换算。
+- `audio_callbacks/callback_bytes/notification_min_bytes/notification_max_bytes` 在音频特征的回调入口统计（错误回调的 value 可能为空或是旧值，不代表新音频）；`callback_stale/callback_read_errors/callback_missing_value` 按处理顺序分别统计旧连接、读取错误、缺失 value。通过这些检查后才计入 `rx_packets/rx_bytes`；随后拒收按 `rejected_not_ready/rejected_empty/rejected_after_stop` 区分未完成协商、空包和停止后 300 ms 保护窗口，进入解码的通知计入 `accepted_packets/accepted_bytes`。控制通知错误仍包含在共用的 `notification_read_errors` 中。
+- `callback_gap_ge20/ge50/ge100/ge250` 是语音会话内相邻有效连接音频回调入口间隔达到各毫秒阈值的次数，阈值累计计数；`max_callback_gap_ms` 为最大值。统计跨越一秒汇总边界，但不包含两次按键之间的静默。`max_callback_handler_ms` 包含本次回调中的协议处理、同步解码与入队耗时；`max_packet_gap_ms` 保留原有的接受包间隔。`callback_wait_ms=unknown transport_arrival=unknown` 明确表示无法观测 CoreBluetooth 回调前的排队时间或无线到达时间，不能将回调间隔直接解释成无线丢包。
+- `rx_packets_per_second` 按实际窗口计算收包速率；`decoded_ms` 是解码样本对应的音频时长；`decoded_window_percent` 是该音频时长占整个统计窗口的百分比，**不是丢包率**。会话边缘、批量延迟到达都可能影响这个比例，甚至超过 100%。`decoder_pending_bytes` 是解码器当前不足一帧的残包字节数，`decoder_discarded_bytes` 是窗口内同步或会话重置时清掉的残包字节数；`connection_generation/session_id` 用于关联连接与会话。
+
+这些统计借鉴了 remote-mic-app 的分段诊断思路，仅记录计数与时序，不调整蓝牙线程、协议或音频缓冲策略。分析持续断续时，应对照同一会话中部的连续窗口，检查回调供给、接受/解码、入队失败与欠载，避免只凭单个指标归因。
 
 ## 隐私与恢复
 
@@ -336,7 +343,7 @@ macOS 同样常驻 INFO 级诊断，使用 `macOS RC003 audio diagnostics` 标�
 - Windows 中退出 Axonkey 会关闭 Quarbor HID 管道，停止处理自定义映射。
 - macOS 中关闭主窗口不会退出应用；关闭自定义映射或从菜单栏选择“退出 Axonkey”后，HID 捕获与事件过滤才会停止。
 
-### Windows 断连后按键无响应
+### Windows 断连或休眠后按键无响应
 
 Quarbor 驱动按设备实例发布独立管道。设备重新枚举后，Axonkey 会按新的实例 ID 重连对应管道；若驱动安装状态异常，请在引导中重新检测或重新绑定 RC003。
 

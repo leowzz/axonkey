@@ -107,10 +107,15 @@ export type CommonBehaviorPreset =
   | 'volumeDown'
   | 'volumeMute'
   | 'mediaPlayPause'
+  | 'mediaPrevious'
+  | 'mediaNext'
+  | 'mediaStop'
   | 'textAndEnter'
   | 'customKey'
+  | 'openApp'
+  | 'openWebsite'
 
-export type AdvancedBehaviorType = 'key' | 'paste' | 'delay'
+export type AdvancedBehaviorType = 'key' | 'paste' | 'delay' | 'openApp' | 'openWebsite'
 
 export type DraftBehaviorState = {
   behavior: Behavior

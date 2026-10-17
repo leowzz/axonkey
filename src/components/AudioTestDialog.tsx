@@ -1,11 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 import { SlidersHorizontal, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { useEffect, useReducer, useRef, useState } from 'react'
+import { AudioTestWaveform } from './AudioTestWaveform'
+import type { CalibrationWaveformPoint } from '../audioGain'
 import type { AudioProbe, Platform } from '../appTypes'
 import { audioGainMin, audioGainMax } from '../appConfig'
 import { audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone } from '../audioGain'
 
-type AudioLevel = { peak: number; rms: number }
+type AudioLevel = { peak: number; rms: number; nowMs?: number; waveform?: CalibrationWaveformPoint[] }
 
 const decibels = (value: number) => value > 0 ? `${(20 * Math.log10(value)).toFixed(1)} dBFS` : '−∞ dBFS'
 
@@ -42,7 +44,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
           const forwarding = valid && next[0].forwarding
           if (!valid || (forwarding && !wasForwarding)) updateMeasurement({ type: 'reset' })
           if (valid && (forwarding || wasForwarding)) {
-            updateMeasurement({ type: 'sample', peak: next[1].peak })
+            updateMeasurement({ type: 'sample', peak: Math.max(next[1].peak, ...(next[1].waveform ?? []).map(p => p.peak)) })
           }
           if (wasForwarding && valid && !forwarding) {
             updateMeasurement({ type: 'finish', minimum: audioGainMin, maximum: audioGainMax })
@@ -123,6 +125,7 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
           <div className="audio-test-scale"><span>偏低</span><span>合适</span><span>偏高</span></div>
         </section>
       </div>
+      <AudioTestWaveform points={level.waveform ?? []} now={level.nowMs ?? 0} gain={audioGain} forwarding={!!status?.forwarding} available={ready} />
       <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>在录音或通话应用中选择「{deviceName}」作为麦克风，录一小段，确认声音清晰。</span></div>
       <section className="audio-test-stage-panel" aria-label="语音通道状态"><h3>语音通道状态</h3><div className="audio-test-stage-list"><span>音频驱动：{status?.driverInstalled ? '已安装' : '未安装'}</span><span>RC003 语音连接：{status?.bluetoothConnected ? '已连接' : '等待连接'}</span><span>语音收音：{status?.forwarding ? '已收到数据' : '暂无数据'}</span><span>语音转发：{status?.forwarding ? '正在转发到 CABLE Input' : '未转发'}</span></div></section>
       <details className="audio-test-details">

@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include "macos_pcm_queue.h"
+#include "macos_audio_trace.h"
 
 enum {
     AKAudioEventPacket = 1,
@@ -21,6 +22,8 @@ enum {
     AKAudioEventLog = 10,
     AKAudioEventControl = 11,
     AKAudioEventOutputReset = 12,
+    AKAudioEventRSSI = 13,
+    AKAudioEventConnectionReset = 14,
 };
 
 enum {
@@ -47,6 +50,13 @@ typedef struct {
     void *context;
     AKAudioEventCallback on_event;
 } AKAudioCallbacks;
+
+// Fixed-width FFI layout, mirrored by NativeMonitorSnapshot in Rust.
+// No payloads, audio capture, or render-thread locks are involved.
+typedef struct {
+    uint64_t uptimeMs, packets, session, streaming, queued, peak, capacity;
+    uint64_t underruns, emptied, full, resets, discarded, draining, running;
+} AKMonitorSnapshot;
 
 static NSString *const AKDriverUID = @"MiRemoteV2ch_UID";
 static NSString *const AKServiceUUIDString = @"AB5E0001-5A21-4F05-BC7D-AF01F617B664";
@@ -87,7 +97,7 @@ static NSString *AKAudioObjectStringProperty(
     if (status != noErr || value == NULL) {
         return nil;
     }
-    return [(__bridge NSString *)value copy];
+    return CFBridgingRelease(value);
 }
 
 static AudioDeviceID AKFindDriverDevice(void) {
@@ -147,36 +157,79 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     return [approvedNames containsObject:normalized];
 }
 
+// Main-thread window counters only. Callback entry is observable; radio arrival
+// and time spent waiting for the CoreBluetooth delegate queue are not.
+typedef struct {
+    NSUInteger callbacks, bytes, minBytes, maxBytes;
+    NSUInteger stale, readErrors, missingValue;
+    NSUInteger notReady, empty, afterStop, accepted, acceptedBytes;
+    NSUInteger gap20, gap50, gap100, gap250;
+    NSUInteger enqueueInvalid, enqueueUnavailable, enqueueFull;
+    NSUInteger discardedSamples;
+    double maxGapMs, maxHandlerMs;
+} AKAudioWindow;
+
+static void AKRecordCallbackGap(AKAudioWindow *window, double milliseconds) {
+    window->maxGapMs = fmax(window->maxGapMs, milliseconds);
+    window->gap20 += milliseconds >= 20;
+    window->gap50 += milliseconds >= 50;
+    window->gap100 += milliseconds >= 100;
+    window->gap250 += milliseconds >= 250;
+}
+
 @interface AKAudioPCMStorage : NSObject {
 @public
     AKPCMQueue queue;
+    atomic_bool outputVerified;
 }
 @end
 @implementation AKAudioPCMStorage
 - (instancetype)init {
     self = [super init];
-    if (self) AKPCMQueueInit(&queue);
+    if (self) {
+        AKPCMQueueInit(&queue);
+        atomic_init(&outputVerified, false);
+    }
     return self;
 }
 @end
+
+static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t count) {
+    // Starting a graph can change its device. Retain queued speech until the
+    // control thread has verified the actual destination after start returns.
+    if (!atomic_load_explicit(&storage->outputVerified, memory_order_acquire)) {
+        memset(output, 0, count * sizeof(float));
+        return 0;
+    }
+    return AKPCMQueueRender(&storage->queue, output, count);
+}
 
 @interface AKMacAudioBridge : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
 - (void)start;
 - (void)refresh;
+- (BOOL)restart;
 - (void)stop;
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count;
 - (int)currentState;
 - (BOOL)isBluetoothConnected;
+- (BOOL)requestRSSI;
+- (void)readMonitor:(AKMonitorSnapshot *)snapshot;
 - (BOOL)isForwarding;
 - (int)currentBatteryLevel;
 - (NSString *)currentError;
 - (void)setGainDecibels:(float)decibels;
+- (BOOL)setStretchCompensation:(BOOL)enabled;
 @end
 
 @implementation AKMacAudioBridge {
     AKAudioCallbacks _callbacks;
     CBCentralManager *_central;
+    NSTimeInterval _lastRSSIRequest;
+    BOOL _rssiPending;
+    uint64_t _monitorPackets, _monitorUnderruns, _monitorEmptied;
+    uint64_t _monitorFull, _monitorResets, _monitorDiscarded;
+    size_t _monitorPeak;
     CBPeripheral *_peripheral;
     CBCharacteristic *_transmitCharacteristic;
     CBCharacteristic *_audioCharacteristic;
@@ -204,6 +257,8 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     BOOL _receivedFirstPacket;
     BOOL _playedFirstBuffer;
     NSTimeInterval _lastPacketTime;
+    NSTimeInterval _lastAudioCallbackTime;
+    AKAudioWindow _audioWindow;
     double _maxPacketGapMilliseconds;
     NSUInteger _clippedSamples;
     NSUInteger _drainGeneration;
@@ -211,9 +266,11 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     CFAbsoluteTime _lastVoiceStopTime;
     int _batteryLevel;
     float _gain;
+    BOOL _stretchCompensation;
     int _state;
     NSString *_errorMessage;
     AVAudioEngine *_engine;
+    AudioDeviceID _outputDeviceID;
     AVAudioSourceNode *_sourceNode;
     AKAudioPCMStorage *_pcmStorage;
     NSMutableArray<NSNumber *> *_pendingSampleCounts;
@@ -222,6 +279,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     AVAudioFormat *_sourceFormat;
     NSTimer *_diagnosticsTimer;
     NSTimeInterval _lastDiagnosticsTime;
+    AKAudioPacketTrace *_packetTrace;
 }
 
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks {
@@ -244,6 +302,10 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         _batteryLevel = -1;
         _gain = 1.0f;
         _state = AKAudioStateStopped;
+        NSString *tracePath = NSProcessInfo.processInfo.environment[@"AXONKEY_AUDIO_TRACE_PATH"];
+        if (tracePath.length > 0) {
+            _packetTrace = [[AKAudioPacketTrace alloc] initWithPath:tracePath];
+        }
         _sourceFormat = [[AVAudioFormat alloc]
             initWithCommonFormat:AVAudioPCMFormatFloat32
             sampleRate:16000
@@ -293,6 +355,43 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     @synchronized (self) {
         return _peripheral != nil && _peripheral.state == CBPeripheralStateConnected;
     }
+}
+
+// Requested only by the monitor page; closing it stops polling. Reuse the
+// existing connection, and bound requests even if the UI polls too quickly.
+- (BOOL)requestRSSI {
+    if (![self isBluetoothConnected]) return NO;
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if ((!_rssiPending || now - _lastRSSIRequest >= 2.0) && now - _lastRSSIRequest >= 0.2) {
+        _rssiPending = YES;
+        _lastRSSIRequest = now;
+        [_peripheral readRSSI];
+    }
+    return YES;
+}
+
+- (void)peripheral:(CBPeripheral *)peripheral didReadRSSI:(NSNumber *)RSSI error:(NSError *)error {
+    if (peripheral != _peripheral || peripheral.state != CBPeripheralStateConnected) return;
+    _rssiPending = NO;
+    [self emitEvent:AKAudioEventRSSI data:nil
+            value1:RSSI.intValue value2:(error != nil || RSSI == nil ? 1 : 0)];
+}
+
+- (void)readMonitor:(AKMonitorSnapshot *)snapshot {
+    AKPCMQueue *q = _pcmStorage != nil ? &_pcmStorage->queue : NULL;
+    uint64_t queued = q != NULL ? AKPCMQueueCount(q) : 0;
+    *snapshot = (AKMonitorSnapshot){
+        .uptimeMs = (uint64_t)(NSProcessInfo.processInfo.systemUptime * 1000),
+        .packets = _monitorPackets, .session = _sessionID, .streaming = _streaming,
+        .queued = queued, .peak = MAX(_monitorPeak, q != NULL ? q->monitorPeak : 0),
+        .capacity = AKPCMCapacity,
+        .underruns = _monitorUnderruns + (q != NULL ? atomic_load(&q->monitorUnderruns) : 0),
+        .emptied = _monitorEmptied + (q != NULL ? atomic_load(&q->emptyTransitions) : 0),
+        .full = _monitorFull, .resets = _monitorResets, .discarded = _monitorDiscarded,
+        .draining = q != NULL && atomic_load(&q->draining), .running = _engine.isRunning,
+    };
+    _monitorPeak = 0;
+    if (q != NULL) q->monitorPeak = queued;
 }
 
 - (BOOL)isForwarding {
@@ -371,11 +470,35 @@ static BOOL AKRemoteNameMatches(NSString *name) {
         (unsigned long)_clippedSamples, _maxPacketGapMilliseconds,
         (unsigned long long)(_pcmStorage != nil ? atomic_exchange(&_pcmStorage->queue.underruns, 0) : 0),
         (unsigned long)(_pcmStorage != nil ? AKPCMQueueCount(&_pcmStorage->queue) : 0)];
+    AKAudioWindow w = _audioWindow;
+    context = [context stringByAppendingFormat:
+        @" audio_callbacks=%lu callback_bytes=%lu notification_min_bytes=%lu notification_max_bytes=%lu callback_stale=%lu callback_read_errors=%lu callback_missing_value=%lu rejected_not_ready=%lu rejected_empty=%lu rejected_after_stop=%lu accepted_packets=%lu accepted_bytes=%lu callback_gap_ge20=%lu callback_gap_ge50=%lu callback_gap_ge100=%lu callback_gap_ge250=%lu max_callback_gap_ms=%.1f max_callback_handler_ms=%.3f callback_wait_ms=unknown transport_arrival=unknown enqueue_invalid=%lu enqueue_output_unavailable=%lu enqueue_queue_full=%lu discarded_queued_samples=%lu output_verified=%d connection_generation=%lu",
+        (unsigned long)w.callbacks, (unsigned long)w.bytes,
+        (unsigned long)w.minBytes, (unsigned long)w.maxBytes,
+        (unsigned long)w.stale, (unsigned long)w.readErrors, (unsigned long)w.missingValue,
+        (unsigned long)w.notReady, (unsigned long)w.empty, (unsigned long)w.afterStop,
+        (unsigned long)w.accepted, (unsigned long)w.acceptedBytes,
+        (unsigned long)w.gap20, (unsigned long)w.gap50,
+        (unsigned long)w.gap100, (unsigned long)w.gap250, w.maxGapMs, w.maxHandlerMs,
+        (unsigned long)w.enqueueInvalid, (unsigned long)w.enqueueUnavailable,
+        (unsigned long)w.enqueueFull, (unsigned long)w.discardedSamples,
+        _pcmStorage != nil && atomic_load(&_pcmStorage->outputVerified),
+        (unsigned long)_connectionGeneration];
+    BOOL nativeActivity = w.callbacks || w.notReady || w.empty || w.afterStop ||
+        w.accepted || w.enqueueInvalid || w.enqueueUnavailable || w.enqueueFull || w.discardedSamples;
+    _audioWindow = (AKAudioWindow){0};
     _clippedSamples = 0;
     _maxPacketGapMilliseconds = 0;
+    context = [context stringByAppendingFormat:@" stretch_enabled=%d stretch_rate=%.3f stretch_output_samples=%llu",
+        _stretchCompensation,
+        _pcmStorage != nil ? atomic_load(&_pcmStorage->queue.stretchRatePermille) / 1000.0 : 1.0,
+        (unsigned long long)(_pcmStorage != nil ? atomic_exchange(&_pcmStorage->queue.stretchOutputSamples, 0) : 0)];
     [self emitEvent:AKAudioEventDiagnostics
                data:[context dataUsingEncoding:NSUTF8StringEncoding]
-             value1:_streaming || _microphoneOpened || _pendingAudioBuffers > 0
+             // Bit 0 is forwarding state; bit 1 preserves native-only activity
+             // (including stale callbacks) without claiming the session is active.
+             value1:((_streaming || _microphoneOpened || _pendingAudioBuffers > 0) ? 1 : 0) |
+                    (nativeActivity ? 2 : 0)
              value2:windowMilliseconds];
 }
 
@@ -397,6 +520,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)stop {
+    [self finishPacketTrace];
     [_diagnosticsTimer invalidate];
     _diagnosticsTimer = nil;
     _shouldRun = NO;
@@ -406,6 +530,20 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     [self stopAudioOutput];
     [self setState:AKAudioStateStopped error:nil];
     [self reportDiagnostics];
+}
+
+- (BOOL)restart {
+    [self logAudio:@"Manually restarting macOS audio connections" error:NO];
+    // Run teardown and rebuild together on the main queue, so Bluetooth events
+    // cannot enqueue into the old graph between these operations.
+    [self stop];
+    _shouldRun = YES;
+    [self startDiagnostics];
+    if (![self ensureAudioOutput]) return NO;
+    [self setState:AKAudioStateScanning error:nil];
+    [self refresh];
+    [self scheduleAudioIdle];
+    return YES;
 }
 
 - (void)beginBluetooth {
@@ -430,6 +568,9 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 }
 
 - (void)resetPeripheral {
+    _lastRSSIRequest = 0;
+    _rssiPending = NO;
+    [self emitEvent:AKAudioEventConnectionReset data:nil value1:0 value2:0];
     _peripheral.delegate = nil;
     _peripheral = nil;
     _transmitCharacteristic = nil;
@@ -698,17 +839,22 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (void)handleAudioData:(NSData *)data {
     [self emitEvent:AKAudioEventReceived data:nil value1:(int)data.length value2:0];
     if (!_capabilitiesConfirmed || data.length == 0) {
+        if (!_capabilitiesConfirmed) _audioWindow.notReady += 1;
+        else _audioWindow.empty += 1;
         [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
         return;
     }
     if (!_streaming) {
         if (_lastVoiceStopTime > 0 &&
             CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3) {
+            _audioWindow.afterStop += 1;
             [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
             return;
         }
         [self beginVoiceSession];
     }
+    _audioWindow.accepted += 1;
+    _audioWindow.acceptedBytes += data.length;
     NSTimeInterval packetTime = NSProcessInfo.processInfo.systemUptime;
     if (_lastPacketTime > 0) {
         _maxPacketGapMilliseconds = fmax(_maxPacketGapMilliseconds,
@@ -728,20 +874,76 @@ static BOOL AKRemoteNameMatches(NSString *name) {
              value2:0];
 }
 
+- (AudioDeviceID)driverDeviceID {
+    // Resolve the stable UID again: numeric IDs can change after driver reload.
+    return AKFindDriverDevice();
+}
+
+- (OSStatus)selectOutputDevice:(AudioDeviceID)deviceID {
+    AudioUnit unit = _engine.outputNode.audioUnit;
+    if (unit == NULL) return kAudio_ParamError;
+    return AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                               kAudioUnitScope_Global, 0, &deviceID, sizeof(deviceID));
+}
+
+- (BOOL)outputTargetsDriver {
+    if (_outputDeviceID == kAudioObjectUnknown) return NO;
+    AudioUnit unit = _engine.outputNode.audioUnit;
+    if (unit == NULL) return NO;
+    AudioDeviceID selected = kAudioObjectUnknown;
+    UInt32 size = sizeof(selected);
+    return AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice,
+                               kAudioUnitScope_Global, 0, &selected, &size) == noErr &&
+           selected == _outputDeviceID &&
+           [AKAudioObjectStringProperty(selected, kAudioDevicePropertyDeviceUID)
+               isEqualToString:AKDriverUID];
+}
+
 - (BOOL)ensureAudioOutput {
+    // Core Audio can redirect an existing graph when output devices change.
+    // Never enqueue remote speech into a graph now targeting real speakers.
+    if (_engine.isRunning && _sourceNode != nil && ![self outputTargetsDriver]) {
+        [self logAudio:@"macOS audio output device changed; rebuilding MiRemoteV connection" error:YES];
+        [self stopAudioOutput];
+    }
     if (_engine.isRunning && _sourceNode != nil) return YES;
     // Restart the configured graph after idle pause or a device format change.
     if (_engine != nil && _sourceNode != nil) {
-        NSError *error = nil;
-        if (![_engine startAndReturnError:&error]) {
-            [self setState:AKAudioStateError error:error.localizedDescription];
+        atomic_store_explicit(&_pcmStorage->outputVerified, false, memory_order_release);
+        AudioDeviceID deviceID = [self driverDeviceID];
+        if (deviceID == kAudioObjectUnknown) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateDriverMissing error:nil];
             return NO;
         }
+        OSStatus selectStatus = [self selectOutputDevice:deviceID];
+        _outputDeviceID = deviceID;
+        if (selectStatus != noErr || ![self outputTargetsDriver]) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateError error:@"未能将音频输出连接到 MiRemoteV 2ch，请重试"];
+            return NO;
+        }
+        NSError *error = nil;
+        if (![_engine startAndReturnError:&error]) {
+            [self stopAudioOutput];
+            [self setState:AKAudioStateError error:error.localizedDescription ?: @"Cannot resume MiRemoteV 2ch"];
+            return NO;
+        }
+        if (![self outputTargetsDriver]) {
+            [self logAudio:@"macOS audio output redirected during resume; rebuilding MiRemoteV connection" error:YES];
+            [self stopAudioOutput];
+            return [self createAudioOutput];
+        }
+        atomic_store_explicit(&_pcmStorage->outputVerified, true, memory_order_release);
         [self logAudio:@"macOS audio output resumed" error:NO];
         return YES;
     }
+    return [self createAudioOutput];
+}
+
+- (BOOL)createAudioOutput {
     [self stopAudioOutput];
-    AudioDeviceID deviceID = AKFindDriverDevice();
+    AudioDeviceID deviceID = [self driverDeviceID];
     if (deviceID == kAudioObjectUnknown) {
         [self setState:AKAudioStateDriverMissing error:nil];
         return NO;
@@ -769,13 +971,14 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     // Establish the graph only after choosing the device so the mixer doesn't
     // inherit the system default output's channel count and sample rate.
     AKAudioPCMStorage *storage = [[AKAudioPCMStorage alloc] init];
+    storage->queue.stretchEnabled = _stretchCompensation;
     AVAudioSourceNode *source = [[AVAudioSourceNode alloc]
         initWithFormat:_sourceFormat
         renderBlock:^OSStatus(BOOL *isSilence, const AudioTimeStamp *timestamp,
                               AVAudioFrameCount frameCount, AudioBufferList *output) {
             (void)timestamp;
             float *channel = output->mBuffers[0].mData;
-            AKPCMQueueRender(&storage->queue, channel, frameCount);
+            AKRenderAudio(storage, channel, frameCount);
             // Fades can contain nonzero samples even when a packet ends here.
             *isSilence = NO;
             return noErr;
@@ -792,9 +995,23 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                                                    startError.localizedDescription ?: @"unknown error"]];
         return NO;
     }
+    AudioDeviceID selectedDevice = kAudioObjectUnknown;
+    UInt32 selectedDeviceSize = sizeof(selectedDevice);
+    OSStatus readStatus = AudioUnitGetProperty(outputUnit,
+        kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+        &selectedDevice, &selectedDeviceSize);
+    if (readStatus != noErr || selectedDevice != deviceID ||
+        ![AKAudioObjectStringProperty(selectedDevice, kAudioDevicePropertyDeviceUID)
+            isEqualToString:AKDriverUID]) {
+        [engine stop];
+        [self setState:AKAudioStateError error:@"未能将音频输出连接到 MiRemoteV 2ch，请重试"];
+        return NO;
+    }
     _engine = engine;
+    _outputDeviceID = deviceID;
     _sourceNode = source;
     _pcmStorage = storage;
+    atomic_store_explicit(&storage->outputVerified, true, memory_order_release);
     AVAudioFormat *outputFormat = [engine.outputNode outputFormatForBus:0];
     [self logAudio:[NSString stringWithFormat:@"macOS audio output ready: device=MiRemoteV2ch_UID source_sample_rate=%.0f source_channels=%u source_format=float32 output_sample_rate=%.0f output_channels=%u",
                                               _sourceFormat.sampleRate, _sourceFormat.channelCount,
@@ -803,12 +1020,36 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     return YES;
 }
 
+- (BOOL)setStretchCompensation:(BOOL)enabled {
+    if (_stretchCompensation == enabled) return YES;
+    // Do not reset or modify consumer-owned DSP state while it is rendering.
+    // The caller can retry after releasing the key and draining the final audio.
+    [self collectRenderedAudio];
+    if (_streaming || _microphoneOpened || _pendingAudioBuffers > 0) return NO;
+    [self resetAudioQueue];
+    _stretchCompensation = enabled;
+    if (_pcmStorage != nil) _pcmStorage->queue.stretchEnabled = enabled;
+    [self logAudio:[NSString stringWithFormat:@"macOS audio stretch compensation: enabled=%d", enabled] error:NO];
+    return YES;
+}
+
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count {
-    if (samples == NULL || count == 0 || ![self ensureAudioOutput]) return NO;
+    if (samples == NULL || count == 0) {
+        _audioWindow.enqueueInvalid += 1;
+        return NO;
+    }
+    if (![self ensureAudioOutput]) {
+        _audioWindow.enqueueUnavailable += 1;
+        return NO;
+    }
     float gain;
     @synchronized (self) { gain = _gain; }
     size_t clipped = 0;
-    if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) return NO;
+    if (!AKPCMQueuePush(&_pcmStorage->queue, samples, count, gain, &clipped)) {
+        _audioWindow.enqueueFull += 1;
+        _monitorFull += 1;
+        return NO;
+    }
     _clippedSamples += clipped;
     [_pendingSampleCounts addObject:@(count)];
     _pendingAudioBuffers += 1;
@@ -859,6 +1100,8 @@ static BOOL AKRemoteNameMatches(NSString *name) {
                    dispatch_get_main_queue(), ^{
         if (self->_drainGeneration == generation && !self->_streaming &&
             !self->_microphoneOpened && self->_pendingAudioBuffers == 0) {
+            if (self->_pcmStorage != nil)
+                atomic_store_explicit(&self->_pcmStorage->outputVerified, false, memory_order_release);
             [self->_engine pause];
         }
     });
@@ -877,14 +1120,27 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     _pendingAudioBuffers = 0;
     [_pendingSampleCounts removeAllObjects];
     _reportedSamples = 0;
-    if (_pcmStorage != nil) AKPCMQueueInit(&_pcmStorage->queue);
+    if (_pcmStorage != nil) {
+        size_t discarded = AKPCMQueueCount(&_pcmStorage->queue);
+        _monitorResets += 1;
+        _monitorDiscarded += discarded;
+        _monitorUnderruns += atomic_load(&_pcmStorage->queue.monitorUnderruns);
+        _monitorEmptied += atomic_load(&_pcmStorage->queue.emptyTransitions);
+        _monitorPeak = MAX(_monitorPeak, _pcmStorage->queue.monitorPeak);
+        _audioWindow.discardedSamples += discarded;
+        AKPCMQueueInit(&_pcmStorage->queue);
+        _pcmStorage->queue.stretchEnabled = _stretchCompensation;
+    }
 }
 
 - (void)stopAudioOutput {
+    if (_pcmStorage != nil)
+        atomic_store_explicit(&_pcmStorage->outputVerified, false, memory_order_release);
     [self resetAudioQueue];
     _sourceNode = nil;
     _pcmStorage = nil;
     _engine = nil;
+    _outputDeviceID = kAudioObjectUnknown;
 }
 
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
@@ -1098,6 +1354,60 @@ static BOOL AKRemoteNameMatches(NSString *name) {
 - (void)peripheral:(CBPeripheral *)peripheral
  didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic
               error:(NSError *)error {
+    BOOL audio = [characteristic.UUID isEqual:_audioUUID];
+    NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
+    if (audio && _packetTrace != nil && !_packetTrace.sealed) {
+        BOOL first = !_packetTrace.started;
+        uint32_t flags = (peripheral != _peripheral ? 1 : 0) |
+                         (error != nil ? 2 : 0) | (characteristic.value == nil ? 4 : 0);
+        [_packetTrace recordData:characteristic.value uptime:started
+            unixTime:CFAbsoluteTimeGetCurrent() + kCFAbsoluteTimeIntervalSince1970
+            session:_sessionID flags:flags];
+        if (first) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC),
+                dispatch_get_main_queue(), ^{ [self finishPacketTrace]; });
+        }
+    }
+    if (audio) {
+        NSUInteger bytes = characteristic.value.length;
+        if (_audioWindow.callbacks == 0) _audioWindow.minBytes = bytes;
+        _audioWindow.callbacks += 1;
+        _audioWindow.bytes += bytes;
+        _audioWindow.minBytes = MIN(_audioWindow.minBytes, bytes);
+        _audioWindow.maxBytes = MAX(_audioWindow.maxBytes, bytes);
+        if (peripheral != _peripheral) _audioWindow.stale += 1;
+        else {
+            if (error != nil) _audioWindow.readErrors += 1;
+            else if (characteristic.value == nil) _audioWindow.missingValue += 1;
+            // Do not count button-up silence as a transport gap. Retain the
+            // previous callback across diagnostic windows within a session.
+            if (_streaming && _receivedFirstPacket && _lastAudioCallbackTime > 0)
+                AKRecordCallbackGap(&_audioWindow, (started - _lastAudioCallbackTime) * 1000.0);
+            _lastAudioCallbackTime = started;
+        }
+    }
+    [self handleValueForPeripheral:peripheral characteristic:characteristic error:error];
+    if (audio) _audioWindow.maxHandlerMs = fmax(_audioWindow.maxHandlerMs,
+        (NSProcessInfo.processInfo.systemUptime - started) * 1000.0);
+}
+
+- (void)finishPacketTrace {
+    AKAudioPacketTrace *trace = _packetTrace;
+    if (trace == nil || trace.sealed || !trace.started) return;
+    [trace seal];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        BOOL saved = [trace writeCSV];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self logAudio:[NSString stringWithFormat:
+                @"macOS packet trace: callbacks=%lu saved=%d (one-shot capture ended)",
+                (unsigned long)trace.count, saved] error:!saved];
+        });
+    });
+}
+
+- (void)handleValueForPeripheral:(CBPeripheral *)peripheral
+                 characteristic:(CBCharacteristic *)characteristic
+                          error:(NSError *)error {
     if (peripheral == _peripheral &&
         [characteristic.UUID isEqual:_batteryLevelUUID]) {
         [self setBatteryLevel:error == nil ? AKParseBatteryLevel(characteristic.value) : -1];
@@ -1115,6 +1425,7 @@ static BOOL AKRemoteNameMatches(NSString *name) {
     if ([characteristic.UUID isEqual:_controlUUID]) {
         [self handleControlData:characteristic.value];
     } else if ([characteristic.UUID isEqual:_audioUUID]) {
+        _monitorPackets += 1;
         [self handleAudioData:characteristic.value];
     }
 }
@@ -1143,6 +1454,14 @@ void axonkey_macos_audio_refresh(void *rawBridge) {
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ [bridge refresh]; });
+}
+
+bool axonkey_macos_audio_restart(void *rawBridge) {
+    if (rawBridge == NULL) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    __block BOOL restarted = NO;
+    AKOnMainSync(^{ restarted = [bridge restart]; });
+    return restarted;
 }
 
 void axonkey_macos_audio_stop(void *rawBridge) {
@@ -1184,6 +1503,14 @@ bool axonkey_macos_audio_bluetooth_connected(void *rawBridge) {
     __block BOOL connected = NO;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ connected = [bridge isBluetoothConnected]; });
+    return connected;
+}
+
+bool axonkey_macos_audio_request_rssi(void *rawBridge) {
+    if (rawBridge == NULL) return false;
+    __block BOOL connected = NO;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ connected = [bridge requestRSSI]; });
     return connected;
 }
 
@@ -1241,4 +1568,23 @@ void axonkey_macos_audio_set_gain_db(void *rawBridge, float gain_db) {
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     AKOnMainSync(^{ [bridge setGainDecibels:gain_db]; });
+}
+
+bool axonkey_macos_audio_set_stretch_compensation(void *rawBridge, bool enabled) {
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    if (bridge == nil) return false;
+    __block BOOL accepted = NO;
+    AKOnMainSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
+    return accepted;
+}
+
+bool axonkey_macos_audio_monitor(void *rawBridge, AKMonitorSnapshot *snapshot) {
+    if (rawBridge == NULL || snapshot == NULL) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    __block BOOL connected = NO;
+    AKOnMainSync(^{
+        connected = [bridge requestRSSI];
+        [bridge readMonitor:snapshot];
+    });
+    return connected;
 }

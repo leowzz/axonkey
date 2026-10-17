@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod mouse;
+mod launch;
 
 #[cfg(windows)]
 pub(super) mod windows_pipe;
@@ -127,6 +128,16 @@ pub(super) enum NativeBehavior {
         #[serde(default)]
         ms: u64,
     },
+    OpenApp {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        path: String,
+    },
+    OpenWebsite {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        url: String,
+    },
     Disabled {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -212,6 +223,8 @@ impl NativeBehavior {
             | Self::Shortcut { enabled, .. }
             | Self::Paste { enabled, .. }
             | Self::Delay { enabled, .. }
+            | Self::OpenApp { enabled, .. }
+            | Self::OpenWebsite { enabled, .. }
             | Self::Disabled { enabled } => *enabled,
         }
     }
