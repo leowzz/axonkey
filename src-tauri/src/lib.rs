@@ -1,5 +1,6 @@
 mod audio_service;
 mod input_service;
+mod legacy_driver;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
 
@@ -325,7 +326,7 @@ fn find_driver_helper(
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
-        ("legacy", "cleanup") => "uninstall-old-driver.exe",
+        ("legacy", "cleanup" | "status") => "uninstall-old-driver.exe",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
     };
@@ -836,15 +837,6 @@ struct SystemProbe {
     input_authorization_stale: Option<bool>,
     accessibility_granted: Option<bool>,
     capture_active: bool,
-    legacy_components: Option<LegacyComponents>,
-}
-
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyComponents {
-    frida: bool,
-    interception: bool,
-    named_pipe_server: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -874,35 +866,28 @@ fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
 }
 
-#[cfg(target_os = "windows")]
-fn legacy_components() -> LegacyComponents {
-    // The legacy prompt checks Interception and its old repair service.
-    // Payload files and unrelated processes (for example Frida or
-    // NamedPipeServer) are cleaned by the helper when it is explicitly run,
-    // but they do not mean that an old driver is still installed.
-    let interception = powershell_probe(
-        r#"$found = $false
-foreach ($target in @(
-    @{ Name = 'keyboard'; ClassId = '{4D36E96B-E325-11CE-BFC1-08002BE10318}' },
-    @{ Name = 'mouse'; ClassId = '{4D36E96F-E325-11CE-BFC1-08002BE10318}' }
-)) {
-    $service = Test-Path -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($target.Name)"
-    $filters = @((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$($target.ClassId)" -ErrorAction SilentlyContinue).UpperFilters | ForEach-Object { [string]$_ })
-    if ($service -or ($filters -contains $target.Name)) { $found = $true }
-}
-if ($found) { '1' } else { '0' }"#,
-    );
-    let interception_fix = powershell_probe(
-        r#"if (Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\AxonkeyInterceptionFix') { '1' } else { '0' }"#,
-    );
-    log::info!(
-        target: "axonkey::runtime",
-        "Legacy component probe: interception={interception}, AxonkeyInterceptionFix={interception_fix}"
-    );
-    LegacyComponents {
-        frida: false,
-        interception: interception || interception_fix,
-        named_pipe_server: false,
+#[tauri::command]
+async fn probe_legacy_components(
+    app: tauri::AppHandle,
+    refresh: bool,
+) -> Result<legacy_driver::LegacyComponents, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<legacy_driver::LegacyProbeState>()
+                .check(refresh, || legacy_driver::probe(&resource_dir))
+        })
+        .await
+        .map_err(|error| format!("Legacy driver status task failed: {error}"))?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, refresh);
+        Err("Legacy driver status is only supported on Windows".into())
     }
 }
 
@@ -1133,7 +1118,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: input_status.capture_active,
-            legacy_components: Some(legacy_components()),
         })
     }
 
@@ -1156,7 +1140,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: Some(input_status.input_monitoring_open_denied),
             accessibility_granted: input_status.accessibility_granted,
             capture_active: input_status.capture_active,
-            legacy_components: None,
         })
     }
 
@@ -1173,7 +1156,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: false,
-            legacy_components: None,
         })
     }
 }
@@ -1246,6 +1228,7 @@ pub fn run() {
             app.manage(InputService::start());
             app.manage(MouseService::start());
             app.manage(PermissionHelperWindowState::default());
+            app.manage(legacy_driver::LegacyProbeState::default());
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
             if let Err(error) = install_tray(app) {
@@ -1290,6 +1273,7 @@ pub fn run() {
             open_external_page,
             request_macos_permission,
             probe_system_state,
+            probe_legacy_components,
             probe_audio_available,
             probe_audio_state,
             get_audio_test_state,

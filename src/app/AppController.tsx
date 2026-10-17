@@ -50,6 +50,7 @@ import type {
   DraftBehaviorState,
   DriverActionResult,
   HitPosition,
+  LegacyDriverProbe,
   MacPermissionKind,
   MacPermissions,
   Platform,
@@ -178,6 +179,7 @@ function AppController() {
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
+  const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [homeRefreshing, setHomeRefreshing] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
@@ -194,6 +196,8 @@ function AppController() {
   const audioProbeRunningRef = useRef(false)
   const systemProbeRunningRef = useRef(false)
   const legacyCleanupPromptedRef = useRef(false)
+  const legacyProbeStartedRef = useRef(false)
+  const legacyProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
@@ -843,6 +847,7 @@ function AppController() {
       }))
       setToast(result.rebootRequired ? '旧组件已卸载，请重启 Windows 后重新检测' : '旧组件已卸载，请重新检测')
       window.setTimeout(() => setToast(''), 3200)
+      await probeLegacyComponents(true)
       await probeSystemState(true)
       logInfo('Legacy Windows input component cleanup completed')
     } catch (error) {
@@ -957,6 +962,37 @@ function AppController() {
     window.setTimeout(() => setToast(''), 2600)
   }
 
+  const probeLegacyComponents = async (refresh = false) => {
+    if (!nativeRuntime || platform !== 'windows' || legacyProbeRunningRef.current) return
+    legacyProbeRunningRef.current = true
+    updateSetup((current) => setLegacyCleanupProbe(current, current.legacyCleanup.components, { checking: true }))
+    try {
+      const probe = await invoke<LegacyDriverProbe>('probe_legacy_components', { refresh })
+      const components = { frida: false, namedPipeServer: false, ...probe }
+      const present = probe.interception || probe.interceptionFix
+      updateSetup((current) => {
+        const next = setLegacyCleanupProbe(current, components)
+        return present ? activateSetupStep(next, 'legacyCleanup') : next
+      })
+      if (present && !legacyCleanupPromptedRef.current) {
+        legacyCleanupPromptedRef.current = true
+        setSetupOpen(true)
+      } else if (!present) {
+        legacyCleanupPromptedRef.current = false
+      }
+    } catch (error) {
+      logError('Legacy driver check failed', error)
+      updateSetup((current) => setLegacyCleanupProbe(current, current.legacyCleanup.components, {
+        error: `旧驱动检测失败：${String(error)}`,
+      }))
+      setToast(`旧驱动检测失败：${String(error)}`)
+      window.setTimeout(() => setToast(''), 5000)
+    } finally {
+      legacyProbeRunningRef.current = false
+      setLegacyStartupChecked(true)
+    }
+  }
+
   const probeSystemState = async (showChecking = true) => {
     if (systemProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
     systemProbeRunningRef.current = true
@@ -976,19 +1012,6 @@ function AppController() {
         accessibility: probe.accessibility_granted === true,
         captureActive: probe.capture_active,
       })
-      if (probe.platform === 'windows' && probe.legacy_components) {
-        const legacy = probe.legacy_components
-        const legacyPresent = legacy.frida || legacy.interception || legacy.namedPipeServer
-        updateSetup((current) => setLegacyCleanupProbe(current, legacy))
-        if (legacyPresent) {
-          if (!legacyCleanupPromptedRef.current) {
-            legacyCleanupPromptedRef.current = true
-            setSetupOpen(true)
-          }
-        } else {
-          legacyCleanupPromptedRef.current = false
-        }
-      }
       updateSetup((current) => {
         const connectedDevice = {
           status: 'connected' as const,
@@ -1208,6 +1231,16 @@ function AppController() {
       window.clearInterval(interval)
     }
   }, [])
+
+  useEffect(() => {
+    if (!nativeRuntime || platform !== 'windows' || legacyProbeStartedRef.current) return
+    const timer = window.setTimeout(() => {
+      // One startup check per launch; polling and opening setup reuse its result.
+      legacyProbeStartedRef.current = true
+      void probeLegacyComponents()
+    }, 1_200)
+    return () => window.clearTimeout(timer)
+  }, [nativeRuntime, platform])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
@@ -1565,7 +1598,7 @@ function AppController() {
         onSave={commitTextInputPreset}
       />}
       {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
-      {setupOpen && <SetupDialog
+      {setupOpen && !(nativeRuntime && platform === 'windows' && setupState.currentStep === 'legacyCleanup' && !legacyStartupChecked) && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}
         state={setupState}
@@ -1577,7 +1610,7 @@ function AppController() {
         onReset={() => setSetupState(resetSetup())}
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
         onProbeAudio={() => void probeAudioState()}
-        onProbeLegacyCleanup={() => void probeSystemState(true)}
+        onProbeLegacyCleanup={() => void probeLegacyComponents(true)}
         onCleanupLegacy={() => void runLegacyCleanup()}
         onOpenSystemSettings={(page) => void openSystemSettings(page)}
         onRequestMacPermission={(kind) => void requestMacPermission(kind)}

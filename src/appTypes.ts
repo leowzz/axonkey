@@ -32,6 +32,11 @@ export type MacPermissions = {
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
 export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'about'
 
+export type LegacyDriverProbe = {
+  interception: boolean
+  interceptionFix: boolean
+}
+
 export type SystemProbe = {
   platform: Platform
   input_driver_installed: boolean
@@ -43,11 +48,6 @@ export type SystemProbe = {
   input_authorization_stale?: boolean | null
   accessibility_granted?: boolean | null
   capture_active: boolean
-  legacy_components?: {
-    frida: boolean
-    interception: boolean
-    namedPipeServer: boolean
-  } | null
 }
 
 export type RemoteKeyEvent = {

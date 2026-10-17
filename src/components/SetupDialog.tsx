@@ -177,6 +177,11 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
       description: '旧版全局键盘过滤驱动会和 Quarbor HID 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
     },
     {
+      key: 'interceptionFix' as const,
+      title: 'AxonkeyInterceptionFix 修复服务',
+      description: '旧版驱动修复服务已不再需要。点击“一键卸载旧组件”移除服务及其安装目录。',
+    },
+    {
       key: 'frida' as const,
       title: 'Frida 运行组件',
       description: '退出旧版输入辅助工具和 Frida 相关进程，再删除旧版 Axonkey 安装目录中残留的 Frida 文件。',
@@ -197,7 +202,7 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor HID 驱动，避免两个输入链路同时接管 RC003。</p>
     <div className={`legacy-cleanup-summary ${ready ? 'ready' : cleanup.status === 'checking' ? 'checking' : ''}`} aria-live="polite">
       <span className="setup-status-dot" />
-      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor HID 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
+      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor HID 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
     </div>
     {!ready && <div className="legacy-cleanup-list">
       {(present.length > 0 ? present : items).map((item) => <section key={item.key} className={`legacy-cleanup-item ${cleanup.components[item.key] ? 'present' : 'clear'}`}>
@@ -208,7 +213,7 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     {cleanup.action.status === 'failed' && <div className="setup-status-panel error" aria-live="polite"><span className="setup-status-dot" /><div><strong>自动清理未完成</strong><span>{cleanup.action.error ?? '请查看日志后重试，或使用 Windows 服务管理器手动清理。'}</span></div></div>}
     {cleanup.action.status === 'succeeded' && <div className="setup-status-panel success" aria-live="polite"><span className="setup-status-dot" /><div><strong>卸载命令已完成</strong><span>{cleanup.action.rebootRequired ? 'Windows 需要重启，重启后点击“重新检测”。' : '请点击“重新检测”确认旧组件已清理。'}</span></div></div>}
     <div className="legacy-cleanup-actions">
-      <button type="button" className="button primary" disabled={cleanupRunning || ready} onClick={onCleanup}><ShieldCheck size={14} /> {cleanupRunning ? '正在卸载旧组件…' : '一键卸载旧组件'}</button>
+      <button type="button" className="button primary" disabled={cleanupRunning || ready || cleanup.status === 'checking'} onClick={onCleanup}><ShieldCheck size={14} /> {cleanupRunning ? '正在卸载旧组件…' : '一键卸载旧组件'}</button>
       <button type="button" className="dialog-secondary" disabled={cleanup.status === 'checking' || cleanupRunning} onClick={onRecheck}><RotateCcw size={14} /> {cleanup.status === 'checking' ? '检测中…' : '重新检测'}</button>
     </div>
     <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续连接 RC003 <ChevronRight size={15} /></button></div>

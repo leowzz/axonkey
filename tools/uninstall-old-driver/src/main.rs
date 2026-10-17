@@ -26,6 +26,20 @@ mod windows_app {
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const ERROR_CANCELLED: i32 = 1223;
+    const INTERCEPTION_FIX_SERVICE: &str = "AxonkeyInterceptionFix";
+    const INTERCEPTION_FIX_DIRECTORY: &str = r"C:\Program Files\Axonkey Interception Fix";
+    const INTERCEPTION_TARGETS: [(&str, &str, &str); 2] = [
+        (
+            "keyboard",
+            r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96B-E325-11CE-BFC1-08002BE10318}",
+            "keyboard.sys",
+        ),
+        (
+            "mouse",
+            r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96F-E325-11CE-BFC1-08002BE10318}",
+            "mouse.sys",
+        ),
+    ];
 
     pub fn main() {
         let args: Vec<OsString> = std::env::args_os().skip(1).collect();
@@ -37,6 +51,21 @@ mod windows_app {
                 std::process::exit(2);
             }
         };
+
+        // Status is read-only: no elevation, log files, or cleanup side effects.
+        if options.status {
+            match legacy_components() {
+                Ok(components) => println!(
+                    "{{\"action\":\"status\",\"components\":{{\"interception\":{},\"interceptionFix\":{}}}}}",
+                    components.interception, components.interception_fix
+                ),
+                Err(error) => {
+                    eprintln!("Cannot check legacy drivers: {error}");
+                    std::process::exit(1);
+                }
+            }
+            return;
+        }
 
         let log_path = options.log_path.clone().unwrap_or_else(default_log_path);
         if let Err(error) = ensure_parent(&log_path) {
@@ -70,14 +99,6 @@ mod windows_app {
             base_dir().display()
         ));
 
-        if options.status {
-            log.line("Status requested; no changes made.");
-            println!(
-                "{{\"action\":\"status\",\"logPath\":{}}}",
-                json_string(&log_path)
-            );
-            return;
-        }
         if !options.confirmed && !confirm() {
             log.line("Cleanup cancelled by the user.");
             std::process::exit(2);
@@ -222,6 +243,72 @@ mod windows_app {
         command("sc.exe", &args)
     }
 
+    #[derive(Debug, PartialEq)]
+    struct LegacyComponents {
+        interception: bool,
+        interception_fix: bool,
+    }
+
+    fn legacy_components() -> Result<LegacyComponents, String> {
+        detect_legacy_components(
+            registry_service_exists,
+            |class_key| registry_multi_string(class_key, "UpperFilters"),
+            |path| {
+                path.try_exists()
+                    .map_err(|error| format!("{}: {error}", path.display()))
+            },
+        )
+    }
+
+    fn detect_legacy_components(
+        mut service_exists: impl FnMut(&str) -> Result<bool, String>,
+        mut filters: impl FnMut(&str) -> Result<Option<Vec<String>>, String>,
+        mut path_exists: impl FnMut(&Path) -> Result<bool, String>,
+    ) -> Result<LegacyComponents, String> {
+        let mut interception = false;
+        for (service, class_key, driver_file) in INTERCEPTION_TARGETS {
+            let service_present = service_exists(service)?;
+            let filter_present = filters(class_key)?
+                .unwrap_or_default()
+                .iter()
+                .any(|filter| filter.eq_ignore_ascii_case(service));
+            let file_present = path_exists(&system_driver_path(driver_file))?;
+            interception |= service_present || filter_present || file_present;
+        }
+        let service_present = service_exists(INTERCEPTION_FIX_SERVICE)?;
+        let directory_present = path_exists(Path::new(INTERCEPTION_FIX_DIRECTORY))?;
+        Ok(LegacyComponents {
+            interception,
+            interception_fix: service_present || directory_present,
+        })
+    }
+
+    fn registry_service_exists(service: &str) -> Result<bool, String> {
+        let key_path = wide(OsStr::new(&format!(
+            r"SYSTEM\CurrentControlSet\Services\{service}"
+        )));
+        unsafe {
+            let mut key = std::ptr::null_mut();
+            let result = RegOpenKeyExW(
+                HKEY_LOCAL_MACHINE,
+                key_path.as_ptr(),
+                0,
+                KEY_QUERY_VALUE,
+                &mut key,
+            );
+            if result == ERROR_FILE_NOT_FOUND {
+                return Ok(false);
+            }
+            if result != ERROR_SUCCESS {
+                return Err(format!(
+                    "Cannot read service {service}: RegOpenKeyExW returned {result}"
+                ));
+            }
+            RegCloseKey(key);
+        }
+        Ok(true)
+    }
+
     fn cleanup(log: &mut Logger) -> Result<(), String> {
         let services =
             discover_services().map_err(|error| format!("cannot enumerate services: {error}"))?;
@@ -346,7 +433,7 @@ mod windows_app {
     }
 
     fn uninstall_axonkey_interception_fix(log: &mut Logger) {
-        const SERVICE: &str = "AxonkeyInterceptionFix";
+        const SERVICE: &str = INTERCEPTION_FIX_SERVICE;
         let service_present = match run_sc(&["qc", SERVICE]) {
             Ok((status, _output)) => {
                 if !status.success() {
@@ -378,7 +465,7 @@ mod windows_app {
             }
         }
 
-        let install_dir = PathBuf::from(r"C:\Program Files\Axonkey Interception Fix");
+        let install_dir = PathBuf::from(INTERCEPTION_FIX_DIRECTORY);
         if install_dir.exists() {
             remove_path(
                 log,
@@ -539,20 +626,7 @@ mod windows_app {
     }
 
     fn uninstall_interception(log: &mut Logger) {
-        const TARGETS: [(&str, &str, &str); 2] = [
-            (
-                "keyboard",
-                r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96B-E325-11CE-BFC1-08002BE10318}",
-                "keyboard.sys",
-            ),
-            (
-                "mouse",
-                r"SYSTEM\CurrentControlSet\Control\Class\{4D36E96F-E325-11CE-BFC1-08002BE10318}",
-                "mouse.sys",
-            ),
-        ];
-
-        for (service, class_key, driver_file) in TARGETS {
+        for (service, class_key, driver_file) in INTERCEPTION_TARGETS {
             let filters = match registry_multi_string(class_key, "UpperFilters") {
                 Ok(filters) => filters,
                 Err(error) => {
@@ -902,6 +976,93 @@ mod windows_app {
     mod tests {
         use super::*;
         use std::os::windows::fs::OpenOptionsExt;
+
+        #[test]
+        fn detects_each_legacy_service_independently() {
+            for service in ["keyboard", "mouse", INTERCEPTION_FIX_SERVICE] {
+                let result = detect_legacy_components(
+                    |name| Ok(name == service),
+                    |_| Ok(None),
+                    |_| Ok(false),
+                )
+                .unwrap();
+                assert_eq!(result.interception, service != INTERCEPTION_FIX_SERVICE);
+                assert_eq!(result.interception_fix, service == INTERCEPTION_FIX_SERVICE);
+            }
+        }
+
+        #[test]
+        fn detects_orphaned_case_insensitive_filters_without_services() {
+            for (service, class_key, _) in INTERCEPTION_TARGETS {
+                let result = detect_legacy_components(
+                    |_| Ok(false),
+                    |key| {
+                        Ok(Some(if key == class_key {
+                            vec!["kbdclass".into(), service.to_uppercase()]
+                        } else {
+                            vec!["mouclass".into()]
+                        }))
+                    },
+                    |_| Ok(false),
+                )
+                .unwrap();
+                assert!(result.interception);
+                assert!(!result.interception_fix);
+            }
+        }
+
+        #[test]
+        fn detects_driver_files_and_the_repair_installation_after_services_are_removed() {
+            for file in ["keyboard.sys", "mouse.sys", "Axonkey Interception Fix"] {
+                let result = detect_legacy_components(
+                    |_| Ok(false),
+                    |_| Ok(None),
+                    |path| Ok(path.file_name() == Some(OsStr::new(file))),
+                )
+                .unwrap();
+                assert_eq!(result.interception, file != "Axonkey Interception Fix");
+                assert_eq!(result.interception_fix, file == "Axonkey Interception Fix");
+            }
+        }
+
+        #[test]
+        fn standard_windows_filters_do_not_count_as_legacy_drivers() {
+            let result = detect_legacy_components(
+                |_| Ok(false),
+                |_| Ok(Some(vec!["kbdclass".into(), "mouclass".into()])),
+                |_| Ok(false),
+            )
+            .unwrap();
+            assert_eq!(
+                result,
+                LegacyComponents {
+                    interception: false,
+                    interception_fix: false
+                }
+            );
+        }
+
+        #[test]
+        fn unreadable_services_filters_or_files_are_errors_instead_of_clear_results() {
+            assert!(detect_legacy_components(
+                |_| Err("service access denied".into()),
+                |_| Ok(None),
+                |_| Ok(false),
+            )
+            .is_err());
+            assert!(detect_legacy_components(
+                |_| Ok(false),
+                |_| Err("filter access denied".into()),
+                |_| Ok(false),
+            )
+            .is_err());
+            assert!(detect_legacy_components(
+                |_| Ok(false),
+                |_| Ok(None),
+                |_| Err("file access denied".into()),
+            )
+            .is_err());
+        }
 
         struct TestDirectory(PathBuf);
 

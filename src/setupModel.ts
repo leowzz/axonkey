@@ -27,7 +27,7 @@ export type SetupStepDefinition = {
   skippable: boolean
 }
 
-export const legacyComponentKinds = ['frida', 'interception', 'namedPipeServer'] as const
+export const legacyComponentKinds = ['frida', 'interception', 'interceptionFix', 'namedPipeServer'] as const
 export type LegacyComponentKind = (typeof legacyComponentKinds)[number]
 
 export type LegacyCleanupState = {
@@ -199,7 +199,7 @@ function createDriverState(): DriverState {
 function createLegacyCleanupState(): LegacyCleanupState {
   return {
     status: 'clear',
-    components: { frida: false, interception: false, namedPipeServer: false },
+    components: { frida: false, interception: false, interceptionFix: false, namedPipeServer: false },
     action: { status: 'idle' },
   }
 }
@@ -335,6 +335,7 @@ function normalizeLegacyCleanup(value: unknown, fallback: LegacyCleanupState): L
   const components = {
     frida: Boolean(value.components && isRecord(value.components) && value.components.frida === true),
     interception: Boolean(value.components && isRecord(value.components) && value.components.interception === true),
+    interceptionFix: Boolean(value.components && isRecord(value.components) && value.components.interceptionFix === true),
     namedPipeServer: Boolean(value.components && isRecord(value.components) && value.components.namedPipeServer === true),
   }
   const statuses = ['unknown', 'checking', 'present', 'clear', 'error'] as const
@@ -523,7 +524,7 @@ export function setLegacyCleanupProbe(
     checkedAt: options.checkedAt ?? Date.now(),
     message: options.error,
   }
-  if (present) {
+  if (present && !options.error && !options.checking) {
     next.steps.legacyCleanup = { status: 'active', visited: true }
     // Keep the welcome page first, but insert migration before every later step.
     if (next.currentStep !== 'welcome' && next.currentStep !== 'legacyCleanup') {
