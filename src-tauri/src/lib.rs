@@ -848,15 +848,6 @@ struct LegacyComponents {
 }
 
 #[cfg(target_os = "windows")]
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct LegacyComponentsProbe {
-    frida: bool,
-    interception: bool,
-    named_pipe_server: bool,
-}
-
-#[cfg(target_os = "windows")]
 fn powershell_output(expression: &str) -> Option<String> {
     use std::os::windows::process::CommandExt;
 
@@ -884,44 +875,34 @@ fn powershell_probe(expression: &str) -> bool {
 }
 
 #[cfg(target_os = "windows")]
-fn legacy_components(resource_dir: &std::path::Path) -> LegacyComponents {
-    // These checks intentionally inspect only the legacy process/service names
-    // and files that Axonkey used. The current Quarbor per-device named pipe is
-    // not a process or service and is therefore never reported here.
-    let process_and_services = powershell_output(
-        r#"$items = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue; Get-CimInstance Win32_Service -ErrorAction SilentlyContinue; Get-CimInstance Win32_SystemDriver -ErrorAction SilentlyContinue)
-$interception = @($items | Where-Object { $_.Name -match '(?i)interception' -or $_.DisplayName -match '(?i)interception' -or $_.PathName -match '(?i)interception' }).Count -gt 0
+fn legacy_components() -> LegacyComponents {
+    // The legacy prompt checks Interception and its old repair service.
+    // Payload files and unrelated processes (for example Frida or
+    // NamedPipeServer) are cleaned by the helper when it is explicitly run,
+    // but they do not mean that an old driver is still installed.
+    let interception = powershell_probe(
+        r#"$found = $false
 foreach ($target in @(
     @{ Name = 'keyboard'; ClassId = '{4D36E96B-E325-11CE-BFC1-08002BE10318}' },
     @{ Name = 'mouse'; ClassId = '{4D36E96F-E325-11CE-BFC1-08002BE10318}' }
 )) {
     $service = Test-Path -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Services\$($target.Name)"
-    $filters = @((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$($target.ClassId)" -ErrorAction SilentlyContinue).UpperFilters)
-    if ($service -or ($filters -contains $target.Name)) { $interception = $true }
+    $filters = @((Get-ItemProperty -LiteralPath "HKLM:\SYSTEM\CurrentControlSet\Control\Class\$($target.ClassId)" -ErrorAction SilentlyContinue).UpperFilters | ForEach-Object { [string]$_ })
+    if ($service -or ($filters -contains $target.Name)) { $found = $true }
 }
-[ordered]@{
-    frida = @($items | Where-Object { $_.Name -match '(?i)^frida(-server)?(\.exe)?$' -or $_.DisplayName -match '(?i)frida' -or $_.PathName -match '(?i)\\frida([\\.]|$)' -or $_.ExecutablePath -match '(?i)\\frida([\\.]|$)' }).Count -gt 0
-    interception = $interception
-    namedPipeServer = @($items | Where-Object { $_.Name -match '(?i)NamedPipeServer' -or $_.DisplayName -match '(?i)NamedPipeServer' -or $_.PathName -match '(?i)NamedPipeServer' -or $_.ExecutablePath -match '(?i)NamedPipeServer' }).Count -gt 0
-} | ConvertTo-Json -Compress"#,
-    )
-    .and_then(|value| serde_json::from_str::<LegacyComponentsProbe>(&value).ok())
-    .unwrap_or(LegacyComponentsProbe {
-        frida: false,
-        interception: false,
-        named_pipe_server: false,
-    });
-    let frida =
-        process_and_services.frida || resource_dir.join("vendor/frida/frida-gadget.dll").is_file();
-    // The bundled uninstall helper is not evidence that the old driver is
-    // installed. Interception is detected from its registered service/driver.
-    let interception = process_and_services.interception;
-    let named_pipe_server = process_and_services.named_pipe_server
-        || resource_dir.join("NamedPipeServer.exe").is_file();
+if ($found) { '1' } else { '0' }"#,
+    );
+    let interception_fix = powershell_probe(
+        r#"if (Test-Path -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\AxonkeyInterceptionFix') { '1' } else { '0' }"#,
+    );
+    log::info!(
+        target: "axonkey::runtime",
+        "Legacy component probe: interception={interception}, AxonkeyInterceptionFix={interception_fix}"
+    );
     LegacyComponents {
-        frida,
-        interception,
-        named_pipe_server,
+        frida: false,
+        interception: interception || interception_fix,
+        named_pipe_server: false,
     }
 }
 
@@ -1136,7 +1117,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             .path()
             .resource_dir()
             .map_err(|error| error.to_string())?;
-        let legacy_resource_dir = resource_dir.clone();
         let devices =
             tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
                 .await
@@ -1153,7 +1133,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             input_authorization_stale: None,
             accessibility_granted: None,
             capture_active: input_status.capture_active,
-            legacy_components: Some(legacy_components(&legacy_resource_dir)),
+            legacy_components: Some(legacy_components()),
         })
     }
 

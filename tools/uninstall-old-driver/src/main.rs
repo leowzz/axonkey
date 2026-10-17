@@ -18,6 +18,7 @@ mod windows_app {
     use std::fs::{self, File, OpenOptions};
     use std::io::{self, Write};
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
     use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::{Command, ExitStatus, Stdio};
@@ -266,8 +267,125 @@ mod windows_app {
         remove_named_files(log, "namedpipeserver");
         remove_named_files(log, "frida");
 
+        uninstall_axonkey_interception_fix(log);
         uninstall_interception(log);
+        remove_vendor_payload(log, "interception-fix", "Interception Fix");
+        remove_vendor_payload(log, "interception", "Interception");
         Ok(())
+    }
+
+    fn remove_vendor_payload(log: &mut Logger, directory: &str, label: &str) {
+        let root = base_dir();
+        let path = root.join("vendor").join(directory);
+        if !root.is_absolute() || !path.starts_with(&root) {
+            log.line(&format!(
+                "WARNING: cannot resolve the {label} payload directory."
+            ));
+            return;
+        }
+        match fs::remove_dir_all(&path) {
+            Ok(()) => log.line(&format!("Deleted {label} payload: {}", path.display())),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                log.line(&format!("{label} payload is absent: {}", path.display()));
+            }
+            Err(error) => {
+                log.line(&format!(
+                    "Could not delete {label} payload {}: {error}. Scheduling remaining paths for deletion after reboot.",
+                    path.display()
+                ));
+                if let Err(error) = visit_deletion_paths(&path, &mut |remaining| {
+                    if schedule_delete_on_reboot(remaining) {
+                        log.line(&format!(
+                            "Scheduled deletion after reboot: {}",
+                            remaining.display()
+                        ));
+                    } else {
+                        let error = io::Error::last_os_error();
+                        log.line(&format!(
+                            "WARNING: cannot schedule deletion after reboot for {}: {error}",
+                            remaining.display()
+                        ));
+                    }
+                }) {
+                    log.line(&format!(
+                        "WARNING: could not enumerate all remaining {label} payload paths: {error}"
+                    ));
+                }
+            }
+        }
+    }
+
+    // MoveFileExW only removes empty directories at boot. Register children
+    // before their parents, and never follow junctions or symbolic links.
+    fn visit_deletion_paths(path: &Path, visit: &mut impl FnMut(&Path)) -> io::Result<()> {
+        let metadata = match fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error),
+        };
+        let mut first_error = None;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+        if metadata.is_dir() && metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT == 0 {
+            match fs::read_dir(path) {
+                Ok(entries) => {
+                    for entry in entries {
+                        let result =
+                            entry.and_then(|entry| visit_deletion_paths(&entry.path(), visit));
+                        if let Err(error) = result {
+                            first_error.get_or_insert(error);
+                        }
+                    }
+                }
+                Err(error) => {
+                    first_error = Some(error);
+                }
+            }
+        }
+        visit(path);
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn uninstall_axonkey_interception_fix(log: &mut Logger) {
+        const SERVICE: &str = "AxonkeyInterceptionFix";
+        let service_present = match run_sc(&["qc", SERVICE]) {
+            Ok((status, _output)) => {
+                if !status.success() {
+                    log.line(&format!("{SERVICE} service is not registered."));
+                    false
+                } else {
+                    true
+                }
+            }
+            Err(error) => {
+                log.line(&format!("WARNING: cannot query {SERVICE} service: {error}"));
+                false
+            }
+        };
+
+        if service_present {
+            log.line(&format!("Stopping service: {SERVICE}"));
+            match run_sc(&["stop", SERVICE]) {
+                Ok((_, output)) => log_output(log, &format!("sc stop {SERVICE}"), &output),
+                Err(error) => log.line(&format!("WARNING: cannot stop {SERVICE} service: {error}")),
+            }
+            wait_for_service_stop(SERVICE);
+
+            match run_sc(&["delete", SERVICE]) {
+                Ok((_, output)) => log_output(log, &format!("sc delete {SERVICE}"), &output),
+                Err(error) => log.line(&format!(
+                    "WARNING: cannot delete {SERVICE} service: {error}"
+                )),
+            }
+        }
+
+        let install_dir = PathBuf::from(r"C:\Program Files\Axonkey Interception Fix");
+        if install_dir.exists() {
+            remove_path(
+                log,
+                &install_dir,
+                "AxonkeyInterceptionFix installation directory",
+            );
+        }
     }
 
     fn discover_services() -> io::Result<Vec<String>> {
@@ -778,6 +896,68 @@ mod windows_app {
 
     fn wide(value: &OsStr) -> Vec<u16> {
         value.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        struct TestDirectory(PathBuf);
+
+        impl TestDirectory {
+            fn new() -> Self {
+                let unique = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos();
+                let path = std::env::temp_dir().join(format!(
+                    "axonkey-cleanup-test-{}-{unique}",
+                    std::process::id()
+                ));
+                fs::create_dir(&path).unwrap();
+                Self(path)
+            }
+        }
+
+        impl Drop for TestDirectory {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        #[test]
+        fn locked_payload_is_visited_before_its_parent_directories() {
+            let directory = TestDirectory::new();
+            let nested = directory.0.join("nested");
+            fs::create_dir(&nested).unwrap();
+            let locked_path = nested.join("locked.exe");
+            let locked = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .share_mode(0)
+                .open(&locked_path)
+                .unwrap();
+
+            assert!(fs::remove_dir_all(&directory.0).is_err());
+            let mut queued = Vec::new();
+            visit_deletion_paths(&directory.0, &mut |path| queued.push(path.to_path_buf()))
+                .unwrap();
+            assert_eq!(queued, vec![locked_path, nested, directory.0.clone()]);
+            // The visitor can be tested without registering any real reboot deletions.
+            drop(locked);
+        }
+
+        #[test]
+        fn missing_payload_does_not_queue_any_deletions() {
+            let directory = TestDirectory::new();
+            let mut queued = Vec::new();
+            visit_deletion_paths(&directory.0.join("absent"), &mut |path| {
+                queued.push(path.to_path_buf());
+            })
+            .unwrap();
+            assert!(queued.is_empty());
+        }
     }
 
     type Handle = *mut std::ffi::c_void;

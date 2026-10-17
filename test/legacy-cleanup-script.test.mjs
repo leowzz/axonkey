@@ -18,4 +18,7 @@ test('legacy cleanup is provided by the Rust executable', () => {
   assert.match(source, /mouse\.sys/)
   assert.match(source, /ShellExecuteExW/)
   assert.match(source, /uninstall_interception/)
+  assert.match(source, /AxonkeyInterceptionFix/)
+  assert.ok(source.includes(String.raw`C:\Program Files\Axonkey Interception Fix`))
+  assert.match(source, /uninstall_axonkey_interception_fix/)
 })
