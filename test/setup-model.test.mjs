@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  activateSetupStep,
   completeSetupStep,
   createDefaultSetupState,
   setLegacyCleanupProbe,
+  setSetupStepStatus,
 } from '../src/setupModel.ts'
 
 const clear = { frida: false, interception: false, namedPipeServer: false }
@@ -33,4 +35,13 @@ test('old persisted setup data keeps the migration step hidden until detection',
   const state = createDefaultSetupState()
   assert.equal(state.steps.legacyCleanup.status, 'skipped')
   assert.equal(state.currentStep, 'welcome')
+})
+
+test('reopening driver setup clears stale completion until the real probe confirms it', () => {
+  let state = createDefaultSetupState()
+  state = setSetupStepStatus(state, 'inputDriver', 'complete')
+  state = activateSetupStep(state, 'inputDriver')
+  assert.equal(state.steps.inputDriver.status, 'active')
+  state = setSetupStepStatus(state, 'inputDriver', 'complete')
+  assert.equal(state.steps.inputDriver.status, 'complete')
 })

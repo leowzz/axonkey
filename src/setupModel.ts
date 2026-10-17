@@ -167,7 +167,7 @@ export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
   input: {
     kind: 'input',
     title: 'Quarbor HID 按键过滤驱动',
-    description: 'QuarborHIDFilterUserDriver驱动，获取遥控器按键输入。',
+    description: '驱动获取遥控器按键输入。',
     required: true,
     installerPath: 'vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe',
   },
@@ -493,6 +493,22 @@ export function setCurrentSetupStep(state: SetupState, step: SetupStepId): Setup
   return next
 }
 
+/** Opens a step for review and clears a stale completion mark until a fresh probe confirms it. */
+export function activateSetupStep(state: SetupState, step: SetupStepId): SetupState {
+  const next = cloneState(state)
+  next.currentStep = step
+  next.steps[step] = { status: 'active', visited: true }
+  next.updatedAt = Date.now()
+  return next
+}
+
+export function setSetupStepStatus(state: SetupState, step: SetupStepId, status: SetupStepStatus): SetupState {
+  const next = cloneState(state)
+  next.steps[step] = { status, visited: true }
+  next.updatedAt = Date.now()
+  return next
+}
+
 export function setLegacyCleanupProbe(
   state: SetupState,
   components: Record<LegacyComponentKind, boolean>,
@@ -644,19 +660,6 @@ export function finishDriverAction(
       error: result.error,
     },
     checkedAt: now,
-  }
-  next.updatedAt = now
-  return next
-}
-
-export function skipDriverAction(state: SetupState, driver: DriverKind, kind: DriverActionKind, now = Date.now()): SetupState {
-  const next = cloneState(state)
-  const current = next.drivers[driver]
-  next.drivers[driver] = {
-    ...current,
-    installSkipped: kind === 'install' ? true : current.installSkipped,
-    uninstallSkipped: kind === 'uninstall' ? true : current.uninstallSkipped,
-    action: { kind, status: 'skipped', finishedAt: now },
   }
   next.updatedAt = now
   return next

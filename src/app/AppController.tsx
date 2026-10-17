@@ -77,6 +77,7 @@ import { logError, logInfo } from '../runtimeLogging'
 import {
   beginLegacyCleanup,
   beginDriverAction,
+  activateSetupStep,
   completeSetupStep,
   driverDefinitions,
   finishDriverAction,
@@ -89,7 +90,7 @@ import {
   setDeviceConnection,
   setDriverStatus,
   setLegacyCleanupProbe,
-  skipDriverAction,
+  setSetupStepStatus,
   skipSetup,
   skipSetupStep,
 } from '../setupModel'
@@ -758,12 +759,19 @@ function AppController() {
     if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
       step = 'legacyCleanup'
     }
-    updateSetup((current) => setCurrentSetupStep(current, step))
+    updateSetup((current) => step === 'inputDriver'
+      ? activateSetupStep(current, step)
+      : setCurrentSetupStep(current, step))
     setSetupOpen(true)
+    if (step === 'inputDriver') void probeSystemState(false)
   }
 
   const completeCurrentSetupStep = () => {
     updateSetup((current) => {
+      if (platform === 'windows' && current.currentStep === 'inputDriver') {
+        const inputStatus = current.drivers.input.status
+        if (inputStatus !== 'installed' && inputStatus !== 'restartRequired') return current
+      }
       const next = completeSetupStep(current, current.currentStep)
       // The shared setup model follows the Windows dependency order. macOS
       // still starts with permissions/audio and connects the remote second.
@@ -798,15 +806,19 @@ function AppController() {
         ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
         : '按键驱动'
       const restartRequired = result.rebootRequired
+      const reportedStatus = platform === 'windows' && driver === 'input'
+        ? 'checking'
+        : action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
-        status: action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing',
+        status: reportedStatus,
         restartRequired,
         message: platform === 'macos'
           ? `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，Core Audio 已刷新。日志：${result.logPath}`
           : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，${restartRequired ? '请重启 Windows' : '无需重启 Windows'}。日志：${result.logPath}`,
       }))
       if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
+      if (platform === 'windows' && driver === 'input') await probeSystemState(true)
       logInfo(`Driver action completed: ${driver}/${action}`)
     } catch (error) {
       logError(`Driver action failed: ${driver}/${action}`, error)
@@ -950,7 +962,8 @@ function AppController() {
     systemProbeRunningRef.current = true
     if (showChecking) {
       updateSetup((current) => {
-        const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        let next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        if (platform === 'windows') next = setSetupStepStatus(next, 'inputDriver', 'active')
         return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
       })
     }
@@ -1025,7 +1038,10 @@ function AppController() {
               : probe.input_backend_ready
                 ? 'Quarbor HID 输入服务工作正常。'
                 : '已检测到 Quarbor HID 过滤驱动，输入服务正在启动。'
-        const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+        let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+        if (probe.platform === 'windows') {
+          next = setSetupStepStatus(next, 'inputDriver', inputStatus === 'installed' ? 'complete' : 'active')
+        }
         if (!showChecking) {
           const unchanged = next.device.status === device.status
             && next.device.name === device.name
@@ -1560,8 +1576,6 @@ function AppController() {
         onSkipAll={() => { setSetupState((current) => skipSetup(current)); setSetupOpen(false) }}
         onReset={() => setSetupState(resetSetup())}
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
-        onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
-        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装 Quarbor 驱动；重新连接 RC003 或重启 Windows 后生效。' }))}
         onProbeAudio={() => void probeAudioState()}
         onProbeLegacyCleanup={() => void probeSystemState(true)}
         onCleanupLegacy={() => void runLegacyCleanup()}

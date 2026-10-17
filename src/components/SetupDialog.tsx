@@ -32,8 +32,6 @@ type SetupDialogProps = {
   onSkipAll: () => void
   onReset: () => void
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
-  onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
-  onMarkDriverInstalled: (driver: DriverKind) => void
   onProbeAudio: () => void
   onProbeLegacyCleanup: () => void
   onCleanupLegacy: () => void
@@ -61,7 +59,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
 const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
-export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   const visibleSteps = platform === 'macos'
@@ -120,11 +118,8 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
           : <DriversSetupScreen
             state={state}
             onAction={onDriverAction}
-            onSkipAction={onSkipDriverAction}
-            onMarkInstalled={onMarkDriverInstalled}
             onProbeAudio={onProbeAudio}
             onContinue={onCompleteStep}
-            onSkip={onSkipStep}
             onOpenSettings={() => onOpenSystemSettings('sound')}
             onOpenVendorPage={() => onOpenExternalPage('vbcable')}
           />)}
@@ -357,11 +352,8 @@ export function MacPermissionHelperWindow({ activePermission, permissions, onOpe
 type DriversSetupScreenProps = {
   state: SetupState
   onAction: (driver: DriverKind, action: DriverActionKind) => void
-  onSkipAction: (driver: DriverKind, action: DriverActionKind) => void
-  onMarkInstalled: (driver: DriverKind) => void
   onProbeAudio: () => void
   onContinue: () => void
-  onSkip: () => void
   onOpenSettings: () => void
   onOpenVendorPage: () => void
 }
@@ -376,21 +368,20 @@ function isDriverInstalled(state: SetupState, kind: DriverKind) {
   return status === 'installed' || status === 'restartRequired'
 }
 
-type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onMarkInstalled' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
+type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
   kind: DriverKind
   disabled: boolean
 }
 
-function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
+function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
   const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const inputInstallBlocked = kind === 'input' && !installed && state.device.status !== 'connected'
   const message = driver.message ?? (kind === 'input'
-    ? 'QuarborHIDFilterUserDriver驱动，获取遥控器按键输入。'
+    ? '驱动获取遥控器按键输入。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
-  const actionLabel = driver.action.kind === 'uninstall' ? '卸载失败' : '安装失败'
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">
       <span className="driver-setup-icon">{kind === 'input' ? <Keyboard size={18} /> : <AudioLines size={18} />}</span>
@@ -399,13 +390,12 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
     </div>
     <p className="driver-setup-message">{message}</p>
     {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时不能安装 Quarbor 驱动'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再安装 Quarbor HID 按键过滤驱动。'}</span></div></div>}
-    {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{actionLabel}</strong><span>{driver.action.error ?? '安装器没有返回具体错误，请查看日志后重试。'}</span></div></div>}
+    {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? '安装失败，请重试。' : '卸载失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
       {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
       {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 Quarbor 驱动'}</button>}
       {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 VB-CABLE'}</button>}
-      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenSettings}><Settings2 size={14} /> 声音设置</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenVendorPage}><ExternalLink size={14} /> VB-Audio 官网</button>}
@@ -413,26 +403,20 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   </section>
 }
 
-function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, onProbeAudio, onContinue, onSkip, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
   const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
-  const allInstalled = (['input', 'audio'] as const).every((kind) => isDriverInstalled(state, kind))
+  const inputInstalled = isDriverInstalled(state, 'input')
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
-  const skipDrivers = () => {
-    for (const kind of ['input', 'audio'] as const) {
-      if (!isDriverInstalled(state, kind)) onSkipAction(kind, 'install')
-    }
-    onSkip()
-  }
   return <div className="setup-screen drivers-setup-screen">
     <span className="setup-hero-icon"><Download size={24} /></span>
     <span className="section-kicker">DRIVERS</span>
     <h2 id="setup-title">一次完成两个驱动</h2>
     <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor HID 过滤驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 只绑定当前遥控器的 HID 设备实例，不会安装全局键盘过滤器。</p>
     <div className="driver-setup-list">
-      <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
-      <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
     <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按安装结果重新连接设备或重启 Windows</strong><span>安装前必须连接并唤醒 RC003；如果设备在安装过程中断开，页面会显示具体失败原因。卸载支持离线设备，安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
-    <div className="setup-actions"><button type="button" className="setup-text-button" disabled={anyRunning} onClick={skipDrivers}>稍后安装</button><button type="button" className="button primary setup-primary" disabled={anyRunning} onClick={onContinue}>{allInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
+    <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={anyRunning || !inputInstalled} onClick={onContinue}>{inputInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '安装 Quarbor 驱动后继续'} <ChevronRight size={15} /></button></div>
   </div>
 }
