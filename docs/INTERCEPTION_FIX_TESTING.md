@@ -1,4 +1,6 @@
-# Windows 重连兼容修复
+# Windows 重连兼容修复（历史文档）
+
+> 本文记录 v0.3.24–v0.3.31 的 Interception 方案。从 v0.4.1 起改用 Quarbor HID，不再构建、打包或安装该修复服务；本文命令与路径只适用于[历史源码](https://github.com/leowzz/axonkey/tree/bae31327e3e976d3c22ae9d2b18aacc9fd58b703)。当前安装与迁移请看 [Windows 输入](./WINDOWS_INPUT.md)。
 
 此分支集成 [interception-driver-fix v0.5.2](https://github.com/hygorostrowskij/interception-driver-fix/tree/e1a7720863f514d51caf06b020da5c0d2e345c41)。它以 LocalSystem 启动时一次性服务创建系统级 KeyboardClass/PointerClass 链接；不替换 Interception 驱动，也不持续监听设备。影响所有使用 Interception 的设备，不仅 RC003。
 

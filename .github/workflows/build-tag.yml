@@ -95,17 +95,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build standalone uninstall-old-driver helper
+        run: npm run build:uninstall-old-driver
+
       - name: Build NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.updater.conf.json
-
-      - name: Verify reconnect service management without running the service
-        shell: pwsh
-        run: |
-          ./test/interception-fix.test.ps1
-          node scripts/verify-interception-fix.mjs --artifact
 
       - name: Create SHA-256 checksum
         shell: pwsh

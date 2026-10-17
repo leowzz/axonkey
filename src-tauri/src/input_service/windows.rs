@@ -1,12 +1,12 @@
 use super::{
-    cursor_delta, repeatable_click, InputServiceStatus, NativeBehavior, NativeSettings, RepeatableClick,
-    TriggerBehaviors, WheelDirection,
+    cursor_delta, repeatable_click, InputServiceStatus, NativeBehavior, NativeSettings,
+    RepeatableClick, TriggerBehaviors, WheelDirection,
 };
 use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
-    path::PathBuf,
+    io::{ErrorKind, Read},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex, OnceLock, RwLock,
@@ -23,10 +23,6 @@ const FILTER_KEY_ALL: u16 = 0xffff;
 const KEY_UP: u16 = 0x0001;
 const KEY_E0: u16 = 0x0002;
 const WAIT_TIMEOUT_MS: u32 = 50;
-// Frida edges do not wake Interception's wait handle. Poll their queue at a
-// shorter interval only while that optional capture channel is ready.
-#[cfg(windows)]
-const EXTRA_KEYS_WAIT_TIMEOUT_MS: u32 = 8;
 const LONG_PRESS_MS: u64 = 600;
 const LONG_PRESS_REPEAT_INITIAL_MS: u64 = 350;
 const LONG_PRESS_REPEAT_INTERVAL_MS: u64 = 100;
@@ -72,8 +68,7 @@ struct KeyStroke {
     information: u32,
 }
 
-struct InterceptionApi {
-    _library: libloading::Library,
+struct InputApi {
     create_context: CreateContext,
     destroy_context: DestroyContext,
     set_filter: SetFilter,
@@ -83,80 +78,327 @@ struct InterceptionApi {
     get_hardware_id: GetHardwareId,
 }
 
-impl InterceptionApi {
+impl InputApi {
     fn load() -> Result<Self, String> {
-        let mut failures = Vec::new();
-        for path in interception_dll_candidates() {
-            if !path.is_file() {
-                continue;
+        Ok(Self {
+            create_context: quarbor_create_context,
+            destroy_context: quarbor_destroy_context,
+            set_filter: quarbor_set_filter,
+            wait_with_timeout: quarbor_wait_with_timeout,
+            receive: quarbor_receive,
+            send: quarbor_send,
+            get_hardware_id: quarbor_get_hardware_id,
+        })
+    }
+}
+
+#[cfg(windows)]
+struct QuarborContext {
+    pipe: Option<super::windows_pipe::PipeStream>,
+    bytes: Vec<u8>,
+    reports: std::collections::VecDeque<KeyStroke>,
+    active_usages: std::collections::HashSet<u16>,
+    device_id: Option<String>,
+    last_pipe_attempt: Instant,
+}
+
+#[cfg(windows)]
+impl Default for QuarborContext {
+    fn default() -> Self {
+        Self {
+            pipe: None,
+            bytes: Vec::new(),
+            reports: std::collections::VecDeque::new(),
+            active_usages: std::collections::HashSet::new(),
+            device_id: None,
+            last_pipe_attempt: Instant::now() - Duration::from_secs(2),
+        }
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_create_context() -> Context {
+    Box::into_raw(Box::new(QuarborContext::default())).cast()
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_destroy_context(context: Context) {
+    if !context.is_null() {
+        drop(Box::from_raw(context.cast::<QuarborContext>()));
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_set_filter(
+    _context: Context,
+    _predicate: DevicePredicate,
+    _filter: u16,
+) {
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32) -> i32 {
+    let context = &mut *context.cast::<QuarborContext>();
+    if !context.reports.is_empty() {
+        return 1;
+    }
+    let Some(device_id) = rc003_keyboard_device_id() else {
+        context.pipe = None;
+        quarbor_release_active_usages(context);
+        context.device_id = None;
+        thread::sleep(Duration::from_millis(timeout_ms as u64));
+        return 0;
+    };
+    let device_changed = context
+        .device_id
+        .as_deref()
+        .is_none_or(|current| !current.eq_ignore_ascii_case(&device_id));
+    if device_changed {
+        context.pipe = None;
+        quarbor_release_active_usages(context);
+        context.device_id = Some(device_id.clone());
+    }
+    if context.pipe.is_none() && context.last_pipe_attempt.elapsed() >= Duration::from_millis(250) {
+        context.last_pipe_attempt = Instant::now();
+        context.pipe = super::windows_pipe::PipeStream::connect_read_only(
+            &quarbor_pipe_name(&device_id),
+            Duration::from_millis(1),
+        )
+        .ok();
+    }
+    let Some(pipe) = context.pipe.as_mut() else {
+        thread::sleep(Duration::from_millis(timeout_ms as u64));
+        return 0;
+    };
+    let mut buffer = [0u8; 8192];
+    match pipe.read(&mut buffer) {
+        Ok(size) => {
+            if size == 0 {
+                context.pipe = None;
+                quarbor_release_active_usages(context);
+                0
+            } else {
+                context.bytes.extend_from_slice(&buffer[..size]);
+                quarbor_parse_frames(context);
+                i32::from(!context.reports.is_empty())
             }
-            let library = match unsafe { libloading::Library::new(&path) } {
-                Ok(library) => library,
-                Err(error) => {
-                    failures.push(format!("{}: {error}", path.display()));
-                    continue;
+        }
+        Err(error) if error.kind() == ErrorKind::TimedOut => 0,
+        Err(_) => {
+            context.pipe = None;
+            quarbor_release_active_usages(context);
+            0
+        }
+    }
+}
+
+#[cfg(windows)]
+fn quarbor_release_active_usages(context: &mut QuarborContext) {
+    let active = std::mem::take(&mut context.active_usages);
+    for usage in active {
+        if let Some(stroke) = rc003_usage_stroke(usage, true) {
+            context.reports.push_back(stroke);
+        }
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_receive(
+    context: Context,
+    _device: i32,
+    stroke: *mut KeyStroke,
+    _count: u32,
+) -> i32 {
+    let context = &mut *context.cast::<QuarborContext>();
+    match context.reports.pop_front() {
+        Some(value) => {
+            *stroke = value;
+            1
+        }
+        None => 0,
+    }
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_send(
+    _context: Context,
+    _device: i32,
+    stroke: *const KeyStroke,
+    count: u32,
+) -> i32 {
+    if stroke.is_null() || count == 0 {
+        return 0;
+    }
+    let stroke = *stroke;
+    let mut input = Input {
+        kind: 1,
+        value: InputValue {
+            keyboard: KeyboardInput {
+                virtual_key: 0,
+                scan_code: stroke.code,
+                flags: 0x0008
+                    | if stroke.state & KEY_E0 != 0 {
+                        0x0001
+                    } else {
+                        0
+                    }
+                    | if stroke.state & KEY_UP != 0 {
+                        0x0002
+                    } else {
+                        0
+                    },
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    SendInput(1, &mut input, std::mem::size_of::<Input>() as i32) as i32
+}
+
+#[cfg(windows)]
+unsafe extern "C" fn quarbor_get_hardware_id(
+    context: Context,
+    _device: i32,
+    buffer: *mut u8,
+    length: u32,
+) -> u32 {
+    let context = &*context.cast::<QuarborContext>();
+    let Some(id) = context.device_id.as_deref() else {
+        return 0;
+    };
+    let encoded: Vec<u16> = id.encode_utf16().chain(Some(0)).collect();
+    let bytes = encoded.len() * 2;
+    if buffer.is_null() || length < bytes as u32 {
+        return bytes as u32;
+    }
+    std::ptr::copy_nonoverlapping(encoded.as_ptr().cast::<u8>(), buffer, bytes);
+    bytes as u32
+}
+
+#[cfg(windows)]
+fn quarbor_pipe_name(instance_id: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for unit in instance_id.to_ascii_uppercase().encode_utf16() {
+        for byte in unit.to_le_bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!(r"\\.\pipe\Quarbor.HidUserFilter.v1.{hash:016X}")
+}
+
+#[cfg(windows)]
+fn quarbor_parse_frames(context: &mut QuarborContext) {
+    const HEADER: usize = 48;
+    while context.bytes.len() >= HEADER {
+        if u32::from_le_bytes(context.bytes[0..4].try_into().unwrap()) != 0x31464851 {
+            context.bytes.remove(0);
+            continue;
+        }
+        let version = u16::from_le_bytes(context.bytes[4..6].try_into().unwrap());
+        let kind = u16::from_le_bytes(context.bytes[6..8].try_into().unwrap());
+        let header_bytes = u32::from_le_bytes(context.bytes[8..12].try_into().unwrap());
+        let payload = u32::from_le_bytes(context.bytes[12..16].try_into().unwrap()) as usize;
+        let frame = HEADER + payload;
+        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3)
+        {
+            context.bytes.drain(..4);
+            continue;
+        }
+        if context.bytes.len() < frame {
+            break;
+        }
+        let data = context.bytes[HEADER..frame].to_vec();
+        context.bytes.drain(..frame);
+        if kind == 1 {
+            if data.len() >= 2 && data.len() % 2 == 0 {
+                let units = data
+                    .chunks_exact(2)
+                    .map(|part| u16::from_le_bytes([part[0], part[1]]))
+                    .collect::<Vec<_>>();
+                if units.last() == Some(&0) {
+                    context.device_id = String::from_utf16(&units[..units.len() - 1]).ok();
                 }
-            };
-            let result = unsafe {
-                Ok(Self {
-                    create_context: load_symbol(&library, b"interception_create_context\0")?,
-                    destroy_context: load_symbol(&library, b"interception_destroy_context\0")?,
-                    set_filter: load_symbol(&library, b"interception_set_filter\0")?,
-                    wait_with_timeout: load_symbol(&library, b"interception_wait_with_timeout\0")?,
-                    receive: load_symbol(&library, b"interception_receive\0")?,
-                    send: load_symbol(&library, b"interception_send\0")?,
-                    get_hardware_id: load_symbol(&library, b"interception_get_hardware_id\0")?,
-                    _library: library,
-                })
-            };
-            return result.map_err(|error: String| format!("{}: {error}", path.display()));
+            }
+        } else if kind == 2 {
+            quarbor_decode_report(context, &data);
         }
-
-        let detail = if failures.is_empty() {
-            "interception.dll was not found".to_string()
-        } else {
-            failures.join("; ")
-        };
-        Err(detail)
     }
 }
 
-unsafe fn load_symbol<T: Copy>(library: &libloading::Library, name: &[u8]) -> Result<T, String> {
-    library
-        .get::<T>(name)
-        .map(|symbol| *symbol)
-        .map_err(|error| error.to_string())
-}
-
-fn interception_dll_candidates() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Ok(current) = std::env::current_dir() {
-        roots.push(current.clone());
-        if let Some(parent) = current.parent() {
-            roots.push(parent.to_path_buf());
+#[cfg(windows)]
+fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
+    let mut current = std::collections::HashSet::new();
+    for offset in 0..=1.min(payload.len()) {
+        if (payload.len() - offset) % 2 != 0 {
+            continue;
         }
-    }
-    if let Ok(executable) = std::env::current_exe() {
-        if let Some(parent) = executable.parent() {
-            roots.push(parent.to_path_buf());
-            if let Some(grandparent) = parent.parent() {
-                roots.push(grandparent.to_path_buf());
+        for pair in payload[offset..].chunks_exact(2) {
+            let usage = u16::from_le_bytes([pair[0], pair[1]]);
+            if known_rc003_usage(usage) {
+                current.insert(usage);
             }
         }
+        if !current.is_empty() {
+            break;
+        }
     }
-    roots.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."));
+    for usage in current.difference(&context.active_usages).copied() {
+        if let Some(stroke) = rc003_usage_stroke(usage, false) {
+            context.reports.push_back(stroke);
+        }
+    }
+    for usage in context.active_usages.difference(&current).copied() {
+        if let Some(stroke) = rc003_usage_stroke(usage, true) {
+            context.reports.push_back(stroke);
+        }
+    }
+    context.active_usages = current;
+}
 
-    let mut candidates = Vec::new();
-    for root in roots {
-        candidates.push(root.join("interception.dll"));
-        candidates.push(
-            root.join("vendor")
-                .join("interception")
-                .join("interception.dll"),
-        );
-        candidates.push(root.join("resources").join("interception.dll"));
-    }
-    candidates
+#[cfg(windows)]
+fn known_rc003_usage(usage: u16) -> bool {
+    matches!(
+        usage,
+        0x003E
+            | 0x00F1
+            | 0x0028
+            | 0x0035
+            | 0x004A
+            | 0x004F
+            | 0x0050
+            | 0x0051
+            | 0x0052
+            | 0x0065
+            | 0x0066
+            | 0x0080
+            | 0x0081
+    )
+}
+
+#[cfg(windows)]
+fn rc003_usage_stroke(usage: u16, key_up: bool) -> Option<KeyStroke> {
+    let (code, extended) = match usage {
+        0x003E => (0x3F, false),
+        0x00F1 => (0x6A, true),
+        0x0028 => (0x1C, false),
+        0x0035 => (0x29, false),
+        0x004A => (0x47, true),
+        0x004F => (0x4D, true),
+        0x0050 => (0x4B, true),
+        0x0051 => (0x50, true),
+        0x0052 => (0x48, true),
+        0x0065 => (0x5D, true),
+        0x0066 => (0x5E, true),
+        0x0080 => (0x30, true),
+        0x0081 => (0x2E, true),
+        _ => return None,
+    };
+    Some(KeyStroke {
+        code,
+        state: (u16::from(extended) * KEY_E0) | (u16::from(key_up) * KEY_UP),
+        information: 0,
+    })
 }
 
 #[cfg(not(test))]
@@ -169,8 +411,6 @@ struct Shared {
     status: Mutex<InputServiceStatus>,
     event_app: RwLock<Option<EventApp>>,
     stop: AtomicBool,
-    #[cfg(windows)]
-    extra_keys: Arc<super::windows_extra_keys::ExtraKeysService>,
 }
 
 pub struct InputService {
@@ -186,12 +426,10 @@ impl InputService {
             status: Mutex::new(InputServiceStatus::default()),
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
-            #[cfg(windows)]
-            extra_keys: Arc::default(),
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
-            .name("Axonkey Interception input".into())
+            .name("Axonkey Quarbor HID input".into())
             .spawn(move || worker_loop(worker_shared))
             .ok();
         if worker.is_none() {
@@ -206,10 +444,6 @@ impl InputService {
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
         validate_settings(&settings)?;
-        #[cfg(windows)]
-        if !settings.enabled {
-            self.shared.extra_keys.stop();
-        }
         let behavior_count = settings
             .behaviors
             .values()
@@ -230,37 +464,7 @@ impl InputService {
         Ok(())
     }
 
-    #[cfg(windows)]
-    pub fn extra_keys_status(&self) -> super::windows_extra_keys::ExtraKeysStatus {
-        self.shared.extra_keys.status()
-    }
-
-    #[cfg(windows)]
-    pub fn set_extra_keys_enabled(&self, enabled: bool, automatic: bool) -> Result<(), String> {
-        if enabled {
-            if !self
-                .shared
-                .settings
-                .read()
-                .map_err(|_| "设置不可用")?
-                .enabled
-            {
-                return Err("请先开启自定义按键功能，再授权这三个按键。".into());
-            }
-            if automatic {
-                self.shared.extra_keys.start_automatically()
-            } else {
-                self.shared.extra_keys.start()
-            }
-        } else {
-            self.shared.extra_keys.stop();
-            Ok(())
-        }
-    }
-
     pub fn shutdown(&self) {
-        #[cfg(windows)]
-        self.shared.extra_keys.stop();
         self.shared.stop.store(true, Ordering::Relaxed);
         if let Ok(mut worker) = self.worker.lock() {
             if let Some(worker) = worker.take() {
@@ -344,7 +548,7 @@ const SOURCE_KEYS: [SourceKey; 13] = [
     SourceKey::new("down", 0x50, None),
     SourceKey::new("left", 0x4b, None),
     SourceKey::new("right", 0x4d, None),
-    // Output equivalents only; these are never recognized from Interception input.
+    // Quarbor HID reports include these consumer usages directly.
     SourceKey::with_repeat(
         "back",
         0x6a,
@@ -370,7 +574,7 @@ const SOURCE_KEYS: [SourceKey; 13] = [
 
 fn source_for(stroke: KeyStroke) -> Option<SourceKey> {
     let extended = stroke.state & KEY_E0 != 0;
-    SOURCE_KEYS[..10].iter().copied().find(|source| {
+    SOURCE_KEYS.iter().copied().find(|source| {
         source.scan_code == stroke.code
             && source.extended.is_none_or(|expected| expected == extended)
     })
@@ -401,15 +605,15 @@ struct ButtonState {
 }
 
 fn worker_loop(shared: Arc<Shared>) {
-    let api = match InterceptionApi::load() {
+    let api = match InputApi::load() {
         Ok(api) => api,
         Err(error) => {
-            log::error!(target: "axonkey::input", "Failed to load Interception backend: {error}");
+            log::error!(target: "axonkey::input", "Failed to load Quarbor HID backend: {error}");
             shared.status.lock().unwrap().error = Some(error);
             return;
         }
     };
-    log::info!(target: "axonkey::input", "Interception backend loaded");
+    log::info!(target: "axonkey::input", "Quarbor HID backend loaded");
     {
         let mut status = shared.status.lock().unwrap();
         status.backend_ready = true;
@@ -424,10 +628,10 @@ fn worker_loop(shared: Arc<Shared>) {
 
         let context = unsafe { (api.create_context)() };
         if context.is_null() {
-            log::warn!(target: "axonkey::input", "Interception could not create an input context; retrying");
+            log::warn!(target: "axonkey::input", "Quarbor HID could not create an input context; retrying");
             let mut status = shared.status.lock().unwrap();
             status.backend_ready = false;
-            status.error = Some("Interception could not create an input context".into());
+            status.error = Some("Quarbor HID could not create an input context".into());
             drop(status);
             thread::sleep(DEVICE_POLL_INTERVAL);
             continue;
@@ -453,12 +657,10 @@ fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Inst
         let target_present = hardware_id.is_some();
         update_device_status(shared, hardware_id, last_target_seen_at, now);
 
-        let mapping_enabled = shared
-            .settings
-            .read()
-            .map(|settings| settings.enabled)
-            .unwrap_or(false);
-        if target_present && mapping_enabled {
+        // The Quarbor filter blocks the HID read even when mappings are
+        // disabled, so keep the pipe connected and forward original strokes
+        // in that mode as well.
+        if target_present {
             let first_stable = *stable_since.get_or_insert(now);
             if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
                 return true;
@@ -473,7 +675,7 @@ fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Inst
 }
 
 fn run_context(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     shared: &Shared,
     last_target_seen_at: &mut Option<Instant>,
@@ -481,19 +683,12 @@ fn run_context(
     let mut target_device = 0;
     let mut next_probe = Instant::now();
     let mut button_states: HashMap<&'static str, ButtonState> = HashMap::new();
-    #[cfg(windows)]
-    let mut extra_generation = shared.extra_keys.drain().0;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let mapping_enabled = shared
-                .settings
-                .read()
-                .map(|settings| settings.enabled)
-                .unwrap_or(false);
             let hardware_id = rc003_keyboard_device_id();
             update_device_status(shared, hardware_id.clone(), last_target_seen_at, now);
-            if !mapping_enabled || hardware_id.is_none() {
+            if hardware_id.is_none() {
                 break;
             }
             let next_target = probe_devices(
@@ -521,55 +716,10 @@ fn run_context(
             next_probe = now + Duration::from_secs(1);
         }
         if target_device != 0 {
-            #[cfg(windows)]
-            {
-                let (generation, events) = shared.extra_keys.drain();
-                if generation != extra_generation {
-                    release_extra_outputs(api, context, target_device, shared, &mut button_states);
-                    extra_generation = generation;
-                }
-                for (usage, pressed) in events {
-                    if usage == 0 {
-                        release_extra_outputs(
-                            api,
-                            context,
-                            target_device,
-                            shared,
-                            &mut button_states,
-                        );
-                    } else if let Some(index) = super::extra_keys_protocol::EXTRA_KEYS
-                        .iter()
-                        .position(|k| k.0 == usage)
-                    {
-                        let source = SOURCE_KEYS[10 + index];
-                        let stroke = KeyStroke {
-                            code: source.scan_code,
-                            state: KEY_E0 | if pressed { 0 } else { KEY_UP },
-                            information: 0,
-                        };
-                        process_source_stroke(
-                            api,
-                            context,
-                            target_device,
-                            shared,
-                            &mut button_states,
-                            stroke,
-                            source,
-                        );
-                    }
-                }
-            }
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
-        #[cfg(not(windows))]
         let wait_timeout_ms = WAIT_TIMEOUT_MS;
-        #[cfg(windows)]
-        let wait_timeout_ms = if shared.extra_keys.is_ready() {
-            EXTRA_KEYS_WAIT_TIMEOUT_MS
-        } else {
-            WAIT_TIMEOUT_MS
-        };
         let device = unsafe { (api.wait_with_timeout)(context, wait_timeout_ms) };
         if device <= 0 {
             continue;
@@ -591,7 +741,7 @@ fn run_context(
 }
 
 fn probe_devices(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     old_target: i32,
     last_target_seen_at: Option<Instant>,
@@ -600,6 +750,15 @@ fn probe_devices(
 ) -> i32 {
     let mut found = 0;
     let mut found_id = None;
+    #[cfg(not(test))]
+    if let Some(device_id) = rc003_keyboard_device_id() {
+        // Quarbor owns the per-device pipe rather than exposing native device
+        // handles. Keep the existing state machine's logical target
+        // slot while the backend connects to this exact instance ID.
+        found = 1;
+        found_id = Some(device_id);
+    }
+    #[cfg(test)]
     for device in 1..=MAX_KEYBOARD {
         let ids = hardware_ids(api, context, device);
         if is_target_hardware_id(&ids) {
@@ -705,17 +864,17 @@ fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
         })
 }
 
-fn set_device_filter(api: &InterceptionApi, context: Context, device: i32, filter: u16) {
+fn set_device_filter(api: &InputApi, context: Context, device: i32, filter: u16) {
     FILTER_TARGET.store(device, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, selected_device, filter) };
 }
 
-fn clear_keyboard_filters(api: &InterceptionApi, context: Context) {
+fn clear_keyboard_filters(api: &InputApi, context: Context) {
     FILTER_TARGET.store(0, Ordering::Relaxed);
     unsafe { (api.set_filter)(context, keyboard_device, FILTER_KEY_NONE) };
 }
 
-fn hardware_ids(api: &InterceptionApi, context: Context, device: i32) -> String {
+fn hardware_ids(api: &InputApi, context: Context, device: i32) -> String {
     let mut buffer = [0u8; 2048];
     let length =
         unsafe { (api.get_hardware_id)(context, device, buffer.as_mut_ptr(), buffer.len() as u32) }
@@ -738,7 +897,7 @@ fn is_target_hardware_id(value: &str) -> bool {
 }
 
 fn process_target_stroke(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -754,7 +913,7 @@ fn process_target_stroke(
 }
 
 fn process_source_stroke(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -799,22 +958,6 @@ fn process_source_stroke(
                 release_chord(api, context, device, &press.held_outputs);
             }
             state.pending_click = None;
-        }
-        // Raw extra keys have no Windows key-up fallback if the helper disconnects.
-        // Track their synthesized default down so shutdown can always release it.
-        if SOURCE_KEYS[10..].iter().any(|key| key.id == source.id) && settings.enabled && !key_up {
-            states.entry(source.id).or_default().pressed = Some(PressState {
-                click_repeat: None,
-                started_at: Instant::now(),
-                last_repeat_log: Instant::now(),
-                next_repeat_at: Instant::now() + Duration::from_millis(source.repeat_initial_ms),
-                repeat_interval_ms: source.repeat_interval_ms,
-                original: stroke,
-                long_fired: false,
-                long_repeat_due_at: None,
-                passthrough_long: true,
-                held_outputs: vec![],
-            });
         }
         send_stroke(api, context, device, stroke);
         return;
@@ -943,7 +1086,7 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
 }
 
 fn process_timers(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     shared: &Shared,
@@ -1009,9 +1152,8 @@ fn process_timers(
                 } else if now >= due_at {
                     log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
                     execute_behaviors(api, context, device, &triggers.long_press);
-                    press.long_repeat_due_at = Some(
-                        now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS),
-                    );
+                    press.long_repeat_due_at =
+                        Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS));
                 }
             }
             if !press.held_outputs.is_empty() && now >= press.next_repeat_at {
@@ -1091,7 +1233,7 @@ fn execute_repeatable_click(action: RepeatableClick) {
 }
 
 fn execute_click_or_original(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     behaviors: &[NativeBehavior],
@@ -1110,22 +1252,12 @@ fn execute_click_or_original(
     }
 }
 
-fn send_original_down(
-    api: &InterceptionApi,
-    context: Context,
-    device: i32,
-    mut original: KeyStroke,
-) {
+fn send_original_down(api: &InputApi, context: Context, device: i32, mut original: KeyStroke) {
     original.state &= !KEY_UP;
     send_stroke(api, context, device, original);
 }
 
-fn execute_behaviors(
-    api: &InterceptionApi,
-    context: Context,
-    device: i32,
-    behaviors: &[NativeBehavior],
-) {
+fn execute_behaviors(api: &InputApi, context: Context, device: i32, behaviors: &[NativeBehavior]) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         match behavior {
             NativeBehavior::Wheel { direction, .. } => {
@@ -1232,7 +1364,11 @@ fn virtual_key_input(key: u16) -> Input {
 
 /// Zero hold submits a complete tap in one batch; a configured hold separates
 /// down and up for applications that need time to recognize a pressed key.
-fn send_mouse_chord_with(keys: &[u16], hold_ms: u64, mut send: impl FnMut(&[Input]) -> usize) -> bool {
+fn send_mouse_chord_with(
+    keys: &[u16],
+    hold_ms: u64,
+    mut send: impl FnMut(&[Input]) -> usize,
+) -> bool {
     if keys.is_empty() {
         return true;
     }
@@ -1248,8 +1384,17 @@ fn send_mouse_chord_with(keys: &[u16], hold_ms: u64, mut send: impl FnMut(&[Inpu
         if pressed == downs.len() {
             thread::sleep(Duration::from_millis(hold_ms.min(1000)));
         }
-        let ups: Vec<Input> = downs[..pressed].iter().copied().rev().map(release).collect();
-        let released = if ups.is_empty() { 0 } else { send(&ups).min(ups.len()) };
+        let ups: Vec<Input> = downs[..pressed]
+            .iter()
+            .copied()
+            .rev()
+            .map(release)
+            .collect();
+        let released = if ups.is_empty() {
+            0
+        } else {
+            send(&ups).min(ups.len())
+        };
         if released < ups.len() {
             send(&ups[released..]);
         }
@@ -1327,12 +1472,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
     }
 }
 
-fn press_chord(
-    api: &InterceptionApi,
-    context: Context,
-    device: i32,
-    keys: &[u16],
-) -> Vec<KeyStroke> {
+fn press_chord(api: &InputApi, context: Context, device: i32, keys: &[u16]) -> Vec<KeyStroke> {
     let mut pressed = Vec::new();
     log::info!(target: "axonkey::input", "Mapped chord press: device={device}, virtual_keys={keys:X?}");
     for key in keys {
@@ -1347,7 +1487,7 @@ fn press_chord(
     pressed
 }
 
-fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: &[KeyStroke]) {
+fn release_chord(api: &InputApi, context: Context, device: i32, pressed: &[KeyStroke]) {
     if !pressed.is_empty() {
         log::info!(target: "axonkey::input", "Mapped chord release: device={device}, keys={}", pressed.len());
     }
@@ -1357,7 +1497,7 @@ fn release_chord(api: &InterceptionApi, context: Context, device: i32, pressed: 
     }
 }
 
-fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16]) {
+fn tap_chord(api: &InputApi, context: Context, device: i32, keys: &[u16]) {
     let pressed = press_chord(api, context, device, keys);
     if !pressed.is_empty() {
         log::info!(target: "axonkey::input", "Mapped tap: device={device}, hold_ms={}", OUTPUT_TAP_DURATION.as_millis());
@@ -1367,7 +1507,7 @@ fn tap_chord(api: &InterceptionApi, context: Context, device: i32, keys: &[u16])
 }
 
 fn release_all_held_outputs(
-    api: &InterceptionApi,
+    api: &InputApi,
     context: Context,
     device: i32,
     states: &mut HashMap<&'static str, ButtonState>,
@@ -1395,25 +1535,7 @@ fn release_all_held_outputs(
 #[cfg(test)]
 fn emit_remote_key_event(_shared: &Shared, _button: &'static str, _pressed: bool) {}
 
-#[cfg(windows)]
-fn release_extra_outputs(
-    api: &InterceptionApi,
-    context: Context,
-    device: i32,
-    shared: &Shared,
-    states: &mut HashMap<&'static str, ButtonState>,
-) {
-    let mut extra = HashMap::new();
-    for source in &SOURCE_KEYS[10..] {
-        if let Some(state) = states.remove(source.id) {
-            emit_remote_key_event(shared, source.id, false);
-            extra.insert(source.id, state);
-        }
-    }
-    release_all_held_outputs(api, context, device, &mut extra);
-}
-
-fn send_stroke(api: &InterceptionApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
+fn send_stroke(api: &InputApi, context: Context, device: i32, stroke: KeyStroke) -> bool {
     let sent = unsafe { (api.send)(context, device, &stroke, 1) };
     let is_up = stroke.state & KEY_UP != 0;
     static OUTPUT_LOGS: OnceLock<Mutex<HashMap<(i32, u16, u16), Instant>>> = OnceLock::new();
@@ -1832,18 +1954,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn accepts_case_only_changes_in_quarbor_hello_device_id() {
+        let setup_api = "HID\\{00001812}_DEV_VID&012717_PID&32B8";
+        let hello = "HID\\{00001812}_Dev_VID&012717_PID&32b8";
+        assert!(setup_api.eq_ignore_ascii_case(hello));
+    }
+
+    #[test]
+    fn decodes_report_id_before_rc003_usage() {
+        let mut context = QuarborContext::default();
+        quarbor_decode_report(&mut context, &[1, 0, 0, 0x28, 0, 0, 0, 0, 0]);
+        let stroke = context.reports.pop_front().expect("usage report");
+        assert_eq!(stroke.code, 0x1c);
+        assert_eq!(stroke.state, 0);
+        assert!(context.active_usages.contains(&0x28));
+    }
+
+    #[test]
+    fn decodes_special_usages_into_regular_sources() {
+        for (usage, scan_code) in [(0x00f1, 0x6a), (0x0080, 0x30), (0x0081, 0x2e)] {
+            let mut context = QuarborContext::default();
+            quarbor_decode_report(&mut context, &[1, 0, usage as u8, (usage >> 8) as u8]);
+            let stroke = context.reports.pop_front().expect("special usage report");
+            assert_eq!(stroke.code, scan_code);
+            assert!(source_for(stroke).is_some());
+        }
+    }
+
+    #[test]
     fn mouse_shortcut_burst_has_no_per_event_hold_delay() {
         MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
         let started = Instant::now();
         for index in 0..40 {
-            execute_mouse_behavior(&NativeBehavior::Shortcut {
-                enabled: true,
-                keys: if index % 2 == 0 {
-                    vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
-                } else {
-                    vec!["Ctrl".into(), "Tab".into()]
+            execute_mouse_behavior(
+                &NativeBehavior::Shortcut {
+                    enabled: true,
+                    keys: if index % 2 == 0 {
+                        vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
+                    } else {
+                        vec!["Ctrl".into(), "Tab".into()]
+                    },
                 },
-            }, 0);
+                0,
+            );
         }
         let elapsed = started.elapsed();
         println!("40 alternating mouse shortcut outputs (mock injection): {elapsed:?}");
@@ -1882,9 +2035,15 @@ mod tests {
         let started = Instant::now();
         let mut batches = Vec::new();
         assert!(send_mouse_chord_with(&[0x11, 0x09], 20, |inputs| {
-            batches.push((started.elapsed(), inputs.iter().map(|input| unsafe {
-                (input.value.keyboard.virtual_key, input.value.keyboard.flags)
-            }).collect::<Vec<_>>()));
+            batches.push((
+                started.elapsed(),
+                inputs
+                    .iter()
+                    .map(|input| unsafe {
+                        (input.value.keyboard.virtual_key, input.value.keyboard.flags)
+                    })
+                    .collect::<Vec<_>>(),
+            ));
             inputs.len()
         }));
         assert_eq!(batches.len(), 2);
@@ -1902,11 +2061,16 @@ mod tests {
                 calls += 1;
                 let sent = if (partial_release && calls == 2) || (!partial_release && calls == 1) {
                     1
-                } else { inputs.len() };
+                } else {
+                    inputs.len()
+                };
                 for input in &inputs[..sent] {
                     let key = unsafe { input.value.keyboard };
-                    if key.flags & 2 == 0 { held.push(key.virtual_key); }
-                    else { assert_eq!(held.pop(), Some(key.virtual_key)); }
+                    if key.flags & 2 == 0 {
+                        held.push(key.virtual_key);
+                    } else {
+                        assert_eq!(held.pop(), Some(key.virtual_key));
+                    }
                 }
                 sent
             }));
@@ -2003,461 +2167,6 @@ mod tests {
             0,
         );
         MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), vec![(-20, 0)]));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn extra_keys_use_gestures_and_release_outputs_without_firing_pending_clicks() {
-        static SENT: Mutex<Vec<KeyStroke>> = Mutex::new(Vec::new());
-        static SENT_AT: Mutex<Vec<Instant>> = Mutex::new(Vec::new());
-        unsafe extern "C" fn create() -> Context {
-            std::ptr::null_mut()
-        }
-        unsafe extern "C" fn destroy(_: Context) {}
-        unsafe extern "C" fn filter(_: Context, _: DevicePredicate, _: u16) {}
-        unsafe extern "C" fn wait(_: Context, _: u32) -> i32 {
-            0
-        }
-        unsafe extern "C" fn receive(_: Context, _: i32, _: *mut KeyStroke, _: u32) -> i32 {
-            0
-        }
-        unsafe extern "C" fn send(_: Context, _: i32, stroke: *const KeyStroke, _: u32) -> i32 {
-            SENT.lock().unwrap().push(*stroke);
-            SENT_AT.lock().unwrap().push(Instant::now());
-            1
-        }
-        unsafe extern "C" fn hardware(_: Context, _: i32, _: *mut u8, _: u32) -> u32 {
-            0
-        }
-        // No input APIs are called: only output conversion and recording send stubs.
-        let api = InterceptionApi {
-            _library: unsafe { libloading::Library::new("kernel32.dll").unwrap() },
-            create_context: create,
-            destroy_context: destroy,
-            set_filter: filter,
-            wait_with_timeout: wait,
-            receive,
-            send,
-            get_hardware_id: hardware,
-        };
-        let shared = Shared {
-            settings: RwLock::new(NativeSettings {
-                enabled: true,
-                ..Default::default()
-            }),
-            status: Mutex::default(),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-            extra_keys: Arc::default(),
-        };
-        let source = SOURCE_KEYS[10];
-        let down = KeyStroke {
-            code: source.scan_code,
-            state: KEY_E0,
-            information: 0,
-        };
-        let up = KeyStroke {
-            state: KEY_E0 | KEY_UP,
-            ..down
-        };
-        assert!(
-            source_for(down).is_none(),
-            "extra key output codes must not become a second input source"
-        );
-        let mut states = HashMap::new();
-        let ctx = std::ptr::null_mut();
-        // Wheel holds emit immediately, repeat only from the timer, and never
-        // leak the original arrow down/up or emit an extra wheel on release.
-        for (button, direction, delta) in [("up", "up", 120), ("down", "down", -120)] {
-            let source = *SOURCE_KEYS
-                .iter()
-                .find(|source| source.id == button)
-                .unwrap();
-            *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
-                "enabled": true, "behaviors": { (button): {
-                    "click": [{"type":"wheel", "direction":direction}]
-                }}
-            }))
-            .unwrap();
-            assert!(validate_settings(&shared.settings.read().unwrap()).is_ok());
-            SENT.lock().unwrap().clear();
-            states.clear();
-            WHEEL_EVENTS.with(|events| events.borrow_mut().clear());
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), vec![delta]));
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 1));
-            let start = states[button].pressed.as_ref().unwrap().started_at;
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                start + Duration::from_millis(700),
-            );
-            WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), vec![delta, delta]));
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                start + Duration::from_secs(2),
-            );
-            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 2));
-            assert!(
-                SENT.lock().unwrap().is_empty(),
-                "wheel must not leak keyboard input"
-            );
-
-            // Disabling mappings cancels a held wheel even without a release report.
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            shared.settings.write().unwrap().enabled = false;
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                start + Duration::from_secs(3),
-            );
-            assert!(states.is_empty());
-            WHEEL_EVENTS.with(|events| assert_eq!(events.borrow().len(), 3));
-        }
-        shared.settings.write().unwrap().enabled = true;
-        for (button, direction, delta) in [("up", "up", (0, -50)), ("left", "left", (-50, 0))] {
-            let source = *SOURCE_KEYS
-                .iter()
-                .find(|source| source.id == button)
-                .unwrap();
-            *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
-                "enabled": true, "behaviors": { (button): {
-                    "click": [{"type":"cursorMove", "direction":direction}]
-                }}
-            }))
-            .unwrap();
-            SENT.lock().unwrap().clear();
-            states.clear();
-            MOUSE_MOVES.with(|events| events.borrow_mut().clear());
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), vec![delta]));
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            MOUSE_MOVES.with(|events| assert_eq!(events.borrow().len(), 1));
-            let start = states[button].pressed.as_ref().unwrap().started_at;
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                start + Duration::from_millis(700),
-            );
-            MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), vec![delta, delta]));
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                start + Duration::from_secs(2),
-            );
-            MOUSE_MOVES.with(|events| assert_eq!(events.borrow().len(), 2));
-            assert!(
-                SENT.lock().unwrap().is_empty(),
-                "cursor move must not leak keyboard input"
-            );
-        }
-        shared.settings.write().unwrap().enabled = true;
-        // Single-click key mappings repeat from the timer even when the input
-        // source only reports press/release edges (as the extra-key helper does).
-        for source in &SOURCE_KEYS[10..] {
-            *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
-                "enabled": true,
-                "behaviors": { (source.id): {
-                    "click": [{"type":"key", "key":"Space"}]
-                }}
-            }))
-            .unwrap();
-            SENT.lock().unwrap().clear();
-            states.clear();
-            let down = KeyStroke {
-                code: source.scan_code,
-                state: KEY_E0,
-                information: 0,
-            };
-            let up = KeyStroke {
-                state: KEY_E0 | KEY_UP,
-                ..down
-            };
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
-            let first_repeat_at = states[source.id]
-                .pressed
-                .as_ref()
-                .unwrap()
-                .next_repeat_at;
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                first_repeat_at,
-            );
-            assert_eq!(SENT.lock().unwrap().len(), 2, "{} should repeat", source.id);
-            let second_repeat_at = states[source.id]
-                .pressed
-                .as_ref()
-                .unwrap()
-                .next_repeat_at;
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                second_repeat_at,
-            );
-            assert_eq!(SENT.lock().unwrap().len(), 3, "{} should keep repeating", source.id);
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
-            process_timers(
-                &api,
-                ctx,
-                5,
-                &shared,
-                &mut states,
-                second_repeat_at + Duration::from_secs(2),
-            );
-            assert_eq!(SENT.lock().unwrap().len(), 4, "{} should stop on release", source.id);
-        }
-        // Single-click-only mappings must send key-down before a release or
-        // timer tick, including when other gesture rows exist but are disabled.
-        for source in &SOURCE_KEYS[10..] {
-            for shortcut in [false, true] {
-                let click = if shortcut {
-                    serde_json::json!({"type":"shortcut", "keys":["Ctrl", "C"]})
-                } else {
-                    serde_json::json!({"type":"key", "key":"Enter"})
-                };
-                *shared.settings.write().unwrap() = serde_json::from_value(serde_json::json!({
-                    "enabled": true, "behaviors": { (source.id): {
-                        "click": [click],
-                        "doubleClick": [{"type":"key", "key":"F2", "enabled":false}],
-                        "longPress": [{"type":"key", "key":"F3", "enabled":false}]
-                    }}
-                }))
-                .unwrap();
-                SENT.lock().unwrap().clear();
-                states.clear();
-                let down = KeyStroke {
-                    code: source.scan_code,
-                    state: KEY_E0,
-                    information: 0,
-                };
-                process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
-                let expected = if shortcut { 2 } else { 1 };
-                assert_eq!(
-                    SENT.lock().unwrap().len(),
-                    expected,
-                    "{} must execute on down",
-                    source.id
-                );
-                assert!(SENT
-                    .lock()
-                    .unwrap()
-                    .iter()
-                    .all(|key| key.state & KEY_UP == 0));
-                assert!(states[source.id].pending_click.is_none());
-                process_source_stroke(
-                    &api,
-                    ctx,
-                    5,
-                    &shared,
-                    &mut states,
-                    KeyStroke {
-                        state: KEY_E0 | KEY_UP,
-                        ..down
-                    },
-                    *source,
-                );
-                assert_eq!(SENT.lock().unwrap().len(), expected * 2);
-            }
-        }
-        states.clear();
-        SENT.lock().unwrap().clear();
-        // A held replacement modifier is always released on disconnect.
-        shared.settings.write().unwrap().behaviors.insert(
-            "back".into(),
-            TriggerBehaviors {
-                click: vec![NativeBehavior::Key {
-                    enabled: true,
-                    key: "RAlt".into(),
-                }],
-                ..Default::default()
-            },
-        );
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-        assert_eq!(SENT.lock().unwrap().len(), 1);
-        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
-        assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
-
-        assert!(states.is_empty());
-        SENT.lock().unwrap().clear();
-        // A pending click is cancelled on disconnect; it must not become a user action.
-        shared.settings.write().unwrap().behaviors.insert(
-            "back".into(),
-            TriggerBehaviors {
-                double_click: vec![NativeBehavior::Key {
-                    enabled: true,
-                    key: "F2".into(),
-                }],
-                ..Default::default()
-            },
-        );
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-        assert!(states["back"].pending_click.is_some());
-        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
-        assert!(SENT.lock().unwrap().is_empty());
-        // Two taps fire the configured double click exactly once.
-        for _ in 0..2 {
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-            process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-        }
-        assert_eq!(SENT.lock().unwrap().len(), 2);
-        SENT.lock().unwrap().clear();
-        states.clear();
-        // Long press is driven by timers even when HID sends no repeat reports,
-        // then repeats after a short pause until the key is released.
-        shared.settings.write().unwrap().behaviors.insert(
-            "back".into(),
-            TriggerBehaviors {
-                long_press: vec![NativeBehavior::Key {
-                    enabled: true,
-                    key: "F3".into(),
-                }],
-                ..Default::default()
-            },
-        );
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-        states
-            .get_mut("back")
-            .unwrap()
-            .pressed
-            .as_mut()
-            .unwrap()
-            .started_at -= Duration::from_millis(650);
-        let first_long_press_at = Instant::now();
-        process_timers(
-            &api,
-            ctx,
-            5,
-            &shared,
-            &mut states,
-            first_long_press_at,
-        );
-        let first_repeat_due_at = states["back"]
-            .pressed
-            .as_ref()
-            .unwrap()
-            .long_repeat_due_at
-            .unwrap();
-        process_timers(
-            &api,
-            ctx,
-            5,
-            &shared,
-            &mut states,
-            first_repeat_due_at - Duration::from_millis(1),
-        );
-        process_timers(
-            &api,
-            ctx,
-            5,
-            &shared,
-            &mut states,
-            first_repeat_due_at,
-        );
-        process_timers(
-            &api,
-            ctx,
-            5,
-            &shared,
-            &mut states,
-            first_repeat_due_at + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS),
-        );
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, source);
-        assert_eq!(SENT.lock().unwrap().len(), 6);
-        SENT.lock().unwrap().clear();
-        states.clear();
-        // Default synthesized inputs are released too.
-        shared.settings.write().unwrap().behaviors.clear();
-        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, source);
-        release_extra_outputs(&api, ctx, 5, &shared, &mut states);
-        assert_eq!(SENT.lock().unwrap().len(), 2);
-        assert_eq!(SENT.lock().unwrap().last().unwrap().state & KEY_UP, KEY_UP);
-        // Reproduce the user's mappings through JSON and the real gesture
-        // handlers for all three extra keys. A frame-polled consumer must have
-        // an opportunity to observe Esc down, not just two adjacent events.
-        for source in &SOURCE_KEYS[10..] {
-            let settings = serde_json::json!({
-                "enabled": true,
-                "behaviors": { (source.id): {
-                    "click": [{"type":"key", "key":"Space"}],
-                    "doubleClick": [{"type":"key", "key":"Esc"}],
-                    "longPress": [{"type":"key", "key":"Esc"}]
-                }}
-            });
-            *shared.settings.write().unwrap() = serde_json::from_value(settings).unwrap();
-            for long_press in [false, true] {
-                states.clear();
-                SENT.lock().unwrap().clear();
-                SENT_AT.lock().unwrap().clear();
-                let down = KeyStroke {
-                    code: source.scan_code,
-                    state: KEY_E0,
-                    information: 0,
-                };
-                let up = KeyStroke {
-                    state: KEY_E0 | KEY_UP,
-                    ..down
-                };
-                if long_press {
-                    process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
-                    states
-                        .get_mut(source.id)
-                        .unwrap()
-                        .pressed
-                        .as_mut()
-                        .unwrap()
-                        .started_at -= Duration::from_millis(650);
-                    process_timers(&api, ctx, 5, &shared, &mut states, Instant::now());
-                    process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
-                } else {
-                    for _ in 0..2 {
-                        process_source_stroke(&api, ctx, 5, &shared, &mut states, down, *source);
-                        process_source_stroke(&api, ctx, 5, &shared, &mut states, up, *source);
-                    }
-                }
-                let sent = SENT.lock().unwrap();
-                assert_eq!(
-                    sent.len(),
-                    2,
-                    "one Esc tap, without a Space click or duplicate"
-                );
-                assert_eq!(sent[0].code, 1);
-                assert_eq!(sent[0].state, 0);
-                assert_eq!(sent[1].state, KEY_UP);
-                let at = SENT_AT.lock().unwrap();
-                assert!(
-                    at[1].duration_since(at[0]) >= Duration::from_millis(16),
-                    "{} long_press={long_press}: Esc down/up collapse within one polling frame",
-                    source.id
-                );
-            }
-        }
     }
 
     #[test]

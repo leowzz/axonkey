@@ -14,7 +14,6 @@ type Props = {
   enabled: boolean
   saveState: 'saved' | 'saving' | 'error'
   pressedId: ButtonId | null
-  extraKeysNotice?: string
   selection: { buttonId: ButtonId; trigger: TriggerType }
   onSelect: (id: ButtonId, trigger: TriggerType) => void
   onEdit: (id: ButtonId, trigger: TriggerType) => void
@@ -22,7 +21,7 @@ type Props = {
 
 type Wire = { id: ButtonId; path: string }
 
-export function MappingOverview({ buttons, behaviors, positions, platform, enabled, saveState, pressedId, extraKeysNotice, selection, onSelect, onEdit }: Props) {
+export function MappingOverview({ buttons, behaviors, positions, platform, enabled, saveState, pressedId, selection, onSelect, onEdit }: Props) {
   const { buttonId: selectedId, trigger } = selection
   const [hoveredId, setHoveredId] = useState<ButtonId | null>(null)
   const [wires, setWires] = useState<Wire[]>([])
@@ -31,7 +30,6 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   const cardRefs = useRef<Partial<Record<ButtonId, HTMLDivElement>>>({})
   const highlightedId = pressedId ?? hoveredId ?? selectedId
   const triggerCount = buttons.filter((button) => behaviors[button.id][trigger].length > 0).length
-  const noticeFor = (id: ButtonId) => ['back', 'volumeUp', 'volumeDown'].includes(id) ? extraKeysNotice : undefined
 
   // Use the editor artwork and calibrated percentage positions; resize keeps wires attached.
   useLayoutEffect(() => {
@@ -82,7 +80,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
               <BehaviorSummaryPopover openDelay={500} label={button.label} platform={platform} groups={list.length > 1 ? [{ label: triggerLabels[trigger], behaviors: list }] : []}>
               <button type="button" className="overview-key-select" aria-pressed={selectedId === button.id} onClick={() => onSelect(button.id, trigger)}>
               <span className="overview-key-icon">{iconFor(button.icon, 18)}</span>
-              <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong>{summary}</strong>{noticeFor(button.id) && <small className="overview-key-notice">{noticeFor(button.id)}</small>}</span>
+              <span className="overview-key-copy"><span className="overview-key-name">{button.label}</span><strong>{summary}</strong></span>
               </button>
               </BehaviorSummaryPopover>
               <span className="overview-key-actions"><small>{paused ? '动作已停用' : list.length ? `${list.length} 个动作` : trigger === 'click' ? '默认' : '未设置'}</small><button type="button" className="overview-key-edit" aria-label={`编辑${button.label}${triggerLabels[trigger]}映射`} onClick={() => { onSelect(button.id, trigger); onEdit(button.id, trigger) }}>编辑 <ArrowUpRight size={12} /></button></span>

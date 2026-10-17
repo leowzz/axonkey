@@ -1,6 +1,6 @@
 use super::{
-    cursor_delta, repeatable_click, InputServiceStatus, MouseButton, NativeBehavior, NativeSettings,
-    RepeatableClick, TriggerBehaviors, WheelDirection,
+    cursor_delta, repeatable_click, InputServiceStatus, MouseButton, NativeBehavior,
+    NativeSettings, RepeatableClick, TriggerBehaviors, WheelDirection,
 };
 use serde::Serialize;
 use std::{
@@ -1355,13 +1355,11 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
         "ALT" | "LALT" | "OPTION" | "LOPTION" => {
             Some(MacKey::modifier(58, FLAG_OPTION | FLAG_DEVICE_LEFT_OPTION))
         }
-        "RALT" | "ROPTION" => Some(MacKey::modifier(
-            61,
-            FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION,
+        "RALT" | "ROPTION" => Some(MacKey::modifier(61, FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION)),
+        "WIN" | "LWIN" | "CMD" | "COMMAND" => Some(MacKey::modifier(
+            55,
+            FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND,
         )),
-        "WIN" | "LWIN" | "CMD" | "COMMAND" => {
-            Some(MacKey::modifier(55, FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND))
-        }
         "RWIN" | "RCMD" | "RCOMMAND" => Some(MacKey::modifier(
             54,
             FLAG_COMMAND | FLAG_DEVICE_RIGHT_COMMAND,
@@ -1526,7 +1524,10 @@ mod tests {
         let mut triggers = settings.behaviors["up"].clone();
         assert_eq!(continuous_click_wheel(&triggers), None);
         triggers.click.pop();
-        assert_eq!(continuous_click_wheel(&triggers), Some(WheelDirection::Left));
+        assert_eq!(
+            continuous_click_wheel(&triggers),
+            Some(WheelDirection::Left)
+        );
         let wheel = triggers.click[0].clone();
         triggers.double_click.push(wheel.clone());
         assert_eq!(continuous_click_wheel(&triggers), None);

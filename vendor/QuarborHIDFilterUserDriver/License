@@ -1,0 +1,104 @@
+Free Use / No Resale License
+免费使用 / 禁止转售许可证
+
+Copyright (c) 2026 通化奇桦科技有限公司 Quarbor Logic Technologies Inc.
+All rights reserved.
+
+当前目录下即本驱动程序、驱动源代码、驱动二进制文件、驱动文档及其相关材料（以下统称“本软件”）的版权及相关知识产权归 通化奇桦科技有限公司 所有。
+
+在遵守本许可证全部条款的前提下，版权持有人授予任何个人或组织一项免费、非独占、不可转让、不可再许可的有限许可，以使用本软件。
+
+1. Permitted Use
+
+You may:
+
+* Download, install, and use the Software free of charge;
+* Use the Software for personal purposes;
+* Use the Software internally within a company, school, research institution, or other organization;
+* Make copies of the Software for backup, testing, development, research, or compatibility purposes;
+* Share the original, unmodified version of the Software with other users free of charge, provided that this License and all original copyright notices are retained.
+
+Unless expressly authorized in writing by the copyright holder, the permissions granted above do not constitute any commercial license, sales authorization, or sublicensing right.
+
+2. Prohibited Use
+
+Without the prior written authorization of the copyright holder, you may not:
+
+* Sell, resell, rent, or lease the Software;
+* Charge any license fee, download fee, usage fee, or any other fee for the Software in any form;
+* Sell the Software as a standalone product;
+* Repackage, rename, rebrand, or distribute the Software under your own name for sale or for a fee;
+* Grant paid licenses, commercial sublicenses, or paid distribution rights to any third party;
+* Bundle the Software with another product, hardware, or software where the Software itself is treated as a paid component, principal selling point, or commercially licensed component;
+* Remove, conceal, or modify any copyright notice, author information, company name, or license notice contained in the Software;
+* Claim that the Software was independently developed by you or claim ownership of the copyright in the Software;
+* Use the source code or any substantial portion of the Software to create a product whose primary purpose is to replace, reproduce, or commercially sell the Software;
+* Directly sell the Software, or otherwise obtain fees or revenue through disguised resale, distribution, or licensing of the Software itself.
+
+3. Use in Commercial Products
+
+Individuals, companies, and other organizations may use the Software free of charge for their internal business operations.
+
+However, if you intend to:
+
+* Pre-install the Software on hardware products that are sold for a fee;
+* Distribute the Software as part of a commercial software product;
+* Include the Software in a paid service, SDK, driver package, installer, or commercial solution;
+* Generate direct commercial revenue from the Software itself;
+
+you must obtain prior written commercial authorization from the copyright holder.
+
+The mere use of the Software in conducting business operations, operating equipment, or providing internal services does not constitute a violation of this License.
+
+4. Modifications
+
+Without prior written authorization from the copyright holder, you may not modify, adapt, decompile, disassemble, create derivative versions of, or redistribute modified versions of the Driver, except where expressly permitted by applicable law.
+
+5. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS".
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER MAKES NO EXPRESS OR IMPLIED WARRANTIES REGARDING THE SOFTWARE, INCLUDING, BUT NOT LIMITED TO, WARRANTIES OF:
+
+* MERCHANTABILITY;
+* FITNESS FOR A PARTICULAR PURPOSE;
+* ERROR-FREE OPERATION;
+* UNINTERRUPTED OPERATION;
+* DATA SECURITY;
+* COMPATIBILITY WITH ANY PARTICULAR HARDWARE, OPERATING SYSTEM, OR SOFTWARE;
+* NON-INFRINGEMENT OF THIRD-PARTY RIGHTS.
+
+USE OF THE SOFTWARE IS ENTIRELY AT THE USER'S OWN RISK.
+
+6. Limitation of Liability
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, THE COPYRIGHT HOLDER SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, PUNITIVE, OR CONSEQUENTIAL DAMAGES ARISING OUT OF OR RELATED TO THE USE OF, OR INABILITY TO USE, THE SOFTWARE, INCLUDING, BUT NOT LIMITED TO:
+
+* LOSS OF DATA;
+* DAMAGE TO EQUIPMENT;
+* SYSTEM FAILURE;
+* BUSINESS INTERRUPTION;
+* LOSS OF PROFITS;
+* LOSS OF REVENUE;
+* THIRD-PARTY CLAIMS.
+
+7. Termination
+
+If you violate any provision of this License, all rights granted to you under this License shall automatically terminate.
+
+Upon termination, you must cease all unauthorized use, copying, distribution, sale, or sublicensing of the Software.
+
+The copyright holder reserves the right to pursue all remedies available under applicable law for any infringement or violation.
+
+8. Commercial Licensing
+
+For any of the following uses, please contact the copyright holder to obtain separate written commercial authorization:
+
+* Commercial distribution;
+* Paid distribution;
+* OEM pre-installation;
+* Hardware bundling;
+* Commercial software integration;
+* SDK integration;
+* Commercial sublicensing;
+* Any other commercial use not expressly permitted under this License.
