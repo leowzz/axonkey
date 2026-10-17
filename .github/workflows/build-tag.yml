@@ -95,6 +95,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build standalone uninstall-old-driver helper
+        run: npm run build:uninstall-old-driver
+
       - name: Build NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

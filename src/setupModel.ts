@@ -45,7 +45,6 @@ export type LegacyCleanupActionState = {
   finishedAt?: number
   error?: string
   logPath?: string
-  rebootRequired?: boolean
 }
 
 export const skippableSetupStepIds = [
@@ -353,7 +352,6 @@ function normalizeLegacyCleanup(value: unknown, fallback: LegacyCleanupState): L
       finishedAt: cleanTime(rawAction.finishedAt),
       error: cleanText(rawAction.error),
       logPath: cleanText(rawAction.logPath),
-      rebootRequired: rawAction.rebootRequired === true,
     },
     checkedAt: cleanTime(value.checkedAt),
     message: cleanText(value.message),
@@ -555,7 +553,7 @@ export function beginLegacyCleanup(state: SetupState, now = Date.now()): SetupSt
 
 export function finishLegacyCleanup(
   state: SetupState,
-  result: { success: boolean; error?: string; logPath?: string; rebootRequired?: boolean },
+  result: { success: boolean; error?: string; logPath?: string },
   now = Date.now(),
 ): SetupState {
   const next = cloneState(state)
@@ -565,7 +563,6 @@ export function finishLegacyCleanup(
     finishedAt: now,
     error: result.error,
     logPath: result.logPath,
-    rebootRequired: result.rebootRequired,
   }
   next.updatedAt = now
   return next

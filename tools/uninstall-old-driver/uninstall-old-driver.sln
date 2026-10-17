@@ -1,0 +1,21 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 18
+VisualStudioVersion = 18.0.12210.168
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "uninstall-old-driver", "uninstall-old-driver.vcxproj", "{BE4B5C2D-8EAA-4C95-8C1C-0F6DD0E7A742}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BE4B5C2D-8EAA-4C95-8C1C-0F6DD0E7A742}.Debug|x64.ActiveCfg = Debug|x64
+		{BE4B5C2D-8EAA-4C95-8C1C-0F6DD0E7A742}.Debug|x64.Build.0 = Debug|x64
+		{BE4B5C2D-8EAA-4C95-8C1C-0F6DD0E7A742}.Release|x64.ActiveCfg = Release|x64
+		{BE4B5C2D-8EAA-4C95-8C1C-0F6DD0E7A742}.Release|x64.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

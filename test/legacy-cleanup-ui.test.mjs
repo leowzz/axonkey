@@ -63,3 +63,28 @@ test('repair service alone shows migration, supports recheck, and blocks cleanup
     act(() => view?.unmount())
   }
 })
+
+test('completed cleanup can be run again without a reboot lock', () => {
+  let state = setupModel.setLegacyCleanupProbe(
+    setupModel.skipSetup(setupModel.createDefaultSetupState()),
+    { frida: false, interception: false, interceptionFix: true, namedPipeServer: false },
+  )
+  state = setupModel.finishLegacyCleanup(state, { success: true, logPath: 'cleanup.log' })
+  const props = {
+    platform: 'windows', macPermissions: {}, state, onProbeLegacyCleanup: () => {}, onCleanupLegacy: () => {},
+  }
+  let view
+  const render = () => act(() => {
+    const element = React.createElement(SetupDialog, props)
+    if (view) view.update(element)
+    else view = Renderer.create(element)
+  })
+  try {
+    render()
+    const button = view.root.findAllByType('button').find(node => text(node).includes('一键卸载旧组件'))
+    assert.equal(button.props.disabled, false)
+    assert.doesNotMatch(text(view.toJSON()), /重启前不会再次执行卸载/)
+  } finally {
+    act(() => view?.unmount())
+  }
+})

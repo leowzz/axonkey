@@ -129,7 +129,7 @@ mod tests {
         assert!(state
             .check(true, || Ok(LegacyComponents {
                 interception: false,
-                interception_fix: false
+                interception_fix: false,
             }))
             .is_ok());
     }

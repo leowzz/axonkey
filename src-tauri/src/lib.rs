@@ -510,7 +510,11 @@ fn run_driver_action(
         });
     let mut command = if driver == "legacy" {
         let mut command = std::process::Command::new(&helper);
-        command.arg("--confirmed").arg("--log-path").arg(&log_path);
+        command
+            .arg("--confirmed")
+            .arg("--headless")
+            .arg("--log-path")
+            .arg(&log_path);
         command
     } else {
         let mut command = std::process::Command::new("powershell.exe");
@@ -587,7 +591,7 @@ fn run_driver_action(
 
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
-        reboot_required: true,
+        reboot_required: driver != "legacy",
     })
 }
 

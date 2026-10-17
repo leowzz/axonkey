@@ -1,4 +1,4 @@
-.PHONY: dev kill clean version-check build build-macos build-macos-audio build-uninstall-old-driver test-release release uninstall-driver
+.PHONY: dev kill clean version-check build build-macos build-macos-audio build-uninstall-old-driver check-uninstall-old-driver-git test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -33,8 +33,10 @@ build-macos-audio:
 	./scripts/build-macos-audio-package.sh
 
 build-uninstall-old-driver:
-	cargo build --release --manifest-path tools/uninstall-old-driver/Cargo.toml
-	cp tools/uninstall-old-driver/target/release/uninstall-old-driver.exe scripts/uninstall-old-driver.exe
+	npm run build:uninstall-old-driver
+
+check-uninstall-old-driver-git:
+	npm run check:uninstall-old-driver-git
 
 test-release:
 	npm run test:release

@@ -865,13 +865,16 @@ function AppController() {
     updateSetup((current) => beginLegacyCleanup(current))
     try {
       logInfo('Starting legacy Windows input component cleanup')
-      const result = await invoke<DriverActionResult>('launch_driver_action', { driver: 'legacy', action: 'cleanup' })
+      const result = await withTimeout(
+        invoke<DriverActionResult>('launch_driver_action', { driver: 'legacy', action: 'cleanup' }),
+        180_000,
+        '卸载过程超时，请查看日志后重试。',
+      )
       updateSetup((current) => finishLegacyCleanup(current, {
         success: true,
         logPath: result.logPath,
-        rebootRequired: result.rebootRequired,
       }))
-      setToast(result.rebootRequired ? '旧组件已卸载，请重启 Windows 后重新检测' : '旧组件已卸载，请重新检测')
+      setToast('旧组件已卸载，请重新检测')
       window.setTimeout(() => setToast(''), 3200)
       await probeLegacyComponents(true)
       await probeSystemState(true)
