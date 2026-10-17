@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
-    io::{ErrorKind, Read},
+    io::{ErrorKind, Read, Write},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex, OnceLock, RwLock,
@@ -99,6 +99,8 @@ struct QuarborContext {
     reports: std::collections::VecDeque<KeyStroke>,
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
+    session_id: Option<u64>,
+    handshaken: bool,
     last_pipe_attempt: Instant,
 }
 
@@ -111,6 +113,8 @@ impl Default for QuarborContext {
             reports: std::collections::VecDeque::new(),
             active_usages: std::collections::HashSet::new(),
             device_id: None,
+            session_id: None,
+            handshaken: false,
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
         }
     }
@@ -145,7 +149,10 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
     let Some(device_id) = rc003_keyboard_device_id() else {
         context.pipe = None;
         quarbor_release_active_usages(context);
+        context.bytes.clear();
         context.device_id = None;
+        context.session_id = None;
+        context.handshaken = false;
         thread::sleep(Duration::from_millis(timeout_ms as u64));
         return 0;
     };
@@ -156,40 +163,49 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
     if device_changed {
         context.pipe = None;
         quarbor_release_active_usages(context);
+        context.bytes.clear();
         context.device_id = Some(device_id.clone());
+        context.session_id = None;
+        context.handshaken = false;
     }
     if context.pipe.is_none() && context.last_pipe_attempt.elapsed() >= Duration::from_millis(250) {
         context.last_pipe_attempt = Instant::now();
-        context.pipe = super::windows_pipe::PipeStream::connect_read_only(
+        context.pipe = super::windows_pipe::PipeStream::connect(
             &quarbor_pipe_name(&device_id),
             Duration::from_millis(1),
         )
         .ok();
     }
-    let Some(pipe) = context.pipe.as_mut() else {
+    let Some(mut pipe) = context.pipe.take() else {
         thread::sleep(Duration::from_millis(timeout_ms as u64));
         return 0;
     };
     let mut buffer = [0u8; 8192];
-    match pipe.read(&mut buffer) {
+    let result = match pipe.read(&mut buffer) {
         Ok(size) => {
             if size == 0 {
-                context.pipe = None;
                 quarbor_release_active_usages(context);
-                0
+                Err(ErrorKind::UnexpectedEof.into())
             } else {
                 context.bytes.extend_from_slice(&buffer[..size]);
-                quarbor_parse_frames(context);
-                i32::from(!context.reports.is_empty())
+                quarbor_parse_frames(context, &mut pipe)
+                    .map(|()| i32::from(!context.reports.is_empty()))
             }
         }
-        Err(error) if error.kind() == ErrorKind::TimedOut => 0,
-        Err(_) => {
-            context.pipe = None;
+        Err(error) if error.kind() == ErrorKind::TimedOut => Ok(0),
+        Err(error) => {
             quarbor_release_active_usages(context);
-            0
+            Err(error)
         }
+    };
+    if result.is_ok() {
+        context.pipe = Some(pipe);
+    } else {
+        context.bytes.clear();
+        context.session_id = None;
+        context.handshaken = false;
     }
+    result.unwrap_or(0)
 }
 
 #[cfg(windows)]
@@ -284,46 +300,179 @@ fn quarbor_pipe_name(instance_id: &str) -> String {
             hash = hash.wrapping_mul(0x100000001b3);
         }
     }
-    format!(r"\\.\pipe\Quarbor.HidUserFilter.v1.{hash:016X}")
+    format!(r"\\.\pipe\Quarbor.HidUserFilter.v2.{hash:016X}")
 }
 
 #[cfg(windows)]
-fn quarbor_parse_frames(context: &mut QuarborContext) {
-    const HEADER: usize = 48;
+fn quarbor_parse_frames(
+    context: &mut QuarborContext,
+    pipe: &mut super::windows_pipe::PipeStream,
+) -> std::io::Result<()> {
+    const HEADER: usize = 64;
+    const MAGIC: u32 = 0x3246_4851;
+    const VERSION: u16 = 2;
     while context.bytes.len() >= HEADER {
-        if u32::from_le_bytes(context.bytes[0..4].try_into().unwrap()) != 0x31464851 {
-            context.bytes.remove(0);
-            continue;
-        }
-        let version = u16::from_le_bytes(context.bytes[4..6].try_into().unwrap());
-        let kind = u16::from_le_bytes(context.bytes[6..8].try_into().unwrap());
-        let header_bytes = u32::from_le_bytes(context.bytes[8..12].try_into().unwrap());
-        let payload = u32::from_le_bytes(context.bytes[12..16].try_into().unwrap()) as usize;
-        let frame = HEADER + payload;
-        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3)
+        let frame_header = &context.bytes[..HEADER];
+        let magic = u32::from_le_bytes(frame_header[0..4].try_into().unwrap());
+        let version = u16::from_le_bytes(frame_header[4..6].try_into().unwrap());
+        let kind = u16::from_le_bytes(frame_header[6..8].try_into().unwrap());
+        let header_bytes = u32::from_le_bytes(frame_header[8..12].try_into().unwrap());
+        let payload = u32::from_le_bytes(frame_header[12..16].try_into().unwrap()) as usize;
+        let session_id = u64::from_le_bytes(frame_header[16..24].try_into().unwrap());
+        let sequence = u64::from_le_bytes(frame_header[24..32].try_into().unwrap());
+        let timeout_ms = u32::from_le_bytes(frame_header[40..44].try_into().unwrap());
+        let deadline_ms = u32::from_le_bytes(frame_header[44..48].try_into().unwrap());
+        let reserved = u32::from_le_bytes(frame_header[56..60].try_into().unwrap());
+        let reserved2 = u32::from_le_bytes(frame_header[60..64].try_into().unwrap());
+        let valid_payload = match kind {
+            1 => payload >= 2 && payload % 2 == 0,
+            2 | 5 => payload == 16,
+            3 | 4 => (1..=4096).contains(&payload),
+            6 => payload == 48,
+            _ => false,
+        };
+        if magic != MAGIC
+            || version != VERSION
+            || header_bytes != HEADER as u32
+            || !(1..=6).contains(&kind)
+            || !valid_payload
+            || reserved != 0
+            || reserved2 != 0
         {
-            context.bytes.drain(..4);
-            continue;
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "invalid Quarbor v2 frame header",
+            ));
         }
+        let frame = HEADER + payload;
         if context.bytes.len() < frame {
             break;
         }
         let data = context.bytes[HEADER..frame].to_vec();
         context.bytes.drain(..frame);
-        if kind == 1 {
-            if data.len() >= 2 && data.len() % 2 == 0 {
-                let units = data
+        match kind {
+            1 => {
+                if data[data.len() - 2..] != [0, 0] {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid Quarbor Hello",
+                    ));
+                }
+                let units = data[..data.len() - 2]
                     .chunks_exact(2)
                     .map(|part| u16::from_le_bytes([part[0], part[1]]))
                     .collect::<Vec<_>>();
-                if units.last() == Some(&0) {
-                    context.device_id = String::from_utf16(&units[..units.len() - 1]).ok();
+                let hello_id = String::from_utf16(&units).map_err(|_| {
+                    std::io::Error::new(ErrorKind::InvalidData, "invalid Quarbor Hello UTF-16")
+                })?;
+                if let Some(expected) = context.device_id.as_deref() {
+                    if !expected.eq_ignore_ascii_case(&hello_id) {
+                        return Err(std::io::Error::new(
+                            ErrorKind::InvalidData,
+                            "Quarbor Hello device mismatch",
+                        ));
+                    }
                 }
+                context.device_id = Some(hello_id);
+                context.session_id = Some(session_id);
+                context.handshaken = false;
+                quarbor_send_client_hello(pipe, session_id)?;
+                context.handshaken = true;
             }
-        } else if kind == 2 {
-            quarbor_decode_report(context, &data);
+            3 => {
+                if payload == 0 || !context.handshaken || context.session_id != Some(session_id) {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid Quarbor ReportRequest",
+                    ));
+                }
+                quarbor_send_report_reply(
+                    pipe,
+                    session_id,
+                    sequence,
+                    timeout_ms,
+                    deadline_ms,
+                    &data,
+                )?;
+                quarbor_decode_report(context, &data);
+            }
+            2 | 4 | 5 | 6 => {}
+            _ => unreachable!(),
         }
     }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn quarbor_frame_header(
+    kind: u16,
+    payload: usize,
+    session_id: u64,
+    sequence: u64,
+    timeout_ms: u32,
+    deadline_ms: u32,
+) -> [u8; 64] {
+    let mut header = [0u8; 64];
+    header[0..4].copy_from_slice(&0x3246_4851u32.to_le_bytes());
+    header[4..6].copy_from_slice(&2u16.to_le_bytes());
+    header[6..8].copy_from_slice(&kind.to_le_bytes());
+    header[8..12].copy_from_slice(&64u32.to_le_bytes());
+    header[12..16].copy_from_slice(&(payload as u32).to_le_bytes());
+    header[16..24].copy_from_slice(&session_id.to_le_bytes());
+    header[24..32].copy_from_slice(&sequence.to_le_bytes());
+    header[40..44].copy_from_slice(&timeout_ms.to_le_bytes());
+    header[44..48].copy_from_slice(&deadline_ms.to_le_bytes());
+    header
+}
+
+#[cfg(windows)]
+fn quarbor_write_frame(
+    pipe: &mut super::windows_pipe::PipeStream,
+    header: [u8; 64],
+    payload: &[u8],
+) -> std::io::Result<()> {
+    pipe.write_all(&header)?;
+    pipe.write_all(payload)
+}
+
+#[cfg(windows)]
+fn quarbor_send_client_hello(
+    pipe: &mut super::windows_pipe::PipeStream,
+    session_id: u64,
+) -> std::io::Result<()> {
+    let mut payload = [0u8; 16];
+    payload[0..2].copy_from_slice(&2u16.to_le_bytes());
+    payload[2..4].copy_from_slice(&64u16.to_le_bytes());
+    payload[4..8].copy_from_slice(&1u32.to_le_bytes());
+    payload[8..12].copy_from_slice(&4096u32.to_le_bytes());
+    quarbor_write_frame(
+        pipe,
+        quarbor_frame_header(2, payload.len(), session_id, 0, 0, 0),
+        &payload,
+    )
+}
+
+#[cfg(windows)]
+fn quarbor_send_report_reply(
+    pipe: &mut super::windows_pipe::PipeStream,
+    session_id: u64,
+    sequence: u64,
+    timeout_ms: u32,
+    deadline_ms: u32,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    quarbor_write_frame(
+        pipe,
+        quarbor_frame_header(
+            4,
+            payload.len(),
+            session_id,
+            sequence,
+            timeout_ms,
+            deadline_ms,
+        ),
+        payload,
+    )
 }
 
 #[cfg(windows)]
@@ -1958,6 +2107,30 @@ mod tests {
         let setup_api = "HID\\{00001812}_DEV_VID&012717_PID&32B8";
         let hello = "HID\\{00001812}_Dev_VID&012717_PID&32b8";
         assert!(setup_api.eq_ignore_ascii_case(hello));
+    }
+
+    #[test]
+    fn uses_v2_pipe_names_and_wire_headers() {
+        let path = quarbor_pipe_name("HID\\{00001812}_DEV_VID&012717_PID&32B8");
+        assert!(path.contains("Quarbor.HidUserFilter.v2."));
+        assert!(!path.contains(".v1."));
+
+        let header = quarbor_frame_header(4, 9, 0x1122_3344_5566_7788, 7, 100, 1234);
+        assert_eq!(
+            u32::from_le_bytes(header[0..4].try_into().unwrap()),
+            0x3246_4851
+        );
+        assert_eq!(u16::from_le_bytes(header[4..6].try_into().unwrap()), 2);
+        assert_eq!(u16::from_le_bytes(header[6..8].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(header[8..12].try_into().unwrap()), 64);
+        assert_eq!(u32::from_le_bytes(header[12..16].try_into().unwrap()), 9);
+        assert_eq!(
+            u64::from_le_bytes(header[16..24].try_into().unwrap()),
+            0x1122_3344_5566_7788
+        );
+        assert_eq!(u64::from_le_bytes(header[24..32].try_into().unwrap()), 7);
+        assert_eq!(u32::from_le_bytes(header[40..44].try_into().unwrap()), 100);
+        assert_eq!(u32::from_le_bytes(header[44..48].try_into().unwrap()), 1234);
     }
 
     #[test]
