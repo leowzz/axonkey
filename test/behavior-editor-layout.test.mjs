@@ -39,3 +39,8 @@ test('replace behavior exposes a dedicated single-key replacement flow', () => {
   assert.match(source, /label="手动按键选择"/)
   assert.match(source, /capturing \? '等待按键输入…' : '键盘录入'/)
 })
+
+test('mapping trigger selector keeps all four trigger modes on one row', () => {
+  const styles = readFileSync(join(projectRoot, 'src', 'styles.css'), 'utf8')
+  assert.match(styles, /\.trigger-options \{[^}]*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/)
+})
