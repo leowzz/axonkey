@@ -637,7 +637,10 @@ function AppController() {
   }
 
   const replaceWithCommonBehavior = (next: Behavior[]) => {
-    setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, () => next))
+    const normalized = selectedBehavior.trigger === 'replace'
+      ? next.filter((behavior) => behavior.type === 'key').slice(0, 1)
+      : next
+    setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, () => normalized))
     setAutoSaveState('saving')
   }
 
@@ -714,6 +717,9 @@ function AppController() {
       case 'mediaPrevious': return replaceWithKey('MediaPrevious')
       case 'mediaNext': return replaceWithKey('MediaNext')
       case 'mediaStop': return replaceWithKey('MediaStop')
+      case 'replacementKey':
+        beginBehaviorDraft('key', 'replace')
+        return
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
         return
@@ -767,6 +773,10 @@ function AppController() {
     const captured = formatCapturedKey(event)
     if (!captured) return
     event.preventDefault()
+    if (selectedBehavior.trigger === 'replace' && captured.includes('+')) {
+      showBehaviorToast('替换模式只能选择一个按键，不能使用组合键')
+      return
+    }
     updateBehavior(behavior.id, (current) => current.type === 'key' || current.type === 'shortcut'
       ? { ...behaviorFromCapturedKey(captured, current.id), enabled: current.enabled }
       : current)
@@ -778,6 +788,10 @@ function AppController() {
     const captured = formatCapturedKey(event)
     if (!captured) return
     event.preventDefault()
+    if (draftBehavior?.mode === 'replace' && captured.includes('+')) {
+      showBehaviorToast('替换模式只能选择一个按键，不能使用组合键')
+      return
+    }
     commitDraftBehavior(behaviorFromCapturedKey(captured, behavior.id))
   }
 
@@ -1524,7 +1538,7 @@ function AppController() {
                 trigger={selectedBehavior.trigger}
                 behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
                 onApplyCommonBehavior={applyCommonBehavior}
-                onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
+                onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, selectedBehavior.trigger === 'replace' ? 'replace' : 'append')}
                 onRemoveBehavior={removeBehavior}
                 onMoveBehavior={moveSelectedBehavior}
                 onEditBehavior={setEditingBehaviorId}

@@ -26,3 +26,16 @@ test('behavior editor orders the current sequence, available heading, tabs, and 
     'expected current sequence -> available behavior -> behavior tabs -> behavior choices',
   )
 })
+
+test('replace behavior exposes a dedicated single-key replacement flow', () => {
+  const source = readFileSync(
+    join(projectRoot, 'src', 'components', 'BehaviorEditor.tsx'),
+    'utf8',
+  )
+
+  assert.match(source, /label="按键替换"/)
+  assert.match(source, /trigger === 'replace' \? '设置替换按键'/)
+  assert.match(source, /<strong>手动按键选择<\/strong>/)
+  assert.match(source, /label="手动按键选择"/)
+  assert.match(source, /capturing \? '等待按键输入…' : '键盘录入'/)
+})

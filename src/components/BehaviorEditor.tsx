@@ -94,6 +94,9 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
 
 export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
+  useEffect(() => {
+    if (trigger === 'replace') setActiveTab('common')
+  }, [trigger])
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${mappingTriggerLabel(button, trigger)}行为配置`}>
     {button.id === 'voice' && <details className="voice-button-guidance">
@@ -121,6 +124,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           <h3 id={`${tabId}-current-title`}>当前序列</h3>
           <span>{button.label} · {mappingTriggerLabel(button, trigger)}</span>
         </div>
+        {trigger === 'replace' && <p className="behavior-replace-hint">按下、持续按住和抬起都会直接转发为目标按键，不区分单击、双击或长按。</p>}
         <div className="behavior-list">
           {behaviors.length === 0 && <div className="behavior-empty">{(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '尚未设置'}</div>}
           {behaviors.map((behavior, index) => <BehaviorItem
@@ -147,7 +151,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
                 ['navigation', '导航编辑'],
                 ['media', '媒体控制'],
                 ['advanced', '追加步骤'],
-              ] as const).map(([id, label]) => <button
+              ] as const).filter(([id]) => trigger !== 'replace' || id === 'common').map(([id, label]) => <button
                 key={id}
                 id={`${tabId}-${id}-tab`}
                 type="button"
@@ -167,7 +171,11 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
           aria-labelledby={`${tabId}-${activeTab}-tab`}
           className="behavior-action-grid"
         >
-          {activeTab === 'common' && <>
+          {activeTab === 'common' && trigger === 'replace' && <>
+            <BehaviorActionButton icon={<RotateCcw size={17} />} label="清除替换" detail="恢复遥控器原始按键" onClick={() => onApplyCommonBehavior('original')} />
+            <BehaviorActionButton icon={<Keyboard size={17} />} label="按键替换" detail="按下、保持和抬起都直接替换" onClick={() => onApplyCommonBehavior('replacementKey')} />
+          </>}
+          {activeTab === 'common' && trigger !== 'replace' && <>
             <BehaviorActionButton icon={<RotateCcw size={17} />} label={(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '清除触发方式'} detail={(trigger === 'click' || button.inheritDefault) ? (button.originalDescription ?? '使用遥控器原始输入') : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
             <BehaviorActionButton icon={<Ban size={17} />} label="禁用此触发方式" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
             <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
@@ -411,11 +419,34 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
       onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
     >
       <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="behavior-dialog-title">{draft ? '添加' : '编辑'}{behaviorTypeLabels[behavior.type]}行为</h2></div>
+        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="behavior-dialog-title">{trigger === 'replace' ? '设置替换按键' : `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
-        {behavior.type === 'key' || behavior.type === 'shortcut' ? <>
+        {trigger === 'replace' && (behavior.type === 'key' || behavior.type === 'shortcut') ? <>
+          <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
+          <div className="behavior-record-row">
+            <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : () => { setEmptyShortcut(false); onStartCapture() }}>
+              <Keyboard size={17} />
+              <span><strong>{capturing ? '等待按键输入…' : '键盘录入'}</strong><small>{capturing ? '现在按下目标按键' : '点击后监听下一次按键'}</small></span>
+            </button>
+          </div>
+          <div className="behavior-manual-section">
+            <div className="behavior-field-title"><strong>手动按键选择</strong><span>从下拉框选择一个目标按键</span></div>
+            <ManualKeySelect
+              platform={platform}
+              value={behavior.type === 'key' ? behavior.key : ''}
+              label="手动按键选择"
+              onChange={(key) => {
+                onCancelCapture()
+                if (!key) return
+                onUpdate((current) => current.type === 'key' || current.type === 'shortcut'
+                  ? { id: current.id, enabled: current.enabled, type: 'key', key }
+                  : current)
+              }}
+            />
+          </div>
+        </> : behavior.type === 'key' || behavior.type === 'shortcut' ? <>
           <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
           <div className="behavior-record-row">
             <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : () => { setEmptyShortcut(false); onStartCapture() }}>

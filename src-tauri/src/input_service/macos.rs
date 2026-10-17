@@ -133,7 +133,10 @@ impl InputService {
             .behaviors
             .values()
             .map(|triggers| {
-                triggers.click.len() + triggers.double_click.len() + triggers.long_press.len()
+                triggers.click.len()
+                    + triggers.double_click.len()
+                    + triggers.long_press.len()
+                    + triggers.replace.len()
             })
             .sum::<usize>();
         let old_settings = self
@@ -761,6 +764,11 @@ impl MacInputState {
         hardware_modifier_mappings_active: bool,
         hardware_modifier_mapping_usages: &HashSet<u16>,
     ) {
+        let settings = shared
+            .settings
+            .read()
+            .map(|settings| settings.clone())
+            .unwrap_or_default();
         let pressed = usages
             .difference(&self.active_usages)
             .copied()
@@ -776,6 +784,13 @@ impl MacInputState {
             if let Some(source) = source_for_usage(usage) {
                 log::info!(target: "axonkey::input", "RC003 key: button={}, phase=down, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, true);
+                if settings.enabled
+                    && replacement_key(settings.behaviors.get(source.id)).is_some_and(|key| {
+                        post_key(key, true, key.modifier_flag(), false)
+                    })
+                {
+                    continue;
+                }
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
                 {
@@ -787,6 +802,13 @@ impl MacInputState {
             if let Some(source) = source_for_usage(usage) {
                 log::info!(target: "axonkey::input", "RC003 key: button={}, phase=up, usage=0x{usage:04X}, hardware_mapping={}", source.id, hardware_modifier_mappings_active && hardware_modifier_mapping_usages.contains(&usage));
                 emit_remote_key_event(shared, source.id, false);
+                if settings.enabled
+                    && replacement_key(settings.behaviors.get(source.id)).is_some_and(|key| {
+                        post_key(key, false, 0, false)
+                    })
+                {
+                    continue;
+                }
                 if !hardware_modifier_mappings_active
                     || !hardware_modifier_mapping_usages.contains(&usage)
                 {
@@ -1090,6 +1112,18 @@ fn has_custom_behavior(triggers: &TriggerBehaviors) -> bool {
     has_enabled(&triggers.click)
         || has_enabled(&triggers.double_click)
         || has_enabled(&triggers.long_press)
+        || has_enabled(&triggers.replace)
+}
+
+fn replacement_key(triggers: Option<&TriggerBehaviors>) -> Option<MacKey> {
+    let behavior = triggers?.replace.iter().find(|behavior| behavior.enabled())?;
+    match behavior {
+        NativeBehavior::Key { key, .. } => {
+            let keys = parse_chord(key)?;
+            (keys.len() == 1).then_some(keys[0])
+        }
+        _ => None,
+    }
 }
 
 fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<MacKey>> {
@@ -1179,6 +1213,13 @@ fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifier
         .iter()
         .filter(|source| supports_hardware_modifier_remap(source))
         .filter_map(|source| {
+            if settings
+                .behaviors
+                .get(source.id)
+                .is_some_and(|triggers| has_enabled(&triggers.replace))
+            {
+                return None;
+            }
             let keys = continuous_click_chord(settings.behaviors.get(source.id)?)?;
             if keys.len() != 1 {
                 return None;
@@ -1486,6 +1527,7 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
             .iter()
             .chain(&triggers.double_click)
             .chain(&triggers.long_press)
+            .chain(&triggers.replace)
         {
             if !behavior.enabled() {
                 continue;
@@ -1500,6 +1542,17 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
                 _ => {}
+            }
+        }
+        let replacements = triggers.replace.iter().filter(|behavior| behavior.enabled()).collect::<Vec<_>>();
+        if replacements.len() > 1 {
+            return Err(format!("{button}: replacement accepts only one target key"));
+        }
+        if let Some(behavior) = replacements.first() {
+            match behavior {
+                NativeBehavior::Key { key, .. } if parse_chord(key).is_some_and(|keys| keys.len() == 1) => {}
+                NativeBehavior::Key { .. } => return Err(format!("{button}: replacement target must be one key")),
+                _ => return Err(format!("{button}: replacement target must be a key")),
             }
         }
     }

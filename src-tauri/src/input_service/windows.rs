@@ -102,6 +102,8 @@ struct QuarborContext {
     session_id: Option<u64>,
     handshaken: bool,
     last_pipe_attempt: Instant,
+    replacement_usages: HashMap<u16, u16>,
+    pending_replacement_usages: Option<HashMap<u16, u16>>,
 }
 
 #[cfg(windows)]
@@ -116,6 +118,8 @@ impl Default for QuarborContext {
             session_id: None,
             handshaken: false,
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
+            replacement_usages: HashMap::new(),
+            pending_replacement_usages: None,
         }
     }
 }
@@ -153,6 +157,8 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
         context.device_id = None;
         context.session_id = None;
         context.handshaken = false;
+        context.replacement_usages.clear();
+        context.pending_replacement_usages = None;
         thread::sleep(Duration::from_millis(timeout_ms as u64));
         return 0;
     };
@@ -167,6 +173,8 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
         context.device_id = Some(device_id.clone());
         context.session_id = None;
         context.handshaken = false;
+        context.replacement_usages.clear();
+        context.pending_replacement_usages = None;
     }
     if context.pipe.is_none() && context.last_pipe_attempt.elapsed() >= Duration::from_millis(250) {
         context.last_pipe_attempt = Instant::now();
@@ -292,6 +300,36 @@ unsafe extern "C" fn quarbor_get_hardware_id(
 }
 
 #[cfg(windows)]
+unsafe fn quarbor_update_replacements(context: Context, shared: &Shared) {
+    let context = &mut *context.cast::<QuarborContext>();
+    let settings = shared
+        .settings
+        .read()
+        .map(|settings| settings.clone())
+        .unwrap_or_default();
+    let mut replacements = HashMap::new();
+    if settings.enabled {
+        for source in SOURCE_KEYS {
+            let Some(triggers) = settings.behaviors.get(source.id) else {
+                continue;
+            };
+            let Some(target) = replacement_usage(triggers) else {
+                continue;
+            };
+            replacements.insert(source_usage(source.id), target);
+        }
+    }
+    if context.active_usages.is_empty() {
+        context.replacement_usages = replacements;
+        context.pending_replacement_usages = None;
+    } else if context.replacement_usages != replacements {
+        // Keep the old target until every currently held source usage is
+        // released; otherwise a live target could remain logically pressed.
+        context.pending_replacement_usages = Some(replacements);
+    }
+}
+
+#[cfg(windows)]
 fn quarbor_pipe_name(instance_id: &str) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for unit in instance_id.to_ascii_uppercase().encode_utf16() {
@@ -348,7 +386,7 @@ fn quarbor_parse_frames(
         if context.bytes.len() < frame {
             break;
         }
-        let data = context.bytes[HEADER..frame].to_vec();
+        let mut data = context.bytes[HEADER..frame].to_vec();
         context.bytes.drain(..frame);
         match kind {
             1 => {
@@ -386,6 +424,8 @@ fn quarbor_parse_frames(
                         "invalid Quarbor ReportRequest",
                     ));
                 }
+                let original = data.clone();
+                quarbor_rewrite_report(context, &mut data);
                 quarbor_send_report_reply(
                     pipe,
                     session_id,
@@ -394,7 +434,7 @@ fn quarbor_parse_frames(
                     deadline_ms,
                     &data,
                 )?;
-                quarbor_decode_report(context, &data);
+                quarbor_decode_report(context, &original);
             }
             2 | 4 | 5 | 6 => {}
             _ => unreachable!(),
@@ -476,6 +516,32 @@ fn quarbor_send_report_reply(
 }
 
 #[cfg(windows)]
+fn quarbor_rewrite_report(context: &QuarborContext, payload: &mut [u8]) {
+    if context.replacement_usages.is_empty() {
+        return;
+    }
+    // RC003 reports are either a byte-prefixed report ID followed by 16-bit
+    // usages or a plain sequence of 16-bit usages. Keep the report ID byte
+    // untouched and replace only source usages in-place.
+    let offset = if payload.len() > 1
+        && payload[0] == 1
+        && (payload.len() - 1).is_multiple_of(2)
+    {
+        1
+    } else if payload.len().is_multiple_of(2) {
+        0
+    } else {
+        return;
+    };
+    for pair in payload[offset..].chunks_exact_mut(2) {
+        let usage = u16::from_le_bytes([pair[0], pair[1]]);
+        if let Some(target) = context.replacement_usages.get(&usage) {
+            pair.copy_from_slice(&target.to_le_bytes());
+        }
+    }
+}
+
+#[cfg(windows)]
 fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
     let mut current = std::collections::HashSet::new();
     for offset in 0..=1.min(payload.len()) {
@@ -503,6 +569,11 @@ fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
         }
     }
     context.active_usages = current;
+    if context.active_usages.is_empty() {
+        if let Some(replacements) = context.pending_replacement_usages.take() {
+            context.replacement_usages = replacements;
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -523,6 +594,92 @@ fn known_rc003_usage(usage: u16) -> bool {
             | 0x0080
             | 0x0081
     )
+}
+
+#[cfg(windows)]
+fn source_usage(source: &str) -> u16 {
+    match source {
+        "voice" => 0x003e,
+        "power" => 0x0066,
+        "home" => 0x004a,
+        "tv" => 0x0035,
+        "menu" => 0x0065,
+        "confirm" => 0x0028,
+        "up" => 0x0052,
+        "down" => 0x0050,
+        "left" => 0x0051,
+        "right" => 0x004f,
+        "back" => 0x00f1,
+        "volumeUp" => 0x0080,
+        "volumeDown" => 0x0081,
+        _ => 0,
+    }
+}
+
+#[cfg(windows)]
+fn replacement_usage(triggers: &TriggerBehaviors) -> Option<u16> {
+    let behavior = triggers.replace.iter().find(|behavior| behavior.enabled())?;
+    let NativeBehavior::Key { key, .. } = behavior else {
+        return None;
+    };
+    let keys = parse_chord(key)?;
+    (keys.len() == 1).then(|| hid_usage_for_virtual_key(keys[0]))?
+}
+
+#[cfg(windows)]
+fn hid_usage_for_virtual_key(key: u16) -> Option<u16> {
+    let usage = match key {
+        0x41..=0x5a => key - 0x41 + 0x04,
+        0x30 => 0x27,
+        0x31..=0x39 => key - 0x31 + 0x1e,
+        0x08 => 0x2a,
+        0x09 => 0x2b,
+        0x0d => 0x28,
+        0x1b => 0x29,
+        0x20 => 0x2c,
+        0x10 => 0xe1,
+        0xa0 => 0xe1,
+        0xa1 => 0xe5,
+        0x11 => 0xe0,
+        0xa2 => 0xe0,
+        0xa3 => 0xe4,
+        0x12 => 0xe2,
+        0xa4 => 0xe2,
+        0xa5 => 0xe6,
+        0x5b => 0xe3,
+        0x5c => 0xe7,
+        0x2d => 0x49,
+        0x2e => 0x4c,
+        0x21 => 0x4b,
+        0x22 => 0x4e,
+        0x23 => 0x4d,
+        0x24 => 0x4a,
+        0x25 => 0x50,
+        0x26 => 0x52,
+        0x27 => 0x4f,
+        0x28 => 0x51,
+        0xad => 0x0082,
+        0xae => 0x0081,
+        0xaf => 0x0080,
+        0xb0 => 0x00b5,
+        0xb1 => 0x00b6,
+        0xb2 => 0x00b7,
+        0xb3 => 0x00cd,
+        0xba => 0x0033,
+        0xbb => 0x002e,
+        0xbc => 0x0036,
+        0xbd => 0x002d,
+        0xbe => 0x0037,
+        0xbf => 0x0038,
+        0xc0 => 0x0035,
+        0xdb => 0x002f,
+        0xdc => 0x0031,
+        0xdd => 0x0030,
+        0xde => 0x0034,
+        0x70..=0x87 => key - 0x70 + 0x3a,
+        _ => return None,
+    };
+    Some(usage)
 }
 
 #[cfg(windows)]
@@ -597,7 +754,10 @@ impl InputService {
             .behaviors
             .values()
             .map(|triggers| {
-                triggers.click.len() + triggers.double_click.len() + triggers.long_press.len()
+                triggers.click.len()
+                    + triggers.double_click.len()
+                    + triggers.long_press.len()
+                    + triggers.replace.len()
             })
             .sum::<usize>();
         log::info!(
@@ -865,6 +1025,8 @@ fn run_context(
             next_probe = now + Duration::from_secs(1);
         }
         if target_device != 0 {
+            #[cfg(windows)]
+            unsafe { quarbor_update_replacements(context, shared); }
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
@@ -1100,6 +1262,11 @@ fn process_source_stroke(
         .get(source.id)
         .cloned()
         .unwrap_or_default();
+    if settings.enabled && has_replacement(&triggers) {
+        // The Quarbor reply already contains the target HID usage. Keep the
+        // source edge visible to the UI, but do not inject it a second time.
+        return;
+    }
     if !settings.enabled || !has_custom_behavior(&triggers) {
         log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}, custom_behavior={}", source.id, settings.enabled, has_custom_behavior(&triggers));
         if let Some(state) = states.get_mut(source.id) {
@@ -1333,6 +1500,13 @@ fn has_custom_behavior(triggers: &TriggerBehaviors) -> bool {
     has_enabled(&triggers.click)
         || has_enabled(&triggers.double_click)
         || has_enabled(&triggers.long_press)
+        || has_replacement(triggers)
+}
+
+fn has_replacement(triggers: &TriggerBehaviors) -> bool {
+    triggers.replace.iter().any(|behavior| {
+        behavior.enabled() && matches!(behavior, NativeBehavior::Key { .. })
+    })
 }
 
 fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<u16>> {
@@ -1839,6 +2013,7 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
             .iter()
             .chain(&triggers.double_click)
             .chain(&triggers.long_press)
+            .chain(&triggers.replace)
         {
             if !behavior.enabled() {
                 continue;
@@ -1853,6 +2028,17 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
                 _ => {}
+            }
+        }
+        let replacements = triggers.replace.iter().filter(|behavior| behavior.enabled()).collect::<Vec<_>>();
+        if replacements.len() > 1 {
+            return Err(format!("{button}: replacement accepts only one target key"));
+        }
+        if let Some(behavior) = replacements.first() {
+            match behavior {
+                NativeBehavior::Key { key, .. } if parse_chord(key).is_some_and(|keys| keys.len() == 1) => {}
+                NativeBehavior::Key { .. } => return Err(format!("{button}: replacement target must be one key")),
+                _ => return Err(format!("{button}: replacement target must be a key")),
             }
         }
     }

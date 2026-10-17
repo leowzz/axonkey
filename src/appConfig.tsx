@@ -222,6 +222,7 @@ export const triggerLabels: Record<TriggerType, string> = {
   click: '单击',
   doubleClick: '双击',
   longPress: '长按',
+  replace: '替换',
 }
 
 export const behaviorTypeLabels: Record<BehaviorType, string> = {
@@ -379,7 +380,7 @@ export function cloneBehaviorList(list: Behavior[]) {
 }
 
 export function triggerSummary(list: Behavior[], trigger: TriggerType, platform: Platform) {
-  if (list.length === 0) return trigger === 'click' ? '保留原按键' : '未设置'
+  if (list.length === 0) return trigger === 'click' ? '保留原按键' : trigger === 'replace' ? '不替换' : '未设置'
   const summary = behaviorSummary(list[0], platform)
   return list.length > 1 ? `${summary} +${list.length - 1}` : summary
 }

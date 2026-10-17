@@ -8,7 +8,18 @@ test('legacy remote settings gain empty mouse mappings without losing remote beh
   const parsed = parseStoredBehaviors({ mappings: { voice: 'Ctrl+Space', power: 'original' } })
   assert.deepEqual(parsed.voice.click[0].keys, ['Ctrl', 'Space'])
   assert.deepEqual(parsed.power.click, [])
-  for (const id of mouseInputIds) assert.deepEqual(parsed[id], { click: [], doubleClick: [], longPress: [] })
+  for (const id of mouseInputIds) assert.deepEqual(parsed[id], { click: [], doubleClick: [], longPress: [], replace: [] })
+})
+
+test('replacement mappings persist as a fourth trigger without changing gesture mappings', () => {
+  const map = createDefaultBehaviorMap()
+  const replacement = createBehavior({ type: 'key', key: 'Enter' })
+  const updated = updateBehaviorList(map, 'power', 'replace', () => [replacement])
+  const imported = parseMappingImport(createMappingExport(updated, true, '2026-01-01T00:00:00.000Z'))
+  assert.ok(imported)
+  assert.equal(imported.behaviors.power.replace[0].key, 'Enter')
+  assert.equal(imported.behaviors.power.click[0].key, 'Esc')
+  assert.deepEqual(imported.behaviors.voice.replace, [])
 })
 
 test('each mouse direction round trips independently alongside all remote mappings', () => {
@@ -45,13 +56,13 @@ test('device ownership is unique and mouse edits support undo without changing r
 
 test('legacy edge rules stay in their original scopes while new inputs start empty', () => {
   const legacy = ['mouse.top.up', 'mouse.top.down', 'mouse.top.left', 'mouse.top.right', 'mouse.left.up', 'mouse.left.down', 'mouse.right.up', 'mouse.right.down']
-  const behaviors = Object.fromEntries(legacy.map(id => [id, {click: [createBehavior({type:'key',key:'A'})],doubleClick:[],longPress:[]}]))
+  const behaviors = Object.fromEntries(legacy.map(id => [id, {click: [createBehavior({type:'key',key:'A'})],doubleClick:[],longPress:[],replace:[]}]))
   const parsed = parseStoredBehaviors({behaviors})
   for (const id of legacy) assert.deepEqual(parsed[id], behaviors[id])
   assert.equal(parsed['mouse.global.up'], undefined)
   assert.equal(parsed['mouse.global.buttonLeft'], undefined)
-  assert.deepEqual(parsed['mouse.global.buttonForward'], { click: [], doubleClick: [], longPress: [] })
-  assert.deepEqual(parsed['mouse.global.buttonBack'], { click: [], doubleClick: [], longPress: [] })
+  assert.deepEqual(parsed['mouse.global.buttonForward'], { click: [], doubleClick: [], longPress: [], replace: [] })
+  assert.deepEqual(parsed['mouse.global.buttonBack'], { click: [], doubleClick: [], longPress: [], replace: [] })
   let map = updateBehaviorList(parsed, 'mouse.top.buttonLeft', 'doubleClick', () => [createBehavior({type:'key',key:'B'})])
   map = updateBehaviorList(map, 'mouse.right.buttonLeft', 'longPress', () => [createBehavior({type:'key',key:'C'})])
   assert.deepEqual(parseMappingImport(createMappingExport(map, true)).behaviors, map)
