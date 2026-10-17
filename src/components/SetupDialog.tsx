@@ -211,7 +211,7 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
       </section>)}
     </div>}
     {cleanup.action.status === 'failed' && <div className="setup-status-panel error" aria-live="polite"><span className="setup-status-dot" /><div><strong>自动清理未完成</strong><span>{cleanup.action.error ?? '请查看日志后重试，或使用 Windows 服务管理器手动清理。'}</span></div></div>}
-    {cleanup.action.status === 'succeeded' && <div className="setup-status-panel success" aria-live="polite"><span className="setup-status-dot" /><div><strong>卸载命令已完成</strong><span>请点击“重新检测”确认旧组件已清理；如果 Windows 仍占用文件，可以稍后再次运行卸载。</span></div></div>}
+    {cleanup.action.status === 'succeeded' && <div className="setup-status-panel success" aria-live="polite"><span className="setup-status-dot" /><div><strong>卸载已完成，请重启</strong><span>请点击“重新检测”确认旧组件已清理；如果 Windows 仍占用文件，可以稍后再次运行卸载。</span></div></div>}
     <div className="legacy-cleanup-actions">
       <button type="button" className="button primary" disabled={cleanupRunning || cleanup.status === 'checking'} onClick={onCleanup}><ShieldCheck size={14} /> {cleanupRunning ? '正在卸载旧组件…' : '一键卸载旧组件'}</button>
       <button type="button" className="dialog-secondary" disabled={cleanup.status === 'checking' || cleanupRunning} onClick={onRecheck}><RotateCcw size={14} /> {cleanup.status === 'checking' ? '检测中…' : '重新检测'}</button>
