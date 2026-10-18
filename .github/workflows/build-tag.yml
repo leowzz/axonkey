@@ -507,8 +507,11 @@ jobs:
           RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
           release_args=(--prerelease="$PRERELEASE")
-          if [[ "$PRERELEASE" == "true" ]]; then
+          # Legacy v0 clients query global Latest without a major-version filter.
+          if [[ "$PRERELEASE" == "true" || "$TAG_NAME" != v0.* ]]; then
             release_args+=(--latest=false)
+          else
+            release_args+=(--latest=true)
           fi
           notes_args=()
           if [[ -s "$RELEASE_NOTES_FILE" ]]; then
@@ -530,3 +533,7 @@ jobs:
             --clobber
 
           gh release edit "$TAG_NAME" --repo "$GITHUB_REPOSITORY" --draft=false "${release_args[@]}" "${notes_args[@]}"
+
+      - name: Publish major-version update manifest
+        if: needs.release-metadata.outputs.prerelease == 'false'
+        run: node scripts/publish-updater-manifest.mjs release-assets/latest.json

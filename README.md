@@ -1,7 +1,7 @@
 # Axonkey
 
 
-[![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases/latest)
+[![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
 [![Downloads](https://img.shields.io/github/downloads/leowzz/axonkey/total?style=flat&color=brightgreen)](https://github.com/leowzz/axonkey/releases)
 [![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue?style=flat&logo=apple&logoColor=white)](#系统要求)
@@ -274,13 +274,28 @@ make release V=0.2.30 RC=3 # 生成 v0.2.30-rc.3（V 也可带 v 前缀）
 `make release` 只同步版本、创建提交和本地 annotated tag，不自动推送。推送 `v*` tag 后，
 CI 先校验版本和远端分支归属，再运行测试并构建 Windows NSIS、macOS Universal 安装包。
 预发布使用相同的签名、公证配置，发布为 GitHub Pre-release，不占用 Latest；正式版发布为 Release。
+为兼容仍查询全局 Latest 的旧客户端，只有 `v0.x.x` 正式版标记为 Latest；`v1.x.x` 及后续主版本不占用 Latest。
 当前为预发布版本时，必须显式传入 `V` 或 `RC`；两者均不传时会拒绝执行。正式版不传两者仍递增 patch。
 `RC=N` 要求 N 为无前导零的正整数；不传 `V` 时，去掉当前预发布后缀并递增 patch，再追加 `-rc.N`。
 同时传入 `V` 和 `RC` 时直接使用指定基础版本（支持带或不带 `v` 前缀），此时 `V` 不能附带预发布后缀。
 版本顺序为 `alpha.N < beta.N < rc.N < 正式版`，不接受低于当前版本的发版请求。
 
-仅正式版附带 `latest.json`。所有客户端继续从最新正式 Release 检查更新；预发布之间需手动安装，
-同版本预发布可更新到正式版。预发布与正式版共用应用标识及配置目录，安装时会覆盖已有应用。
+仅正式版附带 `latest.json`。CI 在正式 Release 发布成功后，将清单同步到独立的 `updates` 分支。
+应用直接读取当前主版本的固定文件，不调用 GitHub Release 列表 API：
+
+```text
+v0: https://raw.githubusercontent.com/leowzz/axonkey/updates/v0/latest.json
+v1: https://raw.githubusercontent.com/leowzz/axonkey/updates/v1/latest.json
+```
+
+清单里的安装包地址仍指向对应正式 Release，沿用签名校验。CI 自动创建和维护 `updates` 分支，
+预发布不更新清单，补发旧版本不会覆盖较新版本；并发发布会重试合并各主版本的清单。
+固定地址在首次正式发版后生效，清单不可用时会显示检查失败。
+`v0.x.x` 只检查和更新到 `v0.x.x`，`v1.x.x` 只检查和更新到 `v1.x.x`。
+自动检查和“检查更新”均不提示跨主版本更新；跨主版本只能通过“前往下载”手动下载安装。
+预发布之间需手动安装，同主版本的预发布可更新到较新的正式版。
+应用及官网的手动下载入口指向完整 Release 列表，可选择需要的主版本。
+各版本共用应用标识及配置目录，手动安装时会覆盖已有应用。
 
 `.env` 不纳入 Git，且只包含一行 `version=vX.Y.Z`，支持上述预发布后缀。`make build` 只校验 `.env` 与 npm、Cargo、Tauri
 版本一致，然后根据当前平台构建安装包，不修改版本文件或 Git 状态。Windows 生成 NSIS 安装程序，macOS 生成 DMG：

@@ -318,10 +318,10 @@ for (const channel of ['alpha', 'beta', 'rc']) {
 }
 
 
-for (const prerelease of [false, true]) {
+for (const [major, prerelease] of [[0, false], [0, true], [1, false], [1, true], [2, false], [2, true]]) {
   for (const state of ['absent', 'draft', 'published']) {
     const exists = state !== 'absent'
-    test(`publish workflow: prerelease=${prerelease}, release=${state}`, { skip: process.platform === 'win32' }, (t) => {
+    test(`publish workflow: major=${major}, prerelease=${prerelease}, release=${state}`, { skip: process.platform === 'win32' }, (t) => {
       const root = seedRepository(t)
       const bin = join(root, 'bin')
       mkdirSync(bin)
@@ -339,13 +339,13 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
 `)
       chmodSync(gh, 0o755)
       const workflow = readFileSync(join(projectRoot, '.github/workflows/build-tag.yml'), 'utf8')
-      const step = workflow.split('      - name: Create or update GitHub Release')[1]
+      const step = workflow.split('      - name: Create or update GitHub Release')[1].split('\n      - name:')[0]
       const script = step.split('        run: |\n')[1].split('\n').map(line => line.replace(/^          /, '')).join('\n')
       const result = run(root, 'bash', ['-e', '-o', 'pipefail', '-c', script], {
         check: false,
         env: { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}`,
           CALL_LOG: log, RELEASE_EXISTS: String(exists), PRERELEASE: String(prerelease),
-          TAG_NAME: prerelease ? 'v1.2.3-beta.1' : 'v1.2.3', GITHUB_REPOSITORY: 'test/axonkey',
+          TAG_NAME: `v${major}.2.3${prerelease ? '-beta.1' : ''}`, GITHUB_REPOSITORY: 'test/axonkey',
           RELEASE_NOTES_FILE: notesFile },
       })
       assert.equal(result.status, 0, result.stderr)
@@ -360,7 +360,8 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
       const edit = calls.find(args => args[1] === 'edit')
       for (const args of [create, edit].filter(Boolean)) {
         assert.ok(args.includes(`--prerelease=${prerelease}`))
-        assert.equal(args.includes('--latest=false'), prerelease)
+        assert.equal(args.includes('--latest=false'), prerelease || major !== 0)
+        assert.equal(args.includes('--latest=true'), !prerelease && major === 0)
       }
       assert.ok(edit.includes('--draft=false'))
       assert.equal(edit.includes('--notes-file'), state !== 'published')

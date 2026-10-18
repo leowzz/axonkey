@@ -16,6 +16,7 @@ test('native checks deduplicate, throttle, preserve an update on failure and rel
   let state, calls = 0, closed = 0, time = 1, fail = false
   const update = { version: '0.3.0', close: async () => { closed++ } }
   const checker = createNativeReleaseChecker(next => { state = next }, {
+    currentVersion: '0.2.29',
     now: () => time, relaunch: async () => {},
     checkUpdate: async () => { calls++; if (fail) throw Error('offline'); return update },
   })
@@ -39,6 +40,7 @@ test('download progress, double clicks and restart retry do not reinstall', asyn
   let state, installs = 0, restarts = 0, checks = 0
   const gate = deferred()
   const checker = createNativeReleaseChecker(next => { state = next }, {
+    currentVersion: '0.2.29',
     checkUpdate: async () => {
       checks++
       return { version: '0.3.0', close: async () => {}, downloadAndInstall: async progress => {
@@ -73,6 +75,7 @@ test('download progress, double clicks and restart retry do not reinstall', asyn
 test('failed or invalid-signature installation stays retryable and never restarts', async () => {
   let state, installs = 0, restarts = 0
   const checker = createNativeReleaseChecker(next => { state = next }, {
+    currentVersion: '0.2.29',
     checkUpdate: async () => ({ version: '0.3.0', close: async () => {}, downloadAndInstall: async () => {
       installs++; throw Error('signature verification failed')
     } }),
@@ -92,6 +95,7 @@ test('unmount closes late update handles and suppresses stale state writes', asy
   const gate = deferred()
   let writes = 0, closed = 0
   const checker = createNativeReleaseChecker(() => { writes++ }, {
+    currentVersion: '0.2.29',
     checkUpdate: () => gate.promise, relaunch: async () => {},
   })
   const checking = checker.check()
@@ -105,6 +109,7 @@ test('unmount closes late update handles and suppresses stale state writes', asy
 test('no-update response marks successful check without offering installation', async () => {
   let state, restarts = 0
   const checker = createNativeReleaseChecker(next => { state = next }, {
+    currentVersion: '0.2.29',
     checkUpdate: async () => null, relaunch: async () => { restarts++ },
   })
   await checker.check()
@@ -114,6 +119,47 @@ test('no-update response marks successful check without offering installation', 
   assert.equal(state.error, null)
   assert.equal(restarts, 0)
   checker.dispose()
+})
+
+test('unexpected cross-major, prerelease, invalid and older native updates are closed and cannot install', async () => {
+  for (const [currentVersion, version] of [
+    ['0.3.31', '1.0.0'], ['1.0.0', '0.9.9'], ['1.0.0', '2.0.0'],
+    ['1.0.0', '1.1.0-beta.1'], ['1.0.0', 'invalid'], ['1.0.0', '1.0.0'],
+    ['1.0.1', '1.0.0'],
+  ]) {
+    let state, installs = 0, closed = 0, restarts = 0
+    const checker = createNativeReleaseChecker(next => { state = next }, {
+      currentVersion,
+      checkUpdate: async () => ({ version, close: async () => { closed++ }, downloadAndInstall: async () => { installs++ } }),
+      relaunch: async () => { restarts++ },
+    })
+    for (const force of [false, true]) {
+      await checker.check(force)
+      assert.equal(state.latestVersion, null)
+      assert.equal(state.error, null)
+      await checker.install()
+    }
+    assert.equal(closed, 2)
+    assert.equal(installs, 0)
+    assert.equal(restarts, 0)
+    checker.dispose()
+  }
+})
+
+test('same-major stable releases remain installable, including a prerelease to stable upgrade', async () => {
+  for (const [currentVersion, version] of [['1.0.0', '1.1.0'], ['1.0.0-rc.1', '1.0.0']]) {
+    let state, installs = 0
+    const checker = createNativeReleaseChecker(next => { state = next }, {
+      currentVersion,
+      checkUpdate: async () => ({ version, close: async () => {}, downloadAndInstall: async () => { installs++ } }),
+      relaunch: async () => {},
+    })
+    await checker.check()
+    assert.equal(state.latestVersion, version)
+    await checker.install()
+    assert.equal(installs, 1)
+    checker.dispose()
+  }
 })
 
 test('manifest maps both Mac architectures to universal bundle and requires signatures', () => {

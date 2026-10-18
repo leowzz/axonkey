@@ -1,6 +1,7 @@
 mod audio_service;
 mod input_service;
 mod interception_fix;
+mod release_update;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
@@ -725,7 +726,7 @@ fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
         "github" => "https://github.com/leowzz/axonkey",
-        "releases" => "https://github.com/leowzz/axonkey/releases/latest",
+        "releases" => "https://github.com/leowzz/axonkey/releases",
         _ => return Err("Unsupported external page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening external page: {page}");
@@ -1255,7 +1256,13 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                .default_version_comparator(|current, release| {
+                    release_update::is_newer_release(&current, &release.version)
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -1329,6 +1336,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            release_update::check_release_update,
             ping,
             get_platform,
             get_log_info,
