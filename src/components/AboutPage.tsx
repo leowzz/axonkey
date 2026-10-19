@@ -30,12 +30,12 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
     <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
       <div role="status">
         <strong>{status}</strong>
-        <p>{update.error ?? (update.hasUpdate ? (update.canInstall ? '可继续使用当前版本。点击“更新并重启”后才会下载并安装新版，完成后重启应用。' : `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`) : '仅检查当前主版本的更新。跨主版本请前往下载并手动安装。')}</p>
+        <p>{update.error ?? (update.hasUpdate ? (update.canInstall ? '可继续使用当前版本。点击“更新并重启”后才会下载并安装新版，完成后重启应用。' : `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`) : <>仅检查当前主版本的更新。跨主版本请<a className="about-update-link" href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>并手动安装。</>)}</p>
         {update.phase === 'downloading' && <progress aria-label="更新下载进度" max={update.total ?? undefined} value={update.total ? update.downloaded : undefined} />}
       </div>
       <div className="about-update-actions">
         <button type="button" disabled={update.checking || update.phase !== 'idle'} onClick={() => update.check(true)}>{update.checking ? '检查中…' : '检查更新'}</button>
-        {!busy && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
+        {update.hasUpdate && !busy && <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">前往下载</a>}
         {update.canInstall && <button className="about-install-update" type="button" disabled={busy || update.checking} onClick={update.install}>{update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}</button>}
       </div>
     </section>
