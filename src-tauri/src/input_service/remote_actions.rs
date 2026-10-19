@@ -1,5 +1,7 @@
-//! Remote gestures schedule cursor moves and semantic HID keyboard edges.
-use super::{NativeBehavior, NativeSettings, TriggerBehaviors, WheelDirection};
+//! Remote gestures schedule mouse actions and semantic HID keyboard edges.
+use super::{
+    MouseButton, NativeBehavior, NativeSettings, RepeatableClick, TriggerBehaviors, WheelDirection,
+};
 use std::{
     collections::HashMap,
     time::{Duration, Instant},
@@ -13,7 +15,7 @@ struct Press {
     triggers: TriggerBehaviors,
     second: bool,
     long_fired: bool,
-    repeat: Option<(WheelDirection, u32)>,
+    repeat: Option<RepeatableClick>,
     next_repeat: Instant,
     held: Vec<HidKey>,
 }
@@ -30,9 +32,14 @@ pub(super) struct HidKey {
     pub usage: u16,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Output {
     CursorMove(WheelDirection, u32),
+    MouseClick(MouseButton),
+    Wheel(WheelDirection),
+    Paste(String),
+    OpenApp(String),
+    OpenWebsite(String),
     Key(HidKey, bool),
 }
 
@@ -54,14 +61,28 @@ fn enabled(actions: &[NativeBehavior]) -> bool {
 fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now: Instant) {
     let mut due = now;
     for action in actions.iter().filter(|action| action.enabled()) {
+        if queue.len() >= 256 {
+            break;
+        }
         match action {
             NativeBehavior::Delay { ms, .. } => due += Duration::from_millis((*ms).min(300_000)),
             NativeBehavior::CursorMove {
                 direction,
                 distance,
                 ..
-            } if queue.len() < 256 => {
+            } => {
                 queue.push((due, Output::CursorMove(*direction, *distance)));
+            }
+            NativeBehavior::Mouse { button, .. } => {
+                queue.push((due, Output::MouseClick(*button)));
+            }
+            NativeBehavior::Wheel { direction, .. } => queue.push((due, Output::Wheel(*direction))),
+            NativeBehavior::Paste { text, .. } => queue.push((due, Output::Paste(text.clone()))),
+            NativeBehavior::OpenApp { path, .. } => {
+                queue.push((due, Output::OpenApp(path.clone())))
+            }
+            NativeBehavior::OpenWebsite { url, .. } => {
+                queue.push((due, Output::OpenWebsite(url.clone())))
             }
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(keys) = super::windows::behavior_hid_chord(action) {
@@ -71,7 +92,38 @@ fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now:
                     }
                 }
             }
-            _ => {}
+            NativeBehavior::Disabled { .. } => {}
+        }
+    }
+}
+
+fn repeat_output(action: RepeatableClick) -> Output {
+    match action {
+        RepeatableClick::Wheel(direction) => Output::Wheel(direction),
+        RepeatableClick::CursorMove {
+            direction,
+            distance,
+        } => Output::CursorMove(direction, distance),
+    }
+}
+
+fn schedule_click(
+    queue: &mut Vec<(Instant, Output)>,
+    actions: &[NativeBehavior],
+    button: &str,
+    now: Instant,
+) {
+    if enabled(actions) {
+        schedule(queue, actions, now);
+    } else if queue.len() + 2 <= 256 {
+        // Configuring only double/long press must preserve an ordinary click.
+        // An explicitly enabled Disabled action suppresses this fallback.
+        if let Some(usage) = super::windows::rc003_usage_for_button(button) {
+            let key = HidKey { page: 7, usage };
+            queue.extend([
+                (now, Output::Key(key, true)),
+                (now, Output::Key(key, false)),
+            ]);
         }
     }
 }
@@ -158,22 +210,15 @@ impl RemoteActions {
             }
             let second = match state.pending.take() {
                 Some((due, actions)) if now >= due => {
-                    schedule(&mut self.scheduled, &actions, now);
+                    schedule_click(&mut self.scheduled, &actions, button, now);
                     false
                 }
                 Some(_) => true,
                 None => false,
             };
-            let repeat = match super::repeatable_click(triggers) {
-                Some(super::RepeatableClick::CursorMove {
-                    direction,
-                    distance,
-                }) => Some((direction, distance)),
-                _ => None,
-            };
-            if let Some((direction, distance)) = repeat {
-                self.scheduled
-                    .push((now, Output::CursorMove(direction, distance)));
+            let repeat = super::repeatable_click(triggers);
+            if let Some(action) = repeat {
+                self.scheduled.push((now, repeat_output(action)));
             }
             state.press = Some(Press {
                 started: now,
@@ -208,21 +253,20 @@ impl RemoteActions {
             } else if enabled(&press.triggers.double_click) {
                 state.pending = Some((now + DOUBLE_CLICK, press.triggers.click));
             } else {
-                schedule(&mut self.scheduled, &press.triggers.click, now);
+                schedule_click(&mut self.scheduled, &press.triggers.click, button, now);
             }
         }
     }
 
     pub fn tick(&mut self, now: Instant, mut emit: impl FnMut(Output)) {
-        for state in self.buttons.values_mut() {
+        for (button, state) in &mut self.buttons {
             if let Some(press) = state.press.as_mut() {
                 if !press.held.is_empty() {
                     continue;
                 }
-                if let Some((direction, distance)) = press.repeat {
+                if let Some(action) = press.repeat {
                     if now >= press.next_repeat {
-                        self.scheduled
-                            .push((now, Output::CursorMove(direction, distance)));
+                        self.scheduled.push((now, repeat_output(action)));
                         press.next_repeat = now + Duration::from_millis(80);
                     }
                 } else if enabled(&press.triggers.long_press) {
@@ -238,7 +282,7 @@ impl RemoteActions {
             }
             if state.pending.as_ref().is_some_and(|(due, _)| now >= *due) {
                 let (_, actions) = state.pending.take().unwrap();
-                schedule(&mut self.scheduled, &actions, now);
+                schedule_click(&mut self.scheduled, &actions, button, now);
             }
         }
         for release in self.releases.drain(..) {
@@ -300,6 +344,175 @@ mod tests {
             }
         });
         output
+    }
+
+    fn outputs(actions: &mut RemoteActions, now: Instant) -> Vec<Output> {
+        let mut output = Vec::new();
+        actions.tick(now, |event| output.push(event));
+        output
+    }
+
+    #[test]
+    fn all_behavior_types_keep_sequence_order_and_cancel_delayed_side_effects() {
+        let config = settings(json!({"click":[
+            {"type":"disabled"},
+            {"type":"paste","text":"ignored","enabled":false},
+            {"type":"delay","ms":300000,"enabled":false},
+            {"type":"wheel","direction":"left"},
+            {"type":"paste","text":"中文🙂"},
+            {"type":"cursorMove","direction":"right","distance":23},
+            {"type":"mouse","button":"left"},
+            {"type":"key","key":"A"},
+            {"type":"shortcut","keys":["Shift","B"]},
+            {"type":"delay","ms":100},
+            {"type":"openApp","path":"C:\\Example.exe"},
+            {"type":"openWebsite","url":"https://example.com/"}
+        ]}));
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.synchronize(1, true);
+        actions.edge("up", true, &config, now);
+        assert!(outputs(&mut actions, now).is_empty());
+        actions.edge("up", false, &config, now);
+        let key = |usage, down| Output::Key(HidKey { page: 7, usage }, down);
+        assert_eq!(
+            outputs(&mut actions, now),
+            [
+                Output::Wheel(WheelDirection::Left),
+                Output::Paste("中文🙂".into()),
+                Output::CursorMove(WheelDirection::Right, 23),
+                Output::MouseClick(MouseButton::Left),
+                key(4, true),
+                key(4, false),
+                key(0xe1, true),
+                key(5, true),
+                key(5, false),
+                key(0xe1, false),
+            ]
+        );
+        assert!(outputs(&mut actions, now + Duration::from_millis(99)).is_empty());
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(100)),
+            [
+                Output::OpenApp("C:\\Example.exe".into()),
+                Output::OpenWebsite("https://example.com/".into())
+            ]
+        );
+        actions.edge("up", true, &config, now + Duration::from_secs(1));
+        actions.edge("up", false, &config, now + Duration::from_secs(1));
+        outputs(&mut actions, now + Duration::from_secs(1));
+        actions.synchronize(2, true);
+        assert!(outputs(&mut actions, now + Duration::from_secs(2)).is_empty());
+    }
+
+    #[test]
+    fn wheel_holds_repeat_on_both_axes_and_stop_on_release_or_input_loss() {
+        for direction in ["up", "down", "left", "right"] {
+            let config = settings(json!({"click":[{"type":"wheel","direction":direction}]}));
+            let now = Instant::now();
+            let mut actions = RemoteActions::default();
+            actions.edge("up", true, &config, now);
+            let first = outputs(&mut actions, now);
+            assert!(matches!(first.as_slice(), [Output::Wheel(_)]));
+            actions.edge("up", true, &config, now + Duration::from_millis(100));
+            assert!(outputs(&mut actions, now + Duration::from_millis(399)).is_empty());
+            assert_eq!(
+                outputs(&mut actions, now + Duration::from_millis(400)),
+                first
+            );
+            assert!(outputs(&mut actions, now + Duration::from_millis(479)).is_empty());
+            assert_eq!(
+                outputs(&mut actions, now + Duration::from_millis(480)),
+                first
+            );
+            actions.edge("up", false, &config, now + Duration::from_millis(490));
+            assert!(outputs(&mut actions, now + Duration::from_secs(1)).is_empty());
+            actions.edge("up", true, &config, now + Duration::from_secs(2));
+            actions.cancel();
+            assert!(outputs(&mut actions, now + Duration::from_secs(3)).is_empty());
+        }
+    }
+
+    #[test]
+    fn wheel_respects_gestures_and_missing_single_click_preserves_original() {
+        let config = settings(json!({
+            "doubleClick":[{"type":"wheel","direction":"down"}],
+            "longPress":[{"type":"wheel","direction":"up"}]
+        }));
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.edge("up", true, &config, now);
+        assert!(outputs(&mut actions, now).is_empty());
+        actions.edge("up", false, &config, now);
+        assert!(outputs(&mut actions, now + Duration::from_millis(349)).is_empty());
+        assert_eq!(
+            keys(&mut actions, now + Duration::from_millis(350)),
+            [(7, 0x52, true), (7, 0x52, false)]
+        );
+        actions.edge("up", true, &config, now + Duration::from_secs(1));
+        actions.edge("up", false, &config, now + Duration::from_secs(1));
+        actions.edge("up", true, &config, now + Duration::from_millis(1100));
+        actions.edge("up", false, &config, now + Duration::from_millis(1110));
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(1110)),
+            [Output::Wheel(WheelDirection::Down)]
+        );
+        actions.edge("up", true, &config, now + Duration::from_secs(2));
+        assert!(outputs(&mut actions, now + Duration::from_millis(2599)).is_empty());
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(2600)),
+            [Output::Wheel(WheelDirection::Up)]
+        );
+        actions.edge("up", false, &config, now + Duration::from_millis(2610));
+        assert!(outputs(&mut actions, now + Duration::from_secs(3)).is_empty());
+        let config = settings(json!({
+            "click":[{"type":"disabled"}],
+            "doubleClick":[{"type":"wheel","direction":"down"}]
+        }));
+        actions.edge("up", true, &config, now + Duration::from_secs(4));
+        actions.edge("up", false, &config, now + Duration::from_secs(4));
+        assert!(outputs(&mut actions, now + Duration::from_secs(5)).is_empty());
+    }
+
+    #[test]
+    fn mouse_clicks_follow_single_double_and_long_press_gestures() {
+        let config = settings(json!({
+            "click": [{"type":"mouse", "button":"left"},
+                {"type":"mouse", "button":"forward", "enabled":false}],
+            "doubleClick": [{"type":"mouse", "button":"right"}],
+            "longPress": [{"type":"mouse", "button":"left"}]
+        }));
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        let output = |actions: &mut RemoteActions, now| {
+            let mut events = Vec::new();
+            actions.tick(now, |event| events.push(event));
+            events
+        };
+        actions.edge("up", true, &config, now);
+        actions.edge("up", false, &config, now);
+        assert!(output(&mut actions, now + Duration::from_millis(349)).is_empty());
+        assert_eq!(
+            output(&mut actions, now + Duration::from_millis(350)),
+            [Output::MouseClick(MouseButton::Left)]
+        );
+        actions.edge("up", true, &config, now + Duration::from_secs(1));
+        actions.edge("up", false, &config, now + Duration::from_secs(1));
+        actions.edge("up", true, &config, now + Duration::from_millis(1100));
+        actions.edge("up", false, &config, now + Duration::from_millis(1110));
+        assert_eq!(
+            output(&mut actions, now + Duration::from_millis(1110)),
+            [Output::MouseClick(MouseButton::Right)]
+        );
+        assert!(output(&mut actions, now + Duration::from_secs(2)).is_empty());
+        actions.edge("up", true, &config, now + Duration::from_secs(3));
+        assert!(output(&mut actions, now + Duration::from_millis(3599)).is_empty());
+        assert_eq!(
+            output(&mut actions, now + Duration::from_millis(3600)),
+            [Output::MouseClick(MouseButton::Left)]
+        );
+        actions.edge("up", false, &config, now + Duration::from_millis(3610));
+        assert!(output(&mut actions, now + Duration::from_secs(4)).is_empty());
     }
 
     #[test]

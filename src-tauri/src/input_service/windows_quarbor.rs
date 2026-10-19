@@ -1,5 +1,5 @@
 //! Duplex v3 pipe transport implemented entirely in Rust.
-use super::windows_hid::KeyboardDescriptor;
+use super::windows_hid::{KeyBindings, KeyboardDescriptor};
 use prost::Message;
 use std::{
     collections::VecDeque,
@@ -66,6 +66,8 @@ pub(super) struct Client {
     instance_id: String,
     stage: Stage,
     descriptor: Result<KeyboardDescriptor, u32>,
+    key_bindings: KeyBindings,
+    report_ids: [u8; 32],
     frame: Box<[u8; MAX_MESSAGE + 4]>,
     offset: usize,
     target: usize,
@@ -133,6 +135,8 @@ impl Client {
             instance_id: instance_id.into(),
             stage: Stage::Hello,
             descriptor: Err(21), // ERROR_NOT_READY until Hello.
+            key_bindings: KeyBindings::default(),
+            report_ids: [0; 32],
             frame: Box::new([0; MAX_MESSAGE + 4]),
             offset: 0,
             target: 4,
@@ -146,6 +150,17 @@ impl Client {
 
     pub fn ready(&self) -> bool {
         self.pipe.is_some() && self.stage == Stage::Reports
+    }
+
+    pub fn supports_key(&self, page: u16, usage: u16) -> bool {
+        self.ready()
+            && self.key_injection
+            && self.key_bindings.supports(page, usage, &self.report_ids)
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_keyboard_fixture(&mut self, usages: &[u16]) {
+        self.key_bindings = KeyBindings::keyboard_fixture(usages);
     }
 
     pub fn send_key(&mut self, page: u16, usage: u16, down: bool) -> io::Result<u64> {
@@ -352,6 +367,12 @@ impl Client {
                     ));
                 }
                 self.descriptor = KeyboardDescriptor::load(&id);
+                self.key_bindings = self
+                    .descriptor
+                    .as_ref()
+                    .ok()
+                    .and_then(|descriptor| descriptor.key_bindings().ok())
+                    .unwrap_or_default();
                 self.stage = Stage::Capabilities;
                 Ok(Event::Hello(metadata))
             }
@@ -362,6 +383,7 @@ impl Client {
                     return Err(invalid());
                 }
                 let report_ids = caps.report_ids.try_into().map_err(|_| invalid())?;
+                self.report_ids = report_ids;
                 self.key_injection = caps.flags & 2 != 0;
                 self.stage = Stage::Reports;
                 Ok(Event::Capabilities(Capabilities {

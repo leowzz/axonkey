@@ -13,9 +13,9 @@ use windows::{
                 CM_GET_DEVICE_INTERFACE_LIST_PRESENT, CR_SUCCESS,
             },
             HumanInterfaceDevice::{
-                HidD_FreePreparsedData, HidD_GetHidGuid, HidD_GetPreparsedData, HidP_GetCaps,
-                HidP_GetUsages, HidP_Input, HidP_MaxUsageListLength, HIDP_CAPS,
-                HIDP_STATUS_SUCCESS, PHIDP_PREPARSED_DATA,
+                HidD_FreePreparsedData, HidD_GetHidGuid, HidD_GetPreparsedData, HidP_GetButtonCaps,
+                HidP_GetCaps, HidP_GetUsages, HidP_Input, HidP_MaxUsageListLength,
+                HIDP_BUTTON_CAPS, HIDP_CAPS, HIDP_STATUS_SUCCESS, PHIDP_PREPARSED_DATA,
             },
         },
         Foundation::{GetLastError, HANDLE},
@@ -23,6 +23,89 @@ use windows::{
 };
 
 pub(super) struct KeyboardDescriptor(PHIDP_PREPARSED_DATA);
+
+#[derive(Default)]
+pub(super) struct KeyBindings(Vec<HIDP_BUTTON_CAPS>);
+
+impl KeyBindings {
+    /// Match InputQueue::FindBinding: a usage must resolve to one report and
+    /// link collection, and the report must be advertised by Capabilities.
+    pub fn supports(&self, page: u16, usage: u16, reports: &[u8; 32]) -> bool {
+        let mut found = None;
+        for cap in &self.0 {
+            let contains = unsafe {
+                if cap.IsRange {
+                    (cap.Anonymous.Range.UsageMin..=cap.Anonymous.Range.UsageMax).contains(&usage)
+                } else {
+                    cap.Anonymous.NotRange.Usage == usage
+                }
+            };
+            if cap.UsagePage != page || !contains {
+                continue;
+            }
+            let binding = (cap.ReportID, cap.LinkCollection);
+            if found.is_some_and(|previous| previous != binding) {
+                return false;
+            }
+            found = Some(binding);
+        }
+        found.is_some_and(|(id, _)| reports[id as usize / 8] & (1 << (id % 8)) != 0)
+    }
+
+    #[cfg(test)]
+    pub fn keyboard_fixture(usages: &[u16]) -> Self {
+        Self(
+            usages
+                .iter()
+                .map(|usage| {
+                    let mut cap = HIDP_BUTTON_CAPS {
+                        UsagePage: 7,
+                        ReportID: 1,
+                        ..Default::default()
+                    };
+                    cap.Anonymous.NotRange.Usage = *usage;
+                    cap
+                })
+                .collect(),
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn injection_bindings_match_ranges_report_ids_and_unique_collections() {
+        let mut reports = [0; 32];
+        reports[0] = 2;
+        let mut range = HIDP_BUTTON_CAPS {
+            UsagePage: 7,
+            ReportID: 1,
+            IsRange: true,
+            ..Default::default()
+        };
+        range.Anonymous.Range.UsageMin = 4;
+        range.Anonymous.Range.UsageMax = 0x73;
+        let bindings = KeyBindings(vec![range]);
+        assert!(bindings.supports(7, 4, &reports));
+        assert!(bindings.supports(7, 0x73, &reports));
+        assert!(!bindings.supports(7, 0x74, &reports));
+        assert!(!bindings.supports(0x0c, 4, &reports));
+        assert!(!bindings.supports(7, 4, &[0; 32]));
+        assert!(KeyBindings(vec![range, range]).supports(7, 4, &reports));
+        let mut ambiguous = range;
+        ambiguous.LinkCollection = 1;
+        assert!(!KeyBindings(vec![range, ambiguous]).supports(7, 4, &reports));
+        ambiguous = range;
+        ambiguous.ReportID = 2;
+        reports[0] |= 4;
+        assert!(!KeyBindings(vec![range, ambiguous]).supports(7, 4, &reports));
+        let single = KeyBindings::keyboard_fixture(&[0xe6]);
+        assert!(single.supports(7, 0xe6, &reports));
+        assert!(!single.supports(7, 0xe2, &reports));
+    }
+}
 
 impl Drop for KeyboardDescriptor {
     fn drop(&mut self) {
@@ -33,6 +116,29 @@ impl Drop for KeyboardDescriptor {
 }
 
 impl KeyboardDescriptor {
+    pub fn key_bindings(&self) -> Result<KeyBindings, u32> {
+        let mut caps = HIDP_CAPS::default();
+        let status = unsafe { HidP_GetCaps(self.0, &mut caps) };
+        if status != HIDP_STATUS_SUCCESS {
+            return Err(status.0 as u32);
+        }
+        let mut count = caps.NumberInputButtonCaps;
+        if count == 0 {
+            return Ok(KeyBindings::default());
+        }
+        let mut buttons = vec![HIDP_BUTTON_CAPS::default(); count as usize];
+        let status =
+            unsafe { HidP_GetButtonCaps(HidP_Input, buttons.as_mut_ptr(), &mut count, self.0) };
+        if status != HIDP_STATUS_SUCCESS {
+            return Err(status.0 as u32);
+        }
+        if count as usize > buttons.len() {
+            return Err(13);
+        }
+        buttons.truncate(count as usize);
+        Ok(KeyBindings(buttons))
+    }
+
     pub fn load(instance_id: &str) -> Result<Self, u32> {
         let instance: Vec<u16> = instance_id.encode_utf16().chain(Some(0)).collect();
         let guid = unsafe { HidD_GetHidGuid() };

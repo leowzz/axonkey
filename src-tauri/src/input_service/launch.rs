@@ -72,7 +72,7 @@ pub(super) fn execute(behavior: &NativeBehavior) {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(test)))]
 fn open_target(target: &str, application: bool) -> Result<(), String> {
     use std::{ffi::c_void, os::windows::ffi::OsStrExt};
     #[link(name = "shell32")]
@@ -132,7 +132,7 @@ fn open_target(target: &str, application: bool) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(test)))]
 fn open_target(target: &str, _application: bool) -> Result<(), String> {
     let output = std::process::Command::new("/usr/bin/open")
         .arg("--")
@@ -148,9 +148,20 @@ fn open_target(target: &str, _application: bool) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+#[cfg(all(not(any(target_os = "windows", target_os = "macos")), not(test)))]
 fn open_target(_target: &str, _application: bool) -> Result<(), String> {
     Err("Launching targets is only supported on Windows and macOS".into())
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static OPENED_TARGETS: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn open_target(target: &str, application: bool) -> Result<(), String> {
+    OPENED_TARGETS.with(|targets| targets.borrow_mut().push((target.into(), application)));
+    Ok(())
 }
 
 #[cfg(test)]

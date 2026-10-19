@@ -8,8 +8,10 @@ Windows
     -> exact VID/PID device selection
     -> Windows HID descriptor parsing and usage-to-button lookup
     -> mapping snapshot, gesture state and shared held-key counts
-    -> InjectKey commands -> driver HID input reports
-    -> SendInput cursor movement
+    -> descriptor-supported standard keys -> InjectKey -> driver HID input reports
+    -> media / unsupported keys and connected chords -> SendInput virtual keys
+    -> SendInput cursor movement, mouse clicks, wheel and Unicode text
+    -> validated application / website system launches
 
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
@@ -36,10 +38,16 @@ The input service discovers the RC003 keyboard device instance, computes the Qua
 
 The Windows v3 client is implemented in Rust. `protox` and `prost-build` generate
 types from the vendor schema without protoc; Tokio handles the duplex pipe,
-and the `windows` crate calls the system HID descriptor parser. Remote keyboard actions and replacements use semantic InjectKey commands with
+and the `windows` crate calls the system HID descriptor parser. Descriptor-supported standard remote keyboard actions and replacements use semantic InjectKey commands with
 correlated Result responses. Unmapped/disabled inputs forward their original
-keyboard usages. Cursor movement still uses SendInput; other remote action types
-are not connected. Independent system mouse mappings keep their SendInput backend.
+keyboard usages. Media/volume keys and unsupported or ambiguous descriptor bindings use SendInput virtual keys.
+Chords containing virtual keys and other chords sharing those keys use the same virtual backend.
+Down edges remember the selected backend; cancellation, capture failures and shutdown release virtual keys too.
+All remote behavior types enter the scheduler, including delayed sequences,
+wheel holds and explicit disabled actions. An unconfigured single click still forwards the
+original key when only double/long press is mapped. Cursor movement, mouse clicks, wheel and
+Unicode text use SendInput; application/website actions use validated system launches.
+Independent system mouse mappings keep their SendInput backend.
 The driver blocks physical input and releases its injected state on disconnect.
 See [the v3 input design](quarbor-v3-read.md) for framing, recovery and validation.
 

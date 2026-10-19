@@ -240,7 +240,7 @@ impl NativeBehavior {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum MouseButton {
     Left,
