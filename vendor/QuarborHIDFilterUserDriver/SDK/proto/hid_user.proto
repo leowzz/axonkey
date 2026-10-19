@@ -1,0 +1,68 @@
+syntax = "proto3";
+package quarbor.hid.v3;
+
+// Named byte pipe: uint32 little-endian encoded size, then one message.
+// ClientMessage and ServerMessage use disjoint body tags to reject reflection.
+message ClientMessage {
+  uint64 request_id = 1; // Nonzero and strictly increasing per connection.
+  oneof body {
+    InjectReport inject_report = 10;
+    InjectKey inject_key = 11;
+    ResetInput reset_input = 12;
+    QueryDiagnostics query_diagnostics = 13;
+  }
+}
+message InjectReport { bytes report = 1; } // 1..4096; exact HID length checked by driver.
+message InjectKey {
+  enum Action { ACTION_UNSPECIFIED = 0; KEY_DOWN = 1; KEY_UP = 2; }
+  uint32 usage_page = 1; // <= 65535
+  uint32 usage = 2; // <= 65535
+  Action action = 3;
+  optional uint32 report_id = 4; // Absent: unique descriptor match; present: <=255.
+}
+message ResetInput {}
+message QueryDiagnostics {}
+
+message ServerMessage {
+  uint64 request_id = 1; // Only Result/Diagnostics correlate a request.
+  fixed64 timestamp_filetime = 2; // UTC, 100ns since 1601-01-01.
+  uint64 report_sequence = 3; // Physical report counter; never a request ID.
+  uint64 dropped = 4;
+  fixed32 ntstatus = 5;
+  oneof body {
+    Hello hello = 20;
+    Report report = 21;
+    Status status = 22;
+    Capabilities capabilities = 23;
+    Result result = 24;
+    Diagnostics diagnostics = 25;
+  }
+}
+message Hello { string instance_id = 1; } // UTF-8, no embedded NUL, <=511 UTF-16 code units.
+message Report { bytes report = 1; } // Raw physical HID bytes, preserving Report ID.
+message Status {}
+message Capabilities {
+  uint32 input_report_bytes = 1;
+  uint32 queue_capacity = 2;
+  uint32 flags = 3; // Bits 0: numbered reports, 1: key injection, 2: diagnostics; ignore unknown bits.
+  bytes report_ids = 4; // Exactly 32 bytes, bit i advertises ID i.
+}
+message Result {} // ntstatus in ServerMessage; acceptance, not Windows delivery.
+message Diagnostics {
+  uint64 accepted_reports = 1;
+  uint64 completed_reads = 2;
+  uint64 failed_reads = 3;
+  uint32 queued_reports = 4;
+  uint32 queued_reads = 5;
+  uint32 owned_reads = 6;
+  uint32 queue_state = 7;
+  fixed32 last_read_status = 8;
+  uint32 last_read_bytes = 9;
+  uint32 input_report_bytes = 10;
+  uint32 last_report_id = 11;
+  bytes last_encoded_report = 12; // Exactly 32 bytes, zero-padded sample.
+  optional uint32 requested_bytes = 13;
+  optional uint32 buffer_bytes = 14;
+  optional uint32 effective_io_type = 15; // 2 buffered; 3 direct; 0 no READ yet.
+  optional uint32 requestor_mode = 16; // 0 kernel; 1 user; UINT32_MAX no READ yet.
+}

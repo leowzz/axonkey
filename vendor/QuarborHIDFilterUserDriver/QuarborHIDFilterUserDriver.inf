@@ -1,11 +1,10 @@
-; Device-specific UMDF 2 lower filter below kbdhid and above the HID collection.
 [Version]
 Signature = "$WINDOWS NT$"
 Class = Keyboard
 ClassGuid = {4D36E96B-E325-11CE-BFC1-08002BE10318}
 Provider = %ManufacturerName%
 CatalogFile = QuarborHIDFilterUserDriver.cat
-DriverVer = 10/16/2026,0.3.0.0
+DriverVer = 10/19/2026,0.4.0.0
 PnpLockdown = 1
 
 [DestinationDirs]
@@ -17,7 +16,6 @@ DefaultDestDir = 13
 [SourceDisksFiles]
 QuarborHIDFilterUserDriver.dll = 1
 
-; Private model identifier: never auto-match a physical keyboard.
 [ControlFlags]
 ExcludeFromSelect = *
 
@@ -50,7 +48,7 @@ UmdfServiceOrder = QuarborHIDFilterUserDriver
 UmdfKernelModeClientPolicy = AllowKernelModeClients
 UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
 UmdfMethodNeitherAction = Copy
-UmdfFsContextUsePolicy = CanUseFsContext2
+UmdfFsContextUsePolicy = CannotUseFsContexts
 
 [QuarborHIDFilterUserDriver_Install]
 UmdfLibraryVersion = 2.33.0
@@ -62,7 +60,4 @@ QuarborHIDFilterUserDriver.dll
 [Strings]
 ManufacturerName = "Quarbor Logic Technologies Inc."
 DiskName = "Quarbor HID User Filter Installation Disk"
-DeviceDesc = "Quarbor HID Keyboard Filter"
-
-
-
+DeviceDesc = "Quarbor HID Filter Driver - Intercepts and modifies HID input reports before completion"
