@@ -11,7 +11,7 @@
 
 [**⬇ 下载 Axonkey（macOS / Windows）**](https://github.com/leowzz/axonkey/releases)
 
-Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 QuarborHIDFilterUserDriver 按设备实例过滤并转发目标 HID 报告，并将 RC003 语音转发到 VB-CABLE。Windows 通过 Quarbor HID 直接读取包括返回和音量键在内的全部 RC003 按键。
+Axonkey 是一款支持小米蓝牙遥控器2Pro(RC003) 和鼠标输入的本地映射控制台。macOS 版通过 IOKit 读取目标设备（`VID 0x2717` / `PID 0x32B8`）的原始 HID 报告，并用 CoreGraphics 与 AppKit 发送映射后的输入；Windows 版通过 QuarborHIDFilterUserDriver 的 v3 只读 Protobuf 管道接收目标 HID 报告，并将 RC003 语音转发到 VB-CABLE。Windows 可读取包括返回和音量键在内的全部 RC003 按键，目前遥控器动作执行接入了光标移动，详见 [Windows 输入说明](docs/WINDOWS_INPUT.md)。
 
 设备与触发项独立于映射行为：可以在“映射”左侧切换小米遥控器和鼠标，并分别配置快捷键控制。Axonkey 不依赖第三方自动化键盘工具，配置和诊断数据均保存在本机。
 

@@ -4,11 +4,11 @@
 Windows
   RC003 HID keyboard
     -> QuarborHIDFilterUserDriver UMDF per-device lower filter
-    -> per-instance Quarbor HID named pipe
+    -> read-only per-instance v3 pipe (Tokio + prost)
     -> exact VID/PID device selection
-    -> source scan-code lookup (including E0 state)
-    -> mapping snapshot and gesture state
-    -> SendInput mapped output
+    -> Windows HID descriptor parsing and usage-to-button lookup
+    -> cursor mapping snapshot and gesture state
+    -> SendInput cursor movement
 
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
@@ -32,6 +32,13 @@ macOS
 ```
 
 The input service discovers the RC003 keyboard device instance, computes the Quarbor pipe hash, and accepts only frames from that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
+
+The Windows v3 client is implemented in Rust. `protox` and `prost-build` generate
+types from the vendor schema without protoc; Tokio handles the read-only pipe,
+and the `windows` crate calls the system HID descriptor parser. The current
+remote action scope is cursor movement; keyboard injection and replacement are
+not connected. The driver blocks physical input independently of this client.
+See [the v3 input design](quarbor-v3-read.md) for framing, recovery and validation.
 
 On macOS, the input service starts in non-exclusive monitor mode. When custom
 mappings are enabled and both Input Monitoring and Accessibility permissions

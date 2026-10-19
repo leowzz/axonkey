@@ -5,7 +5,13 @@ pub mod mouse;
 mod launch;
 
 #[cfg(windows)]
-pub(super) mod windows_pipe;
+mod windows_quarbor;
+
+#[cfg(windows)]
+mod windows_hid;
+
+#[cfg(any(windows, test))]
+mod remote_cursor;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {
