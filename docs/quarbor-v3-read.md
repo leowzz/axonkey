@@ -1,22 +1,54 @@
-# Quarbor v3 HID 读取接入
+# Quarbor v3 HID 读写接入
 
-Windows 遥控器服务通过只读管道读取物理 HID 报告，更新日志及按键按下/松开状态。
-驱动连接不发送握手、逐包回复或输入注入命令。系统鼠标映射仍使用其独立实现。
-驱动 v3 本身会拦截原设备输入；只读客户端不会将原始按键重新交给 Windows。
+Windows 遥控器服务通过双工管道读取物理 HID 报告，并使用 `SendKey` 对应的
+`InjectKey` 命令执行键盘输出。通信、编解码和调度均使用 Rust，不联编 C++ 或 nanopb。
+驱动拦截原设备输入，再将语义命令编码成真实 HID 报告交给 Windows。
 
-已接回遥控器“光标移动”映射：使用 `remote_cursor.rs` 处理单击、双击、长按，
-再通过现有 Windows `SendInput` 移动光标，不经过驱动写入。
-仅配置一个单击光标动作时，按下立即移动，按住 400ms 后每 80ms 重复；
-配置双击时单击等待 350ms，长按阈值为 600ms，长按触发后 350ms 开始每 100ms 重复。
-动作序列中的延时不阻塞 HID 采集。关闭映射、修改配置、断线、丢帧或解析失败会取消待执行移动。
-键盘替换、键盘输出及其他遥控器动作尚未接回。
+`remote_actions.rs` 统一处理单击、双击、长按、替换和动作序列中的延时：
+
+- 替换：物理按下立即 `KEY_DOWN`，物理松开立即 `KEY_UP`，忽略单击/双击/长按配置。
+- 仅配置一个单击键盘动作时，按键或组合键保持到物理松开，由 Windows 负责按住重复。
+- 组合键按配置顺序按下、逆序松开；多个按钮共用修饰键时，最后一个使用者释放后才松键。
+- 配置双击时，单击等待 350ms；长按阈值为 600ms，触发后 350ms 开始每 100ms 重复动作。
+- 关闭映射或该按钮没有启用的动作时，通过 `SendKey` 转发该按钮原始的键盘 usage。
+- 修改配置、丢帧、读取错误或解析失败会释放输出并取消排队动作；断线和退出通过关闭
+  管道触发驱动的中性报告收尾，不在重连后重播旧动作。
+
+光标移动继续使用 Windows `SendInput`。仅配置一个单击光标动作时，按下立即移动，
+按住 400ms 后每 80ms 重复。其他遥控器动作尚未接回；系统鼠标映射仍使用其独立实现，
+其中键盘动作仍走原有 `SendInput` 路径，不依赖 RC003 在线。
+
+## 键盘命令与响应
+
+连接通过 `Hello/Capabilities` 校验后先发送 `ResetInput`。只有能力 flags bit 1
+开启时才允许 `send_key(usage_page, usage, down)`，Report ID 省略，由驱动按描述符匹配。
+键名转换使用 USB HID usage；例如右 Alt 为 `(0x07, 0xE6)`，Shift+A 顺序为：
+
+```text
+SendKey(0x07, 0xE1, KEY_DOWN)
+SendKey(0x07, 0x04, KEY_DOWN)
+SendKey(0x07, 0x04, KEY_UP)
+SendKey(0x07, 0xE1, KEY_UP)
+```
+
+每条命令分配非零、严格递增的 `request_id`；最多保留 64 条待确认命令。
+写入使用非阻塞队列，保留半帧偏移；排队/响应等待超过 1 秒、队列满、写入失败、
+响应编号不匹配或驱动返回非零 NTSTATUS 时关闭连接，由驱动释放输出。
+错误日志包含请求编号、usage/action 和 NTSTATUS。普通物理报告、状态和命令结果可以交错；
+`Result.request_id` 不参与物理 `report_sequence` 的丢帧判断。
+
+`Result` 成功只证明驱动接受命令，不代表 Windows 已交付输入。目标 usage 必须由设备的
+真实描述符支持；媒体键采用对应 Keyboard/Consumer usage，不支持时报告驱动拒绝错误。
 
 ## 调用分层
 
 1. `src-tauri/src/input_service/windows.rs` 发现 RC003 键盘设备实例，管理采集、重连和状态。
-2. `windows_quarbor.rs` 的 `Reader::connect(instance_id)` 计算 v3 管道名称。
-   `poll()` 返回 `Hello`、`Capabilities`、`Report` 或 `Status`，暂无完整消息时返回 `None`。
-3. Tokio 以只读权限打开命名管道；一个共享 IO reactor 服务所有连接，采集线程使用非阻塞
+2. `windows_quarbor.rs` 的 `Client::connect(instance_id)` 计算 v3 管道名称。
+   `poll()` 返回 `Hello`、`Capabilities`、`Report`、`Status` 或 `CommandAccepted`，暂无完整消息时返回 `None`。
+3. 使用 Windows `OpenOptionsExt` 以 `GENERIC_READ | FILE_WRITE_DATA` 打开异步管道，
+   再将句柄交给 Tokio。不能用 Tokio `.write(true)` 所申请的 `GENERIC_WRITE`：其中包含
+   驱动未授予客户端的 `FILE_CREATE_PIPE_INSTANCE`，普通用户会得到“拒绝访问”。
+   保留 `SECURITY_IDENTIFICATION`；一个共享 IO reactor 服务所有连接，采集线程使用非阻塞
    `poll()`。Rust 处理 4 字节小端长度前缀、最多 8192 字节的帧、1 秒半帧超时及连接关闭。
 4. `prost` 解码 Protobuf，应用层校验字段范围、消息顺序和设备实例。
    `build.rs` 使用纯 Rust 的 `protox` + `prost-build` 从 SDK 的原始
@@ -25,9 +57,9 @@ Windows 遥控器服务通过只读管道读取物理 HID 报告，更新日志�
 5. `windows_hid.rs` 通过 `windows` crate 直接调用系统的设备枚举、描述符和 HID 解析 API。
    设备句柄只请求元数据访问权限，不读取设备输入、不发送 HID 输出。
 
-Reader 由采集线程持有，管道 IO 由共享的 Tokio reactor 驱动。
-连接顺序必须为 `Hello → Capabilities → Report/Status`；Hello 的实例 ID 与目标设备忽略大小写匹配。
-连接错误会关闭旧 Reader 并每隔至少 250 毫秒重试；设备实例变化会重新发现、连接。
+Client 由采集线程持有，管道 IO 由共享的 Tokio reactor 驱动。
+连接顺序必须为 `Hello → Capabilities → Report/Status/Result`；Hello 的实例 ID 与目标设备忽略大小写匹配。
+连接错误会关闭旧 Client 并每隔至少 250 毫秒重试；设备实例变化会重新发现、连接。
 
 原始报告完整保留 Report ID，包括无编号报告的零值 ID 槽位。
 键盘状态通过实际设备描述符和 `HidP_GetUsages` 解析，不假定固定长度或 16 位按键数组。
@@ -66,7 +98,12 @@ cargo build --manifest-path src-tauri/Cargo.toml
 
 命名管道集成测试使用实际 Rust 客户端和独立编码的 Protobuf 测试消息，覆盖分片/粘包、
 原始按下/释放字节、4096 字节报告、消息方向/字段/顺序错误、半帧超时、空闲连接及取消读取。
-测试服务端检查客户端发送字节数为零。它们不会安装驱动或向 Windows 发送按键。
+读取测试确认空闲客户端不发送多余数据；写入测试使用独立线格式校验 ResetInput、
+Shift+A、右 Alt、响应交错、错误编号、驱动拒绝、队列上限、超时和断线。
+测试管道只授予读取和写入数据权限，并显式拒绝创建管道实例权限；回归测试确认旧的
+`GENERIC_WRITE` 连接被拒绝，而使用 SDK 权限的客户端可以双向通信。
+服务链路测试验证 HID 状态经过映射确实到达管道，丢帧释放按键，且不调用键盘 SendInput。
+这些测试不会安装驱动或向 Windows 发送按键。
 
 真机验收需要将配套 v3 驱动挂载到 RC003 键盘实例，并确保其他测试程序没有占用设备管道。
-应观察 `Quarbor v3 capture ready` 和 `Quarbor HID` 日志，再检查按下、持续按住、松开、蓝牙重连和睡眠恢复。
+应观察 `Quarbor v3 capture ready` 和 `Quarbor HID` 日志，再检查“语音键 → 右 Alt”、Shift+A、持续按住、松开、修改配置、蓝牙重连和睡眠恢复。

@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod mouse;
 mod launch;
+pub mod mouse;
 
 #[cfg(windows)]
 mod windows_quarbor;
@@ -11,7 +11,7 @@ mod windows_quarbor;
 mod windows_hid;
 
 #[cfg(any(windows, test))]
-mod remote_cursor;
+mod remote_actions;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {

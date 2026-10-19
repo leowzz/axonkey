@@ -22,7 +22,7 @@ const CM_GETIDLIST_FILTER_PRESENT: u32 = 0x0000_0100;
 
 #[cfg(windows)]
 struct QuarborContext {
-    reader: Option<super::windows_quarbor::Reader>,
+    reader: Option<super::windows_quarbor::Client>,
     events: std::collections::VecDeque<super::windows_quarbor::Event>,
     keys: std::collections::VecDeque<RemoteKeyEvent>,
     active_usages: std::collections::HashSet<u16>,
@@ -65,13 +65,13 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
     };
     if context.reader.is_none() && context.last_pipe_attempt.elapsed() >= DEVICE_POLL_INTERVAL {
         context.last_pipe_attempt = Instant::now();
-        match super::windows_quarbor::Reader::connect(device_id) {
+        match super::windows_quarbor::Client::connect(device_id) {
             Ok(reader) => {
                 context.reader = Some(reader);
                 context.last_sequence = None;
                 context.usage_error = None;
                 context.error = None;
-                log::info!(target: "axonkey::input", "Quarbor v3 read-only pipe connected: {device_id}");
+                log::info!(target: "axonkey::input", "Quarbor v3 duplex pipe connected: {device_id}");
             }
             Err(error) => quarbor_read_error(context, format!("Quarbor v3 connect: {error}")),
         }
@@ -175,7 +175,17 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 context.error = None;
             }
         }
-        Event::Capabilities(_) => {}
+        Event::Capabilities(_) => {
+            // Each connection starts with a neutral output state.
+            if let Some(client) = context.reader.as_mut() {
+                if let Err(error) = client.reset_input() {
+                    quarbor_output_error(context, error);
+                }
+            }
+        }
+        Event::CommandAccepted(id) => {
+            log::debug!(target: "axonkey::input", "Quarbor command accepted: request_id={id}");
+        }
     }
     context.events.push_back(event);
 }
@@ -236,6 +246,23 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
         0x0081 => "volumeDown",
         _ => return None,
     })
+}
+
+pub(super) fn rc003_usage_for_button(button: &str) -> Option<u16> {
+    [
+        0x3e, 0xf1, 0x28, 0x35, 0x4a, 0x4f, 0x50, 0x51, 0x52, 0x65, 0x66, 0x80, 0x81,
+    ]
+    .into_iter()
+    .find(|usage| rc003_button_for_usage(*usage) == Some(button))
+}
+
+#[cfg(windows)]
+fn quarbor_output_error(context: &mut QuarborContext, error: std::io::Error) {
+    // Closing the writer makes the driver clear its queue and submit neutral
+    // reports, including keys whose release was rejected or only partly sent.
+    context.reader = None;
+    quarbor_read_error(context, format!("Quarbor v3 keyboard output: {error}"));
+    quarbor_release_active_usages(context);
 }
 
 #[cfg(not(test))]
@@ -396,7 +423,7 @@ fn run_context(
 ) {
     context.device_id = rc003_keyboard_device_id();
     let mut next_probe = Instant::now();
-    let mut cursor = super::remote_cursor::CursorMappings::default();
+    let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
@@ -410,15 +437,16 @@ fn run_context(
         }
         quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS);
         quarbor_publish_events(context, shared);
-        process_remote_cursor(
+        process_remote_actions(
             context,
             shared,
-            &mut cursor,
+            &mut actions,
             &mut state_epoch,
             Instant::now(),
         );
     }
     quarbor_release_active_usages(context);
+    context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
         observe_target_key(shared, key);
     }
@@ -426,34 +454,56 @@ fn run_context(
 }
 
 #[cfg(windows)]
-fn process_remote_cursor(
+fn process_remote_actions(
     context: &mut QuarborContext,
     shared: &Shared,
-    cursor: &mut super::remote_cursor::CursorMappings,
+    actions: &mut super::remote_actions::RemoteActions,
     state_epoch: &mut u64,
     now: Instant,
 ) {
     if *state_epoch != context.state_epoch {
-        cursor.cancel();
+        actions.cancel();
         *state_epoch = context.state_epoch;
     }
     let Ok(settings) = shared.settings.read() else {
-        cursor.cancel();
+        actions.cancel();
+        quarbor_output_error(
+            context,
+            std::io::Error::other("Input settings lock unavailable"),
+        );
         return;
     };
-    cursor.synchronize(
+    actions.synchronize(
         shared.settings_revision.load(Ordering::Relaxed),
         settings.enabled,
     );
     while let Some(key) = context.keys.pop_front() {
         observe_target_key(shared, key);
-        cursor.edge(key.button, key.pressed, &settings, now);
+        actions.edge(key.button, key.pressed, &settings, now);
     }
-    cursor.tick(now, |direction, distance| {
-        log::info!(target: "axonkey::input", "Mapped cursor move: {direction:?}, distance={distance}");
-        let (dx, dy) = cursor_delta(direction, distance);
-        send_mouse_move(dx, dy);
+    let mut output_error = None;
+    actions.tick(now, |output| {
+        if output_error.is_some() {
+            return;
+        }
+        match output {
+            super::remote_actions::Output::CursorMove(direction, distance) => {
+                let (dx, dy) = cursor_delta(direction, distance);
+                send_mouse_move(dx, dy);
+            }
+            super::remote_actions::Output::Key(key, down) => {
+                if let Some(client) = context.reader.as_mut() {
+                    if let Err(error) = client.send_key(key.page, key.usage, down) {
+                        output_error = Some(error);
+                    }
+                }
+            }
+        }
     });
+    if let Some(error) = output_error {
+        quarbor_output_error(context, error);
+        actions.cancel();
+    }
 }
 
 fn observe_target_key(shared: &Shared, key: RemoteKeyEvent) {
@@ -481,7 +531,7 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
                     bytes,
                 );
             }
-            Event::Status(_) => {}
+            Event::Status(_) | Event::CommandAccepted(_) => {}
         }
     }
     let mut status = shared.status.lock().unwrap();
@@ -798,6 +848,71 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
     }
 }
 
+/// Convert the existing key names into USB HID usages, never scan codes or
+/// platform keyboard events. The driver resolves the descriptor/report ID.
+pub(super) fn behavior_hid_chord(
+    behavior: &NativeBehavior,
+) -> Option<Vec<super::remote_actions::HidKey>> {
+    use super::remote_actions::HidKey;
+    let mut result = Vec::new();
+    for key in behavior_chord(behavior)? {
+        let (page, usage) = match key {
+            0x41..=0x5a => (7, key - 0x41 + 4),
+            0x31..=0x39 => (7, key - 0x31 + 0x1e),
+            0x30 => (7, 0x27),
+            0x70..=0x7b => (7, key - 0x70 + 0x3a),
+            0x7c..=0x87 => (7, key - 0x7c + 0x68),
+            0x11 | 0xa2 => (7, 0xe0),
+            0xa3 => (7, 0xe4),
+            0x10 | 0xa0 => (7, 0xe1),
+            0xa1 => (7, 0xe5),
+            0x12 | 0xa4 => (7, 0xe2),
+            0xa5 => (7, 0xe6),
+            0x5b => (7, 0xe3),
+            0x5c => (7, 0xe7),
+            0x0d => (7, 0x28),
+            0x1b => (7, 0x29),
+            0x08 => (7, 0x2a),
+            0x09 => (7, 0x2b),
+            0x20 => (7, 0x2c),
+            0xbd => (7, 0x2d),
+            0xbb => (7, 0x2e),
+            0xdb => (7, 0x2f),
+            0xdd => (7, 0x30),
+            0xdc => (7, 0x31),
+            0xba => (7, 0x33),
+            0xde => (7, 0x34),
+            0xc0 => (7, 0x35),
+            0xbc => (7, 0x36),
+            0xbe => (7, 0x37),
+            0xbf => (7, 0x38),
+            0x2d => (7, 0x49),
+            0x24 => (7, 0x4a),
+            0x21 => (7, 0x4b),
+            0x2e => (7, 0x4c),
+            0x23 => (7, 0x4d),
+            0x22 => (7, 0x4e),
+            0x27 => (7, 0x4f),
+            0x25 => (7, 0x50),
+            0x28 => (7, 0x51),
+            0x26 => (7, 0x52),
+            0xad => (7, 0x7f),
+            0xaf => (7, 0x80),
+            0xae => (7, 0x81),
+            0xb0 => (0x0c, 0xb5),
+            0xb1 => (0x0c, 0xb6),
+            0xb2 => (0x0c, 0xb7),
+            0xb3 => (0x0c, 0xcd),
+            _ => return None,
+        };
+        let key = HidKey { page, usage };
+        if !result.contains(&key) {
+            result.push(key);
+        }
+    }
+    Some(result)
+}
+
 #[cfg(test)]
 fn emit_remote_key_event(_shared: &Shared, _button: &'static str, _pressed: bool) {}
 
@@ -905,11 +1020,13 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
                 continue;
             }
             match behavior {
-                NativeBehavior::Key { key, .. } if parse_chord(key).is_none() => {
+                NativeBehavior::Key { key, .. } if behavior_hid_chord(behavior).is_none() => {
                     return Err(format!("{button}: unsupported key '{key}'"));
                 }
                 NativeBehavior::Shortcut { keys, .. }
-                    if keys.is_empty() || keys.iter().any(|key| parse_chord(key).is_none()) =>
+                    if keys.is_empty()
+                        || keys.iter().any(|key| parse_chord(key).is_none())
+                        || behavior_hid_chord(behavior).is_none() =>
                 {
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
@@ -926,8 +1043,8 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
         }
         if let Some(behavior) = replacements.first() {
             match behavior {
-                NativeBehavior::Key { key, .. }
-                    if parse_chord(key).is_some_and(|keys| keys.len() == 1) => {}
+                NativeBehavior::Key { .. }
+                    if behavior_hid_chord(behavior).is_some_and(|keys| keys.len() == 1) => {}
                 NativeBehavior::Key { .. } => {
                     return Err(format!("{button}: replacement target must be one key"))
                 }
@@ -1227,13 +1344,13 @@ mod tests {
         for failure in 0..4 {
             MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
             let mut context = QuarborContext::default();
-            let mut cursor = super::super::remote_cursor::CursorMappings::default();
+            let mut cursor = super::super::remote_actions::RemoteActions::default();
             let mut epoch = 0;
             let now = Instant::now();
             quarbor_accept_event(&mut context, report(1, Ok(vec![0x52])));
-            process_remote_cursor(&mut context, &shared, &mut cursor, &mut epoch, now);
+            process_remote_actions(&mut context, &shared, &mut cursor, &mut epoch, now);
             MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
-            process_remote_cursor(
+            process_remote_actions(
                 &mut context,
                 &shared,
                 &mut cursor,
@@ -1255,14 +1372,14 @@ mod tests {
                     }),
                 ),
             }
-            process_remote_cursor(
+            process_remote_actions(
                 &mut context,
                 &shared,
                 &mut cursor,
                 &mut epoch,
                 now + Duration::from_millis(410),
             );
-            process_remote_cursor(
+            process_remote_actions(
                 &mut context,
                 &shared,
                 &mut cursor,
@@ -1271,6 +1388,93 @@ mod tests {
             );
             MOUSE_MOVES.with(|moves| assert_eq!(moves.borrow().len(), 2, "failure={failure}"));
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn hid_mapping_service_writes_driver_chords_replacement_and_gap_releases() {
+        use super::super::windows_quarbor::{
+            tests::{command_server, framed, key_command, next},
+            Client, Event, Metadata,
+        };
+        let expected = vec![
+            framed(vec![8, 1, 0x62, 0]),
+            key_command(2, 7, 0xe6, true), // voice -> right Alt
+            key_command(3, 7, 0xe1, true),
+            key_command(4, 7, 4, true), // up -> Shift+A
+            key_command(5, 7, 4, false),
+            key_command(6, 7, 0xe1, false),
+            key_command(7, 7, 0xe6, false),
+        ]; // report loss releases right Alt
+        let (path, worker) = command_server(expected, 0);
+        let shared = Shared {
+            settings: RwLock::new(
+                serde_json::from_value(serde_json::json!({
+                    "enabled":true, "behaviors":{
+                        "voice":{"replace":[{"type":"key","key":"RAlt"}]},
+                        "up":{"click":[{"type":"shortcut","keys":["Shift","A"]}]}
+                    }
+                }))
+                .unwrap(),
+            ),
+            settings_revision: AtomicU64::new(1),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+        };
+        MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
+        let mut context = QuarborContext {
+            reader: Some(Client::connect_path(&path, r"HID\AXONKEY_V3_READ_TEST").unwrap()),
+            device_id: Some(r"HID\AXONKEY_V3_READ_TEST".into()),
+            ..QuarborContext::default()
+        };
+        for _ in 0..2 {
+            let event = next(context.reader.as_mut().unwrap()).unwrap();
+            quarbor_accept_event(&mut context, event);
+        }
+        let mut actions = super::super::remote_actions::RemoteActions::default();
+        let mut epoch = 0;
+        let now = Instant::now();
+        for (sequence, usages) in [
+            (1, vec![0x3e]),
+            (2, vec![0x3e, 0x52]),
+            (3, vec![0x3e]),
+            (5, vec![]),
+        ] {
+            quarbor_accept_event(
+                &mut context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence,
+                        timestamp: 0,
+                        dropped: 0,
+                        status: 0,
+                    },
+                    bytes: vec![1; 121],
+                    usages: Ok(usages),
+                },
+            );
+            process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
+        }
+        let mut accepted = 0;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while accepted < 7 {
+            quarbor_wait_with_timeout(&mut context, 10);
+            for event in context.events.drain(..) {
+                if matches!(event, Event::CommandAccepted(_)) {
+                    accepted += 1;
+                }
+            }
+            assert!(context.error.is_none(), "{:?}", context.error);
+            assert!(
+                Instant::now() < deadline,
+                "driver commands never acknowledged"
+            );
+        }
+        assert_eq!(context.last_sequence, Some(5)); // Results are not physical reports.
+        MOUSE_KEY_BATCHES.with(|batches| assert!(batches.borrow().is_empty()));
+        drop(context);
+        worker.join().unwrap();
     }
 
     #[cfg(windows)]
@@ -1597,6 +1801,50 @@ mod tests {
         assert_eq!(
             rc003_keyboard_id_from_multisz(&buffer).as_deref(),
             Some("HID\\RC003_DEV_VID&012717_PID&32B8")
+        );
+    }
+
+    #[test]
+    fn hid_key_names_preserve_sides_function_key_ranges_and_usage_pages() {
+        let keys = |name: &str| {
+            behavior_hid_chord(&NativeBehavior::Key {
+                enabled: true,
+                key: name.into(),
+            })
+            .unwrap()
+            .into_iter()
+            .map(|key| (key.page, key.usage))
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            keys("Ctrl+LCtrl+RCtrl+Shift+RShift+Alt+RAlt+Win+RWin"),
+            [
+                (7, 0xe0),
+                (7, 0xe4),
+                (7, 0xe1),
+                (7, 0xe5),
+                (7, 0xe2),
+                (7, 0xe6),
+                (7, 0xe3),
+                (7, 0xe7)
+            ]
+        );
+        assert_eq!(
+            keys("F1+F12+F13+F24+1+0+Z+】"),
+            [
+                (7, 0x3a),
+                (7, 0x45),
+                (7, 0x68),
+                (7, 0x73),
+                (7, 0x1e),
+                (7, 0x27),
+                (7, 0x1d),
+                (7, 0x30)
+            ]
+        );
+        assert_eq!(
+            keys("VolumeUp+VolumeDown+VolumeMute+MediaPlayPause+MediaNext"),
+            [(7, 0x80), (7, 0x81), (7, 0x7f), (0x0c, 0xcd), (0x0c, 0xb5)]
         );
     }
 
