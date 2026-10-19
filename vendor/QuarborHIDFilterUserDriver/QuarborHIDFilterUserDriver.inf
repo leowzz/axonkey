@@ -1,0 +1,63 @@
+[Version]
+Signature = "$WINDOWS NT$"
+Class = Keyboard
+ClassGuid = {4D36E96B-E325-11CE-BFC1-08002BE10318}
+Provider = %ManufacturerName%
+CatalogFile = QuarborHIDFilterUserDriver.cat
+DriverVer = 10/19/2026,0.4.0.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+QuarborHIDFilterUserDriver.dll = 1
+
+[ControlFlags]
+ExcludeFromSelect = *
+
+[Manufacturer]
+%ManufacturerName% = Standard, NTamd64.10.0...22621
+
+[Standard.NTamd64.10.0...22621]
+%DeviceDesc% = QuarborHIDFilterUserDriver_Install, QUARBOR\HidKeyboardManualBinding
+
+[QuarborHIDFilterUserDriver_Install.NT]
+CopyFiles = UMDriverCopy
+Include = keyboard.inf, WUDFRD.inf
+Needs = HID_Keyboard_Inst.NT, WUDFRD_LowerFilter.NT
+
+[QuarborHIDFilterUserDriver_Install.NT.hw]
+Include = keyboard.inf, WUDFRD.inf
+Needs = HID_Keyboard_Inst.NT.HW, WUDFRD_LowerFilter.NT.HW
+
+[QuarborHIDFilterUserDriver_Install.NT.Services]
+Include = keyboard.inf, WUDFRD.inf
+Needs = HID_Keyboard_Inst.NT.Services, WUDFRD_LowerFilter.NT.Services
+
+[QuarborHIDFilterUserDriver_Install.NT.Filters]
+Include = WUDFRD.inf
+Needs = WUDFRD_LowerFilter.NT.Filters
+
+[QuarborHIDFilterUserDriver_Install.NT.Wdf]
+UmdfService = QuarborHIDFilterUserDriver, QuarborHIDFilterUserDriver_Install
+UmdfServiceOrder = QuarborHIDFilterUserDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CannotUseFsContexts
+
+[QuarborHIDFilterUserDriver_Install]
+UmdfLibraryVersion = 2.33.0
+ServiceBinary = %13%\QuarborHIDFilterUserDriver.dll
+
+[UMDriverCopy]
+QuarborHIDFilterUserDriver.dll
+
+[Strings]
+ManufacturerName = "Quarbor Logic Technologies Inc."
+DiskName = "Quarbor HID User Filter Installation Disk"
+DeviceDesc = "Quarbor HID Filter Driver - Intercepts and modifies HID input reports before completion"

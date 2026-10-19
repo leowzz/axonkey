@@ -9,14 +9,10 @@ local utility rather than a general keyboard automation platform.
 ## Current features
 
 - Recognize only HID devices with Xiaomi vendor `0x2717` and product `0x32B8`.
-- Keep ordinary keyboard scan codes outside RC003 mappings; the optional shared
-  UMDF capture channel has the device identity limitation described below.
+- Keep ordinary keyboard scan codes outside RC003 mappings; Quarbor reports are
+  matched to the current RC003 device instance.
 - Show thirteen editable RC003 buttons on Windows and macOS.
-- Optionally enable Back and Volume +/- on Windows with explicit administrator
-  authorization, with automatic stream acquisition and no confirmation taps.
-- Keep this enhancement off by default and outside the Home readiness checklist.
-  Mapping's collapsed Advanced options explain DLL injection, uncertain game
-  anti-cheat compatibility, and DLL residency before the user enables it.
+- Read Back and Volume +/- directly from Quarbor HID reports on Windows.
 - Configure click, double-click, and long-press actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
@@ -28,7 +24,7 @@ local utility rather than a general keyboard automation platform.
   main window is closed.
 - Import and export mappings as JSON, restore defaults, and undo or redo edits.
 - Store all settings and diagnostics locally.
-- Guide Windows users through Interception and optional VB-CABLE setup, and
+- Guide Windows users through Quarbor HID per-device setup and optional VB-CABLE setup, and
   macOS users through Input Monitoring, Accessibility, and optional MiRemoteV
   2ch virtual-microphone setup.
 - Forward RC003 voice to VB-CABLE on Windows and MiRemoteV 2ch on macOS.
@@ -37,21 +33,9 @@ local utility rather than a general keyboard automation platform.
 - Show device connection, battery, permissions, and driver status, with setup
   actions and access to local runtime logs.
 
-The RC003 Back and independent Volume +/- buttons require optional support on Windows. The
-known raw Keyboard-page usages (0xF1, 0x80, 0x81) do not produce scan codes in the
-tested Windows HID translation function, so adding scan-code mappings is insufficient.
-An elevated Frida helper reads their raw reports. The first eligible extra-key
-report selects a stream for the current connection and immediately executes its
-mapping. Shared UMDF proxies are not verified physical identities: another device
-in the same host with the same report format and usages can be misidentified.
-The old v1 preference is not migrated: the user must opt in again after seeing
-the disclosure, then the v2 preference remembers that choice. If both the saved extra-key switch
-and custom mappings are enabled, startup automatically requests UAC once after
-restoring native settings. Cancellation leaves a manual retry option; subsequent
-mapping edits, imports and settings synchronization do not repeat the prompt.
-See [the Windows diagnosis](./WINDOWS_RC003_EXTRA_KEYS.md) for evidence and limits.
-The macOS backend can identify these raw usages, so macOS exposes them as
-platform-specific editor rows with native behavior as their defaults.
+The Windows backend decodes the RC003 usages `0xF1`, `0x80`, and `0x81` from the
+Quarbor report stream alongside the other ten buttons. No secondary capture
+process, preference, or administrator authorization is needed for these keys.
 
 ## Defaults
 

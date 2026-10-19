@@ -1,17 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod mouse;
 mod launch;
+pub mod mouse;
+
+#[cfg(windows)]
+mod windows_quarbor;
+
+#[cfg(windows)]
+mod windows_hid;
 
 #[cfg(any(windows, test))]
-mod extra_keys_protocol;
-#[cfg(windows)]
-mod extra_keys_winapi;
-#[cfg(windows)]
-mod windows_pipe;
-#[cfg(windows)]
-pub mod windows_extra_keys;
+mod remote_actions;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {
@@ -36,27 +36,49 @@ pub struct NativeSettings {
     pub(super) mouse_enabled: bool,
     #[serde(rename = "mouseKeyHoldMs", default = "default_mouse_key_hold_ms")]
     pub(super) mouse_key_hold_ms: u64,
-    #[serde(rename = "mouseHorizontalScrollIntervalMs", default = "default_mouse_scroll_interval_ms")]
+    #[serde(
+        rename = "mouseHorizontalScrollIntervalMs",
+        default = "default_mouse_scroll_interval_ms"
+    )]
     pub(super) mouse_horizontal_scroll_interval_ms: u64,
-    #[serde(rename = "mouseVerticalScrollIntervalMs", default = "default_mouse_scroll_interval_ms")]
+    #[serde(
+        rename = "mouseVerticalScrollIntervalMs",
+        default = "default_mouse_scroll_interval_ms"
+    )]
     pub(super) mouse_vertical_scroll_interval_ms: u64,
-    #[serde(rename = "mouseScrollSensitivity", default = "default_scroll_sensitivity")]
+    #[serde(
+        rename = "mouseScrollSensitivity",
+        default = "default_scroll_sensitivity"
+    )]
     pub(super) mouse_scroll_sensitivity: u16,
-    #[serde(rename = "mouseIgnoreScrollAcceleration", default = "enabled_by_default")]
+    #[serde(
+        rename = "mouseIgnoreScrollAcceleration",
+        default = "enabled_by_default"
+    )]
     pub(super) mouse_ignore_scroll_acceleration: bool,
     #[serde(default)]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
 
-fn default_mouse_key_hold_ms() -> u64 { 10 }
+fn default_mouse_key_hold_ms() -> u64 {
+    10
+}
 
-fn default_mouse_scroll_interval_ms() -> u64 { 50 }
+fn default_mouse_scroll_interval_ms() -> u64 {
+    50
+}
 
-fn default_mouse_edge_width() -> u16 { 8 }
+fn default_mouse_edge_width() -> u16 {
+    8
+}
 
-fn default_scroll_sensitivity() -> u16 { 100 }
+fn default_scroll_sensitivity() -> u16 {
+    100
+}
 
-fn mouse_enabled_by_default() -> bool { true }
+fn mouse_enabled_by_default() -> bool {
+    true
+}
 
 #[derive(Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,6 +89,15 @@ pub(super) struct TriggerBehaviors {
     pub(super) double_click: Vec<NativeBehavior>,
     #[serde(default)]
     pub(super) long_press: Vec<NativeBehavior>,
+}
+
+impl TriggerBehaviors {
+    pub(super) fn iter(&self) -> impl Iterator<Item = &NativeBehavior> {
+        self.click
+            .iter()
+            .chain(&self.double_click)
+            .chain(&self.long_press)
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -164,10 +195,7 @@ pub(super) enum RepeatableClick {
 }
 
 pub(super) fn repeatable_click(triggers: &TriggerBehaviors) -> Option<RepeatableClick> {
-    if triggers
-        .double_click
-        .iter()
-        .any(NativeBehavior::enabled)
+    if triggers.double_click.iter().any(NativeBehavior::enabled)
         || triggers.long_press.iter().any(NativeBehavior::enabled)
     {
         return None;
@@ -217,7 +245,7 @@ impl NativeBehavior {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum MouseButton {
     Left,
@@ -322,6 +350,9 @@ mod settings_tests {
             })
         );
         assert_eq!(super::cursor_delta(super::WheelDirection::Up, 20), (0, -20));
-        assert_eq!(super::cursor_delta(super::WheelDirection::Right, 501), (500, 0));
+        assert_eq!(
+            super::cursor_delta(super::WheelDirection::Right, 501),
+            (500, 0)
+        );
     }
 }

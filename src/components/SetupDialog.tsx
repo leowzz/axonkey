@@ -12,6 +12,7 @@ import {
   Keyboard,
   RotateCcw,
   Settings2,
+  ShieldAlert,
   ShieldCheck,
   Trash2,
   X,
@@ -31,10 +32,10 @@ type SetupDialogProps = {
   onSkipAll: () => void
   onReset: () => void
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
-  onSkipDriverAction: (driver: DriverKind, action: DriverActionKind) => void
-  onMarkDriverInstalled: (driver: DriverKind) => void
   onProbeAudio: () => void
-  onOpenSystemSettings: (page: 'bluetooth' | 'sound' | MacPermissionKind) => void
+  onProbeLegacyCleanup: () => void
+  onCleanupLegacy: () => void
+  onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'services' | MacPermissionKind) => void
   onRequestMacPermission: (kind: MacPermissionKind) => void
   onOpenExternalPage: (page: 'vbcable') => void
   onCheckDevice: () => void
@@ -44,6 +45,7 @@ type SetupDialogProps = {
 
 const windowsSetupStepLabels: Record<SetupStepId, string> = {
   welcome: '开始',
+  legacyCleanup: '卸载旧驱动',
   inputDriver: '驱动安装',
   deviceConnection: '连接设备',
   complete: '完成',
@@ -54,13 +56,15 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
   inputDriver: '权限与音频',
 }
 
-const windowsSetupSteps: SetupStepId[] = ['welcome', 'inputDriver', 'deviceConnection', 'complete']
+const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
-export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onSkipDriverAction, onMarkDriverInstalled, onProbeAudio, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
-  const visibleSteps = platform === 'macos' ? macSetupSteps : windowsSetupSteps
+  const visibleSteps = platform === 'macos'
+    ? macSetupSteps
+    : windowsSetupSteps.filter((stepId) => stepId !== 'legacyCleanup' || state.steps.legacyCleanup.status !== 'skipped')
   return <div className="setup-backdrop" role="presentation">
     <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
       <aside className="setup-progress">
@@ -76,7 +80,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
             </button>
           })}
         </div>
-        <button type="button" className="setup-skip-all" onClick={state.setupSkipped || isSetupComplete(state) ? onReset : onSkipAll}>{state.setupSkipped || isSetupComplete(state) ? '重新运行引导' : '跳过整个引导'}</button>
+        <button type="button" className="setup-skip-all" disabled={step === 'legacyCleanup' && state.legacyCleanup.status === 'present'} onClick={state.setupSkipped || isSetupComplete(state) ? onReset : onSkipAll}>{state.setupSkipped || isSetupComplete(state) ? '重新运行引导' : '跳过整个引导'}</button>
       </aside>
       <div className="setup-content">
         <button type="button" className="dialog-close setup-close" aria-label="关闭引导" onClick={onClose}><X size={17} /></button>
@@ -93,7 +97,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>安装 Interception 驱动及重连兼容修复</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>为 RC003 安装 Quarbor HID 过滤驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -114,14 +118,17 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
           : <DriversSetupScreen
             state={state}
             onAction={onDriverAction}
-            onSkipAction={onSkipDriverAction}
-            onMarkInstalled={onMarkDriverInstalled}
             onProbeAudio={onProbeAudio}
             onContinue={onCompleteStep}
-            onSkip={onSkipStep}
             onOpenSettings={() => onOpenSystemSettings('sound')}
             onOpenVendorPage={() => onOpenExternalPage('vbcable')}
           />)}
+        {step === 'legacyCleanup' && platform === 'windows' && <LegacyCleanupScreen
+          state={state}
+          onRecheck={onProbeLegacyCleanup}
+          onCleanup={onCleanupLegacy}
+          onContinue={onCompleteStep}
+        />}
         {step === 'deviceConnection' && <div className="setup-screen">
           <span className="setup-hero-icon"><Bluetooth size={24} /></span>
           <span className="section-kicker">DEVICE</span>
@@ -151,6 +158,66 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
         </div>}
       </div>
     </section>
+  </div>
+}
+
+type LegacyCleanupScreenProps = {
+  state: SetupState
+  onRecheck: () => void
+  onCleanup: () => void
+  onContinue: () => void
+}
+
+function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: LegacyCleanupScreenProps) {
+  const cleanup = state.legacyCleanup
+  const items = [
+    {
+      key: 'interception' as const,
+      title: 'Interception 旧键盘驱动',
+      description: '旧版全局键盘过滤驱动会和 Quarbor HID 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
+    },
+    {
+      key: 'interceptionFix' as const,
+      title: 'AxonkeyInterceptionFix 修复服务',
+      description: '旧版驱动修复服务已不再需要。点击“一键卸载旧组件”移除服务及其安装目录。',
+    },
+    {
+      key: 'frida' as const,
+      title: 'Frida 运行组件',
+      description: '退出旧版输入辅助工具和 Frida 相关进程，再删除旧版 Axonkey 安装目录中残留的 Frida 文件。',
+    },
+    {
+      key: 'namedPipeServer' as const,
+      title: 'NamedPipeServer 服务',
+      description: '在 Windows 服务中停止并删除旧 NamedPipeServer 服务。当前版本使用 Quarbor 的按设备管道，不需要这个服务。',
+    },
+  ]
+  const present = items.filter((item) => cleanup.components[item.key])
+  const ready = cleanup.status === 'clear' && present.length === 0
+  const cleanupRunning = cleanup.action.status === 'running'
+  const cleanupWaitingForRestart = cleanup.action.status === 'succeeded'
+  return <div className="setup-screen legacy-cleanup-screen">
+    <span className="setup-hero-icon"><ShieldAlert size={24} /></span>
+    <span className="section-kicker">MIGRATION</span>
+    <h2 id="setup-title">先卸载旧驱动</h2>
+    <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor HID 驱动，避免两个输入链路同时接管 RC003。</p>
+    <div className={`legacy-cleanup-summary ${ready ? 'ready' : cleanup.status === 'checking' ? 'checking' : ''}`} aria-live="polite">
+      <span className="setup-status-dot" />
+      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor HID 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
+    </div>
+    {!ready && <div className="legacy-cleanup-list">
+      {(present.length > 0 ? present : items).map((item) => <section key={item.key} className={`legacy-cleanup-item ${cleanup.components[item.key] ? 'present' : 'clear'}`}>
+        <div className="legacy-cleanup-item-heading"><span className="setup-status-dot" /><strong>{item.title}</strong><span>{cleanup.components[item.key] ? '检测到' : '未检测到'}</span></div>
+        <p>{item.description}</p>
+      </section>)}
+    </div>}
+    {cleanup.action.status === 'failed' && <div className="setup-status-panel error" aria-live="polite"><span className="setup-status-dot" /><div><strong>自动清理未完成</strong><span>{cleanup.action.error ?? '请查看日志后重试，或使用 Windows 服务管理器手动清理。'}</span></div></div>}
+    {cleanup.action.status === 'succeeded' && <div className="setup-status-panel success" aria-live="polite"><span className="setup-status-dot" /><div><strong>卸载已完成，请重启</strong><span>请点击“重新检测”确认旧组件已清理；如果 Windows 仍占用文件，可以稍后再次运行卸载。</span></div></div>}
+    <div className="legacy-cleanup-actions">
+      <button type="button" className="button primary" disabled={cleanupRunning || cleanupWaitingForRestart || cleanup.status === 'checking'} onClick={onCleanup}><ShieldCheck size={14} /> {cleanupWaitingForRestart ? '等待重启' : cleanupRunning ? '正在卸载旧组件…' : '一键卸载旧组件'}</button>
+      <button type="button" className="dialog-secondary" disabled={cleanup.status === 'checking' || cleanupRunning} onClick={onRecheck}><RotateCcw size={14} /> {cleanup.status === 'checking' ? '检测中…' : '重新检测'}</button>
+    </div>
+    <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>继续连接 RC003 <ChevronRight size={15} /></button></div>
   </div>
 }
 
@@ -291,11 +358,8 @@ export function MacPermissionHelperWindow({ activePermission, permissions, onOpe
 type DriversSetupScreenProps = {
   state: SetupState
   onAction: (driver: DriverKind, action: DriverActionKind) => void
-  onSkipAction: (driver: DriverKind, action: DriverActionKind) => void
-  onMarkInstalled: (driver: DriverKind) => void
   onProbeAudio: () => void
   onContinue: () => void
-  onSkip: () => void
   onOpenSettings: () => void
   onOpenVendorPage: () => void
 }
@@ -310,18 +374,19 @@ function isDriverInstalled(state: SetupState, kind: DriverKind) {
   return status === 'installed' || status === 'restartRequired'
 }
 
-type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onMarkInstalled' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
+type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
   kind: DriverKind
   disabled: boolean
 }
 
-function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
+function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
   const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
-  const message = driver.action.error ?? driver.message ?? (kind === 'input'
-    ? '经过校验的 Interception 驱动及重连兼容修复，仅用于识别 RC003 按键。'
+  const inputInstallBlocked = kind === 'input' && !installed && state.device.status !== 'connected'
+  const message = driver.message ?? (kind === 'input'
+    ? '驱动获取遥控器按键输入。'
     : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">
@@ -330,11 +395,13 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
       <span className="driver-status-chip"><span className="setup-status-dot" /> {driverStatusLabel(driver.status)}</span>
     </div>
     <p className="driver-setup-message">{message}</p>
+    {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时不能安装 Quarbor 驱动'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再安装 Quarbor HID 按键过滤驱动。'}</span></div></div>}
+    {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? '安装失败，请重试。' : '卸载失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
-      {!installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装驱动'}</button>}
-      {installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '卸载 VB-CABLE' : '卸载驱动'}</button>}
-      {kind === 'input' && !installed && <button type="button" className="dialog-secondary" disabled={disabled} onClick={() => onMarkInstalled(kind)}><Check size={14} /> 我已手动安装</button>}
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
+      {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 Quarbor 驱动'}</button>}
+      {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 VB-CABLE'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenSettings}><Settings2 size={14} /> 声音设置</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenVendorPage}><ExternalLink size={14} /> VB-Audio 官网</button>}
@@ -342,26 +409,20 @@ function DriverSetupItem({ kind, state, onAction, onMarkInstalled, onProbeAudio,
   </section>
 }
 
-function DriversSetupScreen({ state, onAction, onSkipAction, onMarkInstalled, onProbeAudio, onContinue, onSkip, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
   const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
-  const allInstalled = (['input', 'audio'] as const).every((kind) => isDriverInstalled(state, kind))
+  const inputInstalled = isDriverInstalled(state, 'input')
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
-  const skipDrivers = () => {
-    for (const kind of ['input', 'audio'] as const) {
-      if (!isDriverInstalled(state, kind)) onSkipAction(kind, 'install')
-    }
-    onSkip()
-  }
   return <div className="setup-screen drivers-setup-screen">
     <span className="setup-hero-icon"><Download size={24} /></span>
     <span className="section-kicker">DRIVERS</span>
     <h2 id="setup-title">一次完成两个驱动</h2>
-    <p className="setup-lead">依次完成按键驱动和 CABLE 虚拟麦克风安装。两个安装器都结束后再重启 Windows，避免重复重启。</p>
+    <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor HID 过滤驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 只绑定当前遥控器的 HID 设备实例，不会安装全局键盘过滤器。</p>
     <div className="driver-setup-list">
-      <DriverSetupItem kind="input" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
-      <DriverSetupItem kind="audio" state={state} onAction={onAction} onMarkInstalled={onMarkInstalled} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
-    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>两个驱动安装完成后统一重启一次</strong><span>重启前可以先完成剩余引导；驱动将在下一次进入 Windows 后生效。</span></div></div>
-    <div className="setup-actions"><button type="button" className="setup-text-button" disabled={anyRunning} onClick={skipDrivers}>稍后安装</button><button type="button" className="button primary setup-primary" disabled={anyRunning} onClick={onContinue}>{allInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '稍后处理并继续'} <ChevronRight size={15} /></button></div>
+    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按安装结果重新连接设备或重启 Windows</strong><span>安装前必须连接并唤醒 RC003；如果设备在安装过程中断开，页面会显示具体失败原因。卸载支持离线设备，安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
+    <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={anyRunning || !inputInstalled} onClick={onContinue}>{inputInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '安装 Quarbor 驱动后继续'} <ChevronRight size={15} /></button></div>
   </div>
 }

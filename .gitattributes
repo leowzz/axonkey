@@ -1,4 +1,2 @@
 *.sh text eol=lf
-
-# Preserve audited upstream bytes across Windows autocrlf checkouts.
-third_party/interception-driver-fix/** -text
+src-tauri/Cargo.toml text eol=lf
