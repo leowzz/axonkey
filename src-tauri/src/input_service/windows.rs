@@ -726,7 +726,6 @@ fn process_remote_actions(
 }
 
 fn observe_target_key(shared: &Shared, key: RemoteKeyEvent) {
-    log::info!(target: "axonkey::input", "RC003 observed key: button={}, pressed={}", key.button, key.pressed);
     emit_remote_key_event(shared, key.button, key.pressed);
 }
 
@@ -742,7 +741,6 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
             Event::Report {
                 metadata, bytes, ..
             } => {
-                log::info!(target: "axonkey::input", "Quarbor HID: seq={}, filetime={}, dropped={}, length={}, data={:02X?}", metadata.sequence, metadata.timestamp, metadata.dropped, bytes.len(), &bytes[..bytes.len().min(32)]);
                 emit_raw_hid_event(
                     shared,
                     context.device_id.as_deref().unwrap_or_default(),
