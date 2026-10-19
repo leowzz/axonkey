@@ -1,10 +1,10 @@
-import { Check, Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
+import { ArrowRightLeft, Check, Clock3, MousePointer2, MousePointerClick } from 'lucide-react'
 import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
 import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
 import type { Platform, RemoteButton } from '../appTypes'
 
-const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
+const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress', 'replace']
 
 type MappingKeyGridProps = {
   platform: Platform
@@ -52,6 +52,7 @@ const triggerIcons = {
   click: <MousePointerClick size={17} />,
   doubleClick: <MousePointer2 size={17} />,
   longPress: <Clock3 size={17} />,
+  replace: <ArrowRightLeft size={17} />,
 }
 
 export function MappingTriggerSelector({ platform, button, behaviors, trigger, onSelect }: MappingTriggerSelectorProps) {

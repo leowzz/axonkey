@@ -111,6 +111,7 @@ export type CommonBehaviorPreset =
   | 'mediaNext'
   | 'mediaStop'
   | 'textAndEnter'
+  | 'replacementKey'
   | 'customKey'
   | 'openApp'
   | 'openWebsite'

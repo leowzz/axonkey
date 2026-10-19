@@ -13,7 +13,7 @@ local utility rather than a general keyboard automation platform.
   matched to the current RC003 device instance.
 - Show thirteen editable RC003 buttons on Windows and macOS.
 - Read Back and Volume +/- directly from Quarbor HID reports on Windows.
-- Configure click, double-click, and long-press actions independently.
+- Configure click, double-click, long-press, and direct replacement actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
 - Let the user preserve the original event or disable the button.

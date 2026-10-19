@@ -83,6 +83,10 @@ pub(super) struct TriggerBehaviors {
     pub(super) double_click: Vec<NativeBehavior>,
     #[serde(default)]
     pub(super) long_press: Vec<NativeBehavior>,
+    /// A direct edge-to-edge key substitution. Unlike the gesture lists,
+    /// this is applied for the whole physical press and preserves its timing.
+    #[serde(default)]
+    pub(super) replace: Vec<NativeBehavior>,
 }
 
 #[derive(Clone, Deserialize)]
@@ -339,5 +343,24 @@ mod settings_tests {
             super::cursor_delta(super::WheelDirection::Right, 501),
             (500, 0)
         );
+    }
+
+    #[test]
+    fn replacement_trigger_deserializes_separately_from_gestures() {
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "power": {
+                    "click": [{"type": "key", "key": "Esc"}],
+                    "replace": [{"type": "key", "key": "Enter"}]
+                }
+            }
+        }))
+        .unwrap();
+        let triggers = settings.behaviors.get("power").unwrap();
+        assert_eq!(triggers.click.len(), 1);
+        assert_eq!(triggers.replace.len(), 1);
+        assert!(triggers.double_click.is_empty());
+        assert!(triggers.long_press.is_empty());
     }
 }

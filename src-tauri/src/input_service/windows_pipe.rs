@@ -3,7 +3,7 @@
 //! its synchronous, bounded-read interface. No TCP sockets are opened here.
 use std::{
     ffi::c_void,
-    io::{self, Read},
+    io::{self, Read, Write},
     os::windows::io::AsRawHandle,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -50,6 +50,12 @@ impl Endpoint {
             Self::Client(pipe) => pipe.readable().await,
         }
     }
+
+    async fn writable(&self) -> io::Result<()> {
+        match self {
+            Self::Client(pipe) => pipe.writable().await,
+        }
+    }
 }
 
 impl Drop for Endpoint {
@@ -74,13 +80,13 @@ impl PipeStream {
         }))
     }
 
-    /// Connect to the producer-only Quarbor pipe with read access.
-    pub fn connect_read_only(name: &str, wait: Duration) -> io::Result<Self> {
+    /// Connect to the duplex Quarbor pipe used for the v2 handshake and replies.
+    pub fn connect(name: &str, wait: Duration) -> io::Result<Self> {
         let began = Instant::now();
         let _guard = runtime()?.enter();
         loop {
             let mut options = ClientOptions::new();
-            options.read(true).write(false);
+            options.read(true).write(true);
             match options.open(name) {
                 Ok(pipe) => return Ok(Self::new(Endpoint::Client(pipe))),
                 Err(error)
@@ -93,7 +99,15 @@ impl PipeStream {
         }
     }
 
-    fn io(&self, mut action: impl FnMut(&Endpoint) -> io::Result<usize>) -> io::Result<usize> {
+    fn io(
+        &self,
+        mut action: impl FnMut(&Endpoint) -> io::Result<usize>,
+        mut wait_ready: impl FnMut(
+            &Endpoint,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = io::Result<()>> + '_>,
+        >,
+    ) -> io::Result<usize> {
         let endpoint = self
             .0
             .endpoint
@@ -119,7 +133,7 @@ impl PipeStream {
                 if remaining.is_zero() {
                     return Err(io::ErrorKind::TimedOut.into());
                 }
-                if let Ok(result) = timeout(remaining, endpoint.ready()).await {
+                if let Ok(result) = timeout(remaining, wait_ready(&endpoint)).await {
                     result?;
                 }
             }
@@ -132,9 +146,30 @@ impl Read for PipeStream {
         if bytes.is_empty() {
             return Ok(0);
         }
-        self.io(|endpoint| match endpoint {
-            Endpoint::Client(pipe) => pipe.try_read(bytes),
-        })
+        self.io(
+            |endpoint| match endpoint {
+                Endpoint::Client(pipe) => pipe.try_read(bytes),
+            },
+            |endpoint| Box::pin(endpoint.ready()),
+        )
+    }
+}
+
+impl Write for PipeStream {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        self.io(
+            |endpoint| match endpoint {
+                Endpoint::Client(pipe) => pipe.try_write(bytes),
+            },
+            |endpoint| Box::pin(endpoint.writable()),
+        )
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }
 

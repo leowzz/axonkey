@@ -73,7 +73,7 @@ export function MouseControlPicker({ activeId, onSelect }: Pick<PickerProps, 'ac
 export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, onSelect, rowRefs }: PickerProps) {
   const { scope, control } = mouseInputParts(activeId)
   const inheritGlobal = mouseControlAllowsGlobal(control.id) && scope.id !== 'global'
-  const triggers: TriggerType[] = control.kind === 'button' ? ['click', 'doubleClick', 'longPress'] : ['click']
+  const triggers: Exclude<TriggerType, 'replace'>[] = control.kind === 'button' ? ['click', 'doubleClick', 'longPress'] : ['click']
   const triggerIcons = { click: control.kind === 'button' ? MousePointerClick : icons[control.id], doubleClick: MousePointerClick, longPress: Clock3 }
   const original = inheritGlobal ? '沿用任意位置' : control.kind === 'button' ? '保留原始点击' : '保留原始滚动'
   return <section className="mouse-trigger-selector" ref={(node) => { if (node) rowRefs.current[activeId] = node }} aria-label={`${control.label}触发条件`}>

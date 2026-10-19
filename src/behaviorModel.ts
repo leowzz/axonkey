@@ -11,7 +11,7 @@ export type { InputId } from './deviceModel.ts'
 export const buttonIds = remoteButtonIds
 export type ButtonId = RemoteButtonId
 
-export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
+export const triggerTypes = ['click', 'doubleClick', 'longPress', 'replace'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
 export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'openApp', 'openWebsite', 'disabled'] as const
@@ -187,7 +187,7 @@ function cloneBehavior(behavior: Behavior): Behavior {
 }
 
 function emptyTriggers(): TriggerBehaviors {
-  return { click: [], doubleClick: [], longPress: [] }
+  return { click: [], doubleClick: [], longPress: [], replace: [] }
 }
 
 /** Returns a fresh map so callers can mutate their state without sharing defaults. */

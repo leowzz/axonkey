@@ -4,9 +4,9 @@ Axonkey 在 Windows 11 x64 上使用 QuarborHIDFilterUserDriver 处理 RC003 按
 
 ## 输入链路
 
-Quarbor UMDF 过滤器只安装到选中的 RC003 设备实例，不注册全局 Keyboard 类过滤器。驱动将原始 HID 报告发送到 `\\.\pipe\Quarbor.HidUserFilter.v1.<16 位实例哈希>`。Rust 后端按设备实例计算管道名，校验 48 字节协议头，处理 Hello/Report 帧，并把 RC003 的 HID usage 边沿转换为内部按键事件。映射状态机继续处理单击、双击、长按和行为序列，输出通过 Windows `SendInput` 发送。
+Quarbor UMDF 过滤器只安装到选中的 RC003 设备实例，不注册全局 Keyboard 类过滤器。驱动通过 `\\.\pipe\Quarbor.HidUserFilter.v2.<16 位实例哈希>` 提供双向字节流。Rust 后端按设备实例计算管道名，校验 64 字节协议头，完成 `ClientHello` 握手，并把每个 `ReportRequest` 回传为 `ReportReply`；“替换”模式会在回复前把源 usage 原位改成目标键 usage，按下、保持和抬起都由 Quarbor 作为真实 HID 报告交给 Windows，不经过 `SendInput`，也不做单击/双击/长按判定。其他模式继续把 RC003 的 HID usage 边沿转换为内部按键事件并由映射状态机处理。
 
-普通键盘不会进入 RC003 映射流程。管道客户端使用 `SECURITY_IDENTIFICATION`，只读取当前设备对应的本机管道；设备重新枚举后，客户端会按新的实例 ID 重连。
+普通键盘不会进入 RC003 映射流程。管道客户端使用 `SECURITY_IDENTIFICATION`，以读写权限连接当前设备对应的本机管道；设备重新枚举后，客户端会按新的实例 ID 重连。
 
 Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28`、TV `0x35`、语音 `0x3E`、主页 `0x4A`、方向 `0x4F/0x50/0x51/0x52`、菜单 `0x65`、电源 `0x66`、返回 `0xF1` 和音量 `0x80/0x81`。驱动报告保留 Report ID 和原始字节，客户端只对已知 RC003 usage 生成按键边沿。
 

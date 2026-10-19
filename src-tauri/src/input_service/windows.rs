@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::{
     collections::HashMap,
     ffi::c_void,
-    io::{ErrorKind, Read},
+    io::{ErrorKind, Read, Write},
     sync::{
         atomic::{AtomicBool, AtomicI32, Ordering},
         Arc, Mutex, OnceLock, RwLock,
@@ -99,7 +99,11 @@ struct QuarborContext {
     reports: std::collections::VecDeque<KeyStroke>,
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
+    session_id: Option<u64>,
+    handshaken: bool,
     last_pipe_attempt: Instant,
+    replacement_usages: HashMap<u16, u16>,
+    pending_replacement_usages: Option<HashMap<u16, u16>>,
 }
 
 #[cfg(windows)]
@@ -111,7 +115,11 @@ impl Default for QuarborContext {
             reports: std::collections::VecDeque::new(),
             active_usages: std::collections::HashSet::new(),
             device_id: None,
+            session_id: None,
+            handshaken: false,
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
+            replacement_usages: HashMap::new(),
+            pending_replacement_usages: None,
         }
     }
 }
@@ -145,7 +153,12 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
     let Some(device_id) = rc003_keyboard_device_id() else {
         context.pipe = None;
         quarbor_release_active_usages(context);
+        context.bytes.clear();
         context.device_id = None;
+        context.session_id = None;
+        context.handshaken = false;
+        context.replacement_usages.clear();
+        context.pending_replacement_usages = None;
         thread::sleep(Duration::from_millis(timeout_ms as u64));
         return 0;
     };
@@ -156,40 +169,51 @@ unsafe extern "C" fn quarbor_wait_with_timeout(context: Context, timeout_ms: u32
     if device_changed {
         context.pipe = None;
         quarbor_release_active_usages(context);
+        context.bytes.clear();
         context.device_id = Some(device_id.clone());
+        context.session_id = None;
+        context.handshaken = false;
+        context.replacement_usages.clear();
+        context.pending_replacement_usages = None;
     }
     if context.pipe.is_none() && context.last_pipe_attempt.elapsed() >= Duration::from_millis(250) {
         context.last_pipe_attempt = Instant::now();
-        context.pipe = super::windows_pipe::PipeStream::connect_read_only(
+        context.pipe = super::windows_pipe::PipeStream::connect(
             &quarbor_pipe_name(&device_id),
             Duration::from_millis(1),
         )
         .ok();
     }
-    let Some(pipe) = context.pipe.as_mut() else {
+    let Some(mut pipe) = context.pipe.take() else {
         thread::sleep(Duration::from_millis(timeout_ms as u64));
         return 0;
     };
     let mut buffer = [0u8; 8192];
-    match pipe.read(&mut buffer) {
+    let result = match pipe.read(&mut buffer) {
         Ok(size) => {
             if size == 0 {
-                context.pipe = None;
                 quarbor_release_active_usages(context);
-                0
+                Err(ErrorKind::UnexpectedEof.into())
             } else {
                 context.bytes.extend_from_slice(&buffer[..size]);
-                quarbor_parse_frames(context);
-                i32::from(!context.reports.is_empty())
+                quarbor_parse_frames(context, &mut pipe)
+                    .map(|()| i32::from(!context.reports.is_empty()))
             }
         }
-        Err(error) if error.kind() == ErrorKind::TimedOut => 0,
-        Err(_) => {
-            context.pipe = None;
+        Err(error) if error.kind() == ErrorKind::TimedOut => Ok(0),
+        Err(error) => {
             quarbor_release_active_usages(context);
-            0
+            Err(error)
         }
+    };
+    if result.is_ok() {
+        context.pipe = Some(pipe);
+    } else {
+        context.bytes.clear();
+        context.session_id = None;
+        context.handshaken = false;
     }
+    result.unwrap_or(0)
 }
 
 #[cfg(windows)]
@@ -276,6 +300,36 @@ unsafe extern "C" fn quarbor_get_hardware_id(
 }
 
 #[cfg(windows)]
+unsafe fn quarbor_update_replacements(context: Context, shared: &Shared) {
+    let context = &mut *context.cast::<QuarborContext>();
+    let settings = shared
+        .settings
+        .read()
+        .map(|settings| settings.clone())
+        .unwrap_or_default();
+    let mut replacements = HashMap::new();
+    if settings.enabled {
+        for source in SOURCE_KEYS {
+            let Some(triggers) = settings.behaviors.get(source.id) else {
+                continue;
+            };
+            let Some(target) = replacement_usage(triggers) else {
+                continue;
+            };
+            replacements.insert(source_usage(source.id), target);
+        }
+    }
+    if context.active_usages.is_empty() {
+        context.replacement_usages = replacements;
+        context.pending_replacement_usages = None;
+    } else if context.replacement_usages != replacements {
+        // Keep the old target until every currently held source usage is
+        // released; otherwise a live target could remain logically pressed.
+        context.pending_replacement_usages = Some(replacements);
+    }
+}
+
+#[cfg(windows)]
 fn quarbor_pipe_name(instance_id: &str) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for unit in instance_id.to_ascii_uppercase().encode_utf16() {
@@ -284,44 +338,205 @@ fn quarbor_pipe_name(instance_id: &str) -> String {
             hash = hash.wrapping_mul(0x100000001b3);
         }
     }
-    format!(r"\\.\pipe\Quarbor.HidUserFilter.v1.{hash:016X}")
+    format!(r"\\.\pipe\Quarbor.HidUserFilter.v2.{hash:016X}")
 }
 
 #[cfg(windows)]
-fn quarbor_parse_frames(context: &mut QuarborContext) {
-    const HEADER: usize = 48;
+fn quarbor_parse_frames(
+    context: &mut QuarborContext,
+    pipe: &mut super::windows_pipe::PipeStream,
+) -> std::io::Result<()> {
+    const HEADER: usize = 64;
+    const MAGIC: u32 = 0x3246_4851;
+    const VERSION: u16 = 2;
     while context.bytes.len() >= HEADER {
-        if u32::from_le_bytes(context.bytes[0..4].try_into().unwrap()) != 0x31464851 {
-            context.bytes.remove(0);
-            continue;
-        }
-        let version = u16::from_le_bytes(context.bytes[4..6].try_into().unwrap());
-        let kind = u16::from_le_bytes(context.bytes[6..8].try_into().unwrap());
-        let header_bytes = u32::from_le_bytes(context.bytes[8..12].try_into().unwrap());
-        let payload = u32::from_le_bytes(context.bytes[12..16].try_into().unwrap()) as usize;
-        let frame = HEADER + payload;
-        if version != 1 || header_bytes != HEADER as u32 || payload > 4096 || !matches!(kind, 1..=3)
+        let frame_header = &context.bytes[..HEADER];
+        let magic = u32::from_le_bytes(frame_header[0..4].try_into().unwrap());
+        let version = u16::from_le_bytes(frame_header[4..6].try_into().unwrap());
+        let kind = u16::from_le_bytes(frame_header[6..8].try_into().unwrap());
+        let header_bytes = u32::from_le_bytes(frame_header[8..12].try_into().unwrap());
+        let payload = u32::from_le_bytes(frame_header[12..16].try_into().unwrap()) as usize;
+        let session_id = u64::from_le_bytes(frame_header[16..24].try_into().unwrap());
+        let sequence = u64::from_le_bytes(frame_header[24..32].try_into().unwrap());
+        let timeout_ms = u32::from_le_bytes(frame_header[40..44].try_into().unwrap());
+        let deadline_ms = u32::from_le_bytes(frame_header[44..48].try_into().unwrap());
+        let reserved = u32::from_le_bytes(frame_header[56..60].try_into().unwrap());
+        let reserved2 = u32::from_le_bytes(frame_header[60..64].try_into().unwrap());
+        let valid_payload = match kind {
+            1 => payload >= 2 && payload % 2 == 0,
+            2 | 5 => payload == 16,
+            3 | 4 => (1..=4096).contains(&payload),
+            6 => payload == 48,
+            _ => false,
+        };
+        if magic != MAGIC
+            || version != VERSION
+            || header_bytes != HEADER as u32
+            || !(1..=6).contains(&kind)
+            || !valid_payload
+            || reserved != 0
+            || reserved2 != 0
         {
-            context.bytes.drain(..4);
-            continue;
+            return Err(std::io::Error::new(
+                ErrorKind::InvalidData,
+                "invalid Quarbor v2 frame header",
+            ));
         }
+        let frame = HEADER + payload;
         if context.bytes.len() < frame {
             break;
         }
-        let data = context.bytes[HEADER..frame].to_vec();
+        let mut data = context.bytes[HEADER..frame].to_vec();
         context.bytes.drain(..frame);
-        if kind == 1 {
-            if data.len() >= 2 && data.len() % 2 == 0 {
-                let units = data
+        match kind {
+            1 => {
+                if data[data.len() - 2..] != [0, 0] {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid Quarbor Hello",
+                    ));
+                }
+                let units = data[..data.len() - 2]
                     .chunks_exact(2)
                     .map(|part| u16::from_le_bytes([part[0], part[1]]))
                     .collect::<Vec<_>>();
-                if units.last() == Some(&0) {
-                    context.device_id = String::from_utf16(&units[..units.len() - 1]).ok();
+                let hello_id = String::from_utf16(&units).map_err(|_| {
+                    std::io::Error::new(ErrorKind::InvalidData, "invalid Quarbor Hello UTF-16")
+                })?;
+                if let Some(expected) = context.device_id.as_deref() {
+                    if !expected.eq_ignore_ascii_case(&hello_id) {
+                        return Err(std::io::Error::new(
+                            ErrorKind::InvalidData,
+                            "Quarbor Hello device mismatch",
+                        ));
+                    }
                 }
+                context.device_id = Some(hello_id);
+                context.session_id = Some(session_id);
+                context.handshaken = false;
+                quarbor_send_client_hello(pipe, session_id)?;
+                context.handshaken = true;
             }
-        } else if kind == 2 {
-            quarbor_decode_report(context, &data);
+            3 => {
+                if payload == 0 || !context.handshaken || context.session_id != Some(session_id) {
+                    return Err(std::io::Error::new(
+                        ErrorKind::InvalidData,
+                        "invalid Quarbor ReportRequest",
+                    ));
+                }
+                let original = data.clone();
+                quarbor_rewrite_report(context, &mut data);
+                quarbor_send_report_reply(
+                    pipe,
+                    session_id,
+                    sequence,
+                    timeout_ms,
+                    deadline_ms,
+                    &data,
+                )?;
+                quarbor_decode_report(context, &original);
+            }
+            2 | 4 | 5 | 6 => {}
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn quarbor_frame_header(
+    kind: u16,
+    payload: usize,
+    session_id: u64,
+    sequence: u64,
+    timeout_ms: u32,
+    deadline_ms: u32,
+) -> [u8; 64] {
+    let mut header = [0u8; 64];
+    header[0..4].copy_from_slice(&0x3246_4851u32.to_le_bytes());
+    header[4..6].copy_from_slice(&2u16.to_le_bytes());
+    header[6..8].copy_from_slice(&kind.to_le_bytes());
+    header[8..12].copy_from_slice(&64u32.to_le_bytes());
+    header[12..16].copy_from_slice(&(payload as u32).to_le_bytes());
+    header[16..24].copy_from_slice(&session_id.to_le_bytes());
+    header[24..32].copy_from_slice(&sequence.to_le_bytes());
+    header[40..44].copy_from_slice(&timeout_ms.to_le_bytes());
+    header[44..48].copy_from_slice(&deadline_ms.to_le_bytes());
+    header
+}
+
+#[cfg(windows)]
+fn quarbor_write_frame(
+    pipe: &mut super::windows_pipe::PipeStream,
+    header: [u8; 64],
+    payload: &[u8],
+) -> std::io::Result<()> {
+    pipe.write_all(&header)?;
+    pipe.write_all(payload)
+}
+
+#[cfg(windows)]
+fn quarbor_send_client_hello(
+    pipe: &mut super::windows_pipe::PipeStream,
+    session_id: u64,
+) -> std::io::Result<()> {
+    let mut payload = [0u8; 16];
+    payload[0..2].copy_from_slice(&2u16.to_le_bytes());
+    payload[2..4].copy_from_slice(&64u16.to_le_bytes());
+    payload[4..8].copy_from_slice(&1u32.to_le_bytes());
+    payload[8..12].copy_from_slice(&4096u32.to_le_bytes());
+    quarbor_write_frame(
+        pipe,
+        quarbor_frame_header(2, payload.len(), session_id, 0, 0, 0),
+        &payload,
+    )
+}
+
+#[cfg(windows)]
+fn quarbor_send_report_reply(
+    pipe: &mut super::windows_pipe::PipeStream,
+    session_id: u64,
+    sequence: u64,
+    timeout_ms: u32,
+    deadline_ms: u32,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    quarbor_write_frame(
+        pipe,
+        quarbor_frame_header(
+            4,
+            payload.len(),
+            session_id,
+            sequence,
+            timeout_ms,
+            deadline_ms,
+        ),
+        payload,
+    )
+}
+
+#[cfg(windows)]
+fn quarbor_rewrite_report(context: &QuarborContext, payload: &mut [u8]) {
+    if context.replacement_usages.is_empty() {
+        return;
+    }
+    // RC003 reports are either a byte-prefixed report ID followed by 16-bit
+    // usages or a plain sequence of 16-bit usages. Keep the report ID byte
+    // untouched and replace only source usages in-place.
+    let offset = if payload.len() > 1
+        && payload[0] == 1
+        && (payload.len() - 1).is_multiple_of(2)
+    {
+        1
+    } else if payload.len().is_multiple_of(2) {
+        0
+    } else {
+        return;
+    };
+    for pair in payload[offset..].chunks_exact_mut(2) {
+        let usage = u16::from_le_bytes([pair[0], pair[1]]);
+        if let Some(target) = context.replacement_usages.get(&usage) {
+            pair.copy_from_slice(&target.to_le_bytes());
         }
     }
 }
@@ -354,6 +569,11 @@ fn quarbor_decode_report(context: &mut QuarborContext, payload: &[u8]) {
         }
     }
     context.active_usages = current;
+    if context.active_usages.is_empty() {
+        if let Some(replacements) = context.pending_replacement_usages.take() {
+            context.replacement_usages = replacements;
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -374,6 +594,92 @@ fn known_rc003_usage(usage: u16) -> bool {
             | 0x0080
             | 0x0081
     )
+}
+
+#[cfg(windows)]
+fn source_usage(source: &str) -> u16 {
+    match source {
+        "voice" => 0x003e,
+        "power" => 0x0066,
+        "home" => 0x004a,
+        "tv" => 0x0035,
+        "menu" => 0x0065,
+        "confirm" => 0x0028,
+        "up" => 0x0052,
+        "down" => 0x0050,
+        "left" => 0x0051,
+        "right" => 0x004f,
+        "back" => 0x00f1,
+        "volumeUp" => 0x0080,
+        "volumeDown" => 0x0081,
+        _ => 0,
+    }
+}
+
+#[cfg(windows)]
+fn replacement_usage(triggers: &TriggerBehaviors) -> Option<u16> {
+    let behavior = triggers.replace.iter().find(|behavior| behavior.enabled())?;
+    let NativeBehavior::Key { key, .. } = behavior else {
+        return None;
+    };
+    let keys = parse_chord(key)?;
+    (keys.len() == 1).then(|| hid_usage_for_virtual_key(keys[0]))?
+}
+
+#[cfg(windows)]
+fn hid_usage_for_virtual_key(key: u16) -> Option<u16> {
+    let usage = match key {
+        0x41..=0x5a => key - 0x41 + 0x04,
+        0x30 => 0x27,
+        0x31..=0x39 => key - 0x31 + 0x1e,
+        0x08 => 0x2a,
+        0x09 => 0x2b,
+        0x0d => 0x28,
+        0x1b => 0x29,
+        0x20 => 0x2c,
+        0x10 => 0xe1,
+        0xa0 => 0xe1,
+        0xa1 => 0xe5,
+        0x11 => 0xe0,
+        0xa2 => 0xe0,
+        0xa3 => 0xe4,
+        0x12 => 0xe2,
+        0xa4 => 0xe2,
+        0xa5 => 0xe6,
+        0x5b => 0xe3,
+        0x5c => 0xe7,
+        0x2d => 0x49,
+        0x2e => 0x4c,
+        0x21 => 0x4b,
+        0x22 => 0x4e,
+        0x23 => 0x4d,
+        0x24 => 0x4a,
+        0x25 => 0x50,
+        0x26 => 0x52,
+        0x27 => 0x4f,
+        0x28 => 0x51,
+        0xad => 0x0082,
+        0xae => 0x0081,
+        0xaf => 0x0080,
+        0xb0 => 0x00b5,
+        0xb1 => 0x00b6,
+        0xb2 => 0x00b7,
+        0xb3 => 0x00cd,
+        0xba => 0x0033,
+        0xbb => 0x002e,
+        0xbc => 0x0036,
+        0xbd => 0x002d,
+        0xbe => 0x0037,
+        0xbf => 0x0038,
+        0xc0 => 0x0035,
+        0xdb => 0x002f,
+        0xdc => 0x0031,
+        0xdd => 0x0030,
+        0xde => 0x0034,
+        0x70..=0x87 => key - 0x70 + 0x3a,
+        _ => return None,
+    };
+    Some(usage)
 }
 
 #[cfg(windows)]
@@ -448,7 +754,10 @@ impl InputService {
             .behaviors
             .values()
             .map(|triggers| {
-                triggers.click.len() + triggers.double_click.len() + triggers.long_press.len()
+                triggers.click.len()
+                    + triggers.double_click.len()
+                    + triggers.long_press.len()
+                    + triggers.replace.len()
             })
             .sum::<usize>();
         log::info!(
@@ -716,6 +1025,8 @@ fn run_context(
             next_probe = now + Duration::from_secs(1);
         }
         if target_device != 0 {
+            #[cfg(windows)]
+            unsafe { quarbor_update_replacements(context, shared); }
             process_timers(api, context, target_device, shared, &mut button_states, now);
         }
 
@@ -951,6 +1262,11 @@ fn process_source_stroke(
         .get(source.id)
         .cloned()
         .unwrap_or_default();
+    if settings.enabled && has_replacement(&triggers) {
+        // The Quarbor reply already contains the target HID usage. Keep the
+        // source edge visible to the UI, but do not inject it a second time.
+        return;
+    }
     if !settings.enabled || !has_custom_behavior(&triggers) {
         log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}, custom_behavior={}", source.id, settings.enabled, has_custom_behavior(&triggers));
         if let Some(state) = states.get_mut(source.id) {
@@ -1184,6 +1500,13 @@ fn has_custom_behavior(triggers: &TriggerBehaviors) -> bool {
     has_enabled(&triggers.click)
         || has_enabled(&triggers.double_click)
         || has_enabled(&triggers.long_press)
+        || has_replacement(triggers)
+}
+
+fn has_replacement(triggers: &TriggerBehaviors) -> bool {
+    triggers.replace.iter().any(|behavior| {
+        behavior.enabled() && matches!(behavior, NativeBehavior::Key { .. })
+    })
 }
 
 fn continuous_click_chord(triggers: &TriggerBehaviors) -> Option<Vec<u16>> {
@@ -1690,6 +2013,7 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
             .iter()
             .chain(&triggers.double_click)
             .chain(&triggers.long_press)
+            .chain(&triggers.replace)
         {
             if !behavior.enabled() {
                 continue;
@@ -1704,6 +2028,17 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
                     return Err(format!("{button}: shortcut contains an unsupported key"));
                 }
                 _ => {}
+            }
+        }
+        let replacements = triggers.replace.iter().filter(|behavior| behavior.enabled()).collect::<Vec<_>>();
+        if replacements.len() > 1 {
+            return Err(format!("{button}: replacement accepts only one target key"));
+        }
+        if let Some(behavior) = replacements.first() {
+            match behavior {
+                NativeBehavior::Key { key, .. } if parse_chord(key).is_some_and(|keys| keys.len() == 1) => {}
+                NativeBehavior::Key { .. } => return Err(format!("{button}: replacement target must be one key")),
+                _ => return Err(format!("{button}: replacement target must be a key")),
             }
         }
     }
@@ -1958,6 +2293,30 @@ mod tests {
         let setup_api = "HID\\{00001812}_DEV_VID&012717_PID&32B8";
         let hello = "HID\\{00001812}_Dev_VID&012717_PID&32b8";
         assert!(setup_api.eq_ignore_ascii_case(hello));
+    }
+
+    #[test]
+    fn uses_v2_pipe_names_and_wire_headers() {
+        let path = quarbor_pipe_name("HID\\{00001812}_DEV_VID&012717_PID&32B8");
+        assert!(path.contains("Quarbor.HidUserFilter.v2."));
+        assert!(!path.contains(".v1."));
+
+        let header = quarbor_frame_header(4, 9, 0x1122_3344_5566_7788, 7, 100, 1234);
+        assert_eq!(
+            u32::from_le_bytes(header[0..4].try_into().unwrap()),
+            0x3246_4851
+        );
+        assert_eq!(u16::from_le_bytes(header[4..6].try_into().unwrap()), 2);
+        assert_eq!(u16::from_le_bytes(header[6..8].try_into().unwrap()), 4);
+        assert_eq!(u32::from_le_bytes(header[8..12].try_into().unwrap()), 64);
+        assert_eq!(u32::from_le_bytes(header[12..16].try_into().unwrap()), 9);
+        assert_eq!(
+            u64::from_le_bytes(header[16..24].try_into().unwrap()),
+            0x1122_3344_5566_7788
+        );
+        assert_eq!(u64::from_le_bytes(header[24..32].try_into().unwrap()), 7);
+        assert_eq!(u32::from_le_bytes(header[40..44].try_into().unwrap()), 100);
+        assert_eq!(u32::from_le_bytes(header[44..48].try_into().unwrap()), 1234);
     }
 
     #[test]

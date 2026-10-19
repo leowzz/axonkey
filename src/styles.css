@@ -254,6 +254,7 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .behavior-current-panel { min-width: 0; grid-row: 1 / span 2; padding-right: 18px; border-right: 1px solid #d2d5d8; }
 .behavior-column-heading { display: flex; min-height: 32px; align-items: center; justify-content: space-between; gap: 12px; }
 .behavior-column-heading h3 { margin: 0; color: #4b535a; font-size: 14px; }
+.behavior-replace-hint { margin: 4px 0 10px; color: #6f7780; font-size: 12px; line-height: 1.5; }
 .behavior-list { display: flex; min-width: 0; flex-direction: column; gap: 9px; }
 .behavior-empty { display: flex; min-height: 126px; align-items: center; justify-content: center; padding: 18px; border: 1px dashed #c4c9ce; border-radius: 7px; color: #838a91; background: rgba(255,255,255,.28); font-size: 14px; line-height: 1.6; text-align: center; }
 .behavior-item { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid #d5d8dc; border-radius: 10px; background: #f5f6f7; }
@@ -660,16 +661,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .trigger-selector { margin-inline: 16px; min-width: 0; display: grid; grid-template-columns: 130px minmax(0, 1fr); align-items: center; gap: 18px; padding: 12px 16px; border-bottom: 1px solid #c9d9ed; background: #edf3fb; }
 .trigger-selector-title { display: flex; min-width: 0; align-items: center; gap: 10px; }
 .trigger-selector-title .row-icon { width: 36px; height: 36px; color: #176fcf; background: #e3effc; }
-.trigger-options { display: grid; min-width: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 5px; border: 1px solid #c4d3e6; border-radius: 14px; background: #dfe8f4; box-shadow: inset 0 1px 3px rgba(35, 62, 96, .08); }
-.trigger-options > button { display: grid; min-width: 0; min-height: 52px; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 7px 12px; border: 1px solid transparent; border-radius: 10px; color: #526985; background: transparent; text-align: left; transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease; }
+.trigger-options { display: grid; min-width: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; padding: 4px; border: 1px solid #c4d3e6; border-radius: 14px; background: #dfe8f4; box-shadow: inset 0 1px 3px rgba(35, 62, 96, .08); }
+.trigger-options > button { display: grid; min-width: 0; min-height: 44px; grid-template-columns: 25px minmax(0, 1fr) auto; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid transparent; border-radius: 9px; color: #526985; background: transparent; text-align: left; transition: color .2s ease, border-color .2s ease, background .2s ease, transform .2s ease; }
 .trigger-options > button:hover:not(.active) { border-color: #b8cce5; color: #214f88; background: #f2f6fc; }
 .trigger-options > button:active { transform: translateY(1px); }
 .trigger-options > button.active { border-color: #204e90; color: #fff; background: #245aa0; box-shadow: 0 3px 8px rgba(28, 66, 117, .24), inset 0 1px rgba(255,255,255,.15); }
-.trigger-option-icon { display: grid; width: 29px; height: 29px; place-items: center; border-radius: 6px; background: rgba(255,255,255,.5); }
+.trigger-option-icon { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 6px; background: rgba(255,255,255,.5); }
 .trigger-options > button.active .trigger-option-icon { background: rgba(255,255,255,.16); }
 .trigger-option-copy { min-width: 0; }
 .trigger-option-copy strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trigger-option-copy strong { color: #415b7c; font-size: 15px; font-weight: 800; }
+.trigger-option-copy strong { color: #415b7c; font-size: 14px; font-weight: 800; }
 .trigger-options > button.active .trigger-option-copy strong { color: #fff; }
 .trigger-option-dot { width: 6px; height: 6px; border-radius: 50%; background: #69a9ec; }
 .trigger-options > button.active .trigger-option-dot { background: #dcecff; }
