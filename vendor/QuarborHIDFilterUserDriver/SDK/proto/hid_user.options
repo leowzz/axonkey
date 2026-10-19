@@ -1,6 +1,0 @@
-quarbor.hid.v3.InjectReport.report max_size:4096
-quarbor.hid.v3.Report.report max_size:4096
-# Store counted UTF-8 bytes in C so embedded NUL can be rejected. Wire remains string.
-quarbor.hid.v3.Hello.instance_id max_size:2048 type_override:TYPE_BYTES
-quarbor.hid.v3.Capabilities.report_ids max_size:32
-quarbor.hid.v3.Diagnostics.last_encoded_report max_size:32
