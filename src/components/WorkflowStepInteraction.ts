@@ -1,8 +1,14 @@
-import { ClickCommandType, SelectStepBehaviorEndToken } from 'sequential-workflow-designer'
+import { ClickCommandType, SelectStepBehaviorEndToken, Vector } from 'sequential-workflow-designer'
 import type { DesignerExtension } from 'sequential-workflow-designer'
 import { isEditableWorkflowStep } from './workflowStepEditing.ts'
 
-export function createWorkflowStepInteraction(openEditor: (stepId: string) => void): DesignerExtension {
+type VerticalPanBounds = {
+  startY: number
+  minY: number
+  maxY: number
+}
+
+export function createWorkflowStepInteraction(openEditor: (stepId: string) => void, getVerticalPanBounds?: () => VerticalPanBounds): DesignerExtension {
   return {
     stepComponentViewWrapper: {
       wrap(view, context) {
@@ -24,6 +30,26 @@ export function createWorkflowStepInteraction(openEditor: (stepId: string) => vo
     clickBehaviorWrapperExtension: {
       create: () => ({
         wrap(behavior, command) {
+          if (!command) {
+            // Keep the workflow canvas horizontally fixed while retaining
+            // vertical panning for tall sequences.
+            let panStartY: number | undefined
+            return {
+              onStart: (position) => {
+                panStartY = getVerticalPanBounds?.().startY
+                behavior.onStart(position)
+              },
+              onMove: (delta) => {
+                const bounds = getVerticalPanBounds?.()
+                if (!bounds) return behavior.onMove(new Vector(0, delta.y))
+                const startY = panStartY ?? bounds.startY
+                const requestedY = startY - delta.y
+                const limitedY = Math.max(bounds.minY, Math.min(bounds.maxY, requestedY))
+                return behavior.onMove(new Vector(0, startY - limitedY))
+              },
+              onEnd: (interrupt, element, previousToken) => behavior.onEnd(interrupt, element, previousToken),
+            }
+          }
           if (command?.type !== ClickCommandType.selectStep || !isEditableWorkflowStep(command.component.step)) return behavior
           return {
             onStart: (position) => behavior.onStart(position),

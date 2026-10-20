@@ -171,7 +171,19 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
-      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor), {
+      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor, () => {
+        const canvasSize = workflowApi?.workspace.getCanvasSize()
+        const rootSize = workflowApi?.workspace.getRootComponentSize()
+        const current = workflowApi?.workspace.getViewport()
+        if (!canvasSize || !rootSize || !current) return { startY: 0, minY: 0, maxY: 0 }
+        const overflow = rootSize.y - canvasSize.y
+        const centeredY = Math.max(0, (canvasSize.y - rootSize.y) / 2)
+        return {
+          startY: current.position.y,
+          minY: overflow > 0 ? -overflow : centeredY,
+          maxY: overflow > 0 ? 0 : centeredY,
+        }
+      }), {
         contextMenu: {
           createItemsProvider: () => ({
             getItems: (step, parentSequence) => step && isEditableWorkflowStep(step) && !workflowApi?.editor.isReadonly() && !isWorkflowLaneDisabled(parentSequence)

@@ -111,6 +111,42 @@ test('dragging switches to the designer drag behavior without opening an editor'
   assert.equal(wrapper.wrap(click, { type: ClickCommandType.selectStep, component: { step: step('enter') } }), click)
 })
 
+test('panning the workflow canvas keeps its horizontal position fixed', () => {
+  const extension = createWorkflowStepInteraction(() => {})
+  const moved = []
+  const behavior = {
+    onStart(position) { moved.push(['start', position]) },
+    onMove(delta) { moved.push(['move', delta]); return undefined },
+    onEnd() { moved.push(['end']) },
+  }
+  const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(behavior, null)
+  const start = new Vector(32, 48)
+  const delta = new Vector(120, 75)
+  wrapped.onStart(start)
+  wrapped.onMove(delta)
+  wrapped.onEnd(false, null, null)
+  assert.deepEqual(moved, [['start', start], ['move', new Vector(0, 75)], ['end']])
+})
+
+test('panning is clamped to the flow bounds and stays centered when the flow fits', () => {
+  const extension = createWorkflowStepInteraction(() => {}, () => ({ startY: 0, minY: -200, maxY: 0 }))
+  const moved = []
+  const behavior = { onStart() {}, onMove(delta) { moved.push(delta) }, onEnd() {} }
+  const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(behavior, null)
+  wrapped.onStart(new Vector(0, 0))
+  wrapped.onMove(new Vector(0, 600))
+  wrapped.onMove(new Vector(0, -600))
+  assert.deepEqual(moved, [new Vector(0, 200), new Vector(0, 0)])
+
+  const centered = createWorkflowStepInteraction(() => {}, () => ({ startY: 80, minY: 80, maxY: 80 }))
+  const centeredMoved = []
+  const centeredBehavior = { onStart() {}, onMove(delta) { centeredMoved.push(delta) }, onEnd() {} }
+  const centeredWrapped = centered.clickBehaviorWrapperExtension.create().wrap(centeredBehavior, null)
+  centeredWrapped.onStart(new Vector(0, 0))
+  centeredWrapped.onMove(new Vector(0, 400))
+  assert.deepEqual(centeredMoved, [new Vector(0, 0)])
+})
+
 test('delay editing preserves nonnegative integers and rejects invalid durations', () => {
   const node = step('delay', { ms: 300 })
   for (const ms of [0, 1, 751, 300000]) {
