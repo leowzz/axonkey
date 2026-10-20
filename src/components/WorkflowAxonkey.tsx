@@ -16,6 +16,7 @@ import { defaultWorkflowDelayMs, findWorkflowStepEditor, workflowBehaviorPropert
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
+import { fixedWorkflowViewport } from './WorkflowViewport'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -167,7 +168,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
-      extensions: [createWorkflowStepInteraction(openEditor), {
+      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor), {
         rootComponent: createTriggerRootExtension((trigger, disabled) => {
           const api = workflowApi
           if (!active || !api || api.editor.isReadonly()) return

@@ -26,6 +26,8 @@
 .workflow-axonkey .sqd-toolbox-item-text { padding: 10px 8px 10px 50px; font-size: 12px; }
 .workflow-axonkey .sqd-workspace { margin-left: 230px; min-width: 0; }
 .workflow-axonkey .sqd-control-bar { left: 240px; }
+.workflow-axonkey .sqd-control-bar-button[title="Zoom in"],
+.workflow-axonkey .sqd-control-bar-button[title="Zoom out"] { display: none; }
 .workflow-editable-step { cursor: pointer; }
 .workflow-editable-step:focus-visible { outline: 2px solid #2878d4; outline-offset: 3px; }
 .workflow-step-editor .behavior-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
