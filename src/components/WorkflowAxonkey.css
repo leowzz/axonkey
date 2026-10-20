@@ -2,7 +2,7 @@
 .mapping-flow-page .key-picker { flex: 0 0 auto; }
 .workflow-axonkey { display: flex; flex: 1 0 416px; min-width: 0; min-height: 416px; padding: 0 16px 16px; isolation: isolate; }
 .workflow-axonkey-canvas { flex: 1; width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; overflow: hidden; }
-.workflow-axonkey .sqd-toolbox { width: 210px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(30, 55, 80, .1); }
+.workflow-axonkey .sqd-toolbox { right: 10px; left: auto; width: 210px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(30, 55, 80, .1); }
 .workflow-axonkey .workflow-toolbox { bottom: 80px; display: flex; flex-direction: column; min-height: 0; }
 .workflow-axonkey .workflow-toolbox:not(:has(.is-open)) { bottom: auto; }
 .workflow-toolbox-section { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; }
@@ -24,8 +24,8 @@
 .workflow-axonkey .sqd-toolbox-item:hover { border-color: #a9bfd8; background: #edf5ff; }
 .workflow-axonkey .sqd-toolbox-item-icon { width: 40px; height: 24px; margin-top: -12px; }
 .workflow-axonkey .sqd-toolbox-item-text { padding: 10px 8px 10px 50px; font-size: 12px; }
-.workflow-axonkey .sqd-workspace { margin-left: 230px; min-width: 0; }
-.workflow-axonkey .sqd-control-bar { left: 240px; }
+.workflow-axonkey .sqd-workspace { margin-right: 230px; margin-left: 0; min-width: 0; }
+.workflow-axonkey .sqd-control-bar { right: 240px; left: auto; }
 .workflow-axonkey .sqd-control-bar-button[title="Zoom in"],
 .workflow-axonkey .sqd-control-bar-button[title="Zoom out"] { display: none; }
 .workflow-editable-step { cursor: pointer; }
