@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer } from 'sequential-workflow-designer'
-import { keyDisplayName, rightModifierChoices } from '../appConfig'
+import { behaviorSummary, keyDisplayName, rightModifierChoices } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
-import { defaultCursorDistance } from '../behaviorModel'
-import { createTriggerDefinition, isTriggerRoot, triggerRootExtension } from './WorkflowTriggerRoot'
+import { defaultCursorDistance, normalizeBehavior } from '../behaviorModel'
+import type { InputId, TriggerBehaviors } from '../behaviorModel'
+import { createTriggerRootExtension, isTriggerRoot } from './WorkflowTriggerRoot'
+import { behaviorToWorkflowStep, behaviorsToWorkflow, insertedWorkflowSteps, isWorkflowLaneDisabled, setWorkflowLaneDisabled, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
@@ -28,6 +30,8 @@ const translations: Record<string, string> = {
 type WorkflowAxonkeyProps = {
   platform: Platform
   button: MappingInput
+  sequences: TriggerBehaviors
+  onChange: (inputId: InputId, sequences: TriggerBehaviors) => void
 }
 
 type WorkflowAction = {
@@ -36,8 +40,14 @@ type WorkflowAction = {
   description?: string
 }
 
-export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
+export function WorkflowAxonkey({ platform, button, sequences, onChange }: WorkflowAxonkeyProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
+  const savedRef = useRef('')
+  const incomingRef = useRef(sequences)
+  incomingRef.current = sequences
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+  const [reload, setReload] = useState(0)
   const [editingStep, setEditingStep] = useState<WorkflowStepEdit | null>(null)
   const [toolbox, setToolbox] = useState<{
     host: HTMLElement
@@ -122,42 +132,61 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
       { name: '基础', groups: actionGroups.map(toGroup) },
       { name: '常用', groups: [toGroup({ name: '常用', actions: commonActions })] },
     ]
-    const definition = createTriggerDefinition()
+    const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
+    const definition = behaviorsToWorkflow(sequences, label)
+    savedRef.current = workflowSequenceSignature(sequences)
+    let active = true
     const iconUrls = createWorkflowActionIconUrls(platform)
     let workflowApi: DesignerApi | undefined
     const openEditor = (stepId: string) => {
       const api = workflowApi
       if (!api || api.editor.isReadonly()) return
       const editor = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
-      if (!editor) return
+      if (!editor || isWorkflowLaneDisabled(workflowBranches(api.editor.getDefinition())[editor.trigger])) return
       setEditingStep({
         stepId, trigger: editor.trigger, behavior: editor.behavior,
         onSave: (behavior) => {
+          if (!active) return
           const current = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
           if (!current || api.editor.isReadonly()) return
           const properties = workflowBehaviorProperties(current.step, behavior)
           if (!properties) return
-          if (JSON.stringify(current.step.properties) !== JSON.stringify(properties)) {
-            current.step.properties = properties
-            api.editor.createStepEditorContext(stepId).notifyPropertiesChanged()
+          const savedBehavior = normalizeBehavior({ ...behavior, id: stepId })
+          if (!savedBehavior) return
+          const group = current.step.properties.draftGroup
+          for (const branch of Object.values(workflowBranches(api.editor.getDefinition()))) {
+            for (const node of branch) {
+              if (group && node.properties.draftGroup === group) delete node.properties.draftGroup
+            }
           }
+          Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
+          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
           setEditingStep(null)
         },
       })
     }
     const designer = Designer.create(canvasRef.current, definition, {
       theme: 'light',
-      undoStackSize: 20,
+      // Undo/redo uses the application's shared behavior history and persistence.
       steps: {
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
-        isDraggable: (step) => !isTriggerRoot(step),
-        isDeletable: (step) => !isTriggerRoot(step),
-        isDuplicable: (step) => !isTriggerRoot(step),
-        canInsertStep: (_step, target) => !target.some(isTriggerRoot),
-        canMoveStep: (_source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot),
+        isDraggable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDuplicable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
+        canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
       extensions: [createWorkflowStepInteraction(openEditor), {
-        rootComponent: triggerRootExtension,
+        rootComponent: createTriggerRootExtension((trigger, disabled) => {
+          const api = workflowApi
+          if (!active || !api || api.editor.isReadonly()) return
+          if (!setWorkflowLaneDisabled(api.editor.getDefinition(), trigger, disabled, label)) return
+          const restoreFocus = document.activeElement?.getAttribute('data-trigger-toggle') === trigger
+          if (restoreFocus) void designer.onRootComponentUpdated.once().then(() => {
+            if (active) canvasRef.current?.querySelector<HTMLButtonElement>(`[data-trigger-toggle="${trigger}"]`)?.focus()
+          })
+          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        }),
         uiComponents: [{
           create: (root, api) => {
             workflowApi = api
@@ -180,7 +209,25 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
     let ready = false
     designer.onReady.subscribe(() => { ready = true })
     designer.onDefinitionChanged.subscribe((event) => {
-      if (event.changeType === DefinitionChangeType.stepInserted && event.stepId) openEditor(event.stepId)
+      if (!active) return
+      const current = workflowApi?.editor.getDefinition()
+      if (!current) return
+      if (event.changeType === DefinitionChangeType.stepInserted && event.stepId) {
+        for (const branch of Object.values(workflowBranches(current))) {
+          const index = branch.findIndex((step) => step.id === event.stepId)
+          if (index < 0) continue
+          const nodes = insertedWorkflowSteps(branch[index], platform, label)
+          branch.splice(index, 1, ...nodes)
+          workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+          openEditor(event.stepId)
+          return
+        }
+      }
+      const next = workflowToBehaviors(current)
+      if (next && workflowSequenceSignature(next) !== savedRef.current) {
+        savedRef.current = workflowSequenceSignature(next)
+        onChangeRef.current(button.id, next)
+      }
     })
     const resizeObserver = new ResizeObserver(() => {
       if (!ready || designer.isDragging()) return
@@ -190,15 +237,52 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
     resizeObserver.observe(canvasRef.current)
 
     return () => {
+      active = false
+      // Designer events are batched. Flush a last drop/move/delete before a fast
+      // key/page switch, but never write the old canvas over an external undo.
+      if (workflowApi && workflowSequenceSignature(incomingRef.current) === savedRef.current) {
+        const current = workflowApi.editor.getDefinition()
+        for (const branch of Object.values(workflowBranches(current))) {
+          for (let index = branch.length - 1; index >= 0; index--) {
+            if (!branch[index].properties.behaviorType) branch.splice(index, 1, ...insertedWorkflowSteps(branch[index], platform, label))
+          }
+        }
+        const next = workflowToBehaviors(current)
+        if (next && workflowSequenceSignature(next) !== savedRef.current) onChangeRef.current(button.id, next)
+      }
       setEditingStep(null)
+      setToolbox(null)
       resizeObserver.disconnect()
       designer.destroy()
     }
-  }, [platform])
+  }, [platform, button.id, reload])
+
+  useEffect(() => {
+    // An import, reset, or shared undo replaces the view. Our own save echo keeps
+    // the current designer and its viewport intact.
+    if (workflowSequenceSignature(sequences) !== savedRef.current) setReload((value) => value + 1)
+  }, [sequences])
+
+  const closeEditor = () => {
+    if (editingStep && toolbox) {
+      const definition = toolbox.api.editor.getDefinition()
+      let removed = false
+      for (const branch of Object.values(workflowBranches(definition))) {
+        for (let index = branch.length - 1; index >= 0; index--) {
+          if (branch[index].properties.draftGroup === editingStep.stepId) {
+            branch.splice(index, 1)
+            removed = true
+          }
+        }
+      }
+      if (removed) toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+    }
+    setEditingStep(null)
+  }
 
   return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
     <div ref={canvasRef} className="workflow-axonkey-canvas" aria-label="行为流程图画布" />
     {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} />, toolbox.host)}
-    {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={() => setEditingStep(null)} />, document.body)}
+    {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
   </section>
 }

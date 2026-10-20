@@ -1,17 +1,25 @@
 import type { BranchedStep, Definition, Step } from 'sequential-workflow-designer'
-import type { Behavior } from '../behaviorModel.ts'
-import { normalizeApplicationPath, normalizeWebsiteUrl, triggerTypes } from '../behaviorModel.ts'
+import type { Behavior, CursorDirection, MouseBehavior } from '../behaviorModel.ts'
+import { defaultCursorDistance, normalizeApplicationPath, normalizeWebsiteUrl, triggerTypes } from '../behaviorModel.ts'
 
 export const defaultWorkflowDelayMs = 300
+const directionSuffixes: Record<string, CursorDirection> = { Up: 'up', Down: 'down', Left: 'left', Right: 'right' }
+const mouseButtons: Record<string, MouseBehavior['button']> = { mouseLeft: 'left', mouseRight: 'right', mouseBack: 'back', mouseForward: 'forward' }
 
 export function isEditableWorkflowStep(step: Step) {
-  return ['delay', 'paste', 'customKey', 'openApp', 'openWebsite'].includes(step.type)
+  return ['delay', 'paste', 'customKey', 'openApp', 'openWebsite'].includes(step.type) || step.type.startsWith('cursor')
 }
 
 export function workflowStepBehavior(step: Step): Behavior | null {
-  const base = { id: step.id, enabled: true }
+  const base = { id: step.id, enabled: step.properties.enabled !== false }
   const { text, path, url, key, keys, ms } = step.properties
+  const direction = directionSuffixes[step.type.replace(/^(wheel|cursor)/, '')]
+  if (direction && step.type.startsWith('wheel')) return { ...base, type: 'wheel', direction }
+  if (direction && step.type.startsWith('cursor')) return { ...base, type: 'cursorMove', direction, distance: typeof step.properties.distance === 'number' ? step.properties.distance : defaultCursorDistance }
+  const mouseButton = mouseButtons[step.type]
+  if (mouseButton) return { ...base, type: 'mouse', button: mouseButton }
   switch (step.type) {
+    case 'disabled': return { ...base, type: 'disabled' }
     case 'delay': return { ...base, type: 'delay', ms: typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= 300000 ? ms : defaultWorkflowDelayMs }
     case 'paste': return { ...base, type: 'paste', text: typeof text === 'string' ? text : '' }
     case 'openApp': return { ...base, type: 'openApp', path: typeof path === 'string' ? path : '' }
@@ -55,6 +63,9 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   if (step.type === 'customKey') {
     if (behavior.type === 'key' && behavior.key) return { ...properties, key: behavior.key, keys: [] }
     if (behavior.type === 'shortcut' && behavior.keys.length > 0) return { ...properties, key: '', keys: [...behavior.keys] }
+  }
+  if (step.type.startsWith('cursor') && behavior.type === 'cursorMove' && Number.isInteger(behavior.distance) && behavior.distance >= 1 && behavior.distance <= 500) {
+    return { ...properties, distance: behavior.distance }
   }
   return null
 }

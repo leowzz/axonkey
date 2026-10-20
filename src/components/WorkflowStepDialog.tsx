@@ -69,7 +69,7 @@ export function WorkflowStepDialog({ edit, platform, button, onClose }: {
         event.stopPropagation()
         const captured = formatCapturedKey(event)
         if (!captured) return
-        setBehavior(behaviorFromCapturedKey(captured, behavior.id))
+        setBehavior({ ...behaviorFromCapturedKey(captured, behavior.id), enabled: behavior.enabled })
         setCapturing(false)
       }}
       onUpdate={(update) => setBehavior((current) => {

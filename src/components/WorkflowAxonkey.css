@@ -34,6 +34,15 @@
 .workflow-trigger-click { --trigger-color: #2878d4; --trigger-background: #edf5ff; --trigger-dash: none; }
 .workflow-trigger-doubleClick { --trigger-color: #8056c4; --trigger-background: #f4effc; --trigger-dash: 8 4; }
 .workflow-trigger-longPress { --trigger-color: #c77a21; --trigger-background: #fff5e8; --trigger-dash: 2 5; }
+.workflow-trigger-disabled { --trigger-color: #84909b; --trigger-background: #eef0f2; }
+.workflow-trigger-disabled [data-step-id] { opacity: .5; }
+.workflow-trigger-toggle { display: flex; width: 94px; height: 30px; align-items: center; justify-content: center; gap: 8px; padding: 0; border: 0; border-radius: 5px; color: #586572; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
+.workflow-trigger-toggle:hover { background: rgb(255 255 255 / 65%); }
+.workflow-trigger-toggle:focus-visible { outline: 2px solid #2878d4; outline-offset: -1px; }
+.workflow-trigger-toggle-track { position: relative; width: 30px; height: 18px; flex-shrink: 0; border-radius: 9px; background: #bbc4cd; }
+.workflow-trigger-toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
+.workflow-trigger-toggle[aria-checked="true"] .workflow-trigger-toggle-track { background: #2878d4; }
+.workflow-trigger-toggle[aria-checked="true"] .workflow-trigger-toggle-track::after { left: 14px; }
 .workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
 .workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
 .workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }

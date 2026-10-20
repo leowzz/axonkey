@@ -23,7 +23,8 @@ import {
   parseMappingImport,
   updateBehaviorList,
 } from '../behaviorModel'
-import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerType } from '../behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import { updateWorkflowInput } from '../components/workflowBehaviorBridge'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
   isRightModifierPreset,
@@ -299,6 +300,11 @@ function AppController() {
     setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, update))
     setAutoSaveState('saving')
   }, [selectedBehavior])
+
+  const updateWorkflow = useCallback((inputId: InputId, sequences: TriggerBehaviors) => {
+    setBehaviors((current) => updateWorkflowInput(current, inputId, sequences))
+    setAutoSaveState('saving')
+  }, [])
 
   useEffect(() => {
     // Discard legacy coordinates so shipped artwork positions always take effect.
@@ -1501,6 +1507,7 @@ function AppController() {
           markerRefs={markerRefs}
           pressedId={pressedId}
           behaviors={behaviors}
+          onWorkflowChange={updateWorkflow}
           draggingId={draggingId}
           hitPositions={hitPositions}
           handleHotspotPointerDown={handleHotspotPointerDown}
