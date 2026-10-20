@@ -1,4 +1,4 @@
-.PHONY: dev kill clean version-check build build-macos build-macos-audio test-release release uninstall-driver
+.PHONY: dev kill clean version-check build build-macos build-macos-audio build-uninstall-old-driver check-uninstall-old-driver-git test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -32,8 +32,14 @@ build-macos: version-check
 build-macos-audio:
 	./scripts/build-macos-audio-package.sh
 
+build-uninstall-old-driver:
+	npm run build:uninstall-old-driver
+
+check-uninstall-old-driver-git:
+	npm run check:uninstall-old-driver-git
+
 test-release:
 	npm run test:release
 
 uninstall-driver:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"
+	./vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe --uninstall "$(DEVICE)"

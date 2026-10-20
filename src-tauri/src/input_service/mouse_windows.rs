@@ -1,5 +1,5 @@
+pub(super) use super::super::windows::execute_mouse_behavior as execute;
 use super::{edge_width, screen_edge, ButtonTracker, ScrollAccumulator, Shared};
-use crate::input_service::NativeBehavior;
 use std::{
     cell::RefCell,
     ffi::c_void,
@@ -120,57 +120,7 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
             let Some((shared, scroll, buttons)) = capture.as_mut() else {
                 return false;
             };
-            let monitor = MonitorFromPoint(event.point, 0);
-            let mut info = MonitorInfo {
-                size: std::mem::size_of::<MonitorInfo>() as u32,
-                monitor: Rect::default(),
-                work: Rect::default(),
-                flags: 0,
-            };
-            let valid_monitor = monitor != 0 && GetMonitorInfoW(monitor, &mut info) != 0;
-            let edge = if valid_monitor {
-                screen_edge(
-                    event.point.x as f64,
-                    event.point.y as f64,
-                    info.monitor.left as f64,
-                    info.monitor.top as f64,
-                    info.monitor.right as f64,
-                    info.monitor.bottom as f64,
-                    edge_width(shared),
-                )
-            } else {
-                None
-            };
-            if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208) {
-                let button = match wparam {
-                    0x0201 | 0x0202 => Some(0),
-                    0x0204 | 0x0205 => Some(1),
-                    0x0207 | 0x0208 => xbutton_index(event.mouse_data),
-                    _ => None,
-                };
-                let Some(button) = button else { return false };
-                return buttons.event(
-                    shared,
-                    button,
-                    matches!(wparam, 0x0201 | 0x0204 | 0x0207),
-                    edge,
-                    (event.point.x as f64, event.point.y as f64),
-                    Instant::now(),
-                );
-            }
-            if !shared.active.load(Ordering::Acquire) {
-                scroll.reset();
-                return false;
-            }
-            scroll.enter(edge);
-            if wparam == 0x0200 {
-                return false;
-            }
-            let delta = (event.mouse_data >> 16) as i16 as i32;
-            let Some(direction) = wheel_direction(wparam, delta, event.flags) else {
-                return false;
-            };
-            scroll.scroll(shared, direction, delta.unsigned_abs() as f64 / 120.0)
+            process_mouse_event(shared, scroll, buttons, wparam, event)
         })
     })
     .unwrap_or(false);
@@ -179,6 +129,68 @@ unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> i
     } else {
         CallNextHookEx(0, code, wparam, lparam)
     }
+}
+
+fn process_mouse_event(
+    shared: &Shared,
+    scroll: &mut ScrollAccumulator,
+    buttons: &mut ButtonTracker,
+    wparam: usize,
+    event: &MouseHook,
+) -> bool {
+    let edge = monitor_edge(shared, event.point);
+    if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208) {
+        let button = match wparam {
+            0x0201 | 0x0202 => Some(0),
+            0x0204 | 0x0205 => Some(1),
+            0x0207 | 0x0208 => xbutton_index(event.mouse_data),
+            _ => None,
+        };
+        let Some(button) = button else { return false };
+        return buttons.event(
+            shared,
+            button,
+            matches!(wparam, 0x0201 | 0x0204 | 0x0207),
+            edge,
+            (event.point.x as f64, event.point.y as f64),
+            Instant::now(),
+        );
+    }
+    if !shared.active.load(Ordering::Acquire) {
+        scroll.reset();
+        return false;
+    }
+    scroll.enter(edge);
+    if wparam == 0x0200 {
+        return false;
+    }
+    let delta = (event.mouse_data >> 16) as i16 as i32;
+    let Some(direction) = wheel_direction(wparam, delta, event.flags) else {
+        return false;
+    };
+    scroll.scroll(shared, direction, delta.unsigned_abs() as f64 / 120.0)
+}
+
+fn monitor_edge(shared: &Shared, point: Point) -> Option<super::Edge> {
+    let monitor = unsafe { MonitorFromPoint(point, 0) };
+    let mut info = MonitorInfo {
+        size: std::mem::size_of::<MonitorInfo>() as u32,
+        monitor: Rect::default(),
+        work: Rect::default(),
+        flags: 0,
+    };
+    if monitor == 0 || unsafe { GetMonitorInfoW(monitor, &mut info) } == 0 {
+        return None;
+    }
+    screen_edge(
+        point.x as f64,
+        point.y as f64,
+        info.monitor.left as f64,
+        info.monitor.top as f64,
+        info.monitor.right as f64,
+        info.monitor.bottom as f64,
+        edge_width(shared),
+    )
 }
 
 pub(super) fn run(shared: Arc<Shared>) {
@@ -228,10 +240,6 @@ pub(super) fn run(shared: Arc<Shared>) {
         UnhookWindowsHookEx(hook);
     }
     CAPTURE.with(|capture| *capture.borrow_mut() = None);
-}
-
-pub(super) fn execute(behavior: &NativeBehavior, hold_ms: u64) {
-    super::super::windows::execute_mouse_behavior(behavior, hold_ms);
 }
 
 #[cfg(test)]

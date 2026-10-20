@@ -803,6 +803,12 @@ Section Uninstall
 
   !insertmacro CheckIfAppIsRunning "${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
 
+  ; Restore Quarbor bindings before deleting the bundled installer and driver files.
+  ; Wait for completion, but never block app removal on failure or cancelled UAC.
+  ClearErrors
+  ExecWait '"$INSTDIR\vendor\QuarborHIDFilterUserDriver\QuarborHIDFilterUserDriverInstaller.exe" --uninstall-all' $0
+  ClearErrors
+
   ; Delete the app directory and its content from disk
   ; Copy main executable
   Delete "$INSTDIR\${MAINBINARYNAME}.exe"

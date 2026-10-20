@@ -1,6 +1,8 @@
 # Interception 重连问题说明
 
-Axonkey 的 Windows 输入后端使用 Interception 1.0.1。该驱动存在断连后重新连接
+> 历史问题记录：v0.4.1 已改用 Quarbor HID，并提供旧驱动与 AxonkeyInterceptionFix 清理流程。当前链路见 [Windows 输入](./WINDOWS_INPUT.md)；下文的修复源码与命令对应[历史版本](https://github.com/leowzz/axonkey/tree/bae31327e3e976d3c22ae9d2b18aacc9fd58b703)。
+
+Axonkey v0.3.31 及以前的 Windows 输入后端使用 Interception 1.0.1。该驱动存在断连后重新连接
 可能无法输入的已知问题，本页记录其现象、原因和恢复方法。
 
 ## 现象

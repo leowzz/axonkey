@@ -32,6 +32,11 @@ export type MacPermissions = {
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
 export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'about'
 
+export type LegacyDriverProbe = {
+  interception: boolean
+  interceptionFix: boolean
+}
+
 export type SystemProbe = {
   platform: Platform
   input_driver_installed: boolean
@@ -52,6 +57,7 @@ export type RemoteKeyEvent = {
 
 export type DriverActionResult = {
   logPath: string
+  rebootRequired: boolean
 }
 
 export type AudioProbe = {

@@ -579,44 +579,22 @@ impl VoiceConnection {
         let control = find_characteristic(&service, CONTROL_UUID, "control")?;
         let (command_tx, commands) = mpsc::channel();
 
-        let audio_shared = Arc::clone(&shared);
-        let audio_handler = TypedEventHandler::<GattCharacteristic, GattValueChangedEventArgs>::new(
-            move |_, args| {
-                if let Some(args) = args.as_ref() {
-                    match event_bytes(args) {
-                        Ok(bytes) => handle_audio_packet(&audio_shared, &bytes),
-                        Err(_) => audio_shared.diagnostics.read_error(),
-                    }
+        let audio_token = watch_packets(
+            &audio,
+            Arc::clone(&shared),
+            "audio packets",
+            handle_audio_packet,
+        )?;
+        let control_token = watch_packets(
+            &control,
+            Arc::clone(&shared),
+            "voice controls",
+            move |shared, bytes| {
+                if let Some(command) = handle_control_packet(shared, bytes) {
+                    let _ = command_tx.send(command);
                 }
-                Ok(())
             },
-        );
-        let audio_token = audio
-            .ValueChanged(&audio_handler)
-            .map_err(|error| format!("Cannot watch RC003 audio packets: {error}"))?;
-
-        let control_shared = Arc::clone(&shared);
-        let control_handler =
-            TypedEventHandler::<GattCharacteristic, GattValueChangedEventArgs>::new(
-                move |_, args| {
-                    if let Some(args) = args.as_ref() {
-                        match event_bytes(args) {
-                            Ok(bytes) => {
-                                if let Some(command) =
-                                    handle_control_packet(&control_shared, &bytes)
-                                {
-                                    let _ = command_tx.send(command);
-                                }
-                            }
-                            Err(_) => control_shared.diagnostics.read_error(),
-                        }
-                    }
-                    Ok(())
-                },
-            );
-        let control_token = control
-            .ValueChanged(&control_handler)
-            .map_err(|error| format!("Cannot watch RC003 voice controls: {error}"))?;
+        )?;
 
         enable_notifications(&audio, "audio")?;
         enable_notifications(&control, "control")?;
@@ -821,6 +799,28 @@ fn write_characteristic(characteristic: &GattCharacteristic, bytes: &[u8]) -> Re
         return Err(format!("RC003 voice command failed: {status:?}"));
     }
     Ok(())
+}
+
+fn watch_packets(
+    characteristic: &GattCharacteristic,
+    shared: Arc<Shared>,
+    name: &str,
+    handle: impl Fn(&Shared, &[u8]) + Send + 'static,
+) -> Result<i64, String> {
+    let handler =
+        TypedEventHandler::<GattCharacteristic, GattValueChangedEventArgs>::new(move |_, args| {
+            let Some(args) = args.as_ref() else {
+                return Ok(());
+            };
+            match event_bytes(args) {
+                Ok(bytes) => handle(&shared, &bytes),
+                Err(_) => shared.diagnostics.read_error(),
+            }
+            Ok(())
+        });
+    characteristic
+        .ValueChanged(&handler)
+        .map_err(|error| format!("Cannot watch RC003 {name}: {error}"))
 }
 
 fn event_bytes(args: &GattValueChangedEventArgs) -> windows::core::Result<Vec<u8>> {
