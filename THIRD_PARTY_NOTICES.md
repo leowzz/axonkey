@@ -1,5 +1,11 @@
 # Third-party notices
 
+## remote-mic-app
+
+Axonkey's product inspiration comes from [HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app). Its macOS implementation references the project's RC003 VID/PID, HID usages, ATVV voice protocol, IOKit permission checks, CoreGraphics input injection and Core Audio output paths.
+
+Axonkey maintains its own Tauri interface, settings format, driver builds and runtime services. The projects are independent; Axonkey is not a fork of remote-mic-app.
+
 ## remote-bridge-hub
 
 - Project: `xxb26553663-star/remote-bridge-hub`
@@ -26,13 +32,13 @@ The build settings use bundle identifier `com.hd838a.MiRemoteV2ch`, device UID
 distributed as a separate macOS Installer component inside Axonkey.app.
 
 The exact build recipe and corresponding-source pointer are retained at
-`third_party/blackhole/README.md`.
+[third_party/blackhole/README.md](third_party/blackhole/README.md).
 
 ## QuarborHIDFilterUserDriver
 
 QuarborHIDFilterUserDriver is supplied by 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc. as a device-specific UMDF HID lower filter. Axonkey ships the original installer EXE, CLI documentation, INF, UMDF DLL, catalog, protocol documentation and license under vendor/QuarborHIDFilterUserDriver. The installer explicitly binds the private model to the selected RC003 keyboard device instance and stores the original driver information for offline recovery.
 
-The package is used under the free-use / no-resale license included at vendor/QuarborHIDFilterUserDriver/License.
+The package is used under the [free-use / no-resale license](vendor/QuarborHIDFilterUserDriver/License).
 
 ## VB-Audio VB-CABLE Pack45
 
@@ -57,4 +63,4 @@ Reviewed binary hashes (SHA-256):
 - Packaged `VBCABLE_Setup_x64.exe`: `734C35DFA6D98F48782A451633CEB471166EC70D60482FD89A1123D0EE3C4F41`
 
 The upstream package contains its complete end-user license in `readme.txt`.
-Additional provenance is recorded in `vendor/vbcable/SOURCE.md`.
+Additional provenance is recorded in [vendor/vbcable/SOURCE.md](vendor/vbcable/SOURCE.md).
