@@ -9,7 +9,6 @@ const project = join(root, 'tools', 'uninstall-old-driver')
 const required = [
   'tools/uninstall-old-driver/uninstall-old-driver.sln',
   'tools/uninstall-old-driver/uninstall-old-driver.vcxproj',
-  'tools/uninstall-old-driver/CMakeLists.txt',
   'tools/uninstall-old-driver/src/main.cpp',
   'tools/uninstall-old-driver/README.md',
   'scripts/build-uninstall-old-driver.mjs',
@@ -51,7 +50,6 @@ function assertPresent(path, { tracked = false } = {}) {
 for (const path of required) assertPresent(path, { tracked: path.endsWith('.exe') })
 
 for (const generated of [
-  'tools/uninstall-old-driver/build/CMakeCache.txt',
   'tools/uninstall-old-driver/bin/Release/uninstall-old-driver.exe',
   'tools/uninstall-old-driver/obj/Release/uninstall-old-driver.obj',
 ]) {

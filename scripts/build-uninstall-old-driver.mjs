@@ -11,14 +11,8 @@ if (process.platform !== 'win32') process.exit(0)
 
 const project = join(root, 'tools', 'uninstall-old-driver')
 const solution = join(project, 'uninstall-old-driver.sln')
-const source = join(project, 'CMakeLists.txt')
+const source = join(project, 'uninstall-old-driver.vcxproj')
 const resource = join(root, 'scripts', 'uninstall-old-driver.exe')
-
-function run(command, args) {
-  const result = spawnSync(command, args, { cwd: root, env: process.env, stdio: 'inherit', windowsHide: true })
-  if (result.error) return { available: false, status: 1 }
-  return { available: true, status: result.status ?? 1 }
-}
 
 function findMsbuild() {
   const candidates = [
@@ -28,7 +22,7 @@ function findMsbuild() {
 
   for (const vswhere of candidates) {
     if (!existsSync(vswhere)) continue
-    const result = spawnSync(vswhere, ['-latest', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', '-find', 'MSBuild\\**\\Bin\\MSBuild.exe'], { encoding: 'utf8', windowsHide: true })
+    const result = spawnSync(vswhere, ['-latest', '-products', '*', '-requires', 'Microsoft.Component.MSBuild', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64', '-find', 'MSBuild\\**\\Bin\\MSBuild.exe'], { encoding: 'utf8', windowsHide: true })
     const path = result.stdout?.trim().split(/\r?\n/).filter(Boolean).at(-1)
     if (path && existsSync(path)) return path
   }
@@ -43,22 +37,16 @@ if (!existsSync(solution) || !existsSync(source)) {
 }
 
 const msbuild = findMsbuild()
-let build
-if (msbuild) {
-  console.log(`Building uninstall-old-driver with ${msbuild}`)
-  build = run(msbuild, [solution, '/m', '/p:Configuration=Release', '/p:Platform=x64'])
+if (!msbuild) {
+  throw new Error('Visual Studio MSBuild with C++ tools was not found. Install the Desktop development with C++ workload, MSVC v145, and Windows SDK, or run from a Visual Studio Developer Command Prompt.')
 }
 
-if (!build || !build.available || build.status !== 0) {
-  if (msbuild) console.log('MSBuild could not use the requested v145 toolset; using the CMake toolchain fallback.')
-  else console.log('Visual Studio MSBuild was not found; using the CMake toolchain fallback.')
-  const buildDir = join(project, 'build')
-  const configure = run('cmake', ['-S', project, '-B', buildDir, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release'])
-  if (configure.status !== 0) process.exit(configure.status)
-  build = run('cmake', ['--build', buildDir, '--config', 'Release'])
-}
-
-if (!build.available || build.status !== 0) process.exit(build.status || 1)
+console.log(`Building uninstall-old-driver with ${msbuild}`)
+const build = spawnSync(msbuild, [solution, '/t:Rebuild', '/m', '/p:Configuration=Release', '/p:Platform=x64'], {
+  cwd: root, env: process.env, stdio: 'inherit', windowsHide: true,
+})
+if (build.error) throw build.error
+if (build.status !== 0) process.exit(build.status || 1)
 
 const output = join(project, 'bin', 'Release', 'uninstall-old-driver.exe')
 if (!existsSync(output)) {
