@@ -218,7 +218,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       }],
       toolbox: false,
       editors: false,
-      controlBar: true,
+      controlBar: false,
       contextMenu: true,
       keyboard: false,
       i18n: (key, defaultValue) => translations[key] ?? defaultValue,
