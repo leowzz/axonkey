@@ -3,7 +3,6 @@ import type { Behavior, BehaviorMap, ButtonId, TriggerType } from '../behaviorMo
 import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
 import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
 import type { Platform, RemoteButton } from '../appTypes'
-import type { ReactNode } from 'react'
 
 const triggerOrder: TriggerType[] = ['click', 'doubleClick', 'longPress']
 
@@ -13,18 +12,16 @@ type MappingKeyGridProps = {
   behaviors: BehaviorMap
   activeId: ButtonId
   pressedId: ButtonId | null
-  extraKeysNotice?: string
   rowRefs: { current: Partial<Record<ButtonId, HTMLElement>> }
   onSelect: (buttonId: ButtonId) => void
 }
 
-export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressedId, extraKeysNotice, rowRefs, onSelect }: MappingKeyGridProps) {
+export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressedId, rowRefs, onSelect }: MappingKeyGridProps) {
   return <div className="mapping-key-grid">
     {buttons.map((button) => {
       const configuredTriggers = triggerOrder.filter((trigger) => behaviors[button.id][trigger].length > 0)
       const active = activeId === button.id
       const pressed = pressedId === button.id
-      const notice = ['back', 'volumeUp', 'volumeDown'].includes(button.id) ? extraKeysNotice : undefined
 
       return <article
         key={button.id}
@@ -34,7 +31,7 @@ export function MappingKeyGrid({ platform, buttons, behaviors, activeId, pressed
         <BehaviorSummaryPopover openDelay={500} label={button.label} platform={platform} groups={configuredTriggers.map((trigger) => ({ label: triggerLabels[trigger], behaviors: behaviors[button.id][trigger] }))}>
         <button type="button" aria-pressed={active} onClick={() => onSelect(button.id)}>
           <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 16)}</span>
-          <span className="mapping-key-copy"><strong>{button.label}</strong>{notice && <small className="mapping-key-requirement">{notice}</small>}</span>
+          <span className="mapping-key-copy"><strong>{button.label}</strong></span>
           {configuredTriggers.length > 0 && <span className="mapping-key-status" aria-label={`${configuredTriggers.length} 个已设置触发方式`}>{configuredTriggers.length}</span>}
         </button>
         </BehaviorSummaryPopover>
@@ -49,7 +46,6 @@ type MappingTriggerSelectorProps = {
   behaviors: Record<TriggerType, Behavior[]>
   trigger: TriggerType
   onSelect: (trigger: TriggerType) => void
-  auxiliary?: ReactNode
 }
 
 const triggerIcons = {
@@ -58,11 +54,11 @@ const triggerIcons = {
   longPress: <Clock3 size={17} />,
 }
 
-export function MappingTriggerSelector({ platform, button, behaviors, trigger, onSelect, auxiliary }: MappingTriggerSelectorProps) {
+export function MappingTriggerSelector({ platform, button, behaviors, trigger, onSelect }: MappingTriggerSelectorProps) {
   return <section className="trigger-selector" aria-labelledby="trigger-selector-title">
     <div className="trigger-selector-title">
       <span className={`row-icon icon-${button.icon}`}>{iconFor(button.icon, 17)}</span>
-      <div><h2 id="trigger-selector-title">{button.label}</h2>{auxiliary}</div>
+      <div><h2 id="trigger-selector-title">{button.label}</h2></div>
     </div>
     <div className="trigger-options" role="tablist" aria-label={`${button.label}触发方式`}>
       {triggerOrder.map((item) => {

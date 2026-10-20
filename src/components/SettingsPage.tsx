@@ -36,6 +36,10 @@ type SettingsPageProps = {
   onAudioProbeChange: (probe: AudioProbe) => void
   onAudioOutputChange: (output: WindowsAudioOutput) => void
   onAudioAction: (action: DriverActionKind) => void
+  stretchCompensation: boolean
+  stretchError: string
+  stretchUpdating: boolean
+  onStretchCompensationChange: (enabled: boolean) => void
   audioRestarting: boolean
   audioRestartError: string
   onRestartAudio: () => void
@@ -44,13 +48,16 @@ type SettingsPageProps = {
   device: SetupState['device']
   onOpenBluetooth: () => void
   onCheckDevice: () => void
+  onOpenSignalMonitor: () => void
+  signalMonitorOpening: boolean
+  signalMonitorError: string
   onRequestPermission: (kind: MacPermissionKind) => void
   onOpenSettings: (kind: MacPermissionKind) => void
   onRefresh: () => void
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, audioProbe, onAudioProbeChange, onAudioOutputChange, onAudioAction, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, audioProbe, onAudioProbeChange, onAudioOutputChange, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -118,6 +125,15 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
             <SettingsHelp id="settings-audio-help" label="虚拟麦克风">将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch 作为麦克风。切换声音设备后若没有声音，可点击“重启驱动”重新连接虚拟麦克风和遥控器；当前语音会中断，请连接恢复后再试。</SettingsHelp>
           </div>
         </section>
+        <section className="settings-form-row" aria-labelledby="settings-audio-stretch-label">
+          <span id="settings-audio-stretch-label" className="settings-form-label">语音补偿：</span>
+          <div className="settings-form-control">
+            <label className="settings-checkbox"><input type="checkbox" checked={stretchCompensation} disabled={!nativeRuntime || stretchUpdating || audioBusy} onChange={(event) => onStretchCompensationChange(event.target.checked)} />软件拉伸补偿（实验）</label>
+            {stretchUpdating && <span role="status">正在应用…</span>}
+            <SettingsHelp id="settings-audio-stretch-help" label="软件拉伸补偿">默认关闭，更改自动保存。实验性功能，会拉长收到的声音；收包不稳定时可能加重停顿或拖音，无法恢复缺失的字。出现卡顿加重时请关闭。请松开语音键、等待尾音结束后切换，下次讲话生效。</SettingsHelp>
+            {stretchError && <span role="alert" className="settings-form-error">{stretchError}</span>}
+          </div>
+        </section>
         <div className="settings-form-row">
           <span className="settings-form-label">语音输入法：</span>
           <div className="settings-form-control">
@@ -129,14 +145,21 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       {nativeRuntime && audioError && <div className="permission-drag-note" role="alert"><Info size={17} /><div><strong>虚拟麦克风需要处理</strong><span>{audioError}</span></div></div>}
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
     </> : platform === 'windows' ? <>
-      <div className="settings-form-fields"><section className="settings-form-row">
-        <span className="settings-form-label">Windows 输入服务：</span>
-        <div className="settings-form-control"><span>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</span><button type="button" className="dialog-secondary" disabled={!nativeRuntime} onClick={onOpenDriver}>打开驱动设置</button><SettingsHelp id="windows-input-help" label="Windows 输入服务">按键映射通过输入驱动运行，需要安装驱动并在系统提示时授予管理员权限。</SettingsHelp></div>
-      </section></div>
+      <section className="settings-platform-note settings-windows-driver-note" aria-labelledby="windows-input-service-title">
+        <span className="settings-platform-note-icon"><ShieldCheck size={24} /></span>
+        <div className="settings-platform-note-copy">
+          <h3 id="windows-input-service-title">Windows 输入服务</h3>
+          <p>按键映射通过 Quarbor HID 驱动运行；安装或卸载驱动时需要管理员权限。</p>
+          <div className="settings-platform-note-actions">
+            <span className="settings-inline-status">驱动状态：<strong>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</strong></span>
+            <button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button>
+          </div>
+        </div>
+      </section>
       <WindowsAudioEndpointControl supported={nativeRuntime} output={audioProbe?.output} driverBusy={audioBusy} driverError={audioDriver.action.error} onProbeChange={onAudioProbeChange} onOutputChange={onAudioOutputChange} onInstall={() => onAudioAction('install')} onOpenSound={onOpenSound} />
     </>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
-    {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields">
+    {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields settings-device-fields">
       <section className="settings-form-row" aria-labelledby="settings-device-label">
         <span id="settings-device-label" className="settings-form-label">设备连接：</span>
         <div className="settings-form-control">
@@ -147,6 +170,14 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           <SettingsHelp id="settings-device-help" label="连接 RC003">先在系统蓝牙设置中配对小米遥控器 RC003，再按任意按键唤醒，然后返回这里重新检测。</SettingsHelp>
         </div>
       </section>
+      {platform === 'macos' && <section className="settings-form-row" aria-labelledby="settings-signal-label">
+        <span id="settings-signal-label" className="settings-form-label">语音链路监测：</span>
+        <div className="settings-form-control">
+          <button type="button" className="dialog-secondary" disabled={!nativeRuntime || signalMonitorOpening} aria-busy={signalMonitorOpening} onClick={onOpenSignalMonitor}>{signalMonitorOpening ? '正在打开…' : '打开监测'}</button>
+          <SettingsHelp id="settings-signal-help" label="语音链路监测">查看遥控器蓝牙信号、语音收包速度、音频波形和应用音频队列的实时图表，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。</SettingsHelp>
+          {signalMonitorError && <span role="alert" className="settings-form-error">{signalMonitorError}</span>}
+        </div>
+      </section>}
     </div>}
     </section>
     <section id="settings-panel-remote" aria-labelledby="settings-nav-remote" hidden={currentSection !== 'remote'}>

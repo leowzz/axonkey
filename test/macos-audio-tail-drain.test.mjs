@@ -23,6 +23,20 @@ test('PCM stream buffers jitter, smooths underruns, drains tails, and bounds its
   }
 })
 
+test('adaptive stretch compensates 40–49 packets/s, preserves pitch, drains, and recovers', {
+  skip: process.platform !== 'darwin',
+}, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'axonkey-stretch-'))
+  const executable = join(directory, 'stretch-test')
+  try {
+    const compile = spawnSync('xcrun', ['clang', '-std=c11', '-O2', '-fsanitize=address,undefined',
+      new URL('./macos-audio-stretch.c', import.meta.url).pathname, '-o', executable], { encoding: 'utf8' })
+    assert.equal(compile.status, 0, compile.stderr)
+    const run = spawnSync(executable, [], { encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stdout + run.stderr)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
+
 test('macOS audio drains short tails, reuses the output, and pauses when idle', {
   skip: process.platform !== 'darwin',
 }, () => {

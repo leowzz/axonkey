@@ -34,7 +34,6 @@
     }
   },
   "app": {
-    "macOSPrivateApi": true,
     "windows": [
       {
         "title": "Axonkey",

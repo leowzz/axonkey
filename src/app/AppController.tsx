@@ -50,6 +50,7 @@ import type {
   DraftBehaviorState,
   DriverActionResult,
   HitPosition,
+  LegacyDriverProbe,
   MacPermissionKind,
   MacPermissions,
   Platform,
@@ -75,14 +76,15 @@ import { MappingOverview } from '../components/MappingOverview'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
-import { useExtraKeys } from '../hooks/useExtraKeys'
-import { ExtraKeysControl, ExtraKeysNotice } from '../components/ExtraKeysControl'
 import { logError, logInfo } from '../runtimeLogging'
 import {
+  beginLegacyCleanup,
   beginDriverAction,
+  activateSetupStep,
   completeSetupStep,
   driverDefinitions,
   finishDriverAction,
+  finishLegacyCleanup,
   isSetupComplete,
   loadSetupState,
   resetSetup,
@@ -90,7 +92,8 @@ import {
   setCurrentSetupStep,
   setDeviceConnection,
   setDriverStatus,
-  skipDriverAction,
+  setLegacyCleanupProbe,
+  setSetupStepStatus,
   skipSetup,
   skipSetupStep,
 } from '../setupModel'
@@ -147,17 +150,6 @@ function AppController() {
   const [mouseEdgeWidth, setMouseEdgeWidth] = useState(() => getStoredSettings().mouseEdgeWidth)
   const [mouseHorizontalScrollIntervalMs, setMouseHorizontalScrollIntervalMs] = useState(() => getStoredSettings().mouseHorizontalScrollIntervalMs)
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
-  const [inputSettingsReady, setInputSettingsReady] = useState(false)
-  const extraKeys = useExtraKeys(platform === 'windows', nativeRuntime, enabled, inputSettingsReady)
-  const [extraKeysOptionsOpen, setExtraKeysOptionsOpen] = useState(false)
-  const extraKeysOptionsRef = useRef<HTMLDetailsElement>(null)
-  const openExtraKeysOptions = () => {
-    setExtraKeysOptionsOpen(true)
-    window.requestAnimationFrame(() => {
-      extraKeysOptionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      extraKeysOptionsRef.current?.querySelector('summary')?.focus({ preventScroll: true })
-    })
-  }
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [latestAudioProbe, setLatestAudioProbe] = useState<AudioProbe | null>(null)
@@ -182,6 +174,7 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
+  const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
@@ -190,6 +183,7 @@ function AppController() {
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
+  const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [homeRefreshing, setHomeRefreshing] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
@@ -206,6 +200,9 @@ function AppController() {
   const audioProbeRunningRef = useRef(false)
   const audioProbeRevisionRef = useRef(0)
   const systemProbeRunningRef = useRef(false)
+  const legacyCleanupPromptedRef = useRef(false)
+  const legacyProbeStartedRef = useRef(false)
+  const legacyProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
@@ -274,11 +271,26 @@ function AppController() {
     window.addEventListener('keydown', handleEscapeFailsafe, true)
     return () => window.removeEventListener('keydown', handleEscapeFailsafe, true)
   }, [mouseEnabled])
-  const { audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
+  const { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
     platform,
     nativeRuntime,
     onToast: setToast,
   })
+
+  const [signalMonitorOpening, setSignalMonitorOpening] = useState(false)
+  const [signalMonitorError, setSignalMonitorError] = useState('')
+  const openSignalMonitor = async () => {
+    if (!nativeRuntime || platform !== 'macos' || signalMonitorOpening) return
+    setSignalMonitorOpening(true)
+    setSignalMonitorError('')
+    try {
+      await invoke('open_signal_monitor')
+    } catch (error) {
+      setSignalMonitorError(`无法打开语音链路监测：${String(error)}`)
+    } finally {
+      setSignalMonitorOpening(false)
+    }
+  }
 
   const updateBehaviorState = useCallback((next: BehaviorMap) => {
     setBehaviors(next)
@@ -336,13 +348,11 @@ function AppController() {
         }
         if (saveRevisionRef.current === revision) {
           setAutoSaveState('saved')
-          setInputSettingsReady(true)
         }
       } catch (error) {
         if (saveRevisionRef.current !== revision) return
         logError('Failed to apply input mapping settings', error)
         setAutoSaveState('error')
-        setInputSettingsReady(false)
         setToast(`映射已保存，但尚未应用：${String(error)}`)
       }
     }
@@ -643,7 +653,10 @@ function AppController() {
   const beginBehaviorDraft = (type: AdvancedBehaviorType, mode: DraftBehaviorState['mode']) => {
     const behavior = type === 'key'
       ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
-      : createBehavior(type === 'paste' ? { type, text: '' } : { type, ms: 300 })
+      : createBehavior(type === 'paste' ? { type, text: '' }
+        : type === 'openApp' ? { type, path: '' }
+        : type === 'openWebsite' ? { type, url: '' }
+        : { type, ms: 300 })
     setEditingBehaviorId(null)
     setDraftBehavior({ behavior, mode })
     setCapturingBehaviorId(type === 'key' ? behavior.id : null)
@@ -707,6 +720,10 @@ function AppController() {
       case 'mediaStop': return replaceWithKey('MediaStop')
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
+        return
+      case 'openApp':
+      case 'openWebsite':
+        beginBehaviorDraft(preset, 'replace')
         return
       case 'textAndEnter':
         setTextInputDraft(textAndEnterValue(behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]) ?? '')
@@ -773,12 +790,29 @@ function AppController() {
   }
 
   const openSetupStep = (step: SetupStepId) => {
-    updateSetup((current) => setCurrentSetupStep(current, step))
+    if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
+      step = 'legacyCleanup'
+    }
+    updateSetup((current) => step === 'inputDriver'
+      ? activateSetupStep(current, step)
+      : setCurrentSetupStep(current, step))
     setSetupOpen(true)
+    if (step === 'inputDriver') void probeSystemState(false)
   }
 
   const completeCurrentSetupStep = () => {
-    updateSetup((current) => completeSetupStep(current, current.currentStep))
+    updateSetup((current) => {
+      if (platform === 'windows' && current.currentStep === 'inputDriver') {
+        const inputStatus = current.drivers.input.status
+        if (inputStatus !== 'installed' && inputStatus !== 'restartRequired') return current
+      }
+      const next = completeSetupStep(current, current.currentStep)
+      // The shared setup model follows the Windows dependency order. macOS
+      // still starts with permissions/audio and connects the remote second.
+      return platform === 'macos' && current.currentStep === 'welcome'
+        ? setCurrentSetupStep(next, 'inputDriver')
+        : next
+    })
   }
 
   const skipCurrentSetupStep = () => {
@@ -786,6 +820,18 @@ function AppController() {
   }
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
+    if (platform === 'windows' && driver === 'input' && action === 'install' && setupState.device.status !== 'connected') {
+      const message = setupState.device.status === 'checking'
+        ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
+        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor HID 按键过滤驱动。'
+      updateSetup((current) => finishDriverAction(current, driver, action, {
+        success: false,
+        status: 'error',
+        error: message,
+      }))
+      logError(`Driver action blocked: ${driver}/${action}`, message)
+      return
+    }
     updateSetup((current) => beginDriverAction(current, driver, action))
     try {
       logInfo(`Starting driver action: ${driver}/${action}`)
@@ -793,16 +839,20 @@ function AppController() {
       const driverName = driver === 'audio'
         ? platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE'
         : '按键驱动'
-      const restartRequired = platform === 'windows'
+      const restartRequired = result.rebootRequired
+      const reportedStatus = platform === 'windows' && driver === 'input'
+        ? 'checking'
+        : action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: true,
-        status: action === 'install' ? restartRequired ? 'restartRequired' : 'installed' : 'missing',
+        status: reportedStatus,
         restartRequired,
         message: platform === 'macos'
           ? `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，Core Audio 已刷新。日志：${result.logPath}`
-          : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，请重启 Windows。日志：${result.logPath}`,
+          : `${driverName}${action === 'install' ? '安装' : '卸载'}已完成，${restartRequired ? '请重启 Windows' : '无需重启 Windows'}。日志：${result.logPath}`,
       }))
       if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
+      if (platform === 'windows' && driver === 'input') await probeSystemState(true)
       logInfo(`Driver action completed: ${driver}/${action}`)
     } catch (error) {
       logError(`Driver action failed: ${driver}/${action}`, error)
@@ -815,7 +865,35 @@ function AppController() {
     }
   }
 
-  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'inputMonitoring' | 'accessibility') => {
+  const runLegacyCleanup = async () => {
+    updateSetup((current) => beginLegacyCleanup(current))
+    try {
+      logInfo('Starting legacy Windows input component cleanup')
+      const result = await withTimeout(
+        invoke<DriverActionResult>('launch_driver_action', { driver: 'legacy', action: 'cleanup' }),
+        180_000,
+        '卸载过程超时，请查看日志后重试。',
+      )
+      updateSetup((current) => finishLegacyCleanup(current, {
+        success: true,
+        logPath: result.logPath,
+      }))
+      setToast('旧组件已卸载，请重新检测')
+      window.setTimeout(() => setToast(''), 3200)
+      await probeLegacyComponents(true)
+      await probeSystemState(true)
+      logInfo('Legacy Windows input component cleanup completed')
+    } catch (error) {
+      logError('Legacy Windows input component cleanup failed', error)
+      const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
+      updateSetup((current) => finishLegacyCleanup(current, {
+        success: false,
+        error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
+      }))
+    }
+  }
+
+  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility') => {
     try {
       await invoke('open_system_settings', { page })
       return true
@@ -917,12 +995,44 @@ function AppController() {
     window.setTimeout(() => setToast(''), 2600)
   }
 
+  const probeLegacyComponents = async (refresh = false) => {
+    if (!nativeRuntime || platform !== 'windows' || legacyProbeRunningRef.current) return
+    legacyProbeRunningRef.current = true
+    updateSetup((current) => setLegacyCleanupProbe(current, current.legacyCleanup.components, { checking: true }))
+    try {
+      const probe = await invoke<LegacyDriverProbe>('probe_legacy_components', { refresh })
+      const components = { frida: false, namedPipeServer: false, ...probe }
+      const present = probe.interception || probe.interceptionFix
+      updateSetup((current) => {
+        const next = setLegacyCleanupProbe(current, components)
+        return present ? activateSetupStep(next, 'legacyCleanup') : next
+      })
+      if (present && !legacyCleanupPromptedRef.current) {
+        legacyCleanupPromptedRef.current = true
+        setSetupOpen(true)
+      } else if (!present) {
+        legacyCleanupPromptedRef.current = false
+      }
+    } catch (error) {
+      logError('Legacy driver check failed', error)
+      updateSetup((current) => setLegacyCleanupProbe(current, current.legacyCleanup.components, {
+        error: `旧驱动检测失败：${String(error)}`,
+      }))
+      setToast(`旧驱动检测失败：${String(error)}`)
+      window.setTimeout(() => setToast(''), 5000)
+    } finally {
+      legacyProbeRunningRef.current = false
+      setLegacyStartupChecked(true)
+    }
+  }
+
   const probeSystemState = async (showChecking = true) => {
     if (systemProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return false
     systemProbeRunningRef.current = true
     if (showChecking) {
       updateSetup((current) => {
-        const next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        let next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
+        if (platform === 'windows') next = setSetupStepStatus(next, 'inputDriver', 'active')
         return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
       })
     }
@@ -930,6 +1040,9 @@ function AppController() {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
+      const mappingRecovering = probe.platform === 'macos'
+        && probe.input_backend_error === 'RC003 modifier hardware mappings could not be applied'
+      setInputMappingRecovering(mappingRecovering)
       setMacPermissions({
         inputMonitoring: probe.input_monitoring_granted === true,
         accessibility: probe.accessibility_granted === true,
@@ -947,7 +1060,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -973,18 +1086,23 @@ function AppController() {
             : !macPermissionsReady
             ? '需要授予输入监控和辅助功能权限。'
             : probe.input_backend_error
-              ? `原生输入服务启动失败：${probe.input_backend_error}`
+              ? mappingRecovering
+                ? 'RC003 硬件按键映射尚未恢复，正在自动重试。'
+                : `输入服务异常：${probe.input_backend_error}`
               : probe.capture_active
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Interception 按键驱动。'
+            ? '未检测到 Quarbor HID 过滤驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Interception 按键服务工作正常。'
-                : '已检测到 Interception 按键驱动，输入服务正在启动。'
-        const next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+                ? 'Quarbor HID 输入服务工作正常。'
+                : '已检测到 Quarbor HID 过滤驱动，输入服务正在启动。'
+        let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+        if (probe.platform === 'windows') {
+          next = setSetupStepStatus(next, 'inputDriver', inputStatus === 'installed' ? 'complete' : 'active')
+        }
         if (!showChecking) {
           const unchanged = next.device.status === device.status
             && next.device.name === device.name
@@ -1102,7 +1220,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Interception 输入服务已识别并接管 RC003。'
+              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -1132,10 +1250,19 @@ function AppController() {
   }, [setupOpen])
 
   useEffect(() => {
+    // Move an unfinished setup saved by the old Windows order to the device
+    // check before allowing Quarbor installation.
+    if (!setupOpen || platform !== 'windows' || setupState.currentStep !== 'inputDriver') return
+    if (setupState.steps.deviceConnection.status === 'pending') {
+      updateSetup((current) => current.currentStep === 'inputDriver' && current.steps.deviceConnection.status === 'pending'
+        ? setCurrentSetupStep(current, 'deviceConnection')
+        : current)
+    }
+  }, [platform, setupOpen, setupState.currentStep, setupState.steps.deviceConnection.status])
+
+  useEffect(() => {
     if (!setupOpen || platform !== 'macos' || setupState.currentStep !== 'welcome') return
-    updateSetup((current) => current.currentStep === 'welcome'
-      ? completeSetupStep(current, 'welcome')
-      : current)
+    completeCurrentSetupStep()
   }, [platform, setupOpen, setupState.currentStep])
 
   useEffect(() => {
@@ -1166,6 +1293,16 @@ function AppController() {
       window.clearInterval(interval)
     }
   }, [])
+
+  useEffect(() => {
+    if (!nativeRuntime || platform !== 'windows' || legacyProbeStartedRef.current) return
+    const timer = window.setTimeout(() => {
+      // One startup check per launch; polling and opening setup reuse its result.
+      legacyProbeStartedRef.current = true
+      void probeLegacyComponents()
+    }, 1_200)
+    return () => window.clearTimeout(timer)
+  }, [nativeRuntime, platform])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
@@ -1348,7 +1485,6 @@ function AppController() {
           enabled={enabled}
           saveState={autoSaveState}
           pressedId={pressedId}
-          extraKeysNotice={platform !== 'windows' ? undefined : !extraKeys.wanted ? '需开启返回与音量键增强' : !enabled || extraKeys.status.state !== 'ready' ? '返回与音量键增强未就绪' : undefined}
           onEdit={(buttonId, trigger) => { setActivePage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
         /> : activePage === 'mapping' ? <div className="mapping-page">
           <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
@@ -1396,9 +1532,6 @@ function AppController() {
                   behaviors={behaviors}
                   activeId={activeId}
                   pressedId={pressedId}
-                  extraKeysNotice={platform !== 'windows' ? undefined
-                    : !extraKeys.wanted ? '需开启增强'
-                      : !enabled || extraKeys.status.state !== 'ready' ? '增强未就绪' : undefined}
                   rowRefs={rowRefs}
                   onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
                 />}
@@ -1410,9 +1543,7 @@ function AppController() {
                 behaviors={behaviors[selectedBehavior.buttonId]}
                 trigger={selectedBehavior.trigger}
                 onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
-                auxiliary={platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && extraKeys.wanted && extraKeys.status.state === 'ready' ? <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} /> : undefined}
               />}
-              {platform === 'windows' && ['back', 'volumeUp', 'volumeDown'].includes(selectedBehavior.buttonId) && !(extraKeys.wanted && extraKeys.status.state === 'ready') && <ExtraKeysNotice control={extraKeys} onOpen={openExtraKeysOptions} />}
               <BehaviorEditor
                 editorRef={behaviorEditorRef}
                 attention={behaviorEditorAttention}
@@ -1427,14 +1558,16 @@ function AppController() {
                 onEditBehavior={setEditingBehaviorId}
                 onReturnToMappings={returnToSelectedMapping}
               />
-              {!isMouse && platform === 'windows' && <details className="extra-keys-options" ref={extraKeysOptionsRef}
-                open={extraKeysOptionsOpen} onToggle={(event) => setExtraKeysOptionsOpen(event.currentTarget.open)}>
-                <summary><strong>高级选项</strong><span>返回与音量键增强 · {extraKeys.wanted ? extraKeys.status.state === 'ready' ? '已启用' : '待就绪' : '已关闭'}</span></summary>
-                <ExtraKeysControl control={extraKeys} />
-              </details>}
             </section>
           </div>
         </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          onOpenSignalMonitor={() => void openSignalMonitor()}
+          signalMonitorOpening={signalMonitorOpening}
+          signalMonitorError={signalMonitorError}
+          stretchCompensation={stretchCompensation}
+          stretchError={stretchError}
+          stretchUpdating={stretchUpdating}
+          onStretchCompensationChange={updateStretchCompensation}
           section={settingsSection}
           onSectionChange={setSettingsSection}
           showRemoteKeyGrid={showRemoteKeyGrid}
@@ -1480,6 +1613,7 @@ function AppController() {
           systemProbeState={systemProbeState}
           permissions={macPermissions}
           inputAuthorizationStale={inputAuthorizationStale}
+          inputMappingRecovering={inputMappingRecovering}
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
           audioProbe={latestAudioProbe}
@@ -1541,7 +1675,7 @@ function AppController() {
         onSave={commitTextInputPreset}
       />}
       {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
-      {setupOpen && <SetupDialog
+      {setupOpen && !(nativeRuntime && platform === 'windows' && setupState.currentStep === 'legacyCleanup' && !legacyStartupChecked) && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}
         state={setupState}
@@ -1552,9 +1686,9 @@ function AppController() {
         onSkipAll={() => { setSetupState((current) => skipSetup(current)); setSetupOpen(false) }}
         onReset={() => setSetupState(resetSetup())}
         onDriverAction={(driver, action) => void runDriverAction(driver, action)}
-        onSkipDriverAction={(driver, action) => updateSetup((current) => skipDriverAction(current, driver, action))}
-        onMarkDriverInstalled={(driver) => updateSetup((current) => setDriverStatus(current, driver, 'restartRequired', { restartRequired: true, message: '已确认安装，重启 Windows 后驱动生效。' }))}
         onProbeAudio={() => void probeAudioState()}
+        onProbeLegacyCleanup={() => void probeLegacyComponents(true)}
+        onCleanupLegacy={() => void runLegacyCleanup()}
         onOpenSystemSettings={(page) => void openSystemSettings(page)}
         onRequestMacPermission={(kind) => void requestMacPermission(kind)}
         onOpenExternalPage={(page) => void openExternalPage(page)}

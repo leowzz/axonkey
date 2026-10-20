@@ -29,6 +29,7 @@ type HomeDashboardProps = {
   refreshing?: boolean
   permissions: MacPermissions
   inputAuthorizationStale: boolean
+  inputMappingRecovering?: boolean
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
   audioProbe?: AudioProbe | null
@@ -88,6 +89,7 @@ export function HomeDashboard({
   refreshing = false,
   permissions,
   inputAuthorizationStale,
+  inputMappingRecovering = false,
   inputDriver,
   audioDriver,
   audioProbe,
@@ -112,7 +114,7 @@ export function HomeDashboard({
   const inputTone: HomeStatusTone = inputProbeLoading
     ? 'checking'
     : inputAuthorizationStale || inputDriver.status === 'error'
-      ? 'error'
+      ? inputMappingRecovering && !inputAuthorizationStale ? 'warning' : 'error'
       : inputReady || (!macOS && inputDriver.status === 'installed')
         ? 'ready'
         : 'warning'
@@ -120,14 +122,16 @@ export function HomeDashboard({
     ? '检测中'
     : inputAuthorizationStale
       ? '需要重新授权'
-      : inputReady || (!macOS && inputDriver.status === 'installed')
-        ? '已授权'
-        : macOS ? '未授权' : '需要检查'
+      : inputDriver.status === 'error' && inputReady
+        ? inputMappingRecovering ? '恢复中' : '服务异常'
+        : inputReady || (!macOS && inputDriver.status === 'installed')
+          ? '已授权'
+          : macOS ? '未授权' : '需要检查'
   const inputDetail = inputProbeLoading
     ? '正在检查输入监控与 RC003 输入服务。'
     : inputAuthorizationStale
       ? '当前构建的输入监控授权已失效，按键映射暂时不会生效。'
-      : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 Interception 按键服务。')
+      : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 Quarbor HID 输入服务。')
   const windowsAudio = windowsAudioPresentation(audioProbe)
   const audioPresentation = platform === 'windows' && !audioProbeLoading ? windowsAudio : driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
   const audioDetail = audioProbeLoading
@@ -228,13 +232,17 @@ export function HomeDashboard({
         <div className="home-status-list">
           <HomeStatusRow
             icon={<Keyboard size={18} />}
-            title={macOS ? "输入监控" : "按键服务"}
+            title={inputMappingRecovering ? '按键映射' : macOS ? '输入监控' : '按键服务'}
             status={inputStatus}
             tone={inputTone}
             detail={inputDetail}
-            action={macOS
-              ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
-              : <button type="button" className="home-row-action" onClick={onOpenPermissions}>检查驱动<ChevronRight size={13} /></button>}
+            action={inputMappingRecovering && !inputAuthorizationStale
+              ? <button type="button" className="home-row-action" disabled={refreshBusy} onClick={onRefresh}>重新检测<ChevronRight size={13} /></button>
+              : macOS && inputDriver.status === 'error' && inputReady && permissions.accessibility
+                ? <button type="button" className="home-row-action" onClick={onOpenLogs}>查看日志<ChevronRight size={13} /></button>
+                : macOS
+                  ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
+                  : <button type="button" className="home-row-action" onClick={onOpenPermissions}>检查驱动<ChevronRight size={13} /></button>}
           />
           <HomeStatusRow
             icon={<Command size={18} />}

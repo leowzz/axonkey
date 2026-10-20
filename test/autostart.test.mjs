@@ -21,19 +21,19 @@ async function setup({ supported = true, initial = false } = {}) {
       isEnabled: async () => { reads++; if (failRead) throw new Error('read failed'); return enabled },
       enable: async () => { writes.push(true); if (failWrite) throw new Error('write failed'); enabled = true },
       disable: async () => { writes.push(false); if (failWrite) throw new Error('write failed'); enabled = false },
-    } : require(name),
+    } : name === './SettingsHelp' ? { SettingsHelp: () => null } : require(name),
     window: { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) },
   })
   let renderer
   await act(async () => { renderer = Renderer.create(React.createElement(module.exports.AutostartControl, { supported })) })
   return {
     writes, get reads() { return reads },
-    get toggle() { return renderer.root.findByProps({ role: 'switch' }) },
+    get toggle() { return renderer.root.findByType('input') },
     get alerts() { return renderer.root.findAllByProps({ role: 'alert' }) },
     set enabled(value) { enabled = value },
     set failRead(value) { failRead = value },
     set failWrite(value) { failWrite = value },
-    async click() { await act(async () => { this.toggle.props.onClick() }) },
+    async click() { await act(async () => { this.toggle.props.onChange() }) },
     async focus() { await act(async () => { await listeners.get('focus')?.() }) },
     async close() { await act(async () => renderer.unmount()) },
   }
@@ -42,16 +42,16 @@ async function setup({ supported = true, initial = false } = {}) {
 test('reads system state, toggles both ways and refreshes external changes', async () => {
   const app = await setup({ initial: true })
   try {
-    assert.equal(app.toggle.props['aria-checked'], true)
+    assert.equal(app.toggle.props.checked, true)
     assert.deepEqual(app.writes, [])
     await app.click()
-    assert.equal(app.toggle.props['aria-checked'], false)
+    assert.equal(app.toggle.props.checked, false)
     await app.click()
-    assert.equal(app.toggle.props['aria-checked'], true)
+    assert.equal(app.toggle.props.checked, true)
     assert.deepEqual(app.writes, [false, true])
     app.enabled = false
     await app.focus()
-    assert.equal(app.toggle.props['aria-checked'], false)
+    assert.equal(app.toggle.props.checked, false)
   } finally { await app.close() }
 })
 
@@ -60,12 +60,12 @@ test('failed writes preserve actual state and permit retry', async () => {
   try {
     app.failWrite = true
     await app.click()
-    assert.equal(app.toggle.props['aria-checked'], false)
+    assert.equal(app.toggle.props.checked, false)
     assert.equal(app.toggle.props.disabled, false)
     assert.equal(app.alerts.length, 1)
     app.failWrite = false
     await app.click()
-    assert.equal(app.toggle.props['aria-checked'], true)
+    assert.equal(app.toggle.props.checked, true)
     assert.equal(app.alerts.length, 0)
   } finally { await app.close() }
 })

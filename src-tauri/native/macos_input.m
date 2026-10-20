@@ -8,9 +8,11 @@
 #import <IOKit/hidsystem/IOLLEvent.h>
 #import <IOKit/hidsystem/ev_keymap.h>
 
+#include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 enum {
@@ -20,6 +22,8 @@ enum {
     AXONKEY_EVENT_INPUT_REPORT = 4,
     AXONKEY_EVENT_BACKEND_ERROR = 5,
     AXONKEY_EVENT_TICK = 6,
+    AXONKEY_EVENT_MODIFIER_MAPPINGS_CHANGED = 7,
+    AXONKEY_EVENT_MODIFIER_MAPPING_DIAGNOSTIC = 8,
 };
 
 enum {
@@ -90,11 +94,35 @@ typedef struct {
     const AxonkeyHardwareModifierMapping *modifier_mappings;
     size_t modifier_mapping_count;
     bool modifier_mappings_active;
+    CFAbsoluteTime modifier_mapping_retry_at;
+    CFTimeInterval modifier_mapping_retry_delay;
+    unsigned int modifier_mapping_attempt;
     IOHIDEventSystemClientRef event_system_client;
     CFMutableDictionaryRef original_modifier_mappings;
     const uint64_t *cleanup_modifier_mapping_sources;
     size_t cleanup_modifier_mapping_source_count;
 } AxonkeyInputState;
+
+static void axonkey_emit(
+    AxonkeyInputState *state, int event, uint32_t report_id,
+    const uint8_t *bytes, size_t length, int code
+);
+
+static void axonkey_mapping_diagnostic(
+    AxonkeyInputState *state, const char *reason, CFTypeRef registry_id, bool failed
+) {
+    int64_t registry = 0;
+    if (registry_id != NULL && CFGetTypeID(registry_id) == CFNumberGetTypeID()) {
+        CFNumberGetValue((CFNumberRef)registry_id, kCFNumberSInt64Type, &registry);
+    }
+    char message[384];
+    snprintf(message, sizeof(message),
+        "RC003 hardware mappings: attempt=%u reason=%s registry_id=0x%llx mappings=%zu retry_delay_ms=%.0f",
+        state->modifier_mapping_attempt, reason, (unsigned long long)registry,
+        state->modifier_mapping_count, state->modifier_mapping_retry_delay * 1000);
+    axonkey_emit(state, AXONKEY_EVENT_MODIFIER_MAPPING_DIAGNOSTIC, 0,
+        (const uint8_t *)message, strlen(message), failed ? 1 : 0);
+}
 
 static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
     if (value == NULL || result == NULL || CFGetTypeID(value) != CFNumberGetTypeID()) {
@@ -289,7 +317,7 @@ static CFMutableArrayRef axonkey_create_modifier_mappings(
     return mappings;
 }
 
-static void axonkey_restore_modifier_mappings(AxonkeyInputState *state) {
+static void axonkey_restore_modifier_mappings(AxonkeyInputState *state, bool forget_originals) {
     if (state == NULL || state->event_system_client == NULL ||
         state->original_modifier_mappings == NULL) {
         return;
@@ -322,18 +350,22 @@ static void axonkey_restore_modifier_mappings(AxonkeyInputState *state) {
                 (CFArrayRef)original
             );
             if (restored != NULL) {
-                IOHIDServiceClientSetProperty(
+                if (!IOHIDServiceClientSetProperty(
                     service,
                     CFSTR("UserKeyMapping"),
                     restored
-                );
+                )) {
+                    axonkey_mapping_diagnostic(state, "property_restore_rejected", registry_id, true);
+                }
                 CFRelease(restored);
             }
             if (current != NULL) CFRelease(current);
         }
         CFRelease(services);
     }
-    CFDictionaryRemoveAllValues(state->original_modifier_mappings);
+    // A failed attempt may race a disappearing service or fail to roll back.
+    // Keep the baseline for the next attempt on the same registry ID.
+    if (forget_originals) CFDictionaryRemoveAllValues(state->original_modifier_mappings);
     state->modifier_mappings_active = false;
 }
 
@@ -380,17 +412,24 @@ static void axonkey_remove_unconfigured_modifier_mappings(AxonkeyInputState *sta
 }
 
 static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
-    if (state == NULL || state->event_system_client == NULL ||
-        state->original_modifier_mappings == NULL ||
-        state->modifier_mapping_count == 0) {
+    if (state == NULL) return false;
+    if (state->event_system_client == NULL) {
+        axonkey_mapping_diagnostic(state, "hid_client_unavailable", NULL, true);
         return false;
     }
+    if (state->original_modifier_mappings == NULL) {
+        axonkey_mapping_diagnostic(state, "original_mapping_store_unavailable", NULL, true);
+        return false;
+    }
+    if (state->modifier_mapping_count == 0) return false;
     CFArrayRef services = IOHIDEventSystemClientCopyServices(state->event_system_client);
     if (services == NULL) {
+        axonkey_mapping_diagnostic(state, "hid_services_unavailable", NULL, true);
         return false;
     }
     CFMutableArrayRef replacements = axonkey_create_modifier_mappings(state);
     if (replacements == NULL) {
+        axonkey_mapping_diagnostic(state, "replacement_allocation_failed", NULL, true);
         CFRelease(services);
         return false;
     }
@@ -408,17 +447,20 @@ static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
         target_count += 1;
         CFTypeRef registry_id = IOHIDServiceClientGetRegistryID(service);
         if (registry_id == NULL || CFGetTypeID(registry_id) != CFNumberGetTypeID()) {
+            axonkey_mapping_diagnostic(state, "invalid_registry_id", registry_id, true);
             applied = false;
             break;
         }
         CFMutableArrayRef current = axonkey_copy_service_mappings(service);
         if (current == NULL) {
+            axonkey_mapping_diagnostic(state, "current_mapping_allocation_failed", registry_id, true);
             applied = false;
             break;
         }
         if (!CFDictionaryContainsKey(state->original_modifier_mappings, registry_id)) {
             CFMutableArrayRef original = axonkey_copy_original_modifier_mappings(state, current);
             if (original == NULL) {
+                axonkey_mapping_diagnostic(state, "original_mapping_allocation_failed", registry_id, true);
                 CFRelease(current);
                 applied = false;
                 break;
@@ -441,17 +483,22 @@ static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
             CFSTR("UserKeyMapping"),
             desired
         )) {
+            axonkey_mapping_diagnostic(state,
+                desired == NULL ? "desired_mapping_allocation_failed" : "property_write_rejected",
+                registry_id, true);
             if (desired != NULL) CFRelease(desired);
             applied = false;
             break;
         }
         CFRelease(desired);
+        axonkey_mapping_diagnostic(state, "property_applied", registry_id, false);
     }
     CFRelease(replacements);
     CFRelease(services);
 
     if (!applied || target_count == 0) {
-        axonkey_restore_modifier_mappings(state);
+        if (target_count == 0) axonkey_mapping_diagnostic(state, "no_matching_hid_service", NULL, true);
+        axonkey_restore_modifier_mappings(state, false);
         return false;
     }
     state->modifier_mappings_active = true;
@@ -873,6 +920,43 @@ static int axonkey_capture_mode(AxonkeyInputState *state) {
     return mode;
 }
 
+static void axonkey_try_modifier_mappings(AxonkeyInputState *state, CFAbsoluteTime now) {
+    state->modifier_mapping_attempt += 1;
+    if (state->original_modifier_mappings == NULL) {
+        state->original_modifier_mappings = CFDictionaryCreateMutable(
+            kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    }
+    // A long-lived simple client can retain services from before a Bluetooth
+    // reconnect. Each attempt must enumerate the current HID event services.
+    IOHIDEventSystemClientRef client = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault);
+    if (state->event_system_client != NULL) CFRelease(state->event_system_client);
+    state->event_system_client = client;
+    state->modifier_mappings_active = axonkey_apply_modifier_mappings(state);
+    if (state->modifier_mappings_active) {
+        state->modifier_mapping_retry_at = 0;
+        axonkey_mapping_diagnostic(state, "ready", NULL, false);
+    } else {
+        state->modifier_mapping_retry_at = now + state->modifier_mapping_retry_delay;
+        axonkey_mapping_diagnostic(state, "retry_scheduled", NULL, false);
+        state->modifier_mapping_retry_delay = fmin(state->modifier_mapping_retry_delay * 2, 10.0);
+    }
+    axonkey_emit(state, AXONKEY_EVENT_MODIFIER_MAPPINGS_CHANGED, 0, NULL, 0,
+        state->modifier_mappings_active ? 1 : 0);
+}
+
+static void axonkey_retry_modifier_mappings(AxonkeyInputState *state, CFAbsoluteTime now) {
+    if (!state->capture || state->modifier_mapping_count == 0 ||
+        state->modifier_mapping_retry_at == 0 || now < state->modifier_mapping_retry_at ||
+        CFSetGetCount(state->devices) == 0 || state->active_usage_count > 0) {
+        return;
+    }
+    // Let the last unmodified key-up pass the event filter before changing the
+    // mapping. Otherwise its software fallback could leave a modifier held.
+    axonkey_expire_pending_events(state, now);
+    if (state->pending_event_count > 0) return;
+    axonkey_try_modifier_mappings(state, now);
+}
+
 static void axonkey_device_matched(
     void *context,
     IOReturn result,
@@ -893,7 +977,9 @@ static void axonkey_device_matched(
     axonkey_remove_unconfigured_modifier_mappings(state);
 
     if (state->capture && state->modifier_mapping_count > 0) {
-        state->modifier_mappings_active = axonkey_apply_modifier_mappings(state);
+        state->modifier_mapping_retry_delay = 0.25;
+        state->modifier_mapping_attempt = 0;
+        axonkey_try_modifier_mappings(state, CFAbsoluteTimeGetCurrent());
     }
 
     int capture_mode = AXONKEY_CAPTURE_NONE;
@@ -954,6 +1040,11 @@ static void axonkey_device_removed(
     }
     CFSetRemoveValue(state->devices, device);
     if (CFSetGetCount(state->devices) == 0) {
+        state->modifier_mappings_active = false;
+        state->modifier_mapping_retry_at = 0;
+        // Keep originals keyed by registry ID: a service that survives a
+        // temporary disconnect still needs its original mapping restored.
+        axonkey_mapping_diagnostic(state, "device_disconnected", NULL, false);
         state->pending_event_count = 0;
         state->held_event_count = 0;
         state->active_usage_count = 0;
@@ -1102,14 +1193,6 @@ int axonkey_macos_input_run(
             &kCFTypeDictionaryKeyCallBacks,
             &kCFTypeDictionaryValueCallBacks
         );
-        if (state.event_system_client == NULL || state.original_modifier_mappings == NULL) {
-            if (state.event_system_client != NULL) CFRelease(state.event_system_client);
-            if (state.original_modifier_mappings != NULL) {
-                CFRelease(state.original_modifier_mappings);
-            }
-            state.event_system_client = NULL;
-            state.original_modifier_mappings = NULL;
-        }
     }
 
     IOHIDManagerSetDeviceMatching(manager, matching);
@@ -1129,6 +1212,7 @@ int axonkey_macos_input_run(
         axonkey_emit(&state, AXONKEY_EVENT_BACKEND_READY, 0, NULL, 0, 0);
         while (!callbacks->should_stop(callbacks->context)) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.025, true);
+            axonkey_retry_modifier_mappings(&state, CFAbsoluteTimeGetCurrent());
             axonkey_emit(&state, AXONKEY_EVENT_TICK, 0, NULL, 0, 0);
         }
     }
@@ -1137,7 +1221,7 @@ int axonkey_macos_input_run(
     CFSetRemoveAllValues(seized_devices);
     CFSetApplyFunction(monitored_devices, axonkey_close_seized_device, NULL);
     CFSetRemoveAllValues(monitored_devices);
-    axonkey_restore_modifier_mappings(&state);
+    axonkey_restore_modifier_mappings(&state, true);
     axonkey_stop_event_filter(&state, run_loop);
     IOHIDManagerUnscheduleFromRunLoop(manager, run_loop, kCFRunLoopDefaultMode);
     IOHIDManagerClose(manager, kIOHIDOptionsTypeNone);

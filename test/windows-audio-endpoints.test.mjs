@@ -247,6 +247,7 @@ test('Windows homepage reports output failure even with a present adapter and op
 })
 
 test('calibration preserves macOS forwarding-based reception and uses Windows receivedData independently', async () => {
+  const waveform = load('src/components/AudioTestWaveform.tsx', { '../audioGain': audioGain })
   for (const [platform, forwarding, receivedData, expected] of [
     ['macos', true, false, '已收到数据'],
     ['macos', false, false, '暂无数据'],
@@ -256,6 +257,7 @@ test('calibration preserves macOS forwarding-based reception and uses Windows re
     const { AudioTestDialog } = load('src/components/AudioTestDialog.tsx', {
       '../appConfig': { audioGainMin: -30, audioGainMax: 30 },
       '../audioGain': audioGain,
+      './AudioTestWaveform': waveform,
       '@tauri-apps/api/core': { invoke: async () => [{ ...probe(output('ready', 'render-a')), forwarding, receivedData }, { peak: 0.1, rms: 0.02 }] },
     }, { window: { setTimeout: () => 1, clearTimeout() {} } })
     let renderer
@@ -263,6 +265,43 @@ test('calibration preserves macOS forwarding-based reception and uses Windows re
     try {
       const stage = renderer.root.findByProps({ 'aria-label': '语音通道状态' })
       assert.ok(text(stage).includes(`语音收音：${expected}`), `${platform}: forwarding=${forwarding}, receivedData=${receivedData}`)
+      assert.equal(renderer.root.findAllByProps({ className: 'audio-calibration-waveform' }).length, 1)
     } finally { await act(async () => renderer.unmount()) }
   }
+})
+
+test('settings retain Quarbor input setup, Windows endpoint controls and macOS audio diagnostics', () => {
+  const EndpointControl = () => null
+  const { SettingsPage } = load('src/components/SettingsPage.tsx', {
+    './SettingsHelp': { SettingsHelp: () => null },
+    './AutostartControl': { AutostartControl: () => null },
+    './WindowsAudioEndpointControl': { WindowsAudioEndpointControl: EndpointControl },
+  })
+  let openedDriver = 0, openedMonitor = 0, stretch
+  const currentProbe = probe(output('ready', 'render-a'))
+  const props = {
+    section: 'permissions', platform: 'windows', nativeRuntime: true, systemProbeState: 'ready',
+    permissions: { inputMonitoring: true, accessibility: true },
+    inputDriver: { status: 'installed' }, audioDriver: { status: 'installed', action: { status: 'idle' } },
+    audioProbe: currentProbe, device: { status: 'connected' },
+    stretchCompensation: false, stretchUpdating: false, audioRestarting: false,
+    onOpenDriver: () => openedDriver++, onOpenSignalMonitor: () => openedMonitor++,
+    onStretchCompensationChange: value => { stretch = value },
+  }
+  const renderer = Renderer.create(React.createElement(SettingsPage, props))
+  try {
+    assert.ok(text(renderer.toJSON()).includes('Quarbor HID'))
+    renderer.root.findAllByType('button').find(button => text(button) === '打开驱动设置').props.onClick()
+    assert.equal(openedDriver, 1)
+    assert.equal(renderer.root.findByType(EndpointControl).props.output, currentProbe.output)
+    assert.equal(renderer.root.findByType(EndpointControl).props.supported, true)
+
+    renderer.update(React.createElement(SettingsPage, { ...props, platform: 'macos' }))
+    assert.equal(renderer.root.findAllByType(EndpointControl).length, 0)
+    renderer.root.findAllByType('button').find(button => text(button) === '打开监测').props.onClick()
+    assert.equal(openedMonitor, 1)
+    const checkbox = renderer.root.findAllByType('input').find(input => input.props.type === 'checkbox' && input.props.checked === false && input.props.disabled === false)
+    checkbox.props.onChange({ target: { checked: true } })
+    assert.equal(stretch, true)
+  } finally { renderer.unmount() }
 })

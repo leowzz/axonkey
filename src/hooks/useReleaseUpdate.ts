@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createReleaseChecker, isNewerRelease } from '../releaseUpdate'
 import { createNativeReleaseChecker, initialUpdateState } from '../nativeReleaseUpdate'
-import { check as checkUpdate } from '@tauri-apps/plugin-updater'
+import { invoke } from '@tauri-apps/api/core'
+import { Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import appPackage from '../../package.json'
 
@@ -16,8 +17,15 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
 
   useEffect(() => {
     const service = native
-      ? createNativeReleaseChecker(setState, { checkUpdate: () => checkUpdate({ timeout: 15_000 }), relaunch })
-      : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }))
+      ? createNativeReleaseChecker(setState, {
+        currentVersion: appPackage.version,
+        checkUpdate: async () => {
+          const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>('check_release_update')
+          return metadata ? new Update(metadata) : null
+        },
+        relaunch,
+      })
+      : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }), { currentVersion: appPackage.version })
     checker.current = service
     const onWake = () => check()
     const onVisible = () => { if (document.visibilityState === 'visible') check() }

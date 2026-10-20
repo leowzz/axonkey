@@ -52,3 +52,37 @@ test('ready and checking rows hide settings; actionable rows preserve navigation
     renderer.unmount()
   }
 })
+
+test('hardware mapping recovery shows a retry action and returns to ready after success', () => {
+  let refreshed = 0, openedPermissions = 0
+  const props = { ...base, onRefresh: () => refreshed++, onOpenPermissions: () => openedPermissions++ }
+  const renderer = Renderer.create(React.createElement(HomeDashboard, {
+    ...props, inputMappingRecovering: true,
+    inputDriver: { status: 'error', message: 'RC003 硬件按键映射尚未恢复，正在自动重试。' },
+  }))
+  const text = () => JSON.stringify(renderer.toJSON())
+  try {
+    assert.match(text(), /按键映射/)
+    assert.match(text(), /恢复中/)
+    assert.doesNotMatch(text(), /启动失败|打开设置|重新授权/)
+    const retry = renderer.root.findByProps({ className: 'home-row-action' })
+    assert.equal(retry.children[0], '重新检测')
+    retry.props.onClick()
+    assert.equal(refreshed, 1)
+    assert.equal(openedPermissions, 0)
+
+    renderer.update(React.createElement(HomeDashboard, { ...props, inputMappingRecovering: false }))
+    assert.doesNotMatch(text(), /恢复中/)
+    assert.equal(renderer.root.findAllByProps({ className: 'home-row-action' }).length, 0)
+
+    renderer.update(React.createElement(HomeDashboard, {
+      ...props, inputMappingRecovering: true, inputAuthorizationStale: true,
+      inputDriver: { status: 'error' },
+    }))
+    assert.match(text(), /需要重新授权/)
+    renderer.root.findByProps({ className: 'home-row-action' }).props.onClick()
+    assert.equal(openedPermissions, 1)
+  } finally {
+    renderer.unmount()
+  }
+})

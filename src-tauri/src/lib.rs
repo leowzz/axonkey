@@ -1,5 +1,9 @@
 mod audio_service;
 mod input_service;
+mod release_update;
+mod legacy_driver;
+#[cfg(target_os = "windows")]
+mod quarbor_installer;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
@@ -316,15 +320,14 @@ fn get_platform() -> &'static str {
 }
 
 #[cfg(target_os = "windows")]
-fn find_driver_script(
+fn find_driver_helper(
     driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("input", "install") => "install-driver.ps1",
-        ("input", "uninstall") => "uninstall-driver.ps1",
         ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
+        ("legacy", "cleanup" | "status") => "uninstall-old-driver.exe",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
     };
@@ -350,13 +353,14 @@ fn find_driver_script(
         }
     }
 
-    Err(format!("Driver script was not found: {file_name}"))
+    Err(format!("Driver helper was not found: {file_name}"))
 }
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DriverActionResult {
     log_path: String,
+    reboot_required: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -370,8 +374,10 @@ fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, Str
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
     let file_name = if driver == "audio" {
         format!("vbcable-{action}.log")
+    } else if driver == "legacy" {
+        "old-driver-uninstall.log".to_string()
     } else {
-        format!("driver-{action}.log")
+        format!("quarbor-{action}.log")
     };
     Ok(directory.join(file_name))
 }
@@ -462,6 +468,7 @@ end run"#;
     }
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: false,
     })
 }
 
@@ -483,50 +490,111 @@ fn run_driver_action(
     std::fs::write(&log_path, started)
         .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
 
-    let script = find_driver_script(driver, action, resource_dir).map_err(|error| {
+    if driver == "input" {
+        let reboot_required = quarbor_installer::run(action, resource_dir, &log_path)?;
+        return Ok(DriverActionResult {
+            log_path: log_path.to_string_lossy().into_owned(),
+            reboot_required,
+        });
+    }
+
+    let helper = find_driver_helper(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
         format!("{error}. Log: {}", log_path.display())
     })?;
-    let mut command = std::process::Command::new("powershell.exe");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .arg("-NoProfile")
-        .arg("-NonInteractive")
-        .arg("-WindowStyle")
-        .arg("Hidden")
-        .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-File")
-        .arg(script);
-    if driver == "audio" {
-        command.arg("-Action").arg(action);
+    let _ = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&log_path)
+        .and_then(|mut file| {
+            use std::io::Write;
+            writeln!(file, "Helper: {}", helper.display())
+        });
+    let mut command = if driver == "legacy" {
+        let mut command = std::process::Command::new(&helper);
+        command
+            .arg("--confirmed")
+            .arg("--auto-close")
+            .arg("--log-path")
+            .arg(&log_path);
+        command
+    } else {
+        let mut command = std::process::Command::new("powershell.exe");
+        command
+            .arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-WindowStyle")
+            .arg("Hidden")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
+            .arg(&helper)
+            .arg("-Action")
+            .arg(action);
+        command
+    };
+    if driver != "legacy" {
+        command.creation_flags(CREATE_NO_WINDOW);
     }
-    let status = command
-        .arg("-Confirmed")
-        .arg("-LogPath")
-        .arg(&log_path)
+    let output = command
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
         .map_err(|error| {
-            let message = format!("Cannot launch the driver script: {error}");
+            let message = format!("Cannot launch the driver helper: {error}");
             let _ = std::fs::write(&log_path, format!("ERROR: {message}\r\n"));
             format!("{message}. Log: {}", log_path.display())
         })?;
 
-    if !status.success() {
-        let exit_code = status
+    if let Ok(mut log) = std::fs::OpenOptions::new().append(true).open(&log_path) {
+        use std::io::Write;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            let _ = writeln!(log, "stdout:\r\n{stdout}");
+        }
+        if !stderr.trim().is_empty() {
+            let _ = writeln!(log, "stderr:\r\n{stderr}");
+        }
+    }
+
+    if !output.status.success() {
+        let exit_code = output
+            .status
             .code()
             .map_or_else(|| "unknown".to_string(), |code| code.to_string());
+        let detail = std::fs::read_to_string(&log_path)
+            .ok()
+            .and_then(|contents| {
+                let lines = contents
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .rev()
+                    .take(3)
+                    .collect::<Vec<_>>();
+                if lines.is_empty() {
+                    None
+                } else {
+                    let mut text = lines.into_iter().rev().collect::<Vec<_>>().join(" | ");
+                    if text.len() > 800 {
+                        text = text.chars().take(800).collect();
+                        text.push('…');
+                    }
+                    Some(text)
+                }
+            });
+        let detail_suffix = detail
+            .map(|text| format!(" 详情: {text}."))
+            .unwrap_or_default();
         return Err(format!(
-            "Driver {action} failed with exit code {exit_code}. Log: {}",
-            log_path.display()
+            "Driver {action} failed with exit code {exit_code}.{detail_suffix} Log: {}",
+            log_path.display(),
         ));
     }
 
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: driver != "legacy",
     })
 }
 
@@ -536,10 +604,12 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if !matches!(driver.as_str(), "input" | "audio") {
+    if !matches!(driver.as_str(), "input" | "audio" | "legacy") {
         return Err("Unsupported driver kind".into());
     }
-    if !matches!(action.as_str(), "install" | "uninstall") {
+    if !matches!(action.as_str(), "install" | "uninstall")
+        && !(driver == "legacy" && action == "cleanup")
+    {
         return Err("Unsupported driver action".into());
     }
     log::info!(target: "axonkey::runtime", "Driver action requested: {driver}/{action}");
@@ -591,9 +661,10 @@ async fn launch_driver_action(
 
 #[tauri::command]
 fn open_windows_settings(page: String) -> Result<(), String> {
-    let uri = match page.as_str() {
+    let target = match page.as_str() {
         "bluetooth" => "ms-settings:bluetooth",
         "sound" => "ms-settings:sound",
+        "services" => "services.msc",
         _ => return Err("Unsupported settings page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening Windows settings page: {page}");
@@ -604,7 +675,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
             .arg("/C")
             .arg("start")
             .arg("")
-            .arg(uri)
+            .arg(target)
             .spawn()
             .map_err(|error| format!("Cannot open Windows settings: {error}"))?;
         Ok(())
@@ -612,7 +683,7 @@ fn open_windows_settings(page: String) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = uri;
+        let _ = target;
         Err("Windows settings are only available on Windows".into())
     }
 }
@@ -724,7 +795,7 @@ fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
         "vbcable" => "https://vb-audio.com/Cable/",
         "github" => "https://github.com/leowzz/axonkey",
-        "releases" => "https://github.com/leowzz/axonkey/releases/latest",
+        "releases" => "https://github.com/leowzz/axonkey/releases",
         _ => return Err("Unsupported external page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening external page: {page}");
@@ -800,6 +871,31 @@ fn powershell_output(expression: &str) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
+}
+
+#[tauri::command]
+async fn probe_legacy_components(
+    app: tauri::AppHandle,
+    refresh: bool,
+) -> Result<legacy_driver::LegacyComponents, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<legacy_driver::LegacyProbeState>()
+                .check(refresh, || legacy_driver::probe(&resource_dir))
+        })
+        .await
+        .map_err(|error| format!("Legacy driver status task failed: {error}"))?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, refresh);
+        Err("Legacy driver status is only supported on Windows".into())
+    }
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -1000,10 +1096,105 @@ async fn clear_windows_audio_endpoint(app: tauri::AppHandle) -> Result<AudioServ
 }
 
 #[tauri::command]
+async fn open_signal_monitor(app: tauri::AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(window) = app.get_webview_window("signal-monitor") {
+            window.unminimize().map_err(|e| e.to_string())?;
+            window.show().map_err(|e| e.to_string())?;
+            return window.set_focus().map_err(|e| e.to_string());
+        }
+        tauri::WebviewWindowBuilder::new(
+            &app,
+            "signal-monitor",
+            tauri::WebviewUrl::App("bluetooth-signal.html".into()),
+        )
+        .title("语音链路监测 · Axonkey")
+        .inner_size(1080.0, 760.0)
+        .min_inner_size(680.0, 540.0)
+        .build()
+        .map_err(|e| format!("无法打开语音链路监测：{e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("语音链路监测目前仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+async fn get_signal_monitor_state(
+    app: tauri::AppHandle,
+    after: Option<u64>,
+    clear: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "macos")]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AudioService>().signal_snapshot(after, clear.unwrap_or(false))
+        })
+            .await
+            .map_err(|e| format!("无法读取监测数据：{e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, after, clear);
+        Err("语音链路监测目前仅支持 macOS".into())
+    }
+}
+
+#[tauri::command]
+async fn export_signal_monitor(
+    window: tauri::WebviewWindow,
+    content: String,
+) -> Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+    if content.len() > 4_000_000 {
+        return Err("导出数据过大，请缩短采集时间后重试".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = window
+            .dialog()
+            .file()
+            .set_parent(&window)
+            .set_file_name("语音链路监测读数.csv")
+            .add_filter("CSV", &["csv"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = path
+            .into_path()
+            .map_err(|e| format!("无法使用所选位置：{e}"))?;
+        std::fs::write(path, content).map_err(|e| format!("无法保存读数：{e}"))?;
+        Ok(true)
+    })
+    .await
+    .map_err(|e| format!("导出失败：{e}"))?
+}
+
+#[tauri::command]
 fn get_audio_test_state(
     audio_service: tauri::State<'_, AudioService>,
 ) -> (AudioServiceStatus, audio_service::AudioLevel) {
     (audio_service.status(), audio_service.level())
+}
+
+#[tauri::command]
+fn set_audio_stretch_compensation(
+    enabled: bool,
+    audio_service: tauri::State<'_, AudioService>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        audio_service.set_stretch_compensation(enabled)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (enabled, audio_service);
+        Err("拉伸补偿实验仅支持 macOS".into())
+    }
 }
 
 #[tauri::command]
@@ -1058,32 +1249,6 @@ fn update_input_settings(
 }
 
 #[tauri::command]
-fn get_extra_keys_status(input_service: tauri::State<'_, InputService>) -> serde_json::Value {
-    #[cfg(windows)]
-    return serde_json::to_value(input_service.extra_keys_status()).unwrap_or_default();
-    #[cfg(not(windows))]
-    {
-        let _ = input_service;
-        serde_json::json!({"state":"unsupported", "message":"仅 Windows 需要此功能。", "step":0})
-    }
-}
-
-#[tauri::command]
-fn set_extra_keys_enabled(
-    enabled: bool,
-    automatic: Option<bool>,
-    input_service: tauri::State<'_, InputService>,
-) -> Result<(), String> {
-    #[cfg(windows)]
-    return input_service.set_extra_keys_enabled(enabled, automatic.unwrap_or(false));
-    #[cfg(not(windows))]
-    {
-        let _ = (enabled, automatic, input_service);
-        Err("仅 Windows 需要此功能。".into())
-    }
-}
-
-#[tauri::command]
 fn write_mapping_file(path: String, content: String) -> Result<(), String> {
     if path.trim().is_empty() {
         return Err("Mapping file path is empty".into());
@@ -1106,12 +1271,15 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let windows = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
-        let input_driver_installed = std::path::PathBuf::from(windows)
-            .join("System32")
-            .join("drivers")
-            .join("keyboard.sys")
-            .is_file();
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        let devices =
+            tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
+                .await
+                .map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
+        let input_driver_installed = devices.iter().any(|device| device.needs_uninstall());
         Ok(SystemProbe {
             platform: "windows",
             input_driver_installed,
@@ -1171,25 +1339,6 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    #[cfg(windows)]
-    {
-        let args: Vec<String> = std::env::args().collect();
-        #[cfg(debug_assertions)]
-        if args
-            .get(1)
-            .is_some_and(|arg| arg == "--extra-keys-smoke-test")
-        {
-            let result = input_service::windows_extra_keys::smoke_test();
-            if let Err(error) = &result {
-                eprintln!("{error}");
-            }
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
-        }
-        if args.get(1).is_some_and(|arg| arg == "--extra-keys-helper") {
-            let result = input_service::windows_extra_keys::run_helper(&args[2..]);
-            std::process::exit(if result.is_ok() { 0 } else { 1 });
-        }
-    }
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1214,7 +1363,13 @@ pub fn run() {
             show_main_window(app);
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(
+            tauri_plugin_updater::Builder::new()
+                .default_version_comparator(|current, release| {
+                    release_update::is_newer_release(&current, &release.version)
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
@@ -1255,6 +1410,7 @@ pub fn run() {
             app.manage(InputService::start());
             app.manage(MouseService::start());
             app.manage(PermissionHelperWindowState::default());
+            app.manage(legacy_driver::LegacyProbeState::default());
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
             if let Err(error) = install_tray(app) {
@@ -1272,6 +1428,10 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            #[cfg(target_os = "macos")]
+            if window.label() == "signal-monitor" && matches!(event, tauri::WindowEvent::Destroyed) {
+                window.state::<AudioService>().stop_signal_monitor();
+            }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
             }
@@ -1287,6 +1447,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            release_update::check_release_update,
             ping,
             get_platform,
             get_log_info,
@@ -1299,6 +1460,7 @@ pub fn run() {
             open_external_page,
             request_macos_permission,
             probe_system_state,
+            probe_legacy_components,
             probe_audio_available,
             probe_audio_state,
             restart_audio_service,
@@ -1307,11 +1469,13 @@ pub fn run() {
             clear_windows_audio_endpoint,
             get_audio_test_state,
             set_audio_gain,
+            set_audio_stretch_compensation,
+            open_signal_monitor,
+            get_signal_monitor_state,
+            export_signal_monitor,
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
-            get_extra_keys_status,
-            set_extra_keys_enabled,
             write_mapping_file,
         ])
         .build(tauri::generate_context!())

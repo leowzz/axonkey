@@ -1,5 +1,6 @@
 import type { DownloadEvent, Update } from '@tauri-apps/plugin-updater'
 import type { ReleaseUpdateState } from './releaseUpdate'
+import { isNewerRelease } from './releaseUpdate.ts'
 
 export type NativeUpdateState = ReleaseUpdateState & {
   phase: 'idle' | 'downloading' | 'installing' | 'ready' | 'restarting'
@@ -15,10 +16,12 @@ export const initialUpdateState: NativeUpdateState = {
 type PendingUpdate = Pick<Update, 'version' | 'downloadAndInstall' | 'close'>
 
 export function createNativeReleaseChecker(onChange: (state: NativeUpdateState) => void, {
+  currentVersion,
   checkUpdate,
   relaunch,
   now = Date.now,
 }: {
+  currentVersion: string
   checkUpdate: () => Promise<PendingUpdate | null>
   relaunch: () => Promise<void>
   now?: () => number
@@ -40,8 +43,9 @@ export function createNativeReleaseChecker(onChange: (state: NativeUpdateState) 
         const update = await checkUpdate()
         if (disposed) { close(update); return }
         close(pending)
-        pending = update
-        state = { ...state, latestVersion: update?.version ?? null, checkedAt: now() }
+        pending = update && isNewerRelease(update.version, currentVersion) ? update : null
+        if (update && !pending) close(update)
+        state = { ...state, latestVersion: pending?.version ?? null, checkedAt: now() }
         nextCheckAt = now() + 60 * 60 * 1000
       } catch {
         state = { ...state, error: '暂时无法检查更新，请稍后重试或前往 GitHub 下载。' }

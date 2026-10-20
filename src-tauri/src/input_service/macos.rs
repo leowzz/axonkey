@@ -1,6 +1,6 @@
 use super::{
-    cursor_delta, repeatable_click, InputServiceStatus, MouseButton, NativeBehavior, NativeSettings,
-    RepeatableClick, TriggerBehaviors, WheelDirection,
+    cursor_delta, repeatable_click, InputServiceStatus, MouseButton, NativeBehavior,
+    NativeSettings, RepeatableClick, TriggerBehaviors, WheelDirection,
 };
 use serde::Serialize;
 use std::{
@@ -22,6 +22,8 @@ const EVENT_DEVICE_DISCONNECTED: i32 = 3;
 const EVENT_INPUT_REPORT: i32 = 4;
 const EVENT_BACKEND_ERROR: i32 = 5;
 const EVENT_TICK: i32 = 6;
+const EVENT_MODIFIER_MAPPINGS_CHANGED: i32 = 7;
+const EVENT_MODIFIER_MAPPING_DIAGNOSTIC: i32 = 8;
 const CAPTURE_MODE_MASK: i32 = 0x03;
 const CAPTURE_HARDWARE_MODIFIER_MAPPINGS: i32 = 0x04;
 const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
@@ -38,6 +40,7 @@ const DENIED_RETRY_MS: u64 = 2_000;
 const IO_RETURN_NOT_PERMITTED: i32 = 0xe00002e2_u32 as i32;
 const STALE_INPUT_MONITORING_ERROR: &str =
     "macOS Input Monitoring authorization is stale for this build; remove the old Axonkey entry and add the current Axonkey.app again";
+const MODIFIER_MAPPING_ERROR: &str = "RC003 modifier hardware mappings could not be applied";
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
@@ -271,6 +274,19 @@ fn record_backend_error(status: &mut InputServiceStatus, code: i32) {
     }
 }
 
+fn update_modifier_mapping_status(status: &mut InputServiceStatus, active: bool) {
+    if !status.device_connected || !status.capture_active || status.input_monitoring_open_denied {
+        return;
+    }
+    if active {
+        if status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+            status.error = None;
+        }
+    } else if status.error.is_none() || status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+        status.error = Some(MODIFIER_MAPPING_ERROR.into());
+    }
+}
+
 struct WorkerContext {
     shared: Arc<Shared>,
     capture: bool,
@@ -402,7 +418,7 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_DEVICE_CONNECTED => {
-            log::info!(target: "axonkey::input", "RC003 HID device connected (capture={})", context.capture);
+            log::info!(target: "axonkey::input", "RC003 HID device connected (capture={}, capture_mode={}, hardware_mappings_active={})", context.capture, code & CAPTURE_MODE_MASK, code & CAPTURE_HARDWARE_MODIFIER_MAPPINGS != 0);
             let capture_mode = code & CAPTURE_MODE_MASK;
             context.device_seen = true;
             context.hardware_modifier_mappings_active =
@@ -419,8 +435,7 @@ unsafe extern "C" fn event_callback(
                 } else if !context.hardware_modifier_mapping_usages.is_empty()
                     && !context.hardware_modifier_mappings_active
                 {
-                    status.error =
-                        Some("RC003 modifier hardware mappings could not be applied".into());
+                    status.error = Some(MODIFIER_MAPPING_ERROR.into());
                 } else if context.capture {
                     status.error = None;
                 }
@@ -429,10 +444,31 @@ unsafe extern "C" fn event_callback(
         EVENT_DEVICE_DISCONNECTED => {
             log::info!(target: "axonkey::input", "RC003 HID device disconnected");
             context.input.release_all();
+            context.hardware_modifier_mappings_active = false;
             if let Ok(mut status) = context.shared.status.lock() {
                 status.device_connected = false;
                 status.hardware_id = None;
                 status.capture_active = false;
+                if status.error.as_deref() == Some(MODIFIER_MAPPING_ERROR) {
+                    status.error = None;
+                }
+            }
+        }
+        EVENT_MODIFIER_MAPPINGS_CHANGED => {
+            context.hardware_modifier_mappings_active = code != 0;
+            if let Ok(mut status) = context.shared.status.lock() {
+                update_modifier_mapping_status(
+                    &mut status,
+                    context.hardware_modifier_mappings_active,
+                );
+            }
+        }
+        EVENT_MODIFIER_MAPPING_DIAGNOSTIC if !bytes.is_null() && length > 0 => {
+            let message = String::from_utf8_lossy(std::slice::from_raw_parts(bytes, length));
+            if code != 0 {
+                log::warn!(target: "axonkey::input", "{message}");
+            } else {
+                log::info!(target: "axonkey::input", "{message}");
             }
         }
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
@@ -613,6 +649,17 @@ fn press_flags(keys: &[MacKey]) -> Vec<u64> {
         .collect()
 }
 
+fn release_flags(keys: &[MacKey]) -> Vec<u64> {
+    (0..keys.len())
+        .rev()
+        .map(|remaining| {
+            keys[..remaining]
+                .iter()
+                .fold(0, |flags, key| flags | key.modifier_flag())
+        })
+        .collect()
+}
+
 impl PressedChord {
     fn press(keys: &[MacKey]) -> Self {
         log::info!(target: "axonkey::input", "Mapped chord press: keys={keys:?}");
@@ -628,14 +675,8 @@ impl PressedChord {
 
     fn release(&mut self) {
         log::info!(target: "axonkey::input", "Mapped chord release: keys={:?}", self.keys);
-        let mut flags = self
-            .keys
-            .iter()
-            .fold(0, |flags, key| flags | key.modifier_flag());
-        for key in self.keys.iter().copied().rev() {
-            if key.modifier_flag() != 0 {
-                flags &= !key.modifier_flag();
-            }
+        // Left/right modifiers share a flag; retain it until both sides are released.
+        for (key, flags) in self.keys.iter().copied().rev().zip(release_flags(&self.keys)) {
             post_key(key, false, flags, false);
         }
         self.keys.clear();
@@ -1193,6 +1234,7 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
             NativeBehavior::Disabled { .. } => {}
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,
@@ -1244,6 +1286,7 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
+        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {}
     }
 }
 
@@ -1267,6 +1310,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
         | NativeBehavior::Paste { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
@@ -1310,13 +1355,11 @@ fn mac_key_for_name(value: &str) -> Option<MacKey> {
         "ALT" | "LALT" | "OPTION" | "LOPTION" => {
             Some(MacKey::modifier(58, FLAG_OPTION | FLAG_DEVICE_LEFT_OPTION))
         }
-        "RALT" | "ROPTION" => Some(MacKey::modifier(
-            61,
-            FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION,
+        "RALT" | "ROPTION" => Some(MacKey::modifier(61, FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION)),
+        "WIN" | "LWIN" | "CMD" | "COMMAND" => Some(MacKey::modifier(
+            55,
+            FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND,
         )),
-        "WIN" | "LWIN" | "CMD" | "COMMAND" => {
-            Some(MacKey::modifier(55, FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND))
-        }
         "RWIN" | "RCMD" | "RCOMMAND" => Some(MacKey::modifier(
             54,
             FLAG_COMMAND | FLAG_DEVICE_RIGHT_COMMAND,
@@ -1481,7 +1524,10 @@ mod tests {
         let mut triggers = settings.behaviors["up"].clone();
         assert_eq!(continuous_click_wheel(&triggers), None);
         triggers.click.pop();
-        assert_eq!(continuous_click_wheel(&triggers), Some(WheelDirection::Left));
+        assert_eq!(
+            continuous_click_wheel(&triggers),
+            Some(WheelDirection::Left)
+        );
         let wheel = triggers.click[0].clone();
         triggers.double_click.push(wheel.clone());
         assert_eq!(continuous_click_wheel(&triggers), None);
@@ -1819,6 +1865,73 @@ mod tests {
     }
 
     #[test]
+    fn modifier_only_shortcut_uses_continuous_chord_with_combined_flags() {
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": { "menu": {
+                "click": [{ "type": "shortcut", "keys": ["Ctrl", "Alt"] }]
+            }}
+        }))
+        .unwrap();
+        let control = FLAG_CONTROL | FLAG_DEVICE_LEFT_CONTROL;
+        let option = FLAG_OPTION | FLAG_DEVICE_LEFT_OPTION;
+        let keys = continuous_click_chord(&settings.behaviors["menu"]).unwrap();
+        assert_eq!(
+            keys,
+            vec![MacKey::modifier(59, control), MacKey::modifier(58, option)]
+        );
+        assert_eq!(press_flags(&keys), vec![control, control | option]);
+        // A multi-modifier chord must use software handling, not a single-key HID remap.
+        assert!(hardware_modifier_mappings(&settings).is_empty());
+    }
+
+    #[test]
+    fn releasing_both_modifier_sides_retains_the_remaining_side() {
+        for (left, right) in [
+            ("Ctrl", "RCtrl"),
+            ("Shift", "RShift"),
+            ("Alt", "RAlt"),
+            ("Win", "RWin"),
+        ] {
+            let behavior = NativeBehavior::Shortcut {
+                enabled: true,
+                keys: vec![left.into(), right.into()],
+            };
+            let mut keys = behavior_chord(&behavior).unwrap();
+            assert_eq!(keys.len(), 2);
+            for _ in 0..2 {
+                let first = keys[0].modifier_flag();
+                let both = first | keys[1].modifier_flag();
+                assert_eq!(press_flags(&keys), vec![first, both]);
+                assert_eq!(release_flags(&keys), vec![first, 0]);
+                let mut with_base = keys.clone();
+                with_base.push(MacKey::keyboard(8));
+                assert_eq!(release_flags(&with_base), vec![both, first, 0]);
+                keys.reverse();
+            }
+        }
+        assert!(release_flags(&[]).is_empty());
+    }
+
+    #[test]
+    fn modifier_shortcuts_preserve_independent_sides() {
+        let triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
+            "click": [{ "type": "shortcut", "keys": ["RCtrl", "Shift", "RAlt", "Win"] }]
+        }))
+        .unwrap();
+        let keys = continuous_click_chord(&triggers).unwrap();
+        assert_eq!(
+            keys,
+            vec![
+                MacKey::modifier(62, FLAG_CONTROL | FLAG_DEVICE_RIGHT_CONTROL),
+                MacKey::modifier(56, FLAG_SHIFT | FLAG_DEVICE_LEFT_SHIFT),
+                MacKey::modifier(61, FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION),
+                MacKey::modifier(55, FLAG_COMMAND | FLAG_DEVICE_LEFT_COMMAND),
+            ]
+        );
+    }
+
+    #[test]
     fn keeps_gesture_detection_for_multi_trigger_mappings() {
         let mut triggers = TriggerBehaviors::default();
         triggers.click.push(NativeBehavior::Key {
@@ -2012,6 +2125,115 @@ mod tests {
             repeat_interval_ms: REPEAT_INTERVAL_MS,
         });
         assert!(!pending_click_is_due(&state, now));
+    }
+
+    #[test]
+    fn modifier_mapping_retry_updates_routing_and_clears_only_its_error() {
+        let shared = Arc::new(Shared {
+            settings: RwLock::new(NativeSettings::default()),
+            status: Mutex::new(InputServiceStatus {
+                backend_ready: true,
+                device_connected: true,
+                capture_active: true,
+                ..InputServiceStatus::default()
+            }),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            restart: AtomicBool::new(false),
+        });
+        let mut context = WorkerContext {
+            shared: Arc::clone(&shared),
+            capture: true,
+            hardware_modifier_mapping_usages: HashSet::from([0x3e]),
+            hardware_modifier_mappings_active: false,
+            device_seen: true,
+            input: MacInputState::default(),
+            next_permission_check: Instant::now(),
+        };
+        let context_ptr = (&mut context as *mut WorkerContext).cast();
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+        }
+        assert_eq!(
+            shared.status.lock().unwrap().error.as_deref(),
+            Some(MODIFIER_MAPPING_ERROR)
+        );
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                1,
+            );
+        }
+        assert!(context.hardware_modifier_mappings_active);
+        let status = shared.status.lock().unwrap().clone();
+        assert!(status.capture_active && status.device_connected && status.backend_ready);
+        assert!(status.error.is_none());
+
+        shared.status.lock().unwrap().error = Some("other input failure".into());
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+            event_callback(
+                context_ptr,
+                EVENT_MODIFIER_MAPPINGS_CHANGED,
+                0,
+                std::ptr::null(),
+                0,
+                1,
+            );
+        }
+        assert_eq!(
+            shared.status.lock().unwrap().error.as_deref(),
+            Some("other input failure")
+        );
+
+        shared.status.lock().unwrap().error = Some(MODIFIER_MAPPING_ERROR.into());
+        unsafe {
+            event_callback(
+                context_ptr,
+                EVENT_DEVICE_DISCONNECTED,
+                0,
+                std::ptr::null(),
+                0,
+                0,
+            );
+        }
+        assert!(!context.hardware_modifier_mappings_active);
+        let status = shared.status.lock().unwrap();
+        assert!(!status.device_connected && !status.capture_active);
+        assert!(status.error.is_none());
+    }
+
+    #[test]
+    fn modifier_mapping_recovery_preserves_permission_denial() {
+        let mut status = InputServiceStatus {
+            device_connected: true,
+            capture_active: true,
+            input_monitoring_open_denied: true,
+            error: Some(STALE_INPUT_MONITORING_ERROR.into()),
+            ..InputServiceStatus::default()
+        };
+        update_modifier_mapping_status(&mut status, false);
+        update_modifier_mapping_status(&mut status, true);
+        assert_eq!(status.error.as_deref(), Some(STALE_INPUT_MONITORING_ERROR));
+        assert!(!effective_input_monitoring_granted(true, &status));
     }
 
     #[test]

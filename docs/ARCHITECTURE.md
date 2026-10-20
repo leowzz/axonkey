@@ -3,21 +3,15 @@
 ```text
 Windows
   RC003 HID keyboard
-    -> Interception keyboard class filter driver
-    -> interception.dll user-mode API
+    -> QuarborHIDFilterUserDriver UMDF per-device lower filter
+    -> duplex per-instance v3 pipe (Tokio + prost)
     -> exact VID/PID device selection
-    -> source scan-code lookup (including E0 state)
-    -> mapping snapshot and gesture state
-    -> Interception send on the same RC003 keyboard device
-
-  Optional Back / Volume +/-
-    -> explicit UAC for the native auxiliary process
-    -> pinned Frida Gadget in RC003's current WUDFHost
-    -> completed HID reads, per-handle lifetime identity
-    -> automatically acquired extra-key stream (first press forwarded)
-    -> local-only named pipe to the auxiliary process (verified PID + credential)
-    -> per-session named pipe to the normal-privilege app (verified PID + token)
-    -> the same gesture state and Interception output on RC003
+    -> Windows HID descriptor parsing and usage-to-button lookup
+    -> mapping snapshot, gesture state and shared held-key counts
+    -> descriptor-supported standard keys -> InjectKey -> driver HID input reports
+    -> media / unsupported keys and connected chords -> SendInput virtual keys
+    -> SendInput cursor movement, mouse clicks, wheel and Unicode text
+    -> validated application / website system launches
 
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
@@ -40,10 +34,22 @@ macOS
     -> MiRemoteV 2ch input selected by the consuming application
 ```
 
-The input service opens the Interception context, reads the hardware ID for each
-keyboard slot, and sets a filter only on the matching RC003.
-Other keyboards do not enter Axonkey's event loop and therefore cannot be
-suppressed by an RC003 mapping.
+The input service discovers the RC003 keyboard device instance, computes the Quarbor pipe hash, and accepts only frames from that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
+
+The Windows v3 client is implemented in Rust. `protox` and `prost-build` generate
+types from the vendor schema without protoc; Tokio handles the duplex pipe,
+and the `windows` crate calls the system HID descriptor parser. Descriptor-supported standard remote keyboard actions use semantic InjectKey commands with
+correlated Result responses. Unmapped/disabled inputs forward their original
+keyboard usages. Media/volume keys and unsupported or ambiguous descriptor bindings use SendInput virtual keys.
+Chords containing virtual keys and other chords sharing those keys use the same virtual backend.
+Down edges remember the selected backend; cancellation, capture failures and shutdown release virtual keys too.
+All remote behavior types enter the scheduler, including delayed sequences,
+wheel holds and explicit disabled actions. An unconfigured single click still forwards the
+original key when only double/long press is mapped. Cursor movement, mouse clicks, wheel and
+Unicode text use SendInput; application/website actions use validated system launches.
+Independent system mouse mappings keep their SendInput backend.
+The driver blocks physical input and releases its injected state on disconnect.
+See [the v3 input design](quarbor-v3-read.md) for framing, recovery and validation.
 
 On macOS, the input service starts in non-exclusive monitor mode. When custom
 mappings are enabled and both Input Monitoring and Accessibility permissions
@@ -63,9 +69,7 @@ system reboot is involved in a mapping edit. On macOS, changing the master
 enabled state restarts only the IOHIDManager session so it can enter or leave
 capture mode safely.
 
-Installing or removing Interception requires administrator access and a Windows
-reboot. Normal Axonkey execution uses the current user's privileges. Quitting
-Axonkey releases its user-mode Interception context.
+Installing or removing Quarbor requires administrator access. Normal Axonkey execution uses the current user's privileges. Quitting Axonkey closes the Quarbor pipe client and releases mapped outputs.
 
 The macOS backend is compiled from `native/macos_input.m` and
 `native/macos_audio.m` and links only Apple system frameworks. Input Monitoring
@@ -94,11 +98,7 @@ paused; see [measurements, limitations, and shelved experiments](RC003_AUDIO_LAT
 The experimental background queue and post-stop packet handling are not part of
 the current implementation and must not be described as confirmed fixes.
 
-The first-run guide presents Interception and VB-CABLE on one driver setup page
-so both installers can finish before the user reboots Windows once. It can
-launch the reviewed Interception installer and the official VB-Audio installer.
-The Interception scripts verify the bundled installer and runtime hashes before
-requesting elevation.
+The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborHIDFilterUserDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install targets only RC003 HID keyboard instances and lets the installer request UAC. App uninstall invokes --uninstall-all so the installer can restore online and offline instances before removing every published Quarbor package. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
 The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
 the archive hash, extracted x64 installer hash, and Authenticode publisher
 signature before requesting elevation. Driver readiness is detected from the

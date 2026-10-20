@@ -1,4 +1,4 @@
-.PHONY: dev kill clean version-check build build-macos build-macos-audio test-release release uninstall-driver
+.PHONY: dev kill clean version-check build build-macos build-macos-audio build-uninstall-old-driver check-uninstall-old-driver-git test-release release uninstall-driver
 
 ENV_FILE ?= .env
 
@@ -9,7 +9,7 @@ kill:
 	@if command -v pkill >/dev/null 2>&1; then \
 		pkill -x axonkey || true; \
 	elif command -v powershell.exe >/dev/null 2>&1; then \
-		powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name axonkey -ErrorAction SilentlyContinue | Stop-Process -Force; exit 0" || true; \
+		powershell.exe -NoProfile -ExecutionPolicy Bypass -File "./scripts/stop-axonkey.ps1" || true; \
 	else \
 		echo "No process cleanup command available; continuing."; \
 	fi
@@ -32,8 +32,14 @@ build-macos: version-check
 build-macos-audio:
 	./scripts/build-macos-audio-package.sh
 
+build-uninstall-old-driver:
+	npm run build:uninstall-old-driver
+
+check-uninstall-old-driver-git:
+	npm run check:uninstall-old-driver-git
+
 test-release:
 	npm run test:release
 
 uninstall-driver:
-	powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\uninstall-driver.ps1"
+	./vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe --uninstall "$(DEVICE)"

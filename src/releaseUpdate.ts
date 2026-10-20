@@ -1,5 +1,4 @@
-export const releasesUrl = 'https://github.com/leowzz/axonkey/releases/latest'
-const latestReleaseApi = 'https://api.github.com/repos/leowzz/axonkey/releases/latest'
+export const releasesUrl = 'https://github.com/leowzz/axonkey/releases'
 
 export type ReleaseUpdateState = {
   checking: boolean
@@ -17,17 +16,28 @@ function parseVersion(version: string) {
 export function isNewerRelease(latest: string, current: string): boolean {
   const next = parseVersion(latest)
   const installed = parseVersion(current)
-  if (!next || !installed || next.prerelease) return false
+  if (!next || !installed || next.prerelease || next.parts[0] !== installed.parts[0]) return false
   for (let i = 0; i < 3; i++) {
     if (next.parts[i] !== installed.parts[i]) return next.parts[i] > installed.parts[i]
   }
   return installed.prerelease
 }
 
+export function updateManifestUrl(currentVersion: string): string {
+  const current = parseVersion(currentVersion)
+  if (!current) throw new Error('Invalid current version')
+  return `https://raw.githubusercontent.com/leowzz/axonkey/updates/v${current.parts[0]}/latest.json`
+}
+
 export function createReleaseChecker(onChange: (state: ReleaseUpdateState) => void, {
+  currentVersion,
   request = fetch,
   now = Date.now,
-} = {}) {
+}: {
+  currentVersion: string
+  request?: typeof fetch
+  now?: () => number
+}) {
   let state: ReleaseUpdateState = { checking: false, latestVersion: null, checkedAt: null, error: null }
   let nextCheckAt = 0
   let disposed = false
@@ -41,17 +51,18 @@ export function createReleaseChecker(onChange: (state: ReleaseUpdateState) => vo
       controller = new AbortController()
       const timeout = setTimeout(() => controller?.abort(), 10_000)
       try {
-        const response = await request(latestReleaseApi, {
-          headers: { Accept: 'application/vnd.github+json' },
+        const response = await request(updateManifestUrl(currentVersion), {
           signal: controller.signal,
           credentials: 'omit',
+          cache: 'no-cache',
         })
-        if (!response.ok) throw new Error(`GitHub HTTP ${response.status}`)
-        const release = await response.json()
-        if (!release || release.draft !== false || release.prerelease !== false
-          || typeof release.tag_name !== 'string' || !parseVersion(release.tag_name)
-          || parseVersion(release.tag_name)?.prerelease) throw new Error('Invalid release')
-        state = { checking: false, latestVersion: release.tag_name, checkedAt: now(), error: null }
+        if (!response.ok) throw new Error(`Update manifest HTTP ${response.status}`)
+        const manifest = await response.json()
+        const latest = typeof manifest?.version === 'string' ? parseVersion(manifest.version) : null
+        const current = parseVersion(currentVersion)!
+        if (!latest || latest.prerelease || latest.parts[0] !== current.parts[0]) throw new Error('Invalid update manifest')
+        const latestVersion = manifest.version as string
+        state = { checking: false, latestVersion, checkedAt: now(), error: null }
         nextCheckAt = now() + 60 * 60 * 1000
       } catch {
         // Preserve a previously discovered update through temporary network failures.

@@ -18,7 +18,7 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
       if ((event.type === 'pointerdown' || event.type === 'focusin') && (button.current?.contains(event.target as Node) || panel.current?.contains(event.target as Node))) return
       close()
     }
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') close() }
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close() } }
     window.addEventListener('pointerdown', dismiss)
     window.addEventListener('focusin', dismiss)
     window.addEventListener('scroll', dismiss, true)
@@ -43,6 +43,6 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
       onFocus={() => { clearTimeout(timer.current); setOpen(true) }} onBlur={close}
       onClick={() => { clearTimeout(timer.current); setOpen(true) }}><CircleHelp size={15} /></button>
     {open && createPortal(<div ref={panel} id={id} role="tooltip" className="settings-help-popover" style={position}
-      onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</div>, document.body)}
+      onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</div>, button.current?.closest('dialog') ?? document.body)}
   </>
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone, suggestedAudioGain } from '../src/audioGain.ts'
+import { audioCalibrationThresholds, calibrationWaveform, audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone, suggestedAudioGain } from '../src/audioGain.ts'
 
 test('gain estimate preserves silence and exposes clipping instead of hiding it', () => {
   assert.equal(gainAdjustedLevel(0, 30), 0)
@@ -53,4 +53,20 @@ test('empty measurements cannot finish and clipped measurements never recommend 
   const result = audioTestMeasurementReducer(clipped, finish)
   assert.equal(result.completed, true)
   assert.equal(result.suggestedGain, null)
+})
+
+test('calibration waveform follows gain, keeps missing intervals and freezes at the last sample on release', () => {
+  const points = [{t: 1000, peak: .1}, {t: 2000, peak: 0}, {t: 2500, peak: 1}]
+  const live = calibrationWaveform(points, 20, 3000, true)
+  assert.equal(live.end, 3000)
+  assert.equal(live.points[0].db, 0)
+  assert.equal(live.points[1].db, -60)
+  assert.equal(live.points[2].db, 20)
+  assert.equal(live.points.length, 3)
+  assert.equal(calibrationWaveform(points, 0, 50000, false).end, 2500)
+  assert.equal(calibrationWaveform(points, 0, 50000, true).points.length, 0)
+  assert.equal(calibrationWaveform([{t:NaN,peak:1},{t:1,peak:Infinity}], 0, 10, true).points.length, 0)
+  assert.equal(audioCalibrationThresholds.low, -24)
+  assert.equal(audioCalibrationThresholds.high, -6)
+  assert.equal(audioCalibrationThresholds.clipping, 0)
 })

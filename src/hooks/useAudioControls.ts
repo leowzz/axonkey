@@ -5,6 +5,7 @@ import {
   audioGainMin,
   audioSettingsStorageKey,
   getStoredAudioGain,
+  getStoredAudioStretchCompensation,
 } from '../appConfig'
 import type { Platform } from '../appTypes'
 import { logError, logInfo } from '../runtimeLogging'
@@ -18,6 +19,10 @@ type UseAudioControlsOptions = {
 export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioControlsOptions) {
   const [audioGain, setAudioGain] = useState(getStoredAudioGain)
   const [gainError, setGainError] = useState('')
+  const [stretchCompensation, setStretchCompensation] = useState(getStoredAudioStretchCompensation)
+  const [stretchError, setStretchError] = useState('')
+  const [stretchUpdating, setStretchUpdating] = useState(true)
+  const stretchRunning = useRef(true)
   const [audioRestarting, setAudioRestarting] = useState(false)
   const [audioRestartError, setAudioRestartError] = useState('')
   const audioRestartRunning = useRef(false)
@@ -42,8 +47,8 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
   }
 
   useEffect(() => {
-    window.localStorage.setItem(audioSettingsStorageKey, JSON.stringify({ gain: audioGain }))
-  }, [audioGain])
+    window.localStorage.setItem(audioSettingsStorageKey, JSON.stringify({ gain: audioGain, stretchCompensation }))
+  }, [audioGain, stretchCompensation])
 
   useEffect(() => {
     if (platform === 'unsupported' || !nativeRuntime) return
@@ -52,6 +57,35 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
       setGainError(`音频增益未生效：${String(error)}`)
     })
   }, [nativeRuntime, platform])
+
+  useEffect(() => {
+    if (!nativeRuntime || platform !== 'macos') {
+      stretchRunning.current = false
+      setStretchUpdating(false)
+      return
+    }
+    stretchRunning.current = true
+    setStretchUpdating(true)
+    void invoke('set_audio_stretch_compensation', { enabled: stretchCompensation })
+      .catch((error) => setStretchError(`拉伸补偿未生效：${String(error)}`))
+      .finally(() => { stretchRunning.current = false; setStretchUpdating(false) })
+  }, [nativeRuntime, platform])
+
+  const updateStretchCompensation = async (enabled: boolean) => {
+    if (!nativeRuntime || platform !== 'macos' || stretchRunning.current) return
+    stretchRunning.current = true
+    setStretchUpdating(true)
+    setStretchError('')
+    try {
+      await invoke('set_audio_stretch_compensation', { enabled })
+      setStretchCompensation(enabled)
+    } catch (error) {
+      setStretchError(`拉伸补偿未生效：${String(error)}`)
+    } finally {
+      stretchRunning.current = false
+      setStretchUpdating(false)
+    }
+  }
 
   const updateAudioGain = (value: number) => {
     const next = Math.max(audioGainMin, Math.min(audioGainMax, Math.round(value)))
@@ -67,5 +101,5 @@ export function useAudioControls({ platform, nativeRuntime, onToast }: UseAudioC
     })
   }
 
-  return { audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio }
+  return { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio }
 }

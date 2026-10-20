@@ -1,15 +1,17 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Axonkey",
-  "version": "0.3.18",
+  "version": "1.0.6",
   "identifier": "com.axonkey.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build:tauri",
     "devUrl": "http://localhost:1420",
     "frontendDist": "../web-dist"
   },
   "app": {
+    "macOSPrivateApi": true,
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "Axonkey",
@@ -31,9 +33,6 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwRTU5Qjk2OTU5QkYyNjUKUldSbDhwdVZscHZsWU5MRi9PdGVZMlpzQTZEV29rbWNXUnc0Q1pWaFNYRGJTYkNWTFlUM05TL3kK",
-      "endpoints": [
-        "https://github.com/leowzz/axonkey/releases/latest/download/latest.json"
-      ],
       "windows": {
         "installMode": "passive"
       }
