@@ -2,9 +2,28 @@
 .mapping-flow-page .key-picker { flex: 0 0 auto; }
 .workflow-axonkey { display: flex; flex: 1 0 416px; min-width: 0; min-height: 416px; padding: 0 16px 16px; isolation: isolate; }
 .workflow-axonkey-canvas { flex: 1; width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; overflow: hidden; }
-.workflow-axonkey .sqd-toolbox { width: 210px; }
+.workflow-axonkey .sqd-toolbox { width: 210px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(30, 55, 80, .1); }
+.workflow-axonkey .workflow-toolbox { bottom: 80px; display: flex; flex-direction: column; min-height: 0; }
+.workflow-axonkey .workflow-toolbox:not(:has(.is-open)) { bottom: auto; }
+.workflow-toolbox-section { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; }
+.workflow-toolbox-section.is-open { flex: 1 1 0; }
+.workflow-toolbox-heading { flex: 0 0 auto; margin: 0; padding: 4px; }
+.workflow-toolbox-heading button { display: flex; width: 100%; min-height: 34px; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 0; border-radius: 5px; color: var(--map-ink); background: transparent; font-size: 14px; font-weight: 600; }
+.workflow-toolbox-heading button:hover { background: #f0f4f8; }
+.workflow-toolbox-heading button:focus-visible { outline: 2px solid #2878d4; outline-offset: -1px; }
+.workflow-toolbox-heading button[aria-expanded="true"] svg { transform: rotate(180deg); }
+.workflow-toolbox-content { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.workflow-toolbox-content[hidden] { display: none; }
+.workflow-toolbox-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 4px; }
+.workflow-toolbox-empty { margin: 12px 0; color: #687581; font-size: 12px; }
+.workflow-toolbox .sqd-toolbox-filter { flex: 0 0 auto; }
+.workflow-axonkey .sqd-toolbox-filter-input { border-color: #dfe5eb; border-radius: 6px; color: var(--map-ink); font-size: 12px; }
+.workflow-axonkey .sqd-toolbox-filter-input:focus { border-color: #2878d4; }
+.workflow-axonkey .sqd-toolbox-group-title { margin: 8px 0; padding: 5px 2px; border-radius: 0; color: #687581; background: transparent; font-size: 12px; font-weight: 600; text-align: left; }
+.workflow-axonkey .sqd-toolbox-item { margin-bottom: 6px; border-color: #dfe5eb; border-radius: 6px; color: var(--map-ink); background: #fbfcfd; box-shadow: none; }
+.workflow-axonkey .sqd-toolbox-item:hover { border-color: #a9bfd8; background: #edf5ff; }
 .workflow-axonkey .sqd-toolbox-item-icon { width: 40px; height: 24px; margin-top: -12px; }
-.workflow-axonkey .sqd-toolbox-item-text { padding-left: 50px; }
+.workflow-axonkey .sqd-toolbox-item-text { padding: 10px 8px 10px 50px; font-size: 12px; }
 .workflow-axonkey .sqd-workspace { margin-left: 230px; min-width: 0; }
 .workflow-axonkey .sqd-control-bar { left: 240px; }
 .workflow-trigger-click { --trigger-color: #2878d4; --trigger-background: #edf5ff; --trigger-dash: none; }
