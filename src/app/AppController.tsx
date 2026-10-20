@@ -18,6 +18,7 @@ import {
   createDefaultBehaviorMap,
   defaultCursorDistance,
   createMappingExport,
+  serializeSequence,
   moveBehavior,
   parseMappingImport,
   updateBehaviorList,
@@ -64,7 +65,8 @@ import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
-import { BehaviorEditDialog, BehaviorEditor, TextInputPresetDialog } from '../components/BehaviorEditor'
+import { BehaviorEditDialog, BehaviorEditor, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
+import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../deviceModel'
 import type { DeviceId } from '../deviceModel'
 import { MouseInputModel, MouseControlPicker, MouseTriggerSelector, mouseInputs } from '../components/MouseMapping'
@@ -161,6 +163,7 @@ function AppController() {
   const [editingBehaviorId, setEditingBehaviorId] = useState<string | null>(null)
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
+  const [sequencePasteOpen, setSequencePasteOpen] = useState(false)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [previewBatteryLevel, setPreviewBatteryLevel] = useState<number | null>(null)
   const displayedBatteryLevel = debugMode ? previewBatteryLevel ?? batteryLevel : batteryLevel
@@ -520,6 +523,7 @@ function AppController() {
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
+    setSequencePasteOpen(false)
     if (reveal) revealBehaviorEditor()
   }
 
@@ -533,6 +537,7 @@ function AppController() {
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
+    setSequencePasteOpen(false)
   }, [])
 
   const undoBehaviorChange = useCallback(() => {
@@ -628,6 +633,7 @@ function AppController() {
       setEditingBehaviorId(null)
       setDraftBehavior(null)
       setTextInputDraft(null)
+      setSequencePasteOpen(false)
       showBehaviorToast(imported.enabled === undefined ? '映射规则已导入，将自动保存' : '映射规则和启用状态已导入，将自动保存')
     } catch (error) {
       logError('Failed to import mapping file', error)
@@ -639,6 +645,17 @@ function AppController() {
   const replaceWithCommonBehavior = (next: Behavior[]) => {
     setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, () => next))
     setAutoSaveState('saving')
+  }
+
+  const copySelectedSequence = async () => {
+    const sequence = behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]
+    try {
+      await writeClipboardText(serializeSequence(sequence))
+      showBehaviorToast('当前序列已复制')
+    } catch (error) {
+      logError('Failed to copy behavior sequence', error)
+      showBehaviorToast('复制失败，请重试')
+    }
   }
 
   const replaceWithKey = (key: string) => {
@@ -699,6 +716,18 @@ function AppController() {
         return
       case 'backspace': return replaceWithKey('Backspace')
       case 'delete': return replaceWithKey('Delete')
+      case 'deleteAllText': {
+        const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
+        replaceWithCommonBehavior([
+          createBehavior({ type: 'shortcut', keys: [modifier, 'A'] }),
+          createBehavior({ type: 'delay', ms: 20 }),
+          createBehavior({ type: 'shortcut', keys: [modifier, 'C'] }),
+          createBehavior({ type: 'delay', ms: 20 }),
+          createBehavior({ type: 'key', key: 'Backspace' }),
+        ])
+        showBehaviorToast('已设为删除全部文本')
+        return
+      }
       case 'keyHome': return replaceWithKey('Home')
       case 'keyEnd': return replaceWithKey('End')
       case 'pageUp': return replaceWithKey('PageUp')
@@ -1529,6 +1558,13 @@ function AppController() {
                 onMoveBehavior={moveSelectedBehavior}
                 onEditBehavior={setEditingBehaviorId}
                 onReturnToMappings={returnToSelectedMapping}
+                onCopySequence={() => void copySelectedSequence()}
+                onPasteSequence={() => setSequencePasteOpen(true)}
+                onClearSequence={() => {
+                  clearBehaviorEditingState()
+                  replaceWithCommonBehavior([])
+                  showBehaviorToast('当前序列已清除')
+                }}
               />
             </section>
           </div>
@@ -1633,6 +1669,17 @@ function AppController() {
         onUpdate={(update) => setDraftBehavior((current) => current ? { ...current, behavior: update(current.behavior) } : null)}
         onClose={() => { setDraftBehavior(null); setCapturingBehaviorId(null) }}
         onSave={() => commitDraftBehavior()}
+      />}
+      {sequencePasteOpen && <SequencePasteDialog
+        platform={platform}
+        button={selectedButton}
+        trigger={selectedBehavior.trigger}
+        onClose={() => setSequencePasteOpen(false)}
+        onApply={(sequence) => {
+          replaceWithCommonBehavior(sequence)
+          setSequencePasteOpen(false)
+          showBehaviorToast('当前序列已替换')
+        }}
       />}
       {textInputDraft !== null && <TextInputPresetDialog
         button={selectedButton}

@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardPaste,
+  Copy,
   Clock3,
   FolderOpen,
   Globe,
@@ -30,7 +31,8 @@ import {
   X,
 } from 'lucide-react'
 import type { Behavior, InputId, TriggerType } from '../behaviorModel'
-import { defaultCursorDistance, maxCursorDistance, normalizeApplicationPath, normalizeWebsiteUrl } from '../behaviorModel'
+import { defaultCursorDistance, maxCursorDistance, normalizeApplicationPath, normalizeWebsiteUrl, parseSequenceImport } from '../behaviorModel'
+import { readClipboardText } from '../clipboard'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { SettingsHelp } from './SettingsHelp'
@@ -46,7 +48,7 @@ import {
 } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, MappingInput } from '../appTypes'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 function mappingTriggerLabel(button: MappingInput, trigger: TriggerType) {
   return [button.contextLabel, button.triggerLabel ?? triggerLabels[trigger]].filter(Boolean).join(' · ')
@@ -76,6 +78,9 @@ type BehaviorEditorProps = {
   onMoveBehavior: (behaviorId: string, direction: -1 | 1) => void
   onEditBehavior: (behaviorId: string) => void
   onReturnToMappings: () => void
+  onCopySequence: () => void
+  onPasteSequence: () => void
+  onClearSequence: () => void
 }
 
 type BehaviorActionButtonProps = {
@@ -92,7 +97,7 @@ function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionBu
   </button>
 }
 
-export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings }: BehaviorEditorProps) {
+export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings, onCopySequence, onPasteSequence, onClearSequence }: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
   return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${mappingTriggerLabel(button, trigger)}行为配置`}>
@@ -117,9 +122,14 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
     </details>}
     <div className="behavior-editor-body">
       <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
-        <div className="behavior-column-heading">
+        <div className="behavior-column-heading behavior-sequence-heading">
           <h3 id={`${tabId}-current-title`}>当前序列</h3>
           <span>{button.label} · {mappingTriggerLabel(button, trigger)}</span>
+          <div className="behavior-sequence-actions">
+            <button type="button" className="reset-button" onClick={onCopySequence}><Copy size={13} /> 复制序列</button>
+            <button type="button" className="reset-button" onClick={onPasteSequence}><ClipboardPaste size={13} /> 粘贴序列</button>
+            <button type="button" className="reset-button" disabled={behaviors.length === 0} onClick={onClearSequence}><Trash2 size={13} /> 清除序列</button>
+          </div>
         </div>
         <div className="behavior-list">
           {behaviors.length === 0 && <div className="behavior-empty">{(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '尚未设置'}</div>}
@@ -177,6 +187,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<ArrowLeft size={17} />} label="上一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`} onClick={() => onApplyCommonBehavior('previousTab')} />
             <BehaviorActionButton icon={<ArrowRight size={17} />} label="下一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Tab`} onClick={() => onApplyCommonBehavior('nextTab')} />
             <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />
+            <BehaviorActionButton icon={<Trash2 size={17} />} label="删除全部文本" detail="全选并复制后删除" onClick={() => onApplyCommonBehavior('deleteAllText')} />
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
             <BehaviorActionButton icon={<FolderOpen size={17} />} label="打开应用" onClick={() => onApplyCommonBehavior('openApp')} />
             <BehaviorActionButton icon={<Globe size={17} />} label="打开网站" onClick={() => onApplyCommonBehavior('openWebsite')} />
@@ -521,6 +532,67 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
       <footer className="behavior-dialog-actions">
         <span><Check size={13} /> {launchBehavior && !draft && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : draft ? '保存后立即生效' : '更改会自动保存'}</span>
         {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!canSave} onClick={onSave}>保存</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
+      </footer>
+    </section>
+  </div>
+}
+
+type SequencePasteDialogProps = {
+  platform: Platform
+  button: MappingInput
+  trigger: TriggerType
+  onClose: () => void
+  onApply: (behaviors: Behavior[]) => void
+}
+
+export function SequencePasteDialog({ platform, button, trigger, onClose, onApply }: SequencePasteDialogProps) {
+  const [value, setValue] = useState('')
+  const [clipboardError, setClipboardError] = useState('')
+  const [sourceOpen, setSourceOpen] = useState(false)
+  const edited = useRef(false)
+  const parsed = useMemo(() => parseSequenceImport(value), [value])
+  const invalid = Boolean(value.trim() && parsed === null)
+  const errorMessage = invalid ? '序列格式无效，请粘贴由“复制序列”生成的内容。' : clipboardError
+
+  useEffect(() => {
+    let active = true
+    void readClipboardText().then((text) => {
+      if (active && !edited.current && parseSequenceImport(text) !== null) setValue(text)
+    }).catch(() => {
+      if (active && !edited.current) setClipboardError('无法读取剪贴板，请手动粘贴序列。')
+    })
+    return () => { active = false }
+  }, [])
+
+  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
+    <section className="behavior-dialog sequence-paste-dialog" role="dialog" aria-modal="true" aria-labelledby="sequence-paste-title">
+      <header className="behavior-dialog-head">
+        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="sequence-paste-title">粘贴序列</h2></div>
+        <button type="button" className="dialog-close" aria-label="关闭粘贴序列" onClick={onClose}><X size={17} /></button>
+      </header>
+      <div className="behavior-dialog-body">
+        {parsed !== null && <div className="sequence-preview behavior-list" role="region" aria-label="待应用的行为序列">
+          {parsed.length === 0 && <div className="behavior-empty">空序列，应用后将清除当前序列</div>}
+          {parsed.map((behavior, index) => <div className="behavior-item sequence-preview-item" key={behavior.id}>
+            <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
+            <div className="sequence-preview-description">
+              <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
+              {!behavior.enabled && <span className="sequence-step-disabled">已停用</span>}
+              <strong>{behavior.type === 'paste' ? behavior.text || '空文本' : behavior.type === 'openApp' ? behavior.path : behaviorSummary(behavior, platform)}</strong>
+            </div>
+          </div>)}
+        </div>}
+        <details className="sequence-source" open={parsed === null || sourceOpen} onToggle={(event) => { if (parsed !== null) setSourceOpen(event.currentTarget.open) }}>
+          <summary>{parsed === null ? '序列指令' : '查看或编辑指令'}</summary>
+          <div className="behavior-dialog-field">
+            <textarea id="sequence-paste-value" className="behavior-paste-input" aria-label="序列内容" autoFocus value={value} placeholder="粘贴序列指令，也可粘贴包含序列的分享内容" spellCheck={false} aria-invalid={invalid} aria-describedby={errorMessage ? 'sequence-paste-status' : undefined} onChange={(event) => { edited.current = true; setSourceOpen(true); setClipboardError(''); setValue(event.target.value) }} />
+            {errorMessage && <p id="sequence-paste-status" className="behavior-launch-error" role={invalid ? 'alert' : undefined}>{errorMessage}</p>}
+          </div>
+        </details>
+      </div>
+      <footer className="behavior-dialog-actions">
+        <span>确认后替换当前序列，可撤销</span>
+        <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={parsed === null} onClick={() => { if (parsed !== null) onApply(parsed) }}>应用序列</button></div>
       </footer>
     </section>
   </div>

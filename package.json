@@ -11,13 +11,14 @@
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
     "build:uninstall-old-driver": "node scripts/build-uninstall-old-driver.mjs",
     "check:uninstall-old-driver-git": "node scripts/check-uninstall-old-driver-git.mjs",
-    "test:release": "node --test test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/behavior-history.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/setup-model.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/uninstall-old-driver-git.test.mjs",
+    "test:release": "node --test test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/behavior-history.test.mjs test/sequence-transfer.test.mjs test/common-right-modifiers.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/setup-model.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/uninstall-old-driver-git.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/plugin-clipboard-manager": "~2.3.3",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@tauri-apps/plugin-log": "^2.9.1",
     "@tauri-apps/plugin-process": "^2.3.1",

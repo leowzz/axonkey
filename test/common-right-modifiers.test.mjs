@@ -12,6 +12,9 @@ const require = createRequire(import.meta.url)
 const cache = new Map()
 const testWindow = { devicePixelRatio: 2 }
 const dropListeners = new Set()
+let clipboardRead = async () => ''
+const browserClipboard = { readText: async () => 'browser clipboard', writeText: async () => {} }
+const nativeClipboard = { readText: async () => 'native clipboard', writeText: async () => {} }
 
 function load(file) {
   file = resolve(file)
@@ -22,6 +25,8 @@ function load(file) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText
   const localRequire = name => {
+    if (name === '../clipboard') return { readClipboardText: () => clipboardRead() }
+    if (name === '@tauri-apps/plugin-clipboard-manager') return nativeClipboard
     if (name === '@tauri-apps/api/webviewWindow') return {
       getCurrentWebviewWindow: () => ({
         onDragDropEvent: callback => {
@@ -36,19 +41,124 @@ function load(file) {
     if (existsSync(`${path}.tsx`)) return load(`${path}.tsx`)
     return load(`${path}.ts`)
   }
-  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console, URL, setTimeout, clearTimeout, window: testWindow }, { filename: file })
+  vm.runInNewContext(source, { module, exports: module.exports, require: localRequire, console, URL, setTimeout, clearTimeout, window: testWindow, navigator: { clipboard: browserClipboard } }, { filename: file })
   return module.exports
 }
 
-const { BehaviorEditor, BehaviorEditDialog } = load('src/components/BehaviorEditor.tsx')
+const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
 const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys } = load('src/appConfig.tsx')
+const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
-function render(platform) {
+const sequenceText = 'axonkey/1\nkey A\nend'
+
+test('clipboard transfers use the native plugin in Tauri and browser APIs in preview', async () => {
+  const writes = []
+  browserClipboard.writeText = async text => writes.push(['browser', text])
+  nativeClipboard.writeText = async text => writes.push(['native', text])
+  assert.equal(await readClipboardText(), 'browser clipboard')
+  await writeClipboardText(sequenceText)
+  testWindow.__TAURI_INTERNALS__ = {}
+  try {
+    assert.equal(await readClipboardText(), 'native clipboard')
+    await writeClipboardText(sequenceText)
+    assert.deepEqual(writes, [['browser', sequenceText], ['native', sequenceText]])
+  } finally {
+    delete testWindow.__TAURI_INTERNALS__
+  }
+})
+
+async function renderSequenceDialog(read = async () => sequenceText) {
+  clipboardRead = read
+  let view
   const applied = []
+  let closed = 0
+  await act(async () => {
+    view = Renderer.create(React.createElement(SequencePasteDialog, {
+      platform: 'windows', button, trigger: 'click', onClose: () => { closed += 1 }, onApply: sequence => applied.push(sequence),
+    }))
+  })
+  return {
+    view, applied, closed: () => closed,
+    input: () => view.root.findByProps({ id: 'sequence-paste-value' }),
+    apply: () => view.root.findAllByType('button').find(node => text(node) === '应用序列'),
+    change: value => act(() => view.root.findByProps({ id: 'sequence-paste-value' }).props.onChange({ target: { value } })),
+  }
+}
+
+test('paste sequence prefills supported clipboard data and applies only on confirmation', async () => {
+  const dialog = await renderSequenceDialog()
+  try {
+    assert.equal(dialog.input().props.value, sequenceText)
+    assert.equal(dialog.apply().props.disabled, false)
+    assert.equal(dialog.applied.length, 0)
+    assert.ok(text(dialog.view.root.findByProps({ 'aria-label': '待应用的行为序列' })).includes('按键 / 组合键A'))
+    assert.equal(dialog.view.root.findByProps({ className: 'sequence-source' }).props.open, false)
+    act(() => dialog.apply().props.onClick())
+    assert.equal(dialog.applied[0][0].key, 'A')
+    dialog.change('invalid')
+    assert.equal(dialog.apply().props.disabled, true)
+    assert.equal(dialog.input().props['aria-invalid'], true)
+    assert.ok(dialog.view.root.findByProps({ role: 'alert' }))
+    assert.equal(dialog.view.root.findAllByProps({ 'aria-label': '待应用的行为序列' }).length, 0)
+    act(() => dialog.view.root.findByProps({ 'aria-label': '关闭粘贴序列' }).props.onClick())
+    assert.equal(dialog.closed(), 1)
+  } finally {
+    act(() => dialog.view.unmount())
+  }
+})
+
+test('unrelated clipboard text stays empty and read failures allow manual paste', async () => {
+  for (const read of [async () => 'unrelated clipboard text', async () => '{"format":"axonkey-sequence","version":1,"behaviors":[]}', async () => { throw new Error('denied') }]) {
+    const dialog = await renderSequenceDialog(read)
+    try {
+      assert.equal(dialog.input().props.value, '')
+      assert.equal(dialog.apply().props.disabled, true)
+      dialog.change(sequenceText)
+      assert.equal(dialog.apply().props.disabled, false)
+      assert.equal(dialog.view.root.findAllByProps({ role: 'alert' }).length, 0)
+    } finally {
+      act(() => dialog.view.unmount())
+    }
+  }
+})
+
+test('shared sequences preview all steps, full text, paths and disabled state before applying', async () => {
+  const shared = '我的操作\n\x60\x60\x60text\naxonkey/1\nkeys Ctrl A\nwait 20ms\ntext "完整的粘贴文本内容，不会被截断\\n第二行"\noff key B\napp "C:\\\\Program Files\\\\Tool.exe"\nend\n\x60\x60\x60\n使用说明'
+  const dialog = await renderSequenceDialog(async () => shared)
+  try {
+    const preview = dialog.view.root.findByProps({ 'aria-label': '待应用的行为序列' })
+    assert.equal(preview.findAllByProps({ className: 'behavior-item sequence-preview-item' }).length, 5)
+    for (const label of ['Ctrl + A', '等待 20 毫秒', '完整的粘贴文本内容，不会被截断\n第二行', '已停用', 'C:\\Program Files\\Tool.exe']) assert.ok(text(preview).includes(label), label)
+    assert.equal(dialog.applied.length, 0)
+    act(() => dialog.apply().props.onClick())
+    assert.equal(dialog.applied[0].length, 5)
+    assert.equal(dialog.applied[0][3].enabled, false)
+  } finally {
+    act(() => dialog.view.unmount())
+  }
+})
+
+test('late clipboard reads never overwrite typing or update a closed dialog', async () => {
+  for (const close of [false, true]) {
+    let resolveRead
+    const dialog = await renderSequenceDialog(() => new Promise(resolve => { resolveRead = resolve }))
+    if (close) act(() => dialog.view.unmount())
+    else dialog.change('manual draft')
+    await act(async () => { resolveRead(sequenceText) })
+    if (!close) {
+      assert.equal(dialog.input().props.value, 'manual draft')
+      act(() => dialog.view.unmount())
+    }
+  }
+})
+
+function render(platform, behaviors = []) {
+  const applied = []
+  const transfers = []
   let view
   act(() => {
     view = Renderer.create(React.createElement(BehaviorEditor, {
@@ -57,17 +167,37 @@ function render(platform) {
       platform,
       button,
       trigger: 'click',
-      behaviors: [],
+      behaviors,
       onApplyCommonBehavior: preset => applied.push(preset),
       onAddAdvancedBehavior: () => {},
       onRemoveBehavior: () => {},
       onMoveBehavior: () => {},
       onEditBehavior: () => {},
       onReturnToMappings: () => {},
+      onCopySequence: () => transfers.push('copy'),
+      onPasteSequence: () => transfers.push('paste'),
+      onClearSequence: () => transfers.push('clear'),
     }))
   })
-  return { view, applied }
+  return { view, applied, transfers }
 }
+
+test('current sequence offers copy, paste and clear, with clear disabled when empty', () => {
+  const editor = render('macos', [{ id: 'step', type: 'key', key: 'A', enabled: true }])
+  const empty = render('macos')
+  try {
+    for (const label of ['复制序列', '粘贴序列', '清除序列']) {
+      const control = editor.view.root.findAllByType('button').find(node => text(node).trim() === label)
+      assert.ok(!control.props.disabled)
+      act(() => control.props.onClick())
+    }
+    assert.deepEqual(editor.transfers, ['copy', 'paste', 'clear'])
+    assert.equal(empty.view.root.findAllByType('button').find(node => text(node).trim() === '清除序列').props.disabled, true)
+  } finally {
+    act(() => editor.view.unmount())
+    act(() => empty.view.unmount())
+  }
+})
 
 function choiceButton(view, label) {
   const panel = view.root.findByProps({ id: 'behavior-menu-click-common-panel' })

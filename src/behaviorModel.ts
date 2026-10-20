@@ -355,6 +355,101 @@ export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, ex
   }
 }
 
+const sequenceTextHeader = 'axonkey/1'
+
+function sequenceArgument(value: string) {
+  return value && !/[\s"\\]/.test(value) ? value : JSON.stringify(value)
+}
+
+/** One command per line; quoted arguments preserve text, whitespace and paths. */
+export function serializeSequence(behaviors: Behavior[]): string {
+  return [sequenceTextHeader, ...behaviors.map((behavior) => {
+    let line: string
+    switch (behavior.type) {
+      case 'key': line = `key ${sequenceArgument(behavior.key)}`; break
+      case 'shortcut': line = `keys ${behavior.keys.map(sequenceArgument).join(' ')}`; break
+      case 'delay': line = `wait ${behavior.ms}ms`; break
+      case 'paste': line = `text ${JSON.stringify(behavior.text)}`; break
+      case 'wheel': line = `wheel ${behavior.direction}`; break
+      case 'mouse': line = `mouse ${behavior.button}`; break
+      case 'cursorMove': line = `move ${behavior.direction} ${behavior.distance}`; break
+      case 'openApp': line = `app ${sequenceArgument(behavior.path)}`; break
+      case 'openWebsite': line = `url ${sequenceArgument(behavior.url)}`; break
+      case 'disabled': line = 'disabled'; break
+    }
+    return behavior.enabled ? line : `off ${line}`
+  }), 'end'].join('\n')
+}
+
+function sequenceTokens(line: string): string[] | null {
+  const tokens: string[] = []
+  let remaining = line.trim()
+  while (remaining) {
+    const match = /^(?:"(?:\\.|[^"\\])*"|[^\s"]+)(?=\s|$)/.exec(remaining)
+    if (!match) return null
+    try {
+      tokens.push(match[0].startsWith('"') ? JSON.parse(match[0]) as string : match[0])
+    } catch {
+      return null
+    }
+    remaining = remaining.slice(match[0].length).trimStart()
+  }
+  return tokens
+}
+
+function parseSequenceText(text: string): unknown[] | null {
+  // Explicit boundaries survive captions, Markdown fences and quote blocks.
+  const lines = text.split(/\r\n?|\n/).map((line) => line.trim().replace(/^(?:>\s*)+/, '').trim())
+  const headers = lines.flatMap((line, index) => /^axonkey\/\S+$/.test(line) ? [index] : [])
+  if (headers.length !== 1 || lines[headers[0]] !== sequenceTextHeader) return null
+  const end = lines.indexOf('end', headers[0] + 1)
+  if (end === -1) return null
+  const behaviors: unknown[] = []
+  for (const line of lines.slice(headers[0] + 1, end).filter(Boolean)) {
+    const tokens = sequenceTokens(line)
+    if (!tokens) return null
+    const enabled = tokens[0] !== 'off'
+    if (!enabled) tokens.shift()
+    const [command, ...args] = tokens
+    let behavior: Record<string, unknown>
+    if (command === 'key' && args.length === 1) behavior = { type: 'key', key: args[0] }
+    else if (command === 'keys' && args.length > 0 && args.every((key) => key.trim())) behavior = { type: 'shortcut', keys: args }
+    else if (command === 'wait' && args.length === 1 && /^\d+(?:\.\d+)?(?:ms)?$/.test(args[0])) {
+      const ms = Number(args[0].replace(/ms$/, ''))
+      if (ms > maxDelayMs) return null
+      behavior = { type: 'delay', ms }
+    }
+    else if (command === 'text' && args.length === 1) behavior = { type: 'paste', text: args[0] }
+    else if (command === 'wheel' && args.length === 1) behavior = { type: 'wheel', direction: args[0] }
+    else if (command === 'mouse' && args.length === 1) behavior = { type: 'mouse', button: args[0] }
+    else if (command === 'move' && args.length === 2 && /^\d+$/.test(args[1])) {
+      const distance = Number(args[1])
+      if (distance < 1 || distance > maxCursorDistance) return null
+      behavior = { type: 'cursorMove', direction: args[0], distance }
+    }
+    else if (command === 'app' && args.length === 1) behavior = { type: 'openApp', path: args[0] }
+    else if (command === 'url' && args.length === 1) behavior = { type: 'openWebsite', url: args[0] }
+    else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
+    else return null
+    behaviors.push({ ...behavior, enabled })
+  }
+  return behaviors
+}
+
+/** Reject an invalid sequence as a whole and assign fresh IDs on each paste. */
+export function parseSequenceImport(value: unknown): Behavior[] | null {
+  if (typeof value !== 'string') return null
+  const entries = parseSequenceText(value)
+  if (entries === null) return null
+  const result: Behavior[] = []
+  for (const entry of entries) {
+    const behavior = normalizeBehavior(entry)
+    if (!behavior) return null
+    result.push(behavior)
+  }
+  return result
+}
+
 /** Parse a mapping export while retaining compatibility with older settings files. */
 export function parseMappingImport(value: unknown): ImportedMapping | null {
   let parsed: unknown = value

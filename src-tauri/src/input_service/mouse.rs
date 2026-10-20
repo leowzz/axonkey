@@ -59,6 +59,8 @@ const BUTTON_INPUTS: [[&str; 4]; 3] = [
 ];
 const DOUBLE_CLICK: Duration = Duration::from_millis(350);
 const LONG_PRESS: Duration = Duration::from_millis(600);
+const LONG_REPEAT_INITIAL: Duration = Duration::from_millis(350);
+const LONG_REPEAT_INTERVAL: Duration = Duration::from_millis(100);
 fn has_actions(actions: &[NativeBehavior]) -> bool {
     actions.iter().any(NativeBehavior::enabled)
 }
@@ -92,6 +94,16 @@ struct Job {
     behaviors: Vec<NativeBehavior>,
     revision: u64,
     repeats: usize,
+    repeat_active: Option<Arc<AtomicBool>>,
+}
+
+impl Job {
+    fn is_current(&self, shared: &Shared) -> bool {
+        self.repeat_active
+            .as_ref()
+            .is_none_or(|active| active.load(Ordering::Acquire))
+            && current_job(shared, self.revision)
+    }
 }
 
 struct Shared {
@@ -142,12 +154,12 @@ impl MouseService {
                     };
                     for _ in 0..job.repeats {
                         for behavior in job.behaviors.iter().filter(|item| item.enabled()) {
-                            if !current_job(&state, job.revision) {
+                            if !job.is_current(&state) {
                                 break;
                             }
                             if let NativeBehavior::Delay { ms, .. } = behavior {
                                 let mut remaining = (*ms).min(300_000);
-                                while remaining > 0 && current_job(&state, job.revision) {
+                                while remaining > 0 && job.is_current(&state) {
                                     let step = remaining.min(10);
                                     thread::sleep(Duration::from_millis(step));
                                     remaining -= step;
@@ -164,7 +176,7 @@ impl MouseService {
                                 }
                             }
                         }
-                        if !current_job(&state, job.revision) {
+                        if !job.is_current(&state) {
                             break;
                         }
                     }
@@ -364,6 +376,7 @@ impl ScrollAccumulator {
             behaviors: actions.clone(),
             revision: config.revision,
             repeats: if interval_ms > 0 { 1 } else { repeats.min(32) },
+            repeat_active: None,
         };
         if shared.sender.try_send(job).is_ok() {
             self.last_trigger[axis] = Some((config.revision, now));
@@ -390,6 +403,8 @@ struct Press {
     started: Instant,
     position: (f64, f64),
     long_fired: bool,
+    next_repeat: Option<Instant>,
+    repeat_active: Arc<AtomicBool>,
     second: bool,
 }
 struct PendingClick {
@@ -405,6 +420,7 @@ fn enqueue(shared: &Shared, actions: Vec<NativeBehavior>, revision: u64) {
             behaviors: actions,
             revision,
             repeats: 1,
+            repeat_active: None,
         });
     }
 }
@@ -444,12 +460,24 @@ impl ButtonTracker {
     fn tick(&mut self, shared: &Shared, now: Instant) {
         for index in 0..4 {
             if let Some(press) = self.pressed[index].as_mut() {
-                if !press.long_fired
+                if !current_job(shared, press.revision) {
+                    press.repeat_active.store(false, Ordering::Release);
+                    press.next_repeat = None;
+                } else if !press.long_fired
                     && has_actions(&press.triggers.long_press)
                     && now.duration_since(press.started) >= LONG_PRESS
                 {
                     press.long_fired = true;
                     enqueue(shared, press.triggers.long_press.clone(), press.revision);
+                    press.next_repeat = Some(now + LONG_REPEAT_INITIAL);
+                } else if press.next_repeat.is_some_and(|due| now >= due) {
+                    let _ = shared.sender.try_send(Job {
+                        behaviors: press.triggers.long_press.clone(),
+                        revision: press.revision,
+                        repeats: 1,
+                        repeat_active: Some(Arc::clone(&press.repeat_active)),
+                    });
+                    press.next_repeat = Some(now + LONG_REPEAT_INTERVAL);
                 }
             }
             if self.pending[index].as_ref().is_some_and(|p| {
@@ -504,6 +532,8 @@ impl ButtonTracker {
                 started: now,
                 position,
                 long_fired: false,
+                next_repeat: None,
+                repeat_active: Arc::new(AtomicBool::new(true)),
                 second,
             });
             true
@@ -511,6 +541,7 @@ impl ButtonTracker {
             let Some(press) = self.pressed[button].take() else {
                 return false;
             };
+            press.repeat_active.store(false, Ordering::Release);
             if !current_job(shared, press.revision) || press.long_fired {
                 return true;
             }
@@ -543,6 +574,14 @@ impl ButtonTracker {
                 }
             }
             true
+        }
+    }
+}
+
+impl Drop for ButtonTracker {
+    fn drop(&mut self) {
+        for press in self.pressed.iter().flatten() {
+            press.repeat_active.store(false, Ordering::Release);
         }
     }
 }
@@ -937,7 +976,7 @@ mod tests {
         assert_key(receiver.try_recv().unwrap(), "G");
     }
     #[test]
-    fn double_click_suppresses_singles_and_long_press_fires_once() {
+    fn double_click_suppresses_singles_and_long_press_suppresses_single_on_release() {
         let (shared, receiver) = fixture(serde_json::json!({
             "mouse.top.buttonLeft": {
                 "click":[{"type":"key","key":"C"}],
@@ -1005,6 +1044,81 @@ mod tests {
         ));
         buttons.tick(&shared, start + Duration::from_millis(2400));
         assert_key(receiver.try_recv().unwrap(), "C");
+    }
+
+    #[test]
+    fn long_press_repeats_after_pause_and_release_cancels_queued_repeats() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.top.buttonLeft": {
+                "click":[{"type":"key","key":"C"}],
+                "longPress":[{"type":"key","key":"L"}]
+            }
+        }));
+        let mut buttons = ButtonTracker::default();
+        let start = Instant::now();
+        assert!(buttons.event(&shared, 0, true, Some(Edge::Top), (50.0, 0.0), start));
+        buttons.tick(&shared, start + Duration::from_millis(599));
+        assert!(receiver.try_recv().is_err());
+        buttons.tick(&shared, start + Duration::from_millis(600));
+        assert_key(receiver.try_recv().unwrap(), "L");
+        buttons.tick(&shared, start + Duration::from_millis(949));
+        assert!(receiver.try_recv().is_err());
+        buttons.tick(&shared, start + Duration::from_millis(950));
+        let repeat = receiver.try_recv().unwrap();
+        assert!(repeat.is_current(&shared));
+        buttons.tick(&shared, start + Duration::from_millis(1049));
+        assert!(receiver.try_recv().is_err());
+        buttons.tick(&shared, start + Duration::from_millis(1050));
+        assert_key(receiver.try_recv().unwrap(), "L");
+        assert!(buttons.event(
+            &shared,
+            0,
+            false,
+            None,
+            (50.0, 50.0),
+            start + Duration::from_millis(1051),
+        ));
+        assert!(!repeat.is_current(&shared));
+        buttons.tick(&shared, start + Duration::from_secs(2));
+        assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn side_button_long_repeats_cancel_on_configuration_disable_shutdown_or_capture_end() {
+        for cancellation in ["configuration", "disable", "shutdown", "capture_end"] {
+            let (shared, receiver) = fixture(serde_json::json!({
+                "mouse.global.buttonBack": {"longPress":[{"type":"key","key":"L"}]}
+            }));
+            let mut buttons = ButtonTracker::default();
+            let start = Instant::now();
+            assert!(buttons.event(&shared, 2, true, None, (50.0, 50.0), start));
+            buttons.tick(&shared, start + Duration::from_millis(600));
+            assert_key(receiver.try_recv().unwrap(), "L");
+            buttons.tick(&shared, start + Duration::from_millis(950));
+            let repeat = receiver.try_recv().unwrap();
+            assert!(repeat.is_current(&shared));
+            match cancellation {
+                "configuration" => shared.configuration.lock().unwrap().revision += 1,
+                "disable" => shared.configuration.lock().unwrap().settings.mouse_enabled = false,
+                "shutdown" => shared.stop.store(true, Ordering::Release),
+                _ => (),
+            }
+            if cancellation == "capture_end" {
+                drop(buttons);
+            } else {
+                buttons.tick(&shared, start + Duration::from_secs(2));
+                assert!(buttons.event(
+                    &shared,
+                    2,
+                    false,
+                    None,
+                    (50.0, 50.0),
+                    start + Duration::from_secs(2)
+                ));
+            }
+            assert!(!repeat.is_current(&shared), "{cancellation}");
+            assert!(receiver.try_recv().is_err(), "{cancellation}");
+        }
     }
     #[test]
     fn edge_button_rules_ignore_global_triggers_and_restore_unmapped_taps() {

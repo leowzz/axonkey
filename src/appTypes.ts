@@ -95,6 +95,7 @@ export type CommonBehaviorPreset =
   | 'nextTab'
   | 'backspace'
   | 'delete'
+  | 'deleteAllText'
   | 'keyHome'
   | 'keyEnd'
   | 'pageUp'

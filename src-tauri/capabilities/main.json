@@ -10,6 +10,8 @@
     "core:event:allow-unlisten",
     "dialog:allow-save",
     "dialog:allow-open",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "log:default",
     "autostart:allow-is-enabled",
     "autostart:allow-enable",
