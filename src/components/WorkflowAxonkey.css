@@ -1,0 +1,17 @@
+.mapping-active .mapping-flow-page .mapping-main { display: flex; flex-direction: column; }
+.mapping-flow-page .key-picker { flex: 0 0 auto; }
+.workflow-axonkey { display: flex; flex: 1 0 416px; min-width: 0; min-height: 416px; padding: 0 16px 16px; isolation: isolate; }
+.workflow-axonkey-canvas { flex: 1; width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; overflow: hidden; }
+.workflow-axonkey .sqd-toolbox { width: 210px; }
+.workflow-axonkey .sqd-toolbox-item-icon { width: 40px; height: 24px; margin-top: -12px; }
+.workflow-axonkey .sqd-toolbox-item-text { padding-left: 50px; }
+.workflow-axonkey .sqd-workspace { margin-left: 230px; min-width: 0; }
+.workflow-axonkey .sqd-control-bar { left: 240px; }
+.workflow-trigger-click { --trigger-color: #2878d4; --trigger-background: #edf5ff; --trigger-dash: none; }
+.workflow-trigger-doubleClick { --trigger-color: #8056c4; --trigger-background: #f4effc; --trigger-dash: 8 4; }
+.workflow-trigger-longPress { --trigger-color: #c77a21; --trigger-background: #fff5e8; --trigger-dash: 2 5; }
+.workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
+.workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
+.workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }
+.workflow-trigger-start { fill: var(--trigger-color); }
+.workflow-trigger-end { fill: #fff; stroke: var(--trigger-color); stroke-width: 2.5; }

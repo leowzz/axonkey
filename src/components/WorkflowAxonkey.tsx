@@ -1,0 +1,151 @@
+import { useEffect, useRef } from 'react'
+import { Designer } from 'sequential-workflow-designer'
+import { keyDisplayName, rightModifierChoices } from '../appConfig'
+import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
+import { defaultCursorDistance } from '../behaviorModel'
+import { createTriggerDefinition, isTriggerRoot, triggerRootExtension } from './WorkflowTriggerRoot'
+import { createWorkflowActionIconUrls } from './workflowActionIcons'
+import 'sequential-workflow-designer/css/designer.css'
+import 'sequential-workflow-designer/css/designer-light.css'
+import './WorkflowAxonkey.css'
+
+const translations: Record<string, string> = {
+  'toolbox.title': '可选行为',
+  'toolbox.search': '搜索行为…',
+  'contextMenu.select': '选中',
+  'contextMenu.unselect': '取消选中',
+  'contextMenu.delete': '删除',
+  'contextMenu.duplicate': '复制',
+  'contextMenu.resetView': '重置视图',
+}
+
+type WorkflowAxonkeyProps = {
+  platform: Platform
+  button: MappingInput
+}
+
+type WorkflowAction = {
+  preset: CommonBehaviorPreset | AdvancedBehaviorType
+  name: string
+  description?: string
+}
+
+export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const originalName = button.originalLabel ?? '保留原按键'
+  const originalDescription = button.originalDescription ?? '使用遥控器原始输入'
+
+  useEffect(() => {
+    if (!canvasRef.current) return
+
+    const commonActions: WorkflowAction[] = [
+      { preset: 'original', name: originalName, description: originalDescription },
+      { preset: 'disabled', name: '禁用此触发方式', description: '不发送任何输入' },
+      { preset: 'escape', name: '返回 / 关闭', description: 'Esc' },
+      { preset: 'enter', name: '确认 / 提交', description: 'Enter' },
+      { preset: 'space', name: '空格', description: 'Space' },
+      ...rightModifierChoices().map(({ preset, key }) => ({ preset, name: keyDisplayName(key, platform) })),
+      { preset: 'previousTab', name: '上一标签页', description: `${keyDisplayName('Ctrl', platform)} + Shift + Tab` },
+      { preset: 'nextTab', name: '下一标签页', description: `${keyDisplayName('Ctrl', platform)} + Tab` },
+      { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
+      { preset: 'deleteAllText', name: '删除全部文本', description: '复制，等待 30 毫秒后剪切' },
+      { preset: 'customKey', name: '其他按键 / 组合键', description: '直接录入目标按键' },
+      { preset: 'openApp', name: '打开应用' },
+      { preset: 'openWebsite', name: '打开网站' },
+      { preset: 'paste', name: '粘贴文本' },
+      { preset: 'delay', name: '等待' },
+    ]
+    const navigationActions: WorkflowAction[] = [
+      { preset: 'arrowUp', name: '方向上' },
+      { preset: 'arrowDown', name: '方向下' },
+      { preset: 'arrowLeft', name: '方向左' },
+      { preset: 'arrowRight', name: '方向右' },
+      { preset: 'tab', name: '切换焦点', description: 'Tab' },
+      { preset: 'backspace', name: '向前删除', description: 'Backspace' },
+      { preset: 'delete', name: '向后删除', description: 'Delete' },
+      { preset: 'keyHome', name: '跳到开头', description: 'Home' },
+      { preset: 'keyEnd', name: '跳到结尾', description: 'End' },
+      { preset: 'pageUp', name: '向上翻页', description: 'Page Up' },
+      { preset: 'pageDown', name: '向下翻页', description: 'Page Down' },
+    ]
+    if (platform === 'windows' || platform === 'macos') {
+      navigationActions.push(
+        { preset: 'wheelUp', name: '鼠标滚轮向上' },
+        { preset: 'wheelDown', name: '鼠标滚轮向下' },
+        { preset: 'wheelLeft', name: '鼠标滚轮向左' },
+        { preset: 'wheelRight', name: '鼠标滚轮向右' },
+        { preset: 'mouseLeft', name: '鼠标左键' },
+        { preset: 'mouseRight', name: '鼠标右键' },
+        { preset: 'cursorUp', name: '光标上移', description: `默认 ${defaultCursorDistance} 像素` },
+        { preset: 'cursorDown', name: '光标下移', description: `默认 ${defaultCursorDistance} 像素` },
+        { preset: 'cursorLeft', name: '光标左移', description: `默认 ${defaultCursorDistance} 像素` },
+        { preset: 'cursorRight', name: '光标右移', description: `默认 ${defaultCursorDistance} 像素` },
+      )
+    }
+    const mediaActions: WorkflowAction[] = [
+      { preset: 'mediaPlayPause', name: '播放 / 暂停' },
+      { preset: 'mediaPrevious', name: '上一首' },
+      { preset: 'mediaNext', name: '下一首' },
+    ]
+    if (platform === 'windows') mediaActions.push({ preset: 'mediaStop', name: '停止播放' })
+    mediaActions.push(
+      { preset: 'volumeUp', name: '增大音量' },
+      { preset: 'volumeDown', name: '减小音量' },
+      { preset: 'volumeMute', name: '静音' },
+    )
+    const actionGroups = [
+      { name: '常用', actions: commonActions },
+      { name: '导航编辑', actions: navigationActions },
+      { name: '媒体控制', actions: mediaActions },
+    ]
+    const definition = createTriggerDefinition()
+    const iconUrls = createWorkflowActionIconUrls(platform)
+    const designer = Designer.create(canvasRef.current, definition, {
+      theme: 'light',
+      undoStackSize: 20,
+      steps: {
+        iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
+        isDraggable: (step) => !isTriggerRoot(step),
+        isDeletable: (step) => !isTriggerRoot(step),
+        isDuplicable: (step) => !isTriggerRoot(step),
+        canInsertStep: (_step, target) => !target.some(isTriggerRoot),
+        canMoveStep: (_source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot),
+      },
+      extensions: [{ rootComponent: triggerRootExtension }],
+      toolbox: {
+        descriptionProvider: (step) => String(step.properties.description ?? step.name),
+        groups: actionGroups.map((group) => ({
+          name: group.name,
+          steps: group.actions.map(({ preset, name, description }) => ({
+            componentType: 'task',
+            type: preset,
+            name,
+            properties: { preset, description: description ?? '' },
+          })),
+        })),
+      },
+      editors: false,
+      controlBar: true,
+      contextMenu: true,
+      keyboard: false,
+      i18n: (key, defaultValue) => translations[key] ?? defaultValue,
+    })
+    let ready = false
+    designer.onReady.subscribe(() => { ready = true })
+    const resizeObserver = new ResizeObserver(() => {
+      if (!ready || designer.isDragging()) return
+      designer.updateLayout()
+      designer.resetViewport()
+    })
+    resizeObserver.observe(canvasRef.current)
+
+    return () => {
+      resizeObserver.disconnect()
+      designer.destroy()
+    }
+  }, [platform, originalName, originalDescription])
+
+  return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
+    <div ref={canvasRef} className="workflow-axonkey-canvas" aria-label="行为流程图画布" />
+  </section>
+}

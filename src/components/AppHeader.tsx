@@ -1,4 +1,4 @@
-import { Home, Info, Keyboard, ScanLine, Settings2 } from 'lucide-react'
+import { Home, Info, Keyboard, ScanLine, Settings2, Workflow } from 'lucide-react'
 import type { AppPage } from '../appTypes'
 import appPackage from '../../package.json'
 
@@ -16,6 +16,7 @@ type AppHeaderProps = {
 const pageTitles: Record<AppPage, string> = {
   home: '主页',
   mapping: '按键映射',
+  mappingFlow: '映射-流程图',
   overview: '总览',
   settings: '设置',
   about: '关于',
@@ -37,6 +38,7 @@ export function AppHeader({ activePage, hasUpdate, enabled, onBrandClick, onNavi
       <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
       <button type="button" className={activePage === 'overview' ? 'active' : ''} aria-current={activePage === 'overview' ? 'page' : undefined} onClick={() => onNavigate('overview')}><ScanLine size={15} /> 总览</button>
       <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 映射</button>
+      <button type="button" className={activePage === 'mappingFlow' ? 'active' : ''} aria-current={activePage === 'mappingFlow' ? 'page' : undefined} onClick={() => onNavigate('mappingFlow')}><Workflow size={15} /> 映射-流程图</button>
       <button type="button" className={activePage === 'settings' ? 'active' : ''} aria-current={activePage === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}><Settings2 size={15} /> 设置</button>
       <button type="button" className={`${activePage === 'about' ? 'active' : ''} ${hasUpdate ? 'has-update' : ''}`} title={hasUpdate ? '发现新版本' : undefined} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}</button>
     </nav>

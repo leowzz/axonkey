@@ -30,7 +30,7 @@ export type MacPermissions = {
 }
 
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
-export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'about'
+export type AppPage = 'home' | 'overview' | 'mapping' | 'mappingFlow' | 'settings' | 'about'
 
 export type LegacyDriverProbe = {
   interception: boolean
