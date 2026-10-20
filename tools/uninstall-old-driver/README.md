@@ -14,9 +14,9 @@ Visual Studio 使用 `/MT`（Debug 为 `/MTd`）静态链接编译器运行库�
 原 Rust 实现已迁移到 `tools/uninstall-old-driver-rust` 作为历史备份，当前项目使用
 Win32 API 绘制窗口、执行服务和驱动清理，并通过 UTF-8 输出状态信息。
 
-Tauri 构建不会编译这个子项目，只会打包已经存在的
-`scripts\uninstall-old-driver.exe`。发布前请先运行仓库根目录的
-`npm run build:uninstall-old-driver`。
+Tauri 构建和 GitHub CI 均不编译这个子项目，直接打包 Git 中已提交的
+`scripts\uninstall-old-driver.exe`。修改工具源码后，请在本地运行仓库根目录的
+`npm run build:uninstall-old-driver`，并将更新后的 exe 与源码一起提交后再发布。
 
 直接双击打开会显示“开始卸载”按钮。Tauri 使用 `--confirmed --auto-close --log-path PATH`
 打开进度窗口并自动开始卸载；成功后显示完成状态约 0.8 秒，然后自动关闭。失败或超时
