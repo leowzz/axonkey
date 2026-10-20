@@ -275,6 +275,9 @@ type BehaviorEditDialogProps = {
   behavior: Behavior
   capturing: boolean
   draft?: boolean
+  title?: string
+  saveHint?: string
+  delayStep?: number
   onStartCapture: () => void
   onCancelCapture: () => void
   onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => void
@@ -303,7 +306,7 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   </div>
 }
 
-export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, saveHint, delayStep = 10, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(savedBehavior.type === 'openApp' ? savedBehavior.path : savedBehavior.type === 'openWebsite' ? savedBehavior.url : '')
@@ -422,7 +425,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
       onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
     >
       <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="behavior-dialog-title">{draft ? '添加' : '编辑'}{behaviorTypeLabels[behavior.type]}行为</h2></div>
+        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="behavior-dialog-title">{title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
@@ -527,10 +530,10 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
           value={behavior.text}
           placeholder="输入要粘贴的文本"
           onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
-        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step="10" value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
+        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step={delayStep} value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
       </div>
       <footer className="behavior-dialog-actions">
-        <span><Check size={13} /> {launchBehavior && !draft && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : draft ? '保存后立即生效' : '更改会自动保存'}</span>
+        <span><Check size={13} /> {launchBehavior && !draft && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : saveHint ?? (draft ? '保存后立即生效' : '更改会自动保存')}</span>
         {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!canSave} onClick={onSave}>保存</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
       </footer>
     </section>

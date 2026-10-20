@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
-import { Designer } from 'sequential-workflow-designer'
+import { DefinitionChangeType, Designer } from 'sequential-workflow-designer'
 import { keyDisplayName, rightModifierChoices } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
 import { defaultCursorDistance } from '../behaviorModel'
@@ -9,6 +9,10 @@ import { createTriggerDefinition, isTriggerRoot, triggerRootExtension } from './
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
+import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
+import { defaultWorkflowDelayMs, findWorkflowStepEditor, workflowBehaviorProperties } from './workflowStepEditing'
+import { WorkflowStepDialog } from './WorkflowStepDialog'
+import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -34,6 +38,7 @@ type WorkflowAction = {
 
 export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
+  const [editingStep, setEditingStep] = useState<WorkflowStepEdit | null>(null)
   const [toolbox, setToolbox] = useState<{
     host: HTMLElement
     api: DesignerApi
@@ -110,7 +115,7 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
       name: group.name,
       steps: group.actions.map(({ preset, name, description }) => ({
         componentType: 'task', type: preset, name,
-        properties: { preset, description: description ?? '' },
+        properties: { preset, description: description ?? '', ...(preset === 'delay' ? { ms: defaultWorkflowDelayMs } : {}) },
       })),
     })
     const palettes: WorkflowToolboxPalette[] = [
@@ -119,6 +124,27 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
     ]
     const definition = createTriggerDefinition()
     const iconUrls = createWorkflowActionIconUrls(platform)
+    let workflowApi: DesignerApi | undefined
+    const openEditor = (stepId: string) => {
+      const api = workflowApi
+      if (!api || api.editor.isReadonly()) return
+      const editor = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
+      if (!editor) return
+      setEditingStep({
+        stepId, trigger: editor.trigger, behavior: editor.behavior,
+        onSave: (behavior) => {
+          const current = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
+          if (!current || api.editor.isReadonly()) return
+          const properties = workflowBehaviorProperties(current.step, behavior)
+          if (!properties) return
+          if (JSON.stringify(current.step.properties) !== JSON.stringify(properties)) {
+            current.step.properties = properties
+            api.editor.createStepEditorContext(stepId).notifyPropertiesChanged()
+          }
+          setEditingStep(null)
+        },
+      })
+    }
     const designer = Designer.create(canvasRef.current, definition, {
       theme: 'light',
       undoStackSize: 20,
@@ -130,10 +156,11 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
         canInsertStep: (_step, target) => !target.some(isTriggerRoot),
         canMoveStep: (_source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot),
       },
-      extensions: [{
+      extensions: [createWorkflowStepInteraction(openEditor), {
         rootComponent: triggerRootExtension,
         uiComponents: [{
           create: (root, api) => {
+            workflowApi = api
             const host = document.createElement('aside')
             host.className = 'sqd-toolbox workflow-toolbox'
             host.setAttribute('aria-label', '积木工具箱')
@@ -152,6 +179,9 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
     })
     let ready = false
     designer.onReady.subscribe(() => { ready = true })
+    designer.onDefinitionChanged.subscribe((event) => {
+      if (event.changeType === DefinitionChangeType.stepInserted && event.stepId) openEditor(event.stepId)
+    })
     const resizeObserver = new ResizeObserver(() => {
       if (!ready || designer.isDragging()) return
       designer.updateLayout()
@@ -160,6 +190,7 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
     resizeObserver.observe(canvasRef.current)
 
     return () => {
+      setEditingStep(null)
       resizeObserver.disconnect()
       designer.destroy()
     }
@@ -168,5 +199,6 @@ export function WorkflowAxonkey({ platform, button }: WorkflowAxonkeyProps) {
   return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
     <div ref={canvasRef} className="workflow-axonkey-canvas" aria-label="行为流程图画布" />
     {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} />, toolbox.host)}
+    {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={() => setEditingStep(null)} />, document.body)}
   </section>
 }

@@ -26,6 +26,11 @@
 .workflow-axonkey .sqd-toolbox-item-text { padding: 10px 8px 10px 50px; font-size: 12px; }
 .workflow-axonkey .sqd-workspace { margin-left: 230px; min-width: 0; }
 .workflow-axonkey .sqd-control-bar { left: 240px; }
+.workflow-editable-step { cursor: pointer; }
+.workflow-editable-step:focus-visible { outline: 2px solid #2878d4; outline-offset: 3px; }
+.workflow-step-editor .behavior-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
+.workflow-step-editor .behavior-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.workflow-step-editor .behavior-dialog-head, .workflow-step-editor .behavior-dialog-actions { flex-shrink: 0; }
 .workflow-trigger-click { --trigger-color: #2878d4; --trigger-background: #edf5ff; --trigger-dash: none; }
 .workflow-trigger-doubleClick { --trigger-color: #8056c4; --trigger-background: #f4effc; --trigger-dash: 8 4; }
 .workflow-trigger-longPress { --trigger-color: #c77a21; --trigger-background: #fff5e8; --trigger-dash: 2 5; }

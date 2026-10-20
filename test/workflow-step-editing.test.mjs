@@ -1,0 +1,121 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { ClickCommandType, SelectStepBehaviorEndToken, Vector } from 'sequential-workflow-designer'
+import { createWorkflowStepInteraction } from '../src/components/WorkflowStepInteraction.ts'
+import { findWorkflowStepEditor, workflowBehaviorProperties, workflowStepBehavior } from '../src/components/workflowStepEditing.ts'
+
+const step = (type, properties = {}, id = type) => ({ id, type, componentType: 'task', name: type, properties: { preset: type, ...properties } })
+const definition = (branches) => ({ properties: {}, sequence: [{
+  id: 'triggers', type: 'axonkeyTriggers', componentType: 'switch', name: '触发方式', properties: {},
+  branches: { click: [], doubleClick: [], longPress: [], ...branches },
+}] })
+
+test('editable blocks start with empty fields or the default delay', () => {
+  for (const [type, expected] of [
+    ['delay', { type: 'delay', ms: 300 }],
+    ['paste', { type: 'paste', text: '' }],
+    ['customKey', { type: 'shortcut', keys: [] }],
+    ['openApp', { type: 'openApp', path: '' }],
+    ['openWebsite', { type: 'openWebsite', url: '' }],
+  ]) {
+    assert.deepEqual(workflowStepBehavior(step(type)), { id: type, enabled: true, ...expected })
+  }
+  assert.equal(workflowStepBehavior(step('enter')), null)
+})
+
+test('saved values reopen on the same node with its current trigger', () => {
+  const cases = [
+    ['delay', { type: 'delay', ms: 751 }],
+    ['paste', { type: 'paste', text: '第一行\n第二行' }],
+    ['customKey', { type: 'shortcut', keys: ['Ctrl', 'Shift', 'A'] }],
+    ['openApp', { type: 'openApp', path: 'C:\\Program Files\\Example\\App.exe' }],
+    ['openWebsite', { type: 'openWebsite', url: 'https://example.com/' }],
+  ]
+  for (const [type, value] of cases) {
+    const node = step(type, {}, 'original')
+    const behavior = { id: node.id, enabled: true, ...value }
+    node.properties = workflowBehaviorProperties(node, behavior)
+    const original = definition({ doubleClick: [node] })
+    const editor = findWorkflowStepEditor(original, node.id)
+    assert.equal(editor.trigger, 'doubleClick')
+    assert.deepEqual(editor.behavior, behavior)
+    assert.equal(node.properties.preset, type)
+    // A duplicated or moved node uses its own identity, rather than a stored behavior ID.
+    const copy = structuredClone(node)
+    copy.id = 'copy'
+    assert.equal(findWorkflowStepEditor(definition({ longPress: [copy] }), 'copy').behavior.id, 'copy')
+    assert.equal(findWorkflowStepEditor(original, 'missing'), null)
+  }
+})
+
+test('key and shortcut edits replace each other without aliasing the dialog draft', () => {
+  const node = step('customKey', { key: 'Enter' })
+  const draft = { id: node.id, enabled: true, type: 'shortcut', keys: ['Ctrl', 'V'] }
+  const properties = workflowBehaviorProperties(node, draft)
+  assert.equal(node.properties.key, 'Enter')
+  node.properties = properties
+  draft.keys.push('A')
+  assert.deepEqual(workflowStepBehavior(node).keys, ['Ctrl', 'V'])
+  const reopened = workflowStepBehavior(node)
+  reopened.keys.push('B')
+  assert.deepEqual(node.properties.keys, ['Ctrl', 'V'])
+  node.properties = workflowBehaviorProperties(node, { id: node.id, enabled: true, type: 'key', key: 'Space' })
+  assert.deepEqual(workflowStepBehavior(node), { id: node.id, enabled: true, type: 'key', key: 'Space' })
+})
+
+test('saving validates targets and rejects incomplete or mismatched edits', () => {
+  const behavior = (type, data) => ({ id: type, enabled: true, type, ...data })
+  assert.equal(workflowBehaviorProperties(step('paste'), behavior('paste', { text: ' ' })), null)
+  assert.equal(workflowBehaviorProperties(step('customKey'), behavior('shortcut', { keys: [] })), null)
+  assert.equal(workflowBehaviorProperties(step('openApp'), behavior('openApp', { path: 'app.exe' })), null)
+  assert.equal(workflowBehaviorProperties(step('openWebsite'), behavior('openWebsite', { url: 'javascript:alert(1)' })), null)
+  assert.equal(workflowBehaviorProperties(step('paste'), behavior('openWebsite', { url: 'https://example.com' })), null)
+  assert.equal(workflowBehaviorProperties(step('openWebsite'), behavior('openWebsite', { url: 'example.com' })).url, 'https://example.com/')
+})
+
+test('only a double click on the same node opens an editor', () => {
+  const opened = []
+  const extension = createWorkflowStepInteraction((id) => opened.push(id))
+  let token = new SelectStepBehaviorEndToken('paste', 1000)
+  const behavior = { onStart() {}, onMove() {}, onEnd() { return token } }
+  const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(behavior, {
+    type: ClickCommandType.selectStep, component: { step: step('paste') },
+  })
+  assert.equal(wrapped.onEnd(false, null, null), token)
+  assert.deepEqual(opened, [])
+  const previous = token
+  token = new SelectStepBehaviorEndToken('paste', 1250)
+  assert.equal(wrapped.onEnd(false, null, previous), undefined)
+  assert.deepEqual(opened, ['paste'])
+  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('openApp', 1200))
+  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('paste', 500))
+  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('paste', 1500))
+  wrapped.onEnd(true, null, null)
+  assert.deepEqual(opened, ['paste'])
+})
+
+test('dragging switches to the designer drag behavior without opening an editor', () => {
+  const opened = []
+  const extension = createWorkflowStepInteraction((id) => opened.push(id))
+  const drag = { onStart() {}, onMove() {}, onEnd() {} }
+  const click = { onStart() {}, onMove() { return drag }, onEnd() {} }
+  const wrapper = extension.clickBehaviorWrapperExtension.create()
+  const wrapped = wrapper.wrap(click, { type: ClickCommandType.selectStep, component: { step: step('openApp') } })
+  assert.equal(wrapped.onMove(new Vector(20, 0)), drag)
+  drag.onEnd(false, null, null)
+  assert.deepEqual(opened, [])
+  assert.equal(wrapper.wrap(click, { type: ClickCommandType.selectStep, component: { step: step('enter') } }), click)
+})
+
+test('delay editing preserves nonnegative integers and rejects invalid durations', () => {
+  const node = step('delay', { ms: 300 })
+  for (const ms of [0, 1, 751, 300000]) {
+    const properties = workflowBehaviorProperties(node, { id: 'delay', enabled: true, type: 'delay', ms })
+    assert.equal(workflowStepBehavior({ ...node, properties }).ms, ms)
+  }
+  for (const ms of [-1, 1.5, NaN, Infinity, 300001]) {
+    assert.equal(workflowBehaviorProperties(node, { id: 'delay', enabled: true, type: 'delay', ms }), null)
+    assert.equal(workflowStepBehavior(step('delay', { ms })).ms, 300)
+  }
+  assert.equal(node.properties.ms, 300)
+})
