@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { iconFor } from '../appConfig'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { DeviceSelector, DeviceStatusCard } from './DeviceRail'
@@ -37,6 +38,7 @@ export function MappingFlowPage({
   rowRefs,
   behaviorEditorProps,
 }: MappingPageProps) {
+  const [toolboxExpandedIndex, setToolboxExpandedIndex] = useState<number | null>(0)
   return <div className="mapping-page mapping-flow-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
       <aside className="mapping-device-rail panel-surface">
@@ -89,7 +91,7 @@ export function MappingFlowPage({
           </div>
           {isMouse && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
-        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} />
+        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} toolboxExpandedIndex={toolboxExpandedIndex} onToolboxExpandedChange={setToolboxExpandedIndex} />
       </section>
     </div>
   </div>

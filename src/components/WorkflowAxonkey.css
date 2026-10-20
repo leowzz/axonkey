@@ -30,6 +30,7 @@
 .workflow-axonkey .sqd-control-bar-button[title="Zoom out"] { display: none; }
 .workflow-editable-step { cursor: pointer; }
 .workflow-editable-step:focus-visible { outline: 2px solid #2878d4; outline-offset: 3px; }
+.workflow-axonkey .workflow-step-selected.sqd-step-task .sqd-step-task-rect { stroke: #2878d4; stroke-width: 2; fill: #edf5ff; }
 .workflow-step-editor .behavior-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
 .workflow-step-editor .behavior-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .workflow-step-editor .behavior-dialog-head, .workflow-step-editor .behavior-dialog-actions { flex-shrink: 0; }

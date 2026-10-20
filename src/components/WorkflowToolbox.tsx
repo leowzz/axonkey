@@ -8,17 +8,18 @@ export type WorkflowToolboxPalette = {
   groups: ToolboxGroupConfiguration[]
 }
 
-export function WorkflowToolbox({ api, palettes, iconUrls }: {
+export function WorkflowToolbox({ api, palettes, iconUrls, expandedIndex, onExpandedChange }: {
   api: DesignerApi
   palettes: WorkflowToolboxPalette[]
   iconUrls: Record<string, string>
+  expandedIndex: number | null
+  onExpandedChange: (index: number | null) => void
 }) {
   const id = useId()
-  const [expanded, setExpanded] = useState<Record<number, boolean>>({ 0: true })
   const [queries, setQueries] = useState<Record<number, string>>({})
 
   return <>{palettes.map((palette, index) => {
-    const open = expanded[index] ?? false
+    const open = expandedIndex === index
     const query = queries[index] ?? ''
     const filter = query.trim().toLocaleLowerCase()
     const groups = palette.groups.map((group) => ({
@@ -33,7 +34,7 @@ export function WorkflowToolbox({ api, palettes, iconUrls }: {
           type="button"
           aria-expanded={open}
           aria-controls={`${id}-panel-${index}`}
-          onClick={() => setExpanded((current) => ({ ...current, [index]: !open }))}
+          onClick={() => onExpandedChange(open ? null : index)}
         >{palette.name}<ChevronDown size={16} aria-hidden="true" /></button>
       </h2>
       <div id={`${id}-panel-${index}`} role="region" aria-labelledby={`${id}-heading-${index}`} className="workflow-toolbox-content" hidden={!open}>

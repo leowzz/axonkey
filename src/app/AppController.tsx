@@ -3,6 +3,7 @@ import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
 import {
+  ArrowLeft,
   Check,
   Copy,
   Download,
@@ -176,6 +177,11 @@ function AppController() {
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
+  const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
+  const navigateToPage = (page: AppPage) => {
+    if (page === 'mapping') setMappingStyle('flow')
+    setActivePage(page)
+  }
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(initialUiState.overviewSelection)
@@ -1458,17 +1464,17 @@ function AppController() {
     </>
   }
 
-  const MappingPageComponent = activePage === 'mappingFlow' ? MappingFlowPage : MappingPage
+  const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
 
   return (
-    <div className={`app-shell ${activePage === 'mapping' || activePage === 'mappingFlow' ? 'mapping-active' : ''}`}>
+    <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
       <AppHeader
           activePage={activePage}
           hasUpdate={releaseUpdate.hasUpdate}
           enabled={enabled}
           onBrandClick={handleBrandClick}
-          onNavigate={setActivePage}
+          onNavigate={navigateToPage}
           onToggleEnabled={toggleEnabled}
         />
       <main ref={mainContentRef} key={activePage} className="main-content">
@@ -1491,8 +1497,8 @@ function AppController() {
           enabled={enabled}
           saveState={autoSaveState}
           pressedId={pressedId}
-          onEdit={(buttonId, trigger) => { setActivePage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
-        /> : (activePage === 'mapping' || activePage === 'mappingFlow') ? <MappingPageComponent
+          onEdit={(buttonId, trigger) => { navigateToPage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
+        /> : activePage === 'mapping' ? <MappingPageComponent
           debugMode={debugMode}
           selectedDeviceId={selectedDeviceId}
           selectBehaviorTarget={selectBehaviorTarget}
@@ -1520,7 +1526,7 @@ function AppController() {
           showRemoteKeyGrid={showRemoteKeyGrid}
           rowRefs={rowRefs}
           onRetryApply={() => setApplyRetry((value) => value + 1)}
-          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Download size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Upload size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>}
+          toolbar={<div className="key-picker-actions"><button type="button" className="reset-button" onClick={() => setMappingStyle((style) => style === 'flow' ? 'legacy' : 'flow')}><ArrowLeft size={13} /> {mappingStyle === 'flow' ? '返回老样式' : '返回新样式'}</button><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Download size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Upload size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>}
           behaviorEditorProps={{
             editorRef: behaviorEditorRef,
             attention: behaviorEditorAttention,
@@ -1605,7 +1611,7 @@ function AppController() {
           onRefresh={() => void refreshHome()}
           onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}
-          onOpenMapping={() => setActivePage('mapping')}
+          onOpenMapping={() => navigateToPage('mapping')}
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>

@@ -24,6 +24,8 @@ const Designer = {
         return Promise.resolve().then(() => { for (const callback of listeners) callback(event) })
       },
       onReady: { subscribe() {} }, onDefinitionChanged: { subscribe(callback) { listeners.push(callback) } },
+      onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
+      getDefinition: () => definition,
       isDragging: () => false, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
     }
     const api = { editor: {
@@ -82,7 +84,7 @@ const render = async (sequences = empty()) => {
   let view
   const writes = []
   let props = { platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
-  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({}) }) })
+  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ addEventListener() {}, removeEventListener() {} }) }) })
   return {
     view, writes, current: () => instances.at(-1),
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))) },
@@ -121,6 +123,26 @@ test('external undo/reset replaces the canvas without saving the discarded defin
     assert.equal(app.writes.length, 0)
     await act(async () => previous.emit(library.DefinitionChangeType.stepDeleted, 'wait'))
     assert.equal(app.writes.length, 0, 'events from a destroyed designer must be ignored')
+  } finally { await app.unmount() }
+})
+
+test('the first custom context-menu action reopens an editable block and disabled lanes have no edit action', async () => {
+  const app = await render({ ...empty(), click: [delay(751)] })
+  try {
+    const instance = app.current()
+    const provider = instance.configuration.extensions.find(extension => extension.contextMenu).contextMenu.createItemsProvider()
+    const branch = branches(instance).click
+    const [edit] = provider.getItems(branch[0], branch)
+    assert.equal(edit.label, '编辑')
+    assert.ok(edit.order < 0, 'edit precedes the library title and built-in actions')
+    assert.equal(provider.getItems(null, branch).length, 0)
+    assert.equal(provider.getItems({ ...branch[0], type: 'mediaPlayPause' }, branch).length, 0)
+    assert.equal(provider.getItems(branch[0], [...branch, { type: 'disabled', properties: {} }]).length, 0)
+    await act(async () => edit.callback())
+    const dialog = app.view.root.findByType('workflow-dialog')
+    assert.equal(dialog.props.edit.behavior.ms, 751)
+    await act(async () => dialog.props.edit.onSave({ ...delay(900) }))
+    assert.equal(app.writes.at(-1)[1].click[0].ms, 900)
   } finally { await app.unmount() }
 })
 

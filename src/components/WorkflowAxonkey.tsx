@@ -12,11 +12,12 @@ import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
 import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
-import { defaultWorkflowDelayMs, findWorkflowStepEditor, workflowBehaviorProperties } from './workflowStepEditing'
+import { defaultWorkflowDelayMs, findWorkflowStepEditor, isEditableWorkflowStep, workflowBehaviorProperties } from './workflowStepEditing'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
 import { fixedWorkflowViewport } from './WorkflowViewport'
+import { bindWorkflowSelection } from './workflowSelection'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -34,6 +35,8 @@ type WorkflowAxonkeyProps = {
   button: MappingInput
   sequences: TriggerBehaviors
   onChange: (inputId: InputId, sequences: TriggerBehaviors) => void
+  toolboxExpandedIndex: number | null
+  onToolboxExpandedChange: (index: number | null) => void
 }
 
 type WorkflowAction = {
@@ -42,7 +45,7 @@ type WorkflowAction = {
   description?: string
 }
 
-export function WorkflowAxonkey({ platform, button, sequences, onChange }: WorkflowAxonkeyProps) {
+export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxExpandedIndex, onToolboxExpandedChange }: WorkflowAxonkeyProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const savedRef = useRef('')
   const incomingRef = useRef(sequences)
@@ -169,6 +172,13 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
       extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor), {
+        contextMenu: {
+          createItemsProvider: () => ({
+            getItems: (step, parentSequence) => step && isEditableWorkflowStep(step) && !workflowApi?.editor.isReadonly() && !isWorkflowLaneDisabled(parentSequence)
+              ? [{ label: '编辑', order: -1, callback: () => openEditor(step.id) }]
+              : [],
+          }),
+        },
         rootComponent: createTriggerRootExtension((trigger, disabled) => {
           const api = workflowApi
           if (!active || !api || api.editor.isReadonly()) return
@@ -197,6 +207,9 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
       contextMenu: true,
       keyboard: false,
       i18n: (key, defaultValue) => translations[key] ?? defaultValue,
+    })
+    const unbindSelection = bindWorkflowSelection(canvasRef.current, designer, () => {
+      workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
     })
     let ready = false
     designer.onReady.subscribe(() => { ready = true })
@@ -245,6 +258,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
       setEditingStep(null)
       setToolbox(null)
       resizeObserver.disconnect()
+      unbindSelection()
       designer.destroy()
     }
   }, [platform, button.id, reload])
@@ -273,8 +287,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
   }
 
   return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
-    <div ref={canvasRef} className="workflow-axonkey-canvas" aria-label="行为流程图画布" />
-    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} />, toolbox.host)}
+    <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} expandedIndex={toolboxExpandedIndex} onExpandedChange={onToolboxExpandedChange} />, toolbox.host)}
     {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
   </section>
 }
