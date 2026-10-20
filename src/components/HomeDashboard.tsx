@@ -15,8 +15,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { BatteryDebugControls, BatteryIndicator } from './BatteryIndicator'
-import type { AudioProbe, MacPermissions, Platform } from '../appTypes'
-import { windowsAudioPresentation } from '../windowsAudioEndpoints'
+import type { MacPermissions, Platform } from '../appTypes'
 import type { SetupState, SetupStepId } from '../setupModel'
 import type { ReactNode } from 'react'
 
@@ -32,7 +31,6 @@ type HomeDashboardProps = {
   inputMappingRecovering?: boolean
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
-  audioProbe?: AudioProbe | null
   device: SetupState['device']
   batteryLevel: number | null
   onAdjustBattery?: (delta: number) => void
@@ -92,7 +90,6 @@ export function HomeDashboard({
   inputMappingRecovering = false,
   inputDriver,
   audioDriver,
-  audioProbe,
   device,
   batteryLevel,
   onAdjustBattery,
@@ -107,7 +104,7 @@ export function HomeDashboard({
 }: HomeDashboardProps) {
   const macOS = platform === 'macos'
   const systemProbeLoading = nativeRuntime && systemProbeState === 'loading'
-  const audioProbeLoading = nativeRuntime && (platform === 'windows' ? !audioProbe && audioDriver.status !== 'error' : audioDriver.status === 'unknown' || audioDriver.status === 'checking')
+  const audioProbeLoading = nativeRuntime && (audioDriver.status === 'unknown' || audioDriver.status === 'checking')
   const inputProbeLoading = nativeRuntime && (systemProbeLoading || inputDriver.status === 'checking')
   const deviceProbeLoading = nativeRuntime && (systemProbeLoading || device.status === 'checking')
   const inputReady = !inputProbeLoading && macOS && permissions.inputMonitoring && !inputAuthorizationStale
@@ -132,13 +129,12 @@ export function HomeDashboard({
     : inputAuthorizationStale
       ? '当前构建的输入监控授权已失效，按键映射暂时不会生效。'
       : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 Quarbor HID 输入服务。')
-  const windowsAudio = windowsAudioPresentation(audioProbe)
-  const audioPresentation = platform === 'windows' && !audioProbeLoading ? windowsAudio : driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
+  const audioPresentation = driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
   const audioDetail = audioProbeLoading
     ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
-    : platform === 'windows' ? windowsAudio.detail : audioDriver.message ?? (macOS
+    : audioDriver.message ?? (macOS
       ? '将 RC003 语音写入 MiRemoteV 2ch，增益仅作用于这一路音频。'
-      : '请在音频设置中检查语音设备。')
+      : '将 RC003 语音写入 CABLE Input，并从 CABLE Output 提供给录音应用。')
   const deviceConnected = !deviceProbeLoading && device.status === 'connected'
   const deviceTone: HomeStatusTone = deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : 'warning'
   const deviceStatus = deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : '未连接'
@@ -165,7 +161,7 @@ export function HomeDashboard({
   const pageLoading = systemProbeLoading || audioProbeLoading || inputProbeLoading || deviceProbeLoading
   const refreshBusy = pageLoading || refreshing
   const readyCount = [inputTone, accessibilityTone, audioPresentation.tone, deviceTone]
-    .filter((tone, index) => tone === 'ready' || (tone === 'muted' && !(platform === 'windows' && index === 2))).length
+    .filter((tone) => tone === 'ready' || tone === 'muted').length
   const heroTone: HomeStatusTone = pageLoading ? 'checking' : allReady ? 'ready' : inputAuthorizationStale ? 'error' : 'warning'
   const heroTitle = pageLoading
     ? '正在检查 RC003'
@@ -197,7 +193,7 @@ export function HomeDashboard({
           <button type="button" className="home-primary-action" onClick={onOpenMapping}>
             <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-secondary-action" onClick={() => platform === 'windows' && audioPresentation.tone !== 'ready' ? onOpenPermissions() : macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
+          <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
             <Settings2 size={15} /> {allReady ? '设备引导' : '处理待办'}
           </button>
           <button type="button" className="home-icon-action" aria-label={refreshBusy ? '检测中' : '重新检测'} title={refreshBusy ? '检测中' : '重新检测'} onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>

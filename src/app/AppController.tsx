@@ -57,9 +57,7 @@ import type {
   RemoteButton,
   RemoteKeyEvent,
   SystemProbe,
-  WindowsAudioOutput,
 } from '../appTypes'
-import { windowsAudioPresentation, windowsOutputPresentation } from '../windowsAudioEndpoints'
 import { AboutPage } from '../components/AboutPage'
 import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
@@ -152,7 +150,6 @@ function AppController() {
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
-  const [latestAudioProbe, setLatestAudioProbe] = useState<AudioProbe | null>(null)
   const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(initialHitPositions)
   const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
   const [coordinateSnippet, setCoordinateSnippet] = useState('')
@@ -198,7 +195,6 @@ function AppController() {
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
-  const audioProbeRevisionRef = useRef(0)
   const systemProbeRunningRef = useRef(false)
   const legacyCleanupPromptedRef = useRef(false)
   const legacyProbeStartedRef = useRef(false)
@@ -1129,25 +1125,9 @@ function AppController() {
     }
   }
 
-  const acceptAudioProbe = (probe: AudioProbe) => {
-    audioProbeRevisionRef.current++
-    setLatestAudioProbe(probe)
-    if (platform === 'windows') {
-      const presentation = windowsAudioPresentation(probe)
-      updateSetup((current) => setDriverStatus(current, 'audio', presentation.tone === 'error' ? 'error' : probe.driverInstalled ? 'installed' : 'unknown', { message: presentation.detail }))
-    }
-  }
-
-  const acceptWindowsAudioOutput = (output: WindowsAudioOutput) => {
-    audioProbeRevisionRef.current++
-    setLatestAudioProbe((current) => ({ ...(current ?? { driverInstalled: false, state: 'unknown', bluetoothConnected: false, forwarding: false }), output }))
-    updateSetup((current) => setDriverStatus(current, 'audio', current.drivers.audio.status === 'checking' ? 'unknown' : current.drivers.audio.status, { message: windowsOutputPresentation(output).detail }))
-  }
-
   const probeAudioState = async () => {
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
-    const revision = audioProbeRevisionRef.current
     // Keep the last result visible during subsequent probes, including polling.
     updateSetup((current) => current.drivers.audio.status !== 'unknown' ? current : setDriverStatus(current, 'audio', 'checking', {
       message: platform === 'macos' ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…' : '正在检查 VB-CABLE 虚拟麦克风…',
@@ -1158,10 +1138,7 @@ function AppController() {
         5_000,
         '检测超时，请点击“重新检测”再试',
       )
-      if (revision !== audioProbeRevisionRef.current) return
-      acceptAudioProbe(probe)
-      if (platform === 'windows') return
-      const outputName = 'MiRemoteV 2ch'
+      const outputName = platform === 'macos' ? 'MiRemoteV 2ch' : 'CABLE Input'
       const stateMessage = probe.forwarding
         ? `正在把 RC003 麦克风音频转发到 ${outputName}。`
         : probe.state === 'ready'
@@ -1176,16 +1153,11 @@ function AppController() {
           ? stateMessage
           : platform === 'macos'
             ? '未检测到 MiRemoteV 2ch 虚拟麦克风驱动。'
-            : '未发现受支持的虚拟音频设备。',
+            : '未检测到 VB-CABLE 的 CABLE Input 播放端点。',
       }))
     } catch (error) {
-      if (revision !== audioProbeRevisionRef.current) return
       logError('Audio probe failed', error)
       const detail = error instanceof Error ? error.message : String(error)
-      if (platform === 'windows') setLatestAudioProbe((current) => ({
-        ...(current ?? { driverInstalled: false, state: 'unknown', bluetoothConnected: false, forwarding: false }),
-        output: { selectedEndpointId: null, selectedEndpointName: null, captureEndpointId: null, captureEndpointName: null, ...current?.output, state: 'enumerationFailed', error: detail },
-      }))
       updateSetup((current) => setDriverStatus(current, 'audio', 'error', {
         message: `音频检测失败：${detail}。可点击“重新检测”，不影响按键映射。`,
       }))
@@ -1594,9 +1566,6 @@ function AppController() {
           onOpenSettings={(kind) => void openSystemSettings(kind)}
           onRefresh={() => void probeSystemState(false)}
           audioDriver={setupState.drivers.audio}
-          audioProbe={latestAudioProbe}
-          onAudioProbeChange={acceptAudioProbe}
-          onAudioOutputChange={acceptWindowsAudioOutput}
           onAudioAction={(action) => void runDriverAction('audio', action)}
           audioRestarting={audioRestarting}
           audioRestartError={audioRestartError}
@@ -1616,7 +1585,6 @@ function AppController() {
           inputMappingRecovering={inputMappingRecovering}
           inputDriver={setupState.drivers.input}
           audioDriver={setupState.drivers.audio}
-          audioProbe={latestAudioProbe}
           refreshing={homeRefreshing}
           device={setupState.device}
           batteryLevel={displayedBatteryLevel}

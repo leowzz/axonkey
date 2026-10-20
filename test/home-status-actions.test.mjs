@@ -6,7 +6,6 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer from 'react-test-renderer'
-import * as windowsAudioEndpoints from '../src/windowsAudioEndpoints.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -16,7 +15,6 @@ const source = ts.transpileModule(readFileSync(new URL('../src/components/HomeDa
 vm.runInNewContext(source, {
   module, exports: module.exports,
   require: name => {
-    if (name === '../windowsAudioEndpoints') return windowsAudioEndpoints
     if (name === '../appConfig') return { audioGainMin: -30, audioGainMax: 30 }
     if (name === '../openGitHub') return { openGitHub: () => {} }
     if (name === './BatteryIndicator') return { BatteryIndicator: () => null, BatteryDebugControls: () => null }
