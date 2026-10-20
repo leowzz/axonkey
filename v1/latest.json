@@ -1,19 +1,19 @@
 {
-  "version": "1.0.7",
-  "notes": "Axonkey v1.0.7",
-  "pub_date": "2026-10-20T03:59:22.827Z",
+  "version": "1.0.9",
+  "notes": "Axonkey v1.0.9",
+  "pub_date": "2026-10-20T06:39:46.067Z",
   "platforms": {
     "windows-x86_64": {
-      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.7/Axonkey_1.0.7_x64-setup.exe",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWVBhV2VkK096N0hpdFczUUg2LysveWZnZXI5RnNtY2ZzaGFDL2NWZG5ZQXRhVkdNSW9JalVob0p4ZTZqc3dqYVZXdE9id3Y1OStXUGtxRHhlRUFOM2dnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDY4NzI5CWZpbGU6QXhvbmtleV8xLjAuN194NjQtc2V0dXAuZXhlCmNMSjJtN21hQjlsNVZYb2ZybFVDa2g2R1F5VkUwWURXaVdmVFc0NHIxeW4xYnRhaUVhZ205V1MyRzlxVzN5ZW5rTmhCRDZLQXZtVXlodnN4Y0FFRURnPT0K"
+      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.9/Axonkey_1.0.9_x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWUpEaDMxL2xFSldiajZOWW9KS0pETjlXZmFybk9vcno3aXRJV1FPcUY4ZDU1c0wvZzUydUJ2NXA0SlFvemIyVS9TeTU1WkdDTnlvL3FtMjJOTVkvMGdZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDc4MzA1CWZpbGU6QXhvbmtleV8xLjAuOV94NjQtc2V0dXAuZXhlCmxNS2kvTHNiM1hYYms4ZVN6UVVkeDRoc2s1aWtIMUFCVU1McUUweFdpUTh1aEtpVEc0Vzl5aEtLUHZONTY5MkJMMGlCRUovOTI0L0ZKd3ZPSXBXNkJ3PT0K"
     },
     "darwin-x86_64": {
-      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.7/Axonkey.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWUk4VmdQL2IvYURYTUpzVzNWd1RCOGpZVmxXSnpjQyt1dTZvWlhKc3lyMmFaYzhwWGxRcjRzYi96TERVQWtXaVBpVVcwdG5uMG1MWk9GMll1ZTFIRVFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDY4NzM5CWZpbGU6QXhvbmtleS5hcHAudGFyLmd6CmxMTXByR2ZtSTRlcjczdWpmWGNPeGxUVHZtNnYvM0xpK3k2WEsrcW9oZG5VMHJtTjI0L2wrcG80UVg1amdBdVczUXN4cjE3QnNrdFdZbWwzMnZhVUFnPT0K"
+      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.9/Axonkey.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWUxnUGE4N0s3Rng3RnBrWVNEbXplK1h6YkNVWHdOQnhqdEVvdFVTdWVsTjBEdHE5aXE4dnY5ekNhbmZGQVdrWGx4MHZjRlh5Mjd6YkN0d1ZSaVZibHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDc4MzYxCWZpbGU6QXhvbmtleS5hcHAudGFyLmd6CjNnMTVoY0xCT1I5Y20xSGJwTVRTa2t1bm1nWG9sYm1BRVh3Z0x6bE9sUkQ1NUNYa0lWN3RvKzlUNHE0dkZJSTdCTS9uMzBoUTBleDJHNGxGLzRCM0F3PT0K"
     },
     "darwin-aarch64": {
-      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.7/Axonkey.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWUk4VmdQL2IvYURYTUpzVzNWd1RCOGpZVmxXSnpjQyt1dTZvWlhKc3lyMmFaYzhwWGxRcjRzYi96TERVQWtXaVBpVVcwdG5uMG1MWk9GMll1ZTFIRVFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDY4NzM5CWZpbGU6QXhvbmtleS5hcHAudGFyLmd6CmxMTXByR2ZtSTRlcjczdWpmWGNPeGxUVHZtNnYvM0xpK3k2WEsrcW9oZG5VMHJtTjI0L2wrcG80UVg1amdBdVczUXN4cjE3QnNrdFdZbWwzMnZhVUFnPT0K"
+      "url": "https://github.com/leowzz/axonkey/releases/download/v1.0.9/Axonkey.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSbDhwdVZscHZsWUxnUGE4N0s3Rng3RnBrWVNEbXplK1h6YkNVWHdOQnhqdEVvdFVTdWVsTjBEdHE5aXE4dnY5ekNhbmZGQVdrWGx4MHZjRlh5Mjd6YkN0d1ZSaVZibHdFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDc4MzYxCWZpbGU6QXhvbmtleS5hcHAudGFyLmd6CjNnMTVoY0xCT1I5Y20xSGJwTVRTa2t1bm1nWG9sYm1BRVh3Z0x6bE9sUkQ1NUNYa0lWN3RvKzlUNHE0dkZJSTdCTS9uMzBoUTBleDJHNGxGLzRCM0F3PT0K"
     }
   }
 }
