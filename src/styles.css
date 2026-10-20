@@ -706,6 +706,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .behavior-return-button:hover { border-color: #94b8df; color: var(--map-accent); background: #edf5ff; }
 .mapping-active .behavior-editor-body { grid-template-columns: 1fr; gap: 0; margin-top: 0; }
 .mapping-active .behavior-current-panel { grid-row: auto; padding: 8px 12px 12px; border-right: 0; border-bottom: 1px solid var(--map-line); }
+.mapping-active .behavior-current-panel > .behavior-list { width: min(calc(100% - 48px), 760px); margin-inline: auto; }
 .mapping-active .behavior-actions { grid-column: 1; margin-top: 12px; }
 .mapping-active .behavior-column-heading h3 { color: #5a6570; }
 .mapping-active .behavior-empty { min-height: 58px; border-color: #d1d9e1; color: #858e98; background: #fafbfd; }

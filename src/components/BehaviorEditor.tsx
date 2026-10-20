@@ -187,7 +187,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<ArrowLeft size={17} />} label="上一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`} onClick={() => onApplyCommonBehavior('previousTab')} />
             <BehaviorActionButton icon={<ArrowRight size={17} />} label="下一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Tab`} onClick={() => onApplyCommonBehavior('nextTab')} />
             <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />
-            <BehaviorActionButton icon={<Trash2 size={17} />} label="删除全部文本" detail="全选并复制后删除" onClick={() => onApplyCommonBehavior('deleteAllText')} />
+            <BehaviorActionButton icon={<Trash2 size={17} />} label="删除全部文本" detail="复制，等待 30 毫秒后剪切" onClick={() => onApplyCommonBehavior('deleteAllText')} />
             <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
             <BehaviorActionButton icon={<FolderOpen size={17} />} label="打开应用" onClick={() => onApplyCommonBehavior('openApp')} />
             <BehaviorActionButton icon={<Globe size={17} />} label="打开网站" onClick={() => onApplyCommonBehavior('openWebsite')} />
