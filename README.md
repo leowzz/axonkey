@@ -388,3 +388,11 @@ VB-CABLE 是 VB-Audio Software 提供的 Donationware。Axonkey 原样携带官�
 Axonkey 的产品灵感来自 [HD838A/remote-mic-app](https://github.com/HD838A/remote-mic-app)。macOS 原生后端参考了该项目经真机验证的 RC003 VID/PID、HID usage、ATVV 语音协议、IOKit 权限检查、CoreGraphics 键盘注入和 Core Audio 输出路径；Axonkey 仍维护独立的 Tauri 界面、设置格式、驱动构建和运行时服务。
 
 Axonkey 与 remote-mic-app 是相互独立的项目，本仓库不是其 fork。
+
+## 投喂一点Token
+
+如果 Axonkey 用着顺手，欢迎投喂一点Token，让我继续折腾好玩又好用的小功能 😄
+
+<p align="center">
+<img src="./docs/images/sponsor-wechat.png" width="320" alt="微信赞赏码：投喂一点Token">
+</p>
