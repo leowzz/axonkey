@@ -255,7 +255,7 @@ export const manualKeyGroups: { label: string; options: ManualKeyOption[] }[] = 
       { value: 'Ctrl', label: 'Ctrl' }, { value: 'RCtrl', label: '右 Ctrl' },
       { value: 'Shift', label: 'Shift' }, { value: 'RShift', label: '右 Shift' }, { value: 'Alt', label: 'Alt' },
       { value: 'LAlt', label: '左 Alt' }, { value: 'RAlt', label: '右 Alt' },
-      { value: 'Win', label: 'Windows' }, { value: 'RWin', label: '右 Windows' },
+      { value: 'Win', label: 'Win' }, { value: 'RWin', label: '右 Win' },
     ],
   },
   {
@@ -296,13 +296,13 @@ const keyLabels = new Map(manualKeyGroups.flatMap((group) => group.options.map((
 export function keyDisplayName(key: string, platform: Platform) {
   if (platform === 'macos') {
     const labels: Record<string, string> = {
-      Ctrl: 'Control',
-      RCtrl: '右 Control',
-      Alt: 'Option',
-      LAlt: '左 Option',
-      RAlt: '右 Option',
-      Win: 'Command',
-      RWin: '右 Command',
+      Ctrl: 'Ctrl',
+      RCtrl: '右 Ctrl',
+      Alt: 'Opt',
+      LAlt: '左 Opt',
+      RAlt: '右 Opt',
+      Win: 'Cmd',
+      RWin: '右 Cmd',
     }
     if (labels[key]) return labels[key]
   }

@@ -1397,7 +1397,7 @@ function AppController() {
       copied = document.execCommand('copy')
       fallback.remove()
     }
-    setToast(copied ? '坐标已复制，也可以从弹窗中手动复制' : `请在弹窗文本框中按 ${platform === 'macos' ? 'Command' : 'Ctrl'}+C 复制坐标`)
+    setToast(copied ? '坐标已复制，也可以从弹窗中手动复制' : `请在弹窗文本框中按 ${platform === 'macos' ? 'Cmd' : 'Ctrl'}+C 复制坐标`)
     window.setTimeout(() => setToast(''), 2600)
   }
 
@@ -1637,7 +1637,7 @@ function AppController() {
       {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
         <section className="coordinate-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinate-title">
           <div className="coordinate-dialog-head"><div><span className="section-kicker">DEBUG POSITION</span><h2 id="coordinate-title">坐标已生成</h2></div><button type="button" className="dialog-close" aria-label="关闭" onClick={() => setCoordinateSnippet('')}><X size={16} /></button></div>
-          <p>文本框已经自动选中，按 {platform === 'macos' ? 'Command' : 'Ctrl'}+C 后粘贴发给我，或替换 App.tsx 中的 initialHitPositions。</p>
+          <p>文本框已经自动选中，按 {platform === 'macos' ? 'Cmd' : 'Ctrl'}+C 后粘贴发给我，或替换 App.tsx 中的 initialHitPositions。</p>
           <textarea ref={coordinateTextRef} value={coordinateSnippet} readOnly aria-label="定位坐标代码" />
           <div className="coordinate-dialog-actions"><button type="button" className="dialog-secondary" onClick={() => coordinateTextRef.current?.select()}><Copy size={14} /> 全选坐标</button><button type="button" className="button primary" onClick={() => setCoordinateSnippet('')}>完成</button></div>
         </section>

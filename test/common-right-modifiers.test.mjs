@@ -211,31 +211,31 @@ test('right modifier presets keep one key token and platform-specific names', ()
   assert.equal(isRightModifierPreset('escape'), false)
   assert.equal(isRightModifierPreset('toString'), false)
   assert.equal(rightModifierKeys.rightCommand, 'RWin')
-  assert.equal(names('macos'), '右 Control|右 Option|右 Command')
-  assert.equal(names('windows'), '右 Ctrl|右 Alt|右 Windows')
+  assert.equal(names('macos'), '右 Ctrl|右 Opt|右 Cmd')
+  assert.equal(names('windows'), '右 Ctrl|右 Alt|右 Win')
 })
 
 test('common behaviors offer the right-side modifiers with platform names', () => {
   const mac = render('macos')
   const windows = render('windows')
   try {
-    for (const label of ['右 Control', '右 Option', '右 Command']) {
+    for (const label of ['右 Ctrl', '右 Opt', '右 Cmd']) {
       assert.ok(choiceButton(mac.view, label), label)
     }
-    assert.equal(choiceButton(mac.view, '右 Windows'), undefined)
-    assert.equal(text(choiceButton(mac.view, '右 Command')), 'Cmd右 Command')
+    assert.equal(choiceButton(mac.view, '右 Win'), undefined)
+    assert.equal(text(choiceButton(mac.view, '右 Cmd')), 'Cmd右 Cmd')
 
-    for (const label of ['右 Ctrl', '右 Alt', '右 Windows']) {
+    for (const label of ['右 Ctrl', '右 Alt', '右 Win']) {
       assert.ok(choiceButton(windows.view, label), label)
     }
-    assert.equal(choiceButton(windows.view, '右 Command'), undefined)
-    assert.equal(choiceButton(windows.view, '右 Option'), undefined)
-    assert.equal(text(choiceButton(windows.view, '右 Windows')), 'Win右 Windows')
+    assert.equal(choiceButton(windows.view, '右 Cmd'), undefined)
+    assert.equal(choiceButton(windows.view, '右 Opt'), undefined)
+    assert.equal(text(choiceButton(windows.view, '右 Win')), 'Win右 Win')
     assert.equal(text(choiceButton(windows.view, '右 Alt')), 'Alt右 Alt')
 
-    act(() => choiceButton(mac.view, '右 Command').props.onClick())
-    act(() => choiceButton(windows.view, '右 Windows').props.onClick())
-    act(() => choiceButton(mac.view, '右 Option').props.onClick())
+    act(() => choiceButton(mac.view, '右 Cmd').props.onClick())
+    act(() => choiceButton(windows.view, '右 Win').props.onClick())
+    act(() => choiceButton(mac.view, '右 Opt').props.onClick())
     act(() => choiceButton(windows.view, '右 Ctrl').props.onClick())
     assert.deepEqual(mac.applied, ['rightCommand', 'rightAlt'])
     assert.deepEqual(windows.applied, ['rightCommand', 'rightCtrl'])
@@ -453,7 +453,7 @@ for (const platform of ['macos', 'windows']) {
       reopened = renderDialog(platform, persisted)
       assert.equal(reopened.view.root.findByProps({ 'aria-label': '选择主按键或单独修饰键' }).props.value, '')
       assert.equal(text(reopened.view.root.findByProps({ className: 'behavior-current-value' })),
-        platform === 'macos' ? '当前按键Control + Option' : '当前按键Ctrl + Alt')
+        platform === 'macos' ? '当前按键Ctrl + Opt' : '当前按键Ctrl + Alt')
       reopened.select('V')
       assert.deepEqual(reopened.behavior(), { ...initial, keys: ['Ctrl', 'Alt', 'V'] })
     } finally {
