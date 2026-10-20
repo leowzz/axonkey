@@ -3,6 +3,7 @@ import { behaviorFromCapturedKey, behaviorTypeLabels, formatCapturedKey } from '
 import type { Behavior, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
 import { BehaviorEditDialog } from './BehaviorEditor'
+import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup } from './workflowActionChoices'
 
 export type WorkflowStepEdit = {
   stepId: string
@@ -20,6 +21,7 @@ export function WorkflowStepDialog({ edit, platform, button, onClose }: {
   const [behavior, setBehavior] = useState(edit.behavior)
   const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
   const ref = useRef<HTMLDivElement>(null)
+  const choiceGroup = workflowActionChoiceGroup(edit.behavior)
 
   useEffect(() => {
     const app = document.getElementById('root')
@@ -59,7 +61,15 @@ export function WorkflowStepDialog({ edit, platform, button, onClose }: {
       behavior={behavior}
       draft
       delayStep={1}
-      title={`编辑${behaviorTypeLabels[behavior.type]}行为`}
+      title={`编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
+      actionChoices={choiceGroup ? {
+        label: choiceGroup.label,
+        options: choiceGroup.options.map((option) => ({
+          label: option.label,
+          selected: isWorkflowActionChoiceSelected(behavior, option),
+          behavior: { id: behavior.id, enabled: behavior.enabled, ...option.behavior },
+        })),
+      } : undefined}
       saveHint="保存到当前流程节点"
       capturing={capturing}
       onStartCapture={() => setCapturing(true)}

@@ -278,6 +278,7 @@ type BehaviorEditDialogProps = {
   title?: string
   saveHint?: string
   delayStep?: number
+  actionChoices?: { label: string; options: { label: string; selected: boolean; behavior: Behavior }[] }
   onStartCapture: () => void
   onCancelCapture: () => void
   onCaptureKey: (behavior: Behavior, event: KeyboardEvent<HTMLElement>) => void
@@ -306,7 +307,7 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   </div>
 }
 
-export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, saveHint, delayStep = 10, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, saveHint, delayStep = 10, actionChoices, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(savedBehavior.type === 'openApp' ? savedBehavior.path : savedBehavior.type === 'openWebsite' ? savedBehavior.url : '')
@@ -429,7 +430,18 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
         <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
       </header>
       <div className="behavior-dialog-body">
-        {behavior.type === 'key' || behavior.type === 'shortcut' ? <>
+        {actionChoices ? <div className="behavior-dialog-field">
+          <span id="behavior-action-choice-label">{actionChoices.label}</span>
+          <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-action-choice-label">
+            {actionChoices.options.map((option) => <button
+              key={option.label}
+              type="button"
+              className={option.selected ? 'selected' : ''}
+              aria-pressed={option.selected}
+              onClick={() => onUpdate(() => option.behavior)}
+            >{option.label}</button>)}
+          </div>
+        </div> : behavior.type === 'key' || behavior.type === 'shortcut' ? <>
           <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
           <div className="behavior-record-row">
             <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : () => { setEmptyShortcut(false); onStartCapture() }}>
@@ -472,10 +484,16 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
             </div>
           </div>
         </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
-          <label htmlFor="behavior-wheel-direction">滚动方向</label>
-          <select id="behavior-wheel-direction" value={behavior.direction} onChange={(event) => onUpdate((current) => current.type === 'wheel' ? { ...current, direction: event.target.value as typeof current.direction } : current)}>
-            <option value="up">滚轮向上</option><option value="down">滚轮向下</option><option value="left">水平滚轮向左</option><option value="right">水平滚轮向右</option>
-          </select>
+          <span id="behavior-wheel-direction-label">滚动方向</span>
+          <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-wheel-direction-label">
+            {([['up', '向上'], ['down', '向下'], ['left', '向左'], ['right', '向右']] as const).map(([direction, label]) => <button
+              key={direction}
+              type="button"
+              className={behavior.direction === direction ? 'selected' : ''}
+              aria-pressed={behavior.direction === direction}
+              onClick={() => onUpdate((current) => current.type === 'wheel' ? { ...current, direction } : current)}
+            >{label}</button>)}
+          </div>
           <p>{button.contextLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</p>
         </div> : behavior.type === 'cursorMove' ? <>
           <div className="behavior-current-value"><span>当前动作</span><strong>{behaviorSummary(behavior, platform)}</strong></div>
@@ -484,7 +502,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
               <span className="settings-form-label" id="behavior-cursor-direction-label">移动方向：</span>
               <div className="settings-form-control">
                 <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
-                  {([['up', '上'], ['down', '下'], ['left', '左'], ['right', '右']] as const).map(([direction, label]) => {
+                  {([['up', '向上'], ['down', '向下'], ['left', '向左'], ['right', '向右']] as const).map(([direction, label]) => {
                     const selected = behavior.direction === direction
                     return <button key={direction} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => onUpdate((current) => current.type === 'cursorMove' ? { ...current, direction } : current)}>{label}</button>
                   })}

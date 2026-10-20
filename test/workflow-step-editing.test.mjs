@@ -3,6 +3,8 @@ import test from 'node:test'
 import { ClickCommandType, SelectStepBehaviorEndToken, Vector } from 'sequential-workflow-designer'
 import { createWorkflowStepInteraction } from '../src/components/WorkflowStepInteraction.ts'
 import { findWorkflowStepEditor, workflowBehaviorProperties, workflowStepBehavior } from '../src/components/workflowStepEditing.ts'
+import { workflowActionChoiceGroup } from '../src/components/workflowActionChoices.ts'
+import { behaviorToWorkflowStep } from '../src/components/workflowBehaviorBridge.ts'
 
 const step = (type, properties = {}, id = type) => ({ id, type, componentType: 'task', name: type, properties: { preset: type, ...properties } })
 const definition = (branches) => ({ properties: {}, sequence: [{
@@ -17,6 +19,7 @@ test('editable blocks start with empty fields or the default delay', () => {
     ['customKey', { type: 'shortcut', keys: [] }],
     ['openApp', { type: 'openApp', path: '' }],
     ['openWebsite', { type: 'openWebsite', url: '' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'up', distance: 50 }],
   ]) {
     assert.deepEqual(workflowStepBehavior(step(type)), { id: type, enabled: true, ...expected })
   }
@@ -30,6 +33,7 @@ test('saved values reopen on the same node with its current trigger', () => {
     ['customKey', { type: 'shortcut', keys: ['Ctrl', 'Shift', 'A'] }],
     ['openApp', { type: 'openApp', path: 'C:\\Program Files\\Example\\App.exe' }],
     ['openWebsite', { type: 'openWebsite', url: 'https://example.com/' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'right', distance: 123 }],
   ]
   for (const [type, value] of cases) {
     const node = step(type, {}, 'original')
@@ -118,4 +122,46 @@ test('delay editing preserves nonnegative integers and rejects invalid durations
     assert.equal(workflowStepBehavior(step('delay', { ms })).ms, 300)
   }
   assert.equal(node.properties.ms, 300)
+})
+
+test('directional scroll nodes reopen with their direction and can change direction without changing identity or enabled state', () => {
+  for (const direction of ['up', 'down', 'left', 'right']) {
+    const node = step(`wheel${direction[0].toUpperCase()}${direction.slice(1)}`, { enabled: false }, 'old-wheel')
+    const editor = findWorkflowStepEditor(definition({ longPress: [node] }), node.id)
+    assert.deepEqual(editor.behavior, { id: 'old-wheel', enabled: false, type: 'wheel', direction })
+    assert.equal(editor.trigger, 'longPress')
+    const saved = workflowBehaviorProperties(node, { ...editor.behavior, direction: 'left' })
+    assert.equal(saved.direction, 'left')
+    assert.equal(saved.enabled, false)
+  }
+  assert.equal(workflowBehaviorProperties(step('wheel'), { id: 'wheel', type: 'wheel', enabled: true, direction: 'invalid' }), null)
+})
+
+test('legacy mouse and media choices reopen in their group and switch actions while preserving identity and flags', () => {
+  const groups = [
+    ['mouseButton', [{ type: 'mouse', button: 'left' }, { type: 'mouse', button: 'right' }]],
+    ['volumeControl', ['VolumeUp', 'VolumeDown', 'VolumeMute'].map(key => ({ type: 'key', key }))],
+    ['mediaTrack', ['MediaPrevious', 'MediaNext'].map(key => ({ type: 'key', key }))],
+  ]
+  for (const [preset, values] of groups) for (const value of values) {
+    const original = { id: 'legacy', enabled: false, ...value }
+    const node = behaviorToWorkflowStep(original, behavior => behavior.type)
+    const editor = findWorkflowStepEditor(definition({ doubleClick: [node] }), node.id)
+    assert.deepEqual(editor.behavior, original)
+    assert.equal(workflowActionChoiceGroup(editor.behavior).preset, preset)
+    for (const next of values) {
+      const behavior = { id: 'legacy', enabled: false, ...next }
+      assert.ok(workflowBehaviorProperties(node, behavior))
+      assert.deepEqual(workflowStepBehavior(behaviorToWorkflowStep(behavior, () => 'choice')), behavior)
+      const generic = step(preset)
+      generic.properties = workflowBehaviorProperties(generic, behavior)
+      assert.deepEqual(workflowStepBehavior(generic), { ...behavior, id: preset, enabled: true })
+    }
+    assert.equal(workflowBehaviorProperties(node, { id: 'bad', enabled: true, type: 'key', key: 'Enter' }), null)
+    if (value.type === 'key') {
+      const legacyKey = step('customKey', { key: value.key }, 'legacy')
+      assert.equal(workflowActionChoiceGroup(workflowStepBehavior(legacyKey)).preset, preset)
+    }
+  }
+  assert.equal(workflowActionChoiceGroup({ id: 'normal', enabled: true, type: 'key', key: 'Enter' }), undefined)
 })

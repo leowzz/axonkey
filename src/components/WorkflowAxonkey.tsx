@@ -15,6 +15,7 @@ import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
 import { defaultWorkflowDelayMs, findWorkflowStepEditor, workflowBehaviorProperties } from './workflowStepEditing'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
+import type { WorkflowActionChoicePreset } from './workflowActionChoices'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -35,7 +36,7 @@ type WorkflowAxonkeyProps = {
 }
 
 type WorkflowAction = {
-  preset: CommonBehaviorPreset | AdvancedBehaviorType
+  preset: CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | WorkflowActionChoicePreset
   name: string
   description?: string
 }
@@ -92,28 +93,18 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange }: Workf
     const mouseActions: WorkflowAction[] = []
     if (platform === 'windows' || platform === 'macos') {
       mouseActions.push(
-        { preset: 'wheelUp', name: '鼠标滚轮向上' },
-        { preset: 'wheelDown', name: '鼠标滚轮向下' },
-        { preset: 'wheelLeft', name: '鼠标滚轮向左' },
-        { preset: 'wheelRight', name: '鼠标滚轮向右' },
-        { preset: 'mouseLeft', name: '鼠标左键' },
-        { preset: 'mouseRight', name: '鼠标右键' },
-        { preset: 'cursorUp', name: '光标上移', description: `默认 ${defaultCursorDistance} 像素` },
-        { preset: 'cursorDown', name: '光标下移', description: `默认 ${defaultCursorDistance} 像素` },
-        { preset: 'cursorLeft', name: '光标左移', description: `默认 ${defaultCursorDistance} 像素` },
-        { preset: 'cursorRight', name: '光标右移', description: `默认 ${defaultCursorDistance} 像素` },
+        { preset: 'wheel', name: '鼠标滚动', description: '选择向上、向下、向左或向右滚动' },
+        { preset: 'mouseButton', name: '鼠标按键', description: '选择左键或右键' },
+        { preset: 'cursorMove', name: '光标移动', description: `选择移动方向，默认 ${defaultCursorDistance} 像素` },
       )
     }
     const mediaActions: WorkflowAction[] = [
       { preset: 'mediaPlayPause', name: '播放 / 暂停' },
-      { preset: 'mediaPrevious', name: '上一首' },
-      { preset: 'mediaNext', name: '下一首' },
+      { preset: 'mediaTrack', name: '曲目切换', description: '选择上一首或下一首' },
     ]
     if (platform === 'windows') mediaActions.push({ preset: 'mediaStop', name: '停止播放' })
     mediaActions.push(
-      { preset: 'volumeUp', name: '增大音量' },
-      { preset: 'volumeDown', name: '减小音量' },
-      { preset: 'volumeMute', name: '静音' },
+      { preset: 'volumeControl', name: '音量控制', description: '选择增大音量、减小音量或静音' },
     )
     const actionGroups = [
       { name: '控制', actions: controlActions },

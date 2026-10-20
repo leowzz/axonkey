@@ -1,10 +1,11 @@
 import type { BranchedStep, Definition, Step } from 'sequential-workflow-designer'
 import type { Behavior, BehaviorMap, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
-import { createBehavior, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import { createBehavior, defaultCursorDistance, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
 import { createTriggerDefinition, isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
 export { isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
 import { workflowStepBehavior } from './workflowStepEditing.ts'
+import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup, workflowActionChoiceStep } from './workflowActionChoices.ts'
 
 type Label = (behavior: Behavior) => string
 const directions = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' } as const
@@ -22,6 +23,8 @@ export function behaviorToWorkflowStep(behavior: Behavior, label: Label): Step {
   if (behavior.type === 'wheel') type = `wheel${directions[behavior.direction]}`
   if (behavior.type === 'cursorMove') type = `cursor${directions[behavior.direction]}`
   if (behavior.type === 'mouse') type = `mouse${behavior.button[0].toUpperCase()}${behavior.button.slice(1)}`
+  const choice = workflowActionChoiceGroup(behavior)?.options.find((option) => isWorkflowActionChoiceSelected(behavior, option))
+  if (choice) type = choice.stepType
   const { id, type: behaviorType, ...properties } = behavior
   return {
     id, componentType: 'task', type, name: `${behavior.enabled ? '' : '已停用 · '}${label(behavior)}`,
@@ -70,6 +73,14 @@ export function insertedWorkflowSteps(step: Step, platform: Platform, label: Lab
   // Duplicates already contain canonical behavior fields and keep their parameters.
   if (step.properties.behaviorType) return [step]
   const preset = step.type
+  const choices = workflowActionChoiceStep(preset)
+  if (choices?.preset === preset) return [{ ...step, properties: {
+    ...step.properties, behaviorType: choices.options[0].behavior.type, enabled: true, choice: choices.options[0].stepType, draftGroup: step.id,
+  } }]
+  if (preset === 'wheel' || preset === 'cursorMove') return [{ ...step, properties: {
+    ...step.properties, behaviorType: preset, enabled: true, direction: 'up', draftGroup: step.id,
+    ...(preset === 'cursorMove' ? { distance: defaultCursorDistance } : {}),
+  } }]
   let behaviors: Behavior[]
   if (presetKeys[preset]) behaviors = [createBehavior({ type: 'key', key: presetKeys[preset], id: step.id })]
   else if (preset === 'previousTab' || preset === 'nextTab') behaviors = [createBehavior({ type: 'shortcut', keys: preset === 'previousTab' ? ['Ctrl', 'Shift', 'Tab'] : ['Ctrl', 'Tab'], id: step.id })]

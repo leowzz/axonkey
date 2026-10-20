@@ -171,6 +171,85 @@ test('confirmed website targets use the same normalized value in the node and st
   } finally { await app.unmount() }
 })
 
+for (const [preset, behaviorType, nodePrefix, parameters] of [
+  ['wheel', 'wheel', 'wheel', {}],
+  ['cursorMove', 'cursorMove', 'cursor', { distance: 123 }],
+]) test(`${preset} opens a draft, cancels without saving, and commits a directional node for each choice`, async () => {
+  for (const direction of ['up', 'down', 'left', 'right']) {
+    const app = await render({ ...empty(), click: [delay(751)] })
+    try {
+      const instance = app.current()
+      const insert = async () => {
+        const node = palette(preset)
+        branches(instance).doubleClick.push(node)
+        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+      }
+      await insert()
+      assert.equal(app.writes.length, 0)
+      const draft = app.view.root.findByType('workflow-dialog').props.edit.behavior
+      assert.equal(draft.type, behaviorType)
+      assert.equal(draft.direction, 'up')
+      if (preset === 'cursorMove') assert.equal(draft.distance, 50)
+      await act(async () => app.view.root.findByType('workflow-dialog').props.onClose())
+      assert.equal(branches(instance).doubleClick.length, 0)
+      assert.equal(app.writes.length, 0)
+      await insert()
+      const behavior = { id: `new-${preset}`, type: behaviorType, enabled: true, direction, ...parameters }
+      await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave(behavior))
+      assert.equal(app.writes.length, 1)
+      const saved = app.writes[0][1]
+      assert.deepEqual(saved.doubleClick, [behavior])
+      assert.deepEqual(saved.click, [delay(751)])
+      const node = branches(instance).doubleClick[0]
+      assert.equal(node.type, `${nodePrefix}${direction[0].toUpperCase()}${direction.slice(1)}`)
+      assert.equal(node.properties.draftGroup, undefined)
+      await app.update({ sequences: saved })
+      assert.equal(app.current(), instance)
+    } finally { await app.unmount() }
+  }
+})
+
+test('grouped mouse and media actions cancel without writes and save each choice in the legacy format', async () => {
+  const groups = [
+    ['mouseButton', [
+      ['mouseLeft', { type: 'mouse', button: 'left' }], ['mouseRight', { type: 'mouse', button: 'right' }],
+    ]],
+    ['volumeControl', [
+      ['volumeUp', { type: 'key', key: 'VolumeUp' }], ['volumeDown', { type: 'key', key: 'VolumeDown' }], ['volumeMute', { type: 'key', key: 'VolumeMute' }],
+    ]],
+    ['mediaTrack', [
+      ['mediaPrevious', { type: 'key', key: 'MediaPrevious' }], ['mediaNext', { type: 'key', key: 'MediaNext' }],
+    ]],
+  ]
+  for (const [preset, options] of groups) for (const [nodeType, value] of options) {
+    const app = await render({ ...empty(), click: [delay(751)] })
+    try {
+      const instance = app.current()
+      const insert = async () => {
+        const node = palette(preset)
+        branches(instance).longPress.push(node)
+        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+      }
+      await insert()
+      assert.equal(app.writes.length, 0)
+      assert.deepEqual(copy(app.view.root.findByType('workflow-dialog').props.edit.behavior), { id: `new-${preset}`, enabled: true, ...options[0][1] })
+      await act(async () => app.view.root.findByType('workflow-dialog').props.onClose())
+      assert.equal(branches(instance).longPress.length, 0)
+      assert.equal(app.writes.length, 0)
+      await insert()
+      const behavior = { id: `new-${preset}`, enabled: true, ...value }
+      await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave(behavior))
+      assert.equal(app.writes.length, 1)
+      assert.deepEqual(app.writes[0][1], { click: [delay(751)], doubleClick: [], longPress: [behavior] })
+      assert.equal(branches(instance).longPress[0].type, nodeType)
+      assert.equal(branches(instance).longPress[0].properties.draftGroup, undefined)
+      await app.update({ sequences: app.writes[0][1] })
+      assert.equal(app.current(), instance)
+      assert.equal(instance.destroyed, false)
+    } finally { await app.unmount() }
+  }
+})
+
 test('switching inputs flushes a pending designer event into the outgoing input only', async () => {
   const app = await render({ ...empty(), click: [delay(751)] })
   try {
