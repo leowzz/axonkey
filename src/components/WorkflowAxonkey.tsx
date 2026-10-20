@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Trash2 } from 'lucide-react'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer } from 'sequential-workflow-designer'
 import { behaviorSummary, keyDisplayName, rightModifierChoices } from '../appConfig'
@@ -18,6 +19,7 @@ import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
 import { fixedWorkflowViewport } from './WorkflowViewport'
 import { bindWorkflowSelection } from './workflowSelection'
+import { bindWorkflowTrash } from './workflowTrash'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -47,6 +49,7 @@ type WorkflowAction = {
 
 export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxExpandedIndex, onToolboxExpandedChange }: WorkflowAxonkeyProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
+  const trashRef = useRef<HTMLButtonElement>(null)
   const savedRef = useRef('')
   const incomingRef = useRef(sequences)
   incomingRef.current = sequences
@@ -223,6 +226,23 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     const unbindSelection = bindWorkflowSelection(canvasRef.current, designer, () => {
       workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
     })
+    const unbindTrash = trashRef.current ? bindWorkflowTrash(canvasRef.current, trashRef.current, designer, (stepId) => {
+      const api = workflowApi
+      if (!active || !api || api.editor.isReadonly()) return
+      const definition = api.editor.getDefinition()
+      let removed = false
+      for (const branch of Object.values(workflowBranches(definition))) {
+        if (isWorkflowLaneDisabled(branch)) continue
+        const index = branch.findIndex((step) => step.id === stepId && isEditableWorkflowStep(step))
+        if (index < 0) continue
+        branch.splice(index, 1)
+        removed = true
+        break
+      }
+      if (!removed) return
+      designer.clearSelectedStep()
+      api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+    }) : () => {}
     let ready = false
     designer.onReady.subscribe(() => { ready = true })
     designer.onDefinitionChanged.subscribe((event) => {
@@ -271,6 +291,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       setToolbox(null)
       resizeObserver.disconnect()
       unbindSelection()
+      unbindTrash()
       designer.destroy()
     }
   }, [platform, button.id, reload])
@@ -300,6 +321,10 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
 
   return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
     <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+    <button ref={trashRef} type="button" className="workflow-trash" aria-label="垃圾桶，拖入积木即可删除" tabIndex={-1}>
+      <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
+      <span>拖入删除</span>
+    </button>
     {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} expandedIndex={toolboxExpandedIndex} onExpandedChange={onToolboxExpandedChange} />, toolbox.host)}
     {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
   </section>

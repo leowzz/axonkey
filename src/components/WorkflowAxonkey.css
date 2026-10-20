@@ -1,6 +1,6 @@
 .mapping-active .mapping-flow-page .mapping-main { display: flex; flex-direction: column; }
 .mapping-flow-page .key-picker { flex: 0 0 auto; }
-.workflow-axonkey { display: flex; flex: 1 0 416px; min-width: 0; min-height: 416px; padding: 0 16px 16px; isolation: isolate; }
+.workflow-axonkey { position: relative; display: flex; flex: 1 0 416px; min-width: 0; min-height: 416px; padding: 0 16px 16px; isolation: isolate; }
 .workflow-axonkey-canvas { flex: 1; width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; overflow: hidden; }
 .workflow-axonkey .sqd-toolbox { right: 10px; left: auto; width: 210px; border: 1px solid #dde3e7; border-radius: 8px; background: #fff; box-shadow: 0 4px 16px rgba(30, 55, 80, .1); }
 .workflow-axonkey .workflow-toolbox { bottom: 80px; display: flex; flex-direction: column; min-height: 0; }
@@ -28,6 +28,8 @@
 .workflow-axonkey .sqd-control-bar { right: 240px; left: auto; }
 .workflow-axonkey .sqd-control-bar-button[title="Zoom in"],
 .workflow-axonkey .sqd-control-bar-button[title="Zoom out"] { display: none; }
+.workflow-trash { position: absolute; z-index: 20; bottom: 28px; left: 28px; display: inline-flex; width: 76px; height: 54px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 6px; border: 1px solid #d7dee5; border-radius: 9px; color: #6f7b86; background: rgb(255 255 255 / 94%); box-shadow: 0 3px 10px rgb(30 55 80 / 12%); font: inherit; font-size: 10px; cursor: default; pointer-events: none; transition: color .15s ease, background .15s ease, border-color .15s ease, transform .15s ease; }
+.workflow-trash.is-drag-over { border-color: #d45b5b; color: #bf3d3d; background: #fff0f0; transform: scale(1.05); }
 .workflow-editable-step { cursor: pointer; }
 .workflow-editable-step:focus-visible { outline: 2px solid #2878d4; outline-offset: 3px; }
 .workflow-axonkey .workflow-step-selected.sqd-step-task .sqd-step-task-rect { stroke: #2878d4; stroke-width: 2; fill: #edf5ff; }
