@@ -650,6 +650,11 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .key-picker-heading { display: flex; flex-shrink: 0; align-items: center; gap: 10px; }
 .key-picker-head + * { margin-top: 10px; }
 .key-picker-actions { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; justify-content: flex-end; gap: 12px; color: #77808a; font-size: 13px; }
+.mapping-style-control { display: inline-flex; align-items: center; gap: 6px; color: #697887; white-space: nowrap; }
+.mapping-style-control strong { color: var(--map-ink); font-size: 12px; font-weight: 700; }
+.mapping-style-switch { width: 38px; height: 22px; padding: 2px; }
+.mapping-style-switch span { width: 18px; height: 18px; }
+.mapping-style-switch.on span { transform: translateX(16px); }
 .behavior-history-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
 .behavior-history-button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 5px; color: #617284; background: transparent; transition: color .16s ease, background .16s ease, transform .16s ease; }
 .behavior-history-button:hover:not(:disabled) { color: var(--map-accent); background: #e8f2ff; }
