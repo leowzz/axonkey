@@ -2,7 +2,8 @@ import type { CSSProperties } from 'react'
 import { Bluetooth, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
-import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
+import { WindowsAudioEndpointControl } from './WindowsAudioEndpointControl'
+import type { AudioProbe, MacPermissionKind, MacPermissions, Platform, WindowsAudioOutput } from '../appTypes'
 import type { DriverActionKind, SetupState } from '../setupModel'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse'
@@ -31,6 +32,9 @@ type SettingsPageProps = {
   inputAuthorizationStale: boolean
   inputDriver: SetupState['drivers']['input']
   audioDriver: SetupState['drivers']['audio']
+  audioProbe?: AudioProbe | null
+  onAudioProbeChange: (probe: AudioProbe) => void
+  onAudioOutputChange: (output: WindowsAudioOutput) => void
   onAudioAction: (action: DriverActionKind) => void
   stretchCompensation: boolean
   stretchError: string
@@ -53,7 +57,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, audioProbe, onAudioProbeChange, onAudioOutputChange, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -140,17 +144,20 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       </div>
       {nativeRuntime && audioError && <div className="permission-drag-note" role="alert"><Info size={17} /><div><strong>虚拟麦克风需要处理</strong><span>{audioError}</span></div></div>}
       {grantedCount < 2 && <div className="permission-drag-note"><Info size={17} /><div><strong>{inputAuthorizationStale ? '需要重新授权当前应用' : '系统列表中没有 Axonkey？'}</strong><span>{inputAuthorizationStale ? inputDriver.message ?? '当前应用的输入监控授权已失效，请重新授权后再使用按键映射。' : '点击开始授权后，可通过授权小窗在 Finder 中定位应用，再将 Axonkey.app 拖入系统设置列表。'}</span></div></div>}
-    </> : platform === 'windows' ? <section className="settings-platform-note settings-windows-driver-note" aria-labelledby="windows-input-service-title">
-      <span className="settings-platform-note-icon"><ShieldCheck size={24} /></span>
-      <div className="settings-platform-note-copy">
-        <h3 id="windows-input-service-title">Windows 输入服务</h3>
-        <p>按键映射通过 Quarbor HID 驱动运行；安装或卸载驱动时需要管理员权限。</p>
-        <div className="settings-platform-note-actions">
-          <span className="settings-inline-status">驱动状态：<strong>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</strong></span>
-          <button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button>
+    </> : platform === 'windows' ? <>
+      <section className="settings-platform-note settings-windows-driver-note" aria-labelledby="windows-input-service-title">
+        <span className="settings-platform-note-icon"><ShieldCheck size={24} /></span>
+        <div className="settings-platform-note-copy">
+          <h3 id="windows-input-service-title">Windows 输入服务</h3>
+          <p>按键映射通过 Quarbor HID 驱动运行；安装或卸载驱动时需要管理员权限。</p>
+          <div className="settings-platform-note-actions">
+            <span className="settings-inline-status">驱动状态：<strong>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</strong></span>
+            <button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button>
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+      <WindowsAudioEndpointControl supported={nativeRuntime} output={audioProbe?.output} driverBusy={audioBusy} driverError={audioDriver.action.error} onProbeChange={onAudioProbeChange} onOutputChange={onAudioOutputChange} onInstall={() => onAudioAction('install')} onOpenSound={onOpenSound} />
+    </>
       : <section className="settings-platform-note"><Info size={28} /><h3>当前系统暂不支持</h3><p>请在 macOS 或 Windows 桌面版中配置系统权限。</p></section>}
     {(platform === 'macos' || platform === 'windows') && <div className="settings-form-fields settings-device-fields">
       <section className="settings-form-row" aria-labelledby="settings-device-label">
