@@ -26,6 +26,14 @@ test('each mouse direction round trips independently alongside all remote mappin
   assert.equal(parseMappingImport(malformed), null)
 })
 
+test('mapping transfers retain an optional profile name', () => {
+  const map = createDefaultBehaviorMap()
+  const transfer = createMappingExport(map, true, '2026-01-01T00:00:00.000Z', '  客厅遥控  ')
+  assert.equal(transfer.profileName, '客厅遥控')
+  assert.equal(parseMappingImport(JSON.stringify(transfer)).profileName, '客厅遥控')
+  assert.equal(parseMappingImport(createMappingExport(map, true)).profileName, undefined)
+})
+
 test('device ownership is unique and mouse edits support undo without changing remote input', () => {
   const all = devices.flatMap(device => device.inputIds)
   assert.equal(new Set(all).size, all.length)

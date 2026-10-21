@@ -14,15 +14,16 @@ import {
   Volume2,
 } from 'lucide-react'
 import {
+  cloneBehaviorMap,
   createBehavior,
   createDefaultBehaviorMap,
   parseStoredBehaviors,
 } from './behaviorModel'
 import { triggerTypes } from './behaviorModel'
-import type { Behavior, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
+import type { Behavior, BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
 import { inputIds } from './deviceModel'
 import type { DeviceId } from './deviceModel'
-import type { AppPage, HitPosition, ManualKeyOption, Platform, RemoteButton, StoredSettings } from './appTypes'
+import type { AppPage, HitPosition, ManualKeyOption, MappingProfile, Platform, RemoteButton, StoredProfiles, StoredSettings } from './appTypes'
 import type { KeyboardEvent } from 'react'
 
 export const detectBrowserPlatform = (): Platform => {
@@ -61,6 +62,7 @@ export const buttons: RemoteButton[] = [
 ]
 
 export const settingsStorageKey = 'axonkey.settings.v1'
+export const profilesStorageKey = 'axonkey.mapping-profiles.v1'
 export const uiStateStorageKey = 'axonkey.ui-state.v1'
 export const audioSettingsStorageKey = 'axonkey.audio-settings.v2'
 export const audioGainMin = -30
@@ -178,6 +180,55 @@ export function getStoredSettings(): StoredSettings {
   } catch {
     return fallback
   }
+}
+
+function createProfileId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `profile-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function cleanProfileName(value: unknown, fallback = '默认配置') {
+  if (typeof value !== 'string') return fallback
+  const name = value.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40)
+  return name || fallback
+}
+
+function defaultStoredProfiles(): StoredProfiles {
+  const id = createProfileId()
+  return { activeProfileId: id, profiles: [{ id, name: '默认配置', behaviors: cloneBehaviorMap(getStoredSettings().behaviors) }] }
+}
+
+/** Read named mapping profiles, migrating the previous single mapping automatically. */
+export function getStoredProfiles(): StoredProfiles {
+  const fallback = defaultStoredProfiles()
+  if (typeof window === 'undefined') return fallback
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(profilesStorageKey) ?? '') as unknown
+    if (!isRecord(parsed) || !Array.isArray(parsed.profiles)) return fallback
+    const profiles: MappingProfile[] = []
+    const ids = new Set<string>()
+    parsed.profiles.forEach((raw, index) => {
+      if (!isRecord(raw)) return
+      const rawId = typeof raw.id === 'string' ? raw.id.trim() : ''
+      const id = rawId && !ids.has(rawId) ? rawId : createProfileId()
+      const behaviors = parseStoredBehaviors(raw.behaviors)
+      ids.add(id)
+      profiles.push({ id, name: cleanProfileName(raw.name, index === 0 ? '默认配置' : `配置 ${index + 1}`), behaviors })
+    })
+    if (profiles.length === 0) return fallback
+    const requestedId = typeof parsed.activeProfileId === 'string' ? parsed.activeProfileId : ''
+    return { activeProfileId: profiles.some((profile) => profile.id === requestedId) ? requestedId : profiles[0].id, profiles }
+  } catch {
+    return fallback
+  }
+}
+
+export function createMappingProfile(name: string, behaviors: BehaviorMap): MappingProfile {
+  return { id: createProfileId(), name: cleanProfileName(name), behaviors: cloneBehaviorMap(behaviors) }
+}
+
+export function normalizeProfileName(value: string, fallback = '配置文件') {
+  return cleanProfileName(value, fallback)
 }
 
 export function getStoredAudioGain() {

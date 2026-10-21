@@ -8,6 +8,7 @@ export type BehaviorHistory = {
 
 export type BehaviorHistoryAction =
   | { type: 'change'; update: (current: BehaviorMap) => BehaviorMap }
+  | { type: 'replace'; present: BehaviorMap }
   | { type: 'undo' }
   | { type: 'redo' }
 
@@ -19,6 +20,8 @@ export function createBehaviorHistory(present: BehaviorMap): BehaviorHistory {
 
 export function behaviorHistoryReducer(state: BehaviorHistory, action: BehaviorHistoryAction): BehaviorHistory {
   switch (action.type) {
+    case 'replace':
+      return { past: [], present: action.present, future: [] }
     case 'change': {
       const present = action.update(state.present)
       if (present === state.present) return state

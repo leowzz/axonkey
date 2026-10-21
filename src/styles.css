@@ -353,6 +353,24 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .behavior-dialog-actions > span { display: inline-flex; align-items: center; gap: 5px; color: #738078; font-size: 12px; }
 .behavior-dialog-buttons { display: flex; align-items: center; gap: 8px; }
 .text-input-dialog .behavior-dialog-body { min-height: 250px; }
+.profile-import-dialog { width: min(560px, 100%); }
+.profile-import-dialog .section-kicker { display: inline-flex; align-items: center; gap: 5px; }
+.profile-import-body { display: flex; flex-direction: column; gap: 16px; min-height: 0; }
+.profile-import-file { display: flex; align-items: center; gap: 8px; color: #687581; font-size: 13px; overflow-wrap: anywhere; }
+.profile-import-name { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; }
+.profile-import-name label { color: #424a51; font-size: 14px; text-align: right; }
+.profile-import-name input { width: 100%; height: 34px; padding: 5px 9px; border: 1px solid #c7cfd7; border-radius: 6px; color: #30383f; background: #fff; font-size: 14px; }
+.profile-import-name input:focus-visible { outline: 2px solid #93b8f2; outline-offset: 1px; }
+.profile-import-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.profile-import-summary > div { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 7px; background: #eef3f7; }
+.profile-import-summary strong { color: #315b78; font-size: 20px; font-variant-numeric: tabular-nums; }
+.profile-import-summary span { color: #687581; font-size: 12px; }
+.profile-import-preview { padding: 11px 13px; border-radius: 7px; background: #f4f7f9; color: #52616d; font-size: 13px; }
+.profile-import-preview strong { color: #3d4b56; }
+.profile-import-preview ul { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 18px; }
+.profile-import-preview small { display: block; margin-top: 8px; color: #7c8993; }
+.profile-import-empty, .profile-import-note { margin: 0; color: #687581; font-size: 13px; line-height: 1.6; }
+.profile-import-note { padding: 9px 11px; border-radius: 6px; background: #f7f1e5; color: #806a44; }
 .sequence-paste-dialog { display: flex; max-height: calc(100dvh - 48px); flex-direction: column; }
 .sequence-paste-dialog .behavior-dialog-head, .sequence-paste-dialog .behavior-dialog-actions { flex-shrink: 0; }
 .sequence-paste-dialog .behavior-dialog-body { min-height: 0; overflow-y: auto; }
@@ -646,6 +664,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .key-picker { padding: 14px 16px; border-bottom: 0; }
 .key-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .key-picker-actions { display: flex; flex-wrap: wrap; min-width: 0; align-items: center; justify-content: flex-end; gap: 12px; color: #77808a; font-size: 13px; }
+.profile-manager { display: inline-flex; min-width: 0; align-items: center; gap: 5px; color: #536474; }
+.profile-manager-label { white-space: nowrap; font-size: 13px; font-weight: 600; }
+.profile-manager select { width: 150px; height: 28px; min-width: 80px; padding: 2px 7px; border: 1px solid #cbd5df; border-radius: 5px; color: #314454; background: #f8fafc; font-size: 13px; }
+.profile-manager select:focus-visible, .profile-rename-form input:focus-visible { outline: 2px solid #8db4dc; outline-offset: 1px; }
+.profile-icon-button { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 5px; color: #63778a; background: transparent; }
+.profile-icon-button:hover:not(:disabled) { border-color: #c6d9eb; color: #176fcf; background: #edf5ff; }
+.profile-icon-button:disabled { cursor: default; opacity: .35; }
+.profile-delete-button:hover:not(:disabled) { border-color: #eccaca; color: #b24b4b; background: #fff2f2; }
+.profile-rename-form { display: inline-flex; align-items: center; gap: 4px; }
+.profile-rename-form input { width: 150px; height: 28px; padding: 3px 7px; border: 1px solid #9db8d2; border-radius: 5px; color: #314454; background: #fff; font-size: 13px; }
 .behavior-history-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 2px; }
 .behavior-history-button { display: grid; width: 26px; height: 26px; place-items: center; padding: 0; border: 0; border-radius: 5px; color: #617284; background: transparent; transition: color .16s ease, background .16s ease, transform .16s ease; }
 .behavior-history-button:hover:not(:disabled) { color: var(--map-accent); background: #e8f2ff; }
@@ -1495,6 +1523,16 @@ html.macos-vibrancy,
   background: rgb(255 255 255 / 44%);
 }
 .macos-vibrancy .mapping-active .behavior-action-button:hover {
+  border-color: #94b8df;
+  background: rgb(240 247 255 / 82%);
+}
+.macos-vibrancy .profile-manager select,
+.macos-vibrancy .profile-rename-form input,
+.macos-vibrancy .profile-icon-button {
+  border-color: rgb(70 80 90 / 18%);
+  background: rgb(255 255 255 / 58%);
+}
+.macos-vibrancy .profile-icon-button:hover:not(:disabled) {
   border-color: #94b8df;
   background: rgb(240 247 255 / 82%);
 }

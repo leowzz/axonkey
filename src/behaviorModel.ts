@@ -69,12 +69,14 @@ export type MappingTransfer = {
   version: typeof mappingTransferVersion
   exportedAt: string
   enabled: boolean
+  profileName?: string
   behaviors: BehaviorMap
 }
 
 export type ImportedMapping = {
   behaviors: BehaviorMap
   enabled?: boolean
+  profileName?: string
 }
 
 export type CreateBehaviorOptions =
@@ -201,6 +203,19 @@ export function createDefaultBehaviorMap(): BehaviorMap {
   map.power.click = [createBehavior({ type: 'key', key: 'Esc', id: 'power-click-esc' })]
   map.voice.click = [createBehavior({ type: 'key', key: 'RAlt', id: 'voice-click-ralt' })]
   return map
+}
+
+/** Clone every sequence so a profile can be edited independently of its source. */
+export function cloneBehaviorMap(map: BehaviorMap): BehaviorMap {
+  return Object.fromEntries(inputIds.map((id) => [
+    id,
+    Object.fromEntries(triggerTypes.map((trigger) => [
+      trigger,
+      map[id][trigger].map((behavior) => behavior.type === 'shortcut'
+        ? { ...behavior, keys: [...behavior.keys] }
+        : { ...behavior }),
+    ])),
+  ])) as BehaviorMap
 }
 
 function isButtonId(value: string): value is InputId {
@@ -345,14 +360,17 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
 }
 
 /** Build the stable, versioned JSON shape used for mapping file transfers. */
-export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString()): MappingTransfer {
-  return {
+export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString(), profileName?: string): MappingTransfer {
+  const transfer: MappingTransfer = {
     format: mappingTransferFormat,
     version: mappingTransferVersion,
     exportedAt,
     enabled,
     behaviors: Object.fromEntries(inputIds.map((id) => [id, behaviors[id]])) as BehaviorMap,
   }
+  const name = typeof profileName === 'string' ? profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) : ''
+  if (name) transfer.profileName = name
+  return transfer
 }
 
 const sequenceTextHeader = 'axonkey/1'
@@ -475,10 +493,14 @@ export function parseMappingImport(value: unknown): ImportedMapping | null {
     return null
   }
 
-  return {
+  const imported: ImportedMapping = {
     behaviors: parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed),
     enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
   }
+  if (isVersionedExport && typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
+    imported.profileName = parsed.profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40)
+  }
+  return imported
 }
 
 /** Append a behavior without mutating the existing map. */

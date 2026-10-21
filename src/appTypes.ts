@@ -148,3 +148,15 @@ export type StoredSettings = {
   mouseScrollSensitivity: number
   mouseIgnoreScrollAcceleration: boolean
 }
+
+/** A named set of remote-key and mouse input behaviors. */
+export type MappingProfile = {
+  id: string
+  name: string
+  behaviors: BehaviorMap
+}
+
+export type StoredProfiles = {
+  activeProfileId: string
+  profiles: MappingProfile[]
+}

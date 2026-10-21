@@ -16,6 +16,8 @@ import { RedoCircle, UndoCircle } from 'reicon-react'
 import {
   createBehavior,
   createDefaultBehaviorMap,
+  cloneBehaviorMap,
+  createEmptyBehaviorMap,
   defaultCursorDistance,
   createMappingExport,
   serializeSequence,
@@ -23,7 +25,7 @@ import {
   parseMappingImport,
   updateBehaviorList,
 } from '../behaviorModel'
-import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerType } from '../behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, ImportedMapping, InputId, TriggerType } from '../behaviorModel'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
   isRightModifierPreset,
@@ -33,10 +35,14 @@ import {
   buttons,
   detectBrowserPlatform,
   formatCapturedKey,
+  getStoredProfiles,
   getStoredSettings,
   getStoredUiState,
   iconFor,
   initialHitPositions,
+  normalizeProfileName,
+  createMappingProfile,
+  profilesStorageKey,
   saveStoredUiState,
   settingsStorageKey,
   textAndEnterValue,
@@ -58,6 +64,7 @@ import type {
   RemoteButton,
   RemoteKeyEvent,
   SystemProbe,
+  MappingProfile,
 } from '../appTypes'
 import { AboutPage } from '../components/AboutPage'
 import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
@@ -73,6 +80,8 @@ import { MouseInputModel, MouseControlPicker, MouseTriggerSelector, mouseInputs 
 import { DeviceSelector, DeviceStatusCard } from '../components/DeviceRail'
 import type { DeviceStatus } from '../components/DeviceRail'
 import { MappingOverview } from '../components/MappingOverview'
+import { ProfileManager } from '../components/ProfileManager'
+import { ProfileImportDialog } from '../components/ProfileImportDialog'
 import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
@@ -113,6 +122,11 @@ import {
   useState,
 } from 'react'
 
+type PendingProfileImport = ImportedMapping & {
+  fileName: string
+  suggestedName: string
+}
+
 function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const [initialUiState] = useState<StoredUiState>(getStoredUiState)
@@ -128,10 +142,13 @@ function AppController() {
   })
   const [permissionHelperKind, setPermissionHelperKind] = useState<MacPermissionKind | null>(null)
   const [activeId, setActiveId] = useState<ButtonId>(initialUiState.activeId)
+  const [storedProfiles] = useState(getStoredProfiles)
+  const [profiles, setProfiles] = useState<MappingProfile[]>(storedProfiles.profiles)
+  const [activeProfileId, setActiveProfileId] = useState(storedProfiles.activeProfileId)
   const [behaviorHistory, dispatchBehaviorHistory] = useReducer(
     behaviorHistoryReducer,
     null,
-    () => createBehaviorHistory(getStoredSettings().behaviors),
+    () => createBehaviorHistory(cloneBehaviorMap(storedProfiles.profiles.find((profile) => profile.id === storedProfiles.activeProfileId)?.behaviors ?? getStoredSettings().behaviors)),
   )
   const behaviors = behaviorHistory.present
   const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
@@ -193,6 +210,7 @@ function AppController() {
   const remoteArtRef = useRef<HTMLDivElement>(null)
   const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
+  const [pendingProfileImport, setPendingProfileImport] = useState<PendingProfileImport | null>(null)
   const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
   const rowRefs = useRef<Partial<Record<InputId, HTMLElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
@@ -301,6 +319,93 @@ function AppController() {
     setAutoSaveState('saving')
   }, [selectedBehavior])
 
+  const profileName = (base: string, existing: MappingProfile[]) => {
+    const normalized = normalizeProfileName(base)
+    const names = new Set(existing.map((profile) => profile.name))
+    if (!names.has(normalized)) return normalized
+    let index = 2
+    while (names.has(`${normalized} ${index}`)) index += 1
+    return `${normalized} ${index}`
+  }
+
+  const switchMappingProfile = (id: string) => {
+    const target = profiles.find((profile) => profile.id === id)
+    if (!target || target.id === activeProfileId) return
+    setProfiles((current) => current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile))
+    setActiveProfileId(target.id)
+    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(target.behaviors) })
+    setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
+    setAutoSaveState('saving')
+    setToast(`已切换到“${target.name}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const createMappingProfileFromScratch = () => {
+    const next = createMappingProfile(profileName('新配置', profiles), createEmptyBehaviorMap())
+    setProfiles((current) => [...current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
+    setActiveProfileId(next.id)
+    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    setAutoSaveState('saving')
+    setToast(`已新增“${next.name}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const duplicateMappingProfile = () => {
+    const current = profiles.find((profile) => profile.id === activeProfileId)
+    if (!current) return
+    const next = createMappingProfile(profileName(`${current.name} 副本`, profiles), behaviors)
+    setProfiles((existing) => [...existing.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
+    setActiveProfileId(next.id)
+    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    setAutoSaveState('saving')
+    setToast(`已复制为“${next.name}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const renameMappingProfile = (name: string) => {
+    const nextName = profileName(name, profiles.filter((profile) => profile.id !== activeProfileId))
+    setProfiles((current) => current.map((profile) => profile.id === activeProfileId ? { ...profile, name: nextName } : profile))
+    setToast(`配置文件已重命名为“${nextName}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
+  const saveImportedProfile = (name: string) => {
+    const pending = pendingProfileImport
+    if (!pending) return
+    const next = createMappingProfile(profileName(name, profiles), pending.behaviors)
+    setProfiles((current) => [...current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
+    setActiveProfileId(next.id)
+    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    if (pending.enabled !== undefined) setEnabled(pending.enabled)
+    setPendingProfileImport(null)
+    setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
+    setSequencePasteOpen(false)
+    setAutoSaveState('saving')
+    setToast(`已导入并切换到“${next.name}”`)
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const deleteMappingProfile = () => {
+    if (profiles.length <= 1) return
+    const current = profiles.find((profile) => profile.id === activeProfileId)
+    if (!current || !window.confirm(`确定删除配置文件“${current.name}”吗？`)) return
+    const remaining = profiles.filter((profile) => profile.id !== activeProfileId)
+    const next = remaining[0]
+    setProfiles((existing) => existing.filter((profile) => profile.id !== activeProfileId).map((profile) => profile.id === next.id ? { ...profile, behaviors: cloneBehaviorMap(profile.behaviors) } : profile))
+    setActiveProfileId(next.id)
+    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
+    setAutoSaveState('saving')
+    setToast(`已删除“${current.name}”`)
+    window.setTimeout(() => setToast(''), 1800)
+  }
+
   useEffect(() => {
     // Discard legacy coordinates so shipped artwork positions always take effect.
     try {
@@ -357,6 +462,17 @@ function AppController() {
     }
     void syncNativeSettings()
   }, [showRemoteKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
+
+  useEffect(() => {
+    const persistedProfiles = profiles.map((profile) => profile.id === activeProfileId
+      ? { ...profile, behaviors: cloneBehaviorMap(behaviors) }
+      : profile)
+    try {
+      window.localStorage.setItem(profilesStorageKey, JSON.stringify({ version: 1, activeProfileId, profiles: persistedProfiles }))
+    } catch (error) {
+      logError('Failed to save mapping profiles', error)
+    }
+  }, [profiles, activeProfileId, behaviors])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -576,15 +692,17 @@ function AppController() {
     return () => window.removeEventListener('keydown', handleHistoryShortcut)
   }, [canRedoBehavior, canUndoBehavior, redoBehaviorChange, undoBehaviorChange])
 
-  const mappingExportFilename = (date = new Date()) => {
+  const mappingExportFilename = (date = new Date(), profileName?: string) => {
     const pad = (value: number) => String(value).padStart(2, '0')
     const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
-    return `axonkey-mapping-${timestamp}.json`
+    const slug = profileName?.trim().replace(/[^\w\u4e00-\u9fff-]+/g, '-').replace(/^-+|-+$/g, '') || 'mapping'
+    return `axonkey-profile-${slug}-${timestamp}.json`
   }
 
   const exportMappings = async () => {
-    const serialized = JSON.stringify(createMappingExport(behaviors, enabled), null, 2)
-    const filename = mappingExportFilename()
+    const activeProfile = profiles.find((profile) => profile.id === activeProfileId)
+    const serialized = JSON.stringify(createMappingExport(behaviors, enabled, undefined, activeProfile?.name), null, 2)
+    const filename = mappingExportFilename(new Date(), activeProfile?.name)
 
     if (nativeRuntime) {
       try {
@@ -626,15 +744,12 @@ function AppController() {
     try {
       const imported = parseMappingImport(await file.text())
       if (!imported) throw new Error('unsupported mapping file')
-      setBehaviors(imported.behaviors)
-      if (imported.enabled !== undefined) setEnabled(imported.enabled)
-      setAutoSaveState('saving')
-      setCapturingBehaviorId(null)
-      setEditingBehaviorId(null)
-      setDraftBehavior(null)
-      setTextInputDraft(null)
-      setSequencePasteOpen(false)
-      showBehaviorToast(imported.enabled === undefined ? '映射规则已导入，将自动保存' : '映射规则和启用状态已导入，将自动保存')
+      const fallbackName = file.name.replace(/\.[^.]+$/, '').trim() || '导入配置'
+      setPendingProfileImport({
+        ...imported,
+        fileName: file.name,
+        suggestedName: imported.profileName || fallbackName,
+      })
     } catch (error) {
       logError('Failed to import mapping file', error)
       setToast('导入失败：请选择有效的 Axonkey 映射 JSON 文件')
@@ -1522,7 +1637,7 @@ function AppController() {
               <section className="key-picker" aria-labelledby="key-picker-title">
                 <div className="key-picker-head">
                   <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
-                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Download size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Upload size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
+                  <div className="key-picker-actions"><ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} /><span className="toolbar-divider" /><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入配置文件 JSON" onClick={openMappingImport}><Download size={13} /> 导入配置</button><button type="button" className="reset-button mapping-transfer-button" title="导出当前配置文件 JSON" onClick={exportMappings}><Upload size={13} /> 导出配置</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
                 </div>
                 {isMouse && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
                 {!isMouse && showRemoteKeyGrid && <MappingKeyGrid
@@ -1634,6 +1749,15 @@ function AppController() {
         />}
       </main>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+      {pendingProfileImport && <ProfileImportDialog
+        fileName={pendingProfileImport.fileName}
+        suggestedName={pendingProfileImport.suggestedName}
+        behaviors={pendingProfileImport.behaviors}
+        platform={platform}
+        enabled={pendingProfileImport.enabled}
+        onCancel={() => setPendingProfileImport(null)}
+        onSave={saveImportedProfile}
+      />}
       {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
         <section className="coordinate-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinate-title">
           <div className="coordinate-dialog-head"><div><span className="section-kicker">DEBUG POSITION</span><h2 id="coordinate-title">坐标已生成</h2></div><button type="button" className="dialog-close" aria-label="关闭" onClick={() => setCoordinateSnippet('')}><X size={16} /></button></div>
