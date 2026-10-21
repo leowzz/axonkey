@@ -25,6 +25,7 @@ const Designer = {
       },
       onReady: { subscribe() {} }, onDefinitionChanged: { subscribe(callback) { listeners.push(callback) } },
       onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
+      onIsDraggingChanged: new library.SimpleEvent(),
       getDefinition: () => definition,
       isDragging: () => false, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
     }
@@ -68,6 +69,7 @@ function load(file) {
   }
   vm.runInNewContext(source, {
     module, exports: module.exports, require: localRequire, URL, console,
+    window: { addEventListener() {}, removeEventListener() {} },
     document: { body: {}, createElement: () => ({ setAttribute() {}, remove() {} }) },
     ResizeObserver: class { observe() {} disconnect() {} },
   }, { filename: file })
@@ -84,7 +86,7 @@ const render = async (sequences = empty()) => {
   let view
   const writes = []
   let props = { platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
-  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ addEventListener() {}, removeEventListener() {} }) }) })
+  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} } }) }) })
   return {
     view, writes, current: () => instances.at(-1),
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))) },

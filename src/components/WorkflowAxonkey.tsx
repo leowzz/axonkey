@@ -19,6 +19,7 @@ import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
 import { fixedWorkflowViewport } from './WorkflowViewport'
 import { bindWorkflowSelection } from './workflowSelection'
+import { createWorkflowDraggedSteps } from './WorkflowDraggedSteps'
 import { bindWorkflowTrash } from './workflowTrash'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
@@ -136,6 +137,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     let active = true
     const iconUrls = createWorkflowActionIconUrls(platform)
     let workflowApi: DesignerApi | undefined
+    let selectionBinding: ReturnType<typeof bindWorkflowSelection> | undefined
     const openEditor = (stepId: string) => {
       const api = workflowApi
       if (!api || api.editor.isReadonly()) return
@@ -168,25 +170,14 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       // Undo/redo uses the application's shared behavior history and persistence.
       steps: {
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
-        isDraggable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDraggable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source) && (selectionBinding?.canDragSelection() ?? true),
         isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
         isDuplicable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
-      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor, () => {
-        const canvasSize = workflowApi?.workspace.getCanvasSize()
-        const rootSize = workflowApi?.workspace.getRootComponentSize()
-        const current = workflowApi?.workspace.getViewport()
-        if (!canvasSize || !rootSize || !current) return { startY: 0, minY: 0, maxY: 0 }
-        const overflow = rootSize.y - canvasSize.y
-        const centeredY = Math.max(0, (canvasSize.y - rootSize.y) / 2)
-        return {
-          startY: current.position.y,
-          minY: overflow > 0 ? -overflow : centeredY,
-          maxY: overflow > 0 ? 0 : centeredY,
-        }
-      }), {
+      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt)), {
+        draggedComponent: createWorkflowDraggedSteps((step) => selectionBinding?.getDragSteps(step.id) ?? [step]),
         contextMenu: {
           createItemsProvider: () => ({
             getItems: (step, parentSequence) => step && isEditableWorkflowStep(step) && !workflowApi?.editor.isReadonly() && !isWorkflowLaneDisabled(parentSequence)
@@ -223,21 +214,23 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       keyboard: false,
       i18n: (key, defaultValue) => translations[key] ?? defaultValue,
     })
-    const unbindSelection = bindWorkflowSelection(canvasRef.current, designer, () => {
+    selectionBinding = bindWorkflowSelection(canvasRef.current, designer, () => {
       workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-    })
+    }, () => workflowApi?.workspace)
     const unbindTrash = trashRef.current ? bindWorkflowTrash(canvasRef.current, trashRef.current, designer, (stepId) => {
       const api = workflowApi
       if (!active || !api || api.editor.isReadonly()) return
       const definition = api.editor.getDefinition()
+      const selectedIds = new Set(selectionBinding?.getSelectedIds())
+      const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
       let removed = false
       for (const branch of Object.values(workflowBranches(definition))) {
         if (isWorkflowLaneDisabled(branch)) continue
-        const index = branch.findIndex((step) => step.id === stepId && isEditableWorkflowStep(step))
-        if (index < 0) continue
-        branch.splice(index, 1)
-        removed = true
-        break
+        for (let index = branch.length - 1; index >= 0; index--) {
+          if (!idsToDelete.has(branch[index].id) || branch[index].type === 'disabled') continue
+          branch.splice(index, 1)
+          removed = true
+        }
       }
       if (!removed) return
       designer.clearSelectedStep()
@@ -290,7 +283,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       setEditingStep(null)
       setToolbox(null)
       resizeObserver.disconnect()
-      unbindSelection()
+      selectionBinding?.()
       unbindTrash()
       designer.destroy()
     }

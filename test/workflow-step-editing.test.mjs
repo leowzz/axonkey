@@ -111,7 +111,20 @@ test('dragging switches to the designer drag behavior without opening an editor'
   assert.equal(wrapper.wrap(click, { type: ClickCommandType.selectStep, component: { step: step('enter') } }), click)
 })
 
-test('panning the workflow canvas keeps its horizontal position fixed', () => {
+test('group completion runs synchronously after the designer drag ends, for editable and ordinary steps', () => {
+  for (const type of ['openApp', 'enter']) {
+    const calls = []
+    const extension = createWorkflowStepInteraction(() => {}, (interrupt) => calls.push(['finish', interrupt]))
+    const drag = { onStart() {}, onMove() {}, onEnd(interrupt) { calls.push(['designer', interrupt]) } }
+    const click = { onStart() {}, onMove() { return drag }, onEnd() {} }
+    const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(click, { type: ClickCommandType.selectStep, component: { step: step(type) } })
+    const next = wrapped.onMove(new Vector(20, 0))
+    next.onEnd(false, null, null)
+    assert.deepEqual(calls, [['designer', false], ['finish', false]])
+  }
+})
+
+test('blank drags never invoke the designer pan behavior', () => {
   const extension = createWorkflowStepInteraction(() => {})
   const moved = []
   const behavior = {
@@ -125,26 +138,7 @@ test('panning the workflow canvas keeps its horizontal position fixed', () => {
   wrapped.onStart(start)
   wrapped.onMove(delta)
   wrapped.onEnd(false, null, null)
-  assert.deepEqual(moved, [['start', start], ['move', new Vector(0, 75)], ['end']])
-})
-
-test('panning is clamped to the flow bounds and stays centered when the flow fits', () => {
-  const extension = createWorkflowStepInteraction(() => {}, () => ({ startY: 0, minY: -200, maxY: 0 }))
-  const moved = []
-  const behavior = { onStart() {}, onMove(delta) { moved.push(delta) }, onEnd() {} }
-  const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(behavior, null)
-  wrapped.onStart(new Vector(0, 0))
-  wrapped.onMove(new Vector(0, 600))
-  wrapped.onMove(new Vector(0, -600))
-  assert.deepEqual(moved, [new Vector(0, 200), new Vector(0, 0)])
-
-  const centered = createWorkflowStepInteraction(() => {}, () => ({ startY: 80, minY: 80, maxY: 80 }))
-  const centeredMoved = []
-  const centeredBehavior = { onStart() {}, onMove(delta) { centeredMoved.push(delta) }, onEnd() {} }
-  const centeredWrapped = centered.clickBehaviorWrapperExtension.create().wrap(centeredBehavior, null)
-  centeredWrapped.onStart(new Vector(0, 0))
-  centeredWrapped.onMove(new Vector(0, 400))
-  assert.deepEqual(centeredMoved, [new Vector(0, 0)])
+  assert.deepEqual(moved, [])
 })
 
 test('delay editing preserves nonnegative integers and rejects invalid durations', () => {

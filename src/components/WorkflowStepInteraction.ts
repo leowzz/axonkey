@@ -1,14 +1,8 @@
-import { ClickCommandType, SelectStepBehaviorEndToken, Vector } from 'sequential-workflow-designer'
+import { ClickCommandType, SelectStepBehaviorEndToken } from 'sequential-workflow-designer'
 import type { DesignerExtension } from 'sequential-workflow-designer'
 import { isEditableWorkflowStep } from './workflowStepEditing.ts'
 
-type VerticalPanBounds = {
-  startY: number
-  minY: number
-  maxY: number
-}
-
-export function createWorkflowStepInteraction(openEditor: (stepId: string) => void, getVerticalPanBounds?: () => VerticalPanBounds): DesignerExtension {
+export function createWorkflowStepInteraction(openEditor: (stepId: string) => void, finishDrag?: (interrupt: boolean) => void): DesignerExtension {
   return {
     stepComponentViewWrapper: {
       wrap(view, context) {
@@ -31,33 +25,30 @@ export function createWorkflowStepInteraction(openEditor: (stepId: string) => vo
       create: () => ({
         wrap(behavior, command) {
           if (!command) {
-            // Keep the workflow canvas horizontally fixed while retaining
-            // vertical panning for tall sequences.
-            let panStartY: number | undefined
-            return {
-              onStart: (position) => {
-                panStartY = getVerticalPanBounds?.().startY
-                behavior.onStart(position)
-              },
-              onMove: (delta) => {
-                const bounds = getVerticalPanBounds?.()
-                if (!bounds) return behavior.onMove(new Vector(0, delta.y))
-                const startY = panStartY ?? bounds.startY
-                const requestedY = startY - delta.y
-                const limitedY = Math.max(bounds.minY, Math.min(bounds.maxY, requestedY))
-                return behavior.onMove(new Vector(0, startY - limitedY))
-              },
-              onEnd: (interrupt, element, previousToken) => behavior.onEnd(interrupt, element, previousToken),
-            }
+            // Mouse marquee selection owns blank presses. Never let the
+            // designer's fallback behavior pan the canvas (including Alt/middle).
+            return { onStart() {}, onMove() {}, onEnd() {} }
           }
-          if (command?.type !== ClickCommandType.selectStep || !isEditableWorkflowStep(command.component.step)) return behavior
+          if (command?.type !== ClickCommandType.selectStep || (!finishDrag && !isEditableWorkflowStep(command.component.step))) return behavior
           return {
             onStart: (position) => behavior.onStart(position),
             // The designer switches to its drag behavior after pointer movement.
-            onMove: (delta) => behavior.onMove(delta),
+            onMove: (delta) => {
+              const next = behavior.onMove(delta)
+              if (!next || !finishDrag) return next
+              return {
+                onStart: (position) => next.onStart(position),
+                onMove: (movement) => next.onMove(movement),
+                onEnd: (interrupt, element, token) => {
+                  const result = next.onEnd(interrupt, element, token)
+                  finishDrag(interrupt)
+                  return result
+                },
+              }
+            },
             onEnd: (interrupt, element, previousToken) => {
               const token = behavior.onEnd(interrupt, element, previousToken)
-              if (!interrupt && token && SelectStepBehaviorEndToken.is(token) && SelectStepBehaviorEndToken.is(previousToken)
+              if (isEditableWorkflowStep(command.component.step) && !interrupt && token && SelectStepBehaviorEndToken.is(token) && SelectStepBehaviorEndToken.is(previousToken)
                 && token.stepId === previousToken.stepId && token.time >= previousToken.time && token.time - previousToken.time <= 500) {
                 openEditor(command.component.step.id)
                 return

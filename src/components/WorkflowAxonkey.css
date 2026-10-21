@@ -25,11 +25,13 @@
 .workflow-axonkey .sqd-toolbox-item-icon { width: 40px; height: 24px; margin-top: -12px; }
 .workflow-axonkey .sqd-toolbox-item-text { padding: 10px 8px 10px 50px; font-size: 12px; }
 .workflow-axonkey .sqd-workspace { margin-right: 230px; margin-left: 0; min-width: 0; }
+.workflow-axonkey .sqd-workspace-canvas { cursor: crosshair; }
 .workflow-trash { position: absolute; z-index: 20; bottom: 28px; left: 28px; display: inline-flex; width: 76px; height: 54px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 6px; border: 1px solid #d7dee5; border-radius: 9px; color: #6f7b86; background: rgb(255 255 255 / 94%); box-shadow: 0 3px 10px rgb(30 55 80 / 12%); font: inherit; font-size: 10px; cursor: default; pointer-events: none; transition: color .15s ease, background .15s ease, border-color .15s ease, transform .15s ease; }
 .workflow-trash.is-drag-over { border-color: #d45b5b; color: #bf3d3d; background: #fff0f0; transform: scale(1.05); }
 .workflow-editable-step { cursor: pointer; }
 .workflow-editable-step:focus-visible { outline: 2px solid #2878d4; outline-offset: 3px; }
 .workflow-axonkey .workflow-step-selected.sqd-step-task .sqd-step-task-rect { stroke: #2878d4; stroke-width: 2; fill: #edf5ff; }
+.workflow-selection-marquee { position: absolute; z-index: 10; box-sizing: border-box; border: 1px solid #2878d4; background: rgb(40 120 212 / 12%); pointer-events: none; }
 .workflow-step-editor .behavior-dialog { display: flex; flex-direction: column; max-height: calc(100dvh - 48px); }
 .workflow-step-editor .behavior-dialog-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .workflow-step-editor .behavior-dialog-head, .workflow-step-editor .behavior-dialog-actions { flex-shrink: 0; }
