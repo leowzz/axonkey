@@ -22,7 +22,7 @@ export function bindWorkflowTrash(
 
   const setHover = (hover: boolean) => {
     trash.classList.toggle('is-drag-over', hover)
-    trash.setAttribute('aria-label', hover ? '松开以删除积木' : '垃圾桶，拖入积木即可删除')
+    trash.setAttribute('aria-label', hover ? '松开以删除行为' : '垃圾桶，拖入行为即可删除')
   }
 
   const onMouseDown = (event: MouseEvent) => {

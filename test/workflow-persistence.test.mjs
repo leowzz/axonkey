@@ -93,6 +93,13 @@ const render = async (sequences = empty()) => {
     unmount: async () => act(async () => view.unmount()),
   }
 }
+const openContextEditor = async (app, trigger, index = 0) => {
+  const instance = app.current()
+  const branch = branches(instance)[trigger]
+  const provider = instance.configuration.extensions.find(extension => extension.contextMenu).contextMenu.createItemsProvider()
+  await act(async () => provider.getItems(branch[index], branch)[0].callback())
+  return app.view.root.findByType('workflow-dialog')
+}
 
 test('workflow changes autosave once, and the save echo retains the designer and viewport', async () => {
   const app = await render()
@@ -105,10 +112,12 @@ test('workflow changes autosave once, and the save echo retains the designer and
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'tv')
     assert.equal(app.writes[0][1].click[0].ms, 300)
+    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 0)
     await app.update({ sequences: app.writes.at(-1)[1] })
     assert.equal(app.current(), instance)
     assert.equal(instance.destroyed, false)
-    await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave({ id: node.id, type: 'delay', enabled: true, ms: 751 }))
+    const dialog = await openContextEditor(app, 'click')
+    await act(async () => dialog.props.edit.onSave({ id: node.id, type: 'delay', enabled: true, ms: 751 }))
     assert.equal(app.writes.length, 2)
     assert.equal(app.writes.at(-1)[1].click[0].ms, 751)
   } finally { await app.unmount() }
@@ -188,7 +197,8 @@ test('confirmed website targets use the same normalized value in the node and st
     const node = palette('openWebsite')
     branches(instance).click.push(node)
     await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-    await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave({ id: node.id, type: 'openWebsite', enabled: true, url: 'example.com' }))
+    const dialog = await openContextEditor(app, 'click')
+    await act(async () => dialog.props.edit.onSave({ id: node.id, type: 'openWebsite', enabled: true, url: 'example.com' }))
     assert.equal(branches(instance).click[0].properties.url, 'https://example.com/')
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][1].click[0].url, 'https://example.com/')
@@ -210,16 +220,21 @@ for (const [preset, behaviorType, nodePrefix, parameters] of [
       }
       await insert()
       assert.equal(app.writes.length, 0)
-      const draft = app.view.root.findByType('workflow-dialog').props.edit.behavior
+      const firstDialog = await openContextEditor(app, 'doubleClick')
+      const draft = firstDialog.props.edit.behavior
       assert.equal(draft.type, behaviorType)
       assert.equal(draft.direction, 'up')
       if (preset === 'cursorMove') assert.equal(draft.distance, 50)
-      await act(async () => app.view.root.findByType('workflow-dialog').props.onClose())
-      assert.equal(branches(instance).doubleClick.length, 0)
+      await act(async () => firstDialog.props.onClose())
+      assert.equal(branches(instance).doubleClick.length, 1)
       assert.equal(app.writes.length, 0)
+      // The close icon only dismisses the editor; explicit deletion removes
+      // the draft before the next insertion in this test.
+      branches(instance).doubleClick.splice(0, 1)
       await insert()
       const behavior = { id: `new-${preset}`, type: behaviorType, enabled: true, direction, ...parameters }
-      await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave(behavior))
+      const secondDialog = await openContextEditor(app, 'doubleClick')
+      await act(async () => secondDialog.props.edit.onSave(behavior))
       assert.equal(app.writes.length, 1)
       const saved = app.writes[0][1]
       assert.deepEqual(saved.doubleClick, [behavior])
@@ -256,13 +271,16 @@ test('grouped mouse and media actions cancel without writes and save each choice
       }
       await insert()
       assert.equal(app.writes.length, 0)
-      assert.deepEqual(copy(app.view.root.findByType('workflow-dialog').props.edit.behavior), { id: `new-${preset}`, enabled: true, ...options[0][1] })
-      await act(async () => app.view.root.findByType('workflow-dialog').props.onClose())
-      assert.equal(branches(instance).longPress.length, 0)
+      const firstDialog = await openContextEditor(app, 'longPress')
+      assert.deepEqual(copy(firstDialog.props.edit.behavior), { id: `new-${preset}`, enabled: true, ...options[0][1] })
+      await act(async () => firstDialog.props.onClose())
+      assert.equal(branches(instance).longPress.length, 1)
       assert.equal(app.writes.length, 0)
+      branches(instance).longPress.splice(0, 1)
       await insert()
       const behavior = { id: `new-${preset}`, enabled: true, ...value }
-      await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave(behavior))
+      const secondDialog = await openContextEditor(app, 'longPress')
+      await act(async () => secondDialog.props.edit.onSave(behavior))
       assert.equal(app.writes.length, 1)
       assert.deepEqual(app.writes[0][1], { click: [delay(751)], doubleClick: [], longPress: [behavior] })
       assert.equal(branches(instance).longPress[0].type, nodeType)
@@ -299,12 +317,15 @@ test('canceling incomplete actions keeps saved mappings intact; confirming a mac
     }
     await insert('openWebsite')
     assert.equal(app.writes.length, 0)
-    await act(async () => app.view.root.findByType('workflow-dialog').props.onClose())
-    assert.equal(branches(instance).doubleClick.length, 0)
+    const websiteDialog = await openContextEditor(app, 'doubleClick')
+    await act(async () => websiteDialog.props.onClose())
+    assert.equal(branches(instance).doubleClick.length, 1)
     assert.equal(app.writes.length, 0)
+    branches(instance).doubleClick.splice(0, 1)
     await insert('textAndEnter')
     assert.equal(app.writes.length, 0)
-    await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onSave({ id: 'new-textAndEnter', type: 'paste', enabled: true, text: '发送' }))
+    const textDialog = await openContextEditor(app, 'doubleClick')
+    await act(async () => textDialog.props.edit.onSave({ id: 'new-textAndEnter', type: 'paste', enabled: true, text: '发送' }))
     assert.equal(app.writes.length, 1)
     assert.deepEqual(app.writes[0][1].doubleClick.map(item => item.type), ['paste', 'delay', 'key'])
     assert.deepEqual(app.writes[0][1].click, [delay(751)])

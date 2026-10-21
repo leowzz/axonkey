@@ -49,6 +49,7 @@ type WorkflowAction = {
 }
 
 export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxExpandedIndex, onToolboxExpandedChange }: WorkflowAxonkeyProps) {
+  const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const trashRef = useRef<HTMLButtonElement>(null)
   const savedRef = useRef('')
@@ -76,7 +77,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       { preset: 'previousTab', name: '上一标签页', description: `${keyDisplayName('Ctrl', platform)} + Shift + Tab` },
       { preset: 'nextTab', name: '下一标签页', description: `${keyDisplayName('Ctrl', platform)} + Tab` },
       { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
-      { preset: 'deleteAllText', name: '删除全部文本', description: '复制，等待 30 毫秒后剪切' },
+      { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
       { preset: 'arrowUp', name: '方向上' },
       { preset: 'arrowDown', name: '方向下' },
       { preset: 'arrowLeft', name: '方向左' },
@@ -200,8 +201,13 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
             workflowApi = api
             const host = document.createElement('aside')
             host.className = 'sqd-toolbox workflow-toolbox'
-            host.setAttribute('aria-label', '积木工具箱')
-            root.appendChild(host)
+            host.setAttribute('aria-label', '行为工具箱')
+            // Keep the toolbox in the workbench layout so it stays docked to
+            // the canvas instead of floating over the designer surface.
+            const toolboxParent = workflowRef.current && typeof workflowRef.current.appendChild === 'function'
+              ? workflowRef.current
+              : root
+            toolboxParent.appendChild(host)
             setToolbox({ host, api, palettes, iconUrls })
             return { updateLayout() {}, destroy() { host.remove() } }
           },
@@ -249,7 +255,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
           const nodes = insertedWorkflowSteps(branch[index], platform, label)
           branch.splice(index, 1, ...nodes)
           workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-          openEditor(event.stepId)
+          // Dropping a block only inserts it. Users can open the editor from
+          // the block itself when they want to change its parameters.
           return
         }
       }
@@ -296,25 +303,15 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
   }, [sequences])
 
   const closeEditor = () => {
-    if (editingStep && toolbox) {
-      const definition = toolbox.api.editor.getDefinition()
-      let removed = false
-      for (const branch of Object.values(workflowBranches(definition))) {
-        for (let index = branch.length - 1; index >= 0; index--) {
-          if (branch[index].properties.draftGroup === editingStep.stepId) {
-            branch.splice(index, 1)
-            removed = true
-          }
-        }
-      }
-      if (removed) toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-    }
+    // Closing the editor only dismisses it. A behavior is removed through the
+    // explicit delete action, so an accidental click on the close icon cannot
+    // discard the node from the workflow.
     setEditingStep(null)
   }
 
-  return <section className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
+  return <section ref={workflowRef} className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
     <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
-    <button ref={trashRef} type="button" className="workflow-trash" aria-label="垃圾桶，拖入积木即可删除" tabIndex={-1}>
+    <button ref={trashRef} type="button" className="workflow-trash" aria-label="垃圾桶，拖入行为即可删除" tabIndex={-1}>
       <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
       <span>拖入删除</span>
     </button>

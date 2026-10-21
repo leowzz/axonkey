@@ -729,7 +729,7 @@ function AppController() {
       case 'deleteAllText': {
         const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
         replaceWithCommonBehavior([
-          createBehavior({ type: 'shortcut', keys: [modifier, 'C'] }),
+          createBehavior({ type: 'shortcut', keys: [modifier, 'A'] }),
           createBehavior({ type: 'delay', ms: 30 }),
           createBehavior({ type: 'shortcut', keys: [modifier, 'X'] }),
         ])

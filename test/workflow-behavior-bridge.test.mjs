@@ -68,7 +68,7 @@ test('toolbox actions use the same key tokens and macro execution order as the o
     assert.deepEqual(read('nextTab')[0].keys, ['Ctrl', 'Tab'])
     const macro = read('deleteAllText')
     assert.deepEqual(macro.map(({ id, ...behavior }) => behavior), [
-      { type: 'shortcut', enabled: true, keys: [platform === 'macos' ? 'Win' : 'Ctrl', 'C'] },
+      { type: 'shortcut', enabled: true, keys: [platform === 'macos' ? 'Win' : 'Ctrl', 'A'] },
       { type: 'delay', enabled: true, ms: 30 },
       { type: 'shortcut', enabled: true, keys: [platform === 'macos' ? 'Win' : 'Ctrl', 'X'] },
     ])
@@ -81,7 +81,7 @@ test('toolbox actions use the same key tokens and macro execution order as the o
 
 test('incomplete drafts, including text-and-enter macros, never leak into stored actions', () => {
   const sequences = { ...empty(), click: [allBehaviors[0]] }
-  for (const preset of ['paste', 'customKey', 'openApp', 'openWebsite', 'textAndEnter']) {
+  for (const preset of ['paste', 'openApp', 'openWebsite', 'textAndEnter']) {
     const workflow = behaviorsToWorkflow(sequences, label)
     const nodes = insertedWorkflowSteps(palette(preset), 'windows', label)
     workflowBranches(workflow).longPress.push(...nodes)
@@ -96,6 +96,10 @@ test('incomplete drafts, including text-and-enter macros, never leak into stored
       assert.equal(saved.longPress[2].key, 'Enter')
     }
   }
+  const customKey = insertedWorkflowSteps(palette('customKey'), 'windows', label)
+  const customWorkflow = behaviorsToWorkflow(empty(), label)
+  workflowBranches(customWorkflow).click.push(...customKey)
+  assert.deepEqual(workflowToBehaviors(customWorkflow).click, [{ id: 'customKey', enabled: true, type: 'key', key: 'Enter' }])
 })
 
 test('move, duplicate, delete and clear retain order and independent trigger branches', () => {

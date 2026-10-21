@@ -10,7 +10,7 @@ import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup, workflowActi
 type Label = (behavior: Behavior) => string
 const directions = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' } as const
 const presetKeys: Record<string, string> = {
-  escape: 'Esc', enter: 'Enter', space: 'Space', tab: 'Tab', backspace: 'Backspace', delete: 'Delete',
+  escape: 'Esc', enter: 'Enter', customKey: 'Enter', space: 'Space', tab: 'Tab', backspace: 'Backspace', delete: 'Delete',
   rightCtrl: 'RCtrl', rightAlt: 'RAlt', rightCommand: 'RWin', keyHome: 'Home', keyEnd: 'End',
   pageUp: 'PageUp', pageDown: 'PageDown', arrowUp: 'Up', arrowDown: 'Down', arrowLeft: 'Left', arrowRight: 'Right',
   volumeUp: 'VolumeUp', volumeDown: 'VolumeDown', volumeMute: 'VolumeMute', mediaPlayPause: 'MediaPlayPause',
@@ -86,7 +86,7 @@ export function insertedWorkflowSteps(step: Step, platform: Platform, label: Lab
   else if (preset === 'previousTab' || preset === 'nextTab') behaviors = [createBehavior({ type: 'shortcut', keys: preset === 'previousTab' ? ['Ctrl', 'Shift', 'Tab'] : ['Ctrl', 'Tab'], id: step.id })]
   else if (preset === 'deleteAllText') {
     const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
-    behaviors = [createBehavior({ type: 'shortcut', keys: [modifier, 'C'], id: step.id }), createBehavior({ type: 'delay', ms: 30 }), createBehavior({ type: 'shortcut', keys: [modifier, 'X'] })]
+    behaviors = [createBehavior({ type: 'shortcut', keys: [modifier, 'A'], id: step.id }), createBehavior({ type: 'delay', ms: 30 }), createBehavior({ type: 'shortcut', keys: [modifier, 'X'] })]
   } else if (preset === 'textAndEnter') {
     behaviors = [createBehavior({ type: 'paste', text: '', id: step.id }), createBehavior({ type: 'delay', ms: 30 }), createBehavior({ type: 'key', key: 'Enter' })]
   } else {
@@ -95,7 +95,7 @@ export function insertedWorkflowSteps(step: Step, platform: Platform, label: Lab
     behaviors = [behavior]
   }
   const steps = behaviors.map((behavior) => behaviorToWorkflowStep(behavior, label))
-  if (['paste', 'customKey', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
+  if (['paste', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
     for (const node of steps) node.properties.draftGroup = step.id
   }
   return steps
