@@ -23,7 +23,8 @@ import {
   parseMappingImport,
   updateBehaviorList,
 } from '../behaviorModel'
-import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerType } from '../behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import { updateWorkflowInput } from '../components/workflowBehaviorBridge'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
   isRightModifierPreset,
@@ -35,7 +36,6 @@ import {
   formatCapturedKey,
   getStoredSettings,
   getStoredUiState,
-  iconFor,
   initialHitPositions,
   saveStoredUiState,
   settingsStorageKey,
@@ -60,20 +60,20 @@ import type {
   SystemProbe,
 } from '../appTypes'
 import { AboutPage } from '../components/AboutPage'
-import { BatteryDebugControls, BatteryIndicator } from '../components/BatteryIndicator'
+import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
-import { BehaviorEditDialog, BehaviorEditor, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
+import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../deviceModel'
 import type { DeviceId } from '../deviceModel'
-import { MouseInputModel, MouseControlPicker, MouseTriggerSelector, mouseInputs } from '../components/MouseMapping'
-import { DeviceSelector, DeviceStatusCard } from '../components/DeviceRail'
+import { mouseInputs } from '../components/MouseMapping'
 import type { DeviceStatus } from '../components/DeviceRail'
 import { MappingOverview } from '../components/MappingOverview'
-import { MappingKeyGrid, MappingTriggerSelector } from '../components/MappingComponents'
+import { MappingPage } from '../components/MappingPage'
+import { MappingFlowPage } from '../components/MappingFlowPage'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
 import { logError, logInfo } from '../runtimeLogging'
@@ -176,6 +176,11 @@ function AppController() {
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
+  const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
+  const navigateToPage = (page: AppPage) => {
+    if (page === 'mapping') setMappingStyle('flow')
+    setActivePage(page)
+  }
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(initialUiState.overviewSelection)
@@ -300,6 +305,11 @@ function AppController() {
     setBehaviors((current) => updateBehaviorList(current, selectedBehavior.buttonId, selectedBehavior.trigger, update))
     setAutoSaveState('saving')
   }, [selectedBehavior])
+
+  const updateWorkflow = useCallback((inputId: InputId, sequences: TriggerBehaviors) => {
+    setBehaviors((current) => updateWorkflowInput(current, inputId, sequences))
+    setAutoSaveState('saving')
+  }, [])
 
   useEffect(() => {
     // Discard legacy coordinates so shipped artwork positions always take effect.
@@ -719,7 +729,7 @@ function AppController() {
       case 'deleteAllText': {
         const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
         replaceWithCommonBehavior([
-          createBehavior({ type: 'shortcut', keys: [modifier, 'C'] }),
+          createBehavior({ type: 'shortcut', keys: [modifier, 'A'] }),
           createBehavior({ type: 'delay', ms: 30 }),
           createBehavior({ type: 'shortcut', keys: [modifier, 'X'] }),
         ])
@@ -1453,6 +1463,8 @@ function AppController() {
     </>
   }
 
+  const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
+
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
@@ -1461,7 +1473,7 @@ function AppController() {
           hasUpdate={releaseUpdate.hasUpdate}
           enabled={enabled}
           onBrandClick={handleBrandClick}
-          onNavigate={setActivePage}
+          onNavigate={navigateToPage}
           onToggleEnabled={toggleEnabled}
         />
       <main ref={mainContentRef} key={activePage} className="main-content">
@@ -1484,89 +1496,58 @@ function AppController() {
           enabled={enabled}
           saveState={autoSaveState}
           pressedId={pressedId}
-          onEdit={(buttonId, trigger) => { setActivePage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
-        /> : activePage === 'mapping' ? <div className="mapping-page">
-          <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
-            <aside className="mapping-device-rail panel-surface">
-              <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
-                selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.top.up', 'click', false)
-                mappingMainRef.current?.scrollTo({ top: 0 })
-              }} />
-              <DeviceStatusCard status={deviceStatus} />
-              {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
-              {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
-              <div className="remote-stage">
-                <div className="remote-art" ref={remoteArtRef}>
-                  <img src="/rc003-remote-keymap.png" alt="小米 RC003 遥控器" />
-                  {editableButtons.map((button) => (
-                    <button
-                      key={button.id}
-                      ref={(node) => { if (node) markerRefs.current[button.id] = node }}
-                      type="button"
-                      aria-label={button.label}
-                      className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
-                      style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
-                      onClick={() => selectBehaviorTarget(button.id, 'click')}
-                      onPointerDown={(event) => handleHotspotPointerDown(button, event)}
-                      onPointerMove={(event) => handleHotspotPointerMove(button, event)}
-                      onPointerUp={finishHotspotDrag}
-                      onPointerCancel={finishHotspotDrag}
-                    >{button.icon === 'center' ? <span className="center-dot" /> : iconFor(button.icon, 13)}</button>
-                  ))}
-                </div>
-              </div>
-              </>}
-            </aside>
-
-            <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
-              <section className="key-picker" aria-labelledby="key-picker-title">
-                <div className="key-picker-head">
-                  <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}</h2>
-                  <div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Download size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Upload size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>
-                </div>
-                {isMouse && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
-                {!isMouse && showRemoteKeyGrid && <MappingKeyGrid
-                  platform={platform}
-                  buttons={editableButtons}
-                  behaviors={behaviors}
-                  activeId={activeId}
-                  pressedId={pressedId}
-                  rowRefs={rowRefs}
-                  onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
-                />}
-              </section>
-              {isMouse && <MouseTriggerSelector rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} trigger={selectedBehavior.trigger} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
-              {!isMouse && <MappingTriggerSelector
-                platform={platform}
-                button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
-                behaviors={behaviors[selectedBehavior.buttonId]}
-                trigger={selectedBehavior.trigger}
-                onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
-              />}
-              <BehaviorEditor
-                editorRef={behaviorEditorRef}
-                attention={behaviorEditorAttention}
-                platform={platform}
-                button={selectedButton}
-                trigger={selectedBehavior.trigger}
-                behaviors={behaviors[selectedBehavior.buttonId][selectedBehavior.trigger]}
-                onApplyCommonBehavior={applyCommonBehavior}
-                onAddAdvancedBehavior={(type) => beginBehaviorDraft(type, 'append')}
-                onRemoveBehavior={removeBehavior}
-                onMoveBehavior={moveSelectedBehavior}
-                onEditBehavior={setEditingBehaviorId}
-                onReturnToMappings={returnToSelectedMapping}
-                onCopySequence={() => void copySelectedSequence()}
-                onPasteSequence={() => setSequencePasteOpen(true)}
-                onClearSequence={() => {
-                  clearBehaviorEditingState()
-                  replaceWithCommonBehavior([])
-                  showBehaviorToast('当前序列已清除')
-                }}
-              />
-            </section>
-          </div>
-        </div> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          onEdit={(buttonId, trigger) => { navigateToPage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
+        /> : activePage === 'mapping' ? <MappingPageComponent
+          debugMode={debugMode}
+          selectedDeviceId={selectedDeviceId}
+          selectBehaviorTarget={selectBehaviorTarget}
+          activeId={activeId}
+          mappingMainRef={mappingMainRef}
+          deviceStatus={deviceStatus}
+          isMouse={isMouse}
+          selectedBehavior={selectedBehavior}
+          adjustPreviewBattery={adjustPreviewBattery}
+          remoteArtRef={remoteArtRef}
+          editableButtons={editableButtons}
+          markerRefs={markerRefs}
+          pressedId={pressedId}
+          behaviors={behaviors}
+          onWorkflowChange={updateWorkflow}
+          draggingId={draggingId}
+          hitPositions={hitPositions}
+          handleHotspotPointerDown={handleHotspotPointerDown}
+          handleHotspotPointerMove={handleHotspotPointerMove}
+          finishHotspotDrag={finishHotspotDrag}
+          platform={platform}
+          autoSaveState={autoSaveState}
+          nativeRuntime={nativeRuntime}
+          enabled={enabled}
+          showRemoteKeyGrid={showRemoteKeyGrid}
+          rowRefs={rowRefs}
+          onRetryApply={() => setApplyRetry((value) => value + 1)}
+          toolbar={<div className="key-picker-actions"><label className="mapping-style-control"><span>映射样式</span><strong>{mappingStyle === 'flow' ? '新样式' : '老样式'}</strong><button type="button" role="switch" className={`switch mapping-style-switch ${mappingStyle === 'flow' ? 'on' : ''}`} aria-checked={mappingStyle === 'flow'} aria-label="使用新样式" onClick={() => setMappingStyle((style) => style === 'flow' ? 'legacy' : 'flow')}><span /></button></label><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入映射规则 JSON 文件" onClick={openMappingImport}><Download size={13} /> 导入映射</button><button type="button" className="reset-button mapping-transfer-button" title="导出映射规则 JSON 文件" onClick={exportMappings}><Upload size={13} /> 导出映射</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>}
+          behaviorEditorProps={{
+            editorRef: behaviorEditorRef,
+            attention: behaviorEditorAttention,
+            platform,
+            button: selectedButton,
+            trigger: selectedBehavior.trigger,
+            behaviors: behaviors[selectedBehavior.buttonId][selectedBehavior.trigger],
+            onApplyCommonBehavior: applyCommonBehavior,
+            onAddAdvancedBehavior: (type) => beginBehaviorDraft(type, 'append'),
+            onRemoveBehavior: removeBehavior,
+            onMoveBehavior: moveSelectedBehavior,
+            onEditBehavior: setEditingBehaviorId,
+            onReturnToMappings: returnToSelectedMapping,
+            onCopySequence: () => void copySelectedSequence(),
+            onPasteSequence: () => setSequencePasteOpen(true),
+            onClearSequence: () => {
+              clearBehaviorEditingState()
+              replaceWithCommonBehavior([])
+              showBehaviorToast('当前序列已清除')
+            },
+          }}
+        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
           onOpenSignalMonitor={() => void openSignalMonitor()}
           signalMonitorOpening={signalMonitorOpening}
           signalMonitorError={signalMonitorError}
@@ -1629,7 +1610,7 @@ function AppController() {
           onRefresh={() => void refreshHome()}
           onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}
-          onOpenMapping={() => setActivePage('mapping')}
+          onOpenMapping={() => navigateToPage('mapping')}
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>
