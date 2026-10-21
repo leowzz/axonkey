@@ -1,6 +1,6 @@
 [package]
 name = "axonkey"
-version = "1.0.10"
+version = "1.0.11"
 description = "Axonkey RC003 key mapping editor"
 authors = ["Axonkey"]
 edition = "2021"
