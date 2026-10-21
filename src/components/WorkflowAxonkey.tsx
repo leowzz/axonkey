@@ -130,7 +130,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     })
     const palettes: WorkflowToolboxPalette[] = [
       { name: '基础', groups: actionGroups.map(toGroup) },
-      { name: '常用', groups: [toGroup({ name: '常用', actions: commonActions })] },
+      { name: '常用行为', groups: [toGroup({ name: '常用行为', actions: commonActions })] },
     ]
     const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
     const definition = behaviorsToWorkflow(sequences, label)
