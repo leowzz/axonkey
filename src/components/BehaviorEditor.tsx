@@ -181,7 +181,7 @@ export function BehaviorEditor({ editorRef, attention, platform, button, trigger
             <BehaviorActionButton icon={<RotateCcw size={17} />} label={(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '清除触发方式'} detail={(trigger === 'click' || button.inheritDefault) ? (button.originalDescription ?? '使用遥控器原始输入') : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
             <BehaviorActionButton icon={<Ban size={17} />} label="禁用此触发方式" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
             <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
-            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 提交" onClick={() => onApplyCommonBehavior('enter')} />
+            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 回车" onClick={() => onApplyCommonBehavior('enter')} />
             <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />
             {rightModifierChoices().map(({ preset, key }) => <BehaviorActionButton key={preset} icon={<kbd>{rightModifierGlyph(key, platform)}</kbd>} label={keyDisplayName(key, platform)} onClick={() => onApplyCommonBehavior(preset)} />)}
             <BehaviorActionButton icon={<ArrowLeft size={17} />} label="上一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`} onClick={() => onApplyCommonBehavior('previousTab')} />

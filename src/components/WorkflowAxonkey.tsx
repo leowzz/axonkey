@@ -71,7 +71,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
 
     const commonActions: WorkflowAction[] = [
       { preset: 'escape', name: '返回 / 关闭', description: 'Esc' },
-      { preset: 'enter', name: '确认 / 提交', description: 'Enter' },
+      { preset: 'enter', name: '确认 / 回车', description: 'Enter' },
       { preset: 'space', name: '空格', description: 'Space' },
       ...rightModifierChoices().map(({ preset, key }) => ({ preset, name: keyDisplayName(key, platform) })),
       { preset: 'previousTab', name: '上一标签页', description: `${keyDisplayName('Ctrl', platform)} + Shift + Tab` },
