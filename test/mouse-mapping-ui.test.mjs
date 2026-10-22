@@ -11,6 +11,7 @@ import { createBehavior, createDefaultBehaviorMap } from '../src/behaviorModel.t
 
 const require = createRequire(import.meta.url)
 const cache = new Map()
+const testWindow = {}
 function load(file) {
   file = resolve(file)
   if (cache.has(file)) return cache.get(file).exports
@@ -30,7 +31,7 @@ function load(file) {
     }
     return require(name)
   }
-  vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console }, { filename:file })
+  vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console, window: testWindow }, { filename:file })
   return module.exports
 }
 const { DeviceSelector, DeviceStatusCard } = load('src/components/DeviceRail.tsx')
@@ -120,4 +121,22 @@ test('mouse status presents permission, switch, and settings action in order', (
   assert.equal(toggles, 1)
   assert.equal(opens, 1)
   act(() => view.unmount())
+})
+
+test('mouse key list defaults off for new and older settings and restores an explicit choice', () => {
+  const { getStoredSettings } = load('src/appConfig.tsx')
+  try {
+    for (const stored of [null, '{}', '{invalid', JSON.stringify({ showMouseKeyGrid: 'true' })]) {
+      testWindow.localStorage = { getItem: () => stored }
+      assert.equal(getStoredSettings().showMouseKeyGrid, false)
+    }
+    for (const enabled of [true, false]) {
+      testWindow.localStorage = { getItem: () => JSON.stringify({ showMouseKeyGrid: enabled, showRemoteKeyGrid: !enabled }) }
+      const settings = getStoredSettings()
+      assert.equal(settings.showMouseKeyGrid, enabled)
+      assert.equal(settings.showRemoteKeyGrid, !enabled)
+    }
+  } finally {
+    delete testWindow.localStorage
+  }
 })

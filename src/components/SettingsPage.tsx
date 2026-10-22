@@ -14,6 +14,8 @@ type SettingsPageProps = {
   nativeRuntime: boolean
   showRemoteKeyGrid: boolean
   onShowRemoteKeyGridChange: (value: boolean) => void
+  showMouseKeyGrid: boolean
+  onShowMouseKeyGridChange: (value: boolean) => void
   mouseIgnoreScrollAcceleration: boolean
   onMouseIgnoreScrollAccelerationChange: (value: boolean) => void
   mouseScrollSensitivity: number
@@ -53,7 +55,7 @@ type SettingsPageProps = {
   onOpenDriver: () => void
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, showMouseKeyGrid, onShowMouseKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -188,6 +190,13 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     {supportsMouse && <section id="settings-panel-mouse" aria-labelledby="settings-nav-mouse" hidden={currentSection !== 'mouse'}>
       <div className="settings-mouse-heading"><h3 className="settings-section-title">鼠标映射</h3><span>更改自动保存</span></div>
       <div className="settings-form-fields">
+        <div className="settings-form-row">
+          <span className="settings-form-label">按键列表：</span>
+          <div className="settings-form-control">
+            <label className="settings-checkbox"><input type="checkbox" checked={showMouseKeyGrid} onChange={(event) => onShowMouseKeyGridChange(event.target.checked)} />显示鼠标按键列表</label>
+            <SettingsHelp id="mouse-key-grid-help" label="显示鼠标按键列表">默认关闭。开启后在映射页顶部显示鼠标按键和滚轮列表；关闭后仍可通过左侧鼠标图选择按键。</SettingsHelp>
+          </div>
+        </div>
         <div className="settings-form-row">
           <span className="settings-form-label">滚动加速：</span>
           <div className="settings-form-control">

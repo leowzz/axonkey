@@ -199,6 +199,7 @@ function AppController() {
     setActivePage(page)
   }
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
+  const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(initialUiState.overviewSelection)
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
@@ -452,7 +453,7 @@ function AppController() {
   }, [nativeRuntime, platform])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ showRemoteKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
@@ -471,7 +472,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [showRemoteKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
+  }, [showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
 
   useEffect(() => {
     const persistedProfiles = profiles.map((profile) => profile.id === activeProfileId
@@ -1638,6 +1639,7 @@ function AppController() {
           nativeRuntime={nativeRuntime}
           enabled={enabled}
           showRemoteKeyGrid={showRemoteKeyGrid}
+          showMouseKeyGrid={showMouseKeyGrid}
           rowRefs={rowRefs}
           onRetryApply={() => setApplyRetry((value) => value + 1)}
           toolbar={<div className="key-picker-actions"><ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} /><span className="toolbar-divider" /><label className="mapping-style-control"><span>启用新编辑器</span><button type="button" role="switch" className={`switch mapping-style-switch ${mappingStyle === 'flow' ? 'on' : ''}`} aria-checked={mappingStyle === 'flow'} aria-label="启用新编辑器" onClick={() => setMappingStyle((style) => style === 'flow' ? 'legacy' : 'flow')}><span /></button></label><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入配置文件 JSON" onClick={openMappingImport}><Download size={13} /> 导入配置</button><button type="button" className="reset-button mapping-transfer-button" title="导出当前配置文件 JSON" onClick={exportMappings}><Upload size={13} /> 导出配置</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>}
@@ -1673,7 +1675,9 @@ function AppController() {
           section={settingsSection}
           onSectionChange={setSettingsSection}
           showRemoteKeyGrid={showRemoteKeyGrid}
+          showMouseKeyGrid={showMouseKeyGrid}
           onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
+          onShowMouseKeyGridChange={setShowMouseKeyGrid}
           mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
           onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
           mouseScrollSensitivity={mouseScrollSensitivity}

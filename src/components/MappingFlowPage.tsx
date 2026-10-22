@@ -35,6 +35,7 @@ export function MappingFlowPage({
   onRetryApply,
   toolbar,
   showRemoteKeyGrid,
+  showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
 }: MappingPageProps) {
@@ -89,7 +90,7 @@ export function MappingFlowPage({
             </div>
             {toolbar}
           </div>
-          {isMouse && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
+          {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
         <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} toolboxExpandedIndex={toolboxExpandedIndex} onToolboxExpandedChange={setToolboxExpandedIndex} />
       </section>

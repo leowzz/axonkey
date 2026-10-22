@@ -139,6 +139,7 @@ export type HitPosition = { x: number; y: number }
 export type StoredSettings = {
   mouseEdgeWidth: number
   showRemoteKeyGrid: boolean
+  showMouseKeyGrid: boolean
   behaviors: BehaviorMap
   enabled: boolean
   mouseEnabled: boolean

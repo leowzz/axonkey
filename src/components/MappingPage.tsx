@@ -38,6 +38,7 @@ export type MappingPageProps = {
   onRetryApply: () => void
   toolbar: ReactNode
   showRemoteKeyGrid: boolean
+  showMouseKeyGrid: boolean
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
 }
@@ -69,6 +70,7 @@ export function MappingPage({
   onRetryApply,
   toolbar,
   showRemoteKeyGrid,
+  showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
 }: MappingPageProps) {
@@ -122,7 +124,7 @@ export function MappingPage({
             </div>
             {toolbar}
           </div>
-          {isMouse && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
+          {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
         {isMouse && <MouseTriggerSelector rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} trigger={selectedBehavior.trigger} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         {!isMouse && <MappingTriggerSelector

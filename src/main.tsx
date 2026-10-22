@@ -12,6 +12,17 @@ const preventF5Refresh = (event: KeyboardEvent) => {
 }
 window.addEventListener('keydown', preventF5Refresh, true)
 
+window.addEventListener('contextmenu', (event) => {
+  const target = event.target
+  if (!(target instanceof Element)) return
+  const field = target.closest('input, textarea, [contenteditable], a[href]')
+  if (field instanceof HTMLTextAreaElement
+    || (field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(field.type))
+    || (field instanceof HTMLElement && field.isContentEditable)
+    || field instanceof HTMLAnchorElement) return
+  event.preventDefault()
+})
+
 installRuntimeLogging()
 logInfo('Frontend runtime initialized')
 
