@@ -263,29 +263,67 @@ test('common behaviors offer the right-side modifiers with platform names', () =
   }
 })
 
-function renderDialog(platform, initial, draft = true) {
+function renderDialog(platform, initial, draft = true, extraProps = {}) {
   let behavior = initial
   let view
+  let captureStarts = 0
+  let captureFocuses = 0
   const props = {
     platform, button, trigger: 'click', capturing: false, draft,
-    onStartCapture() {}, onCancelCapture() {}, onCaptureKey() {}, onClose() {}, onSave() {},
+    onStartCapture() { captureStarts += 1 }, onCancelCapture() {}, onCaptureKey() {}, onClose() {}, onSave() {},
     onUpdate(update) {
       behavior = update(behavior)
       view.update(React.createElement(BehaviorEditDialog, { ...props, behavior }))
     },
+    ...extraProps,
   }
   act(() => { view = Renderer.create(React.createElement(BehaviorEditDialog, { ...props, behavior }), {
-    createNodeMock: element => element.type === 'section' ? { getBoundingClientRect: () => ({ left: 100, right: 700, top: 100, bottom: 500 }) } : null,
+    createNodeMock: element => element.type === 'section' ? {
+      getBoundingClientRect: () => ({ left: 100, right: 700, top: 100, bottom: 500 }),
+      querySelector: () => ({ focus() { captureFocuses += 1 } }),
+    } : null,
   }) })
   return {
     view,
     behavior: () => JSON.parse(JSON.stringify(behavior)),
+    captureStarts: () => captureStarts,
+    captureFocuses: () => captureFocuses,
     select: value => act(() => view.root.findByProps({ 'aria-label': '选择主按键或单独修饰键' }).props.onChange({ target: { value } })),
     side: (modifier, value) => act(() => view.root.findByProps({ 'aria-label': `${keyDisplayName(modifier, platform)} 左右侧` }).props.onChange({ target: { value } })),
     toggle: label => act(() => view.root.findAllByType('button').find(node => text(node) === label).props.onClick()),
     save: () => view.root.findAllByType('button').find(node => text(node) === '保存'),
   }
 }
+
+test('opening a key or shortcut editor starts capture once without replacing the existing binding', () => {
+  for (const draft of [true, false]) {
+    for (const initial of [
+      { id: 'key', enabled: true, type: 'key', key: 'A' },
+      { id: 'shortcut', enabled: true, type: 'shortcut', keys: ['Ctrl', 'A'] },
+    ]) {
+      const dialog = renderDialog('windows', initial, draft)
+      try {
+        assert.equal(dialog.captureStarts(), 1)
+        assert.equal(dialog.captureFocuses(), 1)
+        assert.deepEqual(dialog.behavior(), initial)
+        dialog.select('B')
+        assert.equal(dialog.captureStarts(), 1, 'manual selection must not restart capture')
+      } finally { act(() => dialog.view.unmount()) }
+    }
+  }
+})
+
+test('non-key editors and grouped media choices do not start keyboard capture', () => {
+  for (const [initial, extraProps] of [
+    [{ id: 'delay', enabled: true, type: 'delay', ms: 300 }, {}],
+    [{ id: 'paste', enabled: true, type: 'paste', text: 'text' }, {}],
+    [{ id: 'volume', enabled: true, type: 'key', key: 'VolumeUp' }, { actionChoices: { label: '音量动作', options: [] } }],
+  ]) {
+    const dialog = renderDialog('windows', initial, true, extraProps)
+    try { assert.equal(dialog.captureStarts(), 0); assert.equal(dialog.captureFocuses(), 0) }
+    finally { act(() => dialog.view.unmount()) }
+  }
+})
 
 test('launch dialogs validate drafts and retain existing targets during incomplete edits', () => {
   for (const [type, field, target, invalid] of [

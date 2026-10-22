@@ -70,7 +70,6 @@ export function WorkflowStepDialog({ edit, platform, button, onClose }: {
           behavior: { id: behavior.id, enabled: behavior.enabled, ...option.behavior },
         })),
       } : undefined}
-      saveHint="保存到当前流程节点"
       capturing={capturing}
       onStartCapture={() => setCapturing(true)}
       onCancelCapture={() => setCapturing(false)}

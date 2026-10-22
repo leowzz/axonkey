@@ -276,7 +276,6 @@ type BehaviorEditDialogProps = {
   capturing: boolean
   draft?: boolean
   title?: string
-  saveHint?: string
   delayStep?: number
   actionChoices?: { label: string; options: { label: string; selected: boolean; behavior: Behavior }[] }
   onStartCapture: () => void
@@ -307,7 +306,7 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   </div>
 }
 
-export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, saveHint, delayStep = 10, actionChoices, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, delayStep = 10, actionChoices, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(savedBehavior.type === 'openApp' ? savedBehavior.path : savedBehavior.type === 'openWebsite' ? savedBehavior.url : '')
@@ -315,6 +314,13 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
   const [picking, setPicking] = useState(false)
   const [applicationDragOver, setApplicationDragOver] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (actionChoices || (savedBehavior.type !== 'key' && savedBehavior.type !== 'shortcut')) return
+    onStartCapture()
+    dialogRef.current?.querySelector<HTMLButtonElement>('.record-key-button')?.focus()
+    // Start once per opened behavior; manual edits and capture cancellation
+    // keep the same id and must not restart recording.
+  }, [savedBehavior.id])
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const launchBehavior = savedBehavior.type === 'openApp' || savedBehavior.type === 'openWebsite'
   const normalizedTarget = savedBehavior.type === 'openApp' ? normalizeApplicationPath(launchTarget) : normalizeWebsiteUrl(launchTarget)
@@ -419,7 +425,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
   return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <section
       ref={dialogRef}
-      className={`behavior-dialog${applicationDragOver ? ' application-drag-over' : ''}`}
+      className={`behavior-dialog behavior-edit-form${applicationDragOver ? ' application-drag-over' : ''}`}
       role="dialog"
       aria-modal="true"
       aria-labelledby="behavior-dialog-title"
@@ -442,16 +448,16 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
             >{option.label}</button>)}
           </div>
         </div> : behavior.type === 'key' || behavior.type === 'shortcut' ? <>
-          <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
-          <div className="behavior-record-row">
+          <div className="behavior-key-capture-row">
+            <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
             <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : () => { setEmptyShortcut(false); onStartCapture() }}>
               <Keyboard size={17} />
-              <span><strong>{capturing ? '等待按键输入…' : '开始录入'}</strong><small>{capturing ? '现在按下目标按键或组合键' : '仅在点击后监听下一次按键'}</small></span>
+              <strong>{capturing ? '按下目标按键…' : '开始录入'}</strong>
             </button>
           </div>
           <div className="behavior-manual-section">
-            <div className="behavior-field-title"><strong>手动选择</strong><span>{!shortcutBase ? '仅发送选中的修饰键' : standaloneBase ? '当前仅发送这个按键' : '录入不到时直接从列表设置'}</span></div>
             <div className={`shortcut-manual-builder ${standaloneBase ? 'standalone' : ''}`}>
+              <div className="behavior-field-title"><strong>修饰键</strong><SettingsHelp id="behavior-shortcut-modifiers-help" label="修饰键">修饰键与主按键组合发送，可同时选择左右侧。主按键留空时，仅发送选中的修饰键；主按键为单独修饰键时，其他修饰键不参与。</SettingsHelp></div>
               <div className="shortcut-modifiers">
                 {shortcutModifiers.map((modifier) => {
                   const selected = selectedShortcutModifiers.some((key) => shortcutModifierFamily(key) === modifier)
@@ -474,7 +480,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
                   </div>
                 })}
               </div>
-              <span className="shortcut-plus">+</span>
+              <span className="behavior-base-key-label">主按键</span>
               <ManualKeySelect
                 platform={platform}
                 value={shortcutBase}
@@ -484,7 +490,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
             </div>
           </div>
         </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
-          <span id="behavior-wheel-direction-label">滚动方向</span>
+          <div className="behavior-launch-label"><span id="behavior-wheel-direction-label">滚动方向</span><SettingsHelp id="behavior-wheel-help" label="滚动方向">{button.contextLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</SettingsHelp></div>
           <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-wheel-direction-label">
             {([['up', '向上'], ['down', '向下'], ['left', '向左'], ['right', '向右']] as const).map(([direction, label]) => <button
               key={direction}
@@ -494,9 +500,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
               onClick={() => onUpdate((current) => current.type === 'wheel' ? { ...current, direction } : current)}
             >{label}</button>)}
           </div>
-          <p>{button.contextLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</p>
         </div> : behavior.type === 'cursorMove' ? <>
-          <div className="behavior-current-value"><span>当前动作</span><strong>{behaviorSummary(behavior, platform)}</strong></div>
           <div className="settings-form-fields behavior-dialog-form">
             <div className="settings-form-row">
               <span className="settings-form-label" id="behavior-cursor-direction-label">移动方向：</span>
@@ -548,10 +552,10 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
           value={behavior.text}
           placeholder="输入要粘贴的文本"
           onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
-        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><Clock3 size={16} /><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step={delayStep} value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
+        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step={delayStep} value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
       </div>
       <footer className="behavior-dialog-actions">
-        <span><Check size={13} /> {launchBehavior && !draft && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : saveHint ?? (draft ? '保存后立即生效' : '更改会自动保存')}</span>
+        {(launchBehavior && !draft && !normalizedTarget || emptyShortcut || !draft) && <span><Check size={13} /> {launchBehavior && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : '更改会自动保存'}</span>}
         {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!canSave} onClick={onSave}>保存</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
       </footer>
     </section>
@@ -630,7 +634,7 @@ type TextInputPresetDialogProps = {
 
 export function TextInputPresetDialog({ button, trigger, value, onChange, onClose, onSave }: TextInputPresetDialogProps) {
   return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="behavior-dialog text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="text-input-dialog-title">
+    <section className="behavior-dialog behavior-edit-form text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="text-input-dialog-title">
       <header className="behavior-dialog-head">
         <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="text-input-dialog-title">输入文本并回车</h2></div>
         <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}><X size={17} /></button>
