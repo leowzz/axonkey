@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBehavior, createEmptyBehaviorMap, createMappingExport, parseMappingImport, parseStoredBehaviors } from '../src/behaviorModel.ts'
-import { behaviorToWorkflowStep, behaviorsToWorkflow, insertedWorkflowSteps, isWorkflowLaneDisabled, setWorkflowLaneDisabled, updateWorkflowInput, workflowBranches, workflowToBehaviors } from '../src/components/workflowBehaviorBridge.ts'
+import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, updateWorkflowInput, workflowBranches, workflowToBehaviors } from '../src/components/workflowBehaviorBridge.ts'
 import { workflowBehaviorProperties } from '../src/components/workflowStepEditing.ts'
 
 const label = behavior => behavior.type
@@ -17,7 +17,7 @@ const allBehaviors = [
   { type: 'disabled' },
 ].map((options, index) => createBehavior({ ...options, id: `old-${index}`, enabled: index % 2 === 0 }))
 
-test('lane switches match the active legacy disabled action and change only their own trigger', () => {
+test('clearing removes only the target lane, including legacy disabled actions, without mutating shared settings', () => {
   const off = createBehavior({ type: 'disabled', id: 'off' })
   const inactive = createBehavior({ type: 'disabled', enabled: false, id: 'inactive' })
   const sequences = { click: [allBehaviors[0]], doubleClick: [off], longPress: [inactive] }
@@ -26,19 +26,17 @@ test('lane switches match the active legacy disabled action and change only thei
   assert.equal(isWorkflowLaneDisabled(branches.click), false)
   assert.equal(isWorkflowLaneDisabled(branches.doubleClick), true)
   assert.equal(isWorkflowLaneDisabled(branches.longPress), false)
-  assert.equal(setWorkflowLaneDisabled(workflow, 'doubleClick', true, label), false)
-  assert.equal(setWorkflowLaneDisabled(workflow, 'click', true, label), true)
+  assert.equal(clearWorkflowLane(workflow, 'click'), true)
   let saved = workflowToBehaviors(workflow)
-  assert.equal(saved.click.length, 1)
-  assert.equal(saved.click[0].type, 'disabled')
-  assert.equal(saved.click[0].enabled, true)
+  assert.deepEqual(saved.click, [])
   assert.deepEqual(saved.doubleClick, [off])
   assert.deepEqual(saved.longPress, [inactive])
-  assert.equal(setWorkflowLaneDisabled(workflow, 'doubleClick', false, label), true)
+  assert.equal(clearWorkflowLane(workflow, 'click'), false, 'an empty lane is a no-op')
+  assert.equal(clearWorkflowLane(workflow, 'doubleClick'), true)
   saved = workflowToBehaviors(workflow)
   assert.deepEqual(saved.doubleClick, [])
-  assert.equal(isWorkflowLaneDisabled(workflowBranches(behaviorsToWorkflow(saved, label)).click), true)
-  assert.deepEqual(sequences.click, [allBehaviors[0]], 'switching must not mutate shared settings')
+  assert.equal(isWorkflowLaneDisabled(workflowBranches(behaviorsToWorkflow(saved, label)).doubleClick), false)
+  assert.deepEqual(sequences.click, [allBehaviors[0]], 'clearing must not mutate shared settings')
 })
 
 test('all legacy behavior types round trip across all triggers without changing IDs, flags or parameters', () => {

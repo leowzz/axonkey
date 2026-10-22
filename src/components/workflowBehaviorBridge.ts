@@ -2,7 +2,7 @@ import type { BranchedStep, Definition, Step } from 'sequential-workflow-designe
 import type { Behavior, BehaviorMap, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
 import { createBehavior, defaultCursorDistance, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
-import { createTriggerDefinition, isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
+import { createTriggerDefinition } from './WorkflowTriggerRoot.ts'
 export { isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
 import { workflowStepBehavior } from './workflowStepEditing.ts'
 import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup, workflowActionChoiceStep } from './workflowActionChoices.ts'
@@ -36,14 +36,10 @@ export function workflowBranches(definition: Definition) {
   return (definition.sequence[0] as BranchedStep).branches
 }
 
-export function setWorkflowLaneDisabled(definition: Definition, trigger: TriggerType, disabled: boolean, label: Label) {
-  const branches = workflowBranches(definition)
-  const branch = branches[trigger]
-  if (isWorkflowLaneDisabled(branch) === disabled) return false
-  // Match the old page's "禁用此触发" preset. Shared undo restores the previous sequence.
-  branches[trigger] = disabled
-    ? [behaviorToWorkflowStep(createBehavior({ type: 'disabled' }), label)]
-    : branch.filter((step) => step.type !== 'disabled' || step.properties.enabled === false)
+export function clearWorkflowLane(definition: Definition, trigger: TriggerType) {
+  const branch = workflowBranches(definition)[trigger]
+  if (branch.length === 0) return false
+  branch.splice(0, branch.length)
   return true
 }
 

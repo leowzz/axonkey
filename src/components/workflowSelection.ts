@@ -13,6 +13,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
   let marquee: {
     workspace: HTMLElement; overlay: HTMLElement; original: string[]; base: string[]
     startX: number; startY: number; pointerX: number; pointerY: number; moved: boolean
+    laneScroll: Map<string, number>
   } | null = null
   let frame = 0
   const branches = () => Object.values(workflowBranches(designer.getDefinition()))
@@ -73,8 +74,13 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
         const id = element.getAttribute('data-step-id')!
         if (!enabled.has(id) || !find(id)) continue
         const rect = element.getBoundingClientRect()
+        const lane = element.closest?.('[data-trigger-scroll]')
+        const laneBounds = lane?.querySelector('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
+        const scrollDelta = lane ? Number(lane.getAttribute('data-scroll-top')) - (m.laneScroll.get(lane.getAttribute('data-trigger-scroll')!) ?? 0) : 0
+        const selectionStart = laneBounds ? Math.max(bounds.top + originY, laneBounds.top) - scrollDelta : bounds.top + originY
+        const selectionEnd = laneBounds ? Math.max(laneBounds.top, Math.min(laneBounds.bottom, bounds.top + y)) : bounds.top + y
         if (rect.right > bounds.left + Math.min(m.startX, x) && rect.left < bounds.left + Math.max(m.startX, x)
-          && rect.bottom > bounds.top + Math.min(originY, y) && rect.top < bounds.top + Math.max(originY, y)) selected.add(id)
+          && rect.bottom > Math.min(selectionStart, selectionEnd) && rect.top < Math.max(selectionStart, selectionEnd)) selected.add(id)
       }
     }
     render()
@@ -83,6 +89,20 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     if (!marquee) return
     const workspace = getWorkspace?.()
     const rect = marquee.workspace.getBoundingClientRect()
+    const lane = [...canvas.querySelectorAll<SVGSVGElement>('[data-trigger-scroll]')].find((element) => {
+      const bounds = element.querySelector?.('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
+      return bounds && marquee!.pointerX >= bounds.left && marquee!.pointerX <= bounds.right
+    })
+    if (lane && marquee.moved) {
+      const bounds = lane.querySelector('.workflow-trigger-viewport-bounds')!.getBoundingClientRect()
+      const delta = marquee.pointerY < bounds.top + 28 ? -10 : marquee.pointerY > bounds.bottom - 28 ? 10 : 0
+      if (delta) {
+        lane.dispatchEvent(new CustomEvent('workflow-lane-scroll', { detail: delta }))
+        updateMarquee()
+      }
+      frame = requestAnimationFrame(autoScroll)
+      return
+    }
     if (workspace && marquee.moved && marquee.pointerX >= rect.left && marquee.pointerX <= rect.right) {
       const edge = 28
       const delta = marquee.pointerY < rect.top + edge ? -10 : marquee.pointerY > rect.bottom - edge ? 10 : 0
@@ -123,7 +143,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     const target = event.target as Element | null
     const workspace = target?.closest<HTMLElement>('.sqd-workspace')
     if (!target || !workspace) return
-    if (target.closest('button, input, textarea, select, [contenteditable="true"]')) return
+    if (target.closest('button, input, textarea, select, [role="button"]:not([data-step-id]), [role="scrollbar"], [contenteditable="true"]')) return
     canvas.focus({ preventScroll: true })
     const id = target.closest('[data-step-id]')?.getAttribute('data-step-id')
     pressedStepId = id && find(id) ? id : null
@@ -139,6 +159,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
       workspace.appendChild(overlay)
       marquee = {
         workspace, overlay, original: [...selected], base: event.ctrlKey || event.metaKey ? [...selected] : [],
+        laneScroll: new Map([...canvas.querySelectorAll('[data-trigger-scroll]')].map((lane) => [lane.getAttribute('data-trigger-scroll')!, Number(lane.getAttribute('data-scroll-top'))])),
         startX: event.clientX - rect.left,
         startY: event.clientY - rect.top - (getWorkspace?.()?.getViewport().position.y ?? 0),
         pointerX: event.clientX, pointerY: event.clientY, moved: false,

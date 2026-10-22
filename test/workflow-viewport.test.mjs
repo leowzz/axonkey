@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { Vector } from 'sequential-workflow-designer'
 import { fixedWorkflowViewport, scrollWorkflowViewport } from '../src/components/WorkflowViewport.ts'
+import { clampLaneScroll, workflowLaneLayout } from '../src/components/workflowLaneLayout.ts'
 
 test('workflow keeps a fixed scale through zoom commands, pinch limits and viewport resets', () => {
   let canvasSize = new Vector(800, 600)
@@ -11,7 +12,7 @@ test('workflow keeps a fixed scale through zoom commands, pinch limits and viewp
     getRootComponentSize: () => rootSize,
     getViewport: () => ({ position: new Vector(30, 40), scale: 1 }),
   })
-  assert.deepEqual(controller.getDefault(), { position: new Vector(200, 150), scale: 1 })
+  assert.deepEqual(controller.getDefault(), { position: new Vector(0, 0), scale: 1 })
   assert.equal(controller.getZoomed(true), null)
   assert.equal(controller.getZoomed(false), null)
   for (const scale of [0.1, 0.8, 1, 1.5, 10]) {
@@ -23,7 +24,22 @@ test('workflow keeps a fixed scale through zoom commands, pinch limits and viewp
   canvasSize = new Vector(500, 400)
   assert.deepEqual(controller.getDefault(), { position: new Vector(0, 0), scale: 1 })
   const focused = controller.getFocusedOnComponent(new Vector(100, 200), new Vector(80, 40))
-  assert.deepEqual(focused, { position: new Vector(140, 20), scale: 1 })
+  assert.deepEqual(focused, { position: new Vector(0, 0), scale: 1 })
+})
+
+test('all three lanes fit their canvas independently of sequence lengths, including after a resize', () => {
+  for (const width of [360, 480, 876, 1400]) {
+    const { padding, gap, laneWidth } = workflowLaneLayout(width, 500)
+    assert.ok(laneWidth > 0)
+    assert.ok(Math.abs(padding * 2 + gap * 2 + laneWidth * 3 - width) < .001)
+  }
+})
+
+test('each lane clamps its own scroll and a shorter edited sequence cannot retain an offscreen position', () => {
+  assert.equal(clampLaneScroll(300, 1000, 400), 300)
+  assert.equal(clampLaneScroll(900, 1000, 400), 600)
+  assert.equal(clampLaneScroll(-100, 1000, 400), 0)
+  assert.equal(clampLaneScroll(600, 300, 400), 0)
 })
 
 test('wheel scrolls vertically within the overflowing flow, with fixed horizontal position and scale', () => {

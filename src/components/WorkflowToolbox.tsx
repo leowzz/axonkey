@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Search } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 
@@ -29,14 +29,17 @@ export function WorkflowToolbox({ api, palettes, iconUrls, expandedIndex, onExpa
 
   return <>
     <div className="workflow-toolbox-search sqd-toolbox-filter">
-      <input
-        className="sqd-toolbox-filter-input"
-        type="search"
-        aria-label="搜索行为"
-        placeholder="搜索行为"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-      />
+      <label className="workflow-toolbox-search-field">
+        <Search size={16} strokeWidth={1.8} aria-hidden="true" />
+        <input
+          className="sqd-toolbox-filter-input"
+          type="search"
+          aria-label="搜索行为"
+          placeholder="搜索行为"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </label>
     </div>
     <div className="workflow-toolbox-scroll">
       {filteredPalettes.map(({ palette, index, groups }) => {

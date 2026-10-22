@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
-import { DefinitionChangeType, Designer } from 'sequential-workflow-designer'
+import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
 import { behaviorSummary, keyDisplayName, rightModifierChoices } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
 import { defaultCursorDistance, normalizeBehavior } from '../behaviorModel'
 import type { InputId, TriggerBehaviors } from '../behaviorModel'
 import { createTriggerRootExtension, isTriggerRoot } from './WorkflowTriggerRoot'
-import { behaviorToWorkflowStep, behaviorsToWorkflow, insertedWorkflowSteps, isWorkflowLaneDisabled, setWorkflowLaneDisabled, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
+import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
@@ -21,6 +21,7 @@ import { fixedWorkflowViewport } from './WorkflowViewport'
 import { bindWorkflowSelection } from './workflowSelection'
 import { createWorkflowDraggedSteps } from './WorkflowDraggedSteps'
 import { bindWorkflowTrash } from './workflowTrash'
+import { workflowLaneLayout } from './workflowLaneLayout'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -168,6 +169,18 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     }
     const designer = Designer.create(canvasRef.current, definition, {
       theme: 'light',
+      textWidthMeasurer: (text) => {
+        const full = text.textContent ?? ''
+        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400).laneWidth - 62)
+        if (text.getComputedTextLength() > maxWidth) {
+          let end = full.length
+          do { text.textContent = `${full.slice(0, --end)}…` } while (end > 0 && text.getComputedTextLength() > maxWidth)
+          const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
+          title.textContent = full
+          text.parentElement?.appendChild(title)
+        }
+        return text.getComputedTextLength()
+      },
       // Undo/redo uses the application's shared behavior history and persistence.
       steps: {
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
@@ -177,7 +190,10 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
-      extensions: [fixedWorkflowViewport, createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt)), {
+      extensions: [fixedWorkflowViewport, StepsDesignerExtension.create({ task: { view: {
+        paddingLeft: 8, paddingRight: 8, paddingY: 10, textMarginLeft: 8,
+        minTextWidth: 20, iconSize: 18, radius: 5, inputSize: 14, outputSize: 10,
+      } } }), createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt)), {
         draggedComponent: createWorkflowDraggedSteps((step) => selectionBinding?.getDragSteps(step.id) ?? [step]),
         contextMenu: {
           createItemsProvider: () => ({
@@ -186,15 +202,19 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
               : [],
           }),
         },
-        rootComponent: createTriggerRootExtension((trigger, disabled) => {
+        rootComponent: createTriggerRootExtension((trigger) => {
           const api = workflowApi
           if (!active || !api || api.editor.isReadonly()) return
-          if (!setWorkflowLaneDisabled(api.editor.getDefinition(), trigger, disabled, label)) return
-          const restoreFocus = document.activeElement?.getAttribute('data-trigger-toggle') === trigger
+          if (!clearWorkflowLane(api.editor.getDefinition(), trigger)) return
+          const restoreFocus = document.activeElement?.getAttribute('data-trigger-clear') === trigger
           if (restoreFocus) void designer.onRootComponentUpdated.once().then(() => {
-            if (active) canvasRef.current?.querySelector<HTMLButtonElement>(`[data-trigger-toggle="${trigger}"]`)?.focus()
+            if (active) canvasRef.current?.querySelector<SVGElement>(`[data-trigger-clear="${trigger}"]`)?.focus()
           })
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        }, () => {
+          // Invalidate the designer's cached drag targets after a lane scroll.
+          const workspace = workflowApi?.workspace
+          if (workspace) workspace.setViewport(workspace.getViewport())
         }),
         uiComponents: [{
           create: (root, api) => {
@@ -269,6 +289,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     const resizeObserver = new ResizeObserver(() => {
       if (!ready || designer.isDragging()) return
       designer.updateLayout()
+      workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
       designer.resetViewport()
     })
     resizeObserver.observe(canvasRef.current)

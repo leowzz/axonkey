@@ -1,4 +1,4 @@
-import { CenteredViewportCalculator, Vector } from 'sequential-workflow-designer'
+import { Vector } from 'sequential-workflow-designer'
 import type { DesignerExtension, WorkspaceApi } from 'sequential-workflow-designer'
 
 type WorkflowViewportApi = Pick<WorkspaceApi, 'getCanvasSize' | 'getRootComponentSize' | 'getViewport' | 'setViewport'>
@@ -27,16 +27,15 @@ export const fixedWorkflowViewport: DesignerExtension = {
     }),
   },
   viewportController: {
-    create: (api) => ({
+    create: () => ({
       smoothDeltaYLimit: 16,
       getDefault() {
-        const offset = api.getCanvasSize().subtract(api.getRootComponentSize()).divideByScalar(2)
-        return { position: new Vector(Math.max(0, offset.x), Math.max(0, offset.y)), scale: 1 }
+        return { position: new Vector(0, 0), scale: 1 }
       },
       getZoomed: () => null,
       getNextScale: () => ({ current: 1, next: 1 }),
       limitScale: () => 1,
-      getFocusedOnComponent: (position, size) => CenteredViewportCalculator.getFocusedOnComponent(api.getCanvasSize(), api.getViewport(), position, size),
+      getFocusedOnComponent: () => ({ position: new Vector(0, 0), scale: 1 }),
     }),
   },
 }

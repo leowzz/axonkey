@@ -61,7 +61,7 @@ function load(file) {
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
     if (name === './WorkflowTriggerRoot') {
       const original = load('src/components/WorkflowTriggerRoot.ts')
-      return { ...original, createTriggerRootExtension: onToggle => ({ ...original.createTriggerRootExtension(onToggle), toggle: onToggle }) }
+      return { ...original, createTriggerRootExtension: onClear => ({ ...original.createTriggerRootExtension(onClear), clear: onClear }) }
     }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
@@ -81,7 +81,7 @@ const empty = () => ({ click: [], doubleClick: [], longPress: [] })
 const delay = ms => ({ id: 'wait', type: 'delay', enabled: true, ms })
 const palette = type => ({ id: `new-${type}`, type, componentType: 'task', name: type, properties: { preset: type } })
 const branches = instance => instance.definition.sequence[0].branches
-const toggleLane = (instance, trigger, disabled) => instance.configuration.extensions.find(extension => extension.rootComponent).rootComponent.toggle(trigger, disabled)
+const clearLane = (instance, trigger) => instance.configuration.extensions.find(extension => extension.rootComponent).rootComponent.clear(trigger)
 const render = async (sequences = empty()) => {
   let view
   const writes = []
@@ -157,27 +157,26 @@ test('the first custom context-menu action reopens an editable block and disable
   } finally { await app.unmount() }
 })
 
-test('lane switches autosave legacy disabled actions and shared undo restores the original sequence', async () => {
-  const original = { click: [delay(751)], doubleClick: [], longPress: [] }
+test('clear autosaves once, keeps other lanes editable and shared undo restores the complete sequence', async () => {
+  const original = { click: [delay(751), { ...delay(900), id: 'wait-2' }], doubleClick: [{ ...delay(300), id: 'double' }], longPress: [] }
   const app = await render(original)
   try {
     const instance = app.current()
-    await act(async () => toggleLane(instance, 'click', true))
+    await act(async () => clearLane(instance, 'click'))
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'tv')
-    assert.equal(app.writes[0][1].click[0].type, 'disabled')
-    assert.deepEqual(app.writes[0][1].doubleClick, [])
+    assert.deepEqual(app.writes[0][1].click, [])
+    assert.deepEqual(app.writes[0][1].doubleClick, original.doubleClick)
     await app.update({ sequences: app.writes.at(-1)[1] })
     assert.equal(app.current(), instance)
     const target = branches(instance).click
-    assert.equal(instance.configuration.steps.canInsertStep(palette('paste'), target), false)
-    assert.equal(instance.configuration.steps.isDeletable(target[0], target), false)
-    await act(async () => toggleLane(instance, 'click', false))
-    assert.deepEqual(app.writes.at(-1)[1].click, [])
+    assert.equal(instance.configuration.steps.canInsertStep(palette('paste'), target), true)
+    await act(async () => clearLane(instance, 'click'))
+    assert.equal(app.writes.length, 1, 'repeated clear must not save or add an undo entry')
     // Feed the previous shared-history snapshot back into the controlled component.
     await app.update({ sequences: original })
-    assert.equal(branches(app.current()).click[0].properties.ms, 751)
-    assert.equal(app.writes.length, 2)
+    assert.deepEqual(branches(app.current()).click.map(step => step.properties.ms), [751, 900])
+    assert.equal(app.writes.length, 1)
   } finally { await app.unmount() }
 })
 
@@ -185,7 +184,7 @@ test('legacy disabled actions loaded on any lane can be cleared without touching
   const off = { id: 'off', type: 'disabled', enabled: true }
   const app = await render({ click: [delay(300)], doubleClick: [off], longPress: [off] })
   try {
-    await act(async () => toggleLane(app.current(), 'longPress', false))
+    await act(async () => clearLane(app.current(), 'longPress'))
     assert.deepEqual(app.writes[0][1], { click: [delay(300)], doubleClick: [off], longPress: [] })
   } finally { await app.unmount() }
 })

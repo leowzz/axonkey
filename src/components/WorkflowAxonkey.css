@@ -24,8 +24,13 @@
 .workflow-toolbox-content[hidden] { display: none; }
 .workflow-toolbox-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 4px 8px; }
 .workflow-toolbox-empty { margin: 12px 0; color: #687581; font-size: 12px; }
-.workflow-axonkey .sqd-toolbox-filter-input { box-sizing: border-box; width: 100%; border-color: #d6dee7; border-radius: 5px; color: var(--map-ink); background: rgb(255 255 255 / 72%); font-size: 12px; }
-.workflow-axonkey .sqd-toolbox-filter-input:focus { border-color: #2878d4; }
+.workflow-toolbox-search-field { display: flex; height: 36px; align-items: center; gap: 8px; padding: 0 10px; border: 1px solid #d6dee7; border-radius: 8px; color: #7b8997; background: rgb(255 255 255 / 72%); transition: border-color .15s ease, box-shadow .15s ease; cursor: text; }
+.workflow-toolbox-search-field:hover { border-color: #bac8d6; }
+.workflow-toolbox-search-field:focus-within { border-color: #2878d4; color: #2878d4; box-shadow: 0 0 0 3px rgb(40 120 212 / 10%); }
+.workflow-toolbox-search-field > svg { flex-shrink: 0; }
+.workflow-axonkey .sqd-toolbox-filter-input { appearance: none; box-sizing: border-box; flex: 1; min-width: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: 0; outline: none; box-shadow: none; color: var(--map-ink); background: transparent; font: inherit; font-size: 13px; }
+.workflow-axonkey .sqd-toolbox-filter-input::placeholder { color: #8793a0; opacity: 1; }
+.workflow-axonkey .sqd-toolbox-filter-input::-webkit-search-decoration { appearance: none; }
 .workflow-axonkey .sqd-toolbox-group-title { margin: 8px 0; padding: 5px 2px; border-radius: 0; color: #687581; background: transparent; font-size: 12px; font-weight: 600; text-align: left; }
 .workflow-axonkey .sqd-toolbox-item { margin-bottom: 3px; border: 0; border-radius: 5px; color: var(--map-ink); background: transparent; box-shadow: none; }
 .workflow-axonkey .sqd-toolbox-item:hover { border-color: transparent; background: rgb(40 120 212 / 8%); }
@@ -48,13 +53,15 @@
 .workflow-trigger-longPress { --trigger-color: #c77a21; --trigger-background: #fff5e8; --trigger-dash: 2 5; }
 .workflow-trigger-disabled { --trigger-color: #84909b; --trigger-background: #eef0f2; }
 .workflow-trigger-disabled [data-step-id] { opacity: .5; }
-.workflow-trigger-toggle { display: flex; width: 94px; height: 30px; align-items: center; justify-content: center; gap: 8px; padding: 0; border: 0; border-radius: 5px; color: #586572; background: transparent; font: inherit; font-size: 12px; cursor: pointer; }
-.workflow-trigger-toggle:hover { background: rgb(255 255 255 / 65%); }
-.workflow-trigger-toggle:focus-visible { outline: 2px solid #2878d4; outline-offset: -1px; }
-.workflow-trigger-toggle-track { position: relative; width: 30px; height: 18px; flex-shrink: 0; border-radius: 9px; background: #bbc4cd; }
-.workflow-trigger-toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / 15%); }
-.workflow-trigger-toggle[aria-checked="true"] .workflow-trigger-toggle-track { background: #2878d4; }
-.workflow-trigger-toggle[aria-checked="true"] .workflow-trigger-toggle-track::after { left: 14px; }
+.workflow-trigger-content { overflow: hidden; }
+.workflow-trigger-scrollbar { fill: #84909b; fill-opacity: .5; cursor: ns-resize; outline: none; }
+.workflow-trigger-scrollbar:hover, .workflow-trigger-scrollbar:focus-visible { fill: #2878d4; fill-opacity: .9; }
+.workflow-trigger-clear { cursor: pointer; outline: none; }
+.workflow-trigger-clear rect { fill: rgb(255 255 255 / 65%); stroke: var(--trigger-color); stroke-opacity: .25; }
+.workflow-trigger-clear text { fill: var(--trigger-color); font-size: 12px; text-anchor: middle; pointer-events: none; user-select: none; }
+.workflow-trigger-clear:not([aria-disabled="true"]):hover rect { fill: #fff; stroke-opacity: .6; }
+.workflow-trigger-clear:focus-visible rect { stroke: #2878d4; stroke-width: 2; stroke-opacity: 1; }
+.workflow-trigger-clear[aria-disabled="true"] { opacity: .45; cursor: default; }
 .workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
 .workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
 .workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }
