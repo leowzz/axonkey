@@ -77,8 +77,6 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       ...rightModifierChoices().map(({ preset, key }) => ({ preset, name: keyDisplayName(key, platform) })),
       { preset: 'previousTab', name: '上一标签页', description: `${keyDisplayName('Ctrl', platform)} + Shift + Tab` },
       { preset: 'nextTab', name: '下一标签页', description: `${keyDisplayName('Ctrl', platform)} + Tab` },
-      { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
-      { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
       { preset: 'arrowUp', name: '方向上' },
       { preset: 'arrowDown', name: '方向下' },
       { preset: 'arrowLeft', name: '方向左' },
@@ -90,6 +88,10 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       { preset: 'keyEnd', name: '跳到结尾', description: 'End' },
       { preset: 'pageUp', name: '向上翻页', description: 'Page Up' },
       { preset: 'pageDown', name: '向下翻页', description: 'Page Down' },
+    ]
+    const compositeActions: WorkflowAction[] = [
+      { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
+      { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
     ]
     const controlActions: WorkflowAction[] = [
       { preset: 'delay', name: '等待' },
@@ -132,6 +134,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     const palettes: WorkflowToolboxPalette[] = [
       { name: '基础', groups: actionGroups.map(toGroup) },
       { name: '常用行为', groups: [toGroup({ name: '常用行为', actions: commonActions })] },
+      { name: '组合行为', groups: [toGroup({ name: '组合行为', actions: compositeActions })] },
     ]
     const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
     const definition = behaviorsToWorkflow(sequences, label)

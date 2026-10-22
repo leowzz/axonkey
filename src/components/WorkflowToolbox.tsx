@@ -56,7 +56,7 @@ export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onC
           {group.steps.map((step) => <div
             key={step.type}
             className={`sqd-toolbox-item sqd-type-${step.type}`}
-            title={String(step.properties.description || step.name)}
+            title={step.name}
             onMouseDown={(event) => {
               if (event.button !== 0) return
               event.preventDefault()
@@ -72,7 +72,7 @@ export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onC
             }}
           >
             <span className="sqd-toolbox-item-icon"><img className="sqd-toolbox-item-icon-image" src={iconUrls[step.type]} alt="" draggable={false} /></span>
-            <span className="workflow-toolbox-item-copy"><span className="sqd-toolbox-item-text">{step.name}</span>{Boolean(step.properties.description) && <small>{String(step.properties.description)}</small>}</span>
+            <span className="sqd-toolbox-item-text">{step.name}</span>
           </div>)}
         </section>)}
         {visibleGroups.length === 0 && <p className="workflow-toolbox-empty">没有匹配的行为</p>}

@@ -23,13 +23,11 @@
 .workflow-toolbox-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 8px 8px; }
 .workflow-toolbox-empty { margin: 12px 0; color: #687581; font-size: 13px; }
 .workflow-axonkey .sqd-toolbox-group-title { margin: 0 0 8px; padding: 7px 0; color: #778895; background: transparent; font-size: 12px; font-weight: 500; text-align: left; }
-.workflow-axonkey .sqd-toolbox-item { display: flex; align-items: center; gap: 9px; min-height: 50px; margin-bottom: 6px; padding: 10px 8px; border: 1px solid #e2e8ed; border-radius: 6px; color: var(--map-ink); background: rgb(255 255 255 / 62%); box-shadow: none; }
+.workflow-axonkey .sqd-toolbox-item { display: flex; align-items: center; gap: 9px; min-height: 38px; margin-bottom: 6px; padding: 8px; border: 1px solid #e2e8ed; border-radius: 6px; color: var(--map-ink); background: rgb(255 255 255 / 62%); box-shadow: none; }
 .workflow-axonkey .sqd-toolbox-item:hover { border-color: #aac7e5; background: rgb(40 120 212 / 5%); }
 .workflow-axonkey .sqd-toolbox-item-icon { position: static; flex: 0 0 18px; width: 18px; height: 18px; margin: 0; }
 .workflow-axonkey .sqd-toolbox-item-icon-image { width: 18px; height: 18px; }
-.workflow-toolbox-item-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.workflow-axonkey .sqd-toolbox-item-text { min-width: 0; padding: 0; color: #40576b; font-size: 13px; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
-.workflow-toolbox-item-copy small { color: #80909d; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.workflow-axonkey .sqd-toolbox-item-text { flex: 1; min-width: 0; overflow: hidden; padding: 0; color: #40576b; font-size: 13px; white-space: nowrap; text-overflow: ellipsis; line-height: 1.5; }
 .workflow-axonkey .sqd-workspace { min-width: 0; }
 .workflow-axonkey .sqd-workspace-canvas { cursor: crosshair; }
 .workflow-trash { position: absolute; z-index: 20; bottom: 28px; left: 28px; display: inline-flex; width: 76px; height: 54px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px 6px; border: 1px solid #d7dee5; border-radius: 9px; color: #6f7b86; background: rgb(255 255 255 / 94%); box-shadow: 0 3px 10px rgb(30 55 80 / 12%); font: inherit; font-size: 10px; cursor: default; pointer-events: none; transition: color .15s ease, background .15s ease, border-color .15s ease, transform .15s ease; }
