@@ -5,12 +5,9 @@ import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import {
   Check,
   Copy,
-  Download,
   Info,
-  MoreHorizontal,
   RotateCcw,
   Target,
-  Upload,
   X,
 } from 'lucide-react'
 import { RedoCircle, UndoCircle } from 'reicon-react'
@@ -81,6 +78,7 @@ import { mouseInputs } from '../components/MouseMapping'
 import type { DeviceStatus } from '../components/DeviceRail'
 import { MappingOverview } from '../components/MappingOverview'
 import { ProfileManager } from '../components/ProfileManager'
+import { MappingOptions } from '../components/MappingOptions'
 import { ProfileImportDialog } from '../components/ProfileImportDialog'
 import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
@@ -1644,15 +1642,8 @@ function AppController() {
             <div className="mapping-context-actions">
               <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>
               {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
-              <details className="mapping-options" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={(event) => { if (event.key === 'Escape') event.currentTarget.open = false }}>
-                <summary aria-label="更多映射操作" title="更多映射操作"><MoreHorizontal size={19} /></summary>
-                <div className="mapping-options-menu">
-                  <button type="button" onClick={openMappingImport}><Download size={15} /> 导入配置</button>
-                  <button type="button" onClick={exportMappings}><Upload size={15} /> 导出配置</button>
-                  <button type="button" onClick={resetMappings}><RotateCcw size={15} /> 恢复默认映射</button>
-                  <label><input type="checkbox" checked={mappingStyle === 'flow'} onChange={(event) => setMappingStyle(event.target.checked ? 'flow' : 'legacy')} /> 启用新编辑器</label>
-                </div>
-              </details>
+              <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
+                flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
               <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
             </div>
           </>}
