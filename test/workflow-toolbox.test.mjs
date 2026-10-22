@@ -76,3 +76,35 @@ test('filtered palette items pass their original definition and pointer position
     assert.equal(drags[1][0].y, 40)
   } finally { act(() => view.unmount()) }
 })
+
+test('saved items remain independently draggable and deleting one never starts a drag', () => {
+  const saved = ['first', 'second'].map(id => ({ ...step('savedSequence', id), properties: { savedSequenceId: id, sequence: 'axonkey/1\nwait 30ms' } }))
+  const removed = []
+  const drags = []
+  let view
+  let category = 'all'
+  const renderToolbox = () => React.createElement(WorkflowToolbox, {
+    palettes: [...palettes, { name: '已保存', groups: [{ name: '已保存', steps: saved }] }],
+    iconUrls: {}, selectedCategory: category, onCategoryChange() {},
+    onRemoveSavedSequence: id => removed.push(id), api: { toolbox: { tryDrag: (...args) => drags.push(args) } },
+  })
+  act(() => { view = Renderer.create(renderToolbox()) })
+  try {
+    const search = view.root.findByType('input')
+    act(() => search.props.onChange({ target: { value: 'not-present' } }))
+    assert.equal(items(view).length, 0)
+    category = '已保存/已保存'
+    act(() => view.update(renderToolbox()))
+    assert.equal(search.props.value, '', 'saving while searching reveals the saved category')
+    assert.equal(items(view).length, 2)
+    let stopped = 0
+    const remove = view.root.findAllByType('button').find(node => node.props['aria-label'] === '删除已保存的first')
+    act(() => remove.props.onMouseDown({ stopPropagation() { stopped++ } }))
+    act(() => remove.props.onClick({ stopPropagation() { stopped++ } }))
+    assert.equal(stopped, 2)
+    assert.deepEqual(removed, ['first'])
+    assert.equal(drags.length, 0)
+    act(() => items(view)[1].props.onMouseDown({ button: 0, clientX: 10, clientY: 20, preventDefault() {}, stopPropagation() {} }))
+    assert.equal(drags[0][1], saved[1])
+  } finally { act(() => view.unmount()) }
+})

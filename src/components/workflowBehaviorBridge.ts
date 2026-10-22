@@ -1,6 +1,6 @@
 import type { BranchedStep, Definition, Step } from 'sequential-workflow-designer'
 import type { Behavior, BehaviorMap, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
-import { createBehavior, defaultCursorDistance, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import { createBehavior, defaultCursorDistance, normalizeBehavior, parseSequenceImport, triggerTypes } from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
 import { createTriggerDefinition } from './WorkflowTriggerRoot.ts'
 export { isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
@@ -68,6 +68,10 @@ export function workflowToBehaviors(definition: Definition): TriggerBehaviors | 
 export function insertedWorkflowSteps(step: Step, platform: Platform, label: Label): Step[] {
   // Duplicates already contain canonical behavior fields and keep their parameters.
   if (step.properties.behaviorType) return [step]
+  if (step.type === 'savedSequence') {
+    const behaviors = parseSequenceImport(step.properties.sequence)
+    return behaviors?.map((behavior, index) => behaviorToWorkflowStep({ ...behavior, id: index === 0 ? step.id : behavior.id }, label)) ?? []
+  }
   const preset = step.type
   const choices = workflowActionChoiceStep(preset)
   if (choices?.preset === preset) return [{ ...step, properties: {

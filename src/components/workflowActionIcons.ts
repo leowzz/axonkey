@@ -30,6 +30,7 @@ const glyphShapes: Record<string, string> = {
 
 const actionGlyphs: Record<string, string> = {
   "original": "RotateCcw",
+  "savedSequence": "FolderOpen",
   "disabled": "Ban",
   "previousTab": "ArrowLeft",
   "nextTab": "ArrowRight",

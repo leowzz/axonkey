@@ -3,10 +3,15 @@ import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
-import { behaviorSummary, keyDisplayName, rightModifierChoices } from '../appConfig'
+import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
-import { defaultCursorDistance, normalizeBehavior } from '../behaviorModel'
-import type { InputId, TriggerBehaviors } from '../behaviorModel'
+import { defaultCursorDistance, normalizeBehavior, serializeSequence } from '../behaviorModel'
+import type { Behavior, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import { writeClipboardText } from '../clipboard'
+import { createSavedSequence, parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
+import type { SavedSequence } from '../savedSequences'
+import { SequencePasteDialog } from './BehaviorEditor'
+import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
 import { createTriggerRootExtension, isTriggerRoot } from './WorkflowTriggerRoot'
 import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
@@ -59,6 +64,19 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
   const [reload, setReload] = useState(0)
+  const [library, setLibrary] = useState<{ items: SavedSequence[]; error: string }>(() => {
+    try { return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' } }
+    catch { return { items: [], error: '无法读取已保存的序列，请重新打开页面重试。' } }
+  })
+  const [sequenceDialog, setSequenceDialog] = useState<
+    { type: 'save'; trigger: TriggerType; behaviors: Behavior[] } | { type: 'paste'; trigger: TriggerType } | null
+  >(null)
+  const [laneStatus, setLaneStatus] = useState('')
+  useEffect(() => {
+    if (!laneStatus) return
+    const timer = window.setTimeout(() => setLaneStatus(''), 3500)
+    return () => window.clearTimeout(timer)
+  }, [laneStatus])
   const [editingStep, setEditingStep] = useState<WorkflowStepEdit | null>(null)
   const [toolbox, setToolbox] = useState<{
     host: HTMLElement
@@ -218,6 +236,21 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
           // Invalidate the designer's cached drag targets after a lane scroll.
           const workspace = workflowApi?.workspace
           if (workspace) workspace.setViewport(workspace.getViewport())
+        }, (trigger, action) => {
+          const api = workflowApi
+          if (!active || !api || api.editor.isReadonly()) return
+          if (action === 'paste') { setSequenceDialog({ type: 'paste', trigger }); return }
+          const current = api.editor.getDefinition()
+          if (workflowBranches(current)[trigger].some((step) => step.properties.draftGroup)) {
+            setLaneStatus('请先完成当前泳道中的行为配置')
+            return
+          }
+          const sequence = workflowToBehaviors(current)?.[trigger]
+          if (!sequence?.length) return
+          if (action === 'save') setSequenceDialog({ type: 'save', trigger, behaviors: sequence })
+          else void writeClipboardText(serializeSequence(sequence)).then(() => {
+            if (active) setLaneStatus(`${triggerLabels[trigger]}序列已复制`)
+          }).catch(() => { if (active) setLaneStatus('复制失败，请重试') })
         }),
         uiComponents: [{
           create: (root, api) => {
@@ -314,6 +347,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         if (next && workflowSequenceSignature(next) !== savedRef.current) onChangeRef.current(button.id, next)
       }
       setEditingStep(null)
+      setSequenceDialog(null)
       setToolbox(null)
       resizeObserver.disconnect()
       selectionBinding?.()
@@ -328,6 +362,21 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     if (workflowSequenceSignature(sequences) !== savedRef.current) setReload((value) => value + 1)
   }, [sequences])
 
+  const storeLibrary = (items: SavedSequence[]): string | null => {
+    if (library.error) return library.error
+    try {
+      window.localStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
+      setLibrary({ items, error: '' })
+      return null
+    } catch { return '保存失败，请重试。' }
+  }
+  const savedPalette: WorkflowToolboxPalette = {
+    name: '已保存', groups: [{ name: '已保存', steps: library.items.map((item) => ({
+      componentType: 'task', type: 'savedSequence', name: item.name,
+      properties: { savedSequenceId: item.id, sequence: item.sequence },
+    })) }],
+  }
+
   const closeEditor = () => {
     // Closing the editor only dismisses it. A behavior is removed through the
     // explicit delete action, so an accidental click on the close icon cannot
@@ -341,7 +390,33 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
       <span>拖入删除</span>
     </button>
-    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} selectedCategory={toolboxCategory} onCategoryChange={onToolboxCategoryChange} />, toolbox.host)}
+    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={[...toolbox.palettes, savedPalette]} savedError={library.error} onRemoveSavedSequence={(id) => { const error = storeLibrary(library.items.filter((item) => item.id !== id)); if (error) setLaneStatus(error) }} iconUrls={toolbox.iconUrls} selectedCategory={toolboxCategory} onCategoryChange={onToolboxCategoryChange} />, toolbox.host)}
+    {laneStatus && <div className="workflow-lane-status" role="status">{laneStatus}</div>}
+    {sequenceDialog?.type === 'save' && createPortal(<WorkflowSequenceSaveDialog
+      initialName={`${button.label} · ${triggerLabels[sequenceDialog.trigger]}`}
+      onClose={() => setSequenceDialog(null)}
+      onSave={(name) => {
+        const saved = createSavedSequence(name, sequenceDialog.behaviors)
+        const error = storeLibrary([...library.items, saved])
+        if (error) return error
+        setSequenceDialog(null)
+        onToolboxCategoryChange('已保存/已保存')
+        setLaneStatus('已保存到行为库')
+        return null
+      }}
+    />, document.body)}
+    {sequenceDialog?.type === 'paste' && toolbox && createPortal(<SequencePasteDialog
+      platform={platform} button={button} trigger={sequenceDialog.trigger}
+      onClose={() => setSequenceDialog(null)}
+      onApply={(sequence) => {
+        if (toolbox.api.editor.isReadonly()) return
+        const branch = workflowBranches(toolbox.api.editor.getDefinition())[sequenceDialog.trigger]
+        branch.splice(0, branch.length, ...sequence.map((behavior) => behaviorToWorkflowStep(behavior, (item) => behaviorSummary(item, platform))))
+        toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        setSequenceDialog(null)
+        setLaneStatus('当前泳道序列已替换，可撤销')
+      }}
+    />, document.body)}
     {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
   </section>
 }

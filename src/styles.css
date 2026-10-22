@@ -1179,14 +1179,15 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-status-card .device-status-switch.on { background: var(--blue); }
 .device-status-card .device-status-switch.on span { transform: translateX(14px); }
 .device-status-card .device-status-switch:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; }
-.mouse-model-section { width: 100%; padding-top: 20px; text-align: center; }
+.mouse-model-section { container-type: inline-size; width: 100%; padding-top: 20px; text-align: center; }
 .mouse-model-title { margin-bottom: 16px; color: #72859a; font-size: 11px; }
 
 /* The picker is a flat control map rather than a literal mouse drawing. */
 .mouse-input-model {
+  --mouse-unit: min(1px, calc(100cqw / 188));
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
-  gap: 8px;
+  grid-template-columns: calc(52 * var(--mouse-unit)) minmax(0, 1fr);
+  gap: calc(8 * var(--mouse-unit));
   width: min(188px, 100%);
   margin: 0 auto 14px;
   background: transparent;
@@ -1196,13 +1197,13 @@ body.permission-helper-mode #root { min-height: 100vh; }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: calc(3 * var(--mouse-unit));
   padding: 0;
   border: 1px solid #c9daeb;
   background: #f6faff;
   color: #607e9c;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11 * var(--mouse-unit));
   cursor: pointer;
   transition: border-color .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease;
 }
@@ -1215,52 +1216,52 @@ body.permission-helper-mode #root { min-height: 100vh; }
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: calc(8 * var(--mouse-unit));
 }
 .mouse-click-row .mouse-part {
-  height: 48px;
+  height: calc(48 * var(--mouse-unit));
   border: 1px solid #c9daeb;
-  border-radius: 8px;
+  border-radius: calc(8 * var(--mouse-unit));
   background: #f6faff;
   color: #486b8f;
-  font-size: 15px;
+  font-size: calc(15 * var(--mouse-unit));
   font-weight: 600;
   box-shadow: 0 3px 10px #315a8410;
 }
-.mouse-click-row .mouse-part svg { width: 20px; height: 20px; stroke-width: 1.9; }
+.mouse-click-row .mouse-part svg { width: calc(20 * var(--mouse-unit)); height: calc(20 * var(--mouse-unit)); stroke-width: 1.9; }
 
 /* Four wheel directions are the same square; up/down stack icon over label. */
 .mouse-wheel-map {
   display: grid;
-  grid-template-rows: 50px 50px 50px;
-  gap: 6px;
+  grid-template-rows: repeat(3, calc(50 * var(--mouse-unit)));
+  gap: calc(6 * var(--mouse-unit));
   justify-items: center;
   align-items: center;
 }
 .mouse-wheel-map .mouse-part {
   box-sizing: border-box;
-  width: 50px;
-  height: 50px;
+  width: calc(50 * var(--mouse-unit));
+  height: calc(50 * var(--mouse-unit));
   border: 1px solid #c9daeb;
-  border-radius: 8px;
+  border-radius: calc(8 * var(--mouse-unit));
   background: #f6faff;
   color: #557796;
-  font-size: 14px;
+  font-size: calc(14 * var(--mouse-unit));
   font-weight: 600;
   box-shadow: 0 3px 10px #315a8410;
 }
-.mouse-wheel-map .mouse-part svg { width: 20px; height: 20px; stroke-width: 1.9; }
+.mouse-wheel-map .mouse-part svg { width: calc(20 * var(--mouse-unit)); height: calc(20 * var(--mouse-unit)); stroke-width: 1.9; }
 .mouse-wheel-map > .mouse-part { flex-direction: column; }
 .mouse-wheel-center {
   display: grid;
-  grid-template-columns: 50px auto 50px;
+  grid-template-columns: calc(50 * var(--mouse-unit)) auto calc(50 * var(--mouse-unit));
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: calc(6 * var(--mouse-unit));
 }
 .mouse-wheel-label {
   color: #557796;
-  font-size: 14px;
+  font-size: calc(14 * var(--mouse-unit));
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.1;
@@ -1272,18 +1273,18 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mouse-side-buttons {
   display: grid;
   grid-template-rows: 1fr 1fr;
-  gap: 8px;
+  gap: calc(8 * var(--mouse-unit));
 }
 .mouse-side-buttons .mouse-part {
   width: auto;
   height: auto;
-  min-height: 34px;
+  min-height: calc(34 * var(--mouse-unit));
   justify-content: center;
   border: 1px solid #d3e0ed;
-  border-radius: 8px;
+  border-radius: calc(8 * var(--mouse-unit));
   background: #f8fbfe;
   color: #557796;
-  font-size: 15px;
+  font-size: calc(15 * var(--mouse-unit));
   font-weight: 600;
 }
 .mouse-side-buttons .mouse-part svg { display: none; }

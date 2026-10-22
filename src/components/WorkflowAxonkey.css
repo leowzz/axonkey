@@ -48,14 +48,18 @@
 .workflow-trigger-content { overflow: hidden; }
 .workflow-trigger-scrollbar { fill: #84909b; fill-opacity: .5; cursor: ns-resize; outline: none; }
 .workflow-trigger-scrollbar:hover, .workflow-trigger-scrollbar:focus-visible { fill: #2878d4; fill-opacity: .9; }
-.workflow-trigger-clear { cursor: pointer; outline: none; }
-.workflow-trigger-clear rect { fill: rgb(255 255 255 / 65%); stroke: var(--trigger-color); stroke-opacity: .25; }
-.workflow-trigger-clear text { fill: var(--trigger-color); font-size: 12px; text-anchor: middle; pointer-events: none; user-select: none; }
-.workflow-trigger-clear:not([aria-disabled="true"]):hover rect { fill: #fff; stroke-opacity: .6; }
-.workflow-trigger-clear:focus-visible rect { stroke: #2878d4; stroke-width: 2; stroke-opacity: 1; }
-.workflow-trigger-clear[aria-disabled="true"] { opacity: .45; cursor: default; }
+.workflow-trigger-action { cursor: pointer; outline: none; }
+.workflow-trigger-action rect { fill: rgb(255 255 255 / 65%); stroke: var(--trigger-color); stroke-opacity: .25; }
+.workflow-trigger-action text { fill: var(--trigger-color); font-size: 12px; text-anchor: middle; pointer-events: none; user-select: none; }
+.workflow-trigger-action:not([aria-disabled="true"]):hover rect { fill: #fff; stroke-opacity: .6; }
+.workflow-trigger-action:focus-visible rect { stroke: #2878d4; stroke-width: 2; stroke-opacity: 1; }
+.workflow-trigger-action[aria-disabled="true"] { opacity: .45; cursor: default; }
 .workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
 .workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
 .workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }
 .workflow-trigger-start { fill: var(--trigger-color); }
 .workflow-trigger-end { fill: #fff; stroke: var(--trigger-color); stroke-width: 2.5; }
+
+.workflow-axonkey .workflow-saved-remove { flex-shrink: 0; padding: 3px; color: #798692; }
+.workflow-axonkey .workflow-saved-remove:hover { color: #bf3d3d; background: #fff0f0; }
+.workflow-lane-status { position: absolute; z-index: 4; bottom: 22px; left: 28px; max-width: calc(100% - 380px); padding: 8px 12px; border: 1px solid #d7dee5; border-radius: 6px; color: #40576b; background: #fff; box-shadow: 0 3px 10px rgb(30 55 80 / 10%); font-size: 13px; }

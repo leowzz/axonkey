@@ -29,10 +29,13 @@ export function createTriggerDefinition(): Definition {
   return { properties: {}, sequence: [root] }
 }
 
+type WorkflowLaneAction = 'save' | 'copy' | 'paste'
+
 // Render the three branch sequences as independent lines in one designer.
 export function createTriggerRootExtension(
   onClear: (trigger: TriggerType) => void,
   onScroll: () => void = () => {},
+  onAction: (trigger: TriggerType, action: WorkflowLaneAction) => void = () => {},
 ): RootComponentExtension {
   const scrollPositions = new Map<TriggerType, number>()
   return {
@@ -43,13 +46,13 @@ export function createTriggerRootExtension(
       const canvas = parent.closest('.workflow-axonkey-canvas')!
       const width = canvas.clientWidth
       const height = canvas.clientHeight
-      const { gap, padding, laneWidth, laneHeight, bodyHeight } = workflowLaneLayout(width, height)
+      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(width, height)
       const lanes = triggers.map(({ id, label }) => {
         const disabled = isWorkflowLaneDisabled(root.branches[id])
         const lane = Dom.svg('g', { class: `workflow-trigger-lane workflow-trigger-${id}${disabled ? ' workflow-trigger-disabled' : ''}`, 'data-trigger': id })
         g.appendChild(lane)
         const viewport = Dom.svg('svg', {
-          class: 'workflow-trigger-content', x: 0, y: 80, width: laneWidth, height: bodyHeight,
+          class: 'workflow-trigger-content', x: 0, y: headerHeight, width: laneWidth, height: bodyHeight,
           id: `workflow-trigger-content-${id}`, 'data-trigger-scroll': id, 'aria-label': `${label}流程内容`,
         })
         lane.appendChild(viewport)
@@ -80,35 +83,46 @@ export function createTriggerRootExtension(
         lane.appendChild(title)
         // Keep the control in SVG coordinates: WebKit can misplace HTML inside
         // a foreignObject when the designer transforms the canvas.
-        const clear = Dom.svg('g', {
-          class: 'workflow-trigger-clear', role: 'button', tabindex: 0,
-          'aria-label': `清空${label}流程`, 'aria-disabled': String(branch.length === 0),
-          'data-trigger-clear': id,
+        const actions = [
+          { id: 'save', label: '另存' }, { id: 'copy', label: '复制' },
+          { id: 'paste', label: '粘贴' }, { id: 'clear', label: '清空' },
+        ] as const
+        const columns = headerHeight > 80 ? 2 : 4
+        const actionWidth = (laneWidth - 24 - (columns - 1) * 6) / columns
+        actions.forEach((action, index) => {
+          const unavailable = action.id !== 'paste' && branch.length === 0
+          const control = Dom.svg('g', {
+            class: 'workflow-trigger-action', role: 'button', tabindex: 0,
+            'aria-label': `${action.label}${label}流程`,
+            'aria-disabled': String(unavailable),
+            [`data-trigger-${action.id}`]: id,
+          })
+          Dom.translate(control, 12 + (index % columns) * (actionWidth + 6), 40 + Math.floor(index / columns) * 34)
+          control.appendChild(Dom.svg('rect', { width: actionWidth, height: 28, rx: 5 }))
+          const caption = Dom.svg('text', { x: actionWidth / 2, y: 18 })
+          caption.textContent = action.label
+          control.appendChild(caption)
+          const run = () => {
+            if (unavailable) return
+            if (action.id === 'clear') onClear(id)
+            else onAction(id, action.id)
+          }
+          for (const type of ['pointerdown', 'mousedown', 'touchstart', 'dblclick']) control.addEventListener(type, (event) => event.stopPropagation())
+          control.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return
+            event.preventDefault()
+            event.stopPropagation()
+            if (event.key === 'Enter' && !event.repeat) run()
+          })
+          control.addEventListener('keyup', (event) => {
+            if (event.key !== ' ') return
+            event.preventDefault()
+            event.stopPropagation()
+            run()
+          })
+          control.addEventListener('click', (event) => { event.stopPropagation(); run() })
+          lane.appendChild(control)
         })
-        Dom.translate(clear, center - 47, 40)
-        clear.appendChild(Dom.svg('rect', { width: 94, height: 30, rx: 5 }))
-        const caption = Dom.svg('text', { x: 47, y: 19 })
-        caption.textContent = '清空'
-        clear.appendChild(caption)
-        const clearLane = () => { if (branch.length > 0) onClear(id) }
-        for (const type of ['pointerdown', 'mousedown', 'touchstart', 'dblclick']) clear.addEventListener(type, (event) => event.stopPropagation())
-        clear.addEventListener('keydown', (event) => {
-          if (event.key !== 'Enter' && event.key !== ' ') return
-          event.preventDefault()
-          event.stopPropagation()
-          if (event.key === 'Enter' && !event.repeat) clearLane()
-        })
-        clear.addEventListener('keyup', (event) => {
-          if (event.key !== ' ') return
-          event.preventDefault()
-          event.stopPropagation()
-          clearLane()
-        })
-        clear.addEventListener('click', (event) => {
-          event.stopPropagation()
-          clearLane()
-        })
-        lane.appendChild(clear)
         content.appendChild(Dom.svg('path', {
           class: 'workflow-trigger-line',
           d: `M ${center} 12 V 32 M ${center} ${32 + component.view.height} V ${contentHeight - 16}`,
@@ -125,7 +139,7 @@ export function createTriggerRootExtension(
         const overflow = Math.max(0, contentHeight - bodyHeight)
         const thumbHeight = Math.max(24, bodyHeight * bodyHeight / contentHeight)
         const scrollbar = Dom.svg('rect', {
-          class: 'workflow-trigger-scrollbar', x: laneWidth - 7, y: 80, width: 5, height: thumbHeight, rx: 2.5,
+          class: 'workflow-trigger-scrollbar', x: laneWidth - 7, y: headerHeight, width: 5, height: thumbHeight, rx: 2.5,
           role: 'scrollbar', tabindex: overflow ? 0 : -1, 'aria-label': `滚动${label}流程`,
           'aria-controls': `workflow-trigger-content-${id}`,
           'aria-orientation': 'vertical', 'aria-valuemin': 0, 'aria-valuemax': overflow,
@@ -137,7 +151,7 @@ export function createTriggerRootExtension(
           scrollPositions.set(id, next)
           Dom.translate(content, 0, -next)
           viewport.setAttribute('data-scroll-top', String(next))
-          scrollbar.setAttribute('y', String(80 + (overflow ? next / overflow * (bodyHeight - thumbHeight) : 0)))
+          scrollbar.setAttribute('y', String(headerHeight + (overflow ? next / overflow * (bodyHeight - thumbHeight) : 0)))
           scrollbar.setAttribute('aria-valuenow', String(next))
           onScroll()
         }

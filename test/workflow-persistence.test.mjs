@@ -11,6 +11,12 @@ import Renderer, { act } from 'react-test-renderer'
 const require = createRequire(import.meta.url)
 const library = require('sequential-workflow-designer')
 const instances = []
+const storage = new Map()
+let storageFailure = false
+const copiedSequences = []
+function MockSaveDialog(props) { return React.createElement('sequence-save-dialog', props) }
+function MockPasteDialog(props) { return React.createElement('sequence-paste-dialog', props) }
+function MockToolbox() { return null }
 const copy = value => JSON.parse(JSON.stringify(value))
 const cache = new Map()
 function MockDialog(props) { return React.createElement('workflow-dialog', props) }
@@ -60,21 +66,27 @@ function load(file) {
     if (name.endsWith('.css')) return {}
     if (name === 'sequential-workflow-designer') return { ...library, Designer }
     if (name === 'react-dom') return { createPortal: node => node }
-    if (name === '../appConfig') return { behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
+    if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
-    if (name === './WorkflowToolbox') return { WorkflowToolbox: () => null }
+    if (name === './WorkflowToolbox') return { WorkflowToolbox: MockToolbox }
+    if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
+    if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
+    if (name === './WorkflowSequenceSaveDialog') return { WorkflowSequenceSaveDialog: MockSaveDialog }
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
     if (name === './WorkflowTriggerRoot') {
       const original = load('src/components/WorkflowTriggerRoot.ts')
-      return { ...original, createTriggerRootExtension: onClear => ({ ...original.createTriggerRootExtension(onClear), clear: onClear }) }
+      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction), clear: onClear, action: onAction }) }
     }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
     return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
   }
   vm.runInNewContext(source, {
-    module, exports: module.exports, require: localRequire, URL, console,
-    window: { addEventListener() {}, removeEventListener() {} },
+    module, exports: module.exports, require: localRequire, URL, console, crypto: globalThis.crypto,
+    window: { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
+      getItem: key => storage.get(key) ?? null,
+      setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
+    } },
     document: { body: {}, createElement: () => ({ setAttribute() {}, remove() {} }) },
     ResizeObserver: class { observe() {} disconnect() {} },
   }, { filename: file })
@@ -90,7 +102,7 @@ const clearLane = (instance, trigger) => instance.configuration.extensions.find(
 const render = async (sequences = empty()) => {
   let view
   const writes = []
-  let props = { platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
+  let props = { toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
   await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} } }) }) })
   return {
     view, writes, current: () => instances.at(-1),
@@ -352,4 +364,66 @@ test('canceling incomplete actions keeps saved mappings intact; confirming a mac
     assert.deepEqual(app.writes[0][1].doubleClick.map(item => item.type), ['paste', 'delay', 'key'])
     assert.deepEqual(app.writes[0][1].click, [delay(751)])
   } finally { await app.unmount() }
+})
+
+const laneAction = (app, trigger, action) => act(async () => app.current().configuration.extensions.find(extension => extension.rootComponent).rootComponent.action(trigger, action))
+
+test('lane copy reads the live definition; paste replaces only its target and participates in shared undo', async () => {
+  const before = { click: [delay(500)], doubleClick: [{ ...delay(700), id: 'other' }], longPress: [] }
+  const app = await render(before)
+  try {
+    branches(app.current()).click[0].properties.ms = 750
+    await laneAction(app, 'click', 'copy')
+    assert.match(copiedSequences.at(-1), /wait 750ms/)
+    await laneAction(app, 'longPress', 'paste')
+    const dialog = app.view.root.findByType('sequence-paste-dialog')
+    assert.equal(dialog.props.trigger, 'longPress')
+    await act(async () => dialog.props.onApply([{ ...delay(750), id: 'pasted' }]))
+    assert.deepEqual(app.writes.at(-1)[1].longPress, [{ ...delay(750), id: 'pasted' }])
+    assert.deepEqual(app.writes.at(-1)[1].doubleClick, before.doubleClick)
+    await app.update({ sequences: app.writes.at(-1)[1] })
+    await app.update({ sequences: before })
+    assert.equal(branches(app.current()).longPress.length, 0)
+  } finally { await app.unmount() }
+})
+
+test('save persists a snapshot without modifying mappings, restores on reopen and supports deletion', async () => {
+  storage.clear()
+  const app = await render({ ...empty(), click: [delay(650)] })
+  let reopened
+  try {
+    await laneAction(app, 'click', 'save')
+    const dialog = app.view.root.findByType('sequence-save-dialog')
+    await act(async () => { assert.equal(dialog.props.onSave('常用序列'), null) })
+    assert.equal(app.writes.length, 0)
+    const stored = JSON.parse(storage.get('axonkey.saved-sequences.v1'))
+    assert.equal(stored[0].name, '常用序列')
+    assert.match(stored[0].sequence, /wait 650ms/)
+    reopened = await render()
+    const toolbox = reopened.view.root.findByType(MockToolbox)
+    const savedGroup = toolbox.props.palettes.find(palette => palette.name === '已保存').groups[0]
+    assert.equal(savedGroup.steps[0].name, '常用序列')
+    await act(async () => toolbox.props.onRemoveSavedSequence(stored[0].id))
+    assert.deepEqual(JSON.parse(storage.get('axonkey.saved-sequences.v1')), [])
+  } finally { await app.unmount(); if (reopened) await reopened.unmount() }
+})
+
+test('failed library writes keep the save dialog open and incomplete drafts cannot be copied or saved', async () => {
+  storage.clear()
+  const app = await render({ ...empty(), click: [delay(600)] })
+  try {
+    await laneAction(app, 'click', 'save')
+    storageFailure = true
+    const dialog = app.view.root.findByType('sequence-save-dialog')
+    await act(async () => { assert.match(dialog.props.onSave('测试'), /保存失败/) })
+    assert.equal(storage.has('axonkey.saved-sequences.v1'), false)
+    assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 1)
+    await act(async () => dialog.props.onClose())
+    branches(app.current()).click[0].properties.draftGroup = 'draft'
+    const copies = copiedSequences.length
+    await laneAction(app, 'click', 'copy')
+    await laneAction(app, 'click', 'save')
+    assert.equal(copiedSequences.length, copies)
+    assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 0)
+  } finally { storageFailure = false; await app.unmount() }
 })

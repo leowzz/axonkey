@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Search, Trash2 } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
 import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 
@@ -8,20 +8,23 @@ export type WorkflowToolboxPalette = {
   groups: ToolboxGroupConfiguration[]
 }
 
-export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onCategoryChange }: {
+export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onCategoryChange, onRemoveSavedSequence, savedError }: {
   api: DesignerApi
   palettes: WorkflowToolboxPalette[]
   iconUrls: Record<string, string>
   selectedCategory: string
   onCategoryChange: (category: string) => void
+  onRemoveSavedSequence?: (id: string) => void
+  savedError?: string
 }) {
   const [query, setQuery] = useState('')
+  useEffect(() => setQuery(''), [selectedCategory])
   const filter = query.trim().toLocaleLowerCase()
   const categories = palettes.flatMap((palette) => palette.groups.map((group) => ({
     id: `${palette.name}/${group.name}`,
     palette: palette.name,
     ...group,
-  }))).filter((group) => group.steps.length > 0)
+  }))).filter((group) => group.steps.length > 0 || group.name === '已保存')
   const currentCategory = categories.some((group) => group.id === selectedCategory) ? selectedCategory : 'all'
   const visibleGroups = categories
     .filter((group) => filter || currentCategory === 'all' || group.id === currentCategory)
@@ -51,10 +54,11 @@ export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onC
         {categories.map((group) => <button type="button" key={group.id} aria-pressed={!filter && currentCategory === group.id} onClick={() => { setQuery(''); onCategoryChange(group.id) }}>{group.name}</button>)}
       </nav>
       <div className="workflow-toolbox-list" aria-label={filter ? '行为搜索结果' : '可选行为'}>
+        {savedError && <p className="workflow-toolbox-empty" role="alert">{savedError}</p>}
         {visibleGroups.map((group) => <section key={group.id} aria-label={group.name}>
           <h3 className="sqd-toolbox-group-title">{group.name}</h3>
           {group.steps.map((step) => <div
-            key={step.type}
+            key={String(step.properties.savedSequenceId ?? step.type)}
             className={`sqd-toolbox-item sqd-type-${step.type}`}
             title={step.name}
             onMouseDown={(event) => {
@@ -73,9 +77,10 @@ export function WorkflowToolbox({ api, palettes, iconUrls, selectedCategory, onC
           >
             <span className="sqd-toolbox-item-icon"><img className="sqd-toolbox-item-icon-image" src={iconUrls[step.type]} alt="" draggable={false} /></span>
             <span className="sqd-toolbox-item-text">{step.name}</span>
+            {typeof step.properties.savedSequenceId === 'string' && onRemoveSavedSequence && <button type="button" className="icon-button workflow-saved-remove" aria-label={`删除已保存的${step.name}`} title="删除" onMouseDown={(event) => event.stopPropagation()} onTouchStart={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onRemoveSavedSequence(step.properties.savedSequenceId as string) }}><Trash2 size={13} /></button>}
           </div>)}
         </section>)}
-        {visibleGroups.length === 0 && <p className="workflow-toolbox-empty">没有匹配的行为</p>}
+        {visibleGroups.length === 0 && <p className="workflow-toolbox-empty">{!filter && currentCategory === '已保存/已保存' ? '暂无已保存行为' : '没有匹配的行为'}</p>}
       </div>
     </div>
   </>

@@ -3,7 +3,8 @@ export function workflowLaneLayout(width: number, height: number) {
   const padding = 12
   const laneWidth = Math.max(1, (width - padding * 2 - gap * 2) / 3)
   const laneHeight = Math.max(160, height - 88)
-  return { gap, padding, laneWidth, laneHeight, bodyHeight: laneHeight - 84 }
+  const headerHeight = laneWidth < 244 ? 114 : 80
+  return { gap, padding, laneWidth, laneHeight, headerHeight, bodyHeight: Math.max(24, laneHeight - headerHeight - 4) }
 }
 
 export function clampLaneScroll(top: number, contentHeight: number, viewportHeight: number) {
