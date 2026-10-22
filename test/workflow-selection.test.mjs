@@ -230,17 +230,17 @@ test('Delete ignores text editing, shortcuts, composition, readonly/dragging and
   app.destroy()
 })
 
-test('blank drag selects intersecting blocks across lanes, ignores disabled lanes, and deletes as one change', () => {
+test('blank drag selects removable blocks across lanes, including the disabling node, and deletes as one change', () => {
   const app = setup(true)
   const start = app.mouse(null, { clientX: 5, clientY: 10 }, false)
   assert.equal(start.prevented, true, 'blank press must not reach designer panning')
   app.handlers.get('mousemove')({ clientX: 450, clientY: 90, preventDefault() {} })
   app.designer.onSelectedStepIdChanged.emit(null)
-  assert.deepEqual(app.selected(), ['a', 'c'], 'delayed native selection cannot overwrite marquee')
+  assert.deepEqual(app.selected(), ['a', 'c', 'disabled'], 'delayed native selection cannot overwrite marquee')
   assert.equal(app.overlays.length, 1)
   app.handlers.get('mouseup')({ clientX: 450, clientY: 90, preventDefault() {} })
   app.flushSelection()
-  assert.deepEqual(app.selected(), ['a', 'c'])
+  assert.deepEqual(app.selected(), ['a', 'c', 'disabled'])
   assert.equal(app.overlays.length, 0)
   assert.equal(app.writes(), 0, 'selection does not save mapping data')
   app.key()
@@ -304,4 +304,25 @@ test('edge scrolling extends the marquee through offscreen blocks without losing
     if (originalCancel) globalThis.cancelAnimationFrame = originalCancel
     else delete globalThis.cancelAnimationFrame
   }
+})
+
+
+test('the disabling node can be selected, dragged alone and deleted without moving the viewport', () => {
+  const app = setup(true, true)
+  try {
+    const before = app.workspace.getViewport()
+    app.mouse('disabled')
+    app.flushSelection()
+    assert.deepEqual(app.selected(), ['disabled'])
+    assert.equal(app.destroy.canDragSelection(), true)
+    assert.deepEqual(app.destroy.getDragSteps('disabled').map(step => step.id), ['disabled'])
+    app.mouse('a', { ctrlKey: true })
+    app.flushSelection()
+    assert.equal(app.destroy.canDragSelection(), false, 'a disabling node must not be moved into another lane by a group drag')
+    assert.equal(app.key().prevented, true)
+    assert.deepEqual(app.branches.longPress.map(step => step.id), ['d'])
+    assert.deepEqual(app.branches.click.map(step => step.id), ['b'])
+    assert.deepEqual(app.workspace.getViewport(), before)
+    assert.equal(app.writes(), 1)
+  } finally { app.destroy() }
 })

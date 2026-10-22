@@ -38,7 +38,7 @@ const Designer = {
       onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
       onIsDraggingChanged: new library.SimpleEvent(),
       getDefinition: () => definition,
-      isDragging: () => false, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
+      isDragging: () => false, clearSelectedStep() { this.onSelectedStepIdChanged.emit(null) }, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
     }
     const api = { editor: {
       isReadonly: () => false, getDefinition: () => definition,
@@ -46,6 +46,7 @@ const Designer = {
         notifyChildrenChanged: () => instance.emit(library.DefinitionChangeType.stepChildrenChanged, id),
       }),
     } }
+    instance.api = api
     for (const extension of configuration.extensions) {
       for (const component of extension.uiComponents ?? []) component.create({ appendChild() {} }, api)
     }
@@ -72,6 +73,7 @@ function load(file) {
     if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
     if (name === './WorkflowSequenceSaveDialog') return { WorkflowSequenceSaveDialog: MockSaveDialog }
+    if (name === './workflowTrash') return { bindWorkflowTrash: (_canvas, _trash, designer, onDelete) => { designer.dropOnTrash = onDelete; return () => { delete designer.dropOnTrash } } }
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
     if (name === './WorkflowTriggerRoot') {
       const original = load('src/components/WorkflowTriggerRoot.ts')
@@ -103,7 +105,7 @@ const render = async (sequences = empty()) => {
   let view
   const writes = []
   let props = { toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
-  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} } }) }) })
+  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} } }) }) })
   return {
     view, writes, current: () => instances.at(-1),
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))) },
@@ -426,4 +428,55 @@ test('failed library writes keep the save dialog open and incomplete drafts cann
     assert.equal(copiedSequences.length, copies)
     assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 0)
   } finally { storageFailure = false; await app.unmount() }
+})
+
+
+test('the disable action is offered in the control palette and replaces only its target lane', async () => {
+  const original = { click: [delay(500), { ...delay(800), id: 'second' }], doubleClick: [{ ...delay(300), id: 'double' }], longPress: [] }
+  const app = await render(original)
+  try {
+    const toolbox = app.view.root.findByType(MockToolbox)
+    const action = toolbox.props.palettes.flatMap(palette => palette.groups).find(group => group.name === '控制').steps.find(step => step.type === 'disabled')
+    assert.equal(action.name, '禁用此触发方式')
+    const node = { ...action, id: 'disable-drop', properties: { ...action.properties } }
+    const instance = app.current()
+    branches(instance).click.splice(1, 0, node)
+    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+    assert.equal(app.writes.length, 1)
+    assert.deepEqual(app.writes[0][1], { ...original, click: [{ id: node.id, type: 'disabled', enabled: true }] })
+    await app.update({ sequences: app.writes[0][1] })
+    const target = branches(instance).click
+    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), target), false)
+    await act(async () => clearLane(instance, 'click'))
+    assert.deepEqual(app.writes.at(-1)[1].click, [])
+    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), branches(instance).click), true)
+    await app.update({ sequences: original })
+    assert.deepEqual(branches(app.current()).click.map(step => step.properties.ms), [500, 800])
+  } finally { await app.unmount() }
+})
+
+
+test('a disabling node remains draggable and trash deletion autosaves once and restores its lane', async () => {
+  const off = { id: 'disable-drag', type: 'disabled', enabled: true }
+  const original = { click: [off], doubleClick: [delay(250)], longPress: [] }
+  const app = await render(original)
+  try {
+    const instance = app.current()
+    const lane = branches(instance).click
+    const node = lane[0]
+    assert.equal(instance.configuration.steps.isDraggable(node, lane), true)
+    assert.equal(instance.configuration.steps.isDeletable(node, lane), true)
+    instance.api.editor.isReadonly = () => true
+    assert.equal(instance.configuration.steps.isDraggable(node, lane), false)
+    instance.api.editor.isReadonly = () => false
+    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), lane), false)
+    assert.equal(instance.configuration.steps.canMoveStep(lane, node, branches(instance).longPress), false)
+    await act(async () => instance.dropOnTrash(node.id))
+    assert.equal(app.writes.length, 1)
+    assert.deepEqual(app.writes[0][1], { ...original, click: [] })
+    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), lane), true)
+    await app.update({ sequences: app.writes[0][1] })
+    await app.update({ sequences: original })
+    assert.equal(branches(app.current()).click[0].type, 'disabled', 'shared undo restores the disabling node')
+  } finally { await app.unmount() }
 })

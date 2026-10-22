@@ -1,8 +1,8 @@
 import { ClickCommandType, SelectStepBehaviorEndToken } from 'sequential-workflow-designer'
-import type { DesignerExtension } from 'sequential-workflow-designer'
+import type { DesignerExtension, Step } from 'sequential-workflow-designer'
 import { isEditableWorkflowStep } from './workflowStepEditing.ts'
 
-export function createWorkflowStepInteraction(openEditor: (stepId: string) => void, finishDrag?: (interrupt: boolean) => void): DesignerExtension {
+export function createWorkflowStepInteraction(openEditor: (stepId: string) => void, finishDrag?: (interrupt: boolean) => void, canDragStep?: (step: Step, source: Step[]) => boolean): DesignerExtension {
   return {
     stepComponentViewWrapper: {
       wrap(view, context) {
@@ -34,6 +34,8 @@ export function createWorkflowStepInteraction(openEditor: (stepId: string) => vo
             onStart: (position) => behavior.onStart(position),
             // The designer switches to its drag behavior after pointer movement.
             onMove: (delta) => {
+              // A rejected step drag otherwise falls back to moving the viewport.
+              if (canDragStep && !canDragStep(command.component.step, command.component.parentSequence)) return
               const next = behavior.onMove(delta)
               if (!next || !finishDrag) return next
               return {

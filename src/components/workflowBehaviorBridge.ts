@@ -3,7 +3,7 @@ import type { Behavior, BehaviorMap, InputId, TriggerBehaviors, TriggerType } fr
 import { createBehavior, defaultCursorDistance, normalizeBehavior, parseSequenceImport, triggerTypes } from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
 import { createTriggerDefinition } from './WorkflowTriggerRoot.ts'
-export { isWorkflowLaneDisabled } from './WorkflowTriggerRoot.ts'
+export { isWorkflowLaneDisabled, isWorkflowStepLocked } from './WorkflowTriggerRoot.ts'
 import { workflowStepBehavior } from './workflowStepEditing.ts'
 import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup, workflowActionChoiceStep } from './workflowActionChoices.ts'
 

@@ -17,6 +17,11 @@ export function isWorkflowLaneDisabled(branch: Step[]) {
   return branch.some((step) => step.type === 'disabled' && step.properties.enabled !== false)
 }
 
+// Suppressed actions stay protected, but the disabling node can be removed.
+export function isWorkflowStepLocked(step: Step, branch: Step[]) {
+  return step.type !== 'disabled' && isWorkflowLaneDisabled(branch)
+}
+
 export function createTriggerDefinition(): Definition {
   const root: BranchedStep = {
     id: 'axonkey-triggers',

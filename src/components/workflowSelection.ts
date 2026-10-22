@@ -1,5 +1,5 @@
 import type { Designer, Step, WorkspaceApi } from 'sequential-workflow-designer'
-import { isWorkflowLaneDisabled, workflowBranches } from './workflowBehaviorBridge.ts'
+import { isWorkflowStepLocked, workflowBranches } from './workflowBehaviorBridge.ts'
 import { scrollWorkflowViewport } from './WorkflowViewport.ts'
 
 // The designer owns the primary selection; keep additional Ctrl selections here.
@@ -17,7 +17,12 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
   } | null = null
   let frame = 0
   const branches = () => Object.values(workflowBranches(designer.getDefinition()))
-  const find = (id: string) => branches().flat().find((step) => step.id === id && step.type !== 'disabled')
+  const find = (id: string) => {
+    for (const branch of branches()) {
+      const step = branch.find((step) => step.id === id)
+      if (step) return isWorkflowStepLocked(step, branch) ? undefined : step
+    }
+  }
   const orderedSelectedIds = () => branches().flatMap((branch) => branch.map((step) => step.id)).filter((id) => selected.has(id))
   const render = () => {
     for (const id of selected) if (!find(id)) selected.delete(id)
@@ -69,7 +74,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     selected.clear()
     for (const id of m.base) selected.add(id)
     if (m.moved) {
-      const enabled = new Set(branches().filter((branch) => !isWorkflowLaneDisabled(branch)).flat().map((step) => step.id))
+      const enabled = new Set(branches().flatMap((branch) => branch.filter((step) => !isWorkflowStepLocked(step, branch))).map((step) => step.id))
       for (const element of m.workspace.querySelectorAll<SVGElement>('[data-step-id]')) {
         const id = element.getAttribute('data-step-id')!
         if (!enabled.has(id) || !find(id)) continue
@@ -265,8 +270,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
     if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="dialog"]')) return
     const removable = new Set<Step>()
     for (const branch of branches()) {
-      if (isWorkflowLaneDisabled(branch)) continue
-      for (const step of branch) if (selected.has(step.id) && step.type !== 'disabled') removable.add(step)
+      for (const step of branch) if (selected.has(step.id) && !isWorkflowStepLocked(step, branch)) removable.add(step)
     }
     if (removable.size === 0) return
     event.preventDefault()
@@ -315,7 +319,8 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
       const ids = selected.has(stepId) ? orderedSelectedIds() : [stepId]
       return ids.map((id) => all.find((step) => step.id === id)).filter((step): step is Step => Boolean(step))
     },
-    canDragSelection: () => branches().every((branch) => !isWorkflowLaneDisabled(branch) || !branch.some((step) => selected.has(step.id))),
+    canDragSelection: () => branches().every((branch) => branch.every((step) => !selected.has(step.id)
+      || (!isWorkflowStepLocked(step, branch) && (selected.size === 1 || step.type !== 'disabled')))),
     finishDrag,
   })
 }

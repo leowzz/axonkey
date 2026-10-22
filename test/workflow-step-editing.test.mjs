@@ -195,3 +195,14 @@ test('legacy mouse and media choices reopen in their group and switch actions wh
   }
   assert.equal(workflowActionChoiceGroup({ id: 'normal', enabled: true, type: 'key', key: 'Enter' }), undefined)
 })
+
+
+test('rejected step drags never reach the designer viewport-panning fallback', () => {
+  let fallbackCalls = 0
+  const pan = { onStart() {}, onMove() { fallbackCalls++ }, onEnd() {} }
+  const behavior = { onStart() {}, onMove() { fallbackCalls++; return pan }, onEnd() {} }
+  const wrapper = createWorkflowStepInteraction(() => {}, () => {}, () => false).clickBehaviorWrapperExtension.create()
+  const wrapped = wrapper.wrap(behavior, { type: ClickCommandType.selectStep, component: { step: step('disabled'), parentSequence: [] } })
+  assert.equal(wrapped.onMove(new Vector(30, 40)), undefined)
+  assert.equal(fallbackCalls, 0)
+})

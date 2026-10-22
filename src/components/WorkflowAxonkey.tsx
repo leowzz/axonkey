@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
-import type { DesignerApi, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
+import type { DesignerApi, Step, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
 import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
@@ -13,7 +13,7 @@ import type { SavedSequence } from '../savedSequences'
 import { SequencePasteDialog } from './BehaviorEditor'
 import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
 import { createTriggerRootExtension, isTriggerRoot } from './WorkflowTriggerRoot'
-import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
+import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, isWorkflowStepLocked, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
@@ -112,6 +112,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
     ]
     const controlActions: WorkflowAction[] = [
+      { preset: 'disabled', name: '禁用此触发方式', description: '替换当前泳道的序列，不发送任何输入；清空泳道可取消禁用' },
       { preset: 'delay', name: '等待' },
       { preset: 'paste', name: '粘贴文本' },
       { preset: 'openApp', name: '打开应用' },
@@ -188,6 +189,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         },
       })
     }
+    const canDragStep = (step: Step, source: Step[]) => !workflowApi?.editor.isReadonly()
+      && !isTriggerRoot(step) && !isWorkflowStepLocked(step, source) && (selectionBinding?.canDragSelection() ?? true)
     const designer = Designer.create(canvasRef.current, definition, {
       theme: 'light',
       textWidthMeasurer: (text) => {
@@ -205,8 +208,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       // Undo/redo uses the application's shared behavior history and persistence.
       steps: {
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
-        isDraggable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source) && (selectionBinding?.canDragSelection() ?? true),
-        isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDraggable: canDragStep,
+        isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowStepLocked(step, source),
         isDuplicable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
         canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
@@ -214,7 +217,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       extensions: [fixedWorkflowViewport, StepsDesignerExtension.create({ task: { view: {
         paddingLeft: 8, paddingRight: 8, paddingY: 10, textMarginLeft: 8,
         minTextWidth: 20, iconSize: 18, radius: 5, inputSize: 14, outputSize: 10,
-      } } }), createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt)), {
+      } } }), createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt), canDragStep), {
         draggedComponent: createWorkflowDraggedSteps((step) => selectionBinding?.getDragSteps(step.id) ?? [step]),
         contextMenu: {
           createItemsProvider: () => ({
@@ -287,9 +290,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
       let removed = false
       for (const branch of Object.values(workflowBranches(definition))) {
-        if (isWorkflowLaneDisabled(branch)) continue
         for (let index = branch.length - 1; index >= 0; index--) {
-          if (!idsToDelete.has(branch[index].id) || branch[index].type === 'disabled') continue
+          if (!idsToDelete.has(branch[index].id) || isWorkflowStepLocked(branch[index], branch)) continue
           branch.splice(index, 1)
           removed = true
         }
@@ -309,7 +311,9 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
           const index = branch.findIndex((step) => step.id === event.stepId)
           if (index < 0) continue
           const nodes = insertedWorkflowSteps(branch[index], platform, label)
-          branch.splice(index, 1, ...nodes)
+          if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
+            branch.splice(0, branch.length, ...nodes)
+          } else branch.splice(index, 1, ...nodes)
           workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
           // Dropping a block only inserts it. Users can open the editor from
           // the block itself when they want to change its parameters.
