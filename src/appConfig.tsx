@@ -132,7 +132,7 @@ export function getStoredUiState(): StoredUiState {
       : {}
 
     return {
-      activePage: typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
+      activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
       selectedDeviceId: typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId) ? parsed.selectedDeviceId as DeviceId : defaultUiState.selectedDeviceId,
       activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
       selectedBehavior,

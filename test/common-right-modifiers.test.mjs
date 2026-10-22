@@ -47,13 +47,31 @@ function load(file) {
 
 const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
-const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys } = load('src/appConfig.tsx')
+const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState } = load('src/appConfig.tsx')
 const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
 const sequenceText = 'axonkey/1\nkey A\nend'
+
+test('saved mapping entries restore the unified mapping page and retain the selected input', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const activePage of ['mapping', 'mappingFlow']) {
+      testWindow.localStorage = { getItem: () => JSON.stringify({
+        activePage, selectedDeviceId: 'rc003', activeId: 'tv', selectedBehavior: { buttonId: 'tv', trigger: 'longPress' },
+      }) }
+      const state = getStoredUiState()
+      assert.equal(state.activePage, 'mapping')
+      assert.equal(state.activeId, 'tv')
+      assert.equal(state.selectedBehavior.buttonId, 'tv')
+      assert.equal(state.selectedBehavior.trigger, 'longPress')
+    }
+  } finally {
+    testWindow.localStorage = previousStorage
+  }
+})
 
 test('clipboard transfers use the native plugin in Tauri and browser APIs in preview', async () => {
   const writes = []

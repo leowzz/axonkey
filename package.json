@@ -1,7 +1,7 @@
 {
   "name": "axonkey-ui",
   "private": true,
-  "version": "1.0.10",
+  "version": "1.0.12",
   "type": "module",
   "scripts": {
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
@@ -11,7 +11,7 @@
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
     "build:uninstall-old-driver": "node scripts/build-uninstall-old-driver.mjs",
     "check:uninstall-old-driver-git": "node scripts/check-uninstall-old-driver-git.mjs",
-    "test:release": "node --test test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/behavior-history.test.mjs test/sequence-transfer.test.mjs test/common-right-modifiers.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/setup-model.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/uninstall-old-driver-git.test.mjs",
+    "test:release": "node --test test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/behavior-history.test.mjs test/workflow-step-editing.test.mjs test/workflow-selection.test.mjs test/workflow-trash.test.mjs test/workflow-viewport.test.mjs test/workflow-behavior-bridge.test.mjs test/workflow-persistence.test.mjs test/sequence-transfer.test.mjs test/common-right-modifiers.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/setup-model.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/uninstall-old-driver-git.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -26,7 +26,8 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "reicon-react": "^1.2.0"
+    "reicon-react": "^1.2.0",
+    "sequential-workflow-designer": "^0.40.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.8.0",
