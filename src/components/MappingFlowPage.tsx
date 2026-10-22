@@ -30,7 +30,6 @@ export function MappingFlowPage({
   finishHotspotDrag,
   platform,
   toolbar,
-  contextToolbar,
   showRemoteKeyGrid,
   showMouseKeyGrid,
   rowRefs,
@@ -38,7 +37,6 @@ export function MappingFlowPage({
 }: MappingPageProps) {
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   return <div className="mapping-page mapping-flow-page">
-    <div className="mapping-workspace-context">{contextToolbar}</div>
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
       <aside className="mapping-device-rail panel-surface">
         <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {

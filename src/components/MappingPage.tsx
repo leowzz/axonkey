@@ -33,7 +33,6 @@ export type MappingPageProps = {
   finishHotspotDrag: (event: PointerEvent<HTMLButtonElement>) => void
   platform: Platform
   toolbar: ReactNode
-  contextToolbar: ReactNode
   showRemoteKeyGrid: boolean
   showMouseKeyGrid: boolean
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
@@ -62,14 +61,12 @@ export function MappingPage({
   finishHotspotDrag,
   platform,
   toolbar,
-  contextToolbar,
   showRemoteKeyGrid,
   showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
 }: MappingPageProps) {
   return <div className="mapping-page">
-    <div className="mapping-workspace-context">{contextToolbar}</div>
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
       <aside className="mapping-device-rail panel-surface">
         <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {

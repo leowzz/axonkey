@@ -47,7 +47,7 @@ function load(file) {
 
 const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
-const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState } = load('src/appConfig.tsx')
+const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState } = load('src/appConfig.tsx')
 const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
@@ -70,6 +70,48 @@ test('saved mapping entries restore the unified mapping page and retain the sele
     }
   } finally {
     testWindow.localStorage = previousStorage
+  }
+})
+
+test('sidebar preference persists and overrides the window-size default', () => {
+  const previousStorage = testWindow.localStorage
+  const previousMatchMedia = testWindow.matchMedia
+  try {
+    for (const narrow of [true, false]) {
+      testWindow.matchMedia = () => ({ matches: narrow })
+      for (const sidebarCollapsed of [true, false]) {
+        let stored = JSON.stringify({ sidebarCollapsed, activePage: 'mapping' })
+        testWindow.localStorage = {
+          getItem: () => stored,
+          setItem: (_key, value) => { stored = value },
+        }
+        const state = getStoredUiState()
+        assert.equal(state.sidebarCollapsed, sidebarCollapsed)
+        saveStoredUiState(state)
+        assert.equal(getStoredUiState().sidebarCollapsed, sidebarCollapsed)
+        assert.equal(getStoredUiState().activePage, 'mapping')
+      }
+    }
+  } finally {
+    testWindow.localStorage = previousStorage
+    testWindow.matchMedia = previousMatchMedia
+  }
+})
+
+test('old or invalid sidebar preferences use the initial window width', () => {
+  const previousStorage = testWindow.localStorage
+  const previousMatchMedia = testWindow.matchMedia
+  try {
+    for (const narrow of [true, false]) {
+      testWindow.matchMedia = () => ({ matches: narrow })
+      for (const stored of [null, '{}', '{"sidebarCollapsed":"false"}', '{"sidebarCollapsed":null}', 'invalid']) {
+        testWindow.localStorage = { getItem: () => stored }
+        assert.equal(getStoredUiState().sidebarCollapsed, narrow)
+      }
+    }
+  } finally {
+    testWindow.localStorage = previousStorage
+    testWindow.matchMedia = previousMatchMedia
   }
 })
 

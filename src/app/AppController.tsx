@@ -66,7 +66,7 @@ import type {
 } from '../appTypes'
 import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
-import { AppHeader } from '../components/AppHeader'
+import { AppHeader, AppSidebar } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
@@ -192,6 +192,7 @@ function AppController() {
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
   const navigateToPage = (page: AppPage) => {
     if (page === 'mapping') setMappingStyle('flow')
@@ -233,6 +234,7 @@ function AppController() {
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
   const uiStateRef = useRef<StoredUiState>(initialUiState)
   uiStateRef.current = {
+    sidebarCollapsed,
     activePage,
     selectedDeviceId,
     activeId,
@@ -248,7 +250,7 @@ function AppController() {
 
   useEffect(() => {
     persistUiState()
-  }, [activePage, selectedDeviceId, activeId, selectedBehavior, settingsSection, overviewSelection, persistUiState])
+  }, [activePage, sidebarCollapsed, selectedDeviceId, activeId, selectedBehavior, settingsSection, overviewSelection, persistUiState])
 
   useEffect(() => {
     const mainContent = mainContentRef.current
@@ -1579,24 +1581,31 @@ function AppController() {
   }
 
   const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
+  const showMappingTools = activePage === 'mapping' || activePage === 'overview'
 
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
-      <AppHeader
-          activePage={activePage}
-          hasUpdate={releaseUpdate.hasUpdate}
-          enabled={enabled}
-          onBrandClick={handleBrandClick}
-          onNavigate={navigateToPage}
-          onToggleEnabled={toggleEnabled}
-        />
+      <div className="app-workspace">
+        <AppSidebar activePage={activePage} hasUpdate={releaseUpdate.hasUpdate} collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} enabled={enabled} onToggleEnabled={toggleEnabled} onBrandClick={handleBrandClick} onNavigate={navigateToPage} />
+        <div className="app-main">
+          <AppHeader
+            key={`toolbar-${activePage}`}
+            context={showMappingTools ? <ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} /> : undefined}
+            actions={showMappingTools ? <div className="mapping-context-actions">
+              <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>
+              {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
+              <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
+                flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
+              <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
+            </div> : undefined}
+          />
       <main ref={mainContentRef} key={activePage} className="main-content">
         {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
           <Info size={20} aria-hidden="true" />
           <div className="mapping-disabled-copy">
             <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
-            <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过右上角的全局开关开启。</p>
+            <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过左下角的总开关开启。</p>
           </div>
           <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
         </section>}
@@ -1637,16 +1646,6 @@ function AppController() {
           showRemoteKeyGrid={showRemoteKeyGrid}
           showMouseKeyGrid={showMouseKeyGrid}
           rowRefs={rowRefs}
-          contextToolbar={<>
-            <ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} />
-            <div className="mapping-context-actions">
-              <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>
-              {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
-              <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
-                flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
-              <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
-            </div>
-          </>}
           toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}</div>}
           behaviorEditorProps={{
             editorRef: behaviorEditorRef,
@@ -1738,6 +1737,8 @@ function AppController() {
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>
+        </div>
+      </div>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
       {pendingProfileImport && <ProfileImportDialog
         fileName={pendingProfileImport.fileName}

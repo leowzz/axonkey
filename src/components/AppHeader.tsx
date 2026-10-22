@@ -1,47 +1,67 @@
-import { Home, Info, Keyboard, ScanLine, Settings2 } from 'lucide-react'
+import { Home, Info, Keyboard, PanelLeftClose, PanelLeftOpen, ScanLine, Settings2 } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { AppPage } from '../appTypes'
 import appPackage from '../../package.json'
 
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
-type AppHeaderProps = {
+const pages = [
+  { id: 'home', label: '主页', icon: Home },
+  { id: 'overview', label: '总览', icon: ScanLine },
+  { id: 'mapping', label: '映射', icon: Keyboard },
+  { id: 'settings', label: '设置', icon: Settings2 },
+  { id: 'about', label: '关于', icon: Info },
+] as const
+
+type AppSidebarProps = {
   activePage: AppPage
   hasUpdate: boolean
   enabled: boolean
+  collapsed: boolean
+  onToggleCollapsed: () => void
+  onToggleEnabled: () => void
   onBrandClick: () => void
   onNavigate: (page: AppPage) => void
-  onToggleEnabled: () => void
 }
 
-const pageTitles: Record<AppPage, string> = {
-  home: '主页',
-  mapping: '按键映射',
-  overview: '总览',
-  settings: '设置',
-  about: '关于',
-}
-
-export function AppHeader({ activePage, hasUpdate, enabled, onBrandClick, onNavigate, onToggleEnabled }: AppHeaderProps) {
-  return <header className="topbar">
-    <div className="topbar-left">
-      <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
-        <img src={appIconUrl} alt="" width={28} height={28} style={{ flexShrink: 0, objectFit: 'contain' }} />
-        <span>
-          <span className="brand-name">axonkey</span>
-          <span className="brand-version"><span>{/^[vV]/.test(appPackage.version) ? appPackage.version : `V${appPackage.version}`}</span></span>
-        </span>
-      </button>
-      <div className="title-row"><h1>{pageTitles[activePage]}</h1></div>
-    </div>
-    <nav className="app-nav" aria-label="主导航">
-      <button type="button" className={activePage === 'home' ? 'active' : ''} aria-current={activePage === 'home' ? 'page' : undefined} onClick={() => onNavigate('home')}><Home size={15} /> 主页</button>
-      <button type="button" className={activePage === 'overview' ? 'active' : ''} aria-current={activePage === 'overview' ? 'page' : undefined} onClick={() => onNavigate('overview')}><ScanLine size={15} /> 总览</button>
-      <button type="button" className={activePage === 'mapping' ? 'active' : ''} aria-current={activePage === 'mapping' ? 'page' : undefined} onClick={() => onNavigate('mapping')}><Keyboard size={15} /> 映射</button>
-      <button type="button" className={activePage === 'settings' ? 'active' : ''} aria-current={activePage === 'settings' ? 'page' : undefined} onClick={() => onNavigate('settings')}><Settings2 size={15} /> 设置</button>
-      <button type="button" className={`${activePage === 'about' ? 'active' : ''} ${hasUpdate ? 'has-update' : ''}`} title={hasUpdate ? '发现新版本' : undefined} aria-current={activePage === 'about' ? 'page' : undefined} onClick={() => onNavigate('about')}><Info size={15} /> 关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}</button>
+export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggleCollapsed, onToggleEnabled, onBrandClick, onNavigate }: AppSidebarProps) {
+  return <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
+    <button className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
+      <img src={appIconUrl} alt="" width={28} height={28} />
+      <span className="brand-name">axonkey</span>
+    </button>
+    <nav id="app-navigation" className="app-nav" aria-label="主导航">
+      {pages.map(({ id, label, icon: Icon }) => <button key={id} type="button"
+        className={`${activePage === id ? 'active' : ''} ${id === 'about' && hasUpdate ? 'has-update' : ''}`}
+        aria-label={label} title={`${id === 'about' && hasUpdate ? '关于 · 发现新版本' : label} · 双击${collapsed ? '展开' : '收起'}侧栏`}
+        aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)} onDoubleClick={onToggleCollapsed}>
+        <Icon size={18} /><span className="app-nav-label">{label}</span>
+        {id === 'about' && hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}
+      </button>)}
     </nav>
+    <div className="sidebar-footer">
+      <span className="sidebar-version">版本 {appPackage.version}</span>
+      <button type="button" className="sidebar-collapse" aria-label={collapsed ? '展开侧栏' : '收起侧栏'} title={collapsed ? '展开侧栏' : '收起侧栏'} aria-expanded={!collapsed} aria-controls="app-navigation" onClick={onToggleCollapsed}>
+        {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}<span>收起侧栏</span>
+      </button>
+      <label className="enable-control"><span>软件总开关</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-label="软件功能总开关" title={`软件总开关 · ${enabled ? '已开启' : '已暂停'}`} aria-pressed={enabled} onClick={onToggleEnabled}><span /></button></label>
+    </div>
+  </aside>
+}
+
+type AppHeaderProps = {
+  context?: ReactNode
+  actions?: ReactNode
+}
+
+export function AppHeader({ context, actions }: AppHeaderProps) {
+  if (!context && !actions) return null
+  return <header className="topbar" aria-label="配置工具栏">
+    <div className="topbar-left">
+      {context && <div className="topbar-context">{context}</div>}
+    </div>
     <div className="header-actions">
-      <label className="enable-control"><span>软件功能总开关</span><button className={`switch ${enabled ? 'on' : ''}`} type="button" aria-label="软件功能总开关" aria-pressed={enabled} onClick={onToggleEnabled}><span /></button></label>
+      {actions}
     </div>
   </header>
 }

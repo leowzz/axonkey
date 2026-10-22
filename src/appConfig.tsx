@@ -70,6 +70,7 @@ export const audioGainMax = 30
 export const defaultAudioGain = 0
 
 export type StoredUiState = {
+  sidebarCollapsed: boolean
   activePage: AppPage
   selectedDeviceId: DeviceId
   activeId: ButtonId
@@ -100,6 +101,7 @@ function isKnownInput(value: unknown): value is InputId {
 }
 
 const defaultUiState: StoredUiState = {
+  sidebarCollapsed: false,
   activePage: 'home',
   selectedDeviceId: 'rc003',
   activeId: 'voice',
@@ -111,11 +113,12 @@ const defaultUiState: StoredUiState = {
 
 export function getStoredUiState(): StoredUiState {
   if (typeof window === 'undefined') return defaultUiState
+  const fallback = { ...defaultUiState, sidebarCollapsed: window.matchMedia?.('(max-width: 1200px)')?.matches === true }
   try {
     const stored = window.localStorage.getItem(uiStateStorageKey)
-    if (!stored) return defaultUiState
+    if (!stored) return fallback
     const parsed = JSON.parse(stored) as unknown
-    if (!isRecord(parsed)) return defaultUiState
+    if (!isRecord(parsed)) return fallback
 
     const selectedBehavior = isRecord(parsed.selectedBehavior) && isKnownInput(parsed.selectedBehavior.buttonId) && isKnownTrigger(parsed.selectedBehavior.trigger)
       ? { buttonId: parsed.selectedBehavior.buttonId, trigger: parsed.selectedBehavior.trigger }
@@ -132,6 +135,7 @@ export function getStoredUiState(): StoredUiState {
       : {}
 
     return {
+      sidebarCollapsed: typeof parsed.sidebarCollapsed === 'boolean' ? parsed.sidebarCollapsed : fallback.sidebarCollapsed,
       activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
       selectedDeviceId: typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId) ? parsed.selectedDeviceId as DeviceId : defaultUiState.selectedDeviceId,
       activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
@@ -141,7 +145,7 @@ export function getStoredUiState(): StoredUiState {
       scrollTop,
     }
   } catch {
-    return defaultUiState
+    return fallback
   }
 }
 
