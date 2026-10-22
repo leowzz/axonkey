@@ -78,6 +78,8 @@
 
 灵感来自 [remote-mic-app](https://github.com/HD838A/remote-mic-app)，感谢原项目。
 
+Windows 按键映射使用 [QuarborHIDFilterUserDriver](https://github.com/liujiaqi7998/QuarborHIDFilterUserDriver)，感谢 `奇桦科技有限公司` 提供的专有驱动。
+
 ## 投喂一点Token
 
 如果 Axonkey 用着顺手，欢迎投喂一点Token，让我继续折腾好玩又好用的小功能 😄

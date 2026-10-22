@@ -36,9 +36,12 @@ The exact build recipe and corresponding-source pointer are retained at
 
 ## QuarborHIDFilterUserDriver
 
-QuarborHIDFilterUserDriver is supplied by 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc. as a device-specific UMDF HID lower filter. Axonkey ships the original installer EXE, CLI documentation, INF, UMDF DLL, catalog, protocol documentation and license under vendor/QuarborHIDFilterUserDriver. The installer explicitly binds the private model to the selected RC003 keyboard device instance and stores the original driver information for offline recovery.
+- Project: `liujiaqi7998/QuarborHIDFilterUserDriver`
+- Source: https://github.com/liujiaqi7998/QuarborHIDFilterUserDriver
 
-The package is used under the [free-use / no-resale license](vendor/QuarborHIDFilterUserDriver/License).
+QuarborHIDFilterUserDriver is supplied by 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc. as a device-specific UMDF HID lower filter for Windows. Axonkey ships the original installer EXE, CLI documentation, INF, UMDF DLL, catalog, protocol documentation and license under vendor/QuarborHIDFilterUserDriver. The installer explicitly binds the private model to the selected RC003 keyboard device instance and stores the original driver information for offline recovery.
+
+This is a proprietary driver, used under the [free-use / no-resale license](vendor/QuarborHIDFilterUserDriver/License).
 
 ## VB-Audio VB-CABLE Pack45
 
