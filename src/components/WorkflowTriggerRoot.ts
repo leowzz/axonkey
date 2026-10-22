@@ -84,11 +84,14 @@ export function createTriggerRootExtension(
         // Keep the control in SVG coordinates: WebKit can misplace HTML inside
         // a foreignObject when the designer transforms the canvas.
         const actions = [
-          { id: 'save', label: '另存' }, { id: 'copy', label: '复制' },
-          { id: 'paste', label: '粘贴' }, { id: 'clear', label: '清空' },
+          { id: 'save', label: '另存', icon: 'm19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z M12 7v6 M9 10h6' },
+          { id: 'copy', label: '复制', icon: 'M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' },
+          { id: 'paste', label: '粘贴', icon: 'M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2 M16 4h2a2 2 0 0 1 2 2v2 M11 14h10 M17 10l4 4-4 4' },
+          { id: 'clear', label: '清空', icon: 'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21 M22 21H7 M5 11l9 9' },
         ] as const
-        const columns = headerHeight > 80 ? 2 : 4
-        const actionWidth = (laneWidth - 24 - (columns - 1) * 6) / columns
+        const actionGap = 4
+        const actionWidth = Math.min(32, (laneWidth - 16 - (actions.length - 1) * actionGap) / actions.length)
+        const actionsLeft = center - (actions.length * actionWidth + (actions.length - 1) * actionGap) / 2
         actions.forEach((action, index) => {
           const unavailable = action.id !== 'paste' && branch.length === 0
           const control = Dom.svg('g', {
@@ -97,11 +100,16 @@ export function createTriggerRootExtension(
             'aria-disabled': String(unavailable),
             [`data-trigger-${action.id}`]: id,
           })
-          Dom.translate(control, 12 + (index % columns) * (actionWidth + 6), 40 + Math.floor(index / columns) * 34)
+          Dom.translate(control, actionsLeft + index * (actionWidth + actionGap), 40)
           control.appendChild(Dom.svg('rect', { width: actionWidth, height: 28, rx: 5 }))
-          const caption = Dom.svg('text', { x: actionWidth / 2, y: 18 })
-          caption.textContent = action.label
-          control.appendChild(caption)
+          const hint = Dom.svg('title')
+          hint.textContent = action.label
+          control.appendChild(hint)
+          control.appendChild(Dom.svg('path', {
+            class: 'workflow-trigger-action-icon', d: action.icon,
+            transform: `translate(${(actionWidth - 16) / 2} 6) scale(${16 / 24})`,
+            'aria-hidden': 'true',
+          }))
           const run = () => {
             if (unavailable) return
             if (action.id === 'clear') onClear(id)
