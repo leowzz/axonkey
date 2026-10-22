@@ -53,7 +53,13 @@
 .workflow-trigger-action-icon { fill: none; stroke: var(--trigger-color); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 .workflow-trigger-action:not([aria-disabled="true"]):hover > rect { fill: #fff; stroke-opacity: .6; }
 .workflow-trigger-action:focus-visible > rect { stroke: #2878d4; stroke-width: 2; stroke-opacity: 1; }
-.workflow-trigger-action[aria-disabled="true"] { opacity: .45; cursor: default; }
+.workflow-trigger-action[aria-disabled="true"] { cursor: default; }
+.workflow-trigger-action[aria-disabled="true"] > rect, .workflow-trigger-action[aria-disabled="true"] > .workflow-trigger-action-icon { opacity: .45; }
+.workflow-trigger-action-tooltip { visibility: hidden; opacity: 0; pointer-events: none; transition: opacity .08s ease; }
+.workflow-trigger-action:hover > .workflow-trigger-action-tooltip { visibility: visible; opacity: 1; transition-delay: .2s; }
+.workflow-trigger-action:focus-visible > .workflow-trigger-action-tooltip { visibility: visible; opacity: 1; transition-delay: 0s; }
+.workflow-trigger-action-tooltip rect { fill: #293f53; stroke: none; }
+.workflow-trigger-action-tooltip text { fill: #fff; font-size: 12px; text-anchor: middle; user-select: none; }
 .workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
 .workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
 .workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }

@@ -89,9 +89,10 @@ export function createTriggerRootExtension(
           { id: 'paste', label: '粘贴', icon: 'M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2 M16 4h2a2 2 0 0 1 2 2v2 M11 14h10 M17 10l4 4-4 4' },
           { id: 'clear', label: '清空', icon: 'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21 M22 21H7 M5 11l9 9' },
         ] as const
-        const actionGap = 4
-        const actionWidth = Math.min(32, (laneWidth - 16 - (actions.length - 1) * actionGap) / actions.length)
-        const actionsLeft = center - (actions.length * actionWidth + (actions.length - 1) * actionGap) / 2
+        const columns = headerHeight > 80 ? 2 : 4
+        const actionGap = 6
+        const actionWidth = Math.min(32, (laneWidth - 24 - (columns - 1) * actionGap) / columns)
+        const actionsLeft = center - (columns * actionWidth + (columns - 1) * actionGap) / 2
         actions.forEach((action, index) => {
           const unavailable = action.id !== 'paste' && branch.length === 0
           const control = Dom.svg('g', {
@@ -100,16 +101,19 @@ export function createTriggerRootExtension(
             'aria-disabled': String(unavailable),
             [`data-trigger-${action.id}`]: id,
           })
-          Dom.translate(control, actionsLeft + index * (actionWidth + actionGap), 40)
+          Dom.translate(control, actionsLeft + (index % columns) * (actionWidth + actionGap), 40 + Math.floor(index / columns) * 34)
           control.appendChild(Dom.svg('rect', { width: actionWidth, height: 28, rx: 5 }))
-          const hint = Dom.svg('title')
-          hint.textContent = action.label
-          control.appendChild(hint)
           control.appendChild(Dom.svg('path', {
             class: 'workflow-trigger-action-icon', d: action.icon,
             transform: `translate(${(actionWidth - 16) / 2} 6) scale(${16 / 24})`,
             'aria-hidden': 'true',
           }))
+          const hint = Dom.svg('g', { class: 'workflow-trigger-action-tooltip', role: 'tooltip' })
+          hint.appendChild(Dom.svg('rect', { x: (actionWidth - 44) / 2, y: -30, width: 44, height: 24, rx: 5 }))
+          const hintText = Dom.svg('text', { x: actionWidth / 2, y: -14 })
+          hintText.textContent = action.label
+          hint.appendChild(hintText)
+          control.appendChild(hint)
           const run = () => {
             if (unavailable) return
             if (action.id === 'clear') onClear(id)
