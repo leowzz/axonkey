@@ -7,8 +7,8 @@ const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.u
 
 const pages = [
   { id: 'home', label: '主页', icon: Home },
-  { id: 'overview', label: '总览', icon: ScanLine },
   { id: 'mapping', label: '映射', icon: Keyboard },
+  { id: 'overview', label: '总览', icon: ScanLine },
   { id: 'settings', label: '设置', icon: Settings2 },
   { id: 'about', label: '关于', icon: Info },
 ] as const
