@@ -7,6 +7,7 @@
 ## 版本范围与更新清单
 
 仅正式版附带 `latest.json`。CI 在正式 Release 发布成功后，将清单同步到独立的 `updates` 分支。
+各主版本的正式 Release 均可标记为 GitHub Latest；应用自动更新通过下列清单按主版本隔离，不受全局 Latest 标记影响。
 应用直接读取当前主版本的固定文件，不调用 GitHub Release 列表 API：
 
 ```text
@@ -22,6 +23,7 @@ v1: https://raw.githubusercontent.com/leowzz/axonkey/updates/v1/latest.json
 预发布之间需手动安装，同主版本的预发布可更新到较新的正式版。
 应用及官网的手动下载入口指向完整 Release 列表，可选择需要的主版本。
 各版本共用应用标识及配置目录，手动安装时会覆盖已有应用。
+上述隔离适用于使用分主版本清单的客户端；仍查询 GitHub 全局 Latest 的早期 v0 客户端需先手动安装新版。
 
 ## 发布
 

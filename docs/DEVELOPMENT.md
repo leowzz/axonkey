@@ -53,8 +53,8 @@ make release V=0.2.30 RC=3 # 生成 v0.2.30-rc.3（V 也可带 v 前缀）
 ```
 
 推送 `v*` tag 后，CI 先校验版本和远端分支归属，再运行测试并构建 Windows NSIS、macOS Universal 安装包。
-预发布使用相同的签名、公证配置，发布为 GitHub Pre-release，不占用 Latest；正式版发布为 Release。
-为兼容仍查询全局 Latest 的旧客户端，只有 `v0.x.x` 正式版标记为 Latest；`v1.x.x` 及后续主版本不占用 Latest。
+预发布使用相同的签名、公证配置，发布为 GitHub Pre-release，不占用 Latest；各主版本的正式版均发布为 Release 并标记为 Latest。
+GitHub Latest 与应用自动更新通道独立，应用仍只检查和安装同一主版本的更新。
 当前为预发布版本时，必须显式传入 `V` 或 `RC`；两者均不传时会拒绝执行。正式版不传两者仍递增 patch。
 `RC=N` 要求 N 为无前导零的正整数；不传 `V` 时，去掉当前预发布后缀并递增 patch，再追加 `-rc.N`。
 同时传入 `V` 和 `RC` 时直接使用指定基础版本（支持带或不带 `v` 前缀），此时 `V` 不能附带预发布后缀。

@@ -350,8 +350,8 @@ if (args[1] === 'view') process.exit(process.env.RELEASE_EXISTS === 'true' ? 0 :
       const edit = calls.find(args => args[1] === 'edit')
       for (const args of [create, edit].filter(Boolean)) {
         assert.ok(args.includes(`--prerelease=${prerelease}`))
-        assert.equal(args.includes('--latest=false'), prerelease || major !== 0)
-        assert.equal(args.includes('--latest=true'), !prerelease && major === 0)
+        assert.equal(args.includes('--latest=false'), prerelease)
+        assert.equal(args.includes('--latest=true'), !prerelease)
       }
       assert.ok(edit.includes('--draft=false'))
       assert.equal(edit.includes('--notes-file'), state !== 'published')

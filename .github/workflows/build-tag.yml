@@ -501,8 +501,8 @@ jobs:
           RELEASE_NOTES_FILE: ${{ runner.temp }}/release-notes.md
         run: |
           release_args=(--prerelease="$PRERELEASE")
-          # Legacy v0 clients query global Latest without a major-version filter.
-          if [[ "$PRERELEASE" == "true" || "$TAG_NAME" != v0.* ]]; then
+          # App updates use per-major manifests independently of GitHub Latest.
+          if [[ "$PRERELEASE" == "true" ]]; then
             release_args+=(--latest=false)
           else
             release_args+=(--latest=true)
