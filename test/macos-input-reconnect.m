@@ -93,6 +93,7 @@ static void SetNumber(CFStringRef key, int64_t value) {
 }
 
 static const AxonkeyHardwareModifierMapping mapping = {0x70000003e, 0x7000000e4};
+static const AxonkeyHardwareModifierMapping power_guard = {0x700000066, 0x70000006f};
 static const AxonkeyCallbacks callbacks = {.should_stop = ShouldStop, .on_event = CaptureEvent};
 
 static AxonkeyInputState NewState(void) {
@@ -129,8 +130,9 @@ static void Connect(AxonkeyInputState *state) {
     axonkey_device_matched(state, kIOReturnSuccess, NULL, (IOHIDDeviceRef)service_properties);
 }
 
-static void CheckDelayedService(void) {
+static void CheckDelayedService(AxonkeyHardwareModifierMapping requested) {
     AxonkeyInputState state = NewState();
+    state.modifier_mappings = &requested;
     Connect(&state);
     assert(!state.modifier_mappings_active && last_mapping_status == 0);
     assert(last_capture_mode == AXONKEY_CAPTURE_FILTERED);
@@ -151,7 +153,7 @@ static void CheckDelayedService(void) {
     assert(strstr(diagnostics, "registry_id=0x7b"));
     CFArrayRef installed = CFDictionaryGetValue(service_properties, CFSTR("UserKeyMapping"));
     assert(installed && CFArrayGetCount(installed) == 1);
-    CFDictionaryRef expected = axonkey_create_usage_mapping(mapping.source, mapping.destination);
+    CFDictionaryRef expected = axonkey_create_usage_mapping(requested.source, requested.destination);
     assert(CFEqual(expected, CFArrayGetValueAtIndex(installed, 0)));
     CFRelease(expected);
     unsigned int attempts = state.modifier_mapping_attempt;
@@ -223,10 +225,11 @@ static void CheckClientRecoveryAndDisabledCapture(void) {
     FreeState(&state);
 }
 
-static void CheckRestoresOnlyManagedMappings(void) {
+static void CheckRestoresOnlyManagedMappings(AxonkeyHardwareModifierMapping requested) {
     AxonkeyInputState state = NewState();
+    state.modifier_mappings = &requested;
     service_available = true;
-    CFDictionaryRef original = axonkey_create_usage_mapping(mapping.source, 0x7000000e0);
+    CFDictionaryRef original = axonkey_create_usage_mapping(requested.source, 0x7000000e0);
     CFDictionaryRef unrelated = axonkey_create_usage_mapping(0x700000004, 0x700000005);
     const void *entries[] = {original, unrelated};
     CFArrayRef initial = CFArrayCreate(NULL, entries, 2, &kCFTypeArrayCallBacks);
@@ -256,11 +259,13 @@ static void CheckRestoresOnlyManagedMappings(void) {
 
 int main(void) {
     @autoreleasepool {
-        CheckDelayedService();
+        CheckDelayedService(mapping);
+        CheckDelayedService(power_guard);
         CheckWriteRejectionAndHeldKey();
         CheckDisconnectAndBackoff();
         CheckClientRecoveryAndDisabledCapture();
-        CheckRestoresOnlyManagedMappings();
+        CheckRestoresOnlyManagedMappings(mapping);
+        CheckRestoresOnlyManagedMappings(power_guard);
     }
     return 0;
 }

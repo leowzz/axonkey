@@ -199,9 +199,12 @@ static int CheckModifierMappingReplacementAndRestore(void) {
     const uint64_t right_control = 0x00000007000000E4;
     const uint64_t right_option = 0x00000007000000E6;
     const uint64_t space = 0x000000070000002C;
+    const uint64_t power = 0x0000000700000066;
+    const uint64_t f20 = 0x000000070000006F;
     const AxonkeyHardwareModifierMapping requested[] = {
         {.source = voice, .destination = function},
         {.source = menu, .destination = right_control},
+        {.source = power, .destination = f20},
     };
     AxonkeyInputState state = {
         .modifier_mappings = requested,
@@ -243,7 +246,8 @@ static int CheckModifierMappingReplacementAndRestore(void) {
         originals
     );
     bool valid = originals != NULL && CFArrayGetCount(originals) == 2 &&
-        desired != NULL && CFArrayGetCount(desired) == 3 &&
+        desired != NULL && CFArrayGetCount(desired) == 4 &&
+        MappingHasDestination(desired, power, f20) &&
         MappingHasDestination(desired, voice, function) &&
         MappingHasDestination(desired, menu, right_control) &&
         MappingHasDestination(desired, television, space) &&
@@ -341,6 +345,36 @@ static int CheckTelevisionPassThroughFiltered(void) {
         fputs("television key-up pass-through was not filtered\n", stderr);
         return 1;
     }
+    return 0;
+}
+
+static int CheckPowerGuardFiltered(void) {
+    AxonkeyInputState state = {.event_tap = (CFMachPortRef)1};
+    const uint8_t down_report[] = {0x66, 0x00};
+    const uint8_t up_report[] = {0x00, 0x00};
+    axonkey_arm_report_events(&state, 1, down_report, sizeof(down_report));
+    // Only this remote's remapped F20 is swallowed, including held repeats.
+    for (int repeat = 0; repeat < 2; repeat++) {
+        CGEventRef event = CGEventCreateKeyboardEvent(NULL, 90, true);
+        CGEventSetIntegerValueField(event, kCGKeyboardEventAutorepeat, repeat);
+        bool filtered = axonkey_event_tap_callback(NULL, kCGEventKeyDown, event, &state) == NULL;
+        CFRelease(event);
+        if (!filtered) { fputs("guard F20 key-down leaked\n", stderr); return 1; }
+    }
+    // Axonkey's configured output must still reach applications, even F20.
+    axonkey_macos_post_key(90, true, 0, false, false);
+    if (axonkey_event_tap_callback(NULL, kCGEventKeyDown, captured_posted_event, &state) == NULL) {
+        fputs("configured synthetic output was swallowed\n", stderr); return 1;
+    }
+    axonkey_arm_report_events(&state, 1, up_report, sizeof(up_report));
+    CGEventRef event = CGEventCreateKeyboardEvent(NULL, 90, false);
+    bool filtered = axonkey_event_tap_callback(NULL, kCGEventKeyUp, event, &state) == NULL;
+    CFRelease(event);
+    if (!filtered) { fputs("guard F20 key-up leaked\n", stderr); return 1; }
+    event = CGEventCreateKeyboardEvent(NULL, 90, true);
+    bool passed = axonkey_event_tap_callback(NULL, kCGEventKeyDown, event, &state) == event;
+    CFRelease(event);
+    if (!passed) { fputs("unrelated F20 key was swallowed\n", stderr); return 1; }
     return 0;
 }
 
@@ -461,6 +495,7 @@ int main(void) {
             CheckModifierMappingReplacementAndRestore() ||
             CheckHardwareMappedFnPassThrough() ||
             CheckTelevisionPassThroughFiltered() ||
+            CheckPowerGuardFiltered() ||
             CheckModifierEvent(
                 59,
                 kCGEventFlagMaskControl | NX_DEVICELCTLKEYMASK,

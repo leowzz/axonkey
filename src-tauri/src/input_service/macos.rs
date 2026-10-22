@@ -28,6 +28,12 @@ const CAPTURE_MODE_MASK: i32 = 0x03;
 const CAPTURE_HARDWARE_MODIFIER_MAPPINGS: i32 = 0x04;
 const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
 const HID_FUNCTION_USAGE: u64 = 0x0000_00ff_0000_0003;
+// Neutralize Power before loginwindow sees it; Quartz filtering is too late
+// for the system sleep/shutdown path. Raw HID reports still drive our gestures.
+const POWER_KEY_GUARD: HardwareModifierMapping = HardwareModifierMapping {
+    source: HID_KEYBOARD_USAGE_PAGE | 0x66,
+    destination: HID_KEYBOARD_USAGE_PAGE | 0x6f, // F20 (macOS keycode 90)
+};
 const LONG_PRESS_MS: u64 = 600;
 const LONG_PRESS_REPEAT_INITIAL_MS: u64 = 350;
 const LONG_PRESS_REPEAT_INTERVAL_MS: u64 = 100;
@@ -143,7 +149,7 @@ impl InputService {
             .map_err(|_| "Input settings lock is unavailable")?
             .clone();
         let should_restart = old_settings.enabled != settings.enabled
-            || hardware_modifier_mappings(&old_settings) != hardware_modifier_mappings(&settings);
+            || hardware_capture_mappings(&old_settings) != hardware_capture_mappings(&settings);
         *self
             .shared
             .settings
@@ -309,15 +315,12 @@ fn worker_loop(shared: Arc<Shared>) {
             shared
                 .settings
                 .read()
-                .map(|settings| hardware_modifier_mappings(&settings))
+                .map(|settings| hardware_capture_mappings(&settings))
                 .unwrap_or_default()
         } else {
             Vec::new()
         };
-        let hardware_modifier_mapping_usages = hardware_modifier_mappings
-            .iter()
-            .map(|mapping| mapping.source as u16)
-            .collect();
+        let hardware_modifier_mapping_usages = hardware_action_usages(&hardware_modifier_mappings);
         let cleanup_modifier_mapping_sources = SOURCE_KEYS
             .iter()
             .map(|source| HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage))
@@ -432,9 +435,7 @@ unsafe extern "C" fn event_callback(
                 status.capture_active = context.capture && capture_mode != 0;
                 if context.capture && capture_mode == 0 {
                     status.error = Some("RC003 could not be captured or filtered on macOS".into());
-                } else if !context.hardware_modifier_mapping_usages.is_empty()
-                    && !context.hardware_modifier_mappings_active
-                {
+                } else if context.capture && !context.hardware_modifier_mappings_active {
                     status.error = Some(MODIFIER_MAPPING_ERROR.into());
                 } else if context.capture {
                     status.error = None;
@@ -1188,6 +1189,27 @@ fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifier
                 destination: keys[0].hardware_modifier_usage()?,
             })
         })
+        .collect()
+}
+
+fn hardware_capture_mappings(settings: &NativeSettings) -> Vec<HardwareModifierMapping> {
+    let mut mappings = hardware_modifier_mappings(settings);
+    if settings.enabled
+        && !mappings
+            .iter()
+            .any(|mapping| mapping.source == POWER_KEY_GUARD.source)
+    {
+        mappings.push(POWER_KEY_GUARD);
+    }
+    mappings
+}
+
+fn hardware_action_usages(mappings: &[HardwareModifierMapping]) -> HashSet<u16> {
+    // F20 only neutralizes Power; its configured gestures still run in software.
+    mappings
+        .iter()
+        .filter(|mapping| **mapping != POWER_KEY_GUARD)
+        .map(|mapping| mapping.source as u16)
         .collect()
 }
 
@@ -1950,6 +1972,86 @@ mod tests {
             key: "Escape".into(),
         });
         assert_eq!(continuous_click_chord(&triggers), None);
+    }
+
+    #[test]
+    fn guards_power_in_empty_and_gesture_profiles_without_skipping_actions() {
+        let mut settings = NativeSettings {
+            enabled: true,
+            ..NativeSettings::default()
+        };
+        assert_eq!(hardware_capture_mappings(&settings), vec![POWER_KEY_GUARD]);
+        assert!(hardware_action_usages(&hardware_capture_mappings(&settings)).is_empty());
+
+        settings.behaviors.insert(
+            "power".into(),
+            TriggerBehaviors {
+                long_press: vec![NativeBehavior::Wheel {
+                    enabled: true,
+                    direction: WheelDirection::Up,
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        settings.behaviors.insert(
+            "voice".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "RCtrl".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        let mappings = hardware_capture_mappings(&settings);
+        assert!(mappings.contains(&POWER_KEY_GUARD));
+        let hardware_actions = hardware_action_usages(&mappings);
+        assert_eq!(hardware_actions, HashSet::from([0x3e]));
+        let shared = Shared {
+            settings: RwLock::new(settings.clone()),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            restart: AtomicBool::new(false),
+        };
+        let mut state = MacInputState::default();
+        TEST_WHEELS.with(|events| events.borrow_mut().clear());
+        state.process_report(&shared, HashSet::from([0x66]), true, &hardware_actions);
+        state
+            .button_states
+            .get_mut("power")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap()
+            .started_at = Instant::now() - Duration::from_millis(LONG_PRESS_MS + 1);
+        state.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), vec![WheelDirection::Up]));
+        state.process_report(&shared, HashSet::new(), true, &hardware_actions);
+        assert!(state.button_states["power"].pressed.is_none());
+
+        settings.behaviors.insert(
+            "power".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Key {
+                    enabled: true,
+                    key: "RCtrl".into(),
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        let mappings = hardware_capture_mappings(&settings);
+        assert_eq!(
+            mappings
+                .iter()
+                .filter(|mapping| mapping.source == POWER_KEY_GUARD.source)
+                .count(),
+            1
+        );
+        assert!(!mappings.contains(&POWER_KEY_GUARD));
+        assert!(hardware_action_usages(&mappings).contains(&0x66));
+        settings.enabled = false;
+        assert!(hardware_capture_mappings(&settings).is_empty());
     }
 
     #[test]

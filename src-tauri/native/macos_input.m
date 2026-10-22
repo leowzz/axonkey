@@ -659,7 +659,8 @@ static void axonkey_arm_usage_events(AxonkeyInputState *state, uint16_t usage, b
         axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 63, down);
     }
     if (usage == 0x66) {
-        // The RC003 power usage is Escape unless another app remaps it to F20.
+        // Capture uses a device-scoped Power -> F20 mapping to prevent system
+        // sleep. Also filter Escape from a pre-existing mapping during setup.
         axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 53, down);
     }
 }
