@@ -680,10 +680,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .remote-device-card .device-state-dot { background: #98aabd; }
 .mapping-active .remote-device-card .device-state-dot.connected { background: #4eaf83; box-shadow: 0 0 0 3px rgba(78,175,131,.14); }
 .mapping-active .remote-device-card .battery-level.low, .mapping-active .remote-device-card .battery-icon.low { color: #c53030; }
-.device-status-switch { width: 34px !important; height: 20px !important; margin: 0 0 0 auto !important; padding: 0 !important; border: 0 !important; }
 .device-status-toggle-row { flex: 1; gap: 8px; }
-.device-status-switch span { width: 16px; height: 16px; }
-.device-status-switch.on span { transform: translateX(14px); }
 .mapping-active .remote-device-card .battery-level.full, .mapping-active .remote-device-card .battery-icon.full { color: #23834b; }
 .mapping-active .remote-stage { display: grid; min-height: 0; flex: 0 0 auto; place-items: start center; margin-top: 8px; padding: 10px 0 12px; }
 .mapping-active .remote-art { width: min(232px, 100%); }
@@ -1177,6 +1174,11 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-status-card dd.ready::before { width: 6px; height: 6px; border-radius: 50%; background: currentColor; content: ''; }
 .device-status-card dd.warning { color: #ba6c2d; }
 .device-status-card button { display: flex; flex-shrink: 0; align-items: center; white-space: nowrap; margin: 0 0 0 auto; padding: 0; border: 0; background: transparent; color: #6483a4; font-size: 11px; line-height: 18px; cursor: pointer; }
+.device-status-card .device-status-switch { display: block; width: 34px; height: 20px; padding: 2px; border-radius: 20px; background: #d6d8db; }
+.device-status-card .device-status-switch span { width: 16px; height: 16px; transform: translateX(0); }
+.device-status-card .device-status-switch.on { background: var(--blue); }
+.device-status-card .device-status-switch.on span { transform: translateX(14px); }
+.device-status-card .device-status-switch:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; }
 .mouse-model-section { width: 100%; padding-top: 20px; text-align: center; }
 .mouse-model-title { margin-bottom: 16px; color: #72859a; font-size: 11px; }
 
