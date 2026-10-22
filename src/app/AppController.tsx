@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   Info,
+  MoreHorizontal,
   RotateCcw,
   Target,
   Upload,
@@ -1635,14 +1636,27 @@ function AppController() {
           handleHotspotPointerMove={handleHotspotPointerMove}
           finishHotspotDrag={finishHotspotDrag}
           platform={platform}
-          autoSaveState={autoSaveState}
-          nativeRuntime={nativeRuntime}
-          enabled={enabled}
           showRemoteKeyGrid={showRemoteKeyGrid}
           showMouseKeyGrid={showMouseKeyGrid}
           rowRefs={rowRefs}
-          onRetryApply={() => setApplyRetry((value) => value + 1)}
-          toolbar={<div className="key-picker-actions"><ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} /><span className="toolbar-divider" /><label className="mapping-style-control"><span>启用新编辑器</span><button type="button" role="switch" className={`switch mapping-style-switch ${mappingStyle === 'flow' ? 'on' : ''}`} aria-checked={mappingStyle === 'flow'} aria-label="启用新编辑器" onClick={() => setMappingStyle((style) => style === 'flow' ? 'legacy' : 'flow')}><span /></button></label><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div><span className="toolbar-divider" /><button type="button" className="reset-button mapping-transfer-button" title="导入配置文件 JSON" onClick={openMappingImport}><Download size={13} /> 导入配置</button><button type="button" className="reset-button mapping-transfer-button" title="导出当前配置文件 JSON" onClick={exportMappings}><Upload size={13} /> 导出配置</button>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}<button type="button" className="reset-button" onClick={resetMappings}><RotateCcw size={14} /> 恢复默认</button><input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} /></div>}
+          contextToolbar={<>
+            <ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} />
+            <div className="mapping-context-actions">
+              <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>
+              {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
+              <details className="mapping-options" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false }} onKeyDown={(event) => { if (event.key === 'Escape') event.currentTarget.open = false }}>
+                <summary aria-label="更多映射操作" title="更多映射操作"><MoreHorizontal size={19} /></summary>
+                <div className="mapping-options-menu">
+                  <button type="button" onClick={openMappingImport}><Download size={15} /> 导入配置</button>
+                  <button type="button" onClick={exportMappings}><Upload size={15} /> 导出配置</button>
+                  <button type="button" onClick={resetMappings}><RotateCcw size={15} /> 恢复默认映射</button>
+                  <label><input type="checkbox" checked={mappingStyle === 'flow'} onChange={(event) => setMappingStyle(event.target.checked ? 'flow' : 'legacy')} /> 启用新编辑器</label>
+                </div>
+              </details>
+              <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
+            </div>
+          </>}
+          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}</div>}
           behaviorEditorProps={{
             editorRef: behaviorEditorRef,
             attention: behaviorEditorAttention,

@@ -29,18 +29,16 @@ export function MappingFlowPage({
   handleHotspotPointerMove,
   finishHotspotDrag,
   platform,
-  autoSaveState,
-  nativeRuntime,
-  enabled,
-  onRetryApply,
   toolbar,
+  contextToolbar,
   showRemoteKeyGrid,
   showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
 }: MappingPageProps) {
-  const [toolboxExpandedIndex, setToolboxExpandedIndex] = useState<number | null>(0)
+  const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   return <div className="mapping-page mapping-flow-page">
+    <div className="mapping-workspace-context">{contextToolbar}</div>
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
       <aside className="mapping-device-rail panel-surface">
         <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
@@ -77,7 +75,7 @@ export function MappingFlowPage({
         <section className="key-picker" aria-labelledby="key-picker-title">
           <div className="key-picker-head">
             <div className="key-picker-heading">
-            <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'} <span className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>{autoSaveState === 'error' && <button type="button" className="reset-button" onClick={onRetryApply}>重试</button>}</h2>
+            <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'}</h2>
           {!isMouse && showRemoteKeyGrid && <MappingKeyGrid
             platform={platform}
             buttons={editableButtons}
@@ -92,7 +90,7 @@ export function MappingFlowPage({
           </div>
           {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
-        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} toolboxExpandedIndex={toolboxExpandedIndex} onToolboxExpandedChange={setToolboxExpandedIndex} />
+        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} toolboxCategory={toolboxCategory} onToolboxCategoryChange={setToolboxCategory} />
       </section>
     </div>
   </div>

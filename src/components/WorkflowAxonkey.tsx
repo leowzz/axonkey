@@ -39,8 +39,8 @@ type WorkflowAxonkeyProps = {
   button: MappingInput
   sequences: TriggerBehaviors
   onChange: (inputId: InputId, sequences: TriggerBehaviors) => void
-  toolboxExpandedIndex: number | null
-  onToolboxExpandedChange: (index: number | null) => void
+  toolboxCategory: string
+  onToolboxCategoryChange: (category: string) => void
 }
 
 type WorkflowAction = {
@@ -49,7 +49,7 @@ type WorkflowAction = {
   description?: string
 }
 
-export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxExpandedIndex, onToolboxExpandedChange }: WorkflowAxonkeyProps) {
+export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps) {
   const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const trashRef = useRef<HTMLButtonElement>(null)
@@ -277,7 +277,9 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
           workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
           // Dropping a block only inserts it. Users can open the editor from
           // the block itself when they want to change its parameters.
-          return
+          // The designer coalesces nested change notifications. Save the
+          // normalized definition here instead of waiting for another event.
+          break
         }
       }
       const next = workflowToBehaviors(current)
@@ -336,7 +338,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
       <span>拖入删除</span>
     </button>
-    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} expandedIndex={toolboxExpandedIndex} onExpandedChange={onToolboxExpandedChange} />, toolbox.host)}
+    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={toolbox.palettes} iconUrls={toolbox.iconUrls} selectedCategory={toolboxCategory} onCategoryChange={onToolboxCategoryChange} />, toolbox.host)}
     {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
   </section>
 }

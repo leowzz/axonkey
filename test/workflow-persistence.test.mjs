@@ -18,10 +18,15 @@ const Designer = {
   create(_canvas, definition, configuration) {
     const listeners = []
     const instance = {
-      definition, configuration, destroyed: false,
+      definition, configuration, destroyed: false, coalesceChanges: false, delivering: false,
       emit(changeType, stepId = null) {
+        if (this.coalesceChanges && this.delivering) return Promise.resolve()
         const event = { definition, changeType, stepId }
-        return Promise.resolve().then(() => { for (const callback of listeners) callback(event) })
+        return Promise.resolve().then(() => {
+          this.delivering = true
+          try { for (const callback of listeners) callback(event) }
+          finally { this.delivering = false }
+        })
       },
       onReady: { subscribe() {} }, onDefinitionChanged: { subscribe(callback) { listeners.push(callback) } },
       onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
@@ -120,6 +125,24 @@ test('workflow changes autosave once, and the save echo retains the designer and
     await act(async () => dialog.props.edit.onSave({ id: node.id, type: 'delay', enabled: true, ms: 751 }))
     assert.equal(app.writes.length, 2)
     assert.equal(app.writes.at(-1)[1].click[0].ms, 751)
+  } finally { await app.unmount() }
+})
+
+test('a dropped block autosaves when the real designer coalesces its nested normalization event', async () => {
+  const app = await render()
+  try {
+    const instance = app.current()
+    // sequential-workflow-designer's race() drops changes emitted during
+    // delivery of the current event; normalization cannot depend on a second event.
+    instance.coalesceChanges = true
+    const node = palette('delay')
+    branches(instance).doubleClick.push(node)
+    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+    assert.equal(app.writes.length, 1)
+    assert.equal(app.writes[0][1].doubleClick[0].ms, 300)
+    await app.update({ sequences: app.writes[0][1] })
+    assert.equal(app.current(), instance)
+    assert.equal(app.writes.length, 1)
   } finally { await app.unmount() }
 })
 
