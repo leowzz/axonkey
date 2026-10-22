@@ -186,6 +186,7 @@ impl InputService {
     }
 
     pub fn set_event_app(&self, app: tauri::AppHandle) {
+        super::profile_switch::set_event_app(app.clone());
         if let Ok(mut event_app) = self.shared.event_app.write() {
             *event_app = Some(app);
         }
@@ -1255,6 +1256,9 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
             NativeBehavior::Delay { ms, .. } => {
                 thread::sleep(Duration::from_millis((*ms).min(300_000)))
             }
+            NativeBehavior::SwitchProfile {
+                direction, wrap, ..
+            } => super::profile_switch::execute(*direction, *wrap),
             NativeBehavior::Disabled { .. } => {}
             NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
@@ -1305,6 +1309,11 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Delay { ms, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=delay, effective_ms={}", (*ms).min(300_000))
         }
+        NativeBehavior::SwitchProfile {
+            direction, wrap, ..
+        } => {
+            log::info!(target: "axonkey::input", "Mapped profile switch: direction={direction:?}, wrap={wrap}")
+        }
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
@@ -1335,6 +1344,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
+        | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }

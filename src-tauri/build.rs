@@ -12,9 +12,11 @@ fn main() {
         cc::Build::new()
             .file("native/macos_input.m")
             .file("native/macos_audio.m")
+            .file("native/macos_overlay.m")
             .flag("-fobjc-arc")
             .compile("axonkey_macos_native");
         println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
         println!("cargo:rustc-link-lib=framework=AudioToolbox");
         println!("cargo:rustc-link-lib=framework=AVFoundation");
@@ -26,6 +28,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos_pcm_queue.h");
         println!("cargo:rerun-if-changed=native/macos_audio_trace.h");
         println!("cargo:rerun-if-changed=native/macos_input.m");
+        println!("cargo:rerun-if-changed=native/macos_overlay.m");
     }
     tauri_build::build()
 }

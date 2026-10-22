@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
+import { ProfileSwitchOverlay } from './components/ProfileSwitchOverlay'
 import './styles.css'
 import { installRuntimeLogging, logInfo } from './runtimeLogging'
 
@@ -26,8 +27,10 @@ installRuntimeLogging()
 logInfo('Frontend runtime initialized')
 
 const root = createRoot(document.getElementById('root')!)
+const isProfileSwitchOverlay = new URLSearchParams(window.location.search).get('view') === 'profile-switch-overlay'
+if (isProfileSwitchOverlay) document.documentElement.classList.add('profile-switch-overlay-window')
 root.render(
   <StrictMode>
-    <AppErrorBoundary><App /></AppErrorBoundary>
+    <AppErrorBoundary>{isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : <App />}</AppErrorBoundary>
   </StrictMode>,
 )

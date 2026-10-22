@@ -41,6 +41,7 @@ pub(super) enum Output {
     OpenApp(String),
     OpenWebsite(String),
     Key(HidKey, bool),
+    SwitchProfile(super::ProfileDirection, bool),
 }
 
 #[derive(Default)]
@@ -91,6 +92,11 @@ fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now:
                         queue.extend(keys.iter().rev().map(|key| (due, Output::Key(*key, false))));
                     }
                 }
+            }
+            NativeBehavior::SwitchProfile {
+                direction, wrap, ..
+            } => {
+                queue.push((due, Output::SwitchProfile(*direction, *wrap)));
             }
             NativeBehavior::Disabled { .. } => {}
         }
@@ -718,5 +724,38 @@ mod tests {
         cursor.edge("up", false, &config, now + Duration::from_secs(1));
         cursor.cancel();
         assert!(moves(&mut cursor, now + Duration::from_secs(2)).is_empty());
+    }
+    #[test]
+    fn profile_switches_keep_order_delays_flags_and_cancel_on_reconfiguration() {
+        let config = settings(json!({"click":[
+            {"type":"switchProfile","direction":"next"},
+            {"type":"delay","ms":100},
+            {"type":"switchProfile","direction":"next","enabled":false,"wrap":true},
+            {"type":"switchProfile","direction":"previous","wrap":true}
+        ]}));
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.synchronize(1, true);
+        actions.edge("up", true, &config, now);
+        actions.edge("up", false, &config, now);
+        assert_eq!(
+            outputs(&mut actions, now),
+            [Output::SwitchProfile(
+                super::super::ProfileDirection::Next,
+                true
+            )]
+        );
+        assert!(outputs(&mut actions, now + Duration::from_millis(99)).is_empty());
+        assert_eq!(
+            outputs(&mut actions, now + Duration::from_millis(100)),
+            [Output::SwitchProfile(
+                super::super::ProfileDirection::Previous,
+                true
+            )]
+        );
+        actions.edge("up", true, &config, now + Duration::from_secs(1));
+        actions.edge("up", false, &config, now + Duration::from_secs(1));
+        actions.synchronize(2, true);
+        assert!(outputs(&mut actions, now + Duration::from_secs(2)).is_empty());
     }
 }

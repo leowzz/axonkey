@@ -1,5 +1,5 @@
 import type { ComponentProps, MutableRefObject, PointerEvent, ReactNode, RefObject } from 'react'
-import type { BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import type { BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import type { HitPosition, Platform, RemoteButton } from '../appTypes'
 import type { DeviceId } from '../deviceModel'
 import { iconFor } from '../appConfig'
@@ -25,7 +25,8 @@ export type MappingPageProps = {
   markerRefs: MutableRefObject<Partial<Record<ButtonId, HTMLButtonElement>>>
   pressedId: ButtonId | null
   behaviors: BehaviorMap
-  onWorkflowChange: (inputId: InputId, sequences: TriggerBehaviors) => void
+  onRequestProfileSwitch: (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
+  onWorkflowChange: (inputId: InputId, sequences: TriggerBehaviors) => void | false
   draggingId: ButtonId | null
   hitPositions: Record<ButtonId, HitPosition>
   handleHotspotPointerDown: (button: RemoteButton, event: PointerEvent<HTMLButtonElement>) => void

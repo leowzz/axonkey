@@ -2,6 +2,7 @@ import type { Platform } from '../appTypes'
 
 // Lucide SVG shapes mirror the icons in BehaviorEditor. The designer needs image URLs.
 const glyphShapes: Record<string, string> = {
+  "Layers": "<path d=\"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z\"></path><path d=\"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12\"></path><path d=\"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17\"></path>",
   "RotateCcw": "<path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"></path><path d=\"M3 3v5h5\"></path>",
   "Ban": "<circle cx=\"12\" cy=\"12\" r=\"10\"></circle><path d=\"m4.9 4.9 14.2 14.2\"></path>",
   "ArrowLeft": "<path d=\"m12 19-7-7 7-7\"></path><path d=\"M19 12H5\"></path>",
@@ -31,6 +32,7 @@ const glyphShapes: Record<string, string> = {
 const actionGlyphs: Record<string, string> = {
   "original": "RotateCcw",
   "savedSequence": "FolderOpen",
+  "switchProfile": "Layers",
   "disabled": "Ban",
   "previousTab": "ArrowLeft",
   "nextTab": "ArrowRight",

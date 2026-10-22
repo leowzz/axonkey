@@ -24,7 +24,8 @@ const Designer = {
   create(_canvas, definition, configuration) {
     const listeners = []
     const instance = {
-      definition, configuration, destroyed: false, coalesceChanges: false, delivering: false,
+      definition, configuration, canvas: _canvas, destroyed: false, coalesceChanges: false, delivering: false,
+      isReadonly() { return this.api.editor.isReadonly() },
       emit(changeType, stepId = null) {
         if (this.coalesceChanges && this.delivering) return Promise.resolve()
         const event = { definition, changeType, stepId }
@@ -84,7 +85,7 @@ function load(file) {
     return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
   }
   vm.runInNewContext(source, {
-    module, exports: module.exports, require: localRequire, URL, console, crypto: globalThis.crypto,
+    module, exports: module.exports, require: localRequire, URL, console, crypto: globalThis.crypto, structuredClone,
     window: { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
       getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
@@ -104,10 +105,14 @@ const clearLane = (instance, trigger) => instance.configuration.extensions.find(
 const render = async (sequences = empty()) => {
   let view
   const writes = []
-  let props = { toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
-  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => ({ querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} } }) }) })
+  const requests = []
+  let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
+  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => {
+    const handlers = new Map()
+    return { handlers, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
+  } }) })
   return {
-    view, writes, current: () => instances.at(-1),
+    view, writes, requests, current: () => instances.at(-1),
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))) },
     unmount: async () => act(async () => view.unmount()),
   }
@@ -478,5 +483,132 @@ test('a disabling node remains draggable and trash deletion autosaves once and r
     await app.update({ sequences: app.writes[0][1] })
     await app.update({ sequences: original })
     assert.equal(branches(app.current()).click[0].type, 'disabled', 'shared undo restores the disabling node')
+  } finally { await app.unmount() }
+})
+
+
+test('dropping new or saved profile switching opens confirmation without inserting or saving anything', async () => {
+  for (const type of ['switchProfile', 'savedSequence']) {
+    const original = { click: [delay(500)], doubleClick: [delay(700)], longPress: [] }
+    const app = await render(original)
+    try {
+      const instance = app.current()
+      const node = palette(type)
+      if (type === 'savedSequence') node.properties.sequence = 'axonkey/1\nprofile next wrap\nend'
+      branches(instance).click.push(node)
+      await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+      assert.equal(app.writes.length, 0)
+      assert.equal(app.requests.length, 1)
+      assert.deepEqual(app.requests[0].slice(0, 2), ['tv', 'click'])
+      assert.equal(app.requests[0][2].wrap, true)
+      assert.deepEqual(branches(instance).click.map(step => step.properties.ms), [500])
+      assert.deepEqual(branches(instance).doubleClick.map(step => step.properties.ms), [700])
+      await app.unmount()
+      assert.equal(app.writes.length, 0, 'cancel or page changes must never flush the proposed switch')
+    } catch (error) { await app.unmount(); throw error }
+  }
+})
+
+test('editing and pasting profile switches wait for shared overwrite confirmation', async () => {
+  const behavior = { id: 'profile', enabled: true, type: 'switchProfile', direction: 'previous', wrap: false }
+  const app = await render({ click: [behavior], doubleClick: [], longPress: [] })
+  try {
+    const dialog = await openContextEditor(app, 'click')
+    await act(async () => dialog.props.edit.onSave({ ...behavior, direction: 'next', wrap: true }))
+    assert.equal(app.writes.length, 0)
+    assert.equal(app.requests.length, 1)
+    assert.equal(branches(app.current()).click[0].properties.wrap, false)
+    await laneAction(app, 'longPress', 'paste')
+    await act(async () => app.view.root.findByType('sequence-paste-dialog').props.onApply([behavior]))
+    assert.equal(app.requests.length, 2)
+    assert.equal(app.requests[1][1], 'longPress')
+    assert.equal(app.writes.length, 0)
+    assert.equal(branches(app.current()).longPress.length, 0)
+  } finally { await app.unmount() }
+})
+
+
+test('a fast page change cannot autosave a saved profile switch before confirmation', async () => {
+  const app = await render({ click: [delay(650)], doubleClick: [], longPress: [] })
+  const node = palette('savedSequence')
+  node.properties.sequence = 'axonkey/1\nprofile previous wrap\nend'
+  branches(app.current()).click.push(node)
+  await app.unmount()
+  assert.equal(app.writes.length, 0)
+  assert.equal(app.requests.length, 0)
+})
+
+test('trash, clear, context deletion and Delete restore a shared switch while waiting for confirmation', async () => {
+  const { removedProfileSwitchTriggers } = load('src/profileNavigation.ts')
+  for (const route of ['trash', 'clear', 'context', 'keyboard']) {
+    const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }], doubleClick: [delay(400)], longPress: [] }
+    const app = await render(original)
+    const pending = []
+    try {
+      await app.update({ onChange: (id, next) => {
+        if (removedProfileSwitchTriggers(original, next).length) { pending.push(copy(next)); return false }
+        app.writes.push([id, copy(next)])
+      } })
+      const instance = app.current()
+      instance.coalesceChanges = true
+      if (route === 'trash') await act(async () => instance.dropOnTrash('shared'))
+      if (route === 'clear') await act(async () => clearLane(instance, 'click'))
+      if (route === 'context') {
+        const lane = branches(instance).click
+        assert.equal(instance.configuration.steps.isDeletable(lane[0], lane), true)
+        lane.splice(0, 1)
+        await act(async () => instance.emit(library.DefinitionChangeType.stepDeleted, 'shared'))
+      }
+      if (route === 'keyboard') {
+        instance.onSelectedStepIdChanged.emit('shared')
+        await act(async () => instance.canvas.handlers.get('keydown')({ key: 'Delete', target: { closest: () => null }, preventDefault() {}, stopPropagation() {} }))
+      }
+      assert.equal(pending.length, 1, route)
+      assert.deepEqual(pending[0], { ...original, click: [] })
+      assert.equal(app.writes.length, 0, 'confirmation cannot autosave or add an undo entry')
+      assert.equal(branches(instance).click[0].id, 'shared', 'cancel leaves the original node in place')
+      assert.equal(app.current(), instance, 'opening confirmation preserves the canvas and viewport')
+      await app.unmount()
+      assert.equal(pending.length, 1, 'cleanup must not repeat the prompt')
+      assert.equal(app.writes.length, 0, 'cleanup must not flush an unconfirmed deletion')
+    } catch (error) { await app.unmount(); throw error }
+  }
+})
+
+test('a fast page change gates an undelivered shared deletion and confirmed props remove it without prompting again', async () => {
+  const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'previous', wrap: true }], doubleClick: [], longPress: [] }
+  const app = await render(original)
+  const pending = []
+  await app.update({ onChange: (_id, next) => { pending.push(copy(next)); return false } })
+  branches(app.current()).click.splice(0, 1)
+  await app.unmount()
+  assert.equal(pending.length, 1)
+  assert.deepEqual(pending[0], empty())
+  assert.equal(app.writes.length, 0)
+
+  const confirmed = await render(original)
+  try {
+    await confirmed.update({ sequences: empty() })
+    assert.deepEqual(branches(confirmed.current()).click, [])
+    assert.equal(confirmed.writes.length, 0)
+  } finally { await confirmed.unmount() }
+})
+
+test('cancelling shared deletion preserves unfinished drafts in other lanes', async () => {
+  const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }], doubleClick: [], longPress: [] }
+  const app = await render(original)
+  try {
+    const instance = app.current()
+    const node = palette('paste')
+    branches(instance).longPress.push(node)
+    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+    assert.equal(app.writes.length, 0)
+    assert.equal(branches(instance).longPress[0].properties.draftGroup, node.id)
+    await app.update({ onChange: () => false })
+    await act(async () => clearLane(instance, 'click'))
+    assert.equal(branches(instance).click[0].id, 'shared')
+    assert.equal(branches(instance).longPress[0].id, node.id)
+    assert.equal(branches(instance).longPress[0].properties.draftGroup, node.id)
+    assert.equal(app.writes.length, 0)
   } finally { await app.unmount() }
 })

@@ -14,7 +14,7 @@ export type ButtonId = RemoteButtonId
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'openApp', 'openWebsite', 'disabled'] as const
+export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'openApp', 'openWebsite', 'switchProfile', 'disabled'] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 export const cursorDirections = ['up', 'down', 'left', 'right'] as const
 export type CursorDirection = (typeof cursorDirections)[number]
@@ -54,9 +54,11 @@ export type WheelBehavior = BehaviorBase & { type: 'wheel'; direction: 'up' | 'd
 export type MouseBehavior = BehaviorBase & { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward' }
 export type CursorMoveBehavior = BehaviorBase & { type: 'cursorMove'; direction: CursorDirection; distance: number }
 export type OpenAppBehavior = BehaviorBase & { type: 'openApp'; path: string }
+export type ProfileDirection = 'previous' | 'next'
+export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | OpenAppBehavior | OpenWebsiteBehavior | DisabledBehavior
+export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | OpenAppBehavior | OpenWebsiteBehavior | DisabledBehavior | SwitchProfileBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -89,6 +91,7 @@ export type CreateBehaviorOptions =
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
+  | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
 
 const maxDelayMs = 300_000
@@ -179,6 +182,8 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       return { id, enabled, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
     case 'openWebsite':
       return { id, enabled, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
+    case 'switchProfile':
+      return { id, enabled, type: 'switchProfile', direction: options.direction ?? 'next', wrap: options.wrap !== false }
     case 'disabled':
       return { id, enabled, type: 'disabled' }
   }
@@ -267,6 +272,9 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       const url = normalizeWebsiteUrl(value.url)
       return url ? { id, enabled, type, url } : null
     }
+    case 'switchProfile':
+      return (value.direction === 'previous' || value.direction === 'next') && (value.wrap === undefined || typeof value.wrap === 'boolean')
+        ? { id, enabled, type, direction: value.direction, wrap: value.wrap !== false } : null
     case 'disabled':
       return { id, enabled, type }
   }
@@ -393,6 +401,7 @@ export function serializeSequence(behaviors: Behavior[]): string {
       case 'cursorMove': line = `move ${behavior.direction} ${behavior.distance}`; break
       case 'openApp': line = `app ${sequenceArgument(behavior.path)}`; break
       case 'openWebsite': line = `url ${sequenceArgument(behavior.url)}`; break
+      case 'switchProfile': line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`; break
       case 'disabled': line = 'disabled'; break
     }
     return behavior.enabled ? line : `off ${line}`
@@ -447,6 +456,7 @@ function parseSequenceText(text: string): unknown[] | null {
     }
     else if (command === 'app' && args.length === 1) behavior = { type: 'openApp', path: args[0] }
     else if (command === 'url' && args.length === 1) behavior = { type: 'openWebsite', url: args[0] }
+    else if (command === 'profile' && args.length === 2 && ['previous', 'next'].includes(args[0]) && ['wrap', 'stop'].includes(args[1])) behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
     else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
     else return null
     behaviors.push({ ...behavior, enabled })

@@ -1,0 +1,11 @@
+html.profile-switch-overlay-window,
+.profile-switch-overlay-window body,
+.profile-switch-overlay-window #root { width: 100%; height: 100%; min-width: 0; min-height: 0; margin: 0; overflow: hidden; background: transparent; }
+.profile-switch-overlay { display: flex; align-items: center; gap: 16px; width: 100%; height: 100%; padding: 20px 24px; border: 1px solid rgb(255 255 255 / 20%); border-radius: 16px; color: #fff; background: rgb(24 29 38 / 36%); pointer-events: none; }
+.profile-switch-overlay-icon { flex: 0 0 auto; color: #c4d9ff; }
+.profile-switch-overlay-content { flex: 1; min-width: 0; }
+.profile-switch-overlay-content p { margin: 0 0 7px; color: rgb(255 255 255 / 72%); font-size: 12px; font-weight: 500; }
+.profile-switch-overlay-names { display: flex; align-items: center; gap: 12px; min-width: 0; font-size: 17px; line-height: 1.45; }
+.profile-switch-overlay-from, .profile-switch-overlay-names strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-switch-overlay-from { flex: 0 1 auto; color: rgb(255 255 255 / 75%); }
+.profile-switch-overlay-names strong { flex: 0 1 auto; font-weight: 650; }

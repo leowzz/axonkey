@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { behaviorFromCapturedKey, behaviorTypeLabels, formatCapturedKey } from '../appConfig'
 import type { Behavior, TriggerType } from '../behaviorModel'
@@ -12,11 +13,15 @@ export type WorkflowStepEdit = {
   onSave: (behavior: Behavior) => void
 }
 
-export function WorkflowStepDialog({ edit, platform, button, onClose }: {
+export function WorkflowStepDialog({ edit, platform, button, onClose, children, title, saveLabel, saveTone }: {
   edit: WorkflowStepEdit
   platform: Platform
   button: MappingInput
   onClose: () => void
+  children?: ReactNode
+  title?: string
+  saveLabel?: string
+  saveTone?: 'warning'
 }) {
   const [behavior, setBehavior] = useState(edit.behavior)
   const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
@@ -61,7 +66,10 @@ export function WorkflowStepDialog({ edit, platform, button, onClose }: {
       behavior={behavior}
       draft
       delayStep={1}
-      title={`编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
+      title={title ?? `编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
+      saveLabel={saveLabel}
+      saveTone={saveTone}
+      children={children}
       actionChoices={choiceGroup ? {
         label: choiceGroup.label,
         options: choiceGroup.options.map((option) => ({

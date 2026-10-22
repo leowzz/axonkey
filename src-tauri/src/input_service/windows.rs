@@ -520,6 +520,7 @@ impl InputService {
     }
 
     pub fn set_event_app(&self, app: tauri::AppHandle) {
+        super::profile_switch::set_event_app(app.clone());
         #[cfg(not(test))]
         if let Ok(mut event_app) = self.shared.event_app.write() {
             *event_app = Some(app);
@@ -692,6 +693,7 @@ fn emit_remote_output(
         Output::Wheel(direction) => {
             send_wheel_with_axis(wheel_delta(direction), wheel_horizontal(direction));
         }
+        Output::SwitchProfile(direction, wrap) => super::profile_switch::execute(direction, wrap),
         Output::Paste(text) => send_unicode_text(&text),
         Output::OpenApp(path) => super::launch::execute(&NativeBehavior::OpenApp {
             enabled: true,
@@ -931,6 +933,9 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
                 }
             }
         }
+        NativeBehavior::SwitchProfile {
+            direction, wrap, ..
+        } => super::profile_switch::execute(*direction, *wrap),
         NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
     }
 }
@@ -1057,6 +1062,7 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }
         | NativeBehavior::Delay { .. }
+        | NativeBehavior::SwitchProfile { .. }
         | NativeBehavior::Disabled { .. } => None,
     }
 }

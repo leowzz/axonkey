@@ -320,7 +320,7 @@ export function bindWorkflowSelection(canvas: HTMLElement, designer: Designer, n
       return ids.map((id) => all.find((step) => step.id === id)).filter((step): step is Step => Boolean(step))
     },
     canDragSelection: () => branches().every((branch) => branch.every((step) => !selected.has(step.id)
-      || (!isWorkflowStepLocked(step, branch) && (selected.size === 1 || step.type !== 'disabled')))),
+      || (!isWorkflowStepLocked(step, branch) && (selected.size === 1 || (step.type !== 'disabled' && step.type !== 'switchProfile'))))),
     finishDrag,
   })
 }

@@ -25,6 +25,7 @@ function load(file) {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText
   const localRequire = name => {
+    if (name === './WorkflowStepDialog') return { WorkflowStepDialog: props => React.createElement('profile-confirm', props, props.children) }
     if (name === '../clipboard') return { readClipboardText: () => clipboardRead() }
     if (name === '@tauri-apps/plugin-clipboard-manager') return nativeClipboard
     if (name === '@tauri-apps/api/webviewWindow') return {
@@ -71,6 +72,15 @@ test('saved mapping entries restore the unified mapping page and retain the sele
   } finally {
     testWindow.localStorage = previousStorage
   }
+})
+
+test('the backup settings category survives a reload after import', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    testWindow.localStorage = { getItem: () => JSON.stringify({ activePage: 'settings', settingsSection: 'backup' }) }
+    assert.equal(getStoredUiState().activePage, 'settings')
+    assert.equal(getStoredUiState().settingsSection, 'backup')
+  } finally { testWindow.localStorage = previousStorage }
 })
 
 test('sidebar preference persists and overrides the window-size default', () => {
@@ -599,3 +609,66 @@ for (const platform of ['macos', 'windows']) {
     }
   })
 }
+
+
+test('profile switching form edits direction and edge wrapping without changing identity', () => {
+  const initial = { id: 'profile', type: 'switchProfile', enabled: true, direction: 'next', wrap: false }
+  const dialog = renderDialog('macos', initial)
+  try {
+    assert.equal(dialog.save().props.disabled, false)
+    dialog.toggle('上一个')
+    assert.equal(dialog.behavior().direction, 'previous')
+    const checkbox = () => dialog.view.root.findByProps({ type: 'checkbox' })
+    assert.equal(checkbox().props.checked, false)
+    act(() => checkbox().props.onChange({ target: { checked: true } }))
+    assert.equal(dialog.behavior().wrap, true)
+    dialog.toggle('下一个')
+    assert.deepEqual(dialog.behavior(), { ...initial, wrap: true })
+  } finally { act(() => dialog.view.unmount()) }
+})
+
+
+test('shared profile switch confirmation lists every affected profile, location and original behavior', () => {
+  const { ProfileSwitchConfirmDialog } = load('src/components/ProfileSwitchConfirmDialog.tsx')
+  const behavior = { id: 'proposal', enabled: true, type: 'switchProfile', direction: 'next', wrap: true }
+  const confirmed = []
+  let canceled = 0
+  let view
+  act(() => { view = Renderer.create(React.createElement(ProfileSwitchConfirmDialog, {
+    button, trigger: 'doubleClick', behavior, platform: 'macos', activeProfileId: 'work',
+    targets: [
+      { id: 'work', name: '工作', behaviors: [{ id: 'old-key', enabled: true, type: 'key', key: 'Enter' }] },
+      { id: 'game', name: '游戏', behaviors: [{ id: 'old-text', enabled: true, type: 'paste', text: '将被覆盖的完整文本' }] },
+      { id: 'blank', name: '空配置', behaviors: [] },
+    ],
+    onCancel: () => canceled++, onConfirm: next => confirmed.push(next),
+  })) })
+  try {
+    const content = text(view.toJSON())
+    for (const expected of ['所有配置文件', '菜单 · 双击', '工作（当前）', '游戏', '空配置', '将被覆盖的完整文本', '未设置']) assert.ok(content.includes(expected), expected)
+    const form = view.root.findByType('profile-confirm')
+    assert.equal(form.props.saveLabel, '确认覆盖并放入')
+    assert.equal(form.props.saveTone, 'warning')
+    assert.deepEqual(confirmed, [])
+    act(() => form.props.onClose())
+    assert.equal(canceled, 1)
+    assert.deepEqual(confirmed, [])
+    act(() => form.props.edit.onSave(behavior))
+    assert.deepEqual(confirmed, [behavior])
+  } finally { act(() => view.unmount()) }
+})
+
+test('the confirmation form keeps looping enabled by default and only submits on explicit confirmation', () => {
+  let confirmed = 0
+  const dialog = renderDialog('macos', { id: 'proposal', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }, true, {
+    saveLabel: '确认覆盖并放入', saveTone: 'warning', children: React.createElement('div', null, '将覆盖所有配置文件'), onSave: () => confirmed++,
+  })
+  try {
+    assert.equal(dialog.view.root.findByProps({ type: 'checkbox' }).props.checked, true)
+    assert.equal(confirmed, 0)
+    assert.ok(text(dialog.view.toJSON()).includes('将覆盖所有配置文件'))
+    assert.equal(dialog.view.root.findAllByType('button').find(node => text(node) === '确认覆盖并放入').props.className, 'button warning')
+    act(() => dialog.view.root.findAllByType('button').find(node => text(node) === '确认覆盖并放入').props.onClick())
+    assert.equal(confirmed, 1)
+  } finally { act(() => dialog.view.unmount()) }
+})

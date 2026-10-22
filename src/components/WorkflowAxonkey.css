@@ -69,3 +69,14 @@
 .workflow-axonkey .workflow-saved-remove { flex-shrink: 0; padding: 3px; color: #798692; }
 .workflow-axonkey .workflow-saved-remove:hover { color: #bf3d3d; background: #fff0f0; }
 .workflow-lane-status { position: absolute; z-index: 4; bottom: 22px; left: 28px; max-width: calc(100% - 380px); padding: 8px 12px; border: 1px solid #d7dee5; border-radius: 6px; color: #40576b; background: #fff; box-shadow: 0 3px 10px rgb(30 55 80 / 10%); font-size: 13px; }
+
+.profile-switch-overwrites { margin-top: 20px; color: #52616d; font-size: 13px; }
+.profile-switch-overwrites > p { margin: 0 0 12px; color: #3d4b56; line-height: 1.6; }
+.profile-switch-overwrites > ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+.profile-switch-overwrites > ul > li { padding: 10px 12px; border-radius: 6px; background: #f4f7f9; }
+.profile-switch-overwrites strong { display: block; margin-bottom: 6px; color: #3d4b56; }
+.profile-switch-overwrites ol { display: grid; gap: 4px; margin: 0; padding-left: 20px; }
+.profile-switch-overwrites ol li { overflow-wrap: anywhere; white-space: pre-wrap; }
+.profile-switch-delete-dialog .profile-switch-overwrites { margin-top: 0; }
+.profile-switch-delete-dialog .behavior-dialog-actions { justify-content: flex-end; }
+.profile-switch-delete-dialog .profile-switch-overwrites span { overflow-wrap: anywhere; }

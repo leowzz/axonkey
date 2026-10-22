@@ -277,6 +277,9 @@ type BehaviorEditDialogProps = {
   draft?: boolean
   title?: string
   delayStep?: number
+  children?: ReactNode
+  saveLabel?: string
+  saveTone?: 'warning'
   actionChoices?: { label: string; options: { label: string; selected: boolean; behavior: Behavior }[] }
   onStartCapture: () => void
   onCancelCapture: () => void
@@ -306,7 +309,7 @@ function ManualKeySelect({ platform, value, onChange, label, includeModifiers = 
   </div>
 }
 
-export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, delayStep = 10, actionChoices, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, delayStep = 10, actionChoices, children, saveLabel = '保存', saveTone, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(savedBehavior.type === 'openApp' ? savedBehavior.path : savedBehavior.type === 'openWebsite' ? savedBehavior.url : '')
@@ -534,7 +537,22 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
               </div>
             </div>
           </div>
-        </> : launchBehavior ? <div className="behavior-dialog-field">
+        </> : behavior.type === 'switchProfile' ? <div className="settings-form-fields behavior-dialog-form">
+          <div className="settings-form-row">
+            <span className="settings-form-label" id="behavior-profile-direction-label">切换到：</span>
+            <div className="settings-form-control">
+              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-profile-direction-label">
+                {([['previous', '上一个'], ['next', '下一个']] as const).map(([direction, label]) => <button key={direction} type="button" className={behavior.direction === direction ? 'selected' : ''} aria-pressed={behavior.direction === direction} onClick={() => onUpdate((current) => current.type === 'switchProfile' ? { ...current, direction } : current)}>{label}</button>)}
+              </div>
+            </div>
+          </div>
+          <div className="settings-form-row">
+            <span className="settings-form-label">循环切换：</span>
+            <div className="settings-form-control">
+              <label className="settings-checkbox"><input type="checkbox" checked={behavior.wrap} onChange={(event) => onUpdate((current) => current.type === 'switchProfile' ? { ...current, wrap: event.target.checked } : current)} />到边缘自动循环</label>
+            </div>
+          </div>
+        </div> : launchBehavior ? <div className="behavior-dialog-field">
           <div className="behavior-launch-label">
             <label htmlFor="behavior-launch-target">{behavior.type === 'openApp' ? '应用路径' : '网站地址'}</label>
             <SettingsHelp id="behavior-launch-help" label={behavior.type === 'openApp' ? '应用路径' : '网站地址'}>{behavior.type === 'openApp' ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。' : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}</SettingsHelp>
@@ -553,10 +571,11 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
           placeholder="输入要粘贴的文本"
           onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
         /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step={delayStep} value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
+        {children}
       </div>
       <footer className="behavior-dialog-actions">
         {(launchBehavior && !draft && !normalizedTarget || emptyShortcut || !draft) && <span><Check size={13} /> {launchBehavior && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : '更改会自动保存'}</span>}
-        {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!canSave} onClick={onSave}>保存</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
+        {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className={`button ${saveTone ?? 'primary'}`} disabled={!canSave} onClick={onSave}>{saveLabel}</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
       </footer>
     </section>
   </div>

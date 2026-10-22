@@ -1,3 +1,12 @@
+import { createPortal } from 'react-dom'
+import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
+import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
+import { createDataBackup, restoreBackupStorage } from '../dataBackup'
+import type { ParsedBackup } from '../dataBackup'
+import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
+import appPackage from '../../package.json'
+import { adjacentProfileId, changeProfileState, applySharedProfileSwitch, profileSwitchTargets, removedProfileSwitchTriggers, removeSharedProfileSwitch } from '../profileNavigation'
+import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
@@ -23,7 +32,7 @@ import {
   parseMappingImport,
   updateBehaviorList,
 } from '../behaviorModel'
-import type { Behavior, BehaviorMap, ButtonId, ImportedMapping, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import type { Behavior, BehaviorMap, ButtonId, ImportedMapping, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import { updateWorkflowInput } from '../components/workflowBehaviorBridge'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
@@ -43,6 +52,8 @@ import {
   profilesStorageKey,
   saveStoredUiState,
   settingsStorageKey,
+  uiStateStorageKey,
+  audioSettingsStorageKey,
   textAndEnterValue,
   withTimeout,
 } from '../appConfig'
@@ -150,6 +161,8 @@ function AppController() {
     () => createBehaviorHistory(cloneBehaviorMap(storedProfiles.profiles.find((profile) => profile.id === storedProfiles.activeProfileId)?.behaviors ?? getStoredSettings().behaviors)),
   )
   const behaviors = behaviorHistory.present
+  const profileStateRef = useRef({ profiles, activeProfileId, behaviors })
+  profileStateRef.current = { profiles, activeProfileId, behaviors }
   const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
     dispatchBehaviorHistory({
       type: 'change',
@@ -180,6 +193,8 @@ function AppController() {
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
   const [sequencePasteOpen, setSequencePasteOpen] = useState(false)
+  const [pendingProfileSwitch, setPendingProfileSwitch] = useState<{ inputId: InputId; trigger: TriggerType; behavior: SwitchProfileBehavior } | null>(null)
+  const [pendingProfileSwitchDeletion, setPendingProfileSwitchDeletion] = useState<ProfileSwitchDeletion | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
   const [previewBatteryLevel, setPreviewBatteryLevel] = useState<number | null>(null)
   const displayedBatteryLevel = debugMode ? previewBatteryLevel ?? batteryLevel : batteryLevel
@@ -335,19 +350,45 @@ function AppController() {
     return `${normalized} ${index}`
   }
 
-  const switchMappingProfile = (id: string) => {
-    const target = profiles.find((profile) => profile.id === id)
-    if (!target || target.id === activeProfileId) return
-    setProfiles((current) => current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile))
-    setActiveProfileId(target.id)
-    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(target.behaviors) })
+  const switchMappingProfile = (id: string, notifyOnDesktop = false) => {
+    const current = profileStateRef.current
+    const next = changeProfileState(current, id)
+    if (!next) return
+    const target = next.profiles.find(profile => profile.id === id)!
+    // Advance the ref before rendering so consecutive hardware events compose.
+    profileStateRef.current = next
+    setProfiles(next.profiles)
+    setActiveProfileId(next.activeProfileId)
+    dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
     setAutoSaveState('saving')
+    if (notifyOnDesktop && nativeRuntime) {
+      const from = current.profiles.find(profile => profile.id === current.activeProfileId)!.name
+      void invoke('show_profile_switch_overlay', { from, to: target.name })
+        .catch(error => logError('Failed to show profile switch notification', error))
+    }
     setToast(`已切换到“${target.name}”`)
     window.setTimeout(() => setToast(''), 1800)
   }
+
+  const profileSwitchRef = useRef<(request: ProfileSwitchRequest) => void>(() => {})
+  profileSwitchRef.current = (request) => {
+    const current = profileStateRef.current
+    const id = adjacentProfileId(current.profiles, current.activeProfileId, request)
+    if (id) switchMappingProfile(id, true)
+  }
+  useEffect(() => {
+    if (!nativeRuntime) return
+    let active = true
+    let unlisten: (() => void) | undefined
+    void listen<ProfileSwitchRequest>('axonkey-switch-profile', ({ payload }) => {
+      if (active) profileSwitchRef.current(payload)
+    }).then((cleanup) => { if (active) unlisten = cleanup; else cleanup() })
+      .catch((error) => logError('Failed to listen for profile switching', error))
+    return () => { active = false; unlisten?.() }
+  }, [nativeRuntime])
 
   const createMappingProfileFromScratch = () => {
     const next = createMappingProfile(profileName('新配置', profiles), createEmptyBehaviorMap())
@@ -413,7 +454,17 @@ function AppController() {
     window.setTimeout(() => setToast(''), 1800)
   }
 
+  const requestProfileSwitch = useCallback((inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => {
+    setPendingProfileSwitch({ inputId, trigger, behavior })
+  }, [])
+
   const updateWorkflow = useCallback((inputId: InputId, sequences: TriggerBehaviors) => {
+    const current = profileStateRef.current
+    const triggers = removedProfileSwitchTriggers(current.behaviors[inputId], sequences)
+    if (triggers.length) {
+      setPendingProfileSwitchDeletion({ profileId: current.activeProfileId, inputId, triggers, sequences: cloneBehaviorMap({ ...current.behaviors, [inputId]: sequences })[inputId] })
+      return false
+    }
     setBehaviors((current) => updateWorkflowInput(current, inputId, sequences))
     setAutoSaveState('saving')
   }, [])
@@ -745,6 +796,16 @@ function AppController() {
     showBehaviorToast('映射规则已导出')
   }
 
+  const restoreDataBackup = (backup: ParsedBackup) => {
+    restoreBackupStorage(window.localStorage, backup, {
+      profiles: profilesStorageKey, settings: settingsStorageKey, savedSequences: savedSequencesStorageKey,
+      audio: audioSettingsStorageKey, uiState: uiStateStorageKey,
+    }, uiStateRef.current)
+    // A queued scroll-save may run while the reload navigation starts.
+    uiStateRef.current = { ...uiStateRef.current, sidebarCollapsed: backup.preferences.sidebarCollapsed, activePage: 'settings', settingsSection: 'backup' }
+    window.location.reload()
+  }
+
   const openMappingImport = () => {
     mappingFileInputRef.current?.click()
   }
@@ -901,7 +962,11 @@ function AppController() {
   }
 
   const removeBehavior = (behaviorId: string) => {
-    updateSelectedBehaviorList((list) => list.filter((behavior) => behavior.id !== behaviorId))
+    const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
+    if (updateWorkflow(selectedBehavior.buttonId, {
+      ...current,
+      [selectedBehavior.trigger]: current[selectedBehavior.trigger].filter(behavior => behavior.id !== behaviorId),
+    }) === false) return
     if (capturingBehaviorId === behaviorId) setCapturingBehaviorId(null)
     if (editingBehaviorId === behaviorId) setEditingBehaviorId(null)
   }
@@ -1637,6 +1702,7 @@ function AppController() {
           pressedId={pressedId}
           behaviors={behaviors}
           onWorkflowChange={updateWorkflow}
+          onRequestProfileSwitch={requestProfileSwitch}
           draggingId={draggingId}
           hitPositions={hitPositions}
           handleHotspotPointerDown={handleHotspotPointerDown}
@@ -1663,12 +1729,22 @@ function AppController() {
             onCopySequence: () => void copySelectedSequence(),
             onPasteSequence: () => setSequencePasteOpen(true),
             onClearSequence: () => {
+              const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
+              if (updateWorkflow(selectedBehavior.buttonId, { ...current, [selectedBehavior.trigger]: [] }) === false) return
               clearBehaviorEditingState()
-              replaceWithCommonBehavior([])
               showBehaviorToast('当前序列已清除')
             },
           }}
         /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+          backup={{
+            onCreateBackup: () => createDataBackup({
+              ...profileStateRef.current,
+              savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
+              settings: { showRemoteKeyGrid, showMouseKeyGrid, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth },
+              audio: { gain: audioGain, stretchCompensation }, preferences: { sidebarCollapsed },
+            }, appPackage.version),
+            onRestoreBackup: restoreDataBackup,
+          }}
           onOpenSignalMonitor={() => void openSignalMonitor()}
           signalMonitorOpening={signalMonitorOpening}
           signalMonitorError={signalMonitorError}
@@ -1740,6 +1816,44 @@ function AppController() {
         </div>
       </div>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+      {pendingProfileSwitch && createPortal(<ProfileSwitchConfirmDialog
+        key={pendingProfileSwitch.behavior.id}
+        button={[...editableButtons, ...mouseInputs].find(button => button.id === pendingProfileSwitch.inputId)!}
+        trigger={pendingProfileSwitch.trigger}
+        behavior={pendingProfileSwitch.behavior}
+        targets={profileSwitchTargets({ profiles, activeProfileId, behaviors }, pendingProfileSwitch.inputId, pendingProfileSwitch.trigger)}
+        activeProfileId={activeProfileId} platform={platform}
+        onCancel={() => setPendingProfileSwitch(null)}
+        onConfirm={(behavior) => {
+          const next = applySharedProfileSwitch(profileStateRef.current, pendingProfileSwitch.inputId, pendingProfileSwitch.trigger, behavior)
+          profileStateRef.current = next
+          setProfiles(next.profiles)
+          dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+          setPendingProfileSwitch(null)
+          setAutoSaveState('saving')
+          setToast('已应用到所有配置文件')
+          window.setTimeout(() => setToast(''), 2200)
+        }}
+      />, document.body)}
+      {pendingProfileSwitchDeletion && createPortal(<ProfileSwitchDeleteDialog
+        button={[...editableButtons, ...mouseInputs].find(button => button.id === pendingProfileSwitchDeletion.inputId)!}
+        targets={pendingProfileSwitchDeletion.triggers.map(trigger => ({
+          trigger,
+          profiles: profileSwitchTargets({ profiles, activeProfileId, behaviors }, pendingProfileSwitchDeletion.inputId, trigger)
+            .filter(profile => profile.behaviors.some(behavior => behavior.type === 'switchProfile')),
+        }))}
+        onCancel={() => setPendingProfileSwitchDeletion(null)}
+        onConfirm={() => {
+          const next = removeSharedProfileSwitch(profileStateRef.current, pendingProfileSwitchDeletion)
+          profileStateRef.current = next
+          setProfiles(next.profiles)
+          dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+          setPendingProfileSwitchDeletion(null)
+          setAutoSaveState('saving')
+          setToast('已同步删除切换配置文件行为')
+          window.setTimeout(() => setToast(''), 2200)
+        }}
+      />, document.body)}
       {pendingProfileImport && <ProfileImportDialog
         fileName={pendingProfileImport.fileName}
         suggestedName={pendingProfileImport.suggestedName}

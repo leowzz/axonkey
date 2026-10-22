@@ -23,6 +23,7 @@ export function MappingFlowPage({
   pressedId,
   behaviors,
   onWorkflowChange,
+  onRequestProfileSwitch,
   draggingId,
   hitPositions,
   handleHotspotPointerDown,
@@ -88,7 +89,7 @@ export function MappingFlowPage({
           </div>
           {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
-        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} toolboxCategory={toolboxCategory} onToolboxCategoryChange={setToolboxCategory} />
+        <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} onRequestProfileSwitch={onRequestProfileSwitch} toolboxCategory={toolboxCategory} onToolboxCategoryChange={setToolboxCategory} />
       </section>
     </div>
   </div>

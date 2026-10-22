@@ -73,6 +73,7 @@ export function insertedWorkflowSteps(step: Step, platform: Platform, label: Lab
     return behaviors?.map((behavior, index) => behaviorToWorkflowStep({ ...behavior, id: index === 0 ? step.id : behavior.id }, label)) ?? []
   }
   const preset = step.type
+  if (preset === 'switchProfile') return [{ ...step, properties: { ...step.properties, behaviorType: 'switchProfile', enabled: true, direction: 'next', wrap: true, draftGroup: step.id } }]
   const choices = workflowActionChoiceStep(preset)
   if (choices?.preset === preset) return [{ ...step, properties: {
     ...step.properties, behaviorType: choices.options[0].behavior.type, enabled: true, choice: choices.options[0].stepType, draftGroup: step.id,

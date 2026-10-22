@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "profile-switch-overlay",
+  "description": "Allow the passive profile-switch overlay to receive its notification.",
+  "windows": ["profile-switch-overlay"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "log:default"]
+}

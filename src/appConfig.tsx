@@ -75,13 +75,13 @@ export type StoredUiState = {
   selectedDeviceId: DeviceId
   activeId: ButtonId
   selectedBehavior: { buttonId: InputId; trigger: TriggerType }
-  settingsSection: 'startup' | 'permissions' | 'remote' | 'mouse'
+  settingsSection: 'startup' | 'permissions' | 'remote' | 'mouse' | 'backup'
   overviewSelection: { buttonId: ButtonId; trigger: TriggerType }
   scrollTop: Partial<Record<AppPage, number>>
 }
 
 const appPages: readonly AppPage[] = ['home', 'overview', 'mapping', 'settings', 'about']
-const settingsSections = ['startup', 'permissions', 'remote', 'mouse'] as const
+const settingsSections = ['startup', 'permissions', 'remote', 'mouse', 'backup'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'mouse']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -290,6 +290,7 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   delay: '等待',
   openApp: '打开应用',
   openWebsite: '打开网站',
+  switchProfile: '切换配置文件',
   disabled: '禁用按键',
 }
 
@@ -417,6 +418,7 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
     case 'delay': return `等待 ${behavior.ms} 毫秒`
     case 'openApp': return behavior.path.split(/[\\/]/).pop() || '打开应用'
     case 'openWebsite': return behavior.url || '打开网站'
+    case 'switchProfile': return `${behavior.direction === 'previous' ? '上一个' : '下一个'}配置文件${behavior.wrap ? ' · 循环' : ''}`
     case 'disabled': return '不发送任何按键'
   }
 }

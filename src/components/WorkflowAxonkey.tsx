@@ -6,7 +6,7 @@ import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequenti
 import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
 import { defaultCursorDistance, normalizeBehavior, serializeSequence } from '../behaviorModel'
-import type { Behavior, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel'
+import type { Behavior, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import { writeClipboardText } from '../clipboard'
 import { createSavedSequence, parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
 import type { SavedSequence } from '../savedSequences'
@@ -18,7 +18,7 @@ import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
 import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
-import { defaultWorkflowDelayMs, findWorkflowStepEditor, isEditableWorkflowStep, workflowBehaviorProperties } from './workflowStepEditing'
+import { defaultWorkflowDelayMs, findWorkflowStepEditor, isEditableWorkflowStep, workflowBehaviorProperties, workflowStepBehavior } from './workflowStepEditing'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
@@ -43,18 +43,19 @@ type WorkflowAxonkeyProps = {
   platform: Platform
   button: MappingInput
   sequences: TriggerBehaviors
-  onChange: (inputId: InputId, sequences: TriggerBehaviors) => void
+  onRequestProfileSwitch: (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
+  onChange: (inputId: InputId, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
   onToolboxCategoryChange: (category: string) => void
 }
 
 type WorkflowAction = {
-  preset: CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | WorkflowActionChoicePreset
+  preset: CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | 'switchProfile' | WorkflowActionChoicePreset
   name: string
   description?: string
 }
 
-export function WorkflowAxonkey({ platform, button, sequences, onChange, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps) {
+export function WorkflowAxonkey({ platform, button, sequences, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps) {
   const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const trashRef = useRef<HTMLButtonElement>(null)
@@ -63,6 +64,8 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
   incomingRef.current = sequences
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+  const onRequestProfileSwitchRef = useRef(onRequestProfileSwitch)
+  onRequestProfileSwitchRef.current = onRequestProfileSwitch
   const [reload, setReload] = useState(0)
   const [library, setLibrary] = useState<{ items: SavedSequence[]; error: string }>(() => {
     try { return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' } }
@@ -112,6 +115,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
     ]
     const controlActions: WorkflowAction[] = [
+      { preset: 'switchProfile', name: '切换配置文件', description: '上一个或下一个配置文件，可设置到边缘自动循环' },
       { preset: 'disabled', name: '禁用此触发方式', description: '替换当前泳道的序列，不发送任何输入；清空泳道可取消禁用' },
       { preset: 'delay', name: '等待' },
       { preset: 'paste', name: '粘贴文本' },
@@ -157,6 +161,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     ]
     const label = (behavior: Parameters<typeof behaviorSummary>[0]) => behaviorSummary(behavior, platform)
     const definition = behaviorsToWorkflow(sequences, label)
+    let acceptedBranches = structuredClone(workflowBranches(definition))
     savedRef.current = workflowSequenceSignature(sequences)
     let active = true
     const iconUrls = createWorkflowActionIconUrls(platform)
@@ -177,6 +182,11 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
           if (!properties) return
           const savedBehavior = normalizeBehavior({ ...behavior, id: stepId })
           if (!savedBehavior) return
+          if (savedBehavior.type === 'switchProfile') {
+            setEditingStep(null)
+            onRequestProfileSwitchRef.current(button.id, current.trigger, savedBehavior)
+            return
+          }
           const group = current.step.properties.draftGroup
           for (const branch of Object.values(workflowBranches(api.editor.getDefinition()))) {
             for (const node of branch) {
@@ -210,9 +220,9 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
         isDraggable: canDragStep,
         isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowStepLocked(step, source),
-        isDuplicable: (step, source) => !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDuplicable: (step, source) => step.type !== 'switchProfile' && !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
-        canMoveStep: (source, step, target) => !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
+        canMoveStep: (source, step, target) => step.type !== 'switchProfile' && !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
       },
       extensions: [fixedWorkflowViewport, StepsDesignerExtension.create({ task: { view: {
         paddingLeft: 8, paddingRight: 8, paddingY: 10, textMarginLeft: 8,
@@ -302,15 +312,46 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
     }) : () => {}
     let ready = false
     designer.onReady.subscribe(() => { ready = true })
+    const persist = (next: TriggerBehaviors) => {
+      const signature = workflowSequenceSignature(next)
+      const current = workflowBranches(workflowApi!.editor.getDefinition())
+      if (signature === savedRef.current) {
+        acceptedBranches = structuredClone(current)
+        return
+      }
+      const previousSignature = savedRef.current
+      savedRef.current = signature
+      // Shared-action deletion can wait for the app's confirmation dialog.
+      // Restore the canvas immediately so cancel and cleanup cannot save it.
+      if (onChangeRef.current(button.id, next) === false) {
+        savedRef.current = previousSignature
+        if (active && workflowApi) {
+          // Keep incomplete drafts in other lanes when the user cancels.
+          const restored = structuredClone(acceptedBranches)
+          for (const trigger of Object.keys(current) as TriggerType[]) current[trigger].splice(0, current[trigger].length, ...restored[trigger])
+          workflowApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        }
+        return
+      }
+      acceptedBranches = structuredClone(current)
+    }
     designer.onDefinitionChanged.subscribe((event) => {
       if (!active) return
       const current = workflowApi?.editor.getDefinition()
       if (!current) return
       if (event.changeType === DefinitionChangeType.stepInserted && event.stepId) {
-        for (const branch of Object.values(workflowBranches(current))) {
+        for (const [trigger, branch] of Object.entries(workflowBranches(current))) {
           const index = branch.findIndex((step) => step.id === event.stepId)
           if (index < 0) continue
           const nodes = insertedWorkflowSteps(branch[index], platform, label)
+          const profileSwitch = nodes.map(workflowStepBehavior).find((behavior) => behavior?.type === 'switchProfile')
+          if (profileSwitch?.type === 'switchProfile') {
+            branch.splice(index, 1)
+            designer.clearSelectedStep()
+            workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+            onRequestProfileSwitchRef.current(button.id, trigger as TriggerType, profileSwitch)
+            break
+          }
           if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
             branch.splice(0, branch.length, ...nodes)
           } else branch.splice(index, 1, ...nodes)
@@ -323,10 +364,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         }
       }
       const next = workflowToBehaviors(current)
-      if (next && workflowSequenceSignature(next) !== savedRef.current) {
-        savedRef.current = workflowSequenceSignature(next)
-        onChangeRef.current(button.id, next)
-      }
+      if (next) persist(next)
     })
     const resizeObserver = new ResizeObserver(() => {
       if (!ready || designer.isDragging()) return
@@ -344,11 +382,15 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
         const current = workflowApi.editor.getDefinition()
         for (const branch of Object.values(workflowBranches(current))) {
           for (let index = branch.length - 1; index >= 0; index--) {
-            if (!branch[index].properties.behaviorType) branch.splice(index, 1, ...insertedWorkflowSteps(branch[index], platform, label))
+            if (!branch[index].properties.behaviorType) {
+              const nodes = insertedWorkflowSteps(branch[index], platform, label)
+              // A fast page change must not commit an unconfirmed shared action.
+              branch.splice(index, 1, ...(nodes.some((node) => node.type === 'switchProfile') ? [] : nodes))
+            }
           }
         }
         const next = workflowToBehaviors(current)
-        if (next && workflowSequenceSignature(next) !== savedRef.current) onChangeRef.current(button.id, next)
+        if (next) persist(next)
       }
       setEditingStep(null)
       setSequenceDialog(null)
@@ -414,6 +456,12 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, toolbox
       onClose={() => setSequenceDialog(null)}
       onApply={(sequence) => {
         if (toolbox.api.editor.isReadonly()) return
+        const profileSwitch = sequence.find((behavior) => behavior.type === 'switchProfile')
+        if (profileSwitch?.type === 'switchProfile') {
+          onRequestProfileSwitchRef.current(button.id, sequenceDialog.trigger, profileSwitch)
+          setSequenceDialog(null)
+          return
+        }
         const branch = workflowBranches(toolbox.api.editor.getDefinition())[sequenceDialog.trigger]
         branch.splice(0, branch.length, ...sequence.map((behavior) => behaviorToWorkflowStep(behavior, (item) => behaviorSummary(item, platform))))
         toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()

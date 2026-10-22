@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 mod launch;
 pub mod mouse;
+mod profile_switch;
 
 #[cfg(windows)]
 mod windows_quarbor;
@@ -153,10 +154,24 @@ pub(super) enum NativeBehavior {
         enabled: bool,
         url: String,
     },
+    SwitchProfile {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        direction: ProfileDirection,
+        #[serde(default = "enabled_by_default")]
+        wrap: bool,
+    },
     Disabled {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum ProfileDirection {
+    Previous,
+    Next,
 }
 
 fn enabled_by_default() -> bool {
@@ -240,6 +255,7 @@ impl NativeBehavior {
             | Self::Delay { enabled, .. }
             | Self::OpenApp { enabled, .. }
             | Self::OpenWebsite { enabled, .. }
+            | Self::SwitchProfile { enabled, .. }
             | Self::Disabled { enabled } => *enabled,
         }
     }

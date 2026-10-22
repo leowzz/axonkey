@@ -326,3 +326,15 @@ test('the disabling node can be selected, dragged alone and deleted without movi
     assert.equal(app.writes(), 1)
   } finally { app.destroy() }
 })
+
+
+test('profile-switch nodes cannot bypass overwrite confirmation in a group move', () => {
+  const app = setup()
+  try {
+    app.branches.click[0].type = 'switchProfile'
+    app.mouse('a')
+    assert.equal(app.destroy.canDragSelection(), true, 'the node can still be dragged to trash')
+    app.mouse('c', { ctrlKey: true })
+    assert.equal(app.destroy.canDragSelection(), false)
+  } finally { app.destroy() }
+})

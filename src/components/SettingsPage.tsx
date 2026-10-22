@@ -1,11 +1,13 @@
 import type { CSSProperties } from 'react'
-import { Bluetooth, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
+import { Bluetooth, DatabaseBackup, ExternalLink, Info, Mouse, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
+import { DataBackupSettings } from './DataBackupSettings'
+import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, SetupState } from '../setupModel'
 
-export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse'
+export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'mouse' | 'backup'
 
 type SettingsPageProps = {
   section: SettingsSection
@@ -53,9 +55,10 @@ type SettingsPageProps = {
   onOpenSettings: (kind: MacPermissionKind) => void
   onRefresh: () => void
   onOpenDriver: () => void
+  backup: Omit<DataBackupSettingsProps, 'nativeRuntime'>
 }
 
-export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, showMouseKeyGrid, onShowMouseKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver }: SettingsPageProps) {
+export function SettingsPage({ section, onSectionChange, platform, nativeRuntime, mouseEdgeWidth, onMouseEdgeWidthChange, showRemoteKeyGrid, onShowRemoteKeyGridChange, showMouseKeyGrid, onShowMouseKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseKeyHoldMs, onMouseKeyHoldMsChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver, backup }: SettingsPageProps) {
   const supportsMouse = platform === 'windows' || platform === 'macos'
   const currentSection = section === 'mouse' && !supportsMouse ? 'startup' : section
   const sections = [
@@ -63,6 +66,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
     { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
     { id: 'remote' as const, label: '遥控器映射', icon: <Radio size={16} /> },
     ...(supportsMouse ? [{ id: 'mouse' as const, label: '鼠标映射', icon: <Mouse size={16} /> }] : []),
+    { id: 'backup' as const, label: '数据备份', icon: <DatabaseBackup size={16} /> },
   ]
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
@@ -85,6 +89,10 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
           onClick={() => onSectionChange(item.id)}>{item.icon}<span>{item.label}</span></button>)}
       </nav>
       <div className="settings-panels">
+    <section id="settings-panel-backup" aria-labelledby="settings-nav-backup" hidden={currentSection !== 'backup'}>
+      <h3 className="settings-section-title">数据备份</h3>
+      <DataBackupSettings {...backup} nativeRuntime={nativeRuntime} />
+    </section>
     <section id="settings-panel-startup" aria-labelledby="settings-nav-startup" hidden={currentSection !== 'startup'}>
       <h3 className="settings-section-title">启动设置</h3>
       <AutostartControl supported={nativeRuntime && (platform === 'macos' || platform === 'windows')} />

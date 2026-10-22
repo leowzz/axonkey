@@ -1,5 +1,7 @@
 mod audio_service;
+mod backup_files;
 mod input_service;
+mod profile_switch_overlay;
 mod release_update;
 mod legacy_driver;
 #[cfg(target_os = "windows")]
@@ -1353,6 +1355,7 @@ pub fn run() {
             app.manage(InputService::start());
             app.manage(MouseService::start());
             app.manage(PermissionHelperWindowState::default());
+            app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());
             app.state::<InputService>()
                 .set_event_app(app.handle().clone());
@@ -1391,6 +1394,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             release_update::check_release_update,
+            profile_switch_overlay::show_profile_switch_overlay,
+            profile_switch_overlay::get_profile_switch_overlay,
+            profile_switch_overlay::reveal_profile_switch_overlay,
+            profile_switch_overlay::hide_profile_switch_overlay,
             ping,
             get_platform,
             get_log_info,
@@ -1417,6 +1424,7 @@ pub fn run() {
             probe_rc003_battery_level,
             update_input_settings,
             write_mapping_file,
+            backup_files::open_backup_location,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")

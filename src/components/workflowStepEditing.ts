@@ -8,7 +8,7 @@ const directionSuffixes: Record<string, CursorDirection> = { Up: 'up', Down: 'do
 const mouseButtons: Record<string, MouseBehavior['button']> = { mouseLeft: 'left', mouseRight: 'right', mouseBack: 'back', mouseForward: 'forward' }
 
 export function isEditableWorkflowStep(step: Step) {
-  return ['delay', 'paste', 'customKey', 'openApp', 'openWebsite'].includes(step.type) || step.type.startsWith('cursor') || step.type.startsWith('wheel') || Boolean(workflowActionChoiceStep(step.type))
+  return ['delay', 'paste', 'customKey', 'openApp', 'openWebsite', 'switchProfile'].includes(step.type) || step.type.startsWith('cursor') || step.type.startsWith('wheel') || Boolean(workflowActionChoiceStep(step.type))
 }
 
 export function workflowStepBehavior(step: Step): Behavior | null {
@@ -29,6 +29,7 @@ export function workflowStepBehavior(step: Step): Behavior | null {
   switch (step.type) {
     case 'cursorMove': return { ...base, type: 'cursorMove', direction: ['up', 'down', 'left', 'right'].includes(String(step.properties.direction)) ? step.properties.direction as CursorDirection : 'up', distance: typeof step.properties.distance === 'number' ? step.properties.distance : defaultCursorDistance }
     case 'wheel': return { ...base, type: 'wheel', direction: ['up', 'down', 'left', 'right'].includes(String(step.properties.direction)) ? step.properties.direction as CursorDirection : 'up' }
+    case 'switchProfile': return { ...base, type: 'switchProfile', direction: step.properties.direction === 'previous' ? 'previous' : 'next', wrap: step.properties.wrap !== false }
     case 'disabled': return { ...base, type: 'disabled' }
     case 'delay': return { ...base, type: 'delay', ms: typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= 300000 ? ms : defaultWorkflowDelayMs }
     case 'paste': return { ...base, type: 'paste', text: typeof text === 'string' ? text : '' }
@@ -69,6 +70,9 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   }
   if (step.type === 'paste' && behavior.type === 'paste' && behavior.text.trim()) {
     return { ...properties, text: behavior.text }
+  }
+  if (step.type === 'switchProfile' && behavior.type === 'switchProfile') {
+    return { ...properties, direction: behavior.direction, wrap: behavior.wrap }
   }
   if (step.type === 'openApp' && behavior.type === 'openApp') {
     const path = normalizeApplicationPath(behavior.path)
