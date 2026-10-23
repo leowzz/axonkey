@@ -1,7 +1,7 @@
 {
   "name": "axonkey-ui",
   "private": true,
-  "version": "1.0.17",
+  "version": "1.0.18",
   "type": "module",
   "engines": {
     "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
