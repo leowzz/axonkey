@@ -13,10 +13,7 @@ import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // an obsolete hook layout when Fast Refresh updates this stateful root.
 import {
   Check,
-  Copy,
   Info,
-  RotateCcw,
-  Target,
   X,
 } from 'lucide-react'
 import { RedoCircle, UndoCircle } from 'reicon-react'
@@ -46,7 +43,6 @@ import {
   getStoredProfiles,
   getStoredSettings,
   getStoredUiState,
-  initialHitPositions,
   normalizeProfileName,
   createMappingProfile,
   profilesStorageKey,
@@ -65,12 +61,10 @@ import type {
   CommonBehaviorPreset,
   DraftBehaviorState,
   DriverActionResult,
-  HitPosition,
   LegacyDriverProbe,
   MacPermissionKind,
   MacPermissions,
   Platform,
-  RemoteButton,
   RemoteKeyEvent,
   SystemProbe,
   MappingProfile,
@@ -123,7 +117,6 @@ import { save } from '@tauri-apps/plugin-dialog'
 import {
   ChangeEvent,
   KeyboardEvent,
-  PointerEvent as ReactPointerEvent,
   SetStateAction,
   useCallback,
   useEffect,
@@ -181,9 +174,6 @@ function AppController() {
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
-  const [hitPositions, setHitPositions] = useState<Record<ButtonId, HitPosition>>(initialHitPositions)
-  const [draggingId, setDraggingId] = useState<ButtonId | null>(null)
-  const [coordinateSnippet, setCoordinateSnippet] = useState('')
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [applyRetry, setApplyRetry] = useState(0)
   const [toast, setToast] = useState('')
@@ -228,11 +218,8 @@ function AppController() {
   const mappingMainRef = useRef<HTMLElement>(null)
   const mainContentRef = useRef<HTMLElement>(null)
   const pageScrollTopRef = useRef(initialUiState.scrollTop)
-  const remoteArtRef = useRef<HTMLDivElement>(null)
-  const coordinateTextRef = useRef<HTMLTextAreaElement>(null)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
   const [pendingProfileImport, setPendingProfileImport] = useState<PendingProfileImport | null>(null)
-  const markerRefs = useRef<Partial<Record<ButtonId, HTMLButtonElement>>>({})
   const rowRefs = useRef<Partial<Record<InputId, HTMLElement>>>({})
   const brandClickRef = useRef({ count: 0, lastAt: 0 })
   const saveRevisionRef = useRef(0)
@@ -483,14 +470,6 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    if (!debugMode) {
-      setHitPositions(initialHitPositions)
-      setDraggingId(null)
-      setCoordinateSnippet('')
-    }
-  }, [debugMode])
-
-  useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     let active = true
     void invoke<Platform>('get_platform').then((detected) => {
@@ -609,12 +588,6 @@ function AppController() {
       clearPressed()
     }
   }, [])
-
-  useEffect(() => {
-    if (!coordinateSnippet || !coordinateTextRef.current) return
-    coordinateTextRef.current.focus()
-    coordinateTextRef.current.select()
-  }, [coordinateSnippet])
 
   useEffect(() => {
     if (!capturingBehaviorId) return
@@ -1513,92 +1486,6 @@ function AppController() {
     if (setupOpen && setupState.currentStep === 'deviceConnection') void probeDeviceConnection()
   }, [setupOpen, setupState.currentStep])
 
-  const handleHotspotPointerDown = (button: RemoteButton, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!debugMode || !remoteArtRef.current) return
-    event.preventDefault()
-    event.stopPropagation()
-    event.currentTarget.setPointerCapture(event.pointerId)
-    setActiveId(button.id)
-    setDraggingId(button.id)
-  }
-
-  const handleHotspotPointerMove = (button: RemoteButton, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!debugMode || draggingId !== button.id || !remoteArtRef.current) return
-    const rect = remoteArtRef.current.getBoundingClientRect()
-    const x = Math.max(2, Math.min(98, ((event.clientX - rect.left) / rect.width) * 100))
-    const y = Math.max(2, Math.min(98, ((event.clientY - rect.top) / rect.height) * 100))
-    setHitPositions((current) => ({ ...current, [button.id]: { x, y } }))
-  }
-
-  const finishHotspotDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId)
-    setDraggingId(null)
-  }
-
-  // In debug mode the selected hotspot can be nudged with the arrow keys.
-  // Coordinates remain percentages so they scale with the remote artwork;
-  // converting one screen pixel to a percentage keeps each press pixel precise.
-  useEffect(() => {
-    if (!debugMode) return
-    const handleDebugNudge = (event: globalThis.KeyboardEvent) => {
-      if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return
-      if (event.target instanceof HTMLElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(event.target.tagName)) return
-      const rect = remoteArtRef.current?.getBoundingClientRect()
-      if (!rect || rect.width <= 0 || rect.height <= 0) return
-      const current = hitPositions[activeId]
-      if (!current) return
-      const dx = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
-      const dy = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0
-      const stepX = 100 / rect.width
-      const stepY = 100 / rect.height
-      event.preventDefault()
-      setHitPositions((positions) => ({
-        ...positions,
-        [activeId]: {
-          x: Math.max(2, Math.min(98, positions[activeId].x + dx * stepX)),
-          y: Math.max(2, Math.min(98, positions[activeId].y + dy * stepY)),
-        },
-      }))
-    }
-    window.addEventListener('keydown', handleDebugNudge)
-    return () => window.removeEventListener('keydown', handleDebugNudge)
-  }, [debugMode, activeId, hitPositions])
-
-  const copyHitPositions = async () => {
-    const lines = editableButtons.map((button) => `  ${button.id}: { x: ${hitPositions[button.id].x.toFixed(2)}, y: ${hitPositions[button.id].y.toFixed(2)} },`)
-    const snippet = `const initialHitPositions: Record<ButtonId, HitPosition> = {\n${lines.join('\n')}\n}`
-    setCoordinateSnippet(snippet)
-    let copied = false
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(snippet)
-        copied = true
-      }
-    } catch (error) {
-      logError('Failed to copy debug hit positions', error)
-      copied = false
-    }
-    if (!copied) {
-      const fallback = document.createElement('textarea')
-      fallback.value = snippet
-      fallback.setAttribute('readonly', '')
-      fallback.style.position = 'fixed'
-      fallback.style.opacity = '0'
-      document.body.appendChild(fallback)
-      fallback.select()
-      copied = document.execCommand('copy')
-      fallback.remove()
-    }
-    setToast(copied ? '坐标已复制，也可以从弹窗中手动复制' : `请在弹窗文本框中按 ${platform === 'macos' ? 'Cmd' : 'Ctrl'}+C 复制坐标`)
-    window.setTimeout(() => setToast(''), 2600)
-  }
-
-  const resetHitPositions = () => {
-    setHitPositions(initialHitPositions)
-    setToast('已恢复默认点位')
-    window.setTimeout(() => setToast(''), 2200)
-  }
-
   const editingBehavior = editingBehaviorId
     ? behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find((behavior) => behavior.id === editingBehaviorId) ?? null
     : null
@@ -1678,7 +1565,6 @@ function AppController() {
         {activePage === 'overview' ? <MappingOverview
           buttons={editableButtons}
           behaviors={behaviors}
-          positions={hitPositions}
           selection={overviewSelection}
           onSelect={(buttonId, trigger) => setOverviewSelection({ buttonId, trigger })}
           platform={platform}
@@ -1696,23 +1582,16 @@ function AppController() {
           isMouse={isMouse}
           selectedBehavior={selectedBehavior}
           adjustPreviewBattery={adjustPreviewBattery}
-          remoteArtRef={remoteArtRef}
           editableButtons={editableButtons}
-          markerRefs={markerRefs}
           pressedId={pressedId}
           behaviors={behaviors}
           onWorkflowChange={updateWorkflow}
           onRequestProfileSwitch={requestProfileSwitch}
-          draggingId={draggingId}
-          hitPositions={hitPositions}
-          handleHotspotPointerDown={handleHotspotPointerDown}
-          handleHotspotPointerMove={handleHotspotPointerMove}
-          finishHotspotDrag={finishHotspotDrag}
           platform={platform}
           showRemoteKeyGrid={showRemoteKeyGrid}
           showMouseKeyGrid={showMouseKeyGrid}
           rowRefs={rowRefs}
-          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div>{debugMode && !isMouse && <><span className="toolbar-divider" /><span className="debug-status" title="选中遥控器按键后，用键盘方向键微调 1 像素"><Target size={13} /> 调试模式 · 方向键微调</span><button type="button" className="reset-button" onClick={() => void copyHitPositions()}><Copy size={13} /> 复制坐标</button><button type="button" className="reset-button" onClick={resetHitPositions}><RotateCcw size={14} /> 恢复点位</button></>}</div>}
+          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div></div>}
           behaviorEditorProps={{
             editorRef: behaviorEditorRef,
             attention: behaviorEditorAttention,
@@ -1863,14 +1742,6 @@ function AppController() {
         onCancel={() => setPendingProfileImport(null)}
         onSave={saveImportedProfile}
       />}
-      {coordinateSnippet && <div className="coordinate-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCoordinateSnippet('') }}>
-        <section className="coordinate-dialog" role="dialog" aria-modal="true" aria-labelledby="coordinate-title">
-          <div className="coordinate-dialog-head"><div><span className="section-kicker">DEBUG POSITION</span><h2 id="coordinate-title">坐标已生成</h2></div><button type="button" className="dialog-close" aria-label="关闭" onClick={() => setCoordinateSnippet('')}><X size={16} /></button></div>
-          <p>文本框已经自动选中，按 {platform === 'macos' ? 'Cmd' : 'Ctrl'}+C 后粘贴发给我，或替换 App.tsx 中的 initialHitPositions。</p>
-          <textarea ref={coordinateTextRef} value={coordinateSnippet} readOnly aria-label="定位坐标代码" />
-          <div className="coordinate-dialog-actions"><button type="button" className="dialog-secondary" onClick={() => coordinateTextRef.current?.select()}><Copy size={14} /> 全选坐标</button><button type="button" className="button primary" onClick={() => setCoordinateSnippet('')}>完成</button></div>
-        </section>
-      </div>}
       {editingBehavior && <BehaviorEditDialog
         platform={platform}
         button={selectedButton}

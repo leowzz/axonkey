@@ -23,7 +23,7 @@ import { triggerTypes } from './behaviorModel'
 import type { Behavior, BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
 import { inputIds } from './deviceModel'
 import type { DeviceId } from './deviceModel'
-import type { AppPage, HitPosition, ManualKeyOption, MappingProfile, Platform, RemoteButton, StoredProfiles, StoredSettings } from './appTypes'
+import type { AppPage, ManualKeyOption, MappingProfile, Platform, RemoteButton, StoredProfiles, StoredSettings } from './appTypes'
 import type { KeyboardEvent } from 'react'
 
 export const detectBrowserPlatform = (): Platform => {
@@ -459,20 +459,4 @@ export function behaviorFromCapturedKey(captured: string, id?: string) {
   return keys.length > 1
     ? createBehavior({ type: 'shortcut', keys, id })
     : createBehavior({ type: 'key', key: captured, id })
-}
-
-export const initialHitPositions: Record<ButtonId, HitPosition> = {
-  power: { x: 25.71, y: 12.93 },
-  voice: { x: 73.33, y: 12.73 },
-  up: { x: 49.37, y: 24.84 },
-  left: { x: 20.00, y: 36.03 },
-  confirm: { x: 49.52, y: 36.22 },
-  right: { x: 78.10, y: 36.03 },
-  down: { x: 49.52, y: 47.39 },
-  back: { x: 30.00, y: 59.33 },
-  volumeUp: { x: 68.58, y: 59.52 },
-  home: { x: 30.00, y: 73.81 },
-  volumeDown: { x: 68.58, y: 74.01 },
-  menu: { x: 30.00, y: 87.91 },
-  tv: { x: 68.58, y: 88.11 },
 }

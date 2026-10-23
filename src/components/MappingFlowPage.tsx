@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { iconFor } from '../appConfig'
+import { RemoteControl } from './RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { DeviceSelector, DeviceStatusCard } from './DeviceRail'
 import { MappingKeyGrid } from './MappingComponents'
@@ -17,18 +17,11 @@ export function MappingFlowPage({
   isMouse,
   selectedBehavior,
   adjustPreviewBattery,
-  remoteArtRef,
   editableButtons,
-  markerRefs,
   pressedId,
   behaviors,
   onWorkflowChange,
   onRequestProfileSwitch,
-  draggingId,
-  hitPositions,
-  handleHotspotPointerDown,
-  handleHotspotPointerMove,
-  finishHotspotDrag,
   platform,
   toolbar,
   showRemoteKeyGrid,
@@ -48,23 +41,14 @@ export function MappingFlowPage({
         {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
         {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
         <div className="remote-stage">
-          <div className="remote-art" ref={remoteArtRef}>
-            <img src="/rc003-remote-keymap.png" alt="小米 RC003 遥控器" />
-            {editableButtons.map((button) => (
-              <button
-                key={button.id}
-                ref={(node) => { if (node) markerRefs.current[button.id] = node }}
-                type="button"
-                aria-label={button.label}
-                className={`hotspot hotspot-${button.icon} ${activeId === button.id ? 'active' : ''} ${pressedId === button.id ? 'pressed' : ''} ${Object.values(behaviors[button.id]).some((list) => list.length > 0) ? 'mapped' : ''} ${draggingId === button.id ? 'dragging' : ''}`}
-                style={{ left: `${hitPositions[button.id].x}%`, top: `${hitPositions[button.id].y}%` }}
-                onClick={() => selectBehaviorTarget(button.id, 'click')}
-                onPointerDown={(event) => handleHotspotPointerDown(button, event)}
-                onPointerMove={(event) => handleHotspotPointerMove(button, event)}
-                onPointerUp={finishHotspotDrag}
-                onPointerCancel={finishHotspotDrag}
-              >{button.icon === 'center' ? <span className="center-dot" /> : iconFor(button.icon, 13)}</button>
-            ))}
+          <div className="remote-art">
+            <RemoteControl
+              buttons={editableButtons}
+              activeId={activeId}
+              pressedId={pressedId}
+              mappedIds={editableButtons.filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0)).map(button => button.id)}
+              onSelect={id => selectBehaviorTarget(id, 'click')}
+            />
           </div>
         </div>
         </>}

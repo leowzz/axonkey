@@ -3,13 +3,14 @@ import { ArrowUpRight, CircleDot } from 'lucide-react'
 import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
 import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
 import { triggerTypes } from '../behaviorModel'
+import { RemoteControl } from './RemoteControl'
+import { remoteKeyRegions, remoteViewBox } from '../remoteControlGeometry'
 import type { BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
-import type { HitPosition, Platform, RemoteButton } from '../appTypes'
+import type { Platform, RemoteButton } from '../appTypes'
 
 type Props = {
   buttons: RemoteButton[]
   behaviors: BehaviorMap
-  positions: Record<ButtonId, HitPosition>
   platform: Platform
   enabled: boolean
   saveState: 'saved' | 'saving' | 'error'
@@ -21,7 +22,7 @@ type Props = {
 
 type Wire = { id: ButtonId; path: string }
 
-export function MappingOverview({ buttons, behaviors, positions, platform, enabled, saveState, pressedId, selection, onSelect, onEdit }: Props) {
+export function MappingOverview({ buttons, behaviors, platform, enabled, saveState, pressedId, selection, onSelect, onEdit }: Props) {
   const { buttonId: selectedId, trigger } = selection
   const [hoveredId, setHoveredId] = useState<ButtonId | null>(null)
   const [wires, setWires] = useState<Wire[]>([])
@@ -31,22 +32,39 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
   const highlightedId = pressedId ?? hoveredId ?? selectedId
   const triggerCount = buttons.filter((button) => behaviors[button.id][trigger].length > 0).length
 
-  // Use the editor artwork and calibrated percentage positions; resize keeps wires attached.
+  // Share the SVG key geometry with the editor so wires stay attached at every size.
   useLayoutEffect(() => {
     const canvas = canvasRef.current
-    const art = imageRef.current
+    const art = imageRef.current?.querySelector('.remote-control')
     if (!canvas || !art) return
     const measure = () => {
       const root = canvas.getBoundingClientRect()
       const image = art.getBoundingClientRect()
       setWires(buttons.flatMap((button) => {
         const card = cardRefs.current[button.id]?.getBoundingClientRect()
-        if (!card) return []
+        const region = art.querySelector<SVGGeometryElement>(`[data-remote-key="${button.id}"] .remote-key-surface`)
+        if (!card || !region || !image.width || !image.height) return []
         const x1 = (button.side === 'left' ? card.right : card.left) - root.left
         const y1 = card.top + card.height / 2 - root.top
-        const x2 = image.left - root.left + image.width * positions[button.id].x / 100
-        const y2 = image.top - root.top + image.height * positions[button.id].y / 100
         const elbow = button.side === 'left' ? image.left - root.left - 22 : image.right - root.left + 22
+        let endpoint = remoteKeyRegions[button.id].anchor
+        // Direction-pad regions need a center connection to make adjacent sectors easy to distinguish.
+        if (!['up', 'left', 'confirm', 'right', 'down'].includes(button.id)) {
+          let outside = {
+            x: (elbow + root.left - image.left) * remoteViewBox.width / image.width,
+            y: (y1 + root.top - image.top) * remoteViewBox.height / image.height,
+          }
+          let inside = endpoint
+          // Other keys stop at the incoming line's intersection with their actual SVG outline.
+          for (let step = 0; step < 20; step++) {
+            const point = { x: (outside.x + inside.x) / 2, y: (outside.y + inside.y) / 2 }
+            if (region.isPointInFill(new DOMPoint(point.x, point.y))) inside = point
+            else outside = point
+          }
+          endpoint = outside
+        }
+        const x2 = image.left - root.left + image.width * endpoint.x / remoteViewBox.width
+        const y2 = image.top - root.top + image.height * endpoint.y / remoteViewBox.height
         return [{ id: button.id, path: `M ${x1} ${y1} H ${elbow} L ${x2} ${y2}` }]
       }))
     }
@@ -56,7 +74,7 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
     Object.values(cardRefs.current).forEach((card) => { if (card) observer.observe(card) })
     measure()
     return () => observer.disconnect()
-  }, [buttons, positions])
+  }, [buttons])
 
   return <div className="mapping-overview">
     <section className="overview-surface" aria-label="当前按键映射示意图">
@@ -89,14 +107,16 @@ export function MappingOverview({ buttons, behaviors, positions, platform, enabl
         </div>)}
         <div className="overview-device">
           <div className="overview-art" ref={imageRef}>
-            <img src="/rc003-remote-keymap.png" alt="小米 RC003 遥控器，按键位置与映射编辑页一致" />
-            {buttons.map((button) => <button type="button" key={button.id} aria-label={`查看${button.label}映射`} aria-pressed={selectedId === button.id}
-              className={`overview-marker ${highlightedId === button.id ? 'active' : ''} ${behaviors[button.id][trigger].length ? 'configured' : ''}`}
-              style={{ left: `${positions[button.id].x}%`, top: `${positions[button.id].y}%` }}
-              onClick={() => onSelect(button.id, trigger)} onMouseEnter={() => setHoveredId(button.id)} onMouseLeave={() => setHoveredId(null)}
-              onFocus={() => setHoveredId(button.id)} onBlur={() => setHoveredId(null)}><span /></button>)}
+            <RemoteControl
+              buttons={buttons}
+              activeId={selectedId}
+              pressedId={pressedId}
+              highlightedId={highlightedId}
+              mappedIds={buttons.filter(button => behaviors[button.id][trigger].length > 0).map(button => button.id)}
+              onSelect={id => onSelect(id, trigger)}
+              onHover={setHoveredId}
+            />
           </div>
-          <span className="overview-device-label"><span>RC003</span></span>
         </div>
       </div>
       <div className="overview-legend"><span><CircleDot size={13} /> {triggerLabels[trigger]} · {triggerCount} 个按键已配置</span><span>点击编辑调整动作 · 实体按下时同步高亮</span></div>
