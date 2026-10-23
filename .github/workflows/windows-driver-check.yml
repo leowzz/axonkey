@@ -1,0 +1,58 @@
+name: Windows driver checks
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-driver-check.yml'
+      - '.github/workflows/build-tag.yml'
+      - 'scripts/check-windows-driver.ps1'
+      - 'test/windows-driver-ci.test.ps1'
+      - 'vendor/QuarborHIDFilterUserDriver/**'
+      - 'src-tauri/tauri*.conf.json'
+      - 'src-tauri/windows/**'
+      - 'src-tauri/src/quarbor_installer.rs'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/windows-driver-check.yml'
+      - '.github/workflows/build-tag.yml'
+      - 'scripts/check-windows-driver.ps1'
+      - 'test/windows-driver-ci.test.ps1'
+      - 'vendor/QuarborHIDFilterUserDriver/**'
+      - 'src-tauri/tauri*.conf.json'
+      - 'src-tauri/windows/**'
+      - 'src-tauri/src/quarbor_installer.rs'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  driver-package:
+    name: Package, CLI and driver store (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test CI failure handling
+        run: ./test/windows-driver-ci.test.ps1
+      - name: Check bundled Quarbor package
+        run: ./scripts/check-windows-driver.ps1 -OutputDirectory "$env:RUNNER_TEMP/quarbor-driver-check"
+      - name: Upload driver diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: quarbor-driver-check-${{ matrix.os }}
+          path: ${{ runner.temp }}/quarbor-driver-check/
+          if-no-files-found: warn
+          retention-days: 14

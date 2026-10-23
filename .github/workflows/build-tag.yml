@@ -55,8 +55,14 @@ jobs:
       - name: Run release tests
         run: npm run test:release
 
+  check-windows-driver:
+    needs: release-metadata
+    permissions:
+      contents: read
+    uses: ./.github/workflows/windows-driver-check.yml
+
   build-windows:
-    needs: [release-metadata, test-release]
+    needs: [release-metadata, test-release, check-windows-driver]
     name: Build Windows installer
     runs-on: windows-2022
     timeout-minutes: 45
