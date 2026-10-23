@@ -59,6 +59,7 @@ button { cursor: pointer; }
 .app-sidebar.is-collapsed .sidebar-collapse > span,
 .app-sidebar.is-collapsed .enable-control > span { display: none; }
 .app-sidebar.is-collapsed .app-nav button { justify-content: center; padding: 11px; }
+.app-sidebar.is-collapsed .app-nav .update-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
 .app-sidebar.is-collapsed .sidebar-footer { align-items: center; padding: 0; }
 .app-sidebar.is-collapsed .sidebar-collapse { justify-content: center; width: 34px; }
 .sidebar-tooltip { position: fixed; z-index: 1100; max-width: min(320px, calc(100vw - 88px)); padding: 7px 10px; border-radius: 6px; color: #fff; background: #293f53; box-shadow: 0 3px 10px rgb(30 55 80 / 14%); font-size: 12px; line-height: 1.5; transform: translateY(-50%); pointer-events: none; }
