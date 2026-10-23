@@ -37,6 +37,46 @@ $new = @(Get-NewQuarborPackages -Before $before -After $after)
 if ($new.Count -ne 1 -or $new[0].Driver -ne 'oem2.inf') { throw 'Cleanup selected packages outside this staging operation.' }
 if (@(Get-NewQuarborPackages -Before @() -After @()).Count -ne 0) { throw 'Empty store should need no cleanup.' }
 
+# Simulate the certificate store without changing the test machine's trust settings.
+function New-TestPublisherStore {
+    param([object[]]$Certificates = @())
+    $store = [pscustomobject]@{ Certificates = $Certificates; Added = @(); Removed = @(); Closed = $false }
+    $store | Add-Member ScriptMethod Open { param($Flags) }
+    $store | Add-Member ScriptMethod Add { param($Certificate) $this.Added += $Certificate; $this.Certificates += $Certificate }
+    $store | Add-Member ScriptMethod Remove { param($Certificate) $this.Removed += $Certificate; $this.Certificates = @($this.Certificates | Where-Object Thumbprint -ne $Certificate.Thumbprint) }
+    $store | Add-Member ScriptMethod Close { $this.Closed = $true }
+    return $store
+}
+
+$certificate = [pscustomobject]@{ Thumbprint = 'CATALOG-SIGNER'; Subject = 'Test publisher' }
+$signature = [pscustomobject]@{ Status = 'Valid'; SignerCertificate = $certificate }
+foreach ($failOperation in @($false, $true)) {
+    $store = New-TestPublisherStore
+    $stagingAction = {
+        if ($store.Certificates.Count -ne 1) { throw 'Publisher must be trusted during staging.' }
+        if ($failOperation) { throw 'Simulated staging failure' }
+        'staged'
+    }
+    if ($failOperation) {
+        Assert-Rejected { Invoke-WithTrustedPublisher -Signature $signature -Store $store -Action $stagingAction }
+    } else {
+        if ((Invoke-WithTrustedPublisher -Signature $signature -Store $store -Action $stagingAction) -ne 'staged') { throw 'Staging result was lost.' }
+    }
+    if ($store.Added.Count -ne 1 -or $store.Removed.Count -ne 1 -or $store.Certificates.Count -ne 0 -or -not $store.Closed) {
+        throw 'Temporary publisher trust must be removed on both success and failure.'
+    }
+}
+$store = New-TestPublisherStore -Certificates @($certificate)
+$null = Invoke-WithTrustedPublisher -Signature $signature -Store $store -Action { 'staged' }
+if ($store.Added.Count -ne 0 -or $store.Removed.Count -ne 0 -or $store.Certificates.Count -ne 1 -or -not $store.Closed) {
+    throw 'Pre-existing publisher trust must be preserved.'
+}
+$store = New-TestPublisherStore
+$invalidSignature = [pscustomobject]@{ Status = 'NotTrusted'; SignerCertificate = $certificate }
+$operation = [pscustomobject]@{ Ran = $false }
+Assert-Rejected { Invoke-WithTrustedPublisher -Signature $invalidSignature -Store $store -Action { $operation.Ran = $true } }
+if ($store.Added.Count -ne 0 -or $operation.Ran) { throw 'An invalid signer must never be trusted or staged.' }
+
 $temporary = Join-Path ([IO.Path]::GetTempPath()) ('quarbor-ci-test-' + [guid]::NewGuid().ToString('N'))
 [void](New-Item -ItemType Directory -Path $temporary)
 try {
@@ -51,4 +91,4 @@ try {
 } finally {
     Remove-Item -LiteralPath $temporary -Recurse -Force
 }
-Write-Host 'PASS: installer contract, cleanup scope, native exit codes and process timeouts.'
+Write-Host 'PASS: installer contract, package/publisher cleanup, native exit codes and process timeouts.'

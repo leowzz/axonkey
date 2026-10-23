@@ -2,11 +2,14 @@
 <#
 Checks the bundled package, installer CLI and driver-store staging on a disposable
 Windows runner. Does not bind a device, load the driver or test UAC/RC003 input.
+TrustPublisherForCI temporarily trusts the verified catalog signer on GitHub-hosted
+runners to avoid the interactive publisher prompt. It never adds a root certificate.
 #>
 [CmdletBinding()]
 param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('quarbor-check-' + [guid]::NewGuid().ToString('N')))
+    [string]$OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) ('quarbor-check-' + [guid]::NewGuid().ToString('N'))),
+    [switch]$TrustPublisherForCI
 )
 
 Set-StrictMode -Version Latest
@@ -88,8 +91,39 @@ function Get-NewQuarborPackages {
     }
 }
 
+function Invoke-WithTrustedPublisher {
+    param($Signature, $Store, [scriptblock]$Action)
+    if ($Signature.Status -ne 'Valid' -or -not $Signature.SignerCertificate) {
+        throw 'Cannot trust a publisher before its signature has been verified.'
+    }
+    $certificate = $Signature.SignerCertificate
+    $added = $false
+    try {
+        $Store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $existing = @($Store.Certificates | Where-Object Thumbprint -eq $certificate.Thumbprint)
+        if ($existing.Count -eq 0) {
+            $Store.Add($certificate)
+            $added = $true
+            Write-Host "Temporarily trusted catalog publisher: $($certificate.Subject) [$($certificate.Thumbprint)]"
+        }
+        & $Action
+    } finally {
+        try {
+            if ($added) {
+                $Store.Remove($certificate)
+                Write-Host "Removed temporary publisher trust: $($certificate.Thumbprint)"
+            }
+        } finally {
+            $Store.Close()
+        }
+    }
+}
+
 function Test-WindowsDriverPackage {
-    param([string]$Root, [string]$Logs)
+    param([string]$Root, [string]$Logs, [switch]$TrustPublisherForCI)
+    if ($TrustPublisherForCI -and ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted')) {
+        throw '-TrustPublisherForCI is only supported on disposable GitHub-hosted runners.'
+    }
     if (-not $IsWindows) { throw 'Driver-store checks require Windows.' }
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
     $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -127,7 +161,8 @@ function Test-WindowsDriverPackage {
             Get-FileHash -LiteralPath $path -Algorithm SHA256 | Select-Object Path, Hash
         }
         $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Logs 'package-sha256.json') -Encoding utf8
-        $signatures = @(Get-AuthenticodeSignature -LiteralPath $exe, $catalog)
+        $catalogSignature = Get-AuthenticodeSignature -LiteralPath $catalog
+        $signatures = @((Get-AuthenticodeSignature -LiteralPath $exe), $catalogSignature)
         $signatures | Select-Object Path, Status, StatusMessage, @{Name = 'Signer'; Expression = { if ($_.SignerCertificate) { $_.SignerCertificate.Subject } }} |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Logs 'signatures.json') -Encoding utf8
         if (@($signatures | Where-Object Status -ne 'Valid').Count -ne 0) { throw 'Installer or catalog signature is not valid.' }
@@ -156,7 +191,18 @@ function Test-WindowsDriverPackage {
             ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Logs 'driver-store-before.json') -Encoding utf8
         $stagingAttempted = $true
         # Deliberately omit /install: a hosted runner has no RC003 to bind.
-        $stage = Invoke-LoggedProcess -FilePath $pnputil -Arguments @('/add-driver', $inf) -LogPrefix (Join-Path $Logs 'pnputil-add')
+        $stagePackage = {
+            Invoke-LoggedProcess -FilePath $pnputil -Arguments @('/add-driver', $inf) -LogPrefix (Join-Path $Logs 'pnputil-add')
+        }
+        if ($TrustPublisherForCI) {
+            # Authenticode and catalog membership were verified above. A valid signature
+            # does not itself suppress Windows' publisher-consent dialog (0xe0000242).
+            # https://learn.microsoft.com/windows-hardware/drivers/install/trusted-publishers-certificate-store
+            $publisherStore = [Security.Cryptography.X509Certificates.X509Store]::new('TrustedPublisher', 'LocalMachine')
+            $stage = Invoke-WithTrustedPublisher -Signature $catalogSignature -Store $publisherStore -Action $stagePackage
+        } else {
+            $stage = & $stagePackage
+        }
         if ($stage.exitCode -ne 0) { throw "Driver-store staging failed: exit $($stage.exitCode). See pnputil-add.* and setupapi.dev.log." }
         $after = @(Get-WindowsDriver -Online -LogPath (Join-Path $Logs 'dism-after.log'))
         $after | Select-Object Driver, OriginalFileName, ProviderName, Version |
@@ -197,5 +243,5 @@ function Test-WindowsDriverPackage {
 }
 
 if ($MyInvocation.InvocationName -ne '.') {
-    Test-WindowsDriverPackage -Root $RepositoryRoot -Logs $OutputDirectory
+    Test-WindowsDriverPackage -Root $RepositoryRoot -Logs $OutputDirectory -TrustPublisherForCI:$TrustPublisherForCI
 }

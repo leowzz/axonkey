@@ -47,7 +47,7 @@ jobs:
       - name: Test CI failure handling
         run: ./test/windows-driver-ci.test.ps1
       - name: Check bundled Quarbor package
-        run: ./scripts/check-windows-driver.ps1 -OutputDirectory "$env:RUNNER_TEMP/quarbor-driver-check"
+        run: ./scripts/check-windows-driver.ps1 -OutputDirectory "$env:RUNNER_TEMP/quarbor-driver-check" -TrustPublisherForCI
       - name: Upload driver diagnostics
         if: always()
         uses: actions/upload-artifact@v7
