@@ -27,11 +27,13 @@ test('workflow keeps a fixed scale through zoom commands, pinch limits and viewp
   assert.deepEqual(focused, { position: new Vector(0, 0), scale: 1 })
 })
 
-test('all three lanes fit their canvas independently of sequence lengths, including after a resize', () => {
+test('wheel and button lanes fit their canvas independently of sequence lengths, including after a resize', () => {
   for (const width of [360, 480, 876, 1400]) {
-    const { padding, gap, laneWidth } = workflowLaneLayout(width, 500)
-    assert.ok(laneWidth > 0)
-    assert.ok(Math.abs(padding * 2 + gap * 2 + laneWidth * 3 - width) < .001)
+    for (const count of [1, 3]) {
+      const { padding, gap, laneWidth } = workflowLaneLayout(width, 500, count)
+      assert.ok(laneWidth > 0)
+      assert.ok(Math.abs(padding * 2 + gap * (count - 1) + laneWidth * count - width) < .001)
+    }
   }
 })
 

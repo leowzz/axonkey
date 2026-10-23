@@ -12,7 +12,7 @@ import { createSavedSequence, parseSavedSequences, savedSequencesStorageKey } fr
 import type { SavedSequence } from '../savedSequences'
 import { SequencePasteDialog } from './BehaviorEditor'
 import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
-import { createTriggerRootExtension, isTriggerRoot } from './WorkflowTriggerRoot'
+import { createTriggerRootExtension, defaultWorkflowTriggers, isTriggerRoot } from './WorkflowTriggerRoot'
 import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, isWorkflowStepLocked, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
@@ -56,6 +56,8 @@ type WorkflowAction = {
 }
 
 export function WorkflowAxonkey({ platform, button, sequences, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps) {
+  const triggers = button.triggerLabel ? [{ id: 'click' as const, label: button.triggerLabel }] : defaultWorkflowTriggers
+  const inputLabel = [button.label, button.contextLabel].filter(Boolean).join(' · ')
   const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
   const trashRef = useRef<HTMLButtonElement>(null)
@@ -205,7 +207,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, onReque
       theme: 'light',
       textWidthMeasurer: (text) => {
         const full = text.textContent ?? ''
-        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400).laneWidth - 62)
+        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggers.length).laneWidth - 62)
         if (text.getComputedTextLength() > maxWidth) {
           let end = full.length
           do { text.textContent = `${full.slice(0, --end)}…` } while (end > 0 && text.getComputedTextLength() > maxWidth)
@@ -262,9 +264,9 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, onReque
           if (!sequence?.length) return
           if (action === 'save') setSequenceDialog({ type: 'save', trigger, behaviors: sequence })
           else void writeClipboardText(serializeSequence(sequence)).then(() => {
-            if (active) setLaneStatus(`${triggerLabels[trigger]}序列已复制`)
+            if (active) setLaneStatus(`${button.triggerLabel ?? triggerLabels[trigger]}序列已复制`)
           }).catch(() => { if (active) setLaneStatus('复制失败，请重试') })
-        }),
+        }, triggers),
         uiComponents: [{
           create: (root, api) => {
             workflowApi = api
@@ -430,7 +432,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, onReque
     setEditingStep(null)
   }
 
-  return <section ref={workflowRef} className="workflow-axonkey" aria-label={`${button.label} · 行为流程图`}>
+  return <section ref={workflowRef} className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
     <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
     <button ref={trashRef} type="button" className="workflow-trash" aria-label="垃圾桶，拖入行为即可删除" tabIndex={-1}>
       <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
@@ -439,7 +441,7 @@ export function WorkflowAxonkey({ platform, button, sequences, onChange, onReque
     {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={[...toolbox.palettes, savedPalette]} savedError={library.error} onRemoveSavedSequence={(id) => { const error = storeLibrary(library.items.filter((item) => item.id !== id)); if (error) setLaneStatus(error) }} iconUrls={toolbox.iconUrls} selectedCategory={toolboxCategory} onCategoryChange={onToolboxCategoryChange} />, toolbox.host)}
     {laneStatus && <div className="workflow-lane-status" role="status">{laneStatus}</div>}
     {sequenceDialog?.type === 'save' && createPortal(<WorkflowSequenceSaveDialog
-      initialName={`${button.label} · ${triggerLabels[sequenceDialog.trigger]}`}
+      initialName={`${inputLabel} · ${button.triggerLabel ?? triggerLabels[sequenceDialog.trigger]}`}
       onClose={() => setSequenceDialog(null)}
       onSave={(name) => {
         const saved = createSavedSequence(name, sequenceDialog.behaviors)

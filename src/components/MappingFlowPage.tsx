@@ -3,7 +3,7 @@ import { RemoteControl } from './RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { DeviceSelector, DeviceStatusCard } from './DeviceRail'
 import { MappingKeyGrid } from './MappingComponents'
-import { MouseInputModel, MouseControlPicker } from './MouseMapping'
+import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './MouseMapping'
 import type { MappingPageProps } from './MappingPage'
 import { WorkflowAxonkey } from './WorkflowAxonkey'
 
@@ -58,7 +58,7 @@ export function MappingFlowPage({
         <section className="key-picker" aria-labelledby="key-picker-title">
           <div className="key-picker-head">
             <div className="key-picker-heading">
-            <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'}</h2>
+            <h2 id="key-picker-title">{isMouse ? behaviorEditorProps.button.label : '按键'}</h2>
           {!isMouse && showRemoteKeyGrid && <MappingKeyGrid
             platform={platform}
             buttons={editableButtons}
@@ -73,6 +73,10 @@ export function MappingFlowPage({
           </div>
           {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
         </section>
+        {isMouse && <div className="mouse-flow-context">
+          <MouseScopeSelector behaviors={behaviors} activeId={selectedBehavior.buttonId} onSelect={(id) => selectBehaviorTarget(id, 'click', false)} />
+          {behaviorEditorProps.button.inheritDefault && <span className="mouse-flow-inheritance">未配置的触发方式沿用任意位置</span>}
+        </div>}
         <WorkflowAxonkey key={selectedBehavior.buttonId} platform={platform} button={behaviorEditorProps.button} sequences={behaviors[selectedBehavior.buttonId]} onChange={onWorkflowChange} onRequestProfileSwitch={onRequestProfileSwitch} toolboxCategory={toolboxCategory} onToolboxCategoryChange={setToolboxCategory} />
       </section>
     </div>

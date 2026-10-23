@@ -3,7 +3,7 @@ import type { BranchedStep, Definition, Placeholder, RootComponentExtension, Ste
 import type { TriggerType } from '../behaviorModel.ts'
 import { clampLaneScroll, workflowLaneLayout } from './workflowLaneLayout.ts'
 
-const triggers = [
+export const defaultWorkflowTriggers = [
   { id: 'click', label: '单击' },
   { id: 'doubleClick', label: '双击' },
   { id: 'longPress', label: '长按' },
@@ -36,11 +36,12 @@ export function createTriggerDefinition(): Definition {
 
 type WorkflowLaneAction = 'save' | 'copy' | 'paste'
 
-// Render the three branch sequences as independent lines in one designer.
+// Render the input's supported triggers as independent lanes in one designer.
 export function createTriggerRootExtension(
   onClear: (trigger: TriggerType) => void,
   onScroll: () => void = () => {},
   onAction: (trigger: TriggerType, action: WorkflowLaneAction) => void = () => {},
+  triggers: readonly { id: TriggerType; label: string }[] = defaultWorkflowTriggers,
 ): RootComponentExtension {
   const scrollPositions = new Map<TriggerType, number>()
   return {
@@ -51,7 +52,7 @@ export function createTriggerRootExtension(
       const canvas = parent.closest('.workflow-axonkey-canvas')!
       const width = canvas.clientWidth
       const height = canvas.clientHeight
-      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(width, height)
+      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(width, height, triggers.length)
       const lanes = triggers.map(({ id, label }) => {
         const disabled = isWorkflowLaneDisabled(root.branches[id])
         const lane = Dom.svg('g', { class: `workflow-trigger-lane workflow-trigger-${id}${disabled ? ' workflow-trigger-disabled' : ''}`, 'data-trigger': id })

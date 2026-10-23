@@ -78,7 +78,7 @@ function load(file) {
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
     if (name === './WorkflowTriggerRoot') {
       const original = load('src/components/WorkflowTriggerRoot.ts')
-      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction), clear: onClear, action: onAction }) }
+      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction, triggers) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction, triggers), clear: onClear, action: onAction }) }
     }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
@@ -97,6 +97,8 @@ function load(file) {
 }
 
 const { WorkflowAxonkey } = load('src/components/WorkflowAxonkey.tsx')
+const { MouseScopeSelector, mouseInputs } = load('src/components/MouseMapping.tsx')
+const { createDefaultBehaviorMap } = load('src/behaviorModel.ts')
 const empty = () => ({ click: [], doubleClick: [], longPress: [] })
 const delay = ms => ({ id: 'wait', type: 'delay', enabled: true, ms })
 const palette = type => ({ id: `new-${type}`, type, componentType: 'task', name: type, properties: { preset: type } })
@@ -124,6 +126,53 @@ const openContextEditor = async (app, trigger, index = 0) => {
   await act(async () => provider.getItems(branch[index], branch)[0].callback())
   return app.view.root.findByType('workflow-dialog')
 }
+
+test('switching mouse edges flushes pending edits to the original edge and restores each independent sequence', async () => {
+  let view, currentMap, selectedId
+  const initial = createDefaultBehaviorMap()
+  initial['mouse.right.up'].click = [delay(900)]
+  function Harness() {
+    const [activeId, select] = React.useState('mouse.top.up')
+    const [behaviors, setBehaviors] = React.useState(initial)
+    currentMap = behaviors
+    selectedId = activeId
+    return React.createElement(React.Fragment, null,
+      React.createElement(MouseScopeSelector, { activeId, behaviors, onSelect: select }),
+      React.createElement(WorkflowAxonkey, {
+        key: activeId, platform: 'windows', button: mouseInputs.find(input => input.id === activeId),
+        sequences: behaviors[activeId], toolboxCategory: 'all', onToolboxCategoryChange() {}, onRequestProfileSwitch() {},
+        onChange: (id, next) => setBehaviors(current => ({ ...current, [id]: copy(next) })),
+      }))
+  }
+  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({
+    querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} },
+  }) }) })
+  const switchEdge = async scope => act(async () => view.root.findByProps({ className: `mouse-scope-option mouse-scope-${scope}` }).props.onClick())
+  try {
+    const top = instances.at(-1)
+    // Switch before the designer delivers a pending drop notification.
+    branches(top).click.push(palette('space'))
+    await switchEdge('left')
+    assert.equal(top.destroyed, true)
+    assert.equal(selectedId, 'mouse.left.up')
+    assert.equal(currentMap['mouse.top.up'].click[0].key, 'Space')
+    assert.deepEqual(copy(branches(instances.at(-1)).click), [])
+
+    const left = instances.at(-1)
+    const node = palette('enter')
+    branches(left).click.push(node)
+    await act(async () => left.emit(library.DefinitionChangeType.stepInserted, node.id))
+    await switchEdge('right')
+    assert.equal(branches(instances.at(-1)).click[0].properties.ms, 900)
+    await switchEdge('top')
+    assert.equal(branches(instances.at(-1)).click[0].properties.key, 'Space')
+    await switchEdge('left')
+    assert.equal(branches(instances.at(-1)).click[0].properties.key, 'Enter')
+    assert.equal(currentMap['mouse.top.up'].click[0].key, 'Space')
+    assert.equal(currentMap['mouse.left.up'].click[0].key, 'Enter')
+    assert.equal(currentMap['mouse.right.up'].click[0].ms, 900)
+  } finally { await act(async () => view.unmount()) }
+})
 
 test('workflow changes autosave once, and the save echo retains the designer and viewport', async () => {
   const app = await render()

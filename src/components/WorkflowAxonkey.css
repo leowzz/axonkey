@@ -3,6 +3,9 @@
 .mapping-active .main-content > .mapping-flow-page { flex: 1; width: 100%; max-width: 1440px; margin: auto; }
 .mapping-active .main-content:has(> .mapping-flow-page) > .mapping-disabled-notice { width: min(1440px, 100%); margin: 0 auto; }
 .mapping-flow-page .key-picker { flex: 0 0 auto; }
+.mouse-flow-context { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 0 16px 12px; }
+.mouse-flow-context .mouse-condition-row { flex: 1 0 100%; margin: 0; }
+.mouse-flow-inheritance { color: #70849a; font-size: 12px; }
 .workflow-axonkey { position: relative; display: grid; flex: 1 1 416px; grid-template-columns: minmax(0, 1fr) clamp(282px, 30%, 380px); gap: 12px; align-items: stretch; min-width: 0; min-height: 260px; padding: 0 16px 16px; isolation: isolate; }
 .workflow-axonkey-canvas { width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; background: transparent; overflow: hidden; }
 .workflow-axonkey-canvas .sqd-designer { background: transparent; }

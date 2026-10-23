@@ -6,6 +6,7 @@ import { mouseControlAllowsGlobal, mouseControls, mouseInputId, mouseInputIds, m
 import type { MouseControlId } from '../deviceModel'
 
 const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointerClick, buttonForward: ArrowUpRight, buttonBack: ArrowDownLeft, buttonRight: MousePointerClick }
+const scopeDisplayOrder = { global: 0, left: 1, top: 2, right: 3 }
 export const mouseInputs: MappingInput[] = mouseInputIds.map((id) => {
   const { scope, control } = mouseInputParts(id)
   const inheritGlobal = mouseControlAllowsGlobal(control.id) && scope.id !== 'global'
@@ -70,6 +71,20 @@ export function MouseControlPicker({ activeId, onSelect }: Pick<PickerProps, 'ac
   </div>
 }
 
+export function MouseScopeSelector({ behaviors, activeId, onSelect }: Pick<PickerProps, 'behaviors' | 'activeId'> & { onSelect: (id: InputId) => void }) {
+  const { scope, control } = mouseInputParts(activeId)
+  return <div className="mouse-condition-row">
+      <span className="mouse-condition-label">生效区域</span>
+      <div className="mouse-scope-options" role="group" aria-label="鼠标生效区域">
+        {mouseScopesForControl(control.id).sort((a, b) => scopeDisplayOrder[a.id] - scopeDisplayOrder[b.id]).map((item) => {
+          const id = mouseInputId(item.id, control.id)
+          const count = Object.values(behaviors[id]).filter((list) => list.some((behavior) => behavior.enabled)).length
+          return <button type="button" className={`mouse-scope-option mouse-scope-${item.id}`} key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id)}><span className="mouse-scope-diagram" aria-hidden="true"><span /></span><span>{item.label}</span>{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
+        })}
+      </div>
+    </div>
+}
+
 export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, onSelect, rowRefs }: PickerProps) {
   const { scope, control } = mouseInputParts(activeId)
   const inheritGlobal = mouseControlAllowsGlobal(control.id) && scope.id !== 'global'
@@ -78,16 +93,7 @@ export function MouseTriggerSelector({ behaviors, activeId, platform, trigger, o
   const original = inheritGlobal ? '沿用任意位置' : control.kind === 'button' ? '保留原始点击' : '保留原始滚动'
   return <section className="mouse-trigger-selector" ref={(node) => { if (node) rowRefs.current[activeId] = node }} aria-label={`${control.label}触发条件`}>
     <div className="mouse-trigger-heading"><h2>触发条件</h2><span>{control.label}</span></div>
-    <div className="mouse-condition-row">
-      <span className="mouse-condition-label">生效区域</span>
-      <div className="mouse-scope-options" role="group" aria-label="鼠标生效区域">
-        {mouseScopesForControl(control.id).map((item) => {
-          const id = mouseInputId(item.id, control.id)
-          const count = Object.values(behaviors[id]).filter((list) => list.some((behavior) => behavior.enabled)).length
-          return <button type="button" className={`mouse-scope-option mouse-scope-${item.id}`} key={item.id} aria-pressed={item.id === scope.id} onClick={() => onSelect(id, trigger)}><span className="mouse-scope-diagram" aria-hidden="true"><span /></span><span>{item.label}</span>{count > 0 && <span className="mouse-configured-dot" aria-label="已配置" />}</button>
-        })}
-      </div>
-    </div>
+    <MouseScopeSelector behaviors={behaviors} activeId={activeId} onSelect={(id) => onSelect(id, trigger)} />
     <div className="mouse-condition-row">
       <span className="mouse-condition-label">触发方式</span>
       <div className={`mouse-gesture-options ${control.kind === 'wheel' ? 'wheel-gesture' : ''}`} role="tablist" aria-label={`${control.label}触发方式`}>

@@ -1,7 +1,9 @@
 import { invoke } from '@tauri-apps/api/core'
 import { SlidersHorizontal, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { useEffect, useReducer, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { AudioTestWaveform } from './AudioTestWaveform'
+import { SettingsHelp } from './SettingsHelp'
 import type { CalibrationWaveformPoint } from '../audioGain'
 import type { AudioProbe, Platform } from '../appTypes'
 import { audioGainMin, audioGainMax } from '../appConfig'
@@ -69,13 +71,10 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
 
   const [status, level] = sample ?? [null, { peak: 0, rms: 0 }]
   const supported = nativeRuntime && platform !== 'unsupported'
-  const message = !supported ? '请在 macOS 或 Windows 桌面应用中测试，浏览器预览不提供真实音频。'
+  const message = !supported ? '浏览器不支持音量测试，请使用桌面应用。'
     : error || status?.error || (!status ? '正在读取音频状态…'
       : !status.driverInstalled ? '未检测到音频驱动，请先在音频设置中安装驱动。'
-        : !status.bluetoothConnected ? '等待遥控器连接，请检查蓝牙连接并唤醒遥控器。'
-          : level.peak > 0 ? '已收到音频信号，请观察说话和停顿时的电平变化。'
-            : status.forwarding ? '语音通道已开启，暂未检测到声音。请靠近遥控器说话。'
-              : '已连接，请按住遥控器语音键开始说话。')
+        : !status.bluetoothConnected ? '请连接并唤醒遥控器。' : '')
   const deviceName = platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'
   const adjustedPeak = gainAdjustedLevel(level.peak, audioGain)
   const adjustedMaximum = gainAdjustedLevel(maximum, audioGain)
@@ -84,55 +83,52 @@ export function AudioTestDialog({ platform, nativeRuntime, audioGain, gainError,
   const ready = supported && !!status?.driverInstalled && !!status.bluetoothConnected && !error && !status.error && !gainError
   const resultTone = !ready || !completed ? 'silent' : maximum >= 0.999 ? 'clipping' : gainLevelTone(adjustedMaximum)
   const result = {
-    silent: { title: '等待正常讲话', hint: '按住语音键，以日常距离和音量说“音频测试，一二三”，持续几秒。' },
-    low: { title: '音量偏低 · 请提高增益', hint: '松开语音键后，点击“应用建议”或逐步提高增益，直到显示绿色 OK。不要根据静音或背景噪声调整。' },
-    good: { title: 'OK · 增益合适', hint: '本次讲话的估算峰值在合适范围内，可以保留当前设置。再录一小段回放，确认声音清晰。' },
-    hot: { title: '音量偏高 · 请降低增益', hint: '点击“应用建议”或逐步降低增益，直到显示绿色 OK，为较大音量留出余量。' },
-    clipping: { title: '音量过大 · 有失真风险', hint: maximum >= 0.999 ? '原始声音已接近满幅，请离遥控器远一些，再按住语音键正常讲话。' : '请降低增益，直到显示绿色 OK。红色表示音量过大，不是测试通过。' },
+    silent: { title: '未检测到声音', hint: '请靠近遥控器重新测试。' },
+    low: { title: '音量偏低', hint: '提高增益，或应用建议。' },
+    good: { title: '增益合适', hint: '' },
+    hot: { title: '音量偏高', hint: '降低增益，或应用建议。' },
+    clipping: { title: '音量过大 · 可能失真', hint: maximum >= 0.999 ? '原始输入接近满幅，请离遥控器远一些再试。' : '请降低增益。' },
   }[resultTone]
+  const resultHint = !ready ? gainError ? '' : message : completed ? result.hint : ''
 
   return <dialog ref={dialogRef} className="audio-test-dialog" aria-labelledby="audio-test-title" onCancel={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose() }}>
     <div className="audio-test-content">
-      <header><div><SlidersHorizontal size={20} /><h2 id="audio-test-title">校准音量</h2></div><button type="button" className="dialog-close" aria-label="关闭音量校准" onClick={onClose} autoFocus><X size={18} /></button></header>
-      <p className="audio-test-intro">按住语音键正常讲话，松开后统一计算建议；再次按下会自动开始新一轮测试。</p>
+      <header><div><SlidersHorizontal size={20} /><h2 id="audio-test-title">校准音量</h2><SettingsHelp id="audio-calibration-help" label="音量校准">建议基于增益后的估算音量，不能替代试听。可在录音应用中选择「{deviceName}」回放确认；此窗口不播放或保存录音。</SettingsHelp></div><button type="button" className="dialog-close" aria-label="关闭音量校准" onClick={onClose} autoFocus><X size={18} /></button></header>
+      <p className="audio-test-intro">按住语音键正常讲话，松开查看建议。</p>
       <div className="audio-test-layout">
-        <section className="audio-test-gain" aria-label="输入增益调整">
-          <h3>1. 按住讲话，松开后调整</h3>
-          <p>保持日常使用距离，说“音频测试，一二三”，持续几秒。</p>
-          <p><strong>按键声过滤：</strong>每次按下语音键后的前 200ms（0.2 秒）不计入测试电平和增益建议，避免按键声干扰判断。仅影响测试统计，正常语音仍完整传输，不会被裁剪或静音。</p>
-          <div className="audio-test-gain-heading"><label htmlFor="audio-test-gain">输入增益</label><output htmlFor="audio-test-gain">{audioGain > 0 ? '+' : ''}{audioGain} dB</output></div>
-          <div className="audio-test-gain-controls">
-            <button type="button" className="dialog-secondary" aria-label="降低 1 dB" title="降低 1 dB" disabled={!supported || audioGain <= audioGainMin} onClick={() => onAudioGainChange(audioGain - 1)}><Minus size={16} /></button>
-            <input id="audio-test-gain" type="range" min={audioGainMin} max={audioGainMax} step={1} value={audioGain} disabled={!supported} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
-            <button type="button" className="dialog-secondary" aria-label="提高 1 dB" title="提高 1 dB" disabled={!supported || audioGain >= audioGainMax} onClick={() => onAudioGainChange(audioGain + 1)}><Plus size={16} /></button>
-            <button type="button" className="dialog-secondary" aria-label="恢复默认增益 0 dB" title="恢复默认增益 0 dB" disabled={!supported || audioGain === 0} onClick={() => onAudioGainChange(0)}><RotateCcw size={16} /></button>
-          </div>
-          <p>无需追求固定数值，设置自动保存并与首页同步。</p>
-          {completed && maximum >= 0.999 ? <p className="audio-test-gain-error">原始输入已接近满幅，降低软件增益无法修复源头失真。请远离麦克风或降低说话音量，再次按住语音键测试。</p>
-            : <div className="audio-test-suggestion"><span>{!completed ? '按住语音键讲话，松开后自动计算建议。' : suggestedGain === null ? '本次测试无法给出建议，请再次按住语音键测试。' : `建议增益 ${suggestedGain > 0 ? '+' : ''}${suggestedGain} dB。`}</span><button type="button" className="dialog-secondary" disabled={!ready || suggestedGain === null || suggestedGain === audioGain} onClick={() => { if (suggestedGain !== null) onAudioGainChange(suggestedGain) }}>应用建议</button></div>}
-          {gainError && <p role="alert" className="audio-test-gain-error">{gainError}</p>}
-        </section>
         <section className={`audio-test-meter ${tone}`}>
-          <h3>2. 查看测试结果</h3>
-          {ready && <p className="audio-test-connection" role="status">{message}</p>}
+          <h3>测试结果</h3>
           <div className={`audio-test-result ${resultTone}`} role="status" aria-live="polite" aria-atomic="true">
-            <strong>{!ready ? '暂时无法判断增益' : completed ? result.title : status?.forwarding ? '测试中 · 请正常讲话' : '等待按下语音键'}</strong>
-            <span>{!ready ? gainError || message : completed ? result.hint : '按住语音键，用正常音量说几句话；松开后统一给出结果。'}</span>
+            <strong>{!ready ? '暂不可测试' : completed ? result.title : status?.forwarding ? '正在收音…' : '等待测试'}</strong>
+            {resultHint && <span>{resultHint}</span>}
           </div>
-          <p className="audio-test-result-note">松开语音键后，按本轮最高峰值判断并保留结果；再次按下会清空旧结果。</p>
-          <h3>实时音量 · 绿色区域为合适范围</h3>
+          <h3 className="audio-test-meter-heading">实时音量</h3>
           <div className="audio-test-track" role="meter" aria-label="增益后估算峰值电平" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Math.max(-60, Math.min(0, adjustedPeak > 0 ? 20 * Math.log10(adjustedPeak) : -60))} aria-valuetext={decibels(adjustedPeak)}><div style={{ width: `${meterValue}%` }} /></div>
           <div className="audio-test-scale"><span>偏低</span><span>合适</span><span>偏高</span></div>
         </section>
+        <section className="audio-test-gain" aria-label="输入增益调整">
+          <div className="audio-test-gain-heading">
+            <label htmlFor="audio-test-gain">输入增益</label>
+            <output htmlFor="audio-test-gain">{audioGain > 0 ? '+' : ''}{audioGain}<span> dB</span></output>
+            <button type="button" className="dialog-secondary" aria-label="恢复默认增益 0 dB" title="恢复默认增益 0 dB" disabled={!supported || audioGain === 0} onClick={() => onAudioGainChange(0)}><RotateCcw size={15} /></button>
+          </div>
+          <div className="audio-test-gain-controls">
+            <button type="button" className="dialog-secondary" aria-label="降低 1 dB" title="降低 1 dB" disabled={!supported || audioGain <= audioGainMin} onClick={() => onAudioGainChange(audioGain - 1)}><Minus size={16} /></button>
+            <input id="audio-test-gain" type="range" min={audioGainMin} max={audioGainMax} step={1} value={audioGain} aria-valuetext={`${audioGain} dB`} style={{ '--gain-progress': `${(audioGain - audioGainMin) / (audioGainMax - audioGainMin) * 100}%` } as CSSProperties} disabled={!supported} onChange={(event) => onAudioGainChange(Number(event.target.value))} />
+            <button type="button" className="dialog-secondary" aria-label="提高 1 dB" title="提高 1 dB" disabled={!supported || audioGain >= audioGainMax} onClick={() => onAudioGainChange(audioGain + 1)}><Plus size={16} /></button>
+            <div className="audio-test-gain-scale" aria-hidden="true"><span>{audioGainMin}</span><span>0</span><span>+{audioGainMax}</span></div>
+          </div>
+          {completed && maximum < 0.999 && suggestedGain !== null && <div className="audio-test-suggestion"><span>建议 {suggestedGain > 0 ? '+' : ''}{suggestedGain} dB</span><button type="button" className="dialog-secondary" disabled={!ready || suggestedGain === audioGain} onClick={() => onAudioGainChange(suggestedGain)}>应用建议</button></div>}
+          {gainError && <p role="alert" className="audio-test-gain-error">{gainError}</p>}
+        </section>
       </div>
       <AudioTestWaveform points={level.waveform ?? []} now={level.nowMs ?? 0} gain={audioGain} forwarding={!!status?.forwarding} available={ready} />
-      <div className="audio-test-playback"><strong>3. 录音回放确认</strong><span>在录音或通话应用中选择「{deviceName}」作为麦克风，录一小段，确认声音清晰。</span></div>
-      <section className="audio-test-stage-panel" aria-label="语音通道状态"><h3>语音通道状态</h3><div className="audio-test-stage-list"><span>音频驱动：{status?.driverInstalled ? '已安装' : '未安装'}</span><span>RC003 语音连接：{status?.bluetoothConnected ? '已连接' : '等待连接'}</span><span>语音收音：{status?.forwarding ? '已收到数据' : '暂无数据'}</span><span>语音转发：{status?.forwarding ? '正在转发到 CABLE Input' : '未转发'}</span></div></section>
       <details className="audio-test-details">
-        <summary>详细电平与测量说明</summary>
+        <summary>测量详情</summary>
         <dl><div><dt>原始峰值</dt><dd>{decibels(level.peak)}</dd></div><div><dt>增益后估算</dt><dd>{decibels(adjustedPeak)}</dd></div><div><dt>本次最高估算</dt><dd>{decibels(adjustedMaximum)}</dd></div></dl>
         <dl><div><dt>原始 RMS</dt><dd>{decibels(level.rms)}</dd></div><div><dt>估算 RMS</dt><dd>{decibels(gainAdjustedLevel(level.rms, audioGain))}</dd></div><div><dt>参考峰值范围</dt><dd>−24 至 −6 dBFS</dd></div></dl>
-        <p className="audio-test-note">每次语音开始后的前 200ms 不参与测试电平和增益建议，实际转发音频不受影响。测试峰值再剔除每批振幅最高的 1% 样本（不足 100 个时不剔除），这项过滤不改变 RMS。增益后数值是估算，超过 0 dBFS 表示削波风险，短暂削波仍可能被过滤。建议不能区分语音与噪声，请以录音回放为准；本窗口不播放或保存录音。</p>
+        <div className="audio-test-stage-list" aria-label="语音通道状态"><span>音频驱动：{!status ? '未检测' : status.driverInstalled ? '已安装' : '未安装'}</span><span>语音连接：{!status ? '未检测' : status.bluetoothConnected ? '已连接' : '等待连接'}</span><span>收音：{!status ? '未检测' : status.forwarding ? '已收到数据' : '暂无数据'}</span><span>转发：{!status ? '未检测' : status.forwarding ? '进行中' : '未转发'}</span></div>
+        <p className="audio-test-note">测试忽略开头 200ms 的按键声，并剔除每批振幅最高的 1% 样本（不足 100 个时不剔除）；后者不改变 RMS。过滤只影响测量，不改变实际音频，但可能漏掉短暂削波。建议无法区分语音与噪声。</p>
       </details>
       <footer><button type="button" className="dialog-secondary" onClick={onClose}>关闭</button></footer>
     </div>
