@@ -1,6 +1,6 @@
-# Axonkey
+# Axonkey · Vibe Coding 快捷键与语音输入工具
 
-为小米蓝牙遥控器 2 Pro（RC003）和鼠标自定义快捷操作，也能将遥控器用作语音输入麦克风。
+把小米蓝牙遥控器 2 Pro（RC003）和鼠标变成 Vibe Coding（AI 编程）的快捷控制器。在 macOS 和 Windows 上，为 Cursor、Claude Code、OpenAI Codex 等工具配置快捷键、常用提示词和组合动作，也能将遥控器用作语音输入麦克风。
 
 [![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
@@ -39,7 +39,19 @@
 - **遥控器快捷键**：为单击、双击和长按设置不同操作。
 - **鼠标快捷操作**：自定义屏幕边缘的点击、滚动，以及前进／后退键。
 - **组合动作**：快捷键、媒体控制、输入文本、打开应用或网站，也能按顺序执行多个步骤。
-- **语音输入**：按住遥控器语音键说话，将声音传给输入法或录音应用。
+- **语音输入**：按住遥控器语音键说话，将声音传给输入法或录音应用；语音识别由所选输入法或应用完成。
+
+## 搭配 Cursor、Claude Code 和 Codex
+
+| 工具 | 可以配置的快捷操作 |
+| --- | --- |
+| [Cursor](https://cursor.com/docs/reference/keyboard-shortcuts) | 打开 AI 聊天面板、切换聊天标签页，将常用快捷键映射到遥控器或鼠标。 |
+| [Claude Code](https://code.claude.com/docs/en/interactive-mode) | 输入常用提示词，或发送 `Ctrl+R` 查找历史输入。 |
+| [OpenAI Codex](https://developers.openai.com/codex/app/commands) | 为桌面应用的新建会话、切换会话和打开终端配置快捷键。 |
+
+先按上述官方说明确认目标工具的快捷键，再到 Axonkey 的“映射”中配置对应操作。快捷键作用于当前前台应用，文本写入当前聚焦的输入框。
+
+例如，将一个遥控器按键设为输入“先阅读相关代码，给出修改计划”，另一个设为切换会话；需要口述需求时，配合语音输入法把遥控器收音转成提示词。配置步骤见 [遥控器映射](docs/USAGE.md#遥控器映射)和[鼠标映射](docs/USAGE.md#鼠标映射)。
 
 ## 系统要求
 
