@@ -3,6 +3,9 @@
   "private": true,
   "version": "1.0.17",
   "type": "module",
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
+  },
   "scripts": {
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "dev": "vite",

@@ -1,9 +1,9 @@
-FROM node:22-alpine AS build
+FROM node:22.23.4-alpine AS build
 WORKDIR /app
 
 # Reuse the repository lockfile, including the Vite version used locally.
 COPY package.json package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN npm ci --engine-strict --no-audit --no-fund
 COPY website/ ./website/
 COPY docs/images/ ./docs/images/
 RUN npm --prefix website run build
