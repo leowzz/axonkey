@@ -48,3 +48,27 @@ test('pausing one device does not change another device or its connection status
     assert.equal(text(renderer.root.findByProps({ id: 'my-device-mouse-status' })), '可用')
   } finally { act(() => renderer?.unmount()) }
 })
+
+test('device cards update reported battery values without mixing unavailable mouse power', () => {
+  let renderer
+  try {
+    for (const level of [86, 18, 0, null]) {
+      act(() => {
+        const element = React.createElement(HomeDashboard, {
+          ...base,
+          devices: devices.map(device => device.id === 'rc003'
+            ? { ...device, power: { kind: 'battery', level } } : device),
+        })
+        if (renderer) renderer.update(element)
+        else renderer = Renderer.create(element)
+      })
+      const remotePower = renderer.root.findByProps({ id: 'my-device-rc003-power' })
+      assert.equal(text(remotePower), level === null ? '电量未知' : `${level}%`)
+      assert.equal(text(renderer.root.findByProps({ id: 'my-device-mouse-power' })), '未提供电量')
+      const remoteCard = renderer.root.findAllByProps({ className: 'my-devices-card' })[0]
+      assert.ok(remoteCard.props['aria-describedby'].split(' ').includes('my-device-rc003-power'))
+      assert.equal(remoteCard.findAll(node => node.type === 'button' && node !== remoteCard).length, 0)
+      assert.equal(remoteCard.findAllByType('a').length, 0)
+    }
+  } finally { act(() => renderer?.unmount()) }
+})

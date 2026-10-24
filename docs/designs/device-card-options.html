@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Axonkey · 设备卡片方案</title>
+  <title>Axonkey · 底部摘要卡片细化</title>
   <style>
     :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #3b526b; background: #eef0f2; font-synthesis: none; text-rendering: optimizeLegibility; }
     * { box-sizing: border-box; }
@@ -13,220 +13,264 @@
     button:focus-visible, select:focus-visible { outline: 2px solid #367db9; outline-offset: 4px; }
     [hidden] { display: none !important; }
     h1, h2, p { margin: 0; }
-    .page { max-width: 1168px; margin: 0 auto; padding: 40px 32px 30px; }
+    .page { max-width: 1264px; margin: 0 auto; padding: 32px 32px 28px; }
     .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; color: #7c8b9b; font-size: 10px; font-weight: 600; letter-spacing: 1.4px; }
     .brand { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 5px; background: #425c75; color: white; font-size: 12px; letter-spacing: 0; }
     .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
-    h1 { font-size: 27px; line-height: 1.35; letter-spacing: -.7px; font-weight: 630; color: #324b64; }
-    .intro { margin-top: 10px; color: #728295; font-size: 12px; line-height: 1.8; }
-    .preview-setting { flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding-bottom: 3px; color: #7b8897; font-size: 11px; }
-    select { padding: 7px 25px 7px 10px; border: 1px solid #d1d9e0; border-radius: 6px; color: #546d85; background: #f8f9fa; font-size: 11px; }
-    .options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; row-gap: 32px; margin-top: 32px; }
-    .option { min-width: 0; }
-    .option-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-    .option-letter { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 7px; background: #e0e6eb; color: #61778e; font-size: 11px; font-weight: 650; }
-    h2 { color: #4c6279; font-size: 13px; font-weight: 600; }
-    .recommendation { color: #5480a5; font-size: 10px; }
-    .caption { margin: 11px 2px 0; color: #7a8999; font-size: 11px; line-height: 1.7; }
-    .device-card { appearance: none; display: grid; position: relative; width: 100%; min-width: 0; height: 242px; overflow: hidden; padding: 25px; border: 1px solid #cfd7df; border-radius: 10px; color: #60758b; background: rgb(255 255 255 / 45%); box-shadow: 0 2px 4px rgb(53 75 99 / 2%); text-align: left; transition: border-color .16s, background .16s, box-shadow .16s, transform .16s; }
+    h1 { color: #324b64; font-size: 26px; line-height: 1.4; letter-spacing: -.7px; font-weight: 630; }
+    .intro { margin-top: 8px; color: #728295; font-size: 12px; line-height: 1.8; }
+    .sample-badge { flex-shrink: 0; color: #8493a3; font-size: 10px; }
+    .review-controls { position: sticky; top: 0; z-index: 2; display: flex; flex-direction: column; gap: 13px; margin-top: 22px; padding: 13px 0 16px; background: #eef0f2; }
+    .tabs { display: flex; flex-wrap: wrap; align-self: flex-start; gap: 4px; padding: 4px; border-radius: 8px; background: #e2e7ec; }
+    .tab { padding: 9px 13px; border: 0; border-radius: 5px; background: transparent; color: #7d8c9b; font-size: 11px; white-space: nowrap; }
+    .tab[aria-selected="true"] { background: #f9fafb; color: #3f6c94; box-shadow: 0 2px 5px rgb(49 71 94 / 5%); }
+    .settings-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 20px; }
+    .preview-settings { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; }
+    .preview-setting { display: flex; align-items: center; gap: 8px; color: #7b8897; font-size: 11px; }
+    select { max-width: 188px; padding: 6px 20px 6px 9px; border: 1px solid #d1d9e0; border-radius: 6px; color: #546d85; background: #f8f9fa; font-size: 11px; }
+    .scheme-caption { color: #7a8999; font-size: 11px; line-height: 1.7; }
+    .comparison-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 32px; padding-top: 9px; }
+    .specimen { min-width: 0; }
+    .specimen-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 7px 10px; margin-bottom: 12px; }
+    .specimen h2 { font-size: 12px; font-weight: 600; color: #4d657e; }
+    .measure { color: #8998a7; font-size: 10px; font-variant-numeric: tabular-nums; }
+    .recommend { color: #4d80aa; font-size: 10px; }
+    .variant-note { margin: 10px 0 0; color: #8392a3; font-size: 10px; line-height: 1.7; }
+    .device-grid { display: flex; flex-wrap: wrap; align-items: stretch; gap: 16px; padding-top: 10px; }
+    .device-card { --pad: 22px; --art-width: 126px; --image-height: 146px; --main-gap: 22px; appearance: none; display: grid; grid-template-rows: 1fr auto; position: relative; flex: 0 0 auto; width: min(100%, var(--card-width)); min-width: 0; padding: 0; overflow: hidden; border: 1px solid #cfd7df; border-radius: 10px; color: #60758b; background: rgb(255 255 255 / 45%); box-shadow: 0 2px 4px rgb(53 75 99 / 2%); text-align: left; transition: border-color .16s, background .16s, box-shadow .16s, transform .16s; }
     .device-card:hover { border-color: #89abc9; background: rgb(255 255 255 / 68%); box-shadow: 0 7px 18px rgb(53 75 99 / 7%); transform: translateY(-2px); }
     .device-card:active { transform: translateY(0); background: #e8edf2; }
-    .art { display: grid; place-items: center; min-width: 0; align-self: stretch; }
-    .art img { display: block; height: 160px; width: auto; max-width: 100%; object-fit: contain; filter: drop-shadow(2px 5px 3px rgb(35 49 64 / 10%)); }
+    .card-main { display: grid; grid-template-columns: var(--art-width) minmax(0, 1fr); gap: var(--main-gap); align-items: center; padding: var(--pad); min-width: 0; }
+    .art { display: grid; place-items: center; min-width: 0; }
+    .art img { display: block; width: 100%; max-width: 144px; height: var(--image-height); object-fit: contain; filter: drop-shadow(2px 5px 3px rgb(35 49 64 / 8%)); }
+    .art.is-tall img { max-width: 78px; }
+    .art.is-mouse img { max-width: 112px; }
+    .art.is-placeholder img { filter: none; opacity: .7; max-width: 112px; }
     .copy { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-    .title { display: block; color: #3b5671; font-size: 20px; line-height: 1.4; font-weight: 630; letter-spacing: -.4px; }
-    .model { display: block; margin-top: 6px; color: #8090a1; font-size: 11px; line-height: 1.6; }
-    .description { display: block; margin-top: 13px; color: #667d94; font-size: 12px; line-height: 1.7; }
-    .status { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #2c8059; font-size: 11px; font-weight: 500; line-height: 1.6; white-space: nowrap; }
+    .title { display: block; color: #3b5671; font-size: 18px; line-height: 1.45; font-weight: 630; letter-spacing: -.3px; overflow-wrap: anywhere; text-wrap: balance; }
+    .count { display: block; margin-top: 8px; color: #8b99a8; font-size: 10px; line-height: 1.7; }
+    .paused { display: inline-block; color: #a07637; }
+    .summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: center; gap: 10px 18px; min-width: 0; padding: 13px var(--pad); background: rgb(113 137 160 / 6%); }
+    .telemetry { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-width: 0; }
+    .status { display: inline-flex; align-items: center; gap: 6px; color: #2c8059; font-size: 10px; font-weight: 500; line-height: 1.6; white-space: nowrap; }
     .status::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
-    [data-state="offline"] .status { color: #8794a1; }
-    .paused { display: none; color: #a07637; font-size: 10px; line-height: 1.6; }
-    [data-state="paused"] .paused { display: block; }
-    .profile { display: flex; min-width: 0; align-items: center; gap: 9px; color: #8090a1; font-size: 11px; line-height: 1.6; }
-    .profile strong { color: #526f8c; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
-    .profile svg { width: 14px; height: 14px; flex-shrink: 0; }
-    .count { color: #8b99a8; font-size: 10px; line-height: 1.6; }
-    /* A: the image and all copy share one continuous surface. */
-    .card-a { grid-template-columns: 104px minmax(0, 1fr); gap: 24px; }
-    .card-a .title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
-    .card-a .profile { margin-top: 22px; }
-    .card-a .count { display: block; margin-top: 7px; }
-    /* B: a large centered product image anchors the left third. */
-    .card-b { grid-template-columns: 148px minmax(0, 1fr); padding: 0; }
-    .card-b .art { background: rgb(113 137 160 / 7%); }
-    .card-b .art img { height: 180px; }
-    .card-b .copy { padding: 23px 25px; }
-    .card-b .status { margin-bottom: 9px; }
-    .card-b .description { margin-top: 10px; }
-    .card-b .profile { align-items: flex-start; flex-direction: column; gap: 2px; margin-top: 17px; }
-    .card-b .profile-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
-    /* C: shorter, denser card for a list of devices. */
-    .card-c { grid-template-columns: 81px minmax(0, 1fr); gap: 22px; height: 208px; padding: 22px 25px; }
-    .card-c .art img { height: 150px; }
-    .card-c .title { font-size: 18px; }
-    .card-c .title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; }
-    .card-c .model { margin-top: 4px; }
-    .card-c .description { margin-top: 9px; font-size: 11px; }
-    .card-c .profile { margin-top: 16px; flex-wrap: wrap; gap: 4px 9px; }
-    .card-c .count { display: block; margin-top: 4px; }
-    /* D: identity and description above a quiet, full-width summary band. */
-    .card-d { grid-template-columns: 105px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 24px; row-gap: 19px; padding-bottom: 0; }
-    .card-d .art { grid-row: 1; }
-    .card-d .art img { height: 142px; }
-    .card-d .description { margin-top: 12px; }
-    .card-d .summary { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 16px; margin: 0 -25px; padding: 13px 25px; background: rgb(113 137 160 / 6%); }
-    .card-d .state-block { display: flex; flex-direction: column; }
-    .card-d .profile { flex-wrap: wrap; justify-content: flex-end; gap: 3px 9px; }
-    .page-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 28px; color: #8a97a5; font-size: 10px; line-height: 1.7; }
+    .status.is-offline, .status.is-pending { color: #8794a1; }
+    .power { display: inline-flex; align-items: center; gap: 5px; color: #7d8c9c; font-size: 10px; line-height: 1.6; white-space: nowrap; }
+    .power svg { flex-shrink: 0; width: 17px; height: 12px; }
+    .power.is-low { color: #a67632; }
+    .power.is-charging { color: #39805f; }
+    .profile { display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: 3px 8px; min-width: 0; color: #8090a1; font-size: 10px; line-height: 1.7; text-align: right; }
+    .profile-label { flex-shrink: 0; }
+    .profile strong { min-width: 0; color: #526f8c; font-size: 11px; font-weight: 600; overflow-wrap: anywhere; }
+    .profile.is-empty strong { color: #8b99a8; font-weight: 400; }
+    .card-d1 { --card-width: 480px; }
+    .card-d2 { --card-width: 360px; --pad: 20px; --art-width: 110px; --main-gap: 20px; --image-height: 144px; }
+    .card-d2 .summary { align-items: start; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 14px; padding-top: 13px; padding-bottom: 14px; }
+    .card-d2 .telemetry { flex-direction: column; align-items: flex-start; gap: 5px; }
+    .card-d2 .profile { flex-direction: column; align-items: flex-start; text-align: left; gap: 4px; }
+    .card-d3 { --card-width: 320px; --pad: 17px; --art-width: 98px; --main-gap: 16px; --image-height: 126px; }
+    .card-d3 .title { font-size: 17px; }
+    .card-d3 .summary { align-items: start; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 14px; padding-top: 13px; padding-bottom: 14px; }
+    .card-d3 .telemetry { flex-direction: column; align-items: flex-start; gap: 5px; }
+    .card-d3 .profile { flex-direction: column; align-items: flex-start; text-align: left; gap: 4px; }
+    .card-d4 { --card-width: 280px; --pad: 16px; --art-width: 84px; --main-gap: 14px; --image-height: 124px; }
+    .card-d4 .title { font-size: 16px; }
+    .card-d4 .summary { grid-template-columns: minmax(0, 1fr); row-gap: 11px; }
+    .card-d4 .telemetry { justify-content: space-between; }
+    .card-d4 .profile { flex-direction: column; align-items: flex-start; text-align: left; gap: 3px; }
+    .card-d5 { --card-width: 420px; --pad: 16px; --art-width: 98px; --main-gap: 18px; --image-height: 108px; }
+    .card-d5 .title { font-size: 17px; }
+    .card-d5 .summary { padding-top: 11px; padding-bottom: 11px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+    .page-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 28px; color: #8a97a5; font-size: 10px; line-height: 1.8; }
     .demo { max-width: 760px; margin: 0 auto; }
     .back { border: 0; padding: 0; background: transparent; color: #5a7d9d; font-size: 12px; }
-    .demo-heading { margin-top: 38px; }
+    .demo-heading { margin-top: 36px; }
     .demo-heading:focus { outline: none; }
-    .demo-panel { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 30px; margin-top: 30px; padding: 38px; border: 1px solid #d2dbe3; border-radius: 10px; background: rgb(255 255 255 / 45%); }
-    .demo-panel .art img { height: 210px; }
-    .demo-panel dl { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 20px; margin: 0; font-size: 12px; line-height: 1.8; }
+    .demo-panel { --image-height: 210px; display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: center; gap: 30px; margin-top: 28px; padding: 36px; border: 1px solid #d2dbe3; border-radius: 10px; background: rgb(255 255 255 / 45%); }
+    .demo-panel dl { display: grid; grid-template-columns: 65px minmax(0, 1fr); gap: 18px 14px; margin: 0; font-size: 12px; line-height: 1.8; }
     .demo-panel dt { color: #8b98a6; }
-    .demo-panel dd { margin: 0; color: #546e87; }
+    .demo-panel dd { margin: 0; color: #546e87; overflow-wrap: anywhere; }
     .demo-note { margin-top: 20px; color: #8493a3; font-size: 12px; line-height: 1.8; }
-    @media (max-width: 1050px) {
-      .page { padding: 30px 24px; }
-      .options { gap: 28px 20px; }
-      .device-card { padding-left: 19px; padding-right: 19px; }
-      .card-a, .card-d { grid-template-columns: 87px minmax(0, 1fr); column-gap: 17px; }
-      .title { font-size: 18px; }
-      .card-b { grid-template-columns: 116px minmax(0, 1fr); padding: 0; }
-      .card-b .copy { padding: 20px; }
-      .card-c { grid-template-columns: 65px minmax(0, 1fr); gap: 17px; }
-      .card-d .summary { margin-left: -19px; margin-right: -19px; padding-left: 19px; padding-right: 19px; }
+    @media (max-width: 1020px) {
+      .page { padding: 26px 24px; }
+      .comparison-grid { gap: 26px 22px; }
+      .card-d1 { --pad: 18px; --art-width: 110px; --main-gap: 18px; }
+      .tab { padding: 9px 11px; }
     }
-    @media (max-width: 810px) {
-      .page { max-width: 620px; padding: 28px 22px; }
-      .page-heading { align-items: flex-start; flex-direction: column; gap: 17px; }
-      .options { grid-template-columns: minmax(0, 1fr); margin-top: 26px; row-gap: 27px; }
-      .card-a, .card-d { grid-template-columns: 100px minmax(0, 1fr); column-gap: 22px; }
-      .card-b { grid-template-columns: 138px minmax(0, 1fr); }
-      .card-c { grid-template-columns: 80px minmax(0, 1fr); gap: 22px; }
+    @media (max-width: 760px) {
+      .page { padding: 24px 18px; }
+      .comparison-grid { grid-template-columns: minmax(0, 1fr); }
+      .page-heading { align-items: flex-start; flex-direction: column; gap: 9px; }
+      .tabs { gap: 3px; }
+      .tab { padding: 8px 10px; }
+      .settings-row { gap: 9px; }
+      h1 { font-size: 24px; }
     }
     @media (max-width: 420px) {
-      .page { padding: 23px 16px; }
-      h1 { font-size: 25px; }
-      .device-card { padding-left: 16px; padding-right: 16px; }
-      .card-a, .card-d { grid-template-columns: 78px minmax(0, 1fr); column-gap: 17px; }
-      .card-b { grid-template-columns: 103px minmax(0, 1fr); padding: 0; }
-      .card-b .copy { padding: 18px; }
-      .card-b .art img { height: 170px; }
-      .card-c { grid-template-columns: 64px minmax(0, 1fr); gap: 16px; height: 225px; }
-      .card-c .title-row { justify-content: flex-start; }
-      .card-d .summary { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
-      .demo-panel { grid-template-columns: 70px minmax(0, 1fr); gap: 20px; padding: 24px 18px; }
-      .demo-panel .art img { height: 165px; }
+      .page { padding: 22px 16px; }
+      .preview-settings { gap: 9px; }
+      .preview-setting { gap: 6px; font-size: 10px; }
+      select { max-width: 146px; padding-right: 15px; font-size: 10px; }
+      .card-d1 { --art-width: 98px; --main-gap: 16px; }
+      .card-d5 { --art-width: 84px; --main-gap: 14px; }
+      .demo-panel { --image-height: 160px; grid-template-columns: 85px minmax(0, 1fr); gap: 20px; padding: 24px 18px; }
       .demo-panel dl { grid-template-columns: 1fr; gap: 5px; }
       .demo-panel dd { margin-bottom: 10px; }
     }
     @media (prefers-reduced-motion: reduce) { .device-card { transition: none; } .device-card:hover { transform: none; } }
   </style>
 </head>
-<body data-state="ready">
-  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="layers" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8l10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol></defs></svg>
+<body>
   <main class="page">
     <section id="comparison" aria-labelledby="page-title">
-      <div class="eyebrow"><span class="brand" aria-hidden="true">A</span> AXONKEY / DESIGN STUDY</div>
-      <header class="page-heading">
-        <div><h1 id="page-title">设备卡片，四种排法。</h1><p class="intro">图片在左，信息完整。整张卡片点击进入，卡片内不设独立按钮或链接。</p></div>
-        <label class="preview-setting">预览状态<select id="preview-state"><option value="ready">已连接</option><option value="offline">未连接</option><option value="paused">已连接 · 映射暂停</option></select></label>
-      </header>
-      <div class="options">
-        <section class="option" aria-labelledby="option-a">
-          <div class="option-heading"><span class="option-letter">A</span><h2 id="option-a">均衡横排</h2><span class="recommendation">推荐</span></div>
-          <button class="device-card card-a" data-option="a" type="button" aria-label="方案 A，小米遥控器，进入设备页" aria-describedby="a-content">
-            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
-            <span class="copy" id="a-content">
-              <span class="title-row"><strong class="title">小米遥控器</strong><span class="status" data-status>已连接</span></span>
-              <span class="model">RC003 · 蓝牙遥控器</span>
-              <span class="description">按键、组合键与语音控制</span>
-              <span class="profile"><svg aria-hidden="true"><use href="#layers"/></svg><span>当前配置</span><strong>默认配置</strong></span>
-              <span class="count">1 份配置文件</span><span class="paused">映射已暂停</span>
-            </span>
-          </button>
-          <p class="caption">大图垂直居中，信息自然向下排列。清爽、均衡，适合默认方案。</p>
-        </section>
-        <section class="option" aria-labelledby="option-b">
-          <div class="option-heading"><span class="option-letter">B</span><h2 id="option-b">左侧大图区</h2></div>
-          <button class="device-card card-b" data-option="b" type="button" aria-label="方案 B，小米遥控器，进入设备页" aria-describedby="b-content">
-            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
-            <span class="copy" id="b-content">
-              <span class="status" data-status>已连接</span><strong class="title">小米遥控器</strong>
-              <span class="model">RC003 · 蓝牙遥控器</span>
-              <span class="description">按键、组合键与语音控制</span>
-              <span class="profile"><span>当前配置</span><span class="profile-value"><strong>默认配置</strong><span class="count">1 份配置文件</span></span></span>
-              <span class="paused">映射已暂停</span>
-            </span>
-          </button>
-          <p class="caption">图片最大，左侧浅色底衬托设备。视觉辨识度更高。</p>
-        </section>
-        <section class="option" aria-labelledby="option-c">
-          <div class="option-heading"><span class="option-letter">C</span><h2 id="option-c">紧凑信息型</h2></div>
-          <button class="device-card card-c" data-option="c" type="button" aria-label="方案 C，小米遥控器，进入设备页" aria-describedby="c-content">
-            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
-            <span class="copy" id="c-content">
-              <span class="title-row"><strong class="title">小米遥控器</strong><span class="status" data-status>已连接</span></span>
-              <span class="model">RC003 · 蓝牙遥控器</span>
-              <span class="description">按键、组合键与语音控制</span>
-              <span class="profile"><span>当前配置</span><strong>默认配置</strong></span>
-              <span class="count">1 份配置文件</span><span class="paused">映射已暂停</span>
-            </span>
-          </button>
-          <p class="caption">减小卡片高度，保留大图与全部信息。适合设备较多的页面。</p>
-        </section>
-        <section class="option" aria-labelledby="option-d">
-          <div class="option-heading"><span class="option-letter">D</span><h2 id="option-d">底部摘要区</h2></div>
-          <button class="device-card card-d" data-option="d" type="button" aria-label="方案 D，小米遥控器，进入设备页" aria-describedby="d-content d-summary">
-            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
-            <span class="copy" id="d-content"><strong class="title">小米遥控器</strong><span class="model">RC003 · 蓝牙遥控器</span><span class="description">按键、组合键与语音控制</span><span class="count" style="margin-top:9px">1 份配置文件</span></span>
-            <span class="summary" id="d-summary"><span class="state-block"><span class="status" data-status>已连接</span><span class="paused">映射已暂停</span></span><span class="profile"><span>当前配置</span><strong>默认配置</strong></span></span>
-          </button>
-          <p class="caption">上方认识设备，下方查看状态与配置。层次清晰，信息易扫读。</p>
-        </section>
+      <div class="eyebrow"><span class="brand" aria-hidden="true">A</span> AXONKEY / DESIGN STUDY · ROUND 2</div>
+      <header class="page-heading"><div><h1 id="page-title">底部摘要，再精细一点。</h1><p class="intro">同一个结构，五种宽度与排法。图片在左，状态、电量与配置收在底部。</p></div><span class="sample-badge">样式原型 · 演示数据</span></header>
+      <div class="review-controls">
+        <div class="tabs" role="tablist" aria-label="底部摘要卡片方案">
+          <button class="tab" id="tab-compare" role="tab" aria-selected="true" aria-controls="study-panel" data-view="compare">并排比较</button>
+          <button class="tab" id="tab-d1" role="tab" aria-selected="false" aria-controls="study-panel" data-view="d1" tabindex="-1">D1 · 宽版基准</button>
+          <button class="tab" id="tab-d2" role="tab" aria-selected="false" aria-controls="study-panel" data-view="d2" tabindex="-1">D2 · 均衡窄卡</button>
+          <button class="tab" id="tab-d3" role="tab" aria-selected="false" aria-controls="study-panel" data-view="d3" tabindex="-1">D3 · 双列摘要</button>
+          <button class="tab" id="tab-d4" role="tab" aria-selected="false" aria-controls="study-panel" data-view="d4" tabindex="-1">D4 · 超窄卡片</button>
+          <button class="tab" id="tab-d5" role="tab" aria-selected="false" aria-controls="study-panel" data-view="d5" tabindex="-1">D5 · 扁平横卡</button>
+        </div>
+        <div class="settings-row"><div class="preview-settings"><label class="preview-setting" id="device-setting">对比设备<select id="preview-device"></select></label><label class="preview-setting">状态<select id="preview-state"><option value="mixed">设备示例状态</option><option value="ready">已连接</option><option value="offline">未连接</option><option value="paused">映射暂停</option></select></label></div><p class="scheme-caption" id="scheme-caption"></p></div>
       </div>
-      <footer class="page-footer"><span>点击任意卡片体验进入设备页；选好后告诉我 A / B / C / D 即可。</span><span>样式原型 · 演示数据</span></footer>
+      <div id="study-panel" role="tabpanel" aria-labelledby="tab-compare"><div id="study-content"></div></div>
+      <footer class="page-footer"><span>切换 D1–D5 查看全部 8 类设备；选择“并排比较”查看同一设备的五种样式。</span><span>标注尺寸为实际卡片宽 × 高，单位 px</span></footer>
     </section>
     <section id="device-preview" class="demo" aria-labelledby="device-heading" hidden>
-      <button class="back" id="back" type="button">← 返回四套方案</button>
-      <div class="demo-heading" id="device-heading" tabindex="-1"><div class="eyebrow" id="selected-option"></div><h1>小米遥控器</h1><p class="intro">设备页预览 · RC003 蓝牙遥控器</p></div>
-      <div class="demo-panel"><span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span><dl><dt>设备状态</dt><dd><span class="status" data-status>已连接</span><span class="paused">映射已暂停</span></dd><dt>设备描述</dt><dd>按键、组合键与语音控制</dd><dt>当前配置</dt><dd>默认配置 <span class="count">· 1 份配置文件</span></dd></dl></div>
-      <p class="demo-note">整张卡片都可以进入这里，包括图片、文字和空白区域。</p>
+      <button class="back" id="back" type="button">← 返回卡片方案</button>
+      <div class="demo-heading" id="device-heading" tabindex="-1"></div>
+      <div class="demo-panel" id="demo-panel"></div>
+      <p class="demo-note">整张卡片都可以进入这里，包括图片、文字、底部摘要和空白区域。</p>
     </section>
   </main>
   <script>
-    const names = { a: '均衡横排', b: '左侧大图区', c: '紧凑信息型', d: '底部摘要区' };
-    let lastOption = null;
-    let comparisonScroll = 0;
+    const layouts = {
+      d1: { name: '宽版基准', width: 480, description: '延续原方案，状态与配置左右分布。' },
+      d2: { name: '均衡窄卡', width: 360, description: 'D2 主体搭配 D3 底栏：左侧状态与电量，右侧当前配置。', recommended: true },
+      d3: { name: '双列摘要', width: 320, description: '状态与电量纵向排列，右侧留给当前配置。' },
+      d4: { name: '超窄卡片', width: 280, description: '适合放更多设备，配置名单独占一整行。' },
+      d5: { name: '扁平横卡', width: 420, description: '减少高度与留白，保留横向底部摘要。' }
+    };
+    const devices = [
+      { id: 'remote', name: '小米遥控器', image: '../../public/rc003-remote-keymap.svg', shape: 'tall', status: 'ready', profile: '默认配置', count: 1, power: { kind: 'battery', level: 86 } },
+      { id: 'mouse', name: '无线鼠标', image: 'mouse', shape: 'mouse', status: 'ready', profile: '日常办公', count: 3, power: { kind: 'charging', level: 72 } },
+      { id: 'keypad', name: '旋钮小键盘', image: 'knob-keypad', status: 'ready', profile: '剪辑工作台 · 音量与时间线', count: 4, power: { kind: 'usb' } },
+      { id: 'gamepad', name: '无线游戏手柄', image: 'gamepad', status: 'ready', profile: '桌面导航', count: 2, power: { kind: 'battery', level: 18 } },
+      { id: 'joystick', name: '飞行摇杆', image: 'joystick', status: 'ready', paused: true, profile: '模拟飞行', count: 2, power: { kind: 'usb' } },
+      { id: 'deck', name: '直播与剪辑多功能控制台', image: 'control-deck', status: 'ready', profile: '直播工作台 · 场景切换与音频控制', count: 6, power: { kind: 'usb' } },
+      { id: 'pedal', name: '无线双踏板', image: 'foot-pedal', status: 'offline', profile: '阅读与会议', count: 2, power: { kind: 'unknown' } },
+      { id: 'custom', name: '我的自定义设备', image: 'generic-device', shape: 'placeholder', status: 'pending', profile: '', count: 0, power: { kind: 'unsupported' } }
+    ];
+    const statusLabels = { ready: '已连接', offline: '未连接', pending: '待接入' };
+    const content = document.querySelector('#study-content');
     const comparison = document.querySelector('#comparison');
     const preview = document.querySelector('#device-preview');
+    let view = 'd2';
+    let selectedDevice = 'remote';
+    let state = 'mixed';
+    let lastCard = null;
+    let comparisonScroll = 0;
+    const escape = value => String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    function artwork(device) {
+      const src = device.image.endsWith('.svg') ? device.image : `device-card-assets/${device.image}.svg`;
+      return `<span class="art is-${device.shape || 'wide'}" aria-hidden="true"><img src="${escape(src)}" alt=""></span>`;
+    }
+    function displayStatus(device) { return state === 'mixed' ? device.status : state === 'paused' ? 'ready' : state; }
+    function statusMarkup(device) { const status = displayStatus(device); return `<span class="status is-${status}">${statusLabels[status]}</span>`; }
+    function powerMarkup(device) {
+      const power = device.power;
+      // Disconnected samples must not present a previous battery reading as live.
+      const kind = displayStatus(device) === 'offline' ? 'unknown' : power.kind;
+      let label, icon, tone = '';
+      const frame = '<rect x="1" y="1" width="18" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M21 4v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>';
+      if (kind === 'usb') {
+        label = 'USB 供电';
+        icon = '<path d="M9 1v3m6-3v3M6 4h12v2a6 6 0 0 1-5 6h-2a6 6 0 0 1-5-6V4Zm6 8v3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" transform="translate(2 -1) scale(.8)"/>';
+      } else if (kind === 'unknown' || kind === 'unsupported') {
+        label = kind === 'unsupported' ? '未提供电量' : '电量未知';
+        icon = `${frame}<path d="M7 6h6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>`;
+      } else {
+        label = `${power.level}%${kind === 'charging' ? ' · 充电中' : power.level <= 20 ? ' · 低电量' : ''}`;
+        tone = kind === 'charging' ? 'is-charging' : power.level <= 20 ? 'is-low' : '';
+        icon = `${frame}<rect x="3" y="3" width="${14 * power.level / 100}" height="6" rx=".6" fill="currentColor"/>`;
+      }
+      return `<span class="power ${tone}" aria-label="${kind === 'battery' || kind === 'charging' ? '电量 ' : ''}${label}"><svg viewBox="0 0 23 13" aria-hidden="true">${icon}</svg>${label}</span>`;
+    }
+    function telemetry(device) { return `<span class="telemetry">${statusMarkup(device)}${powerMarkup(device)}</span>`; }
+    function profile(device) {
+      return `<span class="profile ${device.profile ? '' : 'is-empty'}"><span class="profile-label">当前配置</span><strong>${escape(device.profile || '尚未配置')}</strong></span>`;
+    }
+    function count(device) { const paused = state === 'paused' || (state === 'mixed' && device.paused); return `<span class="count">${device.count} 份配置文件${paused ? '<span class="paused"> · 映射已暂停</span>' : ''}</span>`; }
+    function card(device, option) {
+      const prefix = `${option}-${device.id}`;
+      return `<button class="device-card card-${option}" id="${prefix}" data-device="${device.id}" data-layout="${option}" type="button" aria-label="${escape(device.name)}，进入设备页" aria-describedby="${prefix}-content ${prefix}-summary"><span class="card-main"><span class="art-wrap">${artwork(device)}</span><span class="copy" id="${prefix}-content"><strong class="title">${escape(device.name)}</strong>${count(device)}</span></span><span class="summary" id="${prefix}-summary">${telemetry(device)}${profile(device)}</span></button>`;
+    }
+    const sizeObserver = new ResizeObserver(entries => {
+      entries.forEach(({ target }) => {
+        const measure = target.closest('.specimen')?.querySelector('.measure');
+        if (measure) { const rect = target.getBoundingClientRect(); measure.textContent = `${Math.round(rect.width)} × ${Math.round(rect.height)}`; }
+      });
+    });
+    function renderCards() {
+      sizeObserver.disconnect();
+      const comparing = view === 'compare';
+      content.className = comparing ? 'comparison-grid' : 'device-grid';
+      if (comparing) {
+        const device = devices.find(item => item.id === selectedDevice);
+        content.innerHTML = Object.entries(layouts).map(([option, data]) => `<section class="specimen" aria-labelledby="heading-${option}"><div class="specimen-heading"><h2 id="heading-${option}">${option.toUpperCase()} · ${data.name}</h2><span class="measure"></span>${data.recommended ? '<span class="recommend">推荐</span>' : ''}</div>${card(device, option)}<p class="variant-note">${data.description}</p></section>`).join('');
+        content.querySelectorAll('.device-card').forEach(card => sizeObserver.observe(card));
+      } else {
+        content.innerHTML = devices.map(device => card(device, view)).join('');
+      }
+      document.querySelector('#study-panel').setAttribute('aria-labelledby', `tab-${view}`);
+      document.querySelector('#device-setting').hidden = !comparing;
+      document.querySelector('#scheme-caption').textContent = comparing ? '同一设备 · 实际宽度对比' : `目标宽度 ${layouts[view].width}px · 8 类设备适配`;
+      document.querySelectorAll('.tab').forEach(tab => { const selected = tab.dataset.view === view; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; });
+    }
     function renderRoute() {
-      const option = location.hash.match(/^#device\/([abcd])$/)?.[1];
-      const entering = Boolean(option);
-      comparison.hidden = entering;
-      preview.hidden = !entering;
-      if (entering) {
-        lastOption = option;
-        document.querySelector('#selected-option').textContent = `方案 ${option.toUpperCase()} · ${names[option]}`;
+      const match = location.hash.match(/^#device\/(d[1-5])\/([a-z]+)$/);
+      const device = match && devices.find(item => item.id === match[2]);
+      comparison.hidden = Boolean(device);
+      preview.hidden = !device;
+      if (device) {
+        const option = match[1];
+        lastCard = `${option}-${device.id}`;
+        document.querySelector('#device-heading').innerHTML = `<div class="eyebrow">${option.toUpperCase()} · ${layouts[option].name}</div><h1>${escape(device.name)}</h1><p class="intro">设备页预览</p>`;
+        document.querySelector('#demo-panel').innerHTML = `${artwork(device)}<dl><dt>连接状态</dt><dd>${statusMarkup(device)}</dd><dt>电量 / 供电</dt><dd>${powerMarkup(device)}</dd><dt>当前配置</dt><dd>${escape(device.profile || '尚未配置')}${count(device)}</dd></dl>`;
         window.scrollTo(0, 0);
         document.querySelector('#device-heading').focus({ preventScroll: true });
-      } else if (lastOption) {
-        window.scrollTo(0, comparisonScroll);
-        document.querySelector(`[data-option="${lastOption}"]`).focus({ preventScroll: true });
+      } else {
+        renderCards();
+        if (lastCard) { window.scrollTo(0, comparisonScroll); document.getElementById(lastCard)?.focus({ preventScroll: true }); }
       }
     }
-    document.querySelectorAll('.device-card').forEach(card => card.addEventListener('click', () => {
+    function selectView(nextView) { view = nextView; renderCards(); }
+    content.addEventListener('click', event => {
+      const target = event.target.closest('[data-device]');
+      if (!target) return;
       comparisonScroll = window.scrollY;
-      location.hash = `device/${card.dataset.option}`;
-    }));
-    document.querySelector('#back').addEventListener('click', () => { location.hash = ''; });
-    document.querySelector('#preview-state').addEventListener('change', event => {
-      document.body.dataset.state = event.target.value;
-      document.querySelectorAll('[data-status]').forEach(status => { status.textContent = event.target.value === 'offline' ? '未连接' : '已连接'; });
+      location.hash = `device/${target.dataset.layout}/${target.dataset.device}`;
     });
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => selectView(tab.dataset.view));
+      tab.addEventListener('keydown', event => {
+        const keys = ['compare', ...Object.keys(layouts)]; let index = keys.indexOf(view);
+        if (event.key === 'ArrowRight') index = (index + 1) % keys.length;
+        else if (event.key === 'ArrowLeft') index = (index + keys.length - 1) % keys.length;
+        else if (event.key === 'Home') index = 0;
+        else if (event.key === 'End') index = keys.length - 1;
+        else return;
+        event.preventDefault(); selectView(keys[index]); document.querySelector(`#tab-${view}`).focus();
+      });
+    });
+    const deviceSelect = document.querySelector('#preview-device');
+    deviceSelect.innerHTML = devices.map(device => `<option value="${device.id}">${escape(device.name)}</option>`).join('');
+    deviceSelect.addEventListener('change', event => { selectedDevice = event.target.value; renderCards(); });
+    document.querySelector('#back').addEventListener('click', () => { location.hash = ''; });
+    document.querySelector('#preview-state').addEventListener('change', event => { state = event.target.value; renderCards(); });
     window.addEventListener('hashchange', renderRoute);
     renderRoute();
   </script>

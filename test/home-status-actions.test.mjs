@@ -15,8 +15,10 @@ test('home routes each device, integration, permissions and logs independently',
   try {
     const cards = renderer.root.findAllByProps({ className: 'my-devices-card' })
     assert.equal(cards.length, 2)
-    assert.match(text(cards[0]), /遥控工作.*3 份配置文件/)
-    assert.match(text(cards[1]), /鼠标默认.*1 份配置文件/)
+    assert.match(text(cards[0]), /遥控工作/)
+    assert.match(text(cards[0]), /3 份配置文件/)
+    assert.match(text(cards[1]), /鼠标默认/)
+    assert.match(text(cards[1]), /1 份配置文件/)
     cards.forEach(card => card.props.onClick())
     assert.deepEqual(selected, ['rc003', 'mouse'])
     renderer.root.findByProps({ className: 'my-devices-integrate' }).props.onClick()

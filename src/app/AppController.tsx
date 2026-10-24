@@ -1551,8 +1551,9 @@ function AppController() {
   const overviewDevices: DeviceOverviewItem[] = devices.map(device => ({
     id: device.id,
     name: device.id === 'rc003' ? '小米遥控器' : '系统鼠标',
-    model: device.id === 'rc003' ? 'RC003 · 蓝牙遥控器' : '鼠标按键与屏幕边缘',
-    description: device.id === 'rc003' ? '按键、组合键与语音控制' : '系统鼠标共用输入',
+    power: device.id === 'rc003'
+      ? { kind: 'battery', level: nativeRuntime && setupState.device.status === 'connected' ? displayedBatteryLevel : null }
+      : { kind: 'unavailable' },
     profileName: profiles.find(profile => profile.id === activeProfileIds[device.id])?.name ?? '默认配置',
     profileCount: profiles.filter(profile => profile.deviceId === device.id).length,
     enabled: enabled && (device.id === 'rc003' || mouseEnabled),

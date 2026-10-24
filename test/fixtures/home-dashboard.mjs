@@ -13,14 +13,15 @@ function loadComponent(name) {
     module, exports: module.exports,
     require: dependency => dependency.endsWith('.css') ? {}
       : dependency === '../openGitHub' ? { openGitHub() {} }
-        : dependency === './MyDevicesPage' ? loadComponent('MyDevicesPage') : require(dependency),
+        : dependency === './MyDevicesPage' ? loadComponent('MyDevicesPage')
+          : dependency === './BatteryIndicator' ? loadComponent('BatteryIndicator') : require(dependency),
   })
   return module.exports
 }
 export const { HomeDashboard } = loadComponent('HomeDashboard')
 export const devices = [
-  { id: 'rc003', name: '小米遥控器', model: 'RC003 · 蓝牙遥控器', description: '按键与语音控制', profileName: '遥控工作', profileCount: 3, status: { label: '未连接', tone: 'neutral' }, enabled: true },
-  { id: 'mouse', name: '系统鼠标', model: '系统输入', description: '系统鼠标共用输入', profileName: '鼠标默认', profileCount: 1, status: { label: '可用', tone: 'ready' }, enabled: true },
+  { id: 'rc003', name: '小米遥控器', profileName: '遥控工作', profileCount: 3, status: { label: '未连接', tone: 'neutral' }, power: { kind: 'battery', level: null }, enabled: true },
+  { id: 'mouse', name: '系统鼠标', profileName: '鼠标默认', profileCount: 1, status: { label: '可用', tone: 'ready' }, power: { kind: 'unavailable' }, enabled: true },
 ]
 export const base = {
   nativeRuntime: true,

@@ -1,18 +1,18 @@
-import { Check, ChevronRight, Layers3, Plus } from 'lucide-react'
+import { Battery, Check, Plus } from 'lucide-react'
 import type { DeviceId } from '../deviceModel'
+import { BatteryIndicator } from './BatteryIndicator'
 import './MyDevicesPage.css'
 
 export type DeviceOverviewItem = {
   id: DeviceId
   name: string
-  model: string
-  description: string
   profileName: string
   profileCount: number
   status: {
     label: string
     tone: 'ready' | 'warning' | 'neutral'
   }
+  power: { kind: 'battery'; level: number | null } | { kind: 'unavailable' }
   enabled: boolean
 }
 
@@ -27,12 +27,7 @@ function DeviceArtwork({ deviceId }: { deviceId: DeviceId }) {
     return <img src="/rc003-remote-keymap.svg" alt="" width={54} height={132} />
   }
 
-  return <svg className="my-devices-mouse-art" viewBox="0 0 100 132" fill="none" aria-hidden="true">
-    <path className="my-devices-mouse-shell" d="M50 8C28 8 14 23 14 46v39c0 24 13 39 36 39s36-15 36-39V46C86 23 72 8 50 8Z" />
-    <path className="my-devices-mouse-seam" d="M50 9v45M15 54h70" />
-    <rect className="my-devices-mouse-wheel" x="45" y="26" width="10" height="20" rx="5" />
-    <path className="my-devices-mouse-side" d="M21 62v12m0 7v12" />
-  </svg>
+  return <img src="/mouse-device.svg" alt="" width={160} height={200} />
 }
 
 export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageProps) {
@@ -53,32 +48,34 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
           key={device.id}
           type="button"
           className="my-devices-card"
-          aria-labelledby={`${prefix}-name ${prefix}-edit`}
-          aria-describedby={`${prefix}-status ${prefix}-description ${prefix}-profile ${prefix}-mapping`}
+          aria-labelledby={`${prefix}-name`}
+          aria-describedby={`${prefix}-status ${prefix}-power ${prefix}-profile ${prefix}-mapping`}
           onClick={() => onSelect(device.id)}
         >
-          <span className="my-devices-artwork" aria-hidden="true"><DeviceArtwork deviceId={device.id} /></span>
           <span className="my-devices-card-main">
+            <span className="my-devices-artwork" aria-hidden="true"><DeviceArtwork deviceId={device.id} /></span>
             <span className="my-devices-identity">
-              <span className="my-devices-card-top">
-                <strong id={`${prefix}-name`}>{device.name}</strong>
-                <span id={`${prefix}-status`} className={`my-devices-status is-${device.status.tone}`}>
-                  <span className="my-devices-status-dot" aria-hidden="true" />{device.status.label}
-                </span>
+              <strong id={`${prefix}-name`}>{device.name}</strong>
+              <span id={`${prefix}-mapping`} className="my-devices-count">
+                {device.profileCount} 份配置文件{!device.enabled && <span className="my-devices-paused"> · 映射已暂停</span>}
               </span>
-              <span>{device.model}</span>
-              <small id={`${prefix}-description`}>{device.description}</small>
             </span>
           </span>
-          <span id={`${prefix}-profile`} className="my-devices-profile">
-            <span><Layers3 size={14} aria-hidden="true" />当前配置</span>
-            <strong title={device.profileName}>{device.profileName}</strong>
-          </span>
-          <span className="my-devices-card-footer">
-            <span id={`${prefix}-mapping`}>
-              {device.profileCount} 份配置文件{!device.enabled && <span className="my-devices-paused"> · 映射已暂停</span>}
+          <span className="my-devices-summary">
+            <span className="my-devices-telemetry">
+              <span id={`${prefix}-status`} className={`my-devices-status is-${device.status.tone}`}>
+                <span className="my-devices-status-dot" aria-hidden="true" />{device.status.label}
+              </span>
+              <span id={`${prefix}-power`} className="my-devices-power">
+                {device.power.kind === 'battery' ? <BatteryIndicator level={device.power.level} /> : <>
+                  <Battery size={14} aria-hidden="true" /><span>未提供电量</span>
+                </>}
+              </span>
             </span>
-            <strong id={`${prefix}-edit`}>编辑设备<ChevronRight size={14} aria-hidden="true" /></strong>
+            <span id={`${prefix}-profile`} className={`my-devices-profile${device.profileName ? '' : ' is-empty'}`}>
+              <span>当前配置</span>
+              <strong>{device.profileName || '尚未配置'}</strong>
+            </span>
           </span>
         </button>
       })}
