@@ -38,10 +38,7 @@ function DeviceArtwork({ deviceId }: { deviceId: DeviceId }) {
 export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageProps) {
   return <section className="my-devices-page" aria-labelledby="my-devices-title">
     <header className="my-devices-heading">
-      <div>
-        <h1 id="my-devices-title">设备与权限</h1>
-        <p>选择设备，编辑它的映射与配置文件。</p>
-      </div>
+      <h1 id="my-devices-title">设备</h1>
       <button className="my-devices-integrate" type="button" onClick={onIntegrate}>
         <Plus size={16} aria-hidden="true" />集成设备
       </button>
@@ -86,7 +83,6 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
         </button>
       })}
     </div>
-    <p className="my-devices-note"><Layers3 size={13} aria-hidden="true" />各设备独立保存配置，选择设备即可编辑映射。</p>
     <footer className="my-devices-footer"><Check size={13} aria-hidden="true" />配置保存在本机</footer>
   </section>
 }

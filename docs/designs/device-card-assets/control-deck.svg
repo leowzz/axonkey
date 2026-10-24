@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="174" viewBox="0 0 220 174" fill="none">
+  <defs>
+    <linearGradient id="body" x1="15" y1="15" x2="202" y2="157" gradientUnits="userSpaceOnUse"><stop stop-color="#edf1f4"/><stop offset=".57" stop-color="#c8d2db"/><stop offset="1" stop-color="#9dacba"/></linearGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="34" gradientUnits="userSpaceOnUse"><stop stop-color="#607381"/><stop offset="1" stop-color="#394c5b"/></linearGradient>
+    <g id="key"><rect width="37" height="35" rx="5" fill="#8b9ba9"/><rect x="1" y="1" width="35" height="31" rx="4" fill="url(#screen)" stroke="#687c8d"/></g>
+  </defs>
+  <path d="M21 19h178a10 10 0 0 1 10 10v120a13 13 0 0 1-13 13H24a13 13 0 0 1-13-13V29a10 10 0 0 1 10-10Z" fill="#99aab8" stroke="#8294a4" stroke-width="1.4"/>
+  <rect x="11" y="12" width="198" height="143" rx="13" fill="url(#body)" stroke="#96a7b5" stroke-width="1.5"/>
+  <path d="M26 16h168a10 10 0 0 1 10 10" stroke="#fff" stroke-opacity=".8" stroke-width="1.5"/>
+  <rect x="22" y="25" width="176" height="116" rx="7" fill="#a4b2bf"/>
+  <use href="#key" x="28" y="30"/><use href="#key" x="70" y="30"/><use href="#key" x="112" y="30"/><use href="#key" x="154" y="30"/>
+  <use href="#key" x="28" y="68"/><use href="#key" x="70" y="68"/><use href="#key" x="112" y="68"/><use href="#key" x="154" y="68"/>
+  <use href="#key" x="28" y="106"/><use href="#key" x="70" y="106"/><use href="#key" x="112" y="106"/><use href="#key" x="154" y="106"/>
+  <g stroke="#c7d8e5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="39" y="39" width="15" height="12" rx="2"/><path d="m54 42 5-3v12l-5-3M85 38h7v14h-7zM82 47v3a6 6 0 0 0 12 0v-3m-6 9v-3M126 40l10 6-10 6V40ZM167 41h12m-12 5h12m-12 5h7"/>
+    <path d="M39 83h15m-11-5v10m6-10v10M82 79l11 12m0-12-11 12M124 80h13v11h-13zM168 80l9 5-9 5V80Z"/>
+    <path d="M40 122h14m-10-5-5 5 5 5M84 118v10m-5-5h10M125 119h11m-11 7h11M169 119h8v8h-8z"/>
+  </g>
+  <circle cx="47" cy="89" r="2" fill="#9cc4d4"/>
+  <circle cx="130" cy="86" r="2" fill="#b5c8ae"/>
+  <circle cx="173" cy="148" r="1.8" fill="#8eb1c5"/>
+</svg>

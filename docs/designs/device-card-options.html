@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Axonkey · 设备卡片方案</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #3b526b; background: #eef0f2; font-synthesis: none; text-rendering: optimizeLegibility; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, select { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, select:focus-visible { outline: 2px solid #367db9; outline-offset: 4px; }
+    [hidden] { display: none !important; }
+    h1, h2, p { margin: 0; }
+    .page { max-width: 1168px; margin: 0 auto; padding: 40px 32px 30px; }
+    .eyebrow { display: flex; align-items: center; gap: 8px; margin-bottom: 13px; color: #7c8b9b; font-size: 10px; font-weight: 600; letter-spacing: 1.4px; }
+    .brand { width: 19px; height: 19px; display: grid; place-items: center; border-radius: 5px; background: #425c75; color: white; font-size: 12px; letter-spacing: 0; }
+    .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
+    h1 { font-size: 27px; line-height: 1.35; letter-spacing: -.7px; font-weight: 630; color: #324b64; }
+    .intro { margin-top: 10px; color: #728295; font-size: 12px; line-height: 1.8; }
+    .preview-setting { flex-shrink: 0; display: flex; align-items: center; gap: 9px; padding-bottom: 3px; color: #7b8897; font-size: 11px; }
+    select { padding: 7px 25px 7px 10px; border: 1px solid #d1d9e0; border-radius: 6px; color: #546d85; background: #f8f9fa; font-size: 11px; }
+    .options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; row-gap: 32px; margin-top: 32px; }
+    .option { min-width: 0; }
+    .option-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .option-letter { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 7px; background: #e0e6eb; color: #61778e; font-size: 11px; font-weight: 650; }
+    h2 { color: #4c6279; font-size: 13px; font-weight: 600; }
+    .recommendation { color: #5480a5; font-size: 10px; }
+    .caption { margin: 11px 2px 0; color: #7a8999; font-size: 11px; line-height: 1.7; }
+    .device-card { appearance: none; display: grid; position: relative; width: 100%; min-width: 0; height: 242px; overflow: hidden; padding: 25px; border: 1px solid #cfd7df; border-radius: 10px; color: #60758b; background: rgb(255 255 255 / 45%); box-shadow: 0 2px 4px rgb(53 75 99 / 2%); text-align: left; transition: border-color .16s, background .16s, box-shadow .16s, transform .16s; }
+    .device-card:hover { border-color: #89abc9; background: rgb(255 255 255 / 68%); box-shadow: 0 7px 18px rgb(53 75 99 / 7%); transform: translateY(-2px); }
+    .device-card:active { transform: translateY(0); background: #e8edf2; }
+    .art { display: grid; place-items: center; min-width: 0; align-self: stretch; }
+    .art img { display: block; height: 160px; width: auto; max-width: 100%; object-fit: contain; filter: drop-shadow(2px 5px 3px rgb(35 49 64 / 10%)); }
+    .copy { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+    .title { display: block; color: #3b5671; font-size: 20px; line-height: 1.4; font-weight: 630; letter-spacing: -.4px; }
+    .model { display: block; margin-top: 6px; color: #8090a1; font-size: 11px; line-height: 1.6; }
+    .description { display: block; margin-top: 13px; color: #667d94; font-size: 12px; line-height: 1.7; }
+    .status { display: inline-flex; align-items: center; gap: 6px; width: fit-content; color: #2c8059; font-size: 11px; font-weight: 500; line-height: 1.6; white-space: nowrap; }
+    .status::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+    [data-state="offline"] .status { color: #8794a1; }
+    .paused { display: none; color: #a07637; font-size: 10px; line-height: 1.6; }
+    [data-state="paused"] .paused { display: block; }
+    .profile { display: flex; min-width: 0; align-items: center; gap: 9px; color: #8090a1; font-size: 11px; line-height: 1.6; }
+    .profile strong { color: #526f8c; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+    .profile svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .count { color: #8b99a8; font-size: 10px; line-height: 1.6; }
+    /* A: the image and all copy share one continuous surface. */
+    .card-a { grid-template-columns: 104px minmax(0, 1fr); gap: 24px; }
+    .card-a .title-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+    .card-a .profile { margin-top: 22px; }
+    .card-a .count { display: block; margin-top: 7px; }
+    /* B: a large centered product image anchors the left third. */
+    .card-b { grid-template-columns: 148px minmax(0, 1fr); padding: 0; }
+    .card-b .art { background: rgb(113 137 160 / 7%); }
+    .card-b .art img { height: 180px; }
+    .card-b .copy { padding: 23px 25px; }
+    .card-b .status { margin-bottom: 9px; }
+    .card-b .description { margin-top: 10px; }
+    .card-b .profile { align-items: flex-start; flex-direction: column; gap: 2px; margin-top: 17px; }
+    .card-b .profile-value { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; }
+    /* C: shorter, denser card for a list of devices. */
+    .card-c { grid-template-columns: 81px minmax(0, 1fr); gap: 22px; height: 208px; padding: 22px 25px; }
+    .card-c .art img { height: 150px; }
+    .card-c .title { font-size: 18px; }
+    .card-c .title-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 5px 12px; }
+    .card-c .model { margin-top: 4px; }
+    .card-c .description { margin-top: 9px; font-size: 11px; }
+    .card-c .profile { margin-top: 16px; flex-wrap: wrap; gap: 4px 9px; }
+    .card-c .count { display: block; margin-top: 4px; }
+    /* D: identity and description above a quiet, full-width summary band. */
+    .card-d { grid-template-columns: 105px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; column-gap: 24px; row-gap: 19px; padding-bottom: 0; }
+    .card-d .art { grid-row: 1; }
+    .card-d .art img { height: 142px; }
+    .card-d .description { margin-top: 12px; }
+    .card-d .summary { display: flex; grid-column: 1 / -1; align-items: center; justify-content: space-between; gap: 16px; margin: 0 -25px; padding: 13px 25px; background: rgb(113 137 160 / 6%); }
+    .card-d .state-block { display: flex; flex-direction: column; }
+    .card-d .profile { flex-wrap: wrap; justify-content: flex-end; gap: 3px 9px; }
+    .page-footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 28px; color: #8a97a5; font-size: 10px; line-height: 1.7; }
+    .demo { max-width: 760px; margin: 0 auto; }
+    .back { border: 0; padding: 0; background: transparent; color: #5a7d9d; font-size: 12px; }
+    .demo-heading { margin-top: 38px; }
+    .demo-heading:focus { outline: none; }
+    .demo-panel { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 30px; margin-top: 30px; padding: 38px; border: 1px solid #d2dbe3; border-radius: 10px; background: rgb(255 255 255 / 45%); }
+    .demo-panel .art img { height: 210px; }
+    .demo-panel dl { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 20px; margin: 0; font-size: 12px; line-height: 1.8; }
+    .demo-panel dt { color: #8b98a6; }
+    .demo-panel dd { margin: 0; color: #546e87; }
+    .demo-note { margin-top: 20px; color: #8493a3; font-size: 12px; line-height: 1.8; }
+    @media (max-width: 1050px) {
+      .page { padding: 30px 24px; }
+      .options { gap: 28px 20px; }
+      .device-card { padding-left: 19px; padding-right: 19px; }
+      .card-a, .card-d { grid-template-columns: 87px minmax(0, 1fr); column-gap: 17px; }
+      .title { font-size: 18px; }
+      .card-b { grid-template-columns: 116px minmax(0, 1fr); padding: 0; }
+      .card-b .copy { padding: 20px; }
+      .card-c { grid-template-columns: 65px minmax(0, 1fr); gap: 17px; }
+      .card-d .summary { margin-left: -19px; margin-right: -19px; padding-left: 19px; padding-right: 19px; }
+    }
+    @media (max-width: 810px) {
+      .page { max-width: 620px; padding: 28px 22px; }
+      .page-heading { align-items: flex-start; flex-direction: column; gap: 17px; }
+      .options { grid-template-columns: minmax(0, 1fr); margin-top: 26px; row-gap: 27px; }
+      .card-a, .card-d { grid-template-columns: 100px minmax(0, 1fr); column-gap: 22px; }
+      .card-b { grid-template-columns: 138px minmax(0, 1fr); }
+      .card-c { grid-template-columns: 80px minmax(0, 1fr); gap: 22px; }
+    }
+    @media (max-width: 420px) {
+      .page { padding: 23px 16px; }
+      h1 { font-size: 25px; }
+      .device-card { padding-left: 16px; padding-right: 16px; }
+      .card-a, .card-d { grid-template-columns: 78px minmax(0, 1fr); column-gap: 17px; }
+      .card-b { grid-template-columns: 103px minmax(0, 1fr); padding: 0; }
+      .card-b .copy { padding: 18px; }
+      .card-b .art img { height: 170px; }
+      .card-c { grid-template-columns: 64px minmax(0, 1fr); gap: 16px; height: 225px; }
+      .card-c .title-row { justify-content: flex-start; }
+      .card-d .summary { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+      .demo-panel { grid-template-columns: 70px minmax(0, 1fr); gap: 20px; padding: 24px 18px; }
+      .demo-panel .art img { height: 165px; }
+      .demo-panel dl { grid-template-columns: 1fr; gap: 5px; }
+      .demo-panel dd { margin-bottom: 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) { .device-card { transition: none; } .device-card:hover { transform: none; } }
+  </style>
+</head>
+<body data-state="ready">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><symbol id="layers" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8l10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol></defs></svg>
+  <main class="page">
+    <section id="comparison" aria-labelledby="page-title">
+      <div class="eyebrow"><span class="brand" aria-hidden="true">A</span> AXONKEY / DESIGN STUDY</div>
+      <header class="page-heading">
+        <div><h1 id="page-title">设备卡片，四种排法。</h1><p class="intro">图片在左，信息完整。整张卡片点击进入，卡片内不设独立按钮或链接。</p></div>
+        <label class="preview-setting">预览状态<select id="preview-state"><option value="ready">已连接</option><option value="offline">未连接</option><option value="paused">已连接 · 映射暂停</option></select></label>
+      </header>
+      <div class="options">
+        <section class="option" aria-labelledby="option-a">
+          <div class="option-heading"><span class="option-letter">A</span><h2 id="option-a">均衡横排</h2><span class="recommendation">推荐</span></div>
+          <button class="device-card card-a" data-option="a" type="button" aria-label="方案 A，小米遥控器，进入设备页" aria-describedby="a-content">
+            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
+            <span class="copy" id="a-content">
+              <span class="title-row"><strong class="title">小米遥控器</strong><span class="status" data-status>已连接</span></span>
+              <span class="model">RC003 · 蓝牙遥控器</span>
+              <span class="description">按键、组合键与语音控制</span>
+              <span class="profile"><svg aria-hidden="true"><use href="#layers"/></svg><span>当前配置</span><strong>默认配置</strong></span>
+              <span class="count">1 份配置文件</span><span class="paused">映射已暂停</span>
+            </span>
+          </button>
+          <p class="caption">大图垂直居中，信息自然向下排列。清爽、均衡，适合默认方案。</p>
+        </section>
+        <section class="option" aria-labelledby="option-b">
+          <div class="option-heading"><span class="option-letter">B</span><h2 id="option-b">左侧大图区</h2></div>
+          <button class="device-card card-b" data-option="b" type="button" aria-label="方案 B，小米遥控器，进入设备页" aria-describedby="b-content">
+            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
+            <span class="copy" id="b-content">
+              <span class="status" data-status>已连接</span><strong class="title">小米遥控器</strong>
+              <span class="model">RC003 · 蓝牙遥控器</span>
+              <span class="description">按键、组合键与语音控制</span>
+              <span class="profile"><span>当前配置</span><span class="profile-value"><strong>默认配置</strong><span class="count">1 份配置文件</span></span></span>
+              <span class="paused">映射已暂停</span>
+            </span>
+          </button>
+          <p class="caption">图片最大，左侧浅色底衬托设备。视觉辨识度更高。</p>
+        </section>
+        <section class="option" aria-labelledby="option-c">
+          <div class="option-heading"><span class="option-letter">C</span><h2 id="option-c">紧凑信息型</h2></div>
+          <button class="device-card card-c" data-option="c" type="button" aria-label="方案 C，小米遥控器，进入设备页" aria-describedby="c-content">
+            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
+            <span class="copy" id="c-content">
+              <span class="title-row"><strong class="title">小米遥控器</strong><span class="status" data-status>已连接</span></span>
+              <span class="model">RC003 · 蓝牙遥控器</span>
+              <span class="description">按键、组合键与语音控制</span>
+              <span class="profile"><span>当前配置</span><strong>默认配置</strong></span>
+              <span class="count">1 份配置文件</span><span class="paused">映射已暂停</span>
+            </span>
+          </button>
+          <p class="caption">减小卡片高度，保留大图与全部信息。适合设备较多的页面。</p>
+        </section>
+        <section class="option" aria-labelledby="option-d">
+          <div class="option-heading"><span class="option-letter">D</span><h2 id="option-d">底部摘要区</h2></div>
+          <button class="device-card card-d" data-option="d" type="button" aria-label="方案 D，小米遥控器，进入设备页" aria-describedby="d-content d-summary">
+            <span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span>
+            <span class="copy" id="d-content"><strong class="title">小米遥控器</strong><span class="model">RC003 · 蓝牙遥控器</span><span class="description">按键、组合键与语音控制</span><span class="count" style="margin-top:9px">1 份配置文件</span></span>
+            <span class="summary" id="d-summary"><span class="state-block"><span class="status" data-status>已连接</span><span class="paused">映射已暂停</span></span><span class="profile"><span>当前配置</span><strong>默认配置</strong></span></span>
+          </button>
+          <p class="caption">上方认识设备，下方查看状态与配置。层次清晰，信息易扫读。</p>
+        </section>
+      </div>
+      <footer class="page-footer"><span>点击任意卡片体验进入设备页；选好后告诉我 A / B / C / D 即可。</span><span>样式原型 · 演示数据</span></footer>
+    </section>
+    <section id="device-preview" class="demo" aria-labelledby="device-heading" hidden>
+      <button class="back" id="back" type="button">← 返回四套方案</button>
+      <div class="demo-heading" id="device-heading" tabindex="-1"><div class="eyebrow" id="selected-option"></div><h1>小米遥控器</h1><p class="intro">设备页预览 · RC003 蓝牙遥控器</p></div>
+      <div class="demo-panel"><span class="art" aria-hidden="true"><img src="../../public/rc003-remote-keymap.svg" alt=""></span><dl><dt>设备状态</dt><dd><span class="status" data-status>已连接</span><span class="paused">映射已暂停</span></dd><dt>设备描述</dt><dd>按键、组合键与语音控制</dd><dt>当前配置</dt><dd>默认配置 <span class="count">· 1 份配置文件</span></dd></dl></div>
+      <p class="demo-note">整张卡片都可以进入这里，包括图片、文字和空白区域。</p>
+    </section>
+  </main>
+  <script>
+    const names = { a: '均衡横排', b: '左侧大图区', c: '紧凑信息型', d: '底部摘要区' };
+    let lastOption = null;
+    let comparisonScroll = 0;
+    const comparison = document.querySelector('#comparison');
+    const preview = document.querySelector('#device-preview');
+    function renderRoute() {
+      const option = location.hash.match(/^#device\/([abcd])$/)?.[1];
+      const entering = Boolean(option);
+      comparison.hidden = entering;
+      preview.hidden = !entering;
+      if (entering) {
+        lastOption = option;
+        document.querySelector('#selected-option').textContent = `方案 ${option.toUpperCase()} · ${names[option]}`;
+        window.scrollTo(0, 0);
+        document.querySelector('#device-heading').focus({ preventScroll: true });
+      } else if (lastOption) {
+        window.scrollTo(0, comparisonScroll);
+        document.querySelector(`[data-option="${lastOption}"]`).focus({ preventScroll: true });
+      }
+    }
+    document.querySelectorAll('.device-card').forEach(card => card.addEventListener('click', () => {
+      comparisonScroll = window.scrollY;
+      location.hash = `device/${card.dataset.option}`;
+    }));
+    document.querySelector('#back').addEventListener('click', () => { location.hash = ''; });
+    document.querySelector('#preview-state').addEventListener('change', event => {
+      document.body.dataset.state = event.target.value;
+      document.querySelectorAll('[data-status]').forEach(status => { status.textContent = event.target.value === 'offline' ? '未连接' : '已连接'; });
+    });
+    window.addEventListener('hashchange', renderRoute);
+    renderRoute();
+  </script>
+</body>
+</html>

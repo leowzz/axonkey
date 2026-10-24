@@ -217,7 +217,6 @@ function AppController() {
   const [setupOpen, setSetupOpen] = useState(false)
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
   const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
-  const [homeRefreshing, setHomeRefreshing] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const mappingMainRef = useRef<HTMLElement>(null)
@@ -1401,16 +1400,6 @@ function AppController() {
     }
   }
 
-  const refreshHome = async () => {
-    if (homeRefreshing) return
-    setHomeRefreshing(true)
-    try {
-      await probeSystemState(false)
-    } finally {
-      setHomeRefreshing(false)
-    }
-  }
-
   const probeDeviceConnection = async () => {
     if (deviceProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     deviceProbeRunningRef.current = true
@@ -1572,8 +1561,8 @@ function AppController() {
         ? setupState.device.status === 'connected' ? { label: '已连接', tone: 'ready' }
           : setupState.device.status === 'checking' ? { label: '检测中', tone: 'neutral' }
             : { label: '未连接', tone: 'neutral' }
-        : mouseAuthorized ? { label: platform === 'windows' ? '无需授权' : '已授权', tone: 'ready' }
-          : { label: systemProbeState === 'loading' ? '检测中' : systemProbeState === 'error' ? '检测失败' : platform === 'macos' ? '待授权' : '暂不支持', tone: 'warning' },
+        : mouseAuthorized ? { label: '可用', tone: 'ready' }
+          : { label: systemProbeState === 'loading' ? '检测中' : systemProbeState === 'error' ? '检测失败' : platform === 'macos' ? '待设置' : '暂不支持', tone: 'warning' },
   }))
 
   if (permissionHelperKind) {
@@ -1732,14 +1721,8 @@ function AppController() {
           onCheckDevice={checkDeviceConnection}
           onOpenDriver={() => openSetupStep('inputDriver')}
         /> : <HomeDashboard
-          platform={platform}
           nativeRuntime={nativeRuntime}
-          systemProbeState={systemProbeState}
-          permissions={macPermissions}
-          inputAuthorizationStale={inputAuthorizationStale}
-          refreshing={homeRefreshing}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
-          onRefresh={() => void refreshHome()}
           devices={overviewDevices}
           onSelectDevice={deviceId => {
             const device = devices.find(item => item.id === deviceId)!
