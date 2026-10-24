@@ -806,7 +806,7 @@ Section Uninstall
   ; Restore Quarbor bindings before deleting the bundled installer and driver files.
   ; Wait for completion, but never block app removal on failure or cancelled UAC.
   ClearErrors
-  ExecWait '"$INSTDIR\vendor\QuarborHIDFilterUserDriver\QuarborHIDFilterUserDriverInstaller.exe" --uninstall-all' $0
+  ExecWait '"$INSTDIR\vendor\QuarborUniversalKeyboardDriverInstaller\QuarborUniversalKeyboardDriverInstaller.exe" --uninstall-all' $0
   ClearErrors
 
   ; Delete the app directory and its content from disk

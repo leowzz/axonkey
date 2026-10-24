@@ -1011,7 +1011,7 @@ function AppController() {
     if (platform === 'windows' && driver === 'input' && action === 'install' && setupState.device.status !== 'connected') {
       const message = setupState.device.status === 'checking'
         ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
-        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor HID 按键过滤驱动。'
+        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor Universal 键盘驱动。'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: false,
         status: 'error',
@@ -1248,7 +1248,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
+              ? 'Quarbor Universal 驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -1281,12 +1281,12 @@ function AppController() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Quarbor HID 过滤驱动。'
+            ? '未检测到 Quarbor Universal 驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Quarbor HID 输入服务工作正常。'
-                : '已检测到 Quarbor HID 过滤驱动，输入服务正在启动。'
+                ? 'Quarbor Universal 输入服务工作正常。'
+                : '已检测到 Quarbor Universal 驱动，输入服务正在启动。'
         let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         if (probe.platform === 'windows') {
           next = setSetupStepStatus(next, 'inputDriver', inputStatus === 'installed' ? 'complete' : 'active')
@@ -1384,7 +1384,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
+              ? 'Quarbor Universal 驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))

@@ -2,13 +2,13 @@
 
 ```text
 Windows
-  RC003 HID keyboard
-    -> QuarborHIDFilterUserDriver UMDF per-device lower filter
-    -> duplex per-instance v3 pipe (Tokio + prost)
+  RC003 BTHLEDEVICE parent
+    -> QuarborUniversalKeyboardDriver per-device binding
+    -> duplex per-instance Universal v1 pipe (Tokio + prost)
     -> exact VID/PID device selection
-    -> Windows HID descriptor parsing and usage-to-button lookup
+    -> RC003 BTHLE report decoding (Report ID + little-endian usage slots)
     -> mapping snapshot, gesture state and shared held-key counts
-    -> descriptor-supported standard keys -> InjectKey -> driver HID input reports
+    -> driver-supported standard keys -> keysend -> independent synthetic HID output
     -> media / unsupported keys and connected chords -> SendInput virtual keys
     -> SendInput cursor movement, mouse clicks, wheel and Unicode text
     -> validated application / website system launches
@@ -34,13 +34,17 @@ macOS
     -> MiRemoteV 2ch input selected by the consuming application
 ```
 
-The input service discovers the RC003 keyboard device instance, computes the Quarbor pipe hash, and accepts only frames from that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
+The input service discovers the RC003 `BTHLEDEVICE` parent, computes the Quarbor pipe hash, and accepts only frames from that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
 
-The Windows v3 client is implemented in Rust. `protox` and `prost-build` generate
+The Windows Universal client is implemented in Rust. `protox` and `prost-build` generate
 types from the vendor schema without protoc; Tokio handles the duplex pipe,
-and the `windows` crate calls the system HID descriptor parser. Descriptor-supported standard remote keyboard actions use semantic InjectKey commands with
-correlated Result responses. Unmapped/disabled inputs forward their original
-keyboard usages. Media/volume keys and unsupported or ambiguous descriptor bindings use SendInput virtual keys.
+and the `windows` crate is used only for native system input/output APIs. The
+BTHLEDEVICE source has a passive vendor descriptor, so RC003 physical reports
+are decoded directly from their Report ID and little-endian usage slots.
+Driver-supported standard remote keyboard actions use semantic keysend commands
+with correlated Result responses. Unmapped/disabled inputs forward their
+original keyboard usages. Media/volume keys and unsupported output usages use
+SendInput virtual keys.
 Chords containing virtual keys and other chords sharing those keys use the same virtual backend.
 Down edges remember the selected backend; cancellation, capture failures and shutdown release virtual keys too.
 All remote behavior types enter the scheduler, including delayed sequences,
@@ -49,7 +53,7 @@ original key when only double/long press is mapped. Cursor movement, mouse click
 Unicode text use SendInput; application/website actions use validated system launches.
 Independent system mouse mappings keep their SendInput backend.
 The driver blocks physical input and releases its injected state on disconnect.
-See [the v3 input design](quarbor-v3-read.md) for framing, recovery and validation.
+See [the Universal input design](quarbor-v3-read.md) for framing, recovery and validation.
 
 On macOS, the input service starts in non-exclusive monitor mode. When custom
 mappings are enabled and both Input Monitoring and Accessibility permissions
@@ -98,7 +102,7 @@ paused; see [measurements, limitations, and shelved experiments](RC003_AUDIO_LAT
 The experimental background queue and post-stop packet handling are not part of
 the current implementation and must not be described as confirmed fixes.
 
-The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborHIDFilterUserDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install targets only RC003 HID keyboard instances and lets the installer request UAC. App uninstall invokes --uninstall-all so the installer can restore online and offline instances before removing every published Quarbor package. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
+The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborUniversalKeyboardDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install targets the online RC003 BTHLEDEVICE parent and lets the installer request UAC. App uninstall invokes --uninstall-all so the installer can restore online and offline instances, including legacy Quarbor bindings, before removing its published packages. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
 The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
 the archive hash, extracted x64 installer hash, and Authenticode publisher
 signature before requesting elevation. Driver readiness is detected from the

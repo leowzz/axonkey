@@ -3,6 +3,7 @@ use super::{cursor_delta, InputServiceStatus, NativeBehavior, NativeSettings, Wh
 use super::{repeatable_click, RepeatableClick, TriggerBehaviors};
 use serde::Serialize;
 use std::{
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -17,8 +18,6 @@ const WAIT_TIMEOUT_MS: u32 = 50;
 const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
-const CR_SUCCESS: u32 = 0;
-const CM_GETIDLIST_FILTER_PRESENT: u32 = 0x0000_0100;
 
 #[cfg(windows)]
 struct QuarborContext {
@@ -245,9 +244,12 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
                 context.last_sequence = None;
                 context.usage_error = None;
                 context.error = None;
-                log::info!(target: "axonkey::input", "Quarbor v3 duplex pipe connected: {device_id}");
+                log::info!(target: "axonkey::input", "Quarbor Universal duplex pipe connected: {device_id}");
             }
-            Err(error) => quarbor_read_error(context, format!("Quarbor v3 connect: {error}")),
+            Err(error) => quarbor_read_error(
+                context,
+                format!("Quarbor Universal connect ({device_id}): {error}"),
+            ),
         }
     }
     // Bound both work and waiting; a busy device must not starve shutdown/status.
@@ -272,7 +274,7 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
                 );
             }
             Err(error) => {
-                quarbor_read_error(context, format!("Quarbor v3 receive: {error}"));
+                quarbor_read_error(context, format!("Quarbor Universal receive: {error}"));
                 context.reader = None;
                 quarbor_release_active_usages(context);
                 break;
@@ -306,7 +308,9 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Report {
-            metadata, usages, ..
+            metadata,
+            bytes,
+            usages,
         } => {
             if context
                 .last_sequence
@@ -328,7 +332,13 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                     // stale state when the next release cannot be decoded.
                     context.state_epoch = context.state_epoch.wrapping_add(1);
                     if context.usage_error != Some(*status) {
-                        log::warn!(target: "axonkey::input", "Quarbor raw HID is available; keyboard usage decoding failed: 0x{status:08X}");
+                        let preview = bytes
+                            .iter()
+                            .take(16)
+                            .map(|byte| format!("{byte:02X}"))
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        log::warn!(target: "axonkey::input", "Quarbor RC003 report decode failed: status=0x{status:08X}, bytes={}, preview={preview}", bytes.len());
                         context.usage_error = Some(*status);
                     }
                 }
@@ -437,7 +447,10 @@ fn quarbor_output_error(context: &mut QuarborContext, error: std::io::Error) {
     // Closing the writer makes the driver clear its queue and submit neutral
     // reports, including keys whose release was rejected or only partly sent.
     context.reader = None;
-    quarbor_read_error(context, format!("Quarbor v3 keyboard output: {error}"));
+    quarbor_read_error(
+        context,
+        format!("Quarbor Universal keyboard output: {error}"),
+    );
     quarbor_release_active_usages(context);
 }
 
@@ -460,7 +473,7 @@ pub struct InputService {
 }
 
 impl InputService {
-    pub fn start() -> Self {
+    pub fn start(resource_dir: Option<PathBuf>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
@@ -471,8 +484,8 @@ impl InputService {
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
-            .name("Axonkey Quarbor HID input".into())
-            .spawn(move || worker_loop(worker_shared))
+            .name("Axonkey Quarbor Universal input".into())
+            .spawn(move || worker_loop(worker_shared, resource_dir))
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
@@ -547,12 +560,67 @@ impl Drop for InputService {
     }
 }
 
-fn worker_loop(shared: Arc<Shared>) {
-    log::info!(target: "axonkey::input", "Quarbor v3 duplex backend loaded");
+struct QuarborTargetSelector {
+    resource_dir: Option<PathBuf>,
+    last_probe: Instant,
+    target: Option<String>,
+    installer_failure_logged: bool,
+}
+
+impl QuarborTargetSelector {
+    fn new(resource_dir: Option<PathBuf>) -> Self {
+        Self {
+            resource_dir,
+            last_probe: Instant::now() - Duration::from_secs(1),
+            target: None,
+            installer_failure_logged: false,
+        }
+    }
+
+    fn current(&mut self) -> Option<String> {
+        #[cfg(windows)]
+        if self.last_probe.elapsed() >= Duration::from_secs(1) {
+            self.last_probe = Instant::now();
+            self.target = self.probe();
+        }
+        self.target.clone()
+    }
+
+    #[cfg(windows)]
+    fn probe(&mut self) -> Option<String> {
+        let Some(resource_dir) = self.resource_dir.as_deref() else {
+            if !self.installer_failure_logged {
+                log::warn!(
+                    target: "axonkey::input",
+                    "Quarbor installer resource directory unavailable; waiting for a valid bound BTHLEDEVICE target"
+                );
+                self.installer_failure_logged = true;
+            }
+            return None;
+        };
+        match crate::quarbor_installer::list(resource_dir) {
+            Ok(devices) => crate::quarbor_installer::select_bound_target(&devices),
+            Err(error) => {
+                if !self.installer_failure_logged {
+                    log::warn!(
+                        target: "axonkey::input",
+                        "Quarbor installer device list unavailable; waiting for a valid bound BTHLEDEVICE target: {error}"
+                    );
+                    self.installer_failure_logged = true;
+                }
+                None
+            }
+        }
+    }
+}
+
+fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
+    log::info!(target: "axonkey::input", "Quarbor Universal duplex backend loaded");
     shared.status.lock().unwrap().backend_ready = true;
     let mut last_target_seen_at = None;
+    let mut target_selector = QuarborTargetSelector::new(resource_dir);
     while !shared.stop.load(Ordering::Relaxed) {
-        if !wait_for_stable_target(&shared, &mut last_target_seen_at) {
+        if !wait_for_stable_target(&shared, &mut last_target_seen_at, &mut target_selector) {
             break;
         }
         #[cfg(windows)]
@@ -560,20 +628,25 @@ fn worker_loop(shared: Arc<Shared>) {
             &mut QuarborContext::default(),
             &shared,
             &mut last_target_seen_at,
+            &mut target_selector,
         );
     }
     shared.status.lock().unwrap().capture_active = false;
 }
 
-fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Instant>) -> bool {
+fn wait_for_stable_target(
+    shared: &Shared,
+    last_target_seen_at: &mut Option<Instant>,
+    target_selector: &mut QuarborTargetSelector,
+) -> bool {
     let mut stable_since = None;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
-        let hardware_id = rc003_keyboard_device_id();
+        let hardware_id = target_selector.current();
         let target_present = hardware_id.is_some();
         update_device_status(shared, hardware_id, last_target_seen_at, now);
 
-        // v3 capture is independent of mappings. Keep observing even when
+        // Universal capture is independent of mappings. Keep observing even when
         // mappings are disabled; forward original keys through the driver.
         if target_present {
             let first_stable = *stable_since.get_or_insert(now);
@@ -594,15 +667,16 @@ fn run_context(
     context: &mut QuarborContext,
     shared: &Shared,
     last_target_seen_at: &mut Option<Instant>,
+    target_selector: &mut QuarborTargetSelector,
 ) {
-    context.device_id = rc003_keyboard_device_id();
+    context.device_id = target_selector.current();
     let mut next_probe = Instant::now();
     let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
         let now = Instant::now();
         if now >= next_probe {
-            let device_id = rc003_keyboard_device_id();
+            let device_id = target_selector.current();
             update_device_status(shared, device_id.clone(), last_target_seen_at, now);
             if device_id.as_deref() != context.device_id.as_deref() {
                 break;
@@ -734,7 +808,7 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
         match event {
             Event::Hello(_) => {}
             Event::Capabilities(caps) => {
-                log::info!(target: "axonkey::input", "Quarbor v3 capture ready: report_bytes={}, queue_capacity={}, flags=0x{:X}, report_ids={:02X?}", caps.input_report_bytes, caps.queue_capacity, caps.flags, caps.report_ids);
+                log::info!(target: "axonkey::input", "Quarbor Universal capture ready: report_bytes={}, queue_capacity={}, flags=0x{:X}, report_ids={:02X?}", caps.input_report_bytes, caps.queue_capacity, caps.flags, caps.report_ids);
             }
             Event::Report {
                 metadata, bytes, ..
@@ -754,7 +828,7 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
     status.error = context.error.clone();
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RawHidEvent {
@@ -827,56 +901,6 @@ fn update_device_status(
     if previous_connected != connected {
         log::info!(target: "axonkey::input", "RC003 connection changed: connected={connected}");
     }
-}
-
-#[cfg(target_os = "windows")]
-fn rc003_keyboard_device_id() -> Option<String> {
-    for _ in 0..3 {
-        let mut length = 0;
-        if unsafe {
-            cm_get_device_id_list_size(&mut length, std::ptr::null(), CM_GETIDLIST_FILTER_PRESENT)
-        } != CR_SUCCESS
-            || !(2..=1_000_000).contains(&length)
-        {
-            return None;
-        }
-
-        let mut buffer = vec![0u16; length as usize];
-        if unsafe {
-            cm_get_device_id_list(
-                std::ptr::null(),
-                buffer.as_mut_ptr(),
-                length,
-                CM_GETIDLIST_FILTER_PRESENT,
-            )
-        } == CR_SUCCESS
-        {
-            return rc003_keyboard_id_from_multisz(&buffer);
-        }
-    }
-    None
-}
-
-#[cfg(not(target_os = "windows"))]
-fn rc003_keyboard_device_id() -> Option<String> {
-    None
-}
-
-fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
-    buffer
-        .split(|value| *value == 0)
-        .take_while(|value| !value.is_empty())
-        .map(String::from_utf16_lossy)
-        .find(|value| {
-            value.to_ascii_uppercase().starts_with("HID\\") && is_target_hardware_id(value)
-        })
-}
-
-fn is_target_hardware_id(value: &str) -> bool {
-    let uppercase = value.to_ascii_uppercase();
-    let vid = uppercase.contains("VID_2717") || uppercase.contains("VID&012717");
-    let pid = uppercase.contains("PID_32B8") || uppercase.contains("PID&32B8");
-    vid && pid
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -1497,20 +1521,6 @@ unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) 
     0
 }
 
-#[cfg(target_os = "windows")]
-#[link(name = "cfgmgr32")]
-extern "system" {
-    #[link_name = "CM_Get_Device_ID_List_SizeW"]
-    fn cm_get_device_id_list_size(length: *mut u32, filter: *const u16, flags: u32) -> u32;
-    #[link_name = "CM_Get_Device_ID_ListW"]
-    fn cm_get_device_id_list(
-        filter: *const u16,
-        buffer: *mut u16,
-        buffer_length: u32,
-        flags: u32,
-    ) -> u32;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1843,124 +1853,6 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn hid_mapping_service_splits_media_from_driver_chords_without_reconnecting() {
-        use super::super::windows_quarbor::{
-            tests::{command_server, framed, key_command, next},
-            Client, Event, Metadata,
-        };
-        let expected = vec![
-            framed(vec![8, 1, 0x62, 0]),
-            key_command(2, 7, 0xe6, true), // voice -> right Alt
-            key_command(3, 7, 0xe1, true),
-            key_command(4, 7, 4, true), // up -> Shift+A
-            key_command(5, 7, 4, false),
-            key_command(6, 7, 0xe1, false),
-            key_command(7, 7, 0xe6, false),
-            key_command(8, 7, 6, true),
-            key_command(9, 7, 6, false),
-        ]; // report loss releases right Alt
-        let (path, worker) = command_server(expected, 0);
-        let shared = Shared {
-            settings: RwLock::new(
-                serde_json::from_value(serde_json::json!({
-                    "enabled":true, "behaviors":{
-                        "voice":{"click":[{"type":"key","key":"RAlt"}]},
-                        "up":{"click":[{"type":"shortcut","keys":["Shift","A"]}]},
-                        "confirm":{"click":[
-                            {"type":"key","key":"MediaPlayPause"},
-                            {"type":"key","key":"MediaPrevious"},
-                            {"type":"key","key":"MediaNext"},
-                            {"type":"key","key":"MediaStop"},
-                            {"type":"key","key":"VolumeUp"},
-                            {"type":"key","key":"VolumeDown"},
-                            {"type":"key","key":"VolumeMute"},
-                            {"type":"key","key":"C"}
-                        ]}
-                    }
-                }))
-                .unwrap(),
-            ),
-            settings_revision: AtomicU64::new(1),
-            status: Mutex::new(InputServiceStatus::default()),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-        };
-        MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
-        let mut context = QuarborContext {
-            reader: Some(Client::connect_path(&path, r"HID\AXONKEY_V3_READ_TEST").unwrap()),
-            device_id: Some(r"HID\AXONKEY_V3_READ_TEST".into()),
-            ..QuarborContext::default()
-        };
-        for _ in 0..2 {
-            let event = next(context.reader.as_mut().unwrap()).unwrap();
-            quarbor_accept_event(&mut context, event);
-        }
-        context
-            .reader
-            .as_mut()
-            .unwrap()
-            .set_keyboard_fixture(&[0xe6, 0xe1, 4, 6, 0x7f, 0x80, 0x81]);
-        let mut actions = super::super::remote_actions::RemoteActions::default();
-        let mut epoch = 0;
-        let now = Instant::now();
-        for (sequence, usages) in [
-            (1, vec![0x3e]),
-            (2, vec![0x3e, 0x52]),
-            (3, vec![0x3e]),
-            (5, vec![]),
-            (6, vec![0x28]),
-            (7, vec![]),
-        ] {
-            quarbor_accept_event(
-                &mut context,
-                Event::Report {
-                    metadata: Metadata {
-                        sequence,
-                        timestamp: 0,
-                        dropped: 0,
-                        status: 0,
-                    },
-                    bytes: vec![1; 121],
-                    usages: Ok(usages),
-                },
-            );
-            process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-        }
-        let mut accepted = 0;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while accepted < 9 {
-            quarbor_wait_with_timeout(&mut context, 10);
-            for event in context.events.drain(..) {
-                if matches!(event, Event::CommandAccepted(_)) {
-                    accepted += 1;
-                }
-            }
-            assert!(context.error.is_none(), "{:?}", context.error);
-            assert!(
-                Instant::now() < deadline,
-                "driver commands never acknowledged"
-            );
-        }
-        assert_eq!(context.last_sequence, Some(7)); // Results are not physical reports.
-        MOUSE_KEY_BATCHES.with(|batches| {
-            let events: Vec<_> = batches
-                .borrow()
-                .iter()
-                .flatten()
-                .map(|(vk, flags)| (*vk, flags & 2 == 0))
-                .collect();
-            let expected: Vec<_> = [0xb3, 0xb1, 0xb0, 0xb2, 0xaf, 0xae, 0xad]
-                .into_iter()
-                .flat_map(|key| [(key, true), (key, false)])
-                .collect();
-            assert_eq!(events, expected);
-        });
-        drop(context);
-        worker.join().unwrap();
-    }
-
-    #[cfg(windows)]
-    #[test]
     fn report_gaps_and_read_errors_release_observed_keys() {
         use super::super::windows_quarbor::{Event, Metadata};
         let metadata = |sequence, dropped, status| Metadata {
@@ -2245,15 +2137,6 @@ mod tests {
     }
 
     #[test]
-    fn matches_real_rc003_hardware_id_variants() {
-        assert!(is_target_hardware_id("HID\\VID_2717&PID_32B8"));
-        assert!(is_target_hardware_id(
-            "HID\\{GUID}_DEV_VID&012717_PID&32B8_REV&00A4"
-        ));
-        assert!(!is_target_hardware_id("USB\\VID_2717&PID_D002"));
-    }
-
-    #[test]
     fn keeps_short_ble_hid_disconnects_out_of_the_visible_status() {
         let now = Instant::now();
         assert!(device_connection_visible(true, None, now));
@@ -2267,23 +2150,6 @@ mod tests {
             now.checked_sub(Duration::from_secs(8)),
             now
         ));
-    }
-
-    #[test]
-    fn selects_only_the_rc003_keyboard_from_present_device_ids() {
-        let ids = [
-            "BTHLEDEVICE\\SERVICE_DEV_VID&012717_PID&32B8",
-            "HID\\OTHER_DEV_VID&012717_PID&0001",
-            "HID\\RC003_DEV_VID&012717_PID&32B8",
-        ]
-        .join("\0")
-            + "\0\0";
-        let buffer = ids.encode_utf16().collect::<Vec<_>>();
-
-        assert_eq!(
-            rc003_keyboard_id_from_multisz(&buffer).as_deref(),
-            Some("HID\\RC003_DEV_VID&012717_PID&32B8")
-        );
     }
 
     #[cfg(windows)]

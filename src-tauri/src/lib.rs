@@ -1,11 +1,11 @@
 mod audio_service;
 mod backup_files;
 mod input_service;
-mod profile_switch_overlay;
-mod release_update;
 mod legacy_driver;
+mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
+mod release_update;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
@@ -1079,10 +1079,11 @@ async fn get_signal_monitor_state(
     #[cfg(target_os = "macos")]
     {
         tauri::async_runtime::spawn_blocking(move || {
-            app.state::<AudioService>().signal_snapshot(after, clear.unwrap_or(false))
+            app.state::<AudioService>()
+                .signal_snapshot(after, clear.unwrap_or(false))
         })
-            .await
-            .map_err(|e| format!("无法读取监测数据：{e}"))
+        .await
+        .map_err(|e| format!("无法读取监测数据：{e}"))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -1352,7 +1353,11 @@ pub fn run() {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
             app.manage(AudioService::start());
-            app.manage(InputService::start());
+            #[cfg(target_os = "windows")]
+            let input_service = InputService::start(app.path().resource_dir().ok());
+            #[cfg(not(target_os = "windows"))]
+            let input_service = InputService::start();
+            app.manage(input_service);
             app.manage(MouseService::start());
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());

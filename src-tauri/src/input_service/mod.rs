@@ -8,9 +8,6 @@ mod profile_switch;
 #[cfg(windows)]
 mod windows_quarbor;
 
-#[cfg(windows)]
-mod windows_hid;
-
 #[cfg(any(windows, test))]
 mod remote_actions;
 

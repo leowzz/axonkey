@@ -97,7 +97,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>为 RC003 安装 Quarbor HID 过滤驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键拦截</strong><span>为 RC003 安装 Quarbor Universal 键盘驱动</span></div>
               <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
@@ -174,7 +174,7 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     {
       key: 'interception' as const,
       title: 'Interception 旧键盘驱动',
-      description: '旧版全局键盘过滤驱动会和 Quarbor HID 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
+      description: '旧版全局键盘过滤驱动会和 Quarbor Universal 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
     },
     {
       key: 'interceptionFix' as const,
@@ -200,10 +200,10 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     <span className="setup-hero-icon"><ShieldAlert size={24} /></span>
     <span className="section-kicker">MIGRATION</span>
     <h2 id="setup-title">先卸载旧驱动</h2>
-    <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor HID 驱动，避免两个输入链路同时接管 RC003。</p>
+    <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor Universal 驱动，避免两个输入链路同时接管 RC003。</p>
     <div className={`legacy-cleanup-summary ${ready ? 'ready' : cleanup.status === 'checking' ? 'checking' : ''}`} aria-live="polite">
       <span className="setup-status-dot" />
-      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor HID 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
+      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor Universal 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
     </div>
     {!ready && <div className="legacy-cleanup-list">
       {(present.length > 0 ? present : items).map((item) => <section key={item.key} className={`legacy-cleanup-item ${cleanup.components[item.key] ? 'present' : 'clear'}`}>
@@ -395,7 +395,7 @@ function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, 
       <span className="driver-status-chip"><span className="setup-status-dot" /> {driverStatusLabel(driver.status)}</span>
     </div>
     <p className="driver-setup-message">{message}</p>
-    {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时不能安装 Quarbor 驱动'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再安装 Quarbor HID 按键过滤驱动。'}</span></div></div>}
+    {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时不能安装 Quarbor 驱动'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再安装 Quarbor Universal 键盘驱动。'}</span></div></div>}
     {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? '安装失败，请重试。' : '卸载失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
@@ -417,7 +417,7 @@ function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenS
     <span className="setup-hero-icon"><Download size={24} /></span>
     <span className="section-kicker">DRIVERS</span>
     <h2 id="setup-title">一次完成两个驱动</h2>
-    <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor HID 过滤驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 只绑定当前遥控器的 HID 设备实例，不会安装全局键盘过滤器。</p>
+    <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor Universal 键盘驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 会绑定当前遥控器的 BTHLEDEVICE 父设备，不会安装全局键盘过滤器。</p>
     <div className="driver-setup-list">
       <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
       <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />

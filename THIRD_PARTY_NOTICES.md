@@ -34,14 +34,13 @@ distributed as a separate macOS Installer component inside Axonkey.app.
 The exact build recipe and corresponding-source pointer are retained at
 [third_party/blackhole/README.md](third_party/blackhole/README.md).
 
-## QuarborHIDFilterUserDriver
+## QuarborUniversalKeyboardDriver
 
-- Project: `liujiaqi7998/QuarborHIDFilterUserDriver`
-- Source: https://github.com/liujiaqi7998/QuarborHIDFilterUserDriver
+- Project: `QuarborUniversalKeyboardDriver`
 
-QuarborHIDFilterUserDriver is supplied by 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc. as a device-specific UMDF HID lower filter for Windows. Axonkey ships the original installer EXE, CLI documentation, INF, UMDF DLL, catalog, protocol documentation and license under vendor/QuarborHIDFilterUserDriver. The installer explicitly binds the private model to the selected RC003 keyboard device instance and stores the original driver information for offline recovery.
+QuarborUniversalKeyboardDriver is supplied by 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc. as a universal HID keyboard driver for Windows. Axonkey ships the installer EXE, CLI documentation, INF, driver DLL, catalog, protocol schema, protocol documentation and license under vendor/QuarborUniversalKeyboardDriverInstaller. Axonkey binds the RC003 `BTHLEDEVICE` parent instance and stores the original driver information for offline recovery.
 
-This is a proprietary driver, used under the [free-use / no-resale license](vendor/QuarborHIDFilterUserDriver/License).
+This is a proprietary driver, used under the [free-use / no-resale license](vendor/QuarborUniversalKeyboardDriverInstaller/License).
 
 ## VB-Audio VB-CABLE Pack45
 

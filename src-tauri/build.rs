@@ -1,11 +1,12 @@
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let proto_dir = "../vendor/QuarborHIDFilterUserDriver/SDK/proto";
-        let schema = format!("{proto_dir}/hid_user.proto");
+        let proto_dir = "../vendor/QuarborUniversalKeyboardDriverInstaller/SDK";
+        let schema = format!("{proto_dir}/keyboard.proto");
         // Compile the schema entirely in Rust; no protoc or C/C++ SDK build.
-        let descriptors =
-            protox::compile([&schema], [proto_dir]).expect("parse Quarbor HID v3 schema");
-        prost_build::compile_fds(descriptors).expect("generate Quarbor HID v3 Rust types");
+        let descriptors = protox::compile([&schema], [proto_dir])
+            .expect("parse Quarbor Universal Keyboard schema");
+        prost_build::compile_fds(descriptors)
+            .expect("generate Quarbor Universal Keyboard Rust types");
         println!("cargo:rerun-if-changed={schema}");
     }
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
