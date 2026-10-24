@@ -7,10 +7,11 @@
 .workflow-axonkey-canvas { width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; background: transparent; overflow: hidden; }
 .workflow-axonkey-canvas .sqd-designer { background: transparent; }
 .workflow-axonkey-canvas .sqd-line-grid-path { display: none; }
-.workflow-axonkey .sqd-toolbox { position: relative; inset: auto; z-index: 1; box-sizing: border-box; width: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+.workflow-axonkey .sqd-toolbox { position: relative; inset: auto; z-index: 1; box-sizing: border-box; width: auto; height: 100%; min-height: 0; padding: 12px 0 0; border: 1px solid #d5dfe8; border-radius: 10px; background: #f4f6f8; box-shadow: none; }
+.macos-vibrancy .workflow-axonkey .sqd-toolbox { border-color: rgb(70 90 110 / 20%); background: rgb(255 255 255 / 28%); }
 .workflow-axonkey .workflow-toolbox { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.workflow-toolbox-title { flex: 0 0 auto; margin: 0; padding: 0 10px 14px; color: var(--map-ink); font-size: 14px; font-weight: 600; }
-.workflow-toolbox-search { flex: 0 0 auto; padding: 0 10px 14px; }
+.workflow-toolbox-title { flex: 0 0 auto; margin: 0; padding: 0 12px 12px; color: var(--map-ink); font-size: 14px; font-weight: 600; }
+.workflow-toolbox-search { flex: 0 0 auto; padding: 0 12px 14px; }
 .workflow-toolbox-search-field { display: flex; height: 34px; align-items: center; gap: 8px; padding: 0 9px; border: 1px solid #d6dee7; border-radius: 6px; color: #7b8997; background: rgb(255 255 255 / 72%); cursor: text; }
 .workflow-toolbox-search-field:focus-within { border-color: #2878d4; color: #2878d4; box-shadow: 0 0 0 2px rgb(40 120 212 / 10%); }
 .workflow-toolbox-search-field > svg { flex-shrink: 0; }
@@ -19,14 +20,14 @@
 .workflow-axonkey .sqd-toolbox-filter-input::-webkit-search-decoration { appearance: none; }
 .workflow-toolbox-browser { display: grid; grid-template-columns: 88px minmax(0, 1fr); flex: 1; min-height: 0; }
 .workflow-toolbox-categories { min-height: 0; overflow-y: auto; padding: 0 5px; overscroll-behavior: contain; }
-.workflow-toolbox-categories button { display: block; width: 100%; min-height: 34px; margin-bottom: 4px; padding: 7px 8px; border: 0; border-radius: 5px; color: #758594; background: transparent; text-align: left; font-size: 13px; overflow-wrap: anywhere; }
+.workflow-toolbox-categories button { display: block; width: 100%; min-height: 34px; margin-bottom: 4px; padding: 7px 8px; border: 0; border-radius: 5px; color: #5f7285; background: transparent; text-align: left; font-size: 13px; overflow-wrap: anywhere; }
 .workflow-toolbox-categories button:hover { color: #2569ad; background: #f1f6fb; }
 .workflow-toolbox-categories button[aria-pressed="true"] { color: #176fcf; background: #eaf3ff; font-weight: 600; }
 .workflow-toolbox-categories button:focus-visible { outline: 2px solid #2878d4; outline-offset: -2px; }
 .workflow-toolbox-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 6px 8px 8px; }
 .workflow-toolbox-empty { margin: 12px 0; color: #687581; font-size: 13px; }
 .workflow-axonkey .sqd-toolbox-group-title { margin: 0 0 8px; padding: 7px 0; color: #778895; background: transparent; font-size: 12px; font-weight: 500; text-align: left; }
-.workflow-axonkey .sqd-toolbox-item { display: flex; align-items: center; gap: 9px; min-height: 38px; margin-bottom: 6px; padding: 8px; border: 1px solid #e2e8ed; border-radius: 6px; color: var(--map-ink); background: rgb(255 255 255 / 62%); box-shadow: none; }
+.workflow-axonkey .sqd-toolbox-item { display: flex; align-items: center; gap: 9px; min-height: 38px; margin-bottom: 6px; padding: 8px; border: 1px solid #e2e8ed; border-radius: 6px; color: var(--map-ink); background: rgb(255 255 255 / 80%); box-shadow: none; }
 .workflow-axonkey .sqd-toolbox-item:hover { border-color: #aac7e5; background: rgb(40 120 212 / 5%); }
 .workflow-axonkey .sqd-toolbox-item-icon { position: static; flex: 0 0 18px; width: 18px; height: 18px; margin: 0; }
 .workflow-axonkey .sqd-toolbox-item-icon-image { width: 18px; height: 18px; }
