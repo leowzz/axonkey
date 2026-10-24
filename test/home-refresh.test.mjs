@@ -13,7 +13,7 @@ vm.runInNewContext(ts.transpileModule(readFileSync('src/components/HomeDashboard
   compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
 }).outputText, {
   module, exports: module.exports,
-  require: name => name === '../openGitHub' ? { openGitHub() {} } : require(name),
+  require: name => name.endsWith('.css') ? {} : name === '../openGitHub' ? { openGitHub() {} } : require(name),
 })
 const { HomeDashboard } = module.exports
 const props = {

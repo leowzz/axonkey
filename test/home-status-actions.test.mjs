@@ -14,7 +14,7 @@ const source = ts.transpileModule(readFileSync(new URL('../src/components/HomeDa
 }).outputText
 vm.runInNewContext(source, {
   module, exports: module.exports,
-  require: name => name === '../openGitHub' ? { openGitHub: () => {} } : require(name),
+  require: name => name.endsWith('.css') ? {} : name === '../openGitHub' ? { openGitHub: () => {} } : require(name),
 })
 const { HomeDashboard } = module.exports
 const base = {
@@ -31,7 +31,7 @@ test('macOS permission management stays available while row actions follow autho
   const props = { ...base, onOpenPermissions: () => opened++ }
   const renderer = Renderer.create(React.createElement(HomeDashboard, props))
   const actions = () => renderer.root.findAllByProps({ className: 'home-row-action' })
-  const manage = () => renderer.root.findAllByType('button').find(button => text(button) === '管理权限')
+  const manage = () => renderer.root.findAllByType('button').find(button => text(button) === '管理系统权限')
   try {
     assert.deepEqual(renderer.root.findAllByType('h3').map(text), ['输入监控', '辅助功能'])
     assert.equal(actions().length, 0)
@@ -56,7 +56,7 @@ test('macOS permission management stays available while row actions follow autho
   }
 })
 
-test('home exposes three quick destinations, permission management and one refresh action', () => {
+test('control center exposes one device entry, settings and logs, permission management and refresh', () => {
   let devices = 0, settings = 0, permissions = 0, refreshes = 0, logs = 0
   const props = {
     ...base, onOpenDevices: () => devices++, onOpenPermissions: () => permissions++,
@@ -66,14 +66,17 @@ test('home exposes three quick destinations, permission management and one refre
   const quick = title => renderer.root.findAllByProps({ className: 'home-quick-button' }).find(button =>
     button.findAllByType('strong').some(node => text(node) === title))
   try {
-    assert.equal(text(renderer.root.findByType('h1')), '主页')
+    assert.equal(text(renderer.root.findByType('h1')), '控制中心')
     assert.match(text(featureState(renderer)), /软件功能.*已开启/)
     const shortcuts = renderer.root.findAllByProps({ className: 'home-quick-button' })
-    assert.deepEqual(shortcuts.map(button => text(button.findByType('strong'))), ['我的设备', '设置', '运行日志'])
-    quick('我的设备').props.onClick()
+    assert.deepEqual(shortcuts.map(button => text(button.findByType('strong'))), ['设置', '运行日志'])
+    const deviceEntry = renderer.root.findByProps({ className: 'home-device-action' })
+    assert.match(text(deviceEntry), /打开我的设备/)
+    assert.equal(renderer.root.findAllByType('button').filter(button => button.props.onClick === props.onOpenDevices).length, 1)
+    deviceEntry.props.onClick()
     quick('设置').props.onClick()
     quick('运行日志').props.onClick()
-    renderer.root.findAllByType('button').find(button => text(button) === '管理权限').props.onClick()
+    renderer.root.findAllByType('button').find(button => text(button) === '管理系统权限').props.onClick()
     const refresh = renderer.root.findByProps({ className: 'home-refresh-button' })
     assert.equal(renderer.root.findAllByType('button').filter(button => button.props.onClick === props.onRefresh).length, 1)
     assert.equal(refresh.props['aria-disabled'], false)
@@ -101,7 +104,7 @@ test('browser preview never treats cached permissions as current or invokes nati
     assert.equal(logs.props.disabled, true)
     assert.equal(logs.props['aria-disabled'], true)
     assert.equal(logs.props.onClick, undefined)
-    renderer.root.findAllByType('button').find(button => text(button) === '管理权限').props.onClick()
+    renderer.root.findAllByType('button').find(button => text(button) === '管理系统权限').props.onClick()
     assert.equal(permissions, 1)
     assert.equal(renderer.root.findAllByType('img').length, 0)
     assert.doesNotMatch(text(renderer.root), /已授权|已连接|校准|电量|RC003|Quarbor|MiRemoteV/)
