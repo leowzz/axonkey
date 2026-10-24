@@ -154,7 +154,7 @@ export function SettingsPage({ section, onSectionChange, platform, nativeRuntime
       <span className="settings-platform-note-icon"><ShieldCheck size={24} /></span>
       <div className="settings-platform-note-copy">
         <h3 id="windows-input-service-title">Windows 输入服务</h3>
-        <p>按键映射通过 Quarbor HID 驱动运行；安装或卸载驱动时需要管理员权限。</p>
+        <p>按键映射通过 Quarbor Universal 键盘驱动运行；安装或卸载驱动时需要管理员权限。</p>
         <div className="settings-platform-note-actions">
           <span className="settings-inline-status">驱动状态：<strong>{!nativeRuntime ? '未检测' : loading ? '检测中' : failed ? '检测失败' : inputDriver.status === 'installed' ? '已安装' : inputDriver.status === 'restartRequired' ? '需要重启' : '需要检查'}</strong></span>
           <button type="button" className="dialog-secondary" onClick={onOpenDriver}>打开驱动设置</button>

@@ -680,7 +680,13 @@ impl PressedChord {
     fn release(&mut self) {
         log::info!(target: "axonkey::input", "Mapped chord release: keys={:?}", self.keys);
         // Left/right modifiers share a flag; retain it until both sides are released.
-        for (key, flags) in self.keys.iter().copied().rev().zip(release_flags(&self.keys)) {
+        for (key, flags) in self
+            .keys
+            .iter()
+            .copied()
+            .rev()
+            .zip(release_flags(&self.keys))
+        {
             post_key(key, false, flags, false);
         }
         self.keys.clear();
@@ -1270,7 +1276,9 @@ fn execute_behaviors_with_hold(
                 direction, wrap, ..
             } => super::profile_switch::execute(device_id, *direction, *wrap),
             NativeBehavior::Disabled { .. } => {}
-            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {
+                super::launch::execute(behavior)
+            }
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,

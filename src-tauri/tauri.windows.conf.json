@@ -8,11 +8,11 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe": "vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe",
-      "../vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriver.inf": "vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriver.inf",
-      "../vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriver.dll": "vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriver.dll",
-      "../vendor/QuarborHIDFilterUserDriver/Quarborhidfilteruserdriver.cat": "vendor/QuarborHIDFilterUserDriver/Quarborhidfilteruserdriver.cat",
-      "../vendor/QuarborHIDFilterUserDriver/License": "vendor/QuarborHIDFilterUserDriver/License",
+      "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriverInstaller.exe": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriverInstaller.exe",
+      "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.inf": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.inf",
+      "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.dll": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.dll",
+      "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.cat": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.cat",
+      "../vendor/QuarborUniversalKeyboardDriverInstaller/License": "vendor/QuarborUniversalKeyboardDriverInstaller/License",
       "../scripts/vbcable-driver.ps1": "scripts/vbcable-driver.ps1",
       "../scripts/uninstall-old-driver.exe": "scripts/uninstall-old-driver.exe",
       "../vendor/vbcable/VBCABLE_Driver_Pack45.zip": "vendor/vbcable/VBCABLE_Driver_Pack45.zip",

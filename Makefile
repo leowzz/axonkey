@@ -42,4 +42,4 @@ test-release:
 	npm run test:release
 
 uninstall-driver:
-	./vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe --uninstall "$(DEVICE)"
+	./vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriverInstaller.exe --uninstall "$(DEVICE)"

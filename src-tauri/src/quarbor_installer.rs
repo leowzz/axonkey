@@ -2,28 +2,40 @@ use std::io::Write;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const INSTALLER: &str = "QuarborHIDFilterUserDriverInstaller.exe";
+const INSTALLER: &str = "QuarborUniversalKeyboardDriverInstaller.exe";
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Device {
     pub instance_id: String,
+    #[serde(default)]
+    pub hardware_id: String,
     pub present: bool,
     pub bound: bool,
     pub recovery_active: bool,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub inf: String,
+    #[serde(default)]
+    pub section: String,
 }
 
 impl Device {
     pub fn is_rc003(&self) -> bool {
+        self.instance_id
+            .to_ascii_uppercase()
+            .starts_with("BTHLEDEVICE\\")
+            && self.is_rc003_hardware()
+    }
+
+    pub fn is_rc003_hardware(&self) -> bool {
         let id = self.instance_id.to_ascii_uppercase();
-        let model = id
-            .strip_prefix("HID\\")
-            .unwrap_or_default()
-            .split('\\')
-            .next()
-            .unwrap_or_default();
-        let tokens: Vec<_> = model.split(['&', '_']).collect();
+        let hardware = self.hardware_id.to_ascii_uppercase();
+        let text = format!("{id} {hardware}");
+        let tokens: Vec<_> = text.split(['&', '_', '\\', ' ']).collect();
         tokens
             .windows(2)
             .any(|pair| pair[0] == "VID" && matches!(pair[1], "2717" | "012717"))
@@ -39,12 +51,12 @@ impl Device {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Reply {
+pub(crate) struct Reply {
     version: u32,
     action: String,
     outcome: String,
-    exit_code: i32,
-    reboot_required: bool,
+    pub exit_code: i32,
+    pub reboot_required: bool,
     message: String,
     #[serde(default)]
     devices: Vec<Device>,
@@ -62,7 +74,10 @@ fn decode_reply(bytes: &[u8], code: Option<i32>, action: &str) -> Result<Reply, 
         return Err("Quarbor 安装器返回的版本、动作或退出码不一致。".into());
     }
     if !matches!(code, Some(0 | 3010))
-        || !matches!(reply.outcome.as_str(), "success" | "reboot_required")
+        || !matches!(
+            reply.outcome.as_str(),
+            "success" | "success_with_warnings" | "reboot_required"
+        )
     {
         return Err(format!(
             "Quarbor 操作失败（{}）：{}",
@@ -86,7 +101,7 @@ pub(crate) fn find(resource_dir: &Path) -> Result<PathBuf, String> {
     for root in roots {
         let candidate = root
             .join("vendor")
-            .join("QuarborHIDFilterUserDriver")
+            .join("QuarborUniversalKeyboardDriverInstaller")
             .join(INSTALLER);
         if candidate.is_file() {
             return Ok(candidate);
@@ -95,7 +110,20 @@ pub(crate) fn find(resource_dir: &Path) -> Result<PathBuf, String> {
     Err(format!("未找到 Quarbor 安装器：{INSTALLER}"))
 }
 
-fn invoke(exe: &Path, action: &str, id: Option<&str>, log: Option<&Path>) -> Result<Reply, String> {
+pub(crate) fn invoke(
+    exe: &Path,
+    action: &str,
+    id: Option<&str>,
+    log: Option<&Path>,
+) -> Result<Reply, String> {
+    let output_path = std::env::temp_dir().join(format!(
+        "axonkey-quarbor-{}-{}.json",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| format!("无法生成 Quarbor 输出文件名：{error}"))?
+            .as_nanos()
+    ));
     let mut command = Command::new(exe);
     command
         .creation_flags(0x0800_0000)
@@ -103,6 +131,7 @@ fn invoke(exe: &Path, action: &str, id: Option<&str>, log: Option<&Path>) -> Res
     if let Some(id) = id {
         command.arg(id);
     }
+    command.arg("--output").arg(&output_path);
     if let Some(parent) = exe.parent() {
         command.current_dir(parent);
     }
@@ -110,22 +139,47 @@ fn invoke(exe: &Path, action: &str, id: Option<&str>, log: Option<&Path>) -> Res
         .stdin(Stdio::null())
         .output()
         .map_err(|error| format!("无法启动 Quarbor 安装器：{error}"))?;
-    if let Some(path) = log {
-        let mut file = std::fs::OpenOptions::new()
-            .append(true)
-            .open(path)
-            .map_err(|error| format!("无法写入驱动日志：{error}"))?;
-        writeln!(
-            file,
-            "Installer: {}\nAction: {action}, device: {id:?}\nExit: {:?}\nstdout:\n{}\nstderr:\n{}",
-            exe.display(),
-            output.status.code(),
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        )
-        .map_err(|error| format!("无法写入驱动日志：{error}"))?;
+    // The installer is a GUI-subsystem executable. Its command-line worker can
+    // finish writing --output after the parent process has returned, so wait
+    // briefly for the documented JSON file instead of relying on stdout.
+    let mut reply_bytes = None;
+    for _ in 0..100 {
+        if output_path.is_file() {
+            match std::fs::read(&output_path) {
+                Ok(bytes) if !bytes.is_empty() => {
+                    reply_bytes = Some(bytes);
+                    break;
+                }
+                Ok(_) | Err(_) => {}
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
     }
-    decode_reply(&output.stdout, output.status.code(), action)
+    let log_result = if let Some(path) = log {
+        let response = String::from_utf8_lossy(reply_bytes.as_deref().unwrap_or_default());
+        match std::fs::OpenOptions::new().append(true).open(path) {
+            Ok(mut file) => writeln!(
+                file,
+                "Installer: {}\nAction: {action}, device: {id:?}\nExit: {:?}\noutput:\n{}\nstderr:\n{}",
+                exe.display(),
+                output.status.code(),
+                response,
+                String::from_utf8_lossy(&output.stderr)
+            )
+            .map_err(|error| format!("无法写入驱动日志：{error}")),
+            Err(error) => Err(format!("无法写入驱动日志：{error}")),
+        }
+    } else {
+        Ok(())
+    };
+    let result = decode_reply(
+        reply_bytes.as_deref().unwrap_or_default(),
+        output.status.code(),
+        action,
+    );
+    let _ = std::fs::remove_file(&output_path);
+    log_result?;
+    result
 }
 
 pub(crate) fn list(resource_dir: &Path) -> Result<Vec<Device>, String> {
@@ -139,12 +193,23 @@ fn install_targets(devices: &[Device]) -> Result<Vec<&Device>, String> {
         .filter(|d| d.is_rc003() && d.present)
         .collect();
     if targets.is_empty() {
-        return Err("未发现在线的 RC003 HID 键盘，请连接并唤醒遥控器后重试。".into());
+        return Err("未发现在线的 RC003 输入源，请连接并唤醒遥控器后重试。".into());
     }
     Ok(targets)
 }
 
+pub(crate) fn select_bound_target(devices: &[Device]) -> Option<String> {
+    devices
+        .iter()
+        .filter(|device| device.present && device.bound && device.is_rc003())
+        .min_by(|left, right| left.instance_id.cmp(&right.instance_id))
+        .map(|device| device.instance_id.clone())
+}
+
 fn run_installer(action: &str, resource_dir: &Path, log: &Path) -> Result<bool, String> {
+    if !matches!(action, "install" | "uninstall") {
+        return Err("不支持的 Quarbor 驱动操作。".into());
+    }
     let exe = find(resource_dir)?;
     if action == "uninstall" {
         // Only uninstall-all supports offline devnodes and recovery records.
@@ -152,9 +217,6 @@ fn run_installer(action: &str, resource_dir: &Path, log: &Path) -> Result<bool, 
         return Ok(reply.reboot_required || reply.exit_code == 3010);
     }
     let devices = invoke(&exe, "list", None, Some(log))?.devices;
-    if action != "install" {
-        return Err("不支持的 Quarbor 驱动操作。".into());
-    }
     let mut reboot = false;
     for device in install_targets(&devices)? {
         let reply = invoke(&exe, action, Some(&device.instance_id), Some(log))?;
@@ -187,9 +249,13 @@ mod tests {
     fn device(id: &str, present: bool, bound: bool, recovery_active: bool) -> Device {
         Device {
             instance_id: id.into(),
+            hardware_id: String::new(),
             present,
             bound,
             recovery_active,
+            name: String::new(),
+            inf: String::new(),
+            section: String::new(),
         }
     }
 
@@ -197,16 +263,26 @@ mod tests {
     fn selects_only_rc003_and_keeps_offline_recovery() {
         let devices = vec![
             device(
-                r"HID\{00001812}_DEV_VID&012717_PID&32B8_REV&00A4\1",
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055",
                 true,
                 false,
                 false,
             ),
-            device(r"HID\VID_2717&PID_32B8\offline", false, true, false),
-            device(r"HID\VID_2717&PID_32B8\recovery", false, false, true),
-            device(r"HID\VID_2717&PID_32B8\restored", false, false, false),
-            device(r"HID\VID_046D&PID_C31C\other", true, true, true),
-            device(r"HID\VID_2717&PID_32B80\wrong", true, true, true),
+            device(r"BTHLEDEVICE\VID_2717&PID_32B8\offline", false, true, false),
+            device(
+                r"BTHLEDEVICE\VID_2717&PID_32B8\recovery",
+                false,
+                false,
+                true,
+            ),
+            device(
+                r"BTHLEDEVICE\VID_2717&PID_32B8\restored",
+                false,
+                false,
+                false,
+            ),
+            device(r"BTHLEDEVICE\VID_046D&PID_C31C\other", true, true, true),
+            device(r"BTHLEDEVICE\VID_2717&PID_32B80\wrong", true, true, true),
             device(r"USB\VID_2717&PID_32B8\parent", true, true, true),
         ];
         assert_eq!(install_targets(&devices).unwrap().len(), 1);
@@ -214,6 +290,36 @@ mod tests {
         assert_eq!(uninstall.len(), 2);
         assert!(uninstall.iter().all(|d| !d.present));
         assert!(install_targets(&devices[1..]).is_err());
+    }
+
+    #[test]
+    fn accepts_only_the_bound_ble_parent() {
+        let devices = vec![
+            device(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055",
+                true,
+                true,
+                false,
+            ),
+            device(r"HID\VID_2717&PID_32B8\other", true, true, false),
+        ];
+        assert_eq!(
+            select_bound_target(&devices),
+            Some(devices[0].instance_id.clone())
+        );
+        assert_eq!(
+            install_targets(&devices)
+                .unwrap()
+                .into_iter()
+                .map(|device| device.instance_id.clone())
+                .collect::<Vec<_>>(),
+            vec![devices[0].instance_id.clone()]
+        );
+        assert_eq!(
+            select_bound_target(&devices[..1]),
+            Some(devices[0].instance_id.clone())
+        );
+        assert_eq!(select_bound_target(&devices[1..]), None);
     }
 
     #[test]

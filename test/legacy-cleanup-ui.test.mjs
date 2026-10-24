@@ -86,6 +86,39 @@ test('Windows integration presents capabilities while preserving explicit instal
   }
 })
 
+test('Quarbor install delegates to its guarded action and disables driver actions during recheck', () => {
+  let calls = 0
+  const state = setupModel.createDefaultSetupState()
+  state.currentStep = 'inputDriver'
+  state.device.status = 'connected'
+  state.drivers.input.status = 'missing'
+  const props = {
+    platform: 'windows', state, macPermissions: {}, checkingInputDriver: false,
+    onDriverAction: (kind, action) => { assert.equal(kind, 'input'); assert.equal(action, 'install'); calls++ },
+  }
+  let view
+  const render = () => act(() => {
+    const element = React.createElement(SetupDialog, props)
+    if (view) view.update(element)
+    else view = Renderer.create(element)
+  })
+  const button = label => view.root.findAllByType('button').find(node => text(node).trim() === label)
+  try {
+    render()
+    assert.equal(button('集成按键控制').props.disabled, false)
+    act(() => button('集成按键控制').props.onClick())
+    assert.equal(calls, 1)
+    props.checkingInputDriver = true
+    render()
+    assert.equal(button('正在检查旧驱动…').props.disabled, true)
+    assert.equal(button('移除按键集成').props.disabled, true)
+    assert.equal(button('启用语音输入').props.disabled, true)
+    props.checkingInputDriver = false
+    render()
+    assert.equal(button('集成按键控制').props.disabled, false)
+  } finally { act(() => view?.unmount()) }
+})
+
 test('repair service alone shows migration, supports recheck, and blocks cleanup while checking', () => {
   let rechecks = 0
   let cleanups = 0

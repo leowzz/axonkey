@@ -1,0 +1,179 @@
+[Version]
+Signature = "$WINDOWS NT$"
+Class = HIDClass
+ClassGuid = {745A17A0-74D3-11D0-B6FE-00A0C90F57DA}
+Provider = %ManufacturerName%
+CatalogFile = QuarborUniversalKeyboardDriver.cat
+DriverVer = 10/24/2026,0.9.1.0
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+QuarborUniversalKeyboardDriver.dll = 1
+
+[ControlFlags]
+ExcludeFromSelect = QUARBOR\UniversalHidCollection
+
+[Manufacturer]
+%ManufacturerName% = Standard,NTamd64.10.0...17134,NTamd64.10.0...22000
+
+[Standard.NTamd64.10.0...17134]
+%DeviceDesc% = BleKeyboard,BTHLEDevice\{00001812-0000-1000-8000-00805f9b34fb}
+%CollectionDesc% = HidCollection.Win10,QUARBOR\UniversalHidCollection
+%OutputDesc% = VirtualOutput.Win10,ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT
+
+[Standard.NTamd64.10.0...22000]
+%DeviceDesc% = BleKeyboard,BTHLEDevice\{00001812-0000-1000-8000-00805f9b34fb}
+%CollectionDesc% = HidCollection,QUARBOR\UniversalHidCollection
+%OutputDesc% = VirtualOutput,ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT
+
+[HidCollection.Win10.NT]
+CopyFiles = DriverCopy
+
+[HidCollection.Win10.NT.HW]
+AddReg = LegacyHidLowerFilter
+
+[HidCollection.Win10.NT.Services]
+AddService = mshidumdf,0x000001fa,LegacyMsHidUmdfService
+AddService = WUDFRd,0x000001f8,LegacyWudfRdService
+
+[HidCollection.Win10.NT.Wdf]
+UmdfService = QuarborUniversalKeyboardDriver,DriverService
+UmdfServiceOrder = QuarborUniversalKeyboardDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CannotUseFsContexts
+UmdfHostPriority = PriorityHigh
+
+[VirtualOutput.Win10.NT]
+CopyFiles = DriverCopy
+
+[VirtualOutput.Win10.NT.HW]
+AddReg = LegacyHidLowerFilter
+
+[VirtualOutput.Win10.NT.Services]
+AddService = mshidumdf,0x000001fa,LegacyMsHidUmdfService
+AddService = WUDFRd,0x000001f8,LegacyWudfRdService
+
+[VirtualOutput.Win10.NT.Wdf]
+UmdfService = QuarborUniversalKeyboardDriver,DriverService
+UmdfServiceOrder = QuarborUniversalKeyboardDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CannotUseFsContexts
+UmdfHostPriority = PriorityHigh
+
+[LegacyHidLowerFilter]
+HKR,,LowerFilters,0x00010008,"WUDFRd"
+
+[LegacyMsHidUmdfService]
+DisplayName = %MsHidUmdfServiceName%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\mshidumdf.sys
+
+[LegacyWudfRdService]
+DisplayName = %WudfRdServiceName%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\WUDFRd.sys
+
+[HidCollection.NT]
+CopyFiles = DriverCopy
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT,WUDFRD_LowerFilter.NT
+
+[HidCollection.NT.HW]
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT.HW,WUDFRD_LowerFilter.NT.HW
+
+[HidCollection.NT.Services]
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT.Services,WUDFRD_LowerFilter.NT.Services
+
+[HidCollection.NT.Filters]
+Include = WUDFRD.inf
+Needs = WUDFRD_LowerFilter.NT.Filters
+
+[HidCollection.NT.Wdf]
+UmdfService = QuarborUniversalKeyboardDriver,DriverService
+UmdfServiceOrder = QuarborUniversalKeyboardDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CannotUseFsContexts
+UmdfHostPriority = PriorityHigh
+
+[VirtualOutput.NT]
+CopyFiles = DriverCopy
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT,WUDFRD_LowerFilter.NT
+
+[VirtualOutput.NT.HW]
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT.HW,WUDFRD_LowerFilter.NT.HW
+
+[VirtualOutput.NT.Services]
+Include = MsHidUmdf.inf,WUDFRD.inf
+Needs = MsHidUmdf.NT.Services,WUDFRD_LowerFilter.NT.Services
+
+[VirtualOutput.NT.Filters]
+Include = WUDFRD.inf
+Needs = WUDFRD_LowerFilter.NT.Filters
+
+[VirtualOutput.NT.Wdf]
+UmdfService = QuarborUniversalKeyboardDriver,DriverService
+UmdfServiceOrder = QuarborUniversalKeyboardDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CannotUseFsContexts
+UmdfHostPriority = PriorityHigh
+
+[BleKeyboard.NT]
+CopyFiles = DriverCopy
+Include = hidbthle.inf
+Needs = HidBthLE.NT
+
+[BleKeyboard.NT.HW]
+Include = hidbthle.inf
+Needs = HidBthLE.NT.HW
+
+[BleKeyboard.NT.Services]
+Include = hidbthle.inf
+Needs = HidBthLE.NT.Services
+
+[BleKeyboard.NT.Wdf]
+Include = hidbthle.inf
+UmdfService = QuarborUniversalKeyboardDriver,DriverService
+UmdfServiceOrder = HidOverGatt,QuarborUniversalKeyboardDriver
+UmdfKernelModeClientPolicy = AllowKernelModeClients
+UmdfFileObjectPolicy = AllowNullAndUnknownFileObjects
+UmdfMethodNeitherAction = Copy
+UmdfFsContextUsePolicy = CanUseFsContext2
+UmdfHostPriority = PriorityHigh
+
+[DriverService]
+UmdfLibraryVersion = 2.25.0
+ServiceBinary = %13%\QuarborUniversalKeyboardDriver.dll
+
+[DriverCopy]
+QuarborUniversalKeyboardDriver.dll
+
+[Strings]
+ManufacturerName = "Quarbor Logic Technologies Inc."
+DiskName = "Quarbor Universal Keyboard Driver"
+DeviceDesc = "Quarbor Universal Keyboard Device"
+CollectionDesc = "Quarbor HID Collection - Standard HID Keyboard"
+OutputDesc = "Quarbor Independent Keyboard, Consumer and Mouse"
+MsHidUmdfServiceName = "Pass-through HID to UMDF Filter Driver"
+WudfRdServiceName = "Windows Driver Foundation - User-mode Driver Framework Reflector"

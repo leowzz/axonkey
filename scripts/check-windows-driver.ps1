@@ -64,8 +64,8 @@ function Assert-InstallerReply {
         throw "Installer version or exit code mismatch: process=$ExitCode, expected=$ExpectedExitCode."
     }
     if ($reply.action -isnot [string] -or ($Action -and $reply.action -ne $Action)) { throw "Unexpected installer action: $($reply.action)." }
-    $expectedOutcome = if ($ExpectedExitCode -eq 0) { 'success' } else { 'failed' }
-    if ($reply.outcome -isnot [string] -or $reply.outcome -ne $expectedOutcome -or
+    $expectedOutcomes = if ($ExpectedExitCode -eq 0) { @('success', 'success_with_warnings') } else { @('failed') }
+    if ($reply.outcome -isnot [string] -or $reply.outcome -notin $expectedOutcomes -or
         $reply.rebootRequired -isnot [bool] -or $reply.rebootRequired) {
         throw "Unexpected installer outcome: $($reply.outcome)."
     }
@@ -74,7 +74,13 @@ function Assert-InstallerReply {
         if ($reply.devices -isnot [array]) { throw 'Installer devices must be an array (an empty array is valid without hardware).' }
         foreach ($device in $reply.devices) {
             if ($device.instanceId -isnot [string] -or [string]::IsNullOrWhiteSpace($device.instanceId) -or
-                $device.present -isnot [bool] -or $device.bound -isnot [bool] -or $device.recoveryActive -isnot [bool]) {
+                ($null -ne $device.name -and $device.name -isnot [string]) -or
+                ($null -ne $device.driverVersion -and $device.driverVersion -isnot [string]) -or
+                ($null -ne $device.upgradeAvailable -and $device.upgradeAvailable -isnot [bool]) -or
+                ($null -ne $device.upgradeStatus -and $device.upgradeStatus -isnot [string]) -or
+                $device.present -isnot [bool] -or $device.bound -isnot [bool] -or
+                ($null -ne $device.recoverySaved -and $device.recoverySaved -isnot [bool]) -or
+                $device.recoveryActive -isnot [bool]) {
                 throw 'Installer returned an invalid device record.'
             }
         }
@@ -86,7 +92,7 @@ function Get-NewQuarborPackages {
     param([object[]]$Before, [object[]]$After)
     $existingNames = @($Before | ForEach-Object { $_.Driver })
     $After | Where-Object {
-        [IO.Path]::GetFileName($_.OriginalFileName) -ieq 'QuarborHIDFilterUserDriver.inf' -and
+        [IO.Path]::GetFileName($_.OriginalFileName) -ieq 'QuarborUniversalKeyboardDriver.inf' -and
         $_.Driver -match '^oem\d+\.inf$' -and $_.Driver -notin $existingNames
     }
 }
@@ -134,10 +140,10 @@ function Test-WindowsDriverPackage {
     [void](New-Item -ItemType Directory -Path $Logs)
     $Logs = (Resolve-Path -LiteralPath $Logs).Path
     $Root = (Resolve-Path -LiteralPath $Root).Path
-    $package = Join-Path $Root 'vendor/QuarborHIDFilterUserDriver'
-    $exe = Join-Path $package 'QuarborHIDFilterUserDriverInstaller.exe'
-    $inf = Join-Path $package 'QuarborHIDFilterUserDriver.inf'
-    $catalog = Join-Path $package 'quarborhidfilteruserdriver.cat'
+    $package = Join-Path $Root 'vendor/QuarborUniversalKeyboardDriverInstaller'
+    $exe = Join-Path $package 'QuarborUniversalKeyboardDriverInstaller.exe'
+    $inf = Join-Path $package 'QuarborUniversalKeyboardDriver.inf'
+    $catalog = Join-Path $package 'QuarborUniversalKeyboardDriver.cat'
     $pnputil = Join-Path $env:WINDIR 'System32/pnputil.exe'
     $before = @()
     $stagingAttempted = $false
@@ -147,15 +153,15 @@ function Test-WindowsDriverPackage {
         Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Logs 'os.json') -Encoding utf8
         $config = Get-Content -LiteralPath (Join-Path $Root 'src-tauri/tauri.windows.conf.json') -Raw | ConvertFrom-Json -AsHashtable
-        $files = @('QuarborHIDFilterUserDriverInstaller.exe', 'QuarborHIDFilterUserDriver.inf',
-            'QuarborHIDFilterUserDriver.dll', 'quarborhidfilteruserdriver.cat', 'License')
+        $files = @('QuarborUniversalKeyboardDriverInstaller.exe', 'QuarborUniversalKeyboardDriver.inf',
+            'QuarborUniversalKeyboardDriver.dll', 'QuarborUniversalKeyboardDriver.cat', 'License')
         $hashes = foreach ($file in $files) {
             $path = Join-Path $package $file
             if (-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-Item -LiteralPath $path).Length -eq 0) {
                 throw "Missing or empty bundled resource: $path"
             }
-            $resource = @($config.bundle.resources.GetEnumerator() | Where-Object { $_.Key -ieq "../vendor/QuarborHIDFilterUserDriver/$file" })
-            if ($resource.Count -ne 1 -or $resource[0].Value -ine "vendor/QuarborHIDFilterUserDriver/$file") {
+            $resource = @($config.bundle.resources.GetEnumerator() | Where-Object { $_.Key -ieq "../vendor/QuarborUniversalKeyboardDriverInstaller/$file" })
+            if ($resource.Count -ne 1 -or $resource[0].Value -ine "vendor/QuarborUniversalKeyboardDriverInstaller/$file") {
                 throw "Windows bundle must include $file at the installer's resource path."
             }
             Get-FileHash -LiteralPath $path -Algorithm SHA256 | Select-Object Path, Hash
@@ -170,7 +176,7 @@ function Test-WindowsDriverPackage {
         $signtool = Get-ChildItem -Path "$sdkBin/*/x64/signtool.exe" |
             Sort-Object { [version]$_.Directory.Parent.Name } -Descending | Select-Object -First 1
         if (-not $signtool) { throw 'Windows SDK x64 signtool.exe was not found.' }
-        foreach ($file in @('QuarborHIDFilterUserDriver.inf', 'QuarborHIDFilterUserDriver.dll')) {
+        foreach ($file in @('QuarborUniversalKeyboardDriver.inf', 'QuarborUniversalKeyboardDriver.dll')) {
             $verification = Invoke-LoggedProcess -FilePath $signtool.FullName -Arguments @('verify', '/pa', '/v', '/c', $catalog, (Join-Path $package $file)) -LogPrefix (Join-Path $Logs "catalog-$file")
             if ($verification.exitCode -ne 0) { throw "Catalog verification failed for $file. See catalog-$file.*" }
         }
@@ -209,7 +215,7 @@ function Test-WindowsDriverPackage {
             ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Logs 'driver-store-after.json') -Encoding utf8
         $expectedHash = (Get-FileHash -LiteralPath $inf -Algorithm SHA256).Hash
         $matching = @($after | Where-Object {
-            [IO.Path]::GetFileName($_.OriginalFileName) -ieq 'QuarborHIDFilterUserDriver.inf' -and
+            [IO.Path]::GetFileName($_.OriginalFileName) -ieq 'QuarborUniversalKeyboardDriver.inf' -and
             (Get-FileHash -LiteralPath $_.OriginalFileName -Algorithm SHA256).Hash -eq $expectedHash
         })
         if ($matching.Count -eq 0) { throw 'PnPUtil returned success, but the expected INF is absent from the driver store.' }

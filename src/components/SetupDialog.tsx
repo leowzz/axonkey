@@ -25,6 +25,7 @@ type SetupDialogProps = {
   platform: Platform
   macPermissions: MacPermissions
   state: SetupState
+  checkingInputDriver?: boolean
   onClose: () => void
   onOpenStep: (step: SetupStepId) => void
   onCompleteStep: () => void
@@ -59,7 +60,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
 const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
-export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+export function SetupDialog({ platform, macPermissions, state, checkingInputDriver = false, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   const visibleSteps = platform === 'macos'
@@ -117,6 +118,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
           />
           : <DriversSetupScreen
             state={state}
+            checkingInputDriver={checkingInputDriver}
             onAction={onDriverAction}
             onProbeAudio={onProbeAudio}
             onContinue={onCompleteStep}
@@ -174,7 +176,7 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     {
       key: 'interception' as const,
       title: 'Interception 旧键盘驱动',
-      description: '旧版全局键盘过滤驱动会和 Quarbor HID 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
+      description: '旧版全局键盘过滤驱动会和 Quarbor Universal 驱动冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
     },
     {
       key: 'interceptionFix' as const,
@@ -200,10 +202,10 @@ function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: Legacy
     <span className="setup-hero-icon"><ShieldAlert size={24} /></span>
     <span className="section-kicker">MIGRATION</span>
     <h2 id="setup-title">先卸载旧驱动</h2>
-    <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor HID 驱动，避免两个输入链路同时接管 RC003。</p>
+    <p className="setup-lead">检测到旧版输入组件。请先完成清理，再安装新的 Quarbor Universal 驱动，避免两个输入链路同时接管 RC003。</p>
     <div className={`legacy-cleanup-summary ${ready ? 'ready' : cleanup.status === 'checking' ? 'checking' : ''}`} aria-live="polite">
       <span className="setup-status-dot" />
-      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor HID 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
+      <div><strong>{ready ? '旧组件已清理' : cleanup.status === 'checking' ? '正在检查旧组件…' : cleanup.status === 'error' ? '旧驱动检测失败' : '仍有旧组件需要处理'}</strong><span>{ready ? '可以继续安装新的 Quarbor Universal 驱动。' : cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。'}</span></div>
     </div>
     {!ready && <div className="legacy-cleanup-list">
       {(present.length > 0 ? present : items).map((item) => <section key={item.key} className={`legacy-cleanup-item ${cleanup.components[item.key] ? 'present' : 'clear'}`}>
@@ -357,6 +359,7 @@ export function MacPermissionHelperWindow({ activePermission, permissions, onOpe
 
 type DriversSetupScreenProps = {
   state: SetupState
+  checkingInputDriver?: boolean
   onAction: (driver: DriverKind, action: DriverActionKind) => void
   onProbeAudio: () => void
   onContinue: () => void
@@ -382,9 +385,10 @@ function isDriverInstalled(state: SetupState, kind: DriverKind) {
 type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
   kind: DriverKind
   disabled: boolean
+  checking?: boolean
 }
 
-function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
+function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled, checking = false }: DriverSetupItemProps) {
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
@@ -403,7 +407,7 @@ function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, 
     {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? kind === 'input' ? '按键控制集成失败，请重试。' : '语音输入启用失败，请重试。' : '移除失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
-      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待系统操作…' : kind === 'audio' ? '启用语音输入' : '集成按键控制'}</button>}
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {checking ? '正在检查旧驱动…' : running ? '等待系统操作…' : kind === 'audio' ? '启用语音输入' : '集成按键控制'}</button>}
       {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待系统操作…' : '移除按键集成'}</button>}
       {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待系统操作…' : '卸载语音输入支持'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
@@ -413,8 +417,8 @@ function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, 
   </section>
 }
 
-function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
-  const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
+function DriversSetupScreen({ state, checkingInputDriver = false, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+  const anyRunning = checkingInputDriver || (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
   const inputInstalled = isDriverInstalled(state, 'input')
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
   return <div className="setup-screen drivers-setup-screen">
@@ -423,7 +427,7 @@ function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenS
     <h2 id="setup-title">完成遥控器集成</h2>
     <p className="setup-lead">连接并唤醒 RC003 后，为这台遥控器集成按键控制，并按需启用语音输入。按键控制仅绑定当前遥控器的设备实例。</p>
     <div className="driver-setup-list">
-      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} checking={checkingInputDriver} />
       <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
     <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按操作结果重新连接设备或重启 Windows</strong><span>集成前必须连接并唤醒 RC003；如果设备在操作过程中断开，页面会显示具体失败原因。移除按键集成会执行该设备的卸载操作，支持离线设备。安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
