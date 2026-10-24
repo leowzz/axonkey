@@ -1,5 +1,6 @@
 mod audio_service;
 mod backup_files;
+mod driver_upgrade;
 mod input_service;
 mod legacy_driver;
 mod profile_switch_overlay;
@@ -620,11 +621,23 @@ async fn launch_driver_action(
     {
         use tauri::Manager;
 
+        if _app
+            .state::<driver_upgrade::UpgradeState>()
+            .gate
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("正在检查或升级 Quarbor 驱动，请先处理升级窗口。".into());
+        }
         let resource_dir = _app
             .path()
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         tauri::async_runtime::spawn_blocking(move || {
+            let state = _app.state::<driver_upgrade::UpgradeState>();
+            let _operation = state
+                .operation
+                .try_lock()
+                .map_err(|_| "已有驱动操作正在执行，请稍后重试。")?;
             run_driver_action(&driver, &action, &resource_dir)
         })
         .await
@@ -1354,7 +1367,12 @@ pub fn run() {
             }
             app.manage(AudioService::start());
             #[cfg(target_os = "windows")]
-            let input_service = InputService::start(app.path().resource_dir().ok());
+            let input_service = {
+                let upgrade = driver_upgrade::UpgradeState::default();
+                let gate = upgrade.gate.clone();
+                app.manage(upgrade);
+                InputService::start(app.path().resource_dir().ok(), gate)
+            };
             #[cfg(not(target_os = "windows"))]
             let input_service = InputService::start();
             app.manage(input_service);
@@ -1375,6 +1393,8 @@ pub fn run() {
             } else {
                 show_main_window(app.handle());
             }
+            #[cfg(windows)]
+            driver_upgrade::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
         })
@@ -1388,6 +1408,9 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                if window.try_state::<driver_upgrade::UpgradeState>().is_some_and(|state| state.blocks_close()) {
+                    return;
+                }
                 let _ = window.hide();
                 log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 
@@ -1408,6 +1431,9 @@ pub fn run() {
             get_log_info,
             open_log_directory,
             launch_driver_action,
+            driver_upgrade::get_driver_upgrade_state,
+            driver_upgrade::start_driver_upgrade,
+            driver_upgrade::dismiss_driver_upgrade,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,
@@ -1434,6 +1460,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
         .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
+                if app.try_state::<driver_upgrade::UpgradeState>().is_some_and(|state| state.blocks_close()) {
+                    api.prevent_exit();
+                    show_main_window(app);
+                }
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<MouseService>().shutdown();
             }

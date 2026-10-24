@@ -400,7 +400,7 @@ pub struct InputService {
 }
 
 impl InputService {
-    pub fn start(resource_dir: Option<PathBuf>) -> Self {
+    pub fn start(resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
@@ -413,12 +413,12 @@ impl InputService {
         #[cfg(windows)]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir))
+            .spawn(move || worker_loop(worker_shared, resource_dir, startup_gate))
             .ok();
         #[cfg(not(windows))]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir))
+            .spawn(move || worker_loop(worker_shared, resource_dir, startup_gate))
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
@@ -548,7 +548,15 @@ impl QuarborTargetSelector {
 }
 
 #[cfg(windows)]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
+fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) {
+    // Do not open a driver pipe until migration has finished or the user has
+    // dismissed its failure. The installer must be able to replace the binding.
+    while startup_gate.load(Ordering::Acquire) && !shared.stop.load(Ordering::Relaxed) {
+        thread::sleep(Duration::from_millis(50));
+    }
+    if shared.stop.load(Ordering::Relaxed) {
+        return;
+    }
     log::info!(target: "axonkey::input", "Quarbor Universal duplex backend loaded");
     shared.status.lock().unwrap().backend_ready = true;
     let mut last_target_seen_at = None;
@@ -568,8 +576,8 @@ fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
 }
 
 #[cfg(not(windows))]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
-    let _ = resource_dir;
+fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) {
+    let _ = (resource_dir, startup_gate);
     log::info!(target: "axonkey::input", "Windows input service is unavailable on this platform");
     shared.status.lock().unwrap().backend_ready = false;
     while !shared.stop.load(Ordering::Relaxed) {

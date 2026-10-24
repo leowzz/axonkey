@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const INSTALLER: &str = "QuarborUniversalKeyboardDriverInstaller.exe";
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Device {
     pub instance_id: String,
@@ -15,15 +15,25 @@ pub(crate) struct Device {
     pub present: bool,
     pub bound: bool,
     pub recovery_active: bool,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub inf: String,
+    #[serde(default)]
+    pub section: String,
 }
 
 impl Device {
     pub fn is_rc003(&self) -> bool {
+        self.instance_id
+            .to_ascii_uppercase()
+            .starts_with("BTHLEDEVICE\\")
+            && self.is_rc003_hardware()
+    }
+
+    pub fn is_rc003_hardware(&self) -> bool {
         let id = self.instance_id.to_ascii_uppercase();
         let hardware = self.hardware_id.to_ascii_uppercase();
-        if !id.starts_with("BTHLEDEVICE\\") {
-            return false;
-        }
         let text = format!("{id} {hardware}");
         let tokens: Vec<_> = text.split(['&', '_', '\\', ' ']).collect();
         tokens
@@ -41,12 +51,12 @@ impl Device {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Reply {
+pub(crate) struct Reply {
     version: u32,
     action: String,
     outcome: String,
-    exit_code: i32,
-    reboot_required: bool,
+    pub exit_code: i32,
+    pub reboot_required: bool,
     message: String,
     #[serde(default)]
     devices: Vec<Device>,
@@ -100,7 +110,12 @@ pub(crate) fn find(resource_dir: &Path) -> Result<PathBuf, String> {
     Err(format!("未找到 Quarbor 安装器：{INSTALLER}"))
 }
 
-fn invoke(exe: &Path, action: &str, id: Option<&str>, log: Option<&Path>) -> Result<Reply, String> {
+pub(crate) fn invoke(
+    exe: &Path,
+    action: &str,
+    id: Option<&str>,
+    log: Option<&Path>,
+) -> Result<Reply, String> {
     let output_path = std::env::temp_dir().join(format!(
         "axonkey-quarbor-{}-{}.json",
         std::process::id(),
@@ -238,6 +253,9 @@ mod tests {
             present,
             bound,
             recovery_active,
+            name: String::new(),
+            inf: String::new(),
+            section: String::new(),
         }
     }
 

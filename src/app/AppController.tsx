@@ -8,6 +8,7 @@ import appPackage from '../../package.json'
 import { adjacentProfileId, changeProfileState, applySharedProfileSwitch, profileSwitchTargets, removedProfileSwitchTriggers, removeSharedProfileSwitch } from '../profileNavigation'
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
+import { StartupDriverUpgrade } from '../components/DriverUpgradeDialog'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -1788,6 +1789,7 @@ function AppController() {
         onSave={commitTextInputPreset}
       />}
       {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
+      <StartupDriverUpgrade enabled={nativeRuntime && platform === 'windows'} onComplete={() => void probeSystemState(true)} />
       {setupOpen && !(nativeRuntime && platform === 'windows' && setupState.currentStep === 'legacyCleanup' && !legacyStartupChecked) && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}
