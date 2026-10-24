@@ -76,6 +76,7 @@ pub(super) struct Client {
     target: usize,
     started: Option<Instant>,
     key_injection: bool,
+    mouse_injection: bool,
     next_request: u64,
     max_payload: usize,
     outgoing: VecDeque<(Vec<u8>, usize)>,
@@ -145,7 +146,12 @@ fn decode_rc003_report(bytes: &[u8]) -> Result<Vec<u16>, u32> {
 
 fn synthetic_usage_supported(page: u16, usage: u16, report_ids: &[u8; 32]) -> bool {
     let report_id: usize = match page {
-        0x07 if (0x04..=0xDD).contains(&usage) || (0xE0..=0xE7).contains(&usage) => 1,
+        0x07 if (0x04..=0xA4).contains(&usage)
+            || (0xB0..=0xDD).contains(&usage)
+            || (0xE0..=0xE7).contains(&usage) =>
+        {
+            1
+        }
         0x0C if matches!(
             usage,
             0x00B0
@@ -172,6 +178,7 @@ fn synthetic_usage_supported(page: u16, usage: u16, report_ids: &[u8; 32]) -> bo
         {
             2
         }
+        0x09 if (1..=3).contains(&usage) => 3,
         _ => return false,
     };
     report_ids[report_id / 8] & (1 << (report_id % 8)) != 0
@@ -226,6 +233,7 @@ impl Client {
             target: 4,
             started: None,
             key_injection: false,
+            mouse_injection: false,
             next_request: 1,
             max_payload: MAX_MESSAGE,
             outgoing: VecDeque::new(),
@@ -241,6 +249,10 @@ impl Client {
         self.ready()
             && self.key_injection
             && synthetic_usage_supported(page, usage, &self.report_ids)
+    }
+
+    pub fn supports_mouse_move(&self) -> bool {
+        self.ready() && self.mouse_injection && synthetic_usage_supported(0x09, 1, &self.report_ids)
     }
 
     pub fn send_key(&mut self, page: u16, usage: u16, down: bool) -> io::Result<u64> {
@@ -263,6 +275,28 @@ impl Client {
                 "SendKey({page:#06X}, {usage:#06X}, {})",
                 if down { "down" } else { "up" }
             ),
+        )
+    }
+
+    pub fn move_mouse(&mut self, x: i32, y: i32, wheel: i32, pan: i32) -> io::Result<u64> {
+        if !self.mouse_injection {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Quarbor driver does not support MoveMouse",
+            ));
+        }
+        if [x, y, wheel, pan]
+            .iter()
+            .any(|value| !(-127..=127).contains(value))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Quarbor MoveMouse values must be in -127..=127",
+            ));
+        }
+        self.command(
+            proto::client_message::Body::MouseMove(proto::MouseMove { x, y, wheel, pan }),
+            format!("MoveMouse({x}, {y}, {wheel}, {pan})"),
         )
     }
 
@@ -472,6 +506,7 @@ impl Client {
             }
         }
         self.key_injection = info.supports_keysend;
+        self.mouse_injection = info.supports_mouse_move;
         self.stage = Stage::Reports;
         let mut flags = 0;
         if self.report_ids.iter().any(|value| *value != 0) {
@@ -479,6 +514,9 @@ impl Client {
         }
         if info.supports_keysend {
             flags |= 2;
+        }
+        if info.supports_mouse_move {
+            flags |= 8;
         }
         if info.supports_input_status {
             flags |= 4;
@@ -618,10 +656,14 @@ mod tests {
     #[test]
     fn recognizes_the_independent_output_usage_ranges() {
         let mut report_ids = [0; 32];
-        report_ids[0] = (1 << 1) | (1 << 2);
+        report_ids[0] = (1 << 1) | (1 << 2) | (1 << 3);
         assert!(synthetic_usage_supported(0x07, 0x04, &report_ids));
         assert!(synthetic_usage_supported(0x07, 0xE7, &report_ids));
         assert!(synthetic_usage_supported(0x0C, 0x00E9, &report_ids));
+        assert!(synthetic_usage_supported(0x09, 0x0001, &report_ids));
+        assert!(synthetic_usage_supported(0x09, 0x0003, &report_ids));
+        assert!(!synthetic_usage_supported(0x09, 0x0004, &report_ids));
+        assert!(!synthetic_usage_supported(0x07, 0x00A5, &report_ids));
         assert!(!synthetic_usage_supported(0x07, 0xF1, &report_ids));
         assert!(!synthetic_usage_supported(0x0C, 0x0001, &report_ids));
     }
