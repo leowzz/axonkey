@@ -1400,21 +1400,13 @@ html.macos-vibrancy,
   border-color: rgb(70 80 90 / 14%);
   background: rgb(255 255 255 / 30%);
 }
-/* Preserve the mapping workspace's panel hierarchy beneath its shared header. */
-.macos-vibrancy .mapping-workbench {
-  gap: 0;
-  border: 1px solid rgb(70 80 90 / 12%);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 16%);
-}
+/* Let the mapping workspace share the main content's continuous glass surface. */
 .macos-vibrancy .mapping-device-rail {
   border-right: 1px solid rgb(70 80 90 / 12%);
-  border-radius: 0 0 0 11px;
   background: transparent;
 }
 .macos-vibrancy .mapping-main {
-  border-radius: 0 0 11px;
-  background: rgb(255 255 255 / 12%);
+  background: transparent;
 }
 .macos-vibrancy .mapping-active .behavior-editor,
 .macos-vibrancy .mapping-active .behavior-current-panel {

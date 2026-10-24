@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Axonkey · 鼠标按钮排列方案</title>
+<!-- Design Read: preserve Axonkey's blue-gray control palette; overhaul only the prototype's input layouts.
+     Six button arrangements for a laptop-size comparison canvas; all nine inputs stay visible.
+     Variance 6 (spatial arrangements), motion 1 (control feedback), density 7, assets 1, fidelity 9.
+     Real 188px rail width by default; controls never scale down below 44px. No native mapping changes. -->
+<style>
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-synthesis: none;
+  color: #435e78;
+  background: #eff2f5;
+  --rail-width: 188px;
+  --gap: 8px;
+  --blue: #217de0;
+  --border: #d2dde7;
+  --control-border: #c9daeb;
+  --control-bg: #f6faff;
+  --stage: #edf3f9;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+h1, h2, h3, p { margin: 0; }
+button, select, input { font: inherit; }
+button, select { cursor: pointer; }
+a { color: #527ca5; text-underline-offset: 4px; }
+button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-visible, a:focus-visible {
+  outline: 2px solid #1464b5; outline-offset: 3px;
+}
+.page { max-width: 1260px; margin: 0 auto; padding: 30px 28px 70px; }
+.page-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+h1 { color: #354f69; font-size: 25px; font-weight: 650; letter-spacing: -.6px; }
+.intro { margin-top: 8px; color: #72879b; font-size: 13px; line-height: 1.7; }
+.preview-tag { color: #7b8ea2; font-size: 12px; white-space: nowrap; }
+.toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: 24px 0 18px; }
+.toolbar label { display: flex; align-items: center; gap: 10px; font-size: 13px; color: #647e97; }
+select { border: 1px solid var(--border); border-radius: 7px; background: #fafcfe; color: #435e78; padding: 8px 10px; font-size: 13px; }
+.width-note { font-size: 12px; color: #72879b; }
+.options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.option { min-width: 0; border: 1px solid var(--border); border-radius: 10px; background: #f9fbfd; overflow: hidden; }
+.option-header { display: flex; align-items: center; gap: 10px; padding: 16px 18px; }
+.letter { color: #718aa2; font-size: 12px; }
+h2 { font-size: 15px; color: #435e78; font-weight: 600; }
+.option-kind { margin-left: auto; font-size: 11px; color: #8093a5; }
+.stage { display: flex; justify-content: center; align-items: flex-start; min-height: 388px; background: var(--stage); padding: 22px 16px 20px; }
+.layout { width: min(var(--rail-width), 100%); min-width: 0; }
+.layout h3 { margin-bottom: 9px; color: #70869b; font-size: 11px; font-weight: 500; }
+.control-group + .control-group { margin-top: 20px; }
+.cells { display: grid; gap: var(--gap); }
+.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.full { grid-column: 1 / -1; }
+.input-button {
+  display: flex; justify-content: center; align-items: center; gap: 6px;
+  min-width: 44px; min-height: 48px; padding: 10px 4px;
+  border: 1px solid var(--control-border); border-radius: 8px;
+  background: var(--control-bg); color: #526f8b;
+  font-size: 14px; font-weight: 550; line-height: 1.35;
+  transition: background .12s ease, border-color .12s ease, color .12s ease;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.input-button:hover { border-color: #7fb5e9; background: #eaf4ff; }
+.input-button[aria-pressed="true"] { color: white; border-color: #2385ee; background: var(--blue); }
+.input-button:active:not(:disabled) { background: #d8eaff; border-color: #4e97d9; }
+.input-button[aria-pressed="true"]:active:not(:disabled) { background: #176cbe; }
+.input-button:disabled { opacity: .45; cursor: default; }
+.button-text { display: flex; flex-direction: column; gap: 3px; align-items: center; }
+.button-note { font-size: 11px; font-weight: 400; opacity: .86; white-space: nowrap; }
+.arrow { font-size: 20px; line-height: 1; font-weight: 400; }
+.primary { min-height: 58px; }
+.layout-a .middle-wide .button-text { flex-direction: row; gap: 8px; }
+.layout-b .input-button { min-height: 76px; flex-direction: column; gap: 6px; }
+.layout-b .button-note { font-size: 10px; }
+.layout-b .control-group { margin-top: 0; }
+.layout-c .wheel-cross { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: ". up ." "left middle right" ". down ."; gap: var(--gap); }
+.wheel-cross .input-button { min-height: 58px; flex-direction: column; gap: 4px; font-size: 13px; }
+.wheel-cross [data-part="up"] { grid-area: up; }
+.wheel-cross [data-part="down"] { grid-area: down; }
+.wheel-cross [data-part="left"] { grid-area: left; }
+.wheel-cross [data-part="right"] { grid-area: right; }
+.wheel-cross [data-part="buttonMiddle"] { grid-area: middle; }
+.layout-d { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.layout-d .control-group + .control-group { margin-top: 0; }
+.layout-d .input-button { min-height: 52px; }
+.layout-d .button-note { font-size: 10px; }
+.layout-e .input-button { min-height: 56px; }
+.layout-e .middle-wide .button-text { flex-direction: row; gap: 8px; }
+.layout-f .input-button { justify-content: flex-start; min-height: 44px; padding: 10px 16px; font-size: 13px; }
+.layout-f .button-text { flex-direction: row; gap: 8px; }
+.layout-f .arrow { width: 18px; font-size: 18px; }
+.selected-part { display: flex; justify-content: center; gap: 8px; padding: 12px 10px 17px; background: var(--stage); font-size: 12px; color: #72879b; }
+.selected-part strong { color: #30679c; font-weight: 600; }
+.variant-note { padding: 13px 18px; color: #72879b; font-size: 12px; line-height: 1.65; text-wrap: pretty; }
+.footer { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 22px; font-size: 12px; line-height: 1.7; color: #72879b; }
+.tweaks { position: fixed; right: 20px; bottom: 18px; z-index: 3; border: 1px solid var(--border); border-radius: 8px; background: #fafcfe; box-shadow: 0 5px 18px #38567612; font-size: 12px; }
+.tweaks summary { padding: 11px 14px; cursor: pointer; color: #587793; list-style: none; }
+.tweaks summary::-webkit-details-marker { display: none; }
+.tweaks-panel { width: 252px; padding: 4px 16px 18px; display: flex; flex-direction: column; gap: 14px; }
+.tweaks-panel h2 { color: #7b8ea2; font-size: 11px; font-weight: 500; letter-spacing: .8px; }
+.tweaks-panel label { display: flex; justify-content: space-between; align-items: center; gap: 10px; color: #627f99; }
+.tweaks-panel select { max-width: 155px; font-size: 12px; }
+.tweaks-panel input { accent-color: var(--blue); }
+.tweaks:not([open]) .tweaks-panel { display: none; }
+@media (max-width: 1000px) { .options { grid-template-columns: repeat(2, minmax(0, 1fr)); } .page { max-width: 820px; } .preview-tag { display: none; } }
+@media (max-width: 610px) { .page { padding: 22px 16px 70px; } .options { grid-template-columns: minmax(0, 1fr); } .toolbar { align-items: flex-start; flex-direction: column; } h1 { font-size: 23px; } .stage { min-height: 0; padding: 24px 16px; } }
+@media (prefers-reduced-motion: reduce) { .input-button { transition: none; } }
+</style>
+</head>
+<body>
+<main class="page">
+  <header class="page-heading">
+    <div><h1>鼠标输入 · 按钮排列</h1><p class="intro">6 种排列，直接点按钮。每套均包含滚轮按下（中键）。</p></div>
+    <span class="preview-tag">布局对比原型</span>
+  </header>
+  <div class="toolbar">
+    <label>当前选择<select id="control-select" aria-label="同步选择输入"></select></label>
+    <span class="width-note" id="width-note">188px 实际侧栏 · 点击任意按钮，六套同步选中</span>
+  </div>
+  <div class="options" id="options"></div>
+  <footer class="footer"><span>所有按钮至少 44px 高 · 支持 Tab、Enter 和空格</span><a href="mouse-diagram-options-v1.html">上一版鼠标示意图</a></footer>
+  <span id="selection-announcement" role="status" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)"></span>
+</main>
+<details class="tweaks">
+  <summary>预览设置</summary>
+  <div class="tweaks-panel">
+    <h2>Tweaks</h2>
+    <label>按钮区域宽度<select id="size-select"><option value="188">188px · 实际侧栏</option><option value="224">224px · 稍宽</option><option value="260">260px · 宽版</option></select></label>
+    <label>按钮间距<select id="gap-select"><option value="8">8px · 标准</option><option value="12">12px · 宽松</option></select></label>
+    <label>预览禁用状态<input type="checkbox" id="disabled-state"></label>
+  </div>
+</details>
+<script>
+const controls = {
+  buttonLeft: { label: '鼠标左键', short: '左键' },
+  buttonRight: { label: '鼠标右键', short: '右键' },
+  buttonMiddle: { label: '滚轮按下（中键）', short: '中键', note: '滚轮按下' },
+  buttonForward: { label: '鼠标前进键', short: '前进' },
+  buttonBack: { label: '鼠标后退键', short: '后退' },
+  up: { label: '向上滚动', short: '上滚', arrow: '↑' },
+  down: { label: '向下滚动', short: '下滚', arrow: '↓' },
+  left: { label: '向左滚动', short: '左滚', arrow: '←' },
+  right: { label: '向右滚动', short: '右滚', arrow: '→' },
+};
+function button(id, classes = '', fullLabel = false) {
+  const control = controls[id];
+  const text = fullLabel ? (id === 'buttonMiddle' ? '滚轮按下' : control.label) : control.short;
+  const note = id === 'buttonMiddle' ? `<span class="button-note">${fullLabel ? '中键' : control.note}</span>` : '';
+  return `<button type="button" class="input-button ${classes}" data-part="${id}" aria-label="${control.label}" aria-pressed="false">${control.arrow ? `<span class="arrow" aria-hidden="true">${control.arrow}</span>` : ''}<span class="button-text"><span>${text}</span>${note}</span></button>`;
+}
+const row = (ids, classes = 'two') => `<div class="cells ${classes}">${ids.map(id => button(id)).join('')}</div>`;
+const group = (title, content) => `<div class="control-group" role="group" aria-label="${title}"><h3>${title}</h3>${content}</div>`;
+const layouts = [
+  {
+    id: 'a', name: '分组平铺', kind: '分组清楚', note: '按键和滚动分开，中键独占一整行。',
+    content: group('按键', `<div class="cells two">${button('buttonLeft', 'primary')}${button('buttonRight', 'primary')}${button('buttonMiddle', 'full middle-wide')}${button('buttonForward')}${button('buttonBack')}</div>`) + group('滚动', row(['up', 'down', 'left', 'right'])),
+  },
+  {
+    id: 'b', name: '等大九宫格', kind: '占用最小', note: '九个等大的按钮，全部集中在一个方阵。',
+    content: row(['buttonLeft', 'buttonMiddle', 'buttonRight', 'buttonForward', 'up', 'buttonBack', 'left', 'down', 'right'], 'three'),
+  },
+  {
+    id: 'c', name: '滚轮十字', kind: '方向直观', note: '滚轮按下放在中心，四周对应四个方向。',
+    content: group('按键', row(['buttonLeft', 'buttonRight', 'buttonForward', 'buttonBack'])) + group('滚轮', `<div class="wheel-cross">${['up', 'left', 'buttonMiddle', 'right', 'down'].map(id => button(id)).join('')}</div>`),
+  },
+  {
+    id: 'd', name: '左右分栏', kind: '分类纵排', note: '左列选按键，右列选滚动，按类别往下找。',
+    content: group('按键', row(['buttonLeft', 'buttonRight', 'buttonMiddle', 'buttonForward', 'buttonBack'], 'one')) + group('滚动', row(['up', 'down', 'left', 'right'], 'one')),
+  },
+  {
+    id: 'e', name: '双列顺排', kind: '大块好点', note: '统一排成两列，每个按钮都保留足够高度。',
+    content: `<div class="cells two">${button('buttonLeft')}${button('buttonRight')}${button('buttonMiddle', 'full middle-wide')}${['buttonForward', 'buttonBack', 'up', 'down', 'left', 'right'].map(id => button(id)).join('')}</div>`,
+  },
+  {
+    id: 'f', name: '单列清单', kind: '点击区最大', note: '每个输入占满一行，文字完整，占用高度更多。',
+    content: `<div class="cells one">${Object.keys(controls).map(id => button(id, '', true)).join('')}</div>`,
+  },
+];
+const options = document.querySelector('#options');
+options.innerHTML = layouts.map(layout => `<section class="option" aria-labelledby="title-${layout.id}"><header class="option-header"><span class="letter">${layout.id.toUpperCase()}</span><h2 id="title-${layout.id}">${layout.name}</h2><span class="option-kind">${layout.kind}</span></header><div class="stage"><div class="layout layout-${layout.id}" id="layout-${layout.id}" role="group" aria-label="${layout.name}">${layout.content}</div></div><div class="selected-part"><span>已选</span><strong data-selected-label></strong></div><p class="variant-note">${layout.note}</p></section>`).join('');
+const controlSelect = document.querySelector('#control-select');
+controlSelect.innerHTML = Object.entries(controls).map(([id, control]) => `<option value="${id}">${control.label}</option>`).join('');
+const buttons = [...document.querySelectorAll('[data-part]')];
+function selectControl(id, announce = true) {
+  if (!controls[id]) return;
+  buttons.forEach(element => element.setAttribute('aria-pressed', String(element.dataset.part === id)));
+  controlSelect.value = id;
+  document.querySelectorAll('[data-selected-label]').forEach(element => element.textContent = controls[id].label);
+  if (announce) document.querySelector('#selection-announcement').textContent = `已选择${controls[id].label}`;
+}
+options.addEventListener('click', event => {
+  const target = event.target.closest('button[data-part]');
+  if (target && !target.disabled) selectControl(target.dataset.part);
+});
+controlSelect.addEventListener('change', event => selectControl(event.target.value));
+document.querySelector('#size-select').addEventListener('change', event => {
+  document.documentElement.style.setProperty('--rail-width', `${event.target.value}px`);
+  document.querySelector('#width-note').textContent = `${event.target.value}px ${event.target.value === '188' ? '实际侧栏' : '按钮区域'} · 点击任意按钮，六套同步选中`;
+});
+document.querySelector('#gap-select').addEventListener('change', event => document.documentElement.style.setProperty('--gap', `${event.target.value}px`));
+document.querySelector('#disabled-state').addEventListener('change', event => {
+  buttons.forEach(button => button.disabled = event.target.checked);
+  controlSelect.disabled = event.target.checked;
+});
+document.addEventListener('keydown', event => { if (event.key === 'Escape') document.querySelector('.tweaks').open = false; });
+selectControl('buttonMiddle', false);
+</script>
+</body>
+</html>

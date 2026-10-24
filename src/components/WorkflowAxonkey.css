@@ -1,7 +1,4 @@
 .mapping-active .mapping-flow-page .mapping-main { display: flex; flex-direction: column; }
-.mapping-active .main-content:has(> .mapping-flow-page) { gap: 12px; padding: 12px 16px; }
-.mapping-active .main-content > .mapping-flow-page { flex: 1; width: 100%; max-width: 1440px; margin: auto; }
-.mapping-active .main-content:has(> .mapping-flow-page) > .mapping-disabled-notice { width: min(1440px, 100%); margin: 0 auto; }
 .mapping-flow-page .key-picker { flex: 0 0 auto; }
 .mouse-flow-context { flex: 0 0 auto; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; padding: 0 16px 12px; }
 .mouse-flow-context .mouse-condition-row { flex: 1 0 100%; margin: 0; }
