@@ -235,7 +235,6 @@ function AppController() {
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
-  const escapeSequenceRef = useRef({ count: 0, lastAt: 0 })
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
   const uiStateRef = useRef<StoredUiState>(initialUiState)
@@ -285,23 +284,6 @@ function AppController() {
     }
   }, [activePage, persistUiState])
 
-  useEffect(() => {
-    const handleEscapeFailsafe = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.repeat) return
-      const now = Date.now()
-      const sequence = escapeSequenceRef.current
-      sequence.count = now - sequence.lastAt <= 900 ? sequence.count + 1 : 1
-      sequence.lastAt = now
-      if (sequence.count < 5) return
-      sequence.count = 0
-      if (!mouseEnabled) return
-      setMouseEnabled(false)
-      setToast('已通过连续按下 5 次 Esc 关闭系统鼠标映射')
-      window.setTimeout(() => setToast(''), 2600)
-    }
-    window.addEventListener('keydown', handleEscapeFailsafe, true)
-    return () => window.removeEventListener('keydown', handleEscapeFailsafe, true)
-  }, [mouseEnabled])
   const { stretchCompensation, stretchError, stretchUpdating, updateStretchCompensation, audioGain, gainError, updateAudioGain, audioRestarting, audioRestartError, restartAudio } = useAudioControls({
     platform,
     nativeRuntime,

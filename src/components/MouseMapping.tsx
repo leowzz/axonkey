@@ -48,7 +48,6 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
       </div>
     </div>
     <strong className="mouse-model-selection">{selected.label}</strong>
-    <p>兜底操作避免误配：连续快速按下 5 次 ESC，会关闭鼠标映射开关。</p>
   </section>
 }
 

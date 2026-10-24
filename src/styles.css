@@ -1191,7 +1191,6 @@ body.permission-helper-mode #root { min-height: 100vh; }
   box-shadow: 0 4px 9px #267ee02b;
 }
 .mouse-model-selection { font-size: 13px; color: #30679c; }
-.mouse-model-section p { max-width: 220px; margin: 8px auto 0; color: #7a8da2; font-size: 11px; line-height: 1.8; }
 .mouse-control-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .mouse-control-grid button { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; padding: 16px 6px; border: 1px solid #dce5f0; border-radius: 8px; background: #fafcfe; color: #566e86; font: inherit; font-size: 12px; cursor: pointer; }
 .mouse-control-grid button:hover { border-color: #8cbced; }
