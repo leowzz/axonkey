@@ -113,10 +113,13 @@ export function DataBackupSettings({ nativeRuntime, onCreateBackup, onRestoreBac
       <dl>
         <dt>备份文件</dt><dd>{pending.fileName}</dd>
         <dt>备份时间</dt><dd>{new Date(pending.data.exportedAt).toLocaleString()}</dd>
-        <dt>配置文件</dt><dd><ul>{pending.data.profiles.map(profile => <li key={profile.id}>
-          <strong>{profile.name}{profile.id === pending.data.activeProfileId && '（导入后使用）'}</strong>
-          <span>{devices.map(device => `${device.inputKind === 'button' ? '遥控器' : '鼠标'} ${device.inputIds.filter(id => Object.values(profile.behaviors[id]).some(list => list.length)).length} 个映射`).join('，')}</span>
-        </li>)}</ul></dd>
+        <dt>配置文件</dt><dd><ul>{pending.data.profiles.map(profile => {
+          const device = devices.find(device => device.id === profile.deviceId)!
+          return <li key={profile.id}>
+            <strong>{profile.name}{profile.id === pending.data.activeProfileIds[profile.deviceId] && '（导入后使用）'}</strong>
+            <span>{device.name} · {device.inputIds.filter(id => Object.values(profile.behaviors[id]).some(list => list.length)).length} 个映射</span>
+          </li>
+        })}</ul></dd>
         <dt>已保存</dt><dd>{pending.data.savedSequences.length ? <ul>{pending.data.savedSequences.map(saved => <li key={saved.id}>{saved.name}</li>)}</ul> : '无'}</dd>
         <dt>其他设置</dt><dd>映射开关、鼠标参数、音频设置、侧栏偏好</dd>
       </dl>

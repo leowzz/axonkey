@@ -503,10 +503,13 @@ impl InputService {
             .settings
             .write()
             .map_err(|_| "Input settings lock is unavailable")?;
+        let changed = current.remote_settings_changed(&settings);
         *current = settings;
-        self.shared
-            .settings_revision
-            .fetch_add(1, Ordering::Relaxed);
+        if changed {
+            self.shared
+                .settings_revision
+                .fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -693,7 +696,9 @@ fn emit_remote_output(
         Output::Wheel(direction) => {
             send_wheel_with_axis(wheel_delta(direction), wheel_horizontal(direction));
         }
-        Output::SwitchProfile(direction, wrap) => super::profile_switch::execute(direction, wrap),
+        Output::SwitchProfile(direction, wrap) => {
+            super::profile_switch::execute(super::profile_switch::DeviceId::Rc003, direction, wrap)
+        }
         Output::Paste(text) => send_unicode_text(&text),
         Output::OpenApp(path) => super::launch::execute(&NativeBehavior::OpenApp {
             enabled: true,
@@ -935,7 +940,11 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         }
         NativeBehavior::SwitchProfile {
             direction, wrap, ..
-        } => super::profile_switch::execute(*direction, *wrap),
+        } => super::profile_switch::execute(
+            super::profile_switch::DeviceId::Mouse,
+            *direction,
+            *wrap,
+        ),
         NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
     }
 }
@@ -1514,6 +1523,141 @@ extern "system" {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_updates_preserve_remote_sequences_and_held_keys() {
+        use super::super::remote_actions::{Output, RemoteActions};
+
+        for change in [
+            "mouse_mapping",
+            "mouse_options",
+            "remote_mapping",
+            "disabled",
+        ] {
+            let mut settings: NativeSettings = serde_json::from_value(serde_json::json!({
+                "enabled": true,
+                "behaviors": {
+                    "up": {"click": [
+                        {"type": "paste", "text": "first"},
+                        {"type": "delay", "ms": 100},
+                        {"type": "paste", "text": "second"}
+                    ]},
+                    "voice": {"click": [{"type": "key", "key": "RAlt"}]},
+                    "mouse.top.up": {"click": [{"type": "key", "key": "A"}]}
+                }
+            }))
+            .unwrap();
+            let service = InputService {
+                shared: Arc::new(Shared {
+                    settings: RwLock::new(settings.clone()),
+                    settings_revision: AtomicU64::new(1),
+                    status: Mutex::new(InputServiceStatus::default()),
+                    event_app: RwLock::new(None),
+                    stop: AtomicBool::new(false),
+                }),
+                worker: Mutex::new(None),
+            };
+            let now = Instant::now();
+            let mut actions = RemoteActions::default();
+            actions.synchronize(1, true);
+            actions.edge("up", true, &settings, now);
+            actions.edge("up", false, &settings, now);
+            actions.edge("voice", true, &settings, now);
+            let mut initial = Vec::new();
+            actions.tick(now, |output| initial.push(output));
+            assert!(initial.contains(&Output::Paste("first".into())));
+            assert!(initial
+                .iter()
+                .any(|output| matches!(output, Output::Key(_, true))));
+
+            match change {
+                "mouse_mapping" => settings.behaviors.remove("mouse.top.up"),
+                "mouse_options" => {
+                    settings.mouse_enabled = false;
+                    settings.mouse_edge_width = 16;
+                    settings.mouse_key_hold_ms = 25;
+                    settings.mouse_vertical_scroll_interval_ms = 100;
+                    settings.mouse_horizontal_scroll_interval_ms = 100;
+                    settings.mouse_scroll_sensitivity = 200;
+                    settings.mouse_ignore_scroll_acceleration = false;
+                    None
+                }
+                "remote_mapping" => settings.behaviors.remove("up"),
+                "disabled" => {
+                    settings.enabled = false;
+                    None
+                }
+                _ => unreachable!(),
+            };
+            service.update_settings(settings.clone()).unwrap();
+            actions.synchronize(
+                service.shared.settings_revision.load(Ordering::Relaxed),
+                settings.enabled,
+            );
+            let mut remaining = Vec::new();
+            actions.tick(now + Duration::from_millis(100), |output| {
+                remaining.push(output)
+            });
+
+            if change.starts_with("mouse_") {
+                assert_eq!(remaining, [Output::Paste("second".into())]);
+                actions.edge("voice", false, &settings, now + Duration::from_millis(101));
+                remaining.clear();
+                actions.tick(now + Duration::from_millis(101), |output| {
+                    remaining.push(output)
+                });
+            }
+            assert!(matches!(remaining.as_slice(), [Output::Key(_, false)]));
+        }
+    }
+
+    #[test]
+    fn mouse_profile_switches_retain_the_mouse_execution_source() {
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        execute_mouse_behavior(
+            &NativeBehavior::SwitchProfile {
+                enabled: true,
+                direction: super::super::ProfileDirection::Previous,
+                wrap: false,
+            },
+            10,
+        );
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "mouse", "direction": "previous", "wrap": false},
+                ])
+            );
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remote_profile_switches_retain_the_rc003_execution_source() {
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        emit_remote_output(
+            &mut QuarborContext::default(),
+            super::super::remote_actions::Output::SwitchProfile(
+                super::super::ProfileDirection::Next,
+                true,
+            ),
+            Instant::now(),
+        )
+        .unwrap();
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "rc003", "direction": "next", "wrap": true},
+                ])
+            );
+        });
+    }
 
     #[cfg(windows)]
     #[test]

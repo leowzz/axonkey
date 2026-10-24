@@ -1,4 +1,4 @@
-import { Home, Info, Keyboard, PanelLeftClose, PanelLeftOpen, ScanLine, Settings2 } from 'lucide-react'
+import { Home, Info, LayoutGrid, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { AppPage } from '../appTypes'
 import appPackage from '../../package.json'
@@ -8,8 +8,7 @@ const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.u
 
 const pages = [
   { id: 'home', label: '主页', icon: Home },
-  { id: 'mapping', label: '映射', icon: Keyboard },
-  { id: 'overview', label: '总览', icon: ScanLine },
+  { id: 'devices', label: '我的设备', icon: LayoutGrid },
   { id: 'settings', label: '设置', icon: Settings2 },
   { id: 'about', label: '关于', icon: Info },
 ] as const
@@ -26,6 +25,7 @@ type AppSidebarProps = {
 }
 
 export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggleCollapsed, onToggleEnabled, onBrandClick, onNavigate }: AppSidebarProps) {
+  const activeNavigationPage = activePage === 'mapping' ? 'devices' : activePage
   return <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
     <SidebarButton collapsed={collapsed} className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
       <img src={appIconUrl} alt="" width={28} height={28} />
@@ -33,9 +33,9 @@ export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggle
     </SidebarButton>
     <nav id="app-navigation" className="app-nav" aria-label="主导航">
       {pages.map(({ id, label, icon: Icon }) => <SidebarButton collapsed={collapsed} key={id} type="button"
-        className={`${activePage === id ? 'active' : ''} ${id === 'about' && hasUpdate ? 'has-update' : ''}`}
+        className={`${activeNavigationPage === id ? 'active' : ''} ${id === 'about' && hasUpdate ? 'has-update' : ''}`}
         aria-label={label} title={`${id === 'about' && hasUpdate ? '关于 · 发现新版本' : label} · 双击${collapsed ? '展开' : '收起'}侧栏`}
-        aria-current={activePage === id ? 'page' : undefined} onClick={() => onNavigate(id)} onDoubleClick={onToggleCollapsed}>
+        aria-current={activeNavigationPage === id ? 'page' : undefined} onClick={() => onNavigate(id)} onDoubleClick={onToggleCollapsed}>
         <Icon size={18} /><span className="app-nav-label">{label}</span>
         {id === 'about' && hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}
       </SidebarButton>)}

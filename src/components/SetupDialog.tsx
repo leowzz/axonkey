@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react'
 import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from '../setupModel'
-import { driverDefinitions, isSetupComplete } from '../setupModel'
+import { isSetupComplete } from '../setupModel'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 
 type SetupDialogProps = {
@@ -46,7 +46,7 @@ type SetupDialogProps = {
 const windowsSetupStepLabels: Record<SetupStepId, string> = {
   welcome: '开始',
   legacyCleanup: '卸载旧驱动',
-  inputDriver: '驱动安装',
+  inputDriver: '集成设备',
   deviceConnection: '连接设备',
   complete: '完成',
 }
@@ -68,7 +68,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
   return <div className="setup-backdrop" role="presentation">
     <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
       <aside className="setup-progress">
-        <div className="setup-brand"><span className="brand-mark">A</span><div><strong>Axonkey</strong><span>{platform === 'macos' ? '2 步完成设置' : '首次使用设置'}</span></div></div>
+        <div className="setup-brand"><span className="brand-mark">A</span><div><strong>Axonkey</strong><span>{platform === 'macos' ? '2 步完成设置' : '遥控器集成'}</span></div></div>
         <div className="setup-step-list">
           {visibleSteps.map((stepId, index) => {
             const status = state.steps[stepId].status
@@ -87,22 +87,22 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
         {step === 'welcome' && <div className="setup-screen">
           <span className="setup-hero-icon"><Settings2 size={24} /></span>
           <span className="section-kicker">FIRST RUN</span>
-          <h2 id="setup-title">{platform === 'macos' ? '准备好权限与遥控器' : '准备好驱动与遥控器'}</h2>
+          <h2 id="setup-title">{platform === 'macos' ? '准备好权限与遥控器' : '准备集成遥控器'}</h2>
           <p className="setup-lead">{platform === 'macos'
             ? '整个过程只在本机完成。Axonkey 需要读取 RC003 输入并向当前应用发送映射后的按键。'
-            : '整个过程只在本机完成。两个驱动将在同一页依次安装，全部完成后只需重启 Windows 一次。'}</p>
+            : '整个过程只在本机完成。连接遥控器后，分别准备按键控制和语音输入；系统操作会请求管理员授权，并根据结果提示重新连接或重启 Windows。'}</p>
           <div className="setup-summary-grid">
             {platform === 'macos' ? <>
               <div><Keyboard size={18} /><strong>输入监控</strong><span>仅监听目标 RC003 的 HID 报告</span></div>
               <div><Command size={18} /><strong>辅助功能</strong><span>发送映射后的按键与文本</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 macOS 蓝牙配对并唤醒</span></div>
             </> : <>
-              <div><Keyboard size={18} /><strong>按键拦截</strong><span>为 RC003 安装 Quarbor HID 过滤驱动</span></div>
-              <div><AudioLines size={18} /><strong>CABLE 虚拟麦克风</strong><span>安装经过校验的 VB-Audio 官方驱动</span></div>
+              <div><Keyboard size={18} /><strong>按键控制</strong><span>为当前 RC003 读取按键并执行映射</span></div>
+              <div><AudioLines size={18} /><strong>语音输入</strong><span>按需将遥控器语音传给输入法或其他应用</span></div>
               <div><Bluetooth size={18} /><strong>连接 RC003</strong><span>通过 Windows 蓝牙配对并唤醒</span></div>
             </>}
           </div>
-          <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onCompleteStep}>开始设置 <ChevronRight size={15} /></button></div>
+          <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onCompleteStep}>{platform === 'macos' ? '开始设置' : '开始集成'} <ChevronRight size={15} /></button></div>
         </div>}
         {step === 'inputDriver' && (platform === 'macos'
           ? <MacPermissionsSetupScreen
@@ -141,16 +141,16 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
         {step === 'complete' && <div className="setup-screen setup-complete">
           <span className="setup-hero-icon success"><Check size={26} /></span>
           <span className="section-kicker">READY</span>
-          <h2 id="setup-title">基本设置已完成</h2>
-          <p className="setup-lead">映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里检查{platform === 'macos' ? '系统权限' : '驱动'}或 RC003 连接。</p>
+          <h2 id="setup-title">{platform === 'macos' ? '基本设置已完成' : '集成设置已完成'}</h2>
+          <p className="setup-lead">{platform === 'macos' ? '映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里检查系统权限或 RC003 连接。' : '映射配置会自动保存。以后从设备集成入口重新打开这里，可以检查按键控制、语音输入或 RC003 连接。'}</p>
           <div className="setup-result-list">
             {platform === 'macos' ? <>
               <span><Keyboard size={15} /> 输入监控：{macPermissions.inputMonitoring ? '已授权' : '稍后授权'}</span>
               <span><Command size={15} /> 辅助功能：{macPermissions.accessibility ? '已授权' : '稍后授权'}</span>
               <span><AudioLines size={15} /> MiRemoteV 2ch：{driverStatusLabel(state.drivers.audio.status)}</span>
             </> : <>
-              <span><Keyboard size={15} /> 按键驱动：{driverStatusLabel(state.drivers.input.status)}</span>
-              <span><AudioLines size={15} /> CABLE 麦克风：{driverStatusLabel(state.drivers.audio.status)}</span>
+              <span><Keyboard size={15} /> 按键控制：{integrationStatusLabel(state.drivers.input.status)}</span>
+              <span><AudioLines size={15} /> 语音输入：{integrationStatusLabel(state.drivers.audio.status)}</span>
             </>}
             <span><Bluetooth size={15} /> RC003：{state.device.status === 'connected' ? '已连接' : '稍后连接'}</span>
           </div>
@@ -369,6 +369,11 @@ function driverStatusLabel(status: SetupState['drivers']['input']['status']) {
   return labels[status]
 }
 
+function integrationStatusLabel(status: SetupState['drivers']['input']['status']) {
+  const labels = { unknown: '未检查', checking: '检查中', missing: '待集成', installed: '已就绪', restartRequired: '等待重启', error: '操作失败' }
+  return labels[status]
+}
+
 function isDriverInstalled(state: SetupState, kind: DriverKind) {
   const status = state.drivers[kind].status
   return status === 'installed' || status === 'restartRequired'
@@ -380,28 +385,27 @@ type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' |
 }
 
 function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
-  const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
   const installed = isDriverInstalled(state, kind)
   const inputInstallBlocked = kind === 'input' && !installed && state.device.status !== 'connected'
-  const message = driver.message ?? (kind === 'input'
-    ? '驱动获取遥控器按键输入。'
-    : 'VB-Audio Donationware，安装后提供 CABLE Output 虚拟录音设备。')
+  const message = driver.action.error ?? driver.message ?? (kind === 'input'
+    ? '集成后，Axonkey 可以读取这台遥控器的按键输入。'
+    : '启用时会安装 VB-Audio VB-CABLE（Donationware），提供 CABLE Output 虚拟麦克风。')
   return <section className={`driver-setup-item ${driver.status}`}>
     <div className="driver-setup-heading">
       <span className="driver-setup-icon">{kind === 'input' ? <Keyboard size={18} /> : <AudioLines size={18} />}</span>
-      <div><h3>{definition.title}</h3><p>{definition.description}</p></div>
-      <span className="driver-status-chip"><span className="setup-status-dot" /> {driverStatusLabel(driver.status)}</span>
+      <div><h3>{kind === 'input' ? '按键控制' : '语音输入'}</h3><p>{kind === 'input' ? '读取当前遥控器的按键并执行自定义映射。' : '将遥控器语音传给输入法或其他应用。'}</p></div>
+      <span className="driver-status-chip"><span className="setup-status-dot" /> {integrationStatusLabel(driver.status)}</span>
     </div>
     <p className="driver-setup-message">{message}</p>
-    {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时不能安装 Quarbor 驱动'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再安装 Quarbor HID 按键过滤驱动。'}</span></div></div>}
-    {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? '安装失败，请重试。' : '卸载失败，请重试。'}</strong></div></div>}
+    {inputInstallBlocked && driver.action.status !== 'failed' && <div className="setup-status-panel disconnected" aria-live="polite"><span className="setup-status-dot" /><div><strong>{state.device.status === 'checking' ? '正在检查 RC003 连接状态' : '暂时无法集成按键控制'}</strong><span>{state.device.status === 'checking' ? '请等待设备检测完成。' : '请先连接并唤醒小米遥控器 RC003，再为这台设备集成按键控制。'}</span></div></div>}
+    {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? kind === 'input' ? '按键控制集成失败，请重试。' : '语音输入启用失败，请重试。' : '移除失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
-      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
-      {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 Quarbor 驱动'}</button>}
-      {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 VB-CABLE'}</button>}
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待系统操作…' : kind === 'audio' ? '启用语音输入' : '集成按键控制'}</button>}
+      {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待系统操作…' : '移除按键集成'}</button>}
+      {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待系统操作…' : '卸载语音输入支持'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenSettings}><Settings2 size={14} /> 声音设置</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled} onClick={onOpenVendorPage}><ExternalLink size={14} /> VB-Audio 官网</button>}
@@ -415,14 +419,14 @@ function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenS
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
   return <div className="setup-screen drivers-setup-screen">
     <span className="setup-hero-icon"><Download size={24} /></span>
-    <span className="section-kicker">DRIVERS</span>
-    <h2 id="setup-title">一次完成两个驱动</h2>
-    <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor HID 过滤驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 只绑定当前遥控器的 HID 设备实例，不会安装全局键盘过滤器。</p>
+    <span className="section-kicker">DEVICE INTEGRATION</span>
+    <h2 id="setup-title">完成遥控器集成</h2>
+    <p className="setup-lead">连接并唤醒 RC003 后，为这台遥控器集成按键控制，并按需启用语音输入。按键控制仅绑定当前遥控器的设备实例。</p>
     <div className="driver-setup-list">
       <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
       <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
-    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按安装结果重新连接设备或重启 Windows</strong><span>安装前必须连接并唤醒 RC003；如果设备在安装过程中断开，页面会显示具体失败原因。卸载支持离线设备，安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
-    <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={anyRunning || !inputInstalled} onClick={onContinue}>{inputInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '安装 Quarbor 驱动后继续'} <ChevronRight size={15} /></button></div>
+    <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按操作结果重新连接设备或重启 Windows</strong><span>集成前必须连接并唤醒 RC003；如果设备在操作过程中断开，页面会显示具体失败原因。移除按键集成会执行该设备的卸载操作，支持离线设备。安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>
+    <div className="setup-actions"><button type="button" className="button primary setup-primary" disabled={anyRunning || !inputInstalled} onClick={onContinue}>{inputInstalled ? restartRequired ? '继续，稍后重启' : '继续' : '完成按键集成后继续'} <ChevronRight size={15} /></button></div>
   </div>
 }

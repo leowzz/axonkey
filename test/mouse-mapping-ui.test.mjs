@@ -34,25 +34,46 @@ function load(file) {
   vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console, window: testWindow }, { filename:file })
   return module.exports
 }
-const { DeviceSelector, DeviceStatusCard } = load('src/components/DeviceRail.tsx')
+const { DeviceStatusCard } = load('src/components/DeviceRail.tsx')
+const { DeviceWorkspaceHeader } = load('src/components/DeviceWorkspaceHeader.tsx')
 const { MouseInputModel, MouseControlPicker, MouseTriggerSelector } = load('src/components/MouseMapping.tsx')
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
-test('device selection exposes two rows and selected device owns its status card', () => {
-  let view
-  function Harness() {
-    const [device, select] = React.useState('rc003')
+test('device workspace header returns to devices and keeps the current profile controls beside it', () => {
+  let view, returns = 0, profileOpens = 0
+  function Harness({ device }) {
     return React.createElement('main', null,
-      React.createElement(DeviceSelector, {selectedId:device,onSelect:select}),
+      React.createElement(DeviceWorkspaceHeader, {
+        deviceName:device === 'rc003' ? '小米遥控器' : '系统鼠标',
+        onBackToDevices:()=>returns++,
+        profileControls:React.createElement('button', {type:'button',onClick:()=>profileOpens++}, device === 'rc003' ? '遥控器配置' : '鼠标配置'),
+      }),
       React.createElement(DeviceStatusCard, {status:{title:device === 'rc003' ? '遥控器状态' : '鼠标状态',rows:device === 'rc003' ? [{label:'电量',value:'95%'}] : [{label:'输入来源',value:'系统鼠标'}]}}))
   }
-  act(() => { view = Renderer.create(React.createElement(Harness)) })
+  act(() => { view = Renderer.create(React.createElement(Harness, {device:'rc003'})) })
+  const back = () => view.root.findByProps({'aria-label':'返回我的设备'})
+  const profile = () => view.root.findAllByType('button').find(button=>text(button).endsWith('配置'))
   assert.equal(view.root.findAllByType('select').length, 0)
   assert.equal(view.root.findAllByType('button').length, 2)
-  assert.equal(view.root.findAllByType('button')[0].props['aria-pressed'], true)
-  act(() => view.root.findAllByType('button')[1].props.onClick())
+  assert.equal(view.root.findByType('h1').children.join(''), '小米遥控器')
+  assert.equal(back().parent, profile().parent)
+  assert.equal(text(profile()), '遥控器配置')
+  act(() => profile().props.onClick())
+  assert.equal(profileOpens, 1)
+  assert.equal(returns, 0)
+  act(() => back().props.onClick())
+  assert.equal(returns, 1)
+  assert.equal(view.root.findByType('h3').children.join(''), '遥控器状态')
+  act(() => view.update(React.createElement(Harness, {device:'mouse'})))
+  assert.equal(view.root.findAllByType('button').length, 2)
+  assert.equal(view.root.findByType('h1').children.join(''), '系统鼠标')
+  assert.equal(text(profile()), '鼠标配置')
   assert.equal(view.root.findByType('h3').children.join(''), '鼠标状态')
   assert.ok(!JSON.stringify(view.toJSON()).includes('95%'))
+  assert.ok(!JSON.stringify(view.toJSON()).includes('小米遥控器'))
+  assert.ok(!JSON.stringify(view.toJSON()).includes('遥控器配置'))
+  act(() => back().props.onClick())
+  assert.equal(returns, 2)
   act(() => view.unmount())
 })
 

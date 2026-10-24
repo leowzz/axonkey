@@ -140,7 +140,7 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .device-meta-separator { display: none; }
 
 .home-page { --home-side-width: 282px; --home-hero-height: 220px; --home-panel-height: 400px; --home-surface: #f8f8f7; --home-side-surface: #eef0ef; --home-card-border: rgba(54, 61, 64, .1); --home-card-shadow: 0 12px 34px rgba(36, 43, 46, .055); width: min(1180px, calc(100% - 72px)); margin: 0 auto; padding: 12px 0; }
-.home-hero { --home-state: #a06e2d; display: grid; height: var(--home-hero-height); min-height: 0; grid-template-columns: minmax(0, 1fr) var(--home-side-width); overflow-x: hidden; overflow-y: auto; border: 0; border-radius: 0; background: var(--home-surface); box-shadow: none; }
+.home-hero { --home-state: #a06e2d; display: grid; min-height: var(--home-hero-height); grid-template-columns: minmax(0, 1fr) var(--home-side-width); overflow: hidden; border: 0; border-radius: 0; background: var(--home-surface); box-shadow: none; }
 .home-hero.ready { --home-state: #367650; }
 .home-hero.error { --home-state: #a74b4b; }
 .home-hero.checking { --home-state: #47779e; }
@@ -149,8 +149,8 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .home-state-mark { width: 22px; height: 2px; background: var(--home-state); }
 .home-hero-copy h2 { margin-top: 10px; color: #202325; font-size: 28px; font-weight: 700; line-height: 1.06; }
 .home-hero-copy > p { max-width: 540px; margin-top: 8px; color: #656b6e; font-size: 16px; line-height: 1.65; }
-.home-hero-actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
-.home-primary-action, .home-secondary-action, .home-icon-action { display: inline-flex; height: 38px; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; font-size: 14px; font-weight: 700; transition: color .2s ease, background .2s ease, border-color .2s ease, transform .2s ease; }
+.home-hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.home-primary-action, .home-secondary-action, .home-icon-action { display: inline-flex; flex-shrink: 0; height: 38px; align-items: center; justify-content: center; gap: 7px; border-radius: 6px; font-size: 14px; font-weight: 700; white-space: nowrap; transition: color .2s ease, background .2s ease, border-color .2s ease, transform .2s ease; }
 .home-primary-action { min-width: 150px; padding: 0 12px 0 14px; border: 1px solid #24282b; color: #fff; background: #24282b; }
 .home-primary-action svg:last-child { margin-left: auto; }
 .home-primary-action:hover { border-color: #3b4247; background: #3b4247; }
@@ -686,8 +686,16 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .auto-save-state { color: #4d7869; }
 .mapping-active .auto-save-state.saving { color: #96743d; }
 
-.mapping-workbench { display: grid; width: 100%; grid-template-columns: 228px minmax(0, 1fr); align-items: stretch; gap: 0; margin: 0; }
-.mapping-device-rail { position: relative; display: flex; min-height: 0; align-self: stretch; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 18px; border: 0; border-right: 1px solid var(--map-line); border-radius: 0; color: #2f4255; background: #edf3fa; box-shadow: none; }
+.mapping-workbench { display: grid; width: 100%; grid-template-columns: 228px minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); align-items: stretch; gap: 0; margin: 0; }
+.device-workspace-header { position: relative; z-index: 4; grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 16px; min-width: 0; padding: 10px 16px; }
+.device-workspace-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.device-workspace-controls > .profile-manager { flex: 0 1 240px; }
+.device-workspace-controls .profile-manager > summary > svg { flex-shrink: 0; }
+.device-workspace-header h1 { margin: 0; color: var(--map-ink); font-size: 16px; font-weight: 600; line-height: 1.4; }
+.device-workspace-back { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 34px; padding: 0; border: 0; color: #708298; background: transparent; font-size: 13px; white-space: nowrap; }
+.device-workspace-back:hover { color: #176fcf; }
+.device-workspace-back:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; border-radius: 3px; }
+.mapping-device-rail { position: relative; display: flex; min-height: 0; align-self: stretch; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 18px; border: 0; border-radius: 0; color: #2f4255; background: transparent; box-shadow: none; }
 .mapping-active .remote-device-card { flex-shrink: 0; margin-top: 0; padding: 11px 12px 10px; border-color: #c9d9e9; color: #24384b; background: rgba(255,255,255,.72); box-shadow: inset 0 1px rgba(255,255,255,.9), 0 5px 16px rgba(47, 83, 117, .05); }
 .mapping-active .remote-device-card:hover { border-color: #76a9dc; background: #fff; }
 .mapping-active .remote-device-card .device-card-head { color: #24384b; }
@@ -703,7 +711,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mapping-active .remote-art { width: min(232px, 100%); }
 .mapping-active .remote-art .remote-control { filter: drop-shadow(0 18px 18px rgba(43, 75, 107, .2)); }
 
-.mapping-main { min-width: 0; overflow: hidden; border: 0; border-radius: 0; background: #fff; box-shadow: none; }
+.mapping-main { min-width: 0; overflow: hidden; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
 .key-picker { padding: 14px 16px; border-bottom: 0; }
 .key-picker-head { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .key-picker-heading { display: flex; flex-shrink: 0; align-items: center; gap: 10px; }
@@ -1155,17 +1163,10 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .trigger-option-copy small { display: block; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: #637b96; }
 .trigger-options > button.active .trigger-option-copy small { color: #dceaff; }
 
-/* Device selection and device-owned status are separate from input controls. */
+/* Device-owned status stays with its input controls. */
 .mapping-device-rail { overflow-y: auto; }
 .mapping-active .remote-art { width: min(232px, max(100px, calc((100vh - 350px) * .411)), 100%); }
-.device-selector-panel { flex-shrink: 0; }
-.device-rail-label { display: block; margin-bottom: 9px; color: #708298; font-size: 11px; }
-.device-options { display: grid; gap: 6px; }
-.device-options button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: #526a82; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
-.device-options button > svg:last-child:not(:first-child) { margin-left: auto; }
-.device-options button[aria-pressed="true"] { background: #fff; border-color: #b9d6f6; color: #1675df; box-shadow: 0 3px 10px #294d7707; font-weight: 650; }
-.device-options button:hover { background: #f7fbff; }
-.device-status-card { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-top: 10px; padding: 8px; border: 1px solid #dce6f1; border-radius: 8px; background: #f8fbfe; }
+.device-status-card { display: flex; align-items: center; gap: 8px; flex-shrink: 0; padding: 8px; border: 0; border-radius: 0; background: transparent; }
 .device-status-card h3, .device-status-card dt { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .device-status-card dl { display: flex; flex: 1; flex-wrap: wrap; min-width: 0; align-items: center; justify-content: space-between; gap: 4px 6px; margin: 0; font-size: 11px; line-height: 18px; }
 .device-status-card dl > div { display: flex; align-items: center; }
@@ -1545,22 +1546,7 @@ html.macos-vibrancy,
   border-color: rgb(70 80 90 / 14%);
   background: rgb(255 255 255 / 30%);
 }
-/* One continuous mapping surface, with a quiet device rail and clear controls. */
-.macos-vibrancy .mapping-workbench {
-  gap: 0;
-  border: 1px solid rgb(70 80 90 / 12%);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 16%);
-}
-.macos-vibrancy .mapping-device-rail {
-  border-right: 1px solid rgb(70 80 90 / 12%);
-  border-radius: 11px 0 0 11px;
-  background: transparent;
-}
-.macos-vibrancy .mapping-main {
-  border-radius: 0 11px 11px 0;
-  background: rgb(255 255 255 / 12%);
-}
+/* Mapping regions share the window surface without extra glass layers or frames. */
 .macos-vibrancy .mapping-active .behavior-editor,
 .macos-vibrancy .mapping-active .behavior-current-panel {
   background: transparent;
@@ -1599,8 +1585,7 @@ html.macos-vibrancy,
 }
 .macos-vibrancy .mapping-active .behavior-item,
 .macos-vibrancy .mapping-active .behavior-empty,
-.macos-vibrancy .mapping-active .behavior-action-button,
-.macos-vibrancy .mapping-device-rail .device-status-card {
+.macos-vibrancy .mapping-active .behavior-action-button {
   border-color: rgb(70 80 90 / 13%);
   background: rgb(255 255 255 / 44%);
 }
@@ -1617,12 +1602,6 @@ html.macos-vibrancy,
   border-color: #94b8df;
   background: rgb(240 247 255 / 82%);
 }
-.macos-vibrancy .mapping-device-rail .device-options button[aria-pressed="true"] {
-  border-color: rgb(20 120 232 / 22%);
-  background: rgb(255 255 255 / 64%);
-  box-shadow: 0 1px 4px rgb(30 45 60 / 5%);
-}
-
 /* The key picker stays quiet until a key is selected or physically pressed. */
 .macos-vibrancy .mapping-key > button {
   border-color: rgb(70 80 90 / 13%);

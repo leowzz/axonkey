@@ -1,7 +1,8 @@
 import { Check, FileJson, X } from 'lucide-react'
 import { useState } from 'react'
 import type { BehaviorMap } from '../behaviorModel'
-import { deviceForInput, mouseInputParts } from '../deviceModel'
+import { devices, mouseInputParts } from '../deviceModel'
+import type { DeviceId } from '../deviceModel'
 import { behaviorSummary, buttons, normalizeProfileName } from '../appConfig'
 import type { Platform } from '../appTypes'
 
@@ -9,18 +10,18 @@ type ProfileImportDialogProps = {
   fileName: string
   suggestedName: string
   behaviors: BehaviorMap
+  deviceId: DeviceId
   platform: Platform
   enabled?: boolean
   onCancel: () => void
   onSave: (name: string) => void
 }
 
-export function ProfileImportDialog({ fileName, suggestedName, behaviors, platform, enabled, onCancel, onSave }: ProfileImportDialogProps) {
+export function ProfileImportDialog({ fileName, suggestedName, behaviors, deviceId, platform, enabled, onCancel, onSave }: ProfileImportDialogProps) {
   const [name, setName] = useState(suggestedName)
-  const inputs = Object.entries(behaviors)
+  const device = devices.find(device => device.id === deviceId)!
+  const inputs = device.inputIds.map(id => [id, behaviors[id]] as const)
   const configured = inputs.filter(([, triggers]) => Object.values(triggers).some((list) => list.length > 0))
-  const remoteCount = configured.filter(([id]) => deviceForInput(id as Parameters<typeof deviceForInput>[0]).inputKind === 'button').length
-  const mouseCount = configured.length - remoteCount
   const stepCount = inputs.reduce((total, [, triggers]) => total + Object.values(triggers).reduce((sum, list) => sum + list.length, 0), 0)
   const previewItems = configured.slice(0, 8).map(([id, triggers]) => {
     const first = Object.values(triggers).flat()[0]
@@ -47,12 +48,12 @@ export function ProfileImportDialog({ fileName, suggestedName, behaviors, platfo
           <input id="profile-import-name-input" autoFocus value={name} maxLength={40} onChange={(event) => setName(event.target.value)} />
         </div>
         <div className="profile-import-summary" aria-label="配置内容摘要">
-          <div><strong>{remoteCount}</strong><span>个遥控器按键</span></div>
-          <div><strong>{mouseCount}</strong><span>个鼠标输入</span></div>
+          <div><strong>{device.name}</strong><span>所属设备</span></div>
+          <div><strong>{configured.length}</strong><span>{deviceId === 'mouse' ? '个鼠标输入' : '个遥控器按键'}</span></div>
           <div><strong>{stepCount}</strong><span>个行为步骤</span></div>
         </div>
         {previewItems.length > 0 ? <div className="profile-import-preview"><strong>映射预览</strong><ul>{previewItems.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul>{configured.length > previewItems.length && <small>还有 {configured.length - previewItems.length} 个输入未展开</small>}</div> : <div className="profile-import-empty">此配置暂未设置任何映射，保存后可以继续编辑。</div>}
-        {enabled !== undefined && <p className="profile-import-note">文件还包含“{enabled ? '已开启' : '未开启'}”自定义映射开关，保存后会一并应用。</p>}
+        {enabled !== undefined && <p className="profile-import-note">文件中的{deviceId === 'mouse' ? '系统鼠标映射开关' : '映射总开关'}为“{enabled ? '已开启' : '未开启'}”，保存后会一并应用。</p>}
       </div>
       <footer className="behavior-dialog-actions">
         <span><Check size={13} /> 保存后自动切换到此配置</span>

@@ -1,18 +1,21 @@
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from 'react'
 import type { BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import type { Platform, RemoteButton } from '../appTypes'
-import type { DeviceId } from '../deviceModel'
+import { devices, type DeviceId } from '../deviceModel'
 import { RemoteControl } from './RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { BehaviorEditor } from './BehaviorEditor'
-import { DeviceSelector, DeviceStatusCard } from './DeviceRail'
+import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
+import { DeviceWorkspaceHeader } from './DeviceWorkspaceHeader'
 import { MappingKeyGrid, MappingTriggerSelector } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseTriggerSelector } from './MouseMapping'
 
 export type MappingPageProps = {
   debugMode: boolean
   selectedDeviceId: DeviceId
+  onBackToDevices: () => void
+  profileControls: ReactNode
   selectBehaviorTarget: (buttonId: InputId, trigger: TriggerType, reveal?: boolean) => void
   activeId: ButtonId
   mappingMainRef: RefObject<HTMLElement>
@@ -36,6 +39,8 @@ export type MappingPageProps = {
 export function MappingPage({
   debugMode,
   selectedDeviceId,
+  onBackToDevices,
+  profileControls,
   selectBehaviorTarget,
   activeId,
   mappingMainRef,
@@ -55,11 +60,8 @@ export function MappingPage({
 }: MappingPageProps) {
   return <div className="mapping-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
+      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} />
       <aside className="mapping-device-rail panel-surface">
-        <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
-          selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.top.up', 'click', false)
-          mappingMainRef.current?.scrollTo({ top: 0 })
-        }} />
         <DeviceStatusCard status={deviceStatus} />
         {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
         {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}

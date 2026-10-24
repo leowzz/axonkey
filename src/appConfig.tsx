@@ -14,7 +14,6 @@ import {
   Volume2,
 } from 'lucide-react'
 import {
-  cloneBehaviorMap,
   createBehavior,
   createDefaultBehaviorMap,
   parseStoredBehaviors,
@@ -23,6 +22,7 @@ import { triggerTypes } from './behaviorModel'
 import type { Behavior, BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
 import { inputIds } from './deviceModel'
 import type { DeviceId } from './deviceModel'
+import { createDefaultDeviceProfiles, extractDeviceBehaviors, parseStoredDeviceProfiles } from './deviceProfiles'
 import type { AppPage, ManualKeyOption, MappingProfile, Platform, RemoteButton, StoredProfiles, StoredSettings } from './appTypes'
 import type { KeyboardEvent } from 'react'
 
@@ -62,7 +62,8 @@ export const buttons: RemoteButton[] = [
 ]
 
 export const settingsStorageKey = 'axonkey.settings.v1'
-export const profilesStorageKey = 'axonkey.mapping-profiles.v1'
+export const profilesStorageKey = 'axonkey.mapping-profiles.v2'
+export const legacyProfilesStorageKey = 'axonkey.mapping-profiles.v1'
 export const uiStateStorageKey = 'axonkey.ui-state.v1'
 export const audioSettingsStorageKey = 'axonkey.audio-settings.v2'
 export const audioGainMin = -30
@@ -80,7 +81,7 @@ export type StoredUiState = {
   scrollTop: Partial<Record<AppPage, number>>
 }
 
-const appPages: readonly AppPage[] = ['home', 'overview', 'mapping', 'settings', 'about']
+const appPages: readonly AppPage[] = ['home', 'devices', 'mapping', 'settings', 'about']
 const settingsSections = ['startup', 'permissions', 'remote', 'mouse', 'backup'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'mouse']
 
@@ -136,7 +137,7 @@ export function getStoredUiState(): StoredUiState {
 
     return {
       sidebarCollapsed: typeof parsed.sidebarCollapsed === 'boolean' ? parsed.sidebarCollapsed : fallback.sidebarCollapsed,
-      activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
+      activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : parsed.activePage === 'overview' ? 'devices' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
       selectedDeviceId: typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId) ? parsed.selectedDeviceId as DeviceId : defaultUiState.selectedDeviceId,
       activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
       selectedBehavior,
@@ -198,38 +199,21 @@ function cleanProfileName(value: unknown, fallback = '默认配置') {
   return name || fallback
 }
 
-function defaultStoredProfiles(): StoredProfiles {
-  const id = createProfileId()
-  return { activeProfileId: id, profiles: [{ id, name: '默认配置', behaviors: cloneBehaviorMap(getStoredSettings().behaviors) }] }
-}
-
-/** Read named mapping profiles, migrating the previous single mapping automatically. */
+/** Read device profiles, migrating the previous shared profiles or single map. */
 export function getStoredProfiles(): StoredProfiles {
-  const fallback = defaultStoredProfiles()
+  const behaviors = getStoredSettings().behaviors
+  const fallback = createDefaultDeviceProfiles(behaviors)
   if (typeof window === 'undefined') return fallback
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(profilesStorageKey) ?? '') as unknown
-    if (!isRecord(parsed) || !Array.isArray(parsed.profiles)) return fallback
-    const profiles: MappingProfile[] = []
-    const ids = new Set<string>()
-    parsed.profiles.forEach((raw, index) => {
-      if (!isRecord(raw)) return
-      const rawId = typeof raw.id === 'string' ? raw.id.trim() : ''
-      const id = rawId && !ids.has(rawId) ? rawId : createProfileId()
-      const behaviors = parseStoredBehaviors(raw.behaviors)
-      ids.add(id)
-      profiles.push({ id, name: cleanProfileName(raw.name, index === 0 ? '默认配置' : `配置 ${index + 1}`), behaviors })
-    })
-    if (profiles.length === 0) return fallback
-    const requestedId = typeof parsed.activeProfileId === 'string' ? parsed.activeProfileId : ''
-    return { activeProfileId: profiles.some((profile) => profile.id === requestedId) ? requestedId : profiles[0].id, profiles }
+    const stored = window.localStorage.getItem(profilesStorageKey) ?? window.localStorage.getItem(legacyProfilesStorageKey)
+    return parseStoredDeviceProfiles(stored, behaviors)
   } catch {
     return fallback
   }
 }
 
-export function createMappingProfile(name: string, behaviors: BehaviorMap): MappingProfile {
-  return { id: createProfileId(), name: cleanProfileName(name), behaviors: cloneBehaviorMap(behaviors) }
+export function createMappingProfile(name: string, behaviors: BehaviorMap, deviceId: DeviceId): MappingProfile {
+  return { id: createProfileId(), name: cleanProfileName(name), deviceId, behaviors: extractDeviceBehaviors(behaviors, deviceId) }
 }
 
 export function normalizeProfileName(value: string, fallback = '配置文件') {

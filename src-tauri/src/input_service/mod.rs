@@ -61,6 +61,38 @@ pub struct NativeSettings {
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
 
+impl NativeSettings {
+    pub(super) fn remote_settings_changed(&self, next: &Self) -> bool {
+        self.enabled != next.enabled || self.device_behaviors_changed(next, false)
+    }
+
+    pub(super) fn mouse_settings_changed(&self, next: &Self) -> bool {
+        self.enabled != next.enabled
+            || self.mouse_enabled != next.mouse_enabled
+            || self.mouse_edge_width != next.mouse_edge_width
+            || self.mouse_key_hold_ms != next.mouse_key_hold_ms
+            || self.mouse_horizontal_scroll_interval_ms != next.mouse_horizontal_scroll_interval_ms
+            || self.mouse_vertical_scroll_interval_ms != next.mouse_vertical_scroll_interval_ms
+            || self.mouse_scroll_sensitivity != next.mouse_scroll_sensitivity
+            || self.mouse_ignore_scroll_acceleration != next.mouse_ignore_scroll_acceleration
+            || self.device_behaviors_changed(next, true)
+    }
+
+    fn device_behaviors_changed(&self, next: &Self, mouse: bool) -> bool {
+        let empty = TriggerBehaviors::default();
+        // Both services receive the full runtime map. Only their own input
+        // namespace can invalidate held gestures or queued actions.
+        self.behaviors
+            .keys()
+            .chain(next.behaviors.keys())
+            .filter(|input| input.starts_with("mouse.") == mouse)
+            .any(|input| {
+                self.behaviors.get(input).unwrap_or(&empty)
+                    != next.behaviors.get(input).unwrap_or(&empty)
+            })
+    }
+}
+
 fn default_mouse_key_hold_ms() -> u64 {
     10
 }
@@ -81,7 +113,7 @@ fn mouse_enabled_by_default() -> bool {
     true
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct TriggerBehaviors {
     #[serde(default)]
@@ -101,7 +133,7 @@ impl TriggerBehaviors {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum NativeBehavior {
     Wheel {

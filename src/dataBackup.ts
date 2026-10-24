@@ -1,15 +1,16 @@
-import { cloneBehaviorMap, createEmptyBehaviorMap, normalizeBehavior, parseSequenceImport, serializeSequence, triggerTypes } from './behaviorModel.ts'
+import { createEmptyBehaviorMap, normalizeBehavior, parseSequenceImport, serializeSequence, triggerTypes } from './behaviorModel.ts'
 import type { Behavior, BehaviorMap, TriggerBehaviors } from './behaviorModel.ts'
 import { devices } from './deviceModel.ts'
 import type { DeviceId } from './deviceModel.ts'
 import type { MappingProfile, StoredSettings } from './appTypes.ts'
 import { parseSavedSequences } from './savedSequences.ts'
 import type { SavedSequence } from './savedSequences.ts'
+import { composeActiveProfileBehaviors, migrateLegacyProfiles, snapshotDeviceProfiles } from './deviceProfiles.ts'
 
 export type BackupSettings = Omit<StoredSettings, 'behaviors'>
 export type BackupData = {
   profiles: MappingProfile[]
-  activeProfileId: string
+  activeProfileIds: Record<DeviceId, string>
   savedSequences: SavedSequence[]
   settings: BackupSettings
   audio: { gain: number; stretchCompensation: boolean }
@@ -17,11 +18,11 @@ export type BackupData = {
 }
 export type BackupDocument = {
   format: 'axonkey-backup'
-  version: 1
+  version: 2
   exportedAt: string
   appVersion: string
-  activeProfileId: string
-  profiles: { id: string; name: string; devices: Record<DeviceId, { keys: Record<string, TriggerBehaviors> }> }[]
+  activeProfileIds: Record<DeviceId, string>
+  profiles: { id: string; name: string; deviceId: DeviceId; keys: Record<string, TriggerBehaviors> }[]
   savedBehaviors: { id: string; name: string; behaviors: Behavior[] }[]
   settings: BackupSettings
   audio: BackupData['audio']
@@ -60,13 +61,13 @@ export function backupFilename(date = new Date()): string {
 
 export function createDataBackup(data: BackupData & { behaviors: BehaviorMap }, appVersion: string, date = new Date()): BackupDocument {
   return {
-    format: 'axonkey-backup', version: 1, exportedAt: date.toISOString(), appVersion,
-    activeProfileId: data.activeProfileId,
-    profiles: data.profiles.map(profile => {
-      const map = cloneBehaviorMap(profile.id === data.activeProfileId ? data.behaviors : profile.behaviors)
-      return { id: profile.id, name: profile.name, devices: Object.fromEntries(devices.map(device => [device.id, {
-        keys: Object.fromEntries(device.inputIds.map(id => [device.id === 'mouse' ? id.replace(/^mouse\./, '') : id, map[id]])),
-      }])) as BackupDocument['profiles'][number]['devices'] }
+    format: 'axonkey-backup', version: 2, exportedAt: date.toISOString(), appVersion,
+    activeProfileIds: { ...data.activeProfileIds },
+    profiles: snapshotDeviceProfiles(data.profiles, data.activeProfileIds, data.behaviors).map(profile => {
+      const device = devices.find(device => device.id === profile.deviceId)!
+      return { id: profile.id, name: profile.name, deviceId: device.id,
+        keys: Object.fromEntries(device.inputIds.map(id => [device.id === 'mouse' ? id.replace(/^mouse\./, '') : id, profile.behaviors[id]])),
+      }
     }),
     savedBehaviors: data.savedSequences.map(saved => {
       const behaviors = parseSequenceImport(saved.sequence)
@@ -82,12 +83,12 @@ export function parseDataBackup(text: string): ParsedBackup {
   let decoded: unknown
   try { decoded = JSON.parse(text) } catch { return invalid('不是有效的 JSON') }
   const root = record(decoded)
-  if (root.format !== 'axonkey-backup' || root.version !== 1) return invalid('不是支持的 Axonkey 数据备份版本')
+  if (root.format !== 'axonkey-backup' || (root.version !== 1 && root.version !== 2)) return invalid('不是支持的 Axonkey 数据备份版本')
   const exportedAt = string(root.exportedAt, '备份时间')
   if (!Number.isFinite(Date.parse(exportedAt))) return invalid('备份时间不正确')
   if (!Array.isArray(root.profiles) || !root.profiles.length) return invalid('至少需要一个配置文件')
   const profileIds = new Set<string>()
-  const profiles = root.profiles.map(value => {
+  const parsedProfiles = root.profiles.map(value => {
     const raw = record(value)
     const id = string(raw.id, '配置 ID')
     if (profileIds.has(id)) return invalid('配置 ID 重复')
@@ -95,11 +96,14 @@ export function parseDataBackup(text: string): ParsedBackup {
     const name = string(raw.name, '配置名称')
     if (name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) return invalid('配置名称不正确')
     const map = createEmptyBehaviorMap()
-    const groups = record(raw.devices)
-    if (Object.keys(groups).some(id => !devices.some(device => device.id === id))) return invalid('包含当前版本不支持的设备')
-    for (const device of devices) {
-      const keys = record(record(groups[device.id]).keys)
-      const entries = new Map(device.inputIds.map(id => [device.id === 'mouse' ? id.replace(/^mouse\./, '') : id, id]))
+    const device = devices.find(device => device.id === raw.deviceId)
+    if (root.version === 2 && !device) return invalid('包含当前版本不支持的设备')
+    const groups = root.version === 1 ? record(raw.devices) : null
+    if (groups && Object.keys(groups).some(id => !devices.some(device => device.id === id))) return invalid('包含当前版本不支持的设备')
+    for (const item of device && root.version === 2 ? [device] : devices) {
+      const keys = record(groups ? record(groups[item.id]).keys : raw.keys)
+      const entries = new Map(item.inputIds.map(id => [item.id === 'mouse' ? id.replace(/^mouse\./, '') : id, id]))
+      if (root.version === 2 && [...entries.keys()].some(key => !Object.prototype.hasOwnProperty.call(keys, key))) return invalid('设备按键列表不完整')
       for (const [key, value] of Object.entries(keys)) {
         const input = entries.get(key)
         if (!input) return invalid('包含当前版本不支持的按键')
@@ -118,10 +122,26 @@ export function parseDataBackup(text: string): ParsedBackup {
         }
       }
     }
-    return { id, name, behaviors: map }
+    return { id, name, behaviors: map, deviceId: device?.id }
   })
-  const activeProfileId = string(root.activeProfileId, '当前配置')
-  if (!profileIds.has(activeProfileId)) return invalid('当前配置不在配置列表中')
+  let profiles: MappingProfile[]
+  let activeProfileIds: Record<DeviceId, string>
+  if (root.version === 1) {
+    const activeProfileId = string(root.activeProfileId, '当前配置')
+    if (!profileIds.has(activeProfileId)) return invalid('当前配置不在配置列表中')
+    const migrated = migrateLegacyProfiles(parsedProfiles, activeProfileId)
+    profiles = migrated.profiles
+    activeProfileIds = migrated.activeProfileIds
+  } else {
+    profiles = parsedProfiles as MappingProfile[]
+    const activeIds = record(root.activeProfileIds)
+    if (Object.keys(activeIds).some(id => !devices.some(device => device.id === id))) return invalid('包含当前版本不支持的设备')
+    activeProfileIds = Object.fromEntries(devices.map(device => {
+      const activeId = string(activeIds[device.id], `${device.name}当前配置`)
+      if (!profiles.some(profile => profile.id === activeId && profile.deviceId === device.id)) return invalid('当前配置不属于对应设备')
+      return [device.id, activeId]
+    })) as Record<DeviceId, string>
+  }
   if (!Array.isArray(root.savedBehaviors)) return invalid('已保存的行为列表缺失')
   let savedSequences: SavedSequence[]
   try { savedSequences = parseSavedSequences(JSON.stringify(root.savedBehaviors.map(value => {
@@ -133,9 +153,9 @@ export function parseDataBackup(text: string): ParsedBackup {
   const audio = record(root.audio)
   const preferences = record(root.preferences)
   return {
-    profiles, activeProfileId, savedSequences, exportedAt, appVersion: string(root.appVersion, '应用版本'),
+    profiles, activeProfileIds, savedSequences, exportedAt, appVersion: string(root.appVersion, '应用版本'),
     settings: {
-      enabled: boolean(settings.enabled, '遥控器映射开关'), mouseEnabled: boolean(settings.mouseEnabled, '鼠标映射开关'),
+      enabled: boolean(settings.enabled, '映射总开关'), mouseEnabled: boolean(settings.mouseEnabled, '鼠标映射开关'),
       showRemoteKeyGrid: boolean(settings.showRemoteKeyGrid, '遥控器按键列表'), showMouseKeyGrid: boolean(settings.showMouseKeyGrid, '鼠标按键列表'),
       mouseIgnoreScrollAcceleration: boolean(settings.mouseIgnoreScrollAcceleration, '滚动加速设置'),
       mouseScrollSensitivity: integer(settings.mouseScrollSensitivity, 25, 400, '滚动灵敏度'),
@@ -169,10 +189,10 @@ export function restoreBackupStorage(
   keys: { profiles: string; settings: string; savedSequences: string; audio: string; uiState: string },
   uiState: object,
 ): void {
-  const active = backup.profiles.find(profile => profile.id === backup.activeProfileId)!
+  const behaviors = composeActiveProfileBehaviors(backup.profiles, backup.activeProfileIds)
   writeBackupStorage(storage, {
-    [keys.profiles]: JSON.stringify({ version: 1, activeProfileId: backup.activeProfileId, profiles: backup.profiles }),
-    [keys.settings]: JSON.stringify({ ...backup.settings, behaviors: active.behaviors }),
+    [keys.profiles]: JSON.stringify({ version: 2, activeProfileIds: backup.activeProfileIds, profiles: backup.profiles }),
+    [keys.settings]: JSON.stringify({ ...backup.settings, behaviors }),
     [keys.savedSequences]: JSON.stringify(backup.savedSequences),
     [keys.audio]: JSON.stringify(backup.audio),
     [keys.uiState]: JSON.stringify({ ...uiState, sidebarCollapsed: backup.preferences.sidebarCollapsed, activePage: 'settings', settingsSection: 'backup' }),

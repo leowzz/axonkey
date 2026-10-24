@@ -65,6 +65,9 @@ static NSString *const AKAudioUUIDString = @"AB5E0003-5A21-4F05-BC7D-AF01F617B66
 static NSString *const AKControlUUIDString = @"AB5E0004-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKBatteryServiceUUIDString = @"180F";
 static NSString *const AKBatteryLevelUUIDString = @"2A19";
+static const NSTimeInterval AKBatteryRefreshInterval = 30.0;
+static const NSTimeInterval AKBatteryRetryInterval = 5.0;
+static const NSTimeInterval AKBatteryReadTimeout = 10.0;
 
 static int AKParseBatteryLevel(NSData *data) {
     if (data.length < 1) {
@@ -235,6 +238,9 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     CBCharacteristic *_audioCharacteristic;
     CBCharacteristic *_controlCharacteristic;
     CBCharacteristic *_batteryLevelCharacteristic;
+    NSTimeInterval _nextBatteryReadAt;
+    BOOL _batteryReadPending;
+    NSUInteger _batteryReadFailures;
     CBUUID *_serviceUUID;
     CBUUID *_transmitUUID;
     CBUUID *_audioUUID;
@@ -401,15 +407,56 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (int)currentBatteryLevel {
+    // The public getter may run on a worker thread; CoreBluetooth stays on the
+    // same main queue as the existing audio connection and its callbacks.
+    AKOnMainSync(^{ [self requestBatteryLevelIfNeeded]; });
     @synchronized (self) {
         return _batteryLevel;
     }
 }
 
 - (void)setBatteryLevel:(int)batteryLevel {
+    int previous;
     @synchronized (self) {
+        previous = _batteryLevel;
         _batteryLevel = batteryLevel;
     }
+    if (batteryLevel >= 0 && previous != batteryLevel) {
+        [self logAudio:[NSString stringWithFormat:@"RC003 battery level: %d%%", batteryLevel]
+                 error:NO];
+    }
+}
+
+- (void)recordBatteryReadFailure:(NSString *)reason {
+    _batteryReadPending = NO;
+    _batteryReadFailures += 1;
+    BOOL retrySoon = _batteryReadFailures <= 2;
+    _nextBatteryReadAt = NSProcessInfo.processInfo.systemUptime +
+        (retrySoon ? AKBatteryRetryInterval : AKBatteryRefreshInterval);
+    // Keep the last valid value for this connection, and avoid repeating a
+    // warning on every UI poll or every retry while the remote is sleeping.
+    if (_batteryReadFailures == 1 || _batteryReadFailures == 3) {
+        [self logAudio:[NSString stringWithFormat:@"RC003 battery read failed: %@%@",
+            reason, retrySoon ? @"; retrying shortly" : @"; retrying every 30 seconds"] error:YES];
+    }
+}
+
+- (void)requestBatteryLevelIfNeeded {
+    if (!_shouldRun || _peripheral == nil ||
+        _peripheral.state != CBPeripheralStateConnected ||
+        _batteryLevelCharacteristic == nil ||
+        (_batteryLevelCharacteristic.properties & CBCharacteristicPropertyRead) == 0) {
+        return;
+    }
+    NSTimeInterval now = NSProcessInfo.processInfo.systemUptime;
+    if (now < _nextBatteryReadAt) return;
+    if (_batteryReadPending) {
+        [self recordBatteryReadFailure:@"request timed out"];
+        return;
+    }
+    _batteryReadPending = YES;
+    _nextBatteryReadAt = now + AKBatteryReadTimeout;
+    [_peripheral readValueForCharacteristic:_batteryLevelCharacteristic];
 }
 
 - (void)emitEvent:(int)event
@@ -577,6 +624,9 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     _audioCharacteristic = nil;
     _controlCharacteristic = nil;
     _batteryLevelCharacteristic = nil;
+    _nextBatteryReadAt = 0;
+    _batteryReadPending = NO;
+    _batteryReadFailures = 0;
     [self setBatteryLevel:-1];
     [_subscribedUUIDs removeAllObjects];
     _capabilitiesRequested = NO;
@@ -1266,6 +1316,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
                              forService:voiceService];
     if (batteryService != nil) {
         [peripheral discoverCharacteristics:@[_batteryLevelUUID] forService:batteryService];
+    } else {
+        [self logAudio:@"RC003 battery service 180F was not found" error:YES];
     }
 }
 
@@ -1277,7 +1329,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     }
     if ([service.UUID isEqual:_batteryServiceUUID]) {
         if (error != nil) {
-            [self setBatteryLevel:-1];
+            [self logAudio:[NSString stringWithFormat:@"RC003 battery characteristic discovery failed: %@",
+                error.localizedDescription] error:YES];
             return;
         }
         for (CBCharacteristic *characteristic in service.characteristics) {
@@ -1285,7 +1338,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
                 continue;
             }
             _batteryLevelCharacteristic = characteristic;
-            [peripheral readValueForCharacteristic:characteristic];
+            [self requestBatteryLevelIfNeeded];
             CBCharacteristicProperties properties = characteristic.properties;
             if ((properties & CBCharacteristicPropertyNotify) != 0 ||
                 (properties & CBCharacteristicPropertyIndicate) != 0) {
@@ -1293,7 +1346,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
             }
             return;
         }
-        [self setBatteryLevel:-1];
+        [self logAudio:@"RC003 battery characteristic 2A19 was not found" error:YES];
         return;
     }
     if (![service.UUID isEqual:_serviceUUID]) {
@@ -1329,6 +1382,10 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
               error:(NSError *)error {
     if (peripheral == _peripheral &&
         [characteristic.UUID isEqual:_batteryLevelUUID]) {
+        if (error != nil || !characteristic.isNotifying) {
+            [self logAudio:[NSString stringWithFormat:@"RC003 battery notifications unavailable: %@; using reads",
+                error.localizedDescription ?: @"notifications are inactive"] error:YES];
+        }
         return;
     }
     if (peripheral != _peripheral || error != nil || !characteristic.isNotifying) {
@@ -1410,7 +1467,17 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
                           error:(NSError *)error {
     if (peripheral == _peripheral &&
         [characteristic.UUID isEqual:_batteryLevelUUID]) {
-        [self setBatteryLevel:error == nil ? AKParseBatteryLevel(characteristic.value) : -1];
+        int level = error == nil ? AKParseBatteryLevel(characteristic.value) : -1;
+        if (level < 0) {
+            [self recordBatteryReadFailure:error.localizedDescription ?:
+                [NSString stringWithFormat:@"invalid percentage (value length=%lu)",
+                    (unsigned long)characteristic.value.length]];
+        } else {
+            _batteryReadPending = NO;
+            _batteryReadFailures = 0;
+            _nextBatteryReadAt = NSProcessInfo.processInfo.systemUptime + AKBatteryRefreshInterval;
+            [self setBatteryLevel:level];
+        }
         return;
     }
     if (peripheral != _peripheral) {

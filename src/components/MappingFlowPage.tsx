@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { devices } from '../deviceModel'
 import { RemoteControl } from './RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
-import { DeviceSelector, DeviceStatusCard } from './DeviceRail'
+import { DeviceStatusCard } from './DeviceRail'
+import { DeviceWorkspaceHeader } from './DeviceWorkspaceHeader'
 import { MappingKeyGrid } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './MouseMapping'
 import type { MappingPageProps } from './MappingPage'
@@ -10,6 +12,8 @@ import { WorkflowAxonkey } from './WorkflowAxonkey'
 export function MappingFlowPage({
   debugMode,
   selectedDeviceId,
+  onBackToDevices,
+  profileControls,
   selectBehaviorTarget,
   activeId,
   mappingMainRef,
@@ -32,11 +36,8 @@ export function MappingFlowPage({
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   return <div className="mapping-page mapping-flow-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
+      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} />
       <aside className="mapping-device-rail panel-surface">
-        <DeviceSelector selectedId={selectedDeviceId} onSelect={(id) => {
-          selectBehaviorTarget(id === 'rc003' ? activeId : 'mouse.top.up', 'click', false)
-          mappingMainRef.current?.scrollTo({ top: 0 })
-        }} />
         <DeviceStatusCard status={deviceStatus} />
         {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
         {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}

@@ -148,8 +148,10 @@ impl InputService {
             .read()
             .map_err(|_| "Input settings lock is unavailable")?
             .clone();
-        let should_restart = old_settings.enabled != settings.enabled
-            || hardware_capture_mappings(&old_settings) != hardware_capture_mappings(&settings);
+        let should_restart = old_settings.remote_settings_changed(&settings)
+            && (old_settings.enabled != settings.enabled
+                || hardware_capture_mappings(&old_settings)
+                    != hardware_capture_mappings(&settings));
         *self
             .shared
             .settings
@@ -1223,14 +1225,22 @@ fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
 }
 
 pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
-    execute_behaviors_with_hold(std::slice::from_ref(behavior), hold_ms);
+    execute_behaviors_with_hold(
+        std::slice::from_ref(behavior),
+        hold_ms,
+        super::profile_switch::DeviceId::Mouse,
+    );
 }
 
 pub(super) fn execute_behaviors(behaviors: &[NativeBehavior]) {
-    execute_behaviors_with_hold(behaviors, 0);
+    execute_behaviors_with_hold(behaviors, 0, super::profile_switch::DeviceId::Rc003);
 }
 
-fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
+fn execute_behaviors_with_hold(
+    behaviors: &[NativeBehavior],
+    hold_ms: u64,
+    device_id: super::profile_switch::DeviceId,
+) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         log_behavior(behavior);
         match behavior {
@@ -1258,7 +1268,7 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
             }
             NativeBehavior::SwitchProfile {
                 direction, wrap, ..
-            } => super::profile_switch::execute(*direction, *wrap),
+            } => super::profile_switch::execute(device_id, *direction, *wrap),
             NativeBehavior::Disabled { .. } => {}
             NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
@@ -1541,6 +1551,101 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mouse_updates_keep_pending_remote_gestures_and_global_disable_clears_them() {
+        let mut settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "up": {
+                    "click": [{"type": "wheel", "direction": "up"}],
+                    "doubleClick": [{"type": "wheel", "direction": "down"}]
+                }
+            }
+        }))
+        .unwrap();
+        let service = InputService {
+            shared: Arc::new(Shared {
+                settings: RwLock::new(settings.clone()),
+                status: Mutex::new(InputServiceStatus::default()),
+                event_app: RwLock::new(None),
+                stop: AtomicBool::new(false),
+                restart: AtomicBool::new(false),
+            }),
+            worker: Mutex::new(None),
+        };
+        let source = source_for_usage(0x52).unwrap();
+        let mut state = MacInputState::default();
+        TEST_WHEELS.with(|events| events.borrow_mut().clear());
+        state.press_source(&service.shared, source);
+        state.release_source(&service.shared, source);
+        assert!(state.button_states["up"].pending_click.is_some());
+
+        settings.mouse_enabled = false;
+        settings.mouse_edge_width = 16;
+        settings.mouse_scroll_sensitivity = 200;
+        settings.behaviors.insert(
+            "mouse.top.up".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Wheel {
+                    enabled: true,
+                    direction: WheelDirection::Left,
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        service.update_settings(settings.clone()).unwrap();
+        assert!(!service.shared.restart.load(Ordering::Acquire));
+        state
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pending_click
+            .as_mut()
+            .unwrap()
+            .due_at = Instant::now() - Duration::from_millis(1);
+        state.process_timers(&service.shared);
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), [WheelDirection::Up]));
+
+        state.press_source(&service.shared, source);
+        state.release_source(&service.shared, source);
+        assert!(state.button_states["up"].pending_click.is_some());
+        settings.enabled = false;
+        service.update_settings(settings).unwrap();
+        assert!(service.shared.restart.load(Ordering::Acquire));
+        state.process_timers(&service.shared);
+        assert!(state.button_states["up"].pending_click.is_none());
+        assert!(state.button_states["up"].pressed.is_none());
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), [WheelDirection::Up]));
+    }
+
+    #[test]
+    fn profile_switches_retain_the_remote_or_mouse_execution_source() {
+        let behavior = NativeBehavior::SwitchProfile {
+            enabled: true,
+            direction: super::super::ProfileDirection::Next,
+            wrap: false,
+        };
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        execute_behaviors(std::slice::from_ref(&behavior));
+        execute_mouse_behavior(&behavior, 10);
+        execute_behaviors(&[NativeBehavior::SwitchProfile {
+            enabled: false,
+            direction: super::super::ProfileDirection::Previous,
+            wrap: true,
+        }]);
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "rc003", "direction": "next", "wrap": false},
+                    {"deviceId": "mouse", "direction": "next", "wrap": false},
+                ])
+            );
+        });
+    }
 
     #[test]
     fn pointer_settings_are_supported_and_wheel_holds_respect_other_actions() {

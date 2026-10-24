@@ -197,7 +197,9 @@ impl MouseService {
             .configuration
             .lock()
             .map_err(|_| "Mouse settings lock is unavailable")?;
-        configuration.revision = configuration.revision.wrapping_add(1);
+        if configuration.settings.mouse_settings_changed(settings) {
+            configuration.revision = configuration.revision.wrapping_add(1);
+        }
         configuration.settings = settings.clone();
         let active = settings.enabled
             && settings.mouse_enabled
@@ -589,6 +591,101 @@ impl Drop for ButtonTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remote_updates_preserve_queued_mouse_actions_and_own_changes_cancel_them() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.top.up": {"click": [
+                {"type": "paste", "text": "first"},
+                {"type": "delay", "ms": 5000},
+                {"type": "paste", "text": "second"}
+            ]},
+            "up": {"click": [{"type": "key", "key": "A"}]}
+        }));
+        let service = MouseService {
+            shared: Arc::new(shared),
+            workers: Mutex::new(Vec::new()),
+        };
+        let mut scroll = ScrollAccumulator::default();
+        scroll.enter(Some(Edge::Top));
+        assert!(scroll.scroll(&service.shared, 0, 1.0));
+        let job = receiver.try_recv().unwrap();
+        assert_eq!(job.behaviors.len(), 3);
+
+        let mut settings = service
+            .shared
+            .configuration
+            .lock()
+            .unwrap()
+            .settings
+            .clone();
+        settings.behaviors.get_mut("up").unwrap().click.clear();
+        service.update_settings(&settings).unwrap();
+        assert!(job.is_current(&service.shared));
+        settings.behaviors.remove("up");
+        service.update_settings(&settings).unwrap();
+        assert!(job.is_current(&service.shared));
+        service.update_settings(&settings).unwrap();
+        assert!(job.is_current(&service.shared));
+
+        settings
+            .behaviors
+            .get_mut("mouse.top.up")
+            .unwrap()
+            .click
+            .clear();
+        service.update_settings(&settings).unwrap();
+        assert!(!job.is_current(&service.shared));
+        assert!(!service.shared.active.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn mouse_options_and_global_disable_invalidate_queued_actions() {
+        for (key, value) in [
+            ("enabled", serde_json::json!(false)),
+            ("mouseEnabled", serde_json::json!(false)),
+            ("mouseEdgeWidth", serde_json::json!(16)),
+            ("mouseKeyHoldMs", serde_json::json!(25)),
+            ("mouseHorizontalScrollIntervalMs", serde_json::json!(100)),
+            ("mouseVerticalScrollIntervalMs", serde_json::json!(100)),
+            ("mouseScrollSensitivity", serde_json::json!(200)),
+            ("mouseIgnoreScrollAcceleration", serde_json::json!(true)),
+        ] {
+            let behaviors = serde_json::json!({
+                "mouse.top.up": {"click": [{"type": "key", "key": "A"}]}
+            });
+            let (shared, receiver) = fixture(behaviors.clone());
+            let service = MouseService {
+                shared: Arc::new(shared),
+                workers: Mutex::new(Vec::new()),
+            };
+            let mut scroll = ScrollAccumulator::default();
+            scroll.enter(Some(Edge::Top));
+            assert!(scroll.scroll(&service.shared, 0, 1.0));
+            let job = receiver.try_recv().unwrap();
+            let mut settings = serde_json::json!({
+                "enabled": true,
+                "mouseIgnoreScrollAcceleration": false,
+                "mouseVerticalScrollIntervalMs": 0,
+                "mouseHorizontalScrollIntervalMs": 0,
+                "behaviors": behaviors,
+            });
+            settings[key] = value;
+
+            service
+                .update_settings(&serde_json::from_value(settings).unwrap())
+                .unwrap();
+
+            assert!(
+                !job.is_current(&service.shared),
+                "{key} must invalidate old jobs"
+            );
+            if key == "enabled" || key == "mouseEnabled" {
+                assert!(!service.shared.active.load(Ordering::Acquire));
+                assert!(!scroll.scroll(&service.shared, 0, 1.0));
+            }
+        }
+    }
 
     #[test]
     fn configurable_edge_width_applies_to_all_three_edges() {

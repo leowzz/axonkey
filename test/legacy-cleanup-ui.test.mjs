@@ -19,6 +19,73 @@ vm.runInNewContext(ts.transpileModule(readFileSync('src/components/SetupDialog.t
 const { SetupDialog } = module.exports
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
+test('Windows integration presents capabilities while preserving explicit install and uninstall actions', () => {
+  const actions = []
+  let continues = 0, view
+  const state = setupModel.createDefaultSetupState()
+  state.currentStep = 'inputDriver'
+  state.device.status = 'disconnected'
+  state.drivers.input.status = 'missing'
+  state.drivers.audio.status = 'missing'
+  const props = {
+    platform: 'windows', macPermissions: {}, state,
+    onDriverAction: (kind, action) => actions.push([kind, action]),
+    onCompleteStep: () => continues++,
+  }
+  const button = label => view.root.findAllByType('button').find(node => text(node).trim() === label)
+  const render = () => act(() => {
+    const element = React.createElement(SetupDialog, props)
+    if (view) view.update(element)
+    else view = Renderer.create(element)
+  })
+  try {
+    render()
+    assert.equal(text(view.root.findByType('h2')), '完成遥控器集成')
+    assert.deepEqual(view.root.findAllByType('h3').map(text), ['按键控制', '语音输入'])
+    assert.deepEqual(actions, [])
+    assert.equal(button('集成按键控制').props.disabled, true)
+    assert.equal(button('启用语音输入').props.disabled, false)
+    assert.equal(button('移除按键集成').props.disabled, false)
+    assert.equal(button('完成按键集成后继续').props.disabled, true)
+    assert.match(text(view.toJSON()), /管理员授权/)
+    assert.match(text(view.toJSON()), /重新连接设备或重启 Windows/)
+    assert.match(text(view.toJSON()), /执行该设备的卸载操作/)
+
+    state.device.status = 'connected'
+    render()
+    assert.equal(button('集成按键控制').props.disabled, false)
+    act(() => {
+      button('集成按键控制').props.onClick()
+      button('启用语音输入').props.onClick()
+    })
+    assert.deepEqual(actions, [['input', 'install'], ['audio', 'install']])
+
+    state.drivers.input.status = 'installed'
+    state.drivers.audio.status = 'installed'
+    render()
+    act(() => {
+      button('移除按键集成').props.onClick()
+      button('卸载语音输入支持').props.onClick()
+      button('继续').props.onClick()
+    })
+    assert.deepEqual(actions.slice(2), [['input', 'uninstall'], ['audio', 'uninstall']])
+    assert.equal(continues, 1)
+
+    state.drivers.input.restartRequired = true
+    state.drivers.input.status = 'restartRequired'
+    render()
+    assert.equal(button('继续，稍后重启').props.disabled, false)
+
+    state.drivers.input.status = 'error'
+    state.drivers.input.action = { kind: 'install', status: 'failed', error: 'Quarbor HID: ERROR_DEVICE_NOT_CONNECTED (1167)' }
+    render()
+    assert.match(text(view.toJSON()), /按键控制集成失败，请重试/)
+    assert.match(text(view.toJSON()), /Quarbor HID: ERROR_DEVICE_NOT_CONNECTED \(1167\)/)
+  } finally {
+    act(() => view?.unmount())
+  }
+})
+
 test('repair service alone shows migration, supports recheck, and blocks cleanup while checking', () => {
   let rechecks = 0
   let cleanups = 0

@@ -1,4 +1,5 @@
 import type { Behavior, BehaviorMap, ButtonId, InputId } from './behaviorModel'
+import type { DeviceId } from './deviceModel'
 
 export type MappingInput = {
   id: InputId
@@ -30,7 +31,7 @@ export type MacPermissions = {
 }
 
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
-export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'about'
+export type AppPage = 'devices' | 'home' | 'overview' | 'mapping' | 'settings' | 'about'
 
 export type LegacyDriverProbe = {
   interception: boolean
@@ -41,6 +42,7 @@ export type SystemProbe = {
   platform: Platform
   input_driver_installed: boolean
   rc003_connected: boolean
+  rc003_battery_level?: number | null
   input_backend_ready: boolean
   input_backend_error?: string | null
   device_hardware_id?: string | null
@@ -148,14 +150,15 @@ export type StoredSettings = {
   mouseIgnoreScrollAcceleration: boolean
 }
 
-/** A named set of remote-key and mouse input behaviors. */
+/** A named set of input behaviors owned by one device. */
 export type MappingProfile = {
   id: string
   name: string
+  deviceId: DeviceId
   behaviors: BehaviorMap
 }
 
 export type StoredProfiles = {
-  activeProfileId: string
+  activeProfileIds: Record<DeviceId, string>
   profiles: MappingProfile[]
 }

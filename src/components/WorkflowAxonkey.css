@@ -7,7 +7,7 @@
 .mouse-flow-context .mouse-condition-row { flex: 1 0 100%; margin: 0; }
 .mouse-flow-inheritance { color: #70849a; font-size: 12px; }
 .workflow-axonkey { position: relative; display: grid; flex: 1 1 416px; grid-template-columns: minmax(0, 1fr) clamp(282px, 30%, 380px); gap: 12px; align-items: stretch; min-width: 0; min-height: 260px; padding: 0 16px 16px; isolation: isolate; }
-.workflow-axonkey-canvas { width: 100%; min-width: 0; min-height: 0; border: 1px solid #dde3e7; border-radius: 8px; background: transparent; overflow: hidden; }
+.workflow-axonkey-canvas { width: 100%; min-width: 0; min-height: 0; border: 0; border-radius: 0; background: transparent; overflow: hidden; }
 .workflow-axonkey-canvas .sqd-designer { background: transparent; }
 .workflow-axonkey-canvas .sqd-line-grid-path { display: none; }
 .workflow-axonkey .sqd-toolbox { position: relative; inset: auto; z-index: 1; box-sizing: border-box; width: auto; height: 100%; min-height: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
@@ -66,7 +66,7 @@
 .workflow-trigger-action:focus-visible > .workflow-trigger-action-tooltip { visibility: visible; opacity: 1; transition-delay: 0s; }
 .workflow-trigger-action-tooltip rect { fill: #293f53; stroke: none; }
 .workflow-trigger-action-tooltip text { fill: #fff; font-size: 12px; text-anchor: middle; user-select: none; }
-.workflow-trigger-background { fill: var(--trigger-background); fill-opacity: .8; }
+.workflow-trigger-background { fill: var(--trigger-background); fill-opacity: 0; }
 .workflow-trigger-title { fill: var(--trigger-color); font-size: 16px; font-weight: 600; text-anchor: middle; }
 .workflow-trigger-line, .workflow-trigger-lane .sqd-join { fill: none; stroke: var(--trigger-color); stroke-width: 2.5; stroke-dasharray: var(--trigger-dash); stroke-linecap: round; }
 .workflow-trigger-start { fill: var(--trigger-color); }

@@ -1,4 +1,6 @@
 import type { BehaviorMap } from './behaviorModel'
+import type { DeviceId } from './deviceModel'
+import { mergeDeviceBehaviors } from './deviceProfiles.ts'
 
 export type BehaviorHistory = {
   past: BehaviorMap[]
@@ -9,6 +11,7 @@ export type BehaviorHistory = {
 export type BehaviorHistoryAction =
   | { type: 'change'; update: (current: BehaviorMap) => BehaviorMap }
   | { type: 'replace'; present: BehaviorMap }
+  | { type: 'rebaseDevice'; deviceId: DeviceId; behaviors: BehaviorMap }
   | { type: 'undo' }
   | { type: 'redo' }
 
@@ -22,6 +25,10 @@ export function behaviorHistoryReducer(state: BehaviorHistory, action: BehaviorH
   switch (action.type) {
     case 'replace':
       return { past: [], present: action.present, future: [] }
+    case 'rebaseDevice': {
+      const rebase = (behaviors: BehaviorMap) => mergeDeviceBehaviors(behaviors, action.deviceId, action.behaviors)
+      return { past: state.past.map(rebase), present: rebase(state.present), future: state.future.map(rebase) }
+    }
     case 'change': {
       const present = action.update(state.present)
       if (present === state.present) return state

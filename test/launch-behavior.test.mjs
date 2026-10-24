@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBehavior, createEmptyBehaviorMap, createMappingExport, normalizeBehavior, normalizeApplicationPath, normalizeWebsiteUrl, parseMappingImport, parseStoredBehaviors } from '../src/behaviorModel.ts'
+import { extractDeviceBehaviors } from '../src/deviceProfiles.ts'
 
 test('launch actions survive storage and mapping transfers in sequence', () => {
   const map = createEmptyBehaviorMap()
@@ -12,8 +13,10 @@ test('launch actions survive storage and mapping transfers in sequence', () => {
     ]
   }
   assert.deepEqual(parseStoredBehaviors(JSON.stringify({ behaviors: map })), map)
-  const transfer = createMappingExport(map, true)
-  assert.deepEqual(parseMappingImport(JSON.stringify(transfer)), { behaviors: map, enabled: true })
+  for (const deviceId of ['rc003', 'mouse']) {
+    const transfer = createMappingExport(map, true, undefined, undefined, deviceId)
+    assert.deepEqual(parseMappingImport(JSON.stringify(transfer), deviceId), { behaviors: extractDeviceBehaviors(map, deviceId), enabled: true })
+  }
 })
 
 test('application paths accept spaces, unicode, shortcuts and macOS bundles', () => {

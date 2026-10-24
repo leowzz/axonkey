@@ -9,6 +9,7 @@ import {
   FileText,
   Github,
   Keyboard,
+  LayoutGrid,
   RotateCcw,
   Settings2,
   SlidersHorizontal,
@@ -35,12 +36,12 @@ type HomeDashboardProps = {
   batteryLevel: number | null
   onAdjustBattery?: (delta: number) => void
   enabled: boolean
-  onOpenSettings: () => void
   onOpenPermissions: () => void
   onRefresh: () => void
   onTestAudio: () => void
   onOpenStep: (step: SetupStepId) => void
-  onOpenMapping: () => void
+  onOpenDevices: () => void
+  onIntegrateDevices: () => void
   onOpenLogs: () => void
 }
 
@@ -94,28 +95,29 @@ export function HomeDashboard({
   batteryLevel,
   onAdjustBattery,
   enabled,
-  onOpenSettings,
   onOpenPermissions,
   onRefresh,
   onTestAudio,
   onOpenStep,
-  onOpenMapping,
+  onOpenDevices,
+  onIntegrateDevices,
   onOpenLogs,
 }: HomeDashboardProps) {
   const macOS = platform === 'macos'
   const systemProbeLoading = nativeRuntime && systemProbeState === 'loading'
+  const systemProbeFailed = nativeRuntime && systemProbeState === 'error'
   const audioProbeLoading = nativeRuntime && (audioDriver.status === 'unknown' || audioDriver.status === 'checking')
   const inputProbeLoading = nativeRuntime && (systemProbeLoading || inputDriver.status === 'checking')
   const deviceProbeLoading = nativeRuntime && (systemProbeLoading || device.status === 'checking')
-  const inputReady = !inputProbeLoading && macOS && permissions.inputMonitoring && !inputAuthorizationStale
-  const inputTone: HomeStatusTone = inputProbeLoading
+  const inputReady = nativeRuntime && systemProbeState === 'ready' && macOS && permissions.inputMonitoring && !inputAuthorizationStale
+  const inputTone: HomeStatusTone = !nativeRuntime ? 'muted' : systemProbeFailed ? 'error' : inputProbeLoading
     ? 'checking'
     : inputAuthorizationStale || inputDriver.status === 'error'
       ? inputMappingRecovering && !inputAuthorizationStale ? 'warning' : 'error'
       : inputReady || (!macOS && inputDriver.status === 'installed')
         ? 'ready'
         : 'warning'
-  const inputStatus = inputProbeLoading
+  const inputStatus = !nativeRuntime ? '浏览器预览' : systemProbeFailed ? '检测失败' : inputProbeLoading
     ? '检测中'
     : inputAuthorizationStale
       ? '需要重新授权'
@@ -124,33 +126,35 @@ export function HomeDashboard({
         : inputReady || (!macOS && inputDriver.status === 'installed')
           ? '已授权'
           : macOS ? '未授权' : '需要检查'
-  const inputDetail = inputProbeLoading
+  const inputDetail = !nativeRuntime ? '请在桌面应用中检查输入权限与按键服务。' : systemProbeFailed ? '本机状态检测失败，请重新检测；上次结果不能代表当前权限。' : inputProbeLoading
     ? '正在检查输入监控与 RC003 输入服务。'
     : inputAuthorizationStale
       ? '当前构建的输入监控授权已失效，按键映射暂时不会生效。'
       : inputDriver.message ?? (macOS ? '读取 RC003 原始 HID 按键报告。' : '检查 Quarbor HID 输入服务。')
-  const audioPresentation = driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
-  const audioDetail = audioProbeLoading
+  const audioPresentation: { label: string; tone: HomeStatusTone } = nativeRuntime
+    ? driverStatusPresentation(audioProbeLoading ? 'checking' : audioDriver.status)
+    : { label: '浏览器预览', tone: 'muted' }
+  const audioDetail = !nativeRuntime ? '请在桌面应用中检查语音通道并校准音量。' : audioProbeLoading
     ? `正在检查 ${macOS ? 'MiRemoteV 2ch 与 RC003 语音通道' : 'VB-CABLE 虚拟麦克风'}。`
     : audioDriver.message ?? (macOS
       ? '将 RC003 语音写入 MiRemoteV 2ch，增益仅作用于这一路音频。'
       : '将 RC003 语音写入 CABLE Input，并从 CABLE Output 提供给录音应用。')
-  const deviceConnected = !deviceProbeLoading && device.status === 'connected'
-  const deviceTone: HomeStatusTone = deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : 'warning'
-  const deviceStatus = deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : '未连接'
-  const deviceDetail = deviceProbeLoading
+  const deviceConnected = nativeRuntime && !systemProbeFailed && !deviceProbeLoading && device.status === 'connected'
+  const deviceTone: HomeStatusTone = !nativeRuntime ? 'muted' : systemProbeFailed || device.status === 'error' ? 'error' : deviceProbeLoading ? 'checking' : deviceConnected ? 'ready' : 'warning'
+  const deviceStatus = !nativeRuntime ? '浏览器预览' : systemProbeFailed || device.status === 'error' ? '检测失败' : deviceProbeLoading ? '检测中' : deviceConnected ? '已连接' : '未连接'
+  const deviceDetail = !nativeRuntime ? '请在桌面应用中连接并检查遥控器。' : systemProbeFailed ? '暂时无法确认设备连接，请重新检测。' : deviceProbeLoading
     ? '正在检查 RC003 蓝牙连接与输入服务。'
     : deviceConnected
       ? device.message ?? 'RC003 已被系统识别，可以接收按键。'
       : device.message ?? '请在系统蓝牙设置中配对并唤醒 RC003。'
   const accessibilityLoading = nativeRuntime && systemProbeLoading
-  const accessibilityTone: HomeStatusTone = accessibilityLoading
+  const accessibilityTone: HomeStatusTone = !nativeRuntime ? 'muted' : systemProbeFailed ? 'error' : accessibilityLoading
     ? 'checking'
     : macOS ? permissions.accessibility ? 'ready' : 'warning' : inputDriver.status === 'installed' ? 'ready' : 'warning'
-  const accessibilityStatus = accessibilityLoading
+  const accessibilityStatus = !nativeRuntime ? '浏览器预览' : systemProbeFailed ? '检测失败' : accessibilityLoading
     ? '检测中'
     : macOS ? permissions.accessibility ? '已授权' : '未授权' : inputDriver.status === 'installed' ? '已就绪' : '需要授权'
-  const allReady = !systemProbeLoading
+  const allReady = nativeRuntime && !systemProbeFailed && !systemProbeLoading
     && !audioProbeLoading
     && !inputProbeLoading
     && !deviceProbeLoading
@@ -160,17 +164,18 @@ export function HomeDashboard({
     && deviceTone === 'ready'
   const pageLoading = systemProbeLoading || audioProbeLoading || inputProbeLoading || deviceProbeLoading
   const refreshBusy = pageLoading || refreshing
+  const canRefresh = nativeRuntime && !refreshBusy
   const readyCount = [inputTone, accessibilityTone, audioPresentation.tone, deviceTone]
-    .filter((tone) => tone === 'ready' || tone === 'muted').length
-  const heroTone: HomeStatusTone = pageLoading ? 'checking' : allReady ? 'ready' : inputAuthorizationStale ? 'error' : 'warning'
-  const heroTitle = pageLoading
+    .filter((tone) => tone === 'ready').length
+  const heroTone: HomeStatusTone = !nativeRuntime ? 'muted' : systemProbeFailed ? 'error' : pageLoading ? 'checking' : allReady ? 'ready' : inputAuthorizationStale ? 'error' : 'warning'
+  const heroTitle = !nativeRuntime ? '浏览器预览' : systemProbeFailed ? '运行状态检测失败' : pageLoading
     ? '正在检查 RC003'
     : allReady
       ? 'RC003 已就绪'
       : inputAuthorizationStale
         ? '需要重新授权'
         : deviceConnected ? '完成设置即可使用' : '等待 RC003 连接'
-  const heroDescription = pageLoading
+  const heroDescription = !nativeRuntime ? '可预览设备配置；权限、运行状态和设备连接需在桌面应用中检测。' : systemProbeFailed ? '暂时无法确认本机权限与设备状态，请重新检测或查看运行日志。' : pageLoading
     ? '正在确认权限、音频通道和设备连接。'
     : allReady
       ? '按键、语音和系统权限均已就绪。现在可以直接编辑遥控器行为。'
@@ -186,17 +191,17 @@ export function HomeDashboard({
   return <div className="home-page">
     <section className={`home-hero ${heroTone}`} aria-labelledby="home-device-title">
       <div className="home-hero-copy">
-        <div className="home-eyebrow"><span className="home-state-mark" /> RC003 CONTROL SURFACE</div>
+        <div className="home-eyebrow"><span className="home-state-mark" /> 权限与设备状态</div>
         <h2 id="home-device-title">{heroTitle}</h2>
         <p>{heroDescription}</p>
         <div className="home-hero-actions">
-          <button type="button" className="home-primary-action" onClick={onOpenMapping}>
-            <Keyboard size={16} /> 编辑按键映射 <ChevronRight size={15} />
+          <button type="button" className="home-primary-action" onClick={onOpenDevices}>
+            <LayoutGrid size={16} /> 我的设备 <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-secondary-action" onClick={() => macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenSettings() : onOpenStep(recommendedStep)}>
-            <Settings2 size={15} /> {allReady ? '设备引导' : '处理待办'}
+          <button type="button" className="home-secondary-action" onClick={() => !nativeRuntime || allReady ? onIntegrateDevices() : systemProbeFailed ? onRefresh() : macOS && (inputTone !== 'ready' || accessibilityTone === 'warning') ? onOpenPermissions() : onOpenStep(recommendedStep)}>
+            <Settings2 size={15} /> {!nativeRuntime || allReady ? '集成设备' : systemProbeFailed ? '重新检测' : '处理待办'}
           </button>
-          <button type="button" className="home-icon-action" aria-label={refreshBusy ? '检测中' : '重新检测'} title={refreshBusy ? '检测中' : '重新检测'} onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>
+          <button type="button" className="home-icon-action" aria-label={refreshBusy ? '检测中' : '重新检测'} title={!nativeRuntime ? '请在桌面应用中检测' : refreshBusy ? '检测中' : '重新检测'} onClick={canRefresh ? onRefresh : undefined} aria-disabled={!canRefresh} aria-busy={refreshBusy}>
             <RotateCcw className={refreshBusy ? 'home-summary-loading-icon' : ''} size={15} />
           </button>
           <div className="home-github-support">
@@ -232,21 +237,21 @@ export function HomeDashboard({
             status={inputStatus}
             tone={inputTone}
             detail={inputDetail}
-            action={inputMappingRecovering && !inputAuthorizationStale
+            action={nativeRuntime && (systemProbeFailed || inputMappingRecovering && !inputAuthorizationStale
               ? <button type="button" className="home-row-action" disabled={refreshBusy} onClick={onRefresh}>重新检测<ChevronRight size={13} /></button>
               : macOS && inputDriver.status === 'error' && inputReady && permissions.accessibility
                 ? <button type="button" className="home-row-action" onClick={onOpenLogs}>查看日志<ChevronRight size={13} /></button>
                 : macOS
                   ? <button type="button" className="home-row-action" onClick={onOpenPermissions}>{inputAuthorizationStale ? '重新授权' : permissions.inputMonitoring ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>
-                  : <button type="button" className="home-row-action" onClick={onOpenPermissions}>检查驱动<ChevronRight size={13} /></button>}
+                  : <button type="button" className="home-row-action" onClick={() => onOpenStep('inputDriver')}>集成按键控制<ChevronRight size={13} /></button>)}
           />
           <HomeStatusRow
             icon={<Command size={18} />}
             title={macOS ? "辅助功能" : "管理员权限"}
             status={accessibilityStatus}
             tone={accessibilityTone}
-            detail={accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
-            action={macOS && <button type="button" className="home-row-action" onClick={onOpenPermissions}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>}
+            detail={!nativeRuntime ? '请在桌面应用中检查系统授权。' : systemProbeFailed ? '暂时无法确认当前授权，请重新检测。' : accessibilityLoading ? '正在检查系统是否允许 Axonkey 发送映射后的输入。' : macOS ? '发送映射后的按键、快捷键和文本。' : 'Windows 通过输入服务发送映射结果。'}
+            action={nativeRuntime && (systemProbeFailed ? <button type="button" className="home-row-action" disabled={refreshBusy} onClick={onRefresh}>重新检测<ChevronRight size={13} /></button> : macOS && <button type="button" className="home-row-action" onClick={onOpenPermissions}>{permissions.accessibility ? '打开设置' : '开始授权'}<ChevronRight size={13} /></button>)}
           />
           <HomeStatusRow
             icon={<AudioLines size={18} />}
@@ -254,16 +259,16 @@ export function HomeDashboard({
             status={audioPresentation.label}
             tone={audioPresentation.tone}
             detail={audioDetail}
-            action={<button type="button" className="home-row-action" onClick={onOpenPermissions}>音频设置<ChevronRight size={13} /></button>}
-            leadingAction={<button type="button" className="home-audio-test-button" onClick={onTestAudio}><SlidersHorizontal size={20} aria-hidden="true" /><span>校准音量</span></button>}
+            action={nativeRuntime && <button type="button" className="home-row-action" onClick={onOpenPermissions}>音频设置<ChevronRight size={13} /></button>}
+            leadingAction={<button type="button" className="home-audio-test-button" disabled={!nativeRuntime} onClick={onTestAudio}><SlidersHorizontal size={20} aria-hidden="true" /><span>校准音量</span></button>}
           />
           <HomeStatusRow
             icon={<Bluetooth size={18} />}
-            title={macOS ? "设备连接" : "驱动状态"}
+            title="设备连接"
             status={deviceStatus}
             tone={deviceTone}
             detail={deviceDetail}
-            action={<button type="button" className="home-row-action" onClick={onOpenPermissions}>连接设置<ChevronRight size={13} /></button>}
+            action={nativeRuntime && (systemProbeFailed ? <button type="button" className="home-row-action" disabled={refreshBusy} onClick={onRefresh}>重新检测<ChevronRight size={13} /></button> : <button type="button" className="home-row-action" onClick={() => onOpenStep('deviceConnection')}>连接设置<ChevronRight size={13} /></button>)}
           />
         </div>
       </section>
@@ -271,17 +276,17 @@ export function HomeDashboard({
       <aside className="home-sidebar" aria-label="快捷操作">
         <section className="home-quick-actions">
           <h2>快捷操作</h2>
-          <button type="button" className="home-quick-button" onClick={onOpenMapping}>
-            <span className="home-quick-icon"><Keyboard size={17} /></span>
-            <span><strong>按键映射</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span>
+          <button type="button" className="home-quick-button" onClick={onOpenDevices}>
+            <span className="home-quick-icon"><LayoutGrid size={17} /></span>
+            <span><strong>我的设备</strong><small>{enabled ? '自定义功能已启用' : '自定义功能未启用'}</small></span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-quick-button" onClick={onOpenSettings}>
+          <button type="button" className="home-quick-button" onClick={onOpenPermissions}>
             <span className="home-quick-icon"><ShieldCheck size={17} /></span>
-            <span><strong>设置</strong><small>开机自启与系统权限</small></span>
+            <span><strong>系统权限</strong><small>查看授权与设备接入状态</small></span>
             <ChevronRight size={15} />
           </button>
-          <button type="button" className="home-quick-button" onClick={refreshBusy ? undefined : onRefresh} aria-disabled={refreshBusy} aria-busy={refreshBusy}>
+          <button type="button" className="home-quick-button" onClick={canRefresh ? onRefresh : undefined} aria-disabled={!canRefresh} aria-busy={refreshBusy}>
             <span className="home-quick-icon"><CheckCircle2 size={17} /></span>
             <span><strong>运行检测</strong><small>刷新所有本机状态</small></span>
             <ChevronRight size={15} />

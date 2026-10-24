@@ -7,6 +7,7 @@ import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences
 import appPackage from '../../package.json'
 import { adjacentProfileId, changeProfileState, applySharedProfileSwitch, profileSwitchTargets, removedProfileSwitchTriggers, removeSharedProfileSwitch } from '../profileNavigation'
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
+import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProfiles } from '../deviceProfiles'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
@@ -75,6 +76,8 @@ import { AppHeader, AppSidebar } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
+import { MyDevicesPage, type DeviceOverviewItem } from '../components/MyDevicesPage'
+import { DeviceIntegrationDialog } from '../components/DeviceIntegrationDialog'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../deviceModel'
@@ -98,7 +101,6 @@ import {
   driverDefinitions,
   finishDriverAction,
   finishLegacyCleanup,
-  isSetupComplete,
   loadSetupState,
   resetSetup,
   saveSetupState,
@@ -126,6 +128,7 @@ import {
 } from 'react'
 
 type PendingProfileImport = ImportedMapping & {
+  deviceId: DeviceId
   fileName: string
   suggestedName: string
 }
@@ -147,15 +150,17 @@ function AppController() {
   const [activeId, setActiveId] = useState<ButtonId>(initialUiState.activeId)
   const [storedProfiles] = useState(getStoredProfiles)
   const [profiles, setProfiles] = useState<MappingProfile[]>(storedProfiles.profiles)
-  const [activeProfileId, setActiveProfileId] = useState(storedProfiles.activeProfileId)
+  const [activeProfileIds, setActiveProfileIds] = useState(storedProfiles.activeProfileIds)
+  const activeProfileId = activeProfileIds[selectedDeviceId]
+  const deviceProfiles = profiles.filter(profile => profile.deviceId === selectedDeviceId)
   const [behaviorHistory, dispatchBehaviorHistory] = useReducer(
     behaviorHistoryReducer,
     null,
-    () => createBehaviorHistory(cloneBehaviorMap(storedProfiles.profiles.find((profile) => profile.id === storedProfiles.activeProfileId)?.behaviors ?? getStoredSettings().behaviors)),
+    () => createBehaviorHistory(composeActiveProfileBehaviors(storedProfiles.profiles, storedProfiles.activeProfileIds)),
   )
   const behaviors = behaviorHistory.present
-  const profileStateRef = useRef({ profiles, activeProfileId, behaviors })
-  profileStateRef.current = { profiles, activeProfileId, behaviors }
+  const profileStateRef = useRef({ profiles, activeProfileIds, behaviors })
+  profileStateRef.current = { profiles, activeProfileIds, behaviors }
   const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
     dispatchBehaviorHistory({
       type: 'change',
@@ -183,6 +188,7 @@ function AppController() {
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
   const [sequencePasteOpen, setSequencePasteOpen] = useState(false)
+  const [deviceIntegrationOpen, setDeviceIntegrationOpen] = useState(false)
   const [pendingProfileSwitch, setPendingProfileSwitch] = useState<{ inputId: InputId; trigger: TriggerType; behavior: SwitchProfileBehavior } | null>(null)
   const [pendingProfileSwitchDeletion, setPendingProfileSwitchDeletion] = useState<ProfileSwitchDeletion | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
@@ -209,7 +215,7 @@ function AppController() {
   const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(initialUiState.overviewSelection)
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
-  const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
+  const [setupOpen, setSetupOpen] = useState(false)
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
   const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [homeRefreshing, setHomeRefreshing] = useState(false)
@@ -345,14 +351,20 @@ function AppController() {
     // Advance the ref before rendering so consecutive hardware events compose.
     profileStateRef.current = next
     setProfiles(next.profiles)
-    setActiveProfileId(next.activeProfileId)
-    dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
-    setEditingBehaviorId(null)
-    setDraftBehavior(null)
-    setTextInputDraft(null)
+    setActiveProfileIds(next.activeProfileIds)
+    if (target.deviceId === selectedDeviceId) {
+      dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+      setCapturingBehaviorId(null)
+      setEditingBehaviorId(null)
+      setDraftBehavior(null)
+      setTextInputDraft(null)
+      setSequencePasteOpen(false)
+    } else {
+      dispatchBehaviorHistory({ type: 'rebaseDevice', deviceId: target.deviceId, behaviors: next.behaviors })
+    }
     setAutoSaveState('saving')
     if (notifyOnDesktop && nativeRuntime) {
-      const from = current.profiles.find(profile => profile.id === current.activeProfileId)!.name
+      const from = current.profiles.find(profile => profile.id === current.activeProfileIds[target.deviceId])!.name
       void invoke('show_profile_switch_overlay', { from, to: target.name })
         .catch(error => logError('Failed to show profile switch notification', error))
     }
@@ -363,7 +375,8 @@ function AppController() {
   const profileSwitchRef = useRef<(request: ProfileSwitchRequest) => void>(() => {})
   profileSwitchRef.current = (request) => {
     const current = profileStateRef.current
-    const id = adjacentProfileId(current.profiles, current.activeProfileId, request)
+    if (request.deviceId !== 'rc003' && request.deviceId !== 'mouse') return
+    const id = adjacentProfileId(current.profiles.filter(profile => profile.deviceId === request.deviceId), current.activeProfileIds[request.deviceId], request)
     if (id) switchMappingProfile(id, true)
   }
   useEffect(() => {
@@ -377,11 +390,27 @@ function AppController() {
     return () => { active = false; unlisten?.() }
   }, [nativeRuntime])
 
+  const activateNewProfile = (profile: MappingProfile) => {
+    const current = profileStateRef.current
+    const next = {
+      profiles: [...snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors), profile],
+      activeProfileIds: { ...current.activeProfileIds, [profile.deviceId]: profile.id },
+      behaviors: mergeDeviceBehaviors(current.behaviors, profile.deviceId, profile.behaviors),
+    }
+    profileStateRef.current = next
+    setProfiles(next.profiles)
+    setActiveProfileIds(next.activeProfileIds)
+    dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+    setCapturingBehaviorId(null)
+    setEditingBehaviorId(null)
+    setDraftBehavior(null)
+    setTextInputDraft(null)
+    setSequencePasteOpen(false)
+  }
+
   const createMappingProfileFromScratch = () => {
-    const next = createMappingProfile(profileName('新配置', profiles), createEmptyBehaviorMap())
-    setProfiles((current) => [...current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
-    setActiveProfileId(next.id)
-    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    const next = createMappingProfile(profileName('新配置', deviceProfiles), createEmptyBehaviorMap(), selectedDeviceId)
+    activateNewProfile(next)
     setAutoSaveState('saving')
     setToast(`已新增“${next.name}”`)
     window.setTimeout(() => setToast(''), 1800)
@@ -390,17 +419,15 @@ function AppController() {
   const duplicateMappingProfile = () => {
     const current = profiles.find((profile) => profile.id === activeProfileId)
     if (!current) return
-    const next = createMappingProfile(profileName(`${current.name} 副本`, profiles), behaviors)
-    setProfiles((existing) => [...existing.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
-    setActiveProfileId(next.id)
-    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    const next = createMappingProfile(profileName(`${current.name} 副本`, deviceProfiles), behaviors, selectedDeviceId)
+    activateNewProfile(next)
     setAutoSaveState('saving')
     setToast(`已复制为“${next.name}”`)
     window.setTimeout(() => setToast(''), 1800)
   }
 
   const renameMappingProfile = (name: string) => {
-    const nextName = profileName(name, profiles.filter((profile) => profile.id !== activeProfileId))
+    const nextName = profileName(name, deviceProfiles.filter((profile) => profile.id !== activeProfileId))
     setProfiles((current) => current.map((profile) => profile.id === activeProfileId ? { ...profile, name: nextName } : profile))
     setToast(`配置文件已重命名为“${nextName}”`)
     window.setTimeout(() => setToast(''), 1800)
@@ -409,11 +436,12 @@ function AppController() {
   const saveImportedProfile = (name: string) => {
     const pending = pendingProfileImport
     if (!pending) return
-    const next = createMappingProfile(profileName(name, profiles), pending.behaviors)
-    setProfiles((current) => [...current.map((profile) => profile.id === activeProfileId ? { ...profile, behaviors: cloneBehaviorMap(behaviors) } : profile), next])
-    setActiveProfileId(next.id)
-    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
-    if (pending.enabled !== undefined) setEnabled(pending.enabled)
+    const next = createMappingProfile(profileName(name, profiles.filter(profile => profile.deviceId === pending.deviceId)), pending.behaviors, pending.deviceId)
+    activateNewProfile(next)
+    if (pending.enabled !== undefined) {
+      if (pending.deviceId === 'mouse') setMouseEnabled(pending.enabled)
+      else setEnabled(pending.enabled)
+    }
     setPendingProfileImport(null)
     setEditingBehaviorId(null)
     setDraftBehavior(null)
@@ -425,14 +453,20 @@ function AppController() {
   }
 
   const deleteMappingProfile = () => {
-    if (profiles.length <= 1) return
+    if (deviceProfiles.length <= 1) return
     const current = profiles.find((profile) => profile.id === activeProfileId)
     if (!current || !window.confirm(`确定删除配置文件“${current.name}”吗？`)) return
-    const remaining = profiles.filter((profile) => profile.id !== activeProfileId)
-    const next = remaining[0]
-    setProfiles((existing) => existing.filter((profile) => profile.id !== activeProfileId).map((profile) => profile.id === next.id ? { ...profile, behaviors: cloneBehaviorMap(profile.behaviors) } : profile))
-    setActiveProfileId(next.id)
-    dispatchBehaviorHistory({ type: 'replace', present: cloneBehaviorMap(next.behaviors) })
+    const remaining = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors).filter((profile) => profile.id !== activeProfileId)
+    const next = remaining.find(profile => profile.deviceId === selectedDeviceId)!
+    const nextState = {
+      profiles: remaining,
+      activeProfileIds: { ...activeProfileIds, [selectedDeviceId]: next.id },
+      behaviors: mergeDeviceBehaviors(behaviors, selectedDeviceId, next.behaviors),
+    }
+    profileStateRef.current = nextState
+    setProfiles(nextState.profiles)
+    setActiveProfileIds(nextState.activeProfileIds)
+    dispatchBehaviorHistory({ type: 'replace', present: nextState.behaviors })
     setEditingBehaviorId(null)
     setDraftBehavior(null)
     setTextInputDraft(null)
@@ -449,7 +483,7 @@ function AppController() {
     const current = profileStateRef.current
     const triggers = removedProfileSwitchTriggers(current.behaviors[inputId], sequences)
     if (triggers.length) {
-      setPendingProfileSwitchDeletion({ profileId: current.activeProfileId, inputId, triggers, sequences: cloneBehaviorMap({ ...current.behaviors, [inputId]: sequences })[inputId] })
+      setPendingProfileSwitchDeletion({ profileId: current.activeProfileIds[deviceForInput(inputId).id], inputId, triggers, sequences: cloneBehaviorMap({ ...current.behaviors, [inputId]: sequences })[inputId] })
       return false
     }
     setBehaviors((current) => updateWorkflowInput(current, inputId, sequences))
@@ -506,15 +540,13 @@ function AppController() {
   }, [showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
 
   useEffect(() => {
-    const persistedProfiles = profiles.map((profile) => profile.id === activeProfileId
-      ? { ...profile, behaviors: cloneBehaviorMap(behaviors) }
-      : profile)
+    const persistedProfiles = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
     try {
-      window.localStorage.setItem(profilesStorageKey, JSON.stringify({ version: 1, activeProfileId, profiles: persistedProfiles }))
+      window.localStorage.setItem(profilesStorageKey, JSON.stringify({ version: 2, activeProfileIds, profiles: persistedProfiles }))
     } catch (error) {
       logError('Failed to save mapping profiles', error)
     }
-  }, [profiles, activeProfileId, behaviors])
+  }, [profiles, activeProfileIds, behaviors])
 
   useEffect(() => {
     saveSetupState(setupState)
@@ -527,7 +559,9 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
+    // macOS already supplies the cached BLE level with the frequent system
+    // probe. Keep the slower standalone query for Windows' battery lookup.
+    if (!nativeRuntime || platform !== 'windows') return
     let active = true
     const refreshBattery = async () => {
       if (batteryProbeRunningRef.current) return
@@ -549,7 +583,7 @@ function AppController() {
       window.clearTimeout(initialTimer)
       window.clearInterval(interval)
     }
-  }, [])
+  }, [nativeRuntime, platform])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -639,7 +673,7 @@ function AppController() {
       const editor = behaviorEditorRef.current
       if (!editor) return
       const rect = editor.getBoundingClientRect()
-      const topbarBottom = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0
+      const topbarBottom = document.querySelector('.device-workspace-header, .topbar')?.getBoundingClientRect().bottom ?? 0
       const noticeBottom = document.querySelector('.mapping-disabled-notice')?.getBoundingClientRect().bottom ?? 0
       const editorFullyVisible = rect.top >= Math.max(topbarBottom, noticeBottom) + 8 && rect.bottom <= window.innerHeight - 8
       if (!editorFullyVisible) {
@@ -668,6 +702,11 @@ function AppController() {
 
   const selectBehaviorTarget = (buttonId: InputId, trigger: TriggerType, reveal = true) => {
     const device = deviceForInput(buttonId)
+    if (device.id !== selectedDeviceId) {
+      // An undo stack belongs to the editor that created it. Preserve both
+      // running mappings while discarding history from the previous device.
+      dispatchBehaviorHistory({ type: 'replace', present: profileStateRef.current.behaviors })
+    }
     setSelectedDeviceId(device.id)
     if (device.id === 'rc003') setActiveId(buttonId as ButtonId)
     setSelectedBehavior({ buttonId, trigger })
@@ -737,7 +776,7 @@ function AppController() {
 
   const exportMappings = async () => {
     const activeProfile = profiles.find((profile) => profile.id === activeProfileId)
-    const serialized = JSON.stringify(createMappingExport(behaviors, enabled, undefined, activeProfile?.name), null, 2)
+    const serialized = JSON.stringify(createMappingExport(behaviors, isMouse ? mouseEnabled : enabled, undefined, activeProfile?.name, selectedDeviceId), null, 2)
     const filename = mappingExportFilename(new Date(), activeProfile?.name)
 
     if (nativeRuntime) {
@@ -788,17 +827,18 @@ function AppController() {
     event.target.value = ''
     if (!file) return
     try {
-      const imported = parseMappingImport(await file.text())
+      const imported = parseMappingImport(await file.text(), selectedDeviceId)
       if (!imported) throw new Error('unsupported mapping file')
       const fallbackName = file.name.replace(/\.[^.]+$/, '').trim() || '导入配置'
       setPendingProfileImport({
         ...imported,
+        deviceId: selectedDeviceId,
         fileName: file.name,
         suggestedName: imported.profileName || fallbackName,
       })
     } catch (error) {
       logError('Failed to import mapping file', error)
-      setToast('导入失败：请选择有效的 Axonkey 映射 JSON 文件')
+      setToast('导入失败：请选择属于当前设备的 Axonkey 映射 JSON 文件')
       window.setTimeout(() => setToast(''), 3000)
     }
   }
@@ -1227,6 +1267,10 @@ function AppController() {
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
+      if (probe.platform === 'macos') {
+        const level = probe.rc003_battery_level
+        setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
+      }
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
       const mappingRecovering = probe.platform === 'macos'
         && probe.input_backend_error === 'RC003 modifier hardware mappings could not be applied'
@@ -1514,6 +1558,25 @@ function AppController() {
     action: { label: '查看状态', title: inputAuthorizationStale ? '权限失效 · 查看状态' : '查看设备状态', onClick: () => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection') },
   }
 
+  const mouseAuthorized = platform === 'windows' || (platform === 'macos' && systemProbeState === 'ready'
+    && macPermissions.inputMonitoring && macPermissions.accessibility && !inputAuthorizationStale)
+  const overviewDevices: DeviceOverviewItem[] = devices.map(device => ({
+    id: device.id,
+    name: device.id === 'rc003' ? '小米遥控器' : '系统鼠标',
+    model: device.id === 'rc003' ? 'RC003 · 蓝牙遥控器' : '鼠标按键与屏幕边缘',
+    description: device.id === 'rc003' ? '按键、组合键与语音控制' : '系统鼠标共用输入',
+    profileName: profiles.find(profile => profile.id === activeProfileIds[device.id])?.name ?? '默认配置',
+    profileCount: profiles.filter(profile => profile.deviceId === device.id).length,
+    enabled: enabled && (device.id === 'rc003' || mouseEnabled),
+    status: !nativeRuntime ? { label: '浏览器预览', tone: 'neutral' }
+      : device.id === 'rc003'
+        ? setupState.device.status === 'connected' ? { label: '已连接', tone: 'ready' }
+          : setupState.device.status === 'checking' ? { label: '检测中', tone: 'neutral' }
+            : { label: '未连接', tone: 'neutral' }
+        : mouseAuthorized ? { label: platform === 'windows' ? '无需授权' : '已授权', tone: 'ready' }
+          : { label: systemProbeState === 'loading' ? '检测中' : systemProbeState === 'error' ? '检测失败' : platform === 'macos' ? '待授权' : '暂不支持', tone: 'warning' },
+  }))
+
   if (permissionHelperKind) {
     const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
     const activePermission = !macPermissions.inputMonitoring
@@ -1533,7 +1596,14 @@ function AppController() {
   }
 
   const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
-  const showMappingTools = activePage === 'mapping' || activePage === 'overview'
+  const profileControls = <ProfileManager profiles={deviceProfiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} />
+  const mappingActions = <div className="mapping-context-actions">
+    <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled && (!isMouse || mouseEnabled) ? '已保存并生效' : '已保存 · 未开启'}</span>
+    {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
+    <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
+      flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
+    <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
+  </div>
 
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
@@ -1541,17 +1611,7 @@ function AppController() {
       <div className="app-workspace">
         <AppSidebar activePage={activePage} hasUpdate={releaseUpdate.hasUpdate} collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} enabled={enabled} onToggleEnabled={toggleEnabled} onBrandClick={handleBrandClick} onNavigate={navigateToPage} />
         <div className="app-main">
-          <AppHeader
-            key={`toolbar-${activePage}`}
-            context={showMappingTools ? <ProfileManager profiles={profiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} /> : undefined}
-            actions={showMappingTools ? <div className="mapping-context-actions">
-              <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled ? '已保存并生效' : '已保存 · 未开启'}</span>
-              {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
-              <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
-                flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
-              <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
-            </div> : undefined}
-          />
+          {activePage === 'overview' && <AppHeader context={profileControls} actions={mappingActions} />}
       <main ref={mainContentRef} key={activePage} className="main-content">
         {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
           <Info size={20} aria-hidden="true" />
@@ -1562,7 +1622,14 @@ function AppController() {
           <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
         </section>}
 
-        {activePage === 'overview' ? <MappingOverview
+        {activePage === 'devices' ? <MyDevicesPage devices={overviewDevices}
+          onSelect={deviceId => {
+            const device = devices.find(item => item.id === deviceId)!
+            selectBehaviorTarget(device.inputIds[0], 'click', false)
+            navigateToPage('mapping')
+          }}
+          onIntegrate={() => setDeviceIntegrationOpen(true)}
+        /> : activePage === 'overview' ? <MappingOverview
           buttons={editableButtons}
           behaviors={behaviors}
           selection={overviewSelection}
@@ -1573,6 +1640,8 @@ function AppController() {
           pressedId={pressedId}
           onEdit={(buttonId, trigger) => { navigateToPage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
         /> : activePage === 'mapping' ? <MappingPageComponent
+          onBackToDevices={() => navigateToPage('devices')}
+          profileControls={profileControls}
           debugMode={debugMode}
           selectedDeviceId={selectedDeviceId}
           selectBehaviorTarget={selectBehaviorTarget}
@@ -1591,7 +1660,7 @@ function AppController() {
           showRemoteKeyGrid={showRemoteKeyGrid}
           showMouseKeyGrid={showMouseKeyGrid}
           rowRefs={rowRefs}
-          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div></div>}
+          toolbar={<div className="key-picker-actions"><div className="behavior-history-actions" role="group" aria-label="行为编辑历史"><button type="button" className="behavior-history-button" title="撤销" aria-label="撤销行为更改" disabled={!canUndoBehavior} onClick={undoBehaviorChange}><UndoCircle size={15} weight="Outline" /></button><button type="button" className="behavior-history-button" title="重做" aria-label="重做行为更改" disabled={!canRedoBehavior} onClick={redoBehaviorChange}><RedoCircle size={15} weight="Outline" /></button></div>{mappingActions}</div>}
           behaviorEditorProps={{
             editorRef: behaviorEditorRef,
             attention: behaviorEditorAttention,
@@ -1683,25 +1752,37 @@ function AppController() {
           batteryLevel={displayedBatteryLevel}
           onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           enabled={enabled}
-          onOpenSettings={() => setActivePage('settings')}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           onRefresh={() => void refreshHome()}
           onTestAudio={() => setAudioTestOpen(true)}
           onOpenStep={openSetupStep}
-          onOpenMapping={() => navigateToPage('mapping')}
+          onOpenDevices={() => navigateToPage('devices')}
+          onIntegrateDevices={() => setDeviceIntegrationOpen(true)}
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>
         </div>
       </div>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
+      {deviceIntegrationOpen && createPortal(<DeviceIntegrationDialog
+        platform={platform} nativeRuntime={nativeRuntime}
+        onClose={() => setDeviceIntegrationOpen(false)}
+        onSelect={deviceId => {
+          setDeviceIntegrationOpen(false)
+          if (deviceId === 'rc003') openSetupStep('deviceConnection')
+          else {
+            setSettingsSection(platform === 'macos' ? 'permissions' : 'mouse')
+            navigateToPage('settings')
+          }
+        }}
+      />, document.body)}
       {pendingProfileSwitch && createPortal(<ProfileSwitchConfirmDialog
         key={pendingProfileSwitch.behavior.id}
         button={[...editableButtons, ...mouseInputs].find(button => button.id === pendingProfileSwitch.inputId)!}
         trigger={pendingProfileSwitch.trigger}
         behavior={pendingProfileSwitch.behavior}
-        targets={profileSwitchTargets({ profiles, activeProfileId, behaviors }, pendingProfileSwitch.inputId, pendingProfileSwitch.trigger)}
-        activeProfileId={activeProfileId} platform={platform}
+        targets={profileSwitchTargets({ profiles, activeProfileIds, behaviors }, pendingProfileSwitch.inputId, pendingProfileSwitch.trigger)}
+        activeProfileId={activeProfileIds[deviceForInput(pendingProfileSwitch.inputId).id]} platform={platform}
         onCancel={() => setPendingProfileSwitch(null)}
         onConfirm={(behavior) => {
           const next = applySharedProfileSwitch(profileStateRef.current, pendingProfileSwitch.inputId, pendingProfileSwitch.trigger, behavior)
@@ -1710,7 +1791,7 @@ function AppController() {
           dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
           setPendingProfileSwitch(null)
           setAutoSaveState('saving')
-          setToast('已应用到所有配置文件')
+          setToast('已应用到此设备的所有配置文件')
           window.setTimeout(() => setToast(''), 2200)
         }}
       />, document.body)}
@@ -1718,7 +1799,7 @@ function AppController() {
         button={[...editableButtons, ...mouseInputs].find(button => button.id === pendingProfileSwitchDeletion.inputId)!}
         targets={pendingProfileSwitchDeletion.triggers.map(trigger => ({
           trigger,
-          profiles: profileSwitchTargets({ profiles, activeProfileId, behaviors }, pendingProfileSwitchDeletion.inputId, trigger)
+          profiles: profileSwitchTargets({ profiles, activeProfileIds, behaviors }, pendingProfileSwitchDeletion.inputId, trigger)
             .filter(profile => profile.behaviors.some(behavior => behavior.type === 'switchProfile')),
         }))}
         onCancel={() => setPendingProfileSwitchDeletion(null)}
@@ -1734,6 +1815,7 @@ function AppController() {
         }}
       />, document.body)}
       {pendingProfileImport && <ProfileImportDialog
+        deviceId={pendingProfileImport.deviceId}
         fileName={pendingProfileImport.fileName}
         suggestedName={pendingProfileImport.suggestedName}
         behaviors={pendingProfileImport.behaviors}

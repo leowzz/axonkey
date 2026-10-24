@@ -48,13 +48,68 @@ function load(file) {
 
 const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
-const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState } = load('src/appConfig.tsx')
+const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState, getStoredProfiles, createMappingProfile, profilesStorageKey, legacyProfilesStorageKey, settingsStorageKey } = load('src/appConfig.tsx')
 const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
 const sequenceText = 'axonkey/1\nkey A\nend'
+
+test('first launch and invalid saved pages open Home', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const stored of [null, '{}', 'invalid', 'null', JSON.stringify({activePage:'unknown'})]) {
+      testWindow.localStorage = { getItem: () => stored }
+      assert.equal(getStoredUiState().activePage, 'home')
+    }
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('saved pages and home scroll survive reload while the retired overview opens My Devices', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const activePage of ['home', 'devices', 'mapping', 'settings', 'about', 'overview']) {
+      let stored = JSON.stringify({ activePage, scrollTop: { home: 500, overview: 200, devices: 80, mapping: 40 } })
+      testWindow.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value } }
+      const state = getStoredUiState()
+      assert.equal(state.activePage, activePage === 'overview' ? 'devices' : activePage)
+      assert.equal(state.scrollTop.home, 500)
+      assert.equal(state.scrollTop.overview, undefined)
+      assert.equal(state.scrollTop.devices, 80)
+      assert.equal(state.scrollTop.mapping, 40)
+      saveStoredUiState(state)
+      assert.deepEqual(getStoredUiState(), state)
+    }
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('profile storage migrates legacy data once the new key is absent and prefers later device edits', () => {
+  const previousStorage = testWindow.localStorage
+  const { createEmptyBehaviorMap } = load('src/behaviorModel.ts')
+  const behaviors = createEmptyBehaviorMap()
+  behaviors.power.click = [{ id: 'remote', type: 'key', key: 'A', enabled: true }]
+  behaviors['mouse.top.up'].click = [{ id: 'mouse', type: 'key', key: 'B', enabled: true }]
+  const values = new Map([
+    [settingsStorageKey, JSON.stringify({ behaviors })],
+    [legacyProfilesStorageKey, JSON.stringify({ version: 1, activeProfileId: 'work', profiles: [{ id: 'work', name: '工作', behaviors }] })],
+  ])
+  try {
+    testWindow.localStorage = { getItem: key => values.get(key) ?? null }
+    const migrated = getStoredProfiles()
+    assert.equal(migrated.activeProfileIds.rc003, 'rc003:work')
+    assert.equal(migrated.activeProfileIds.mouse, 'mouse:work')
+    assert.equal(migrated.profiles[0].behaviors.power.click[0].key, 'A')
+    assert.equal(migrated.profiles[1].behaviors['mouse.top.up'].click[0].key, 'B')
+    migrated.profiles[1].name = '鼠标新配置'
+    values.set(profilesStorageKey, JSON.stringify({ version: 2, ...migrated }))
+    assert.equal(getStoredProfiles().profiles[1].name, '鼠标新配置')
+    const profile = createMappingProfile('鼠标', behaviors, 'mouse')
+    assert.equal(profile.deviceId, 'mouse')
+    assert.equal(profile.behaviors.power.click.length, 0)
+    assert.equal(profile.behaviors['mouse.top.up'].click[0].key, 'B')
+  } finally { testWindow.localStorage = previousStorage }
+})
 
 test('saved mapping entries restore the unified mapping page and retain the selected input', () => {
   const previousStorage = testWindow.localStorage

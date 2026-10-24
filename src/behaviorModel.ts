@@ -5,8 +5,8 @@
  * run a sequence such as shortcut -> delay -> paste.
  */
 
-import { inputIds, remoteButtonIds } from './deviceModel.ts'
-import type { InputId, RemoteButtonId } from './deviceModel.ts'
+import { devices, inputIds, remoteButtonIds } from './deviceModel.ts'
+import type { DeviceId, InputId, RemoteButtonId } from './deviceModel.ts'
 export type { InputId } from './deviceModel.ts'
 export const buttonIds = remoteButtonIds
 export type ButtonId = RemoteButtonId
@@ -64,15 +64,16 @@ export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
 
 export const mappingTransferFormat = 'axonkey-mapping'
-export const mappingTransferVersion = 1
+export const mappingTransferVersion = 2
 
 export type MappingTransfer = {
   format: typeof mappingTransferFormat
   version: typeof mappingTransferVersion
   exportedAt: string
+  deviceId: DeviceId
   enabled: boolean
   profileName?: string
-  behaviors: BehaviorMap
+  behaviors: Partial<BehaviorMap>
 }
 
 export type ImportedMapping = {
@@ -368,13 +369,16 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
 }
 
 /** Build the stable, versioned JSON shape used for mapping file transfers. */
-export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString(), profileName?: string): MappingTransfer {
+export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString(), profileName?: string, deviceId: DeviceId = 'rc003'): MappingTransfer {
+  const device = devices.find(device => device.id === deviceId)!
+  const cloned = cloneBehaviorMap(behaviors)
   const transfer: MappingTransfer = {
     format: mappingTransferFormat,
     version: mappingTransferVersion,
     exportedAt,
+    deviceId,
     enabled,
-    behaviors: Object.fromEntries(inputIds.map((id) => [id, behaviors[id]])) as BehaviorMap,
+    behaviors: Object.fromEntries(device.inputIds.map(id => [id, cloned[id]])),
   }
   const name = typeof profileName === 'string' ? profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) : ''
   if (name) transfer.profileName = name
@@ -479,7 +483,7 @@ export function parseSequenceImport(value: unknown): Behavior[] | null {
 }
 
 /** Parse a mapping export while retaining compatibility with older settings files. */
-export function parseMappingImport(value: unknown): ImportedMapping | null {
+export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'rc003'): ImportedMapping | null {
   let parsed: unknown = value
   if (typeof value === 'string') {
     try {
@@ -492,7 +496,10 @@ export function parseMappingImport(value: unknown): ImportedMapping | null {
 
   const isVersionedExport = parsed.format === mappingTransferFormat
   if (parsed.format !== undefined && !isVersionedExport) return null
-  if (isVersionedExport && parsed.version !== mappingTransferVersion) return null
+  if (isVersionedExport && parsed.version !== 1 && parsed.version !== mappingTransferVersion) return null
+  const device = devices.find(device => device.id === targetDeviceId)!
+  const isDeviceExport = isVersionedExport && parsed.version === mappingTransferVersion
+  if (isDeviceExport && parsed.deviceId !== targetDeviceId) return null
 
   const source = isVersionedExport
     ? parsed.behaviors
@@ -502,10 +509,20 @@ export function parseMappingImport(value: unknown): ImportedMapping | null {
   if (isVersionedExport ? !validBehaviorMap : !validBehaviorMap && !validLegacyMappings) {
     return null
   }
+  if (isDeviceExport && (!isRecord(source)
+    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id))
+    || device.inputIds.some(id => {
+      const triggers = source[id]
+      return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
+    }))) return null
 
+  const parsedBehaviors = parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed)
+  const behaviors = createEmptyBehaviorMap()
+  for (const inputId of device.inputIds) behaviors[inputId] = parsedBehaviors[inputId]
   const imported: ImportedMapping = {
-    behaviors: parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed),
-    enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
+    behaviors,
+    // Legacy files store the application-wide switch, not the mouse switch.
+    enabled: (isDeviceExport || targetDeviceId === 'rc003') && typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
   }
   if (isVersionedExport && typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
     imported.profileName = parsed.profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40)

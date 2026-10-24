@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-test('macOS audio bridge parses standard BLE battery percentages', {
+test('macOS audio bridge reads, retries and throttles BLE battery values on its existing connection', {
   skip: process.platform !== 'darwin',
 }, () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-battery-'))
