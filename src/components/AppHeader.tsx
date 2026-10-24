@@ -1,4 +1,4 @@
-import { Home, Info, LayoutGrid, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react'
+import { Home, Info, PanelLeftClose, PanelLeftOpen, Settings2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { AppPage } from '../appTypes'
 import appPackage from '../../package.json'
@@ -7,8 +7,7 @@ import { SidebarButton } from './SidebarButton'
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
 const pages = [
-  { id: 'home', label: '主页', icon: Home },
-  { id: 'devices', label: '我的设备', icon: LayoutGrid },
+  { id: 'home', label: '首页', icon: Home },
   { id: 'settings', label: '设置', icon: Settings2 },
   { id: 'about', label: '关于', icon: Info },
 ] as const
@@ -25,7 +24,7 @@ type AppSidebarProps = {
 }
 
 export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggleCollapsed, onToggleEnabled, onBrandClick, onNavigate }: AppSidebarProps) {
-  const activeNavigationPage = activePage === 'mapping' ? 'devices' : activePage
+  const activeNavigationPage = activePage === 'mapping' || activePage === 'overview' ? 'home' : activePage
   return <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
     <SidebarButton collapsed={collapsed} className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
       <img src={appIconUrl} alt="" width={28} height={28} />

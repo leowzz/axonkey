@@ -1,4 +1,4 @@
-import { ChevronRight, Layers3, Plus } from 'lucide-react'
+import { Check, ChevronRight, Layers3, Plus } from 'lucide-react'
 import type { DeviceId } from '../deviceModel'
 import './MyDevicesPage.css'
 
@@ -39,7 +39,7 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
   return <section className="my-devices-page" aria-labelledby="my-devices-title">
     <header className="my-devices-heading">
       <div>
-        <h1 id="my-devices-title">我的设备 <span>{devices.length}</span></h1>
+        <h1 id="my-devices-title">设备与权限</h1>
         <p>选择设备，编辑它的映射与配置文件。</p>
       </div>
       <button className="my-devices-integrate" type="button" onClick={onIntegrate}>
@@ -47,6 +47,7 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
       </button>
     </header>
 
+    <h2 className="my-devices-section-title">我的设备 <span>{devices.length}</span></h2>
     <div className="my-devices-grid">
       {devices.map((device) => {
         const prefix = `my-device-${device.id}`
@@ -59,16 +60,15 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
           aria-describedby={`${prefix}-status ${prefix}-description ${prefix}-profile ${prefix}-mapping`}
           onClick={() => onSelect(device.id)}
         >
-          <span className="my-devices-card-top">
-            <span className="my-devices-category">{device.id === 'mouse' ? '系统输入' : '遥控器'}</span>
-            <span id={`${prefix}-status`} className={`my-devices-status is-${device.status.tone}`}>
-              <span className="my-devices-status-dot" aria-hidden="true" />{device.status.label}
-            </span>
-          </span>
+          <span className="my-devices-artwork" aria-hidden="true"><DeviceArtwork deviceId={device.id} /></span>
           <span className="my-devices-card-main">
-            <span className="my-devices-artwork" aria-hidden="true"><DeviceArtwork deviceId={device.id} /></span>
             <span className="my-devices-identity">
-              <strong id={`${prefix}-name`}>{device.name}</strong>
+              <span className="my-devices-card-top">
+                <strong id={`${prefix}-name`}>{device.name}</strong>
+                <span id={`${prefix}-status`} className={`my-devices-status is-${device.status.tone}`}>
+                  <span className="my-devices-status-dot" aria-hidden="true" />{device.status.label}
+                </span>
+              </span>
               <span>{device.model}</span>
               <small id={`${prefix}-description`}>{device.description}</small>
             </span>
@@ -86,5 +86,7 @@ export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageP
         </button>
       })}
     </div>
+    <p className="my-devices-note"><Layers3 size={13} aria-hidden="true" />各设备独立保存配置，选择设备即可编辑映射。</p>
+    <footer className="my-devices-footer"><Check size={13} aria-hidden="true" />配置保存在本机</footer>
   </section>
 }

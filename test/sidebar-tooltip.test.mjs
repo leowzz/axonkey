@@ -9,7 +9,7 @@ import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
 
-test('outer navigation restores home and keeps device editing under my devices', () => {
+test('outer navigation merges devices into home and keeps device editing under it', () => {
   const module = { exports: {} }
   const source = readFileSync('src/components/AppHeader.tsx', 'utf8')
     .replace("new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href", "'app-icon.png'")
@@ -30,11 +30,11 @@ test('outer navigation restores home and keeps device editing under my devices',
   }
   act(() => { view = Renderer.create(React.createElement(module.exports.AppSidebar, props)) })
   const links = () => view.root.findByProps({ 'aria-label': '主导航' }).findAllByType('button')
-  assert.deepEqual(links().map(link => link.props['aria-label']), ['主页', '我的设备', '设置', '关于'])
-  assert.equal(links()[0].props['aria-current'], undefined)
-  assert.equal(links()[1].props['aria-current'], 'page')
+  assert.deepEqual(links().map(link => link.props['aria-label']), ['首页', '设置', '关于'])
+  assert.equal(links()[0].props['aria-current'], 'page')
+  assert.equal(links()[1].props['aria-current'], undefined)
   act(() => links().forEach(link => link.props.onClick()))
-  assert.deepEqual(navigation, ['home', 'devices', 'settings', 'about'])
+  assert.deepEqual(navigation, ['home', 'settings', 'about'])
   act(() => {
     view.root.findAllByType('button').find(button => button.props['aria-label'] === 'Axonkey').props.onClick()
     links()[0].props.onDoubleClick()
@@ -43,13 +43,13 @@ test('outer navigation restores home and keeps device editing under my devices',
   assert.equal(brandClicks, 1)
   assert.equal(collapses, 1)
   assert.equal(toggles, 1)
-  assert.deepEqual(navigation, ['home', 'devices', 'settings', 'about'])
+  assert.deepEqual(navigation, ['home', 'settings', 'about'])
   act(() => view.update(React.createElement(module.exports.AppSidebar, { ...props, activePage: 'home' })))
   assert.equal(links()[0].props['aria-current'], 'page')
   assert.equal(links()[1].props['aria-current'], undefined)
   act(() => view.update(React.createElement(module.exports.AppSidebar, { ...props, activePage: 'about', collapsed: true })))
   assert.equal(links()[0].props['aria-current'], undefined)
-  assert.equal(links()[3].props['aria-current'], 'page')
+  assert.equal(links()[2].props['aria-current'], 'page')
   assert.equal(view.root.findByProps({ 'aria-label': '有新版本可用' }).props.role, 'img')
   act(() => view.unmount())
 })

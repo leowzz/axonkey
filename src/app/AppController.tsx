@@ -76,7 +76,7 @@ import { AppHeader, AppSidebar } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
-import { MyDevicesPage, type DeviceOverviewItem } from '../components/MyDevicesPage'
+import type { DeviceOverviewItem } from '../components/MyDevicesPage'
 import { DeviceIntegrationDialog } from '../components/DeviceIntegrationDialog'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
@@ -260,8 +260,9 @@ function AppController() {
   }, [activePage, sidebarCollapsed, selectedDeviceId, activeId, selectedBehavior, settingsSection, overviewSelection, persistUiState])
 
   useEffect(() => {
-    const mainContent = mainContentRef.current
-    if (!mainContent) return
+    const mainElement = mainContentRef.current
+    if (!mainElement) return
+    const mainContent = mainElement.querySelector<HTMLElement>('.my-devices-page') ?? mainElement
     const page = activePage
     const restoreFrame = window.requestAnimationFrame(() => {
       mainContent.scrollTop = pageScrollTopRef.current[page] ?? 0
@@ -1621,14 +1622,7 @@ function AppController() {
           <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
         </section>}
 
-        {activePage === 'devices' ? <MyDevicesPage devices={overviewDevices}
-          onSelect={deviceId => {
-            const device = devices.find(item => item.id === deviceId)!
-            selectBehaviorTarget(device.inputIds[0], 'click', false)
-            navigateToPage('mapping')
-          }}
-          onIntegrate={() => setDeviceIntegrationOpen(true)}
-        /> : activePage === 'overview' ? <MappingOverview
+        {activePage === 'overview' ? <MappingOverview
           buttons={editableButtons}
           behaviors={behaviors}
           selection={overviewSelection}
@@ -1639,7 +1633,7 @@ function AppController() {
           pressedId={pressedId}
           onEdit={(buttonId, trigger) => { navigateToPage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
         /> : activePage === 'mapping' ? <MappingPageComponent
-          onBackToDevices={() => navigateToPage('devices')}
+          onBackToDevices={() => navigateToPage('home')}
           profileControls={profileControls}
           debugMode={debugMode}
           selectedDeviceId={selectedDeviceId}
@@ -1744,11 +1738,15 @@ function AppController() {
           permissions={macPermissions}
           inputAuthorizationStale={inputAuthorizationStale}
           refreshing={homeRefreshing}
-          enabled={enabled}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           onRefresh={() => void refreshHome()}
-          onOpenDevices={() => navigateToPage('devices')}
-          onOpenSettings={() => { setSettingsSection('startup'); navigateToPage('settings') }}
+          devices={overviewDevices}
+          onSelectDevice={deviceId => {
+            const device = devices.find(item => item.id === deviceId)!
+            selectBehaviorTarget(device.inputIds[0], 'click', false)
+            navigateToPage('mapping')
+          }}
+          onIntegrate={() => setDeviceIntegrationOpen(true)}
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>

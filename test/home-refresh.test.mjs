@@ -1,112 +1,73 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import vm from 'node:vm'
-import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import { HomeDashboard, base, devices, text, permissionLabels } from './fixtures/home-dashboard.mjs'
 
-const require = createRequire(import.meta.url)
-const module = { exports: {} }
-vm.runInNewContext(ts.transpileModule(readFileSync('src/components/HomeDashboard.tsx', 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, {
-  module, exports: module.exports,
-  require: name => name.endsWith('.css') ? {} : name === '../openGitHub' ? { openGitHub() {} } : require(name),
-})
-const { HomeDashboard } = module.exports
-const props = {
-  platform: 'macos', nativeRuntime: true, systemProbeState: 'ready',
-  permissions: { inputMonitoring: true, accessibility: true }, inputAuthorizationStale: false,
-  enabled: true,
-  onOpenPermissions() {}, onRefresh() {}, onOpenDevices() {}, onOpenSettings() {}, onOpenLogs() {},
-}
-
-const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
-
-test('refresh and page remount preserve environment status; completed permission changes still appear', () => {
+test('refresh and remount preserve permission status while completed permission changes appear', () => {
   let renderer
   const render = overrides => act(() => {
-    const element = React.createElement(HomeDashboard, { ...props, ...overrides })
+    const element = React.createElement(HomeDashboard, { ...base, ...overrides })
     if (renderer) renderer.update(element)
     else renderer = Renderer.create(element)
   })
-  const title = () => text(renderer.root.findByProps({ id: 'home-status-title' }))
-  const refreshControls = () => renderer.root.findAllByType('button').filter(button => typeof button.props['aria-busy'] === 'boolean')
   const assertRefreshBusy = busy => {
-    const buttons = refreshControls()
-    assert.ok(buttons.length > 0)
-    for (const button of buttons) {
-      assert.equal(button.props['aria-busy'], busy)
-      assert.equal(button.props.onClick, busy ? undefined : props.onRefresh)
-    }
+    const button = renderer.root.findByProps({ className: 'home-refresh-button' })
+    assert.equal(button.props['aria-busy'], busy)
+    assert.equal(button.props.onClick, busy ? undefined : base.onRefresh)
   }
   try {
     render()
-    assert.equal(title(), '运行环境已就绪')
-    const readyCopy = renderer.root.findAllByType('p').map(text)
+    assert.deepEqual(permissionLabels(renderer), ['已授权', '已授权'])
     render({ refreshing: true })
-    assert.equal(title(), '运行环境已就绪')
-    assert.deepEqual(renderer.root.findAllByType('p').map(text), readyCopy)
+    assert.deepEqual(permissionLabels(renderer), ['已授权', '已授权'])
     assertRefreshBusy(true)
     act(() => renderer.unmount())
     renderer = null
     render({ refreshing: true })
-    assert.equal(title(), '运行环境已就绪')
-    assert.deepEqual(renderer.root.findAllByType('p').map(text), readyCopy)
+    assert.deepEqual(permissionLabels(renderer), ['已授权', '已授权'])
     assertRefreshBusy(true)
     render({ permissions: { inputMonitoring: false, accessibility: true } })
-    assert.equal(title(), '需要完成授权')
+    assert.deepEqual(permissionLabels(renderer), ['未授权', '已授权'])
     assertRefreshBusy(false)
     render({ inputAuthorizationStale: true })
-    assert.equal(title(), '需要完成授权')
+    assert.deepEqual(permissionLabels(renderer), ['需要重新授权', '已授权'])
     render({ systemProbeState: 'error' })
-    assert.equal(title(), '运行环境检测失败')
+    assert.deepEqual(permissionLabels(renderer), ['检测失败', '检测失败'])
     assertRefreshBusy(false)
     render({ systemProbeState: 'loading' })
-    assert.equal(title(), '正在检测运行环境')
+    assert.deepEqual(permissionLabels(renderer), ['检测中', '检测中'])
     assertRefreshBusy(true)
-  } finally {
-    act(() => renderer?.unmount())
-  }
+  } finally { act(() => renderer?.unmount()) }
 })
 
-test('device, input driver and audio failures do not alter a ready application environment', () => {
+test('device failures do not alter shared permission state or another device profile', () => {
   let renderer
   try {
-    for (const deviceStatus of ['disconnected', 'error']) {
-      const element = React.createElement(HomeDashboard, {
-        ...props,
-        inputDriver: { status: 'error', message: 'Quarbor 输入驱动错误' },
-        audioDriver: { status: 'error', message: 'MiRemoteV 2ch 音频错误' },
-        device: { status: deviceStatus, message: 'RC003 蓝牙连接错误' },
-        batteryLevel: 0,
-      })
+    for (const label of ['未连接', '检测失败']) {
       act(() => {
+        const element = React.createElement(HomeDashboard, {
+          ...base, devices: devices.map(device => device.id === 'rc003'
+            ? { ...device, status: { label, tone: 'warning' }, profileName: '遥控专属配置' } : device),
+        })
         if (renderer) renderer.update(element)
         else renderer = Renderer.create(element)
       })
-      assert.equal(text(renderer.root.findByProps({ id: 'home-status-title' })), '运行环境已就绪')
-      const output = JSON.stringify(renderer.toJSON())
-      for (const deviceCopy of ['Quarbor', 'MiRemoteV', 'RC003', '输入驱动错误', '音频错误', '蓝牙连接错误']) {
-        assert.ok(!output.includes(deviceCopy), `Home must not expose device-specific state: ${deviceCopy}`)
-      }
+      assert.deepEqual(permissionLabels(renderer), ['已授权', '已授权'])
+      assert.equal(text(renderer.root.findByProps({ id: 'my-device-rc003-status' })), label)
+      assert.match(text(renderer.root.findByProps({ id: 'my-device-rc003-profile' })), /遥控专属配置/)
+      assert.match(text(renderer.root.findByProps({ id: 'my-device-mouse-profile' })), /鼠标默认/)
     }
-  } finally {
-    act(() => renderer?.unmount())
-  }
+  } finally { act(() => renderer?.unmount()) }
 })
 
-test('paused features and browser preview remain distinct from permission readiness', () => {
+test('paused device mappings and browser preview remain distinct from permission readiness', () => {
   let renderer
   try {
-    act(() => { renderer = Renderer.create(React.createElement(HomeDashboard, { ...props, enabled: false })) })
-    assert.equal(text(renderer.root.findByProps({ id: 'home-status-title' })), '软件功能已暂停')
-    act(() => renderer.update(React.createElement(HomeDashboard, { ...props, nativeRuntime: false })))
-    assert.equal(text(renderer.root.findByProps({ id: 'home-status-title' })), '浏览器预览')
-    assert.ok(!text(renderer.root).includes('运行环境已就绪'))
-  } finally {
-    act(() => renderer?.unmount())
-  }
+    act(() => { renderer = Renderer.create(React.createElement(HomeDashboard, { ...base, devices: devices.map(device => ({ ...device, enabled: false })) })) })
+    assert.equal(renderer.root.findAllByProps({ className: 'my-devices-paused' }).length, 2)
+    assert.deepEqual(permissionLabels(renderer), ['已授权', '已授权'])
+    act(() => renderer.update(React.createElement(HomeDashboard, { ...base, nativeRuntime: false })))
+    assert.deepEqual(permissionLabels(renderer), ['浏览器预览', '浏览器预览'])
+  } finally { act(() => renderer?.unmount()) }
 })

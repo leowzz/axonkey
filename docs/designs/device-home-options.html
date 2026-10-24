@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Axonkey · 设备与权限合并方案</title>
+  <style>
+    * { box-sizing:border-box; } :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; color:#3d536b; background:#e9edf3; } body { margin:0; } button,a { font:inherit; } button { cursor:pointer; } .review-bar { padding:18px 24px 15px; background:#fff; } .review-heading { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:15px; } h1 { display:inline; margin:0; font-size:16px; font-weight:600; } .meta { margin-left:12px; color:#9ba8b7; font-size:11px; } .actions { display:flex; align-items:center; gap:16px; font-size:12px; } .actions a { color:#6383a6; text-decoration:none; } .state-select { padding:6px 8px; border:1px solid #dce4ee; border-radius:6px; background:#f8fafc; color:#6c8097; font-size:11px; } .choices { display:flex; align-items:center; justify-content:space-between; gap:20px; } .tabs { display:flex; gap:7px; padding:4px; background:#f0f3f8; border-radius:9px; } .tab { border:0; padding:9px 17px; border-radius:6px; color:#788b9f; background:transparent; font-size:12px; white-space:nowrap; } .tab[aria-selected="true"] { color:#3078c7; background:white; box-shadow:0 1px 4px rgb(45 67 93 / 9%); } .recommend { margin-left:5px; font-size:10px; color:#8aa6c3; } .description { margin:0; color:#8797a8; font-size:12px; line-height:1.5; text-align:right; } .viewport { padding:18px 24px 22px; } iframe { display:block; width:100%; height:calc(100vh - 158px); min-height:540px; border:1px solid #d9e2ed; border-radius:12px; background:#f6f8fb; box-shadow:0 7px 22px rgb(57 78 105 / 5%); } button:focus-visible,a:focus-visible,select:focus-visible { outline:2px solid #2876c5; outline-offset:3px; } @media(max-width:1100px) { .description { max-width:250px; } .tab { padding:9px 11px; } .review-bar { padding:16px; } .viewport { padding:14px 16px; } .meta { display:none; } iframe { min-height:620px; } } @media(max-width:750px) { .review-heading,.choices { flex-wrap:wrap; } .description { max-width:none; text-align:left; } .viewport { overflow:auto; } iframe { min-width:940px; } }
+  </style>
+</head>
+<body>
+  <header class="review-bar">
+    <div class="review-heading"><div><h1>设备与权限 · 合并页方案</h1><span class="meta">静态原型 / 演示数据 / 尚未替换应用</span></div><div class="actions"><select class="state-select" id="permission-state" aria-label="权限演示状态"><option value="ready">权限已就绪</option><option value="warning">存在未授权</option></select><a id="standalone" href="device-home-a.html" target="_blank" rel="noopener">单独查看 ↗</a></div></div>
+    <div class="choices"><div class="tabs" role="tablist" aria-label="页面方案"><button class="tab" id="tab-a" role="tab" aria-selected="true" aria-controls="preview" data-option="a">A · 设备优先</button><button class="tab" id="tab-b" role="tab" aria-selected="false" aria-controls="preview" data-option="b" tabindex="-1">B · 设备与权限分栏<span class="recommend">调整版</span></button><button class="tab" id="tab-c" role="tab" aria-selected="false" aria-controls="preview" data-option="c" tabindex="-1">C · 紧凑设备清单</button></div><p class="description" id="description">设备卡片是主体，权限收在下方横条。适合作为首页。</p></div>
+  </header>
+  <main class="viewport"><iframe id="preview" title="方案 A：设备优先" src="device-home-a.html" aria-labelledby="tab-a"></iframe></main>
+  <script>
+    const descriptions={a:'设备卡片是主体，权限收在下方横条。适合作为首页。',b:'左侧并排方形设备卡，右侧保留轻量权限面板。',c:'设备采用紧凑清单，权限压成轻量横条。适合设备较多时。'};
+    const names={a:'设备优先',b:'设备与权限分栏',c:'紧凑设备清单'};
+    let selected='a';
+    function selectOption(option){selected=option;document.querySelectorAll('.tab').forEach(tab=>{const active=tab.dataset.option===option;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;});document.querySelector('#description').textContent=descriptions[option];const url=`device-home-${option}.html?permissions=${document.querySelector('#permission-state').value}`;const frame=document.querySelector('#preview');frame.src=url;frame.title=`方案 ${option.toUpperCase()}：${names[option]}`;frame.setAttribute('aria-labelledby',`tab-${option}`);document.querySelector('#standalone').href=url;}
+    document.querySelectorAll('.tab').forEach(tab=>{tab.onclick=()=>selectOption(tab.dataset.option);tab.onkeydown=event=>{const keys=['a','b','c'];let index=keys.indexOf(selected);if(event.key==='ArrowRight')index=(index+1)%3;else if(event.key==='ArrowLeft')index=(index+2)%3;else if(event.key==='Home')index=0;else if(event.key==='End')index=2;else return;event.preventDefault();selectOption(keys[index]);document.querySelector(`#tab-${keys[index]}`).focus();};});
+    document.querySelector('#permission-state').onchange=()=>selectOption(selected);
+    const requestedOption=new URLSearchParams(location.search).get('option');
+    if(Object.hasOwn(names,requestedOption))selectOption(requestedOption);
+  </script>
+</body>
+</html>

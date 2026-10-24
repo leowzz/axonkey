@@ -66,17 +66,17 @@ test('first launch and invalid saved pages open Home', () => {
   } finally { testWindow.localStorage = previousStorage }
 })
 
-test('saved pages and home scroll survive reload while the retired overview opens My Devices', () => {
+test('saved pages and home scroll survive reload while old devices and overview entries open merged home', () => {
   const previousStorage = testWindow.localStorage
   try {
     for (const activePage of ['home', 'devices', 'mapping', 'settings', 'about', 'overview']) {
       let stored = JSON.stringify({ activePage, scrollTop: { home: 500, overview: 200, devices: 80, mapping: 40 } })
       testWindow.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value } }
       const state = getStoredUiState()
-      assert.equal(state.activePage, activePage === 'overview' ? 'devices' : activePage)
+      assert.equal(state.activePage, ['overview', 'devices'].includes(activePage) ? 'home' : activePage)
       assert.equal(state.scrollTop.home, 500)
       assert.equal(state.scrollTop.overview, undefined)
-      assert.equal(state.scrollTop.devices, 80)
+      assert.equal(state.scrollTop.devices, undefined)
       assert.equal(state.scrollTop.mapping, 40)
       saveStoredUiState(state)
       assert.deepEqual(getStoredUiState(), state)

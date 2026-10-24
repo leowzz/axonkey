@@ -81,7 +81,7 @@ export type StoredUiState = {
   scrollTop: Partial<Record<AppPage, number>>
 }
 
-const appPages: readonly AppPage[] = ['home', 'devices', 'mapping', 'settings', 'about']
+const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'about']
 const settingsSections = ['startup', 'permissions', 'remote', 'mouse', 'backup'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'mouse']
 
@@ -137,7 +137,7 @@ export function getStoredUiState(): StoredUiState {
 
     return {
       sidebarCollapsed: typeof parsed.sidebarCollapsed === 'boolean' ? parsed.sidebarCollapsed : fallback.sidebarCollapsed,
-      activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : parsed.activePage === 'overview' ? 'devices' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
+      activePage: parsed.activePage === 'mappingFlow' ? 'mapping' : parsed.activePage === 'overview' || parsed.activePage === 'devices' ? 'home' : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage) ? parsed.activePage as AppPage : defaultUiState.activePage,
       selectedDeviceId: typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId) ? parsed.selectedDeviceId as DeviceId : defaultUiState.selectedDeviceId,
       activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
       selectedBehavior,
