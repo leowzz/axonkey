@@ -5,7 +5,7 @@ import { behaviorSummary, triggerLabels } from '../appConfig'
 import { mouseControlAllowsGlobal, mouseControls, mouseInputId, mouseInputIds, mouseInputParts, mouseScopesForControl } from '../deviceModel'
 import type { MouseControlId } from '../deviceModel'
 
-const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointerClick, buttonForward: ArrowUpRight, buttonBack: ArrowDownLeft, buttonRight: MousePointerClick }
+const icons = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight, buttonLeft: MousePointerClick, buttonForward: ArrowUpRight, buttonBack: ArrowDownLeft, buttonRight: MousePointerClick, buttonMiddle: MousePointerClick }
 const scopeDisplayOrder = { global: 0, left: 1, top: 2, right: 3 }
 export const mouseInputs: MappingInput[] = mouseInputIds.map((id) => {
   const { scope, control } = mouseInputParts(id)
@@ -24,7 +24,7 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
   const { scope, control: selected } = mouseInputParts(activeId)
   const part = (id: MouseControlId, label: string) => {
     const Icon = icons[id]
-    return <button type="button" className={`mouse-part mouse-part-${id}`} aria-label={`选择${mouseControls.find((item) => item.id === id)!.label}`} aria-pressed={selected.id === id} onClick={() => onSelect(mouseInputId(scope.id, id))}><Icon size={18} /><span>{label}</span></button>
+    return <button type="button" className={`mouse-part mouse-part-${id}`} aria-label={`选择${mouseControls.find((item) => item.id === id)!.label}`} aria-pressed={selected.id === id} onClick={() => onSelect(mouseInputId(scope.id, id))}>{id === 'buttonMiddle' ? <><span>滚轮</span><span>按下</span></> : <><Icon size={18} /><span>{label}</span></>}</button>
   }
   return <section className="mouse-model-section" aria-label="鼠标输入模型">
     <div className="mouse-model-title">选择输入部位</div>
@@ -37,11 +37,11 @@ export function MouseInputModel({ activeId, onSelect }: { activeId: InputId; onS
         {part('buttonForward', '前进')}
         {part('buttonBack', '后退')}
       </div>
-      <div className="mouse-wheel-map" aria-label="滚轮方向">
+      <div className="mouse-wheel-map" role="group" aria-label="滚轮操作">
         {part('up', '上')}
         <div className="mouse-wheel-center">
           {part('left', '左')}
-          <span className="mouse-wheel-label">滚轮</span>
+          {part('buttonMiddle', '滚轮按下')}
           {part('right', '右')}
         </div>
         {part('down', '下')}

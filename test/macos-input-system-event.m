@@ -394,10 +394,10 @@ static int CheckPointerEvents(void) {
             return 1;
         }
     }
-    const int buttons[] = {0, 1, 3};
-    const CGEventType downs[] = {kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown};
-    const CGEventType ups[] = {kCGEventLeftMouseUp, kCGEventRightMouseUp, kCGEventOtherMouseUp};
-    for (int i = 0; i < 3; i++) {
+    const int buttons[] = {0, 1, 2, 3, 4};
+    const CGEventType downs[] = {kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown, kCGEventOtherMouseDown, kCGEventOtherMouseDown};
+    const CGEventType ups[] = {kCGEventLeftMouseUp, kCGEventRightMouseUp, kCGEventOtherMouseUp, kCGEventOtherMouseUp, kCGEventOtherMouseUp};
+    for (int i = 0; i < 5; i++) {
         int button = buttons[i];
         int before = posted_event_count;
         if (!axonkey_macos_post_mouse_click(button) || posted_event_count != before + 2 ||
@@ -418,7 +418,7 @@ static int CheckPointerEvents(void) {
         }
     }
     int before = posted_event_count;
-    if (axonkey_macos_post_mouse_click(2) || posted_event_count != before) return 1;
+    if (axonkey_macos_post_mouse_click(5) || posted_event_count != before) return 1;
     const int moves[][2] = {{0, -20}, {0, 20}, {-20, 0}, {20, 0}};
     for (int i = 0; i < 4; i++) {
         CGEventRef probe = CGEventCreate(NULL);

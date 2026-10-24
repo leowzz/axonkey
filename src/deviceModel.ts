@@ -11,6 +11,7 @@ export const mouseControls = [
   { id: 'buttonForward', label: '鼠标前进键', kind: 'button', icon: 'center' },
   { id: 'buttonBack', label: '鼠标后退键', kind: 'button', icon: 'center' },
   { id: 'buttonRight', label: '鼠标右键', kind: 'button', icon: 'center' },
+  { id: 'buttonMiddle', label: '滚轮按下（中键）', kind: 'button', icon: 'center' },
   { id: 'up', label: '向上滚动', kind: 'wheel', icon: 'up' },
   { id: 'down', label: '向下滚动', kind: 'wheel', icon: 'down' },
   { id: 'left', label: '向左滚动', kind: 'wheel', icon: 'left' },
@@ -21,7 +22,7 @@ export type MouseControlId = typeof mouseControls[number]['id']
 export type RemoteButtonId = typeof remoteButtonIds[number]
 export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonRight' | 'mouse.global.up' | 'mouse.global.down' | 'mouse.global.left' | 'mouse.global.right'>
 export function mouseControlAllowsGlobal(control: MouseControlId) {
-  return control === 'buttonForward' || control === 'buttonBack'
+  return control === 'buttonForward' || control === 'buttonBack' || control === 'buttonMiddle'
 }
 export function mouseScopesForControl(control: MouseControlId) {
   return mouseScopes.filter((scope) => scope.id !== 'global' || mouseControlAllowsGlobal(control))

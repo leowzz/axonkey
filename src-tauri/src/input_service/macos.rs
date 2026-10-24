@@ -1281,6 +1281,7 @@ fn execute_behaviors_with_hold(
                 let code = match button {
                     MouseButton::Left => 0,
                     MouseButton::Right => 1,
+                    MouseButton::Middle => 2,
                     MouseButton::Back => 3,
                     MouseButton::Forward => 4,
                 };

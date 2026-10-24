@@ -17,6 +17,7 @@ fn canonical_button(raw: i32) -> Option<usize> {
     match raw {
         0 => Some(0),
         1 => Some(1),
+        2 => Some(4),
         3 => Some(2),
         4 => Some(3),
         _ => None,
@@ -161,10 +162,10 @@ mod tests {
     use super::canonical_button;
 
     #[test]
-    fn middle_is_ignored_and_side_buttons_keep_their_numbers() {
+    fn middle_is_supported_and_side_buttons_keep_their_numbers() {
         assert_eq!(canonical_button(0), Some(0));
         assert_eq!(canonical_button(1), Some(1));
-        assert_eq!(canonical_button(2), None);
+        assert_eq!(canonical_button(2), Some(4));
         assert_eq!(canonical_button(3), Some(2));
         assert_eq!(canonical_button(4), Some(3));
         assert_eq!(canonical_button(5), None);

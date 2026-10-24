@@ -298,6 +298,7 @@ impl NativeBehavior {
 pub(super) enum MouseButton {
     Left,
     Right,
+    Middle,
     Back,
     Forward,
 }

@@ -136,3 +136,30 @@ test('device transfer validation rejects mixed ownership and missing inputs, and
   delete missingTrigger.behaviors.voice.click
   assert.equal(parseMappingImport(missingTrigger), null)
 })
+
+test('middle button mappings retain all triggers and upgrade older mouse exports without dropping existing inputs', () => {
+  const scopes = ['global', 'top', 'left', 'right']
+  const middleIds = scopes.map(scope => `mouse.${scope}.buttonMiddle`)
+  assert.deepEqual(mouseScopesForControl('buttonMiddle').map(scope => scope.id), scopes)
+  let map = createDefaultBehaviorMap()
+  for (const id of middleIds) {
+    assert.deepEqual(map[id], {click:[], doubleClick:[], longPress:[]})
+    for (const [trigger, key] of [['click','M'], ['doubleClick','D'], ['longPress','L']]) {
+      map = updateBehaviorList(map, id, trigger, () => [createBehavior({type:'key',key})])
+    }
+  }
+  const transfer = createMappingExport(map, true, undefined, undefined, 'mouse')
+  const restored = parseMappingImport(transfer, 'mouse').behaviors
+  for (const id of middleIds) assert.deepEqual(restored[id], map[id])
+  const legacy = structuredClone(transfer)
+  for (const id of middleIds) delete legacy.behaviors[id]
+  legacy.behaviors['mouse.top.buttonLeft'].click = [createBehavior({type:'key',key:'A'})]
+  const upgraded = parseMappingImport(legacy, 'mouse').behaviors
+  assert.equal(upgraded['mouse.top.buttonLeft'].click[0].key, 'A')
+  for (const id of middleIds) assert.deepEqual(upgraded[id], {click:[], doubleClick:[], longPress:[]})
+  const incomplete = structuredClone(transfer)
+  delete incomplete.behaviors['mouse.global.buttonMiddle']
+  assert.equal(parseMappingImport(incomplete, 'mouse'), null)
+  delete legacy.behaviors['mouse.top.buttonLeft']
+  assert.equal(parseMappingImport(legacy, 'mouse'), null)
+})

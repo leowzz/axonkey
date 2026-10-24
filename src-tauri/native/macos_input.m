@@ -1385,6 +1385,7 @@ bool axonkey_macos_post_mouse_click(int button) {
             down_type = kCGEventRightMouseDown;
             up_type = kCGEventRightMouseUp;
             break;
+        case kCGMouseButtonCenter:
         case 3:
         case 4:
             down_type = kCGEventOtherMouseDown;

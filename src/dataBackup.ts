@@ -103,7 +103,11 @@ export function parseDataBackup(text: string): ParsedBackup {
     for (const item of device && root.version === 2 ? [device] : devices) {
       const keys = record(groups ? record(groups[item.id]).keys : raw.keys)
       const entries = new Map(item.inputIds.map(id => [item.id === 'mouse' ? id.replace(/^mouse\./, '') : id, id]))
-      if (root.version === 2 && [...entries.keys()].some(key => !Object.prototype.hasOwnProperty.call(keys, key))) return invalid('设备按键列表不完整')
+      // Backups made before middle-button support omit all four middle scopes.
+      const legacyMouseInputs = item.id === 'mouse' && !Object.keys(keys).some(key => key.endsWith('.buttonMiddle'))
+      if (root.version === 2 && [...entries.keys()].some(key =>
+        !(legacyMouseInputs && key.endsWith('.buttonMiddle')) && !Object.prototype.hasOwnProperty.call(keys, key),
+      )) return invalid('设备按键列表不完整')
       for (const [key, value] of Object.entries(keys)) {
         const input = entries.get(key)
         if (!input) return invalid('包含当前版本不支持的按键')

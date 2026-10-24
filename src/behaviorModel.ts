@@ -509,9 +509,14 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   if (isVersionedExport ? !validBehaviorMap : !validBehaviorMap && !validLegacyMappings) {
     return null
   }
+  // Older version-2 mouse exports predate the middle button. Only a wholly
+  // absent middle-button group is optional; partial or malformed groups fail.
+  const legacyMouseInputs = device.id === 'mouse' && isRecord(source)
+    && !Object.keys(source).some(id => id.endsWith('.buttonMiddle'))
   if (isDeviceExport && (!isRecord(source)
     || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id))
     || device.inputIds.some(id => {
+      if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
       const triggers = source[id]
       return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
     }))) return null

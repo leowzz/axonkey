@@ -120,3 +120,18 @@ test('version 1 backups split every legacy profile by device with deterministic 
   delete document.profiles[0].devices.mouse
   assert.throws(() => parseDataBackup(JSON.stringify(document)))
 })
+
+test('backups without middle-button inputs upgrade with empty mappings while incomplete new groups fail', () => {
+  const backup = createDataBackup(sampleData(), '1.0.20')
+  const middleKeys = ['global', 'top', 'left', 'right'].map(scope => `${scope}.buttonMiddle`)
+  for (const profile of backup.profiles.filter(profile => profile.deviceId === 'mouse')) {
+    for (const key of middleKeys) delete profile.keys[key]
+  }
+  const restored = parseDataBackup(JSON.stringify(backup))
+  for (const profile of restored.profiles.filter(profile => profile.deviceId === 'mouse')) {
+    for (const key of middleKeys) assert.deepEqual(profile.behaviors[`mouse.${key}`], {click:[], doubleClick:[], longPress:[]})
+  }
+  const incomplete = createDataBackup(sampleData(), '1.0.20')
+  delete incomplete.profiles.find(profile => profile.deviceId === 'mouse').keys['global.buttonMiddle']
+  assert.throws(() => parseDataBackup(JSON.stringify(incomplete)), /设备按键列表不完整/)
+})

@@ -1078,118 +1078,61 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .mouse-model-section { container-type: inline-size; width: 100%; padding-top: 20px; text-align: center; }
 .mouse-model-title { margin-bottom: 16px; color: #72859a; font-size: 11px; }
 
-/* The picker is a flat control map rather than a literal mouse drawing. */
+/* Compact side buttons beside the five wheel controls. */
 .mouse-input-model {
-  --mouse-unit: min(1px, calc(100cqw / 188));
   display: grid;
-  grid-template-columns: calc(52 * var(--mouse-unit)) minmax(0, 1fr);
-  gap: calc(8 * var(--mouse-unit));
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 8px;
   width: min(188px, 100%);
   margin: 0 auto 14px;
-  background: transparent;
 }
-
 .mouse-part {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: calc(3 * var(--mouse-unit));
+  gap: 3px;
+  min-width: 0;
   padding: 0;
   border: 1px solid #c9daeb;
+  border-radius: 8px;
   background: #f6faff;
-  color: #607e9c;
+  color: #557796;
   font: inherit;
-  font-size: calc(11 * var(--mouse-unit));
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: border-color .16s ease, background-color .16s ease, color .16s ease, box-shadow .16s ease;
+  transition: border-color .16s ease, background-color .16s ease, color .16s ease;
 }
+.mouse-part svg { width: 18px; height: 18px; stroke-width: 1.9; }
 .mouse-part:hover { border-color: #7fb5e9; background: #eaf4ff; }
 .mouse-part:focus-visible { z-index: 5; outline: 2px solid #5a9de1; outline-offset: 2px; }
+.mouse-part:active { background: #d8eaff; }
 .mouse-part[aria-pressed="true"] { border-color: #2385ee; background: #217de0; color: #fff; box-shadow: 0 4px 9px #267ee02b; }
-
-/* The two primary buttons share the top row. */
 .mouse-click-row {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: calc(8 * var(--mouse-unit));
+  gap: 8px;
 }
-.mouse-click-row .mouse-part {
-  height: calc(48 * var(--mouse-unit));
-  border: 1px solid #c9daeb;
-  border-radius: calc(8 * var(--mouse-unit));
-  background: #f6faff;
-  color: #486b8f;
-  font-size: calc(15 * var(--mouse-unit));
-  font-weight: 600;
-  box-shadow: 0 3px 10px #315a8410;
-}
-.mouse-click-row .mouse-part svg { width: calc(20 * var(--mouse-unit)); height: calc(20 * var(--mouse-unit)); stroke-width: 1.9; }
-
-/* Four wheel directions are the same square; up/down stack icon over label. */
+.mouse-click-row .mouse-part { height: 44px; font-size: 15px; }
 .mouse-wheel-map {
   display: grid;
-  grid-template-rows: repeat(3, calc(50 * var(--mouse-unit)));
-  gap: calc(6 * var(--mouse-unit));
-  justify-items: center;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(3, 48px);
+  gap: 6px;
 }
-.mouse-wheel-map .mouse-part {
-  box-sizing: border-box;
-  width: calc(50 * var(--mouse-unit));
-  height: calc(50 * var(--mouse-unit));
-  border: 1px solid #c9daeb;
-  border-radius: calc(8 * var(--mouse-unit));
-  background: #f6faff;
-  color: #557796;
-  font-size: calc(14 * var(--mouse-unit));
-  font-weight: 600;
-  box-shadow: 0 3px 10px #315a8410;
-}
-.mouse-wheel-map .mouse-part svg { width: calc(20 * var(--mouse-unit)); height: calc(20 * var(--mouse-unit)); stroke-width: 1.9; }
-.mouse-wheel-map > .mouse-part { flex-direction: column; }
+.mouse-wheel-map .mouse-part { flex-direction: column; }
+.mouse-wheel-map > .mouse-part { grid-column: 2; }
 .mouse-wheel-center {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: calc(50 * var(--mouse-unit)) auto calc(50 * var(--mouse-unit));
-  align-items: center;
-  justify-content: center;
-  gap: calc(6 * var(--mouse-unit));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
 }
-.mouse-wheel-label {
-  color: #557796;
-  font-size: calc(14 * var(--mouse-unit));
-  font-weight: 600;
-  letter-spacing: 0;
-  line-height: 1.1;
-  writing-mode: vertical-rl;
-  text-orientation: upright;
-}
-
-/* Side buttons stack like a mouse: forward above back, beside the wheel. */
-.mouse-side-buttons {
-  display: grid;
-  grid-template-rows: 1fr 1fr;
-  gap: calc(8 * var(--mouse-unit));
-}
-.mouse-side-buttons .mouse-part {
-  width: auto;
-  height: auto;
-  min-height: calc(34 * var(--mouse-unit));
-  justify-content: center;
-  border: 1px solid #d3e0ed;
-  border-radius: calc(8 * var(--mouse-unit));
-  background: #f8fbfe;
-  color: #557796;
-  font-size: calc(15 * var(--mouse-unit));
-  font-weight: 600;
-}
+.mouse-wheel-map .mouse-part-buttonMiddle { gap: 1px; font-size: 11px; line-height: 1.35; }
+.mouse-side-buttons { display: grid; grid-template-rows: repeat(2, 48px); gap: 10px; align-self: center; }
+.mouse-side-buttons .mouse-part { font-size: 12px; }
 .mouse-side-buttons .mouse-part svg { display: none; }
-.mouse-input-model .mouse-part[aria-pressed="true"] {
-  border-color: #2385ee;
-  background: #217de0;
-  color: #fff;
-  box-shadow: 0 4px 9px #267ee02b;
-}
 .mouse-model-selection { font-size: 13px; color: #30679c; }
 .mouse-control-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .mouse-control-grid button { display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; padding: 16px 6px; border: 1px solid #dce5f0; border-radius: 8px; background: #fafcfe; color: #566e86; font: inherit; font-size: 12px; cursor: pointer; }

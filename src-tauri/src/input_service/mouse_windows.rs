@@ -1,5 +1,7 @@
 pub(super) use super::super::windows::execute_mouse_behavior as execute;
-use super::{edge_width, screen_edge, ButtonTracker, ScrollAccumulator, Shared};
+use super::{
+    edge_width, screen_edge, windows_button_event, ButtonTracker, ScrollAccumulator, Shared,
+};
 use std::{
     cell::RefCell,
     ffi::c_void,
@@ -63,14 +65,6 @@ fn wheel_direction(message: usize, delta: i32, flags: u32) -> Option<usize> {
     }
 }
 
-fn xbutton_index(mouse_data: u32) -> Option<usize> {
-    match (mouse_data >> 16) as u16 {
-        1 => Some(2), // XBUTTON1: browser back
-        2 => Some(3), // XBUTTON2: browser forward
-        _ => None,
-    }
-}
-
 #[link(name = "user32")]
 extern "system" {
     fn SetWindowsHookExW(
@@ -101,18 +95,15 @@ extern "system" {
 
 unsafe extern "system" fn callback(code: i32, wparam: usize, lparam: isize) -> isize {
     let consumed = std::panic::catch_unwind(|| {
-        if code < 0
-            || lparam == 0
-            || !matches!(
-                wparam,
-                0x0200 | 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208 | 0x020A | 0x020E
-            )
-        {
+        if code < 0 || lparam == 0 {
             return false;
         }
         let event = &*(lparam as *const MouseHook);
         // Includes this application's SendInput output and other synthetic input.
-        if event.flags & 0x03 != 0 {
+        if event.flags & 0x03 != 0
+            || (!matches!(wparam, 0x0200 | 0x020A | 0x020E)
+                && windows_button_event(wparam, event.mouse_data).is_none())
+        {
             return false;
         }
         CAPTURE.with(|capture| {
@@ -139,18 +130,11 @@ fn process_mouse_event(
     event: &MouseHook,
 ) -> bool {
     let edge = monitor_edge(shared, event.point);
-    if matches!(wparam, 0x0201 | 0x0202 | 0x0204 | 0x0205 | 0x0207 | 0x0208) {
-        let button = match wparam {
-            0x0201 | 0x0202 => Some(0),
-            0x0204 | 0x0205 => Some(1),
-            0x0207 | 0x0208 => xbutton_index(event.mouse_data),
-            _ => None,
-        };
-        let Some(button) = button else { return false };
+    if let Some((button, down)) = windows_button_event(wparam, event.mouse_data) {
         return buttons.event(
             shared,
             button,
-            matches!(wparam, 0x0201 | 0x0204 | 0x0207),
+            down,
             edge,
             (event.point.x as f64, event.point.y as f64),
             Instant::now(),
@@ -245,13 +229,6 @@ pub(super) fn run(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn xbuttons_map_to_back_and_forward_inputs() {
-        assert_eq!(xbutton_index(1 << 16), Some(2));
-        assert_eq!(xbutton_index(2 << 16), Some(3));
-        assert_eq!(xbutton_index(3 << 16), None);
-    }
 
     #[test]
     fn native_wheel_axes_have_distinct_signs_and_never_reconsume_injected_events() {

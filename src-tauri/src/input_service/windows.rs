@@ -1356,6 +1356,7 @@ fn send_mouse_click(button: super::MouseButton) {
     let (down, up, mouse_data) = match button {
         super::MouseButton::Left => (0x0002, 0x0004, 0),
         super::MouseButton::Right => (0x0008, 0x0010, 0),
+        super::MouseButton::Middle => (0x0020, 0x0040, 0),
         super::MouseButton::Back => (0x0080, 0x0100, 1),
         super::MouseButton::Forward => (0x0080, 0x0100, 2),
     };
@@ -1684,6 +1685,7 @@ mod tests {
         for (button, expected) in [
             (super::super::MouseButton::Left, [(0x2, 0), (0x4, 0)]),
             (super::super::MouseButton::Right, [(0x8, 0), (0x10, 0)]),
+            (super::super::MouseButton::Middle, [(0x20, 0), (0x40, 0)]),
             (super::super::MouseButton::Back, [(0x80, 1), (0x100, 1)]),
             (super::super::MouseButton::Forward, [(0x80, 2), (0x100, 2)]),
         ] {

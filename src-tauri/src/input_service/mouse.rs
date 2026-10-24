@@ -36,31 +36,64 @@ const WHEEL_INPUTS: [[&str; 4]; 3] = [
         "mouse.right.right",
     ],
 ];
-const SIDE_BUTTON_GLOBAL: [&str; 2] = ["mouse.global.buttonBack", "mouse.global.buttonForward"];
-const BUTTON_INPUTS: [[&str; 4]; 3] = [
+// Keep the existing side-button indexes stable when adding the middle button.
+const BUTTONS: [MouseButton; 5] = [
+    MouseButton::Left,
+    MouseButton::Right,
+    MouseButton::Back,
+    MouseButton::Forward,
+    MouseButton::Middle,
+];
+const GLOBAL_BUTTON_INPUTS: [&str; 3] = [
+    "mouse.global.buttonBack",
+    "mouse.global.buttonForward",
+    "mouse.global.buttonMiddle",
+];
+const BUTTON_INPUTS: [[&str; 5]; 3] = [
     [
         "mouse.top.buttonLeft",
         "mouse.top.buttonRight",
         "mouse.top.buttonBack",
         "mouse.top.buttonForward",
+        "mouse.top.buttonMiddle",
     ],
     [
         "mouse.left.buttonLeft",
         "mouse.left.buttonRight",
         "mouse.left.buttonBack",
         "mouse.left.buttonForward",
+        "mouse.left.buttonMiddle",
     ],
     [
         "mouse.right.buttonLeft",
         "mouse.right.buttonRight",
         "mouse.right.buttonBack",
         "mouse.right.buttonForward",
+        "mouse.right.buttonMiddle",
     ],
 ];
 const DOUBLE_CLICK: Duration = Duration::from_millis(350);
 const LONG_PRESS: Duration = Duration::from_millis(600);
 const LONG_REPEAT_INITIAL: Duration = Duration::from_millis(350);
 const LONG_REPEAT_INTERVAL: Duration = Duration::from_millis(100);
+
+// Decode independently of the hook so native message IDs can be tested on
+// every host. WM_MBUTTON* and WM_XBUTTON* are distinct Windows messages.
+#[cfg(any(windows, test))]
+fn windows_button_event(message: usize, mouse_data: u32) -> Option<(usize, bool)> {
+    match message {
+        0x0201 | 0x0202 => Some((0, message == 0x0201)),
+        0x0204 | 0x0205 => Some((1, message == 0x0204)),
+        0x0207 | 0x0208 => Some((4, message == 0x0207)),
+        0x020B | 0x020C => match (mouse_data >> 16) as u16 {
+            1 => Some((2, message == 0x020B)),
+            2 => Some((3, message == 0x020B)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 fn has_actions(actions: &[NativeBehavior]) -> bool {
     actions.iter().any(NativeBehavior::enabled)
 }
@@ -212,7 +245,7 @@ impl MouseService {
                 .iter()
                 .flatten()
                 .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers))
-                || SIDE_BUTTON_GLOBAL
+                || GLOBAL_BUTTON_INPUTS
                     .iter()
                     .any(|id| settings.behaviors.get(*id).is_some_and(has_triggers)));
         self.shared.active.store(active, Ordering::Release);
@@ -395,8 +428,8 @@ impl ScrollAccumulator {
 // consume its matching up, but never swallow an up whose down passed through.
 #[derive(Default)]
 struct ButtonTracker {
-    pressed: [Option<Press>; 4],
-    pending: [Option<PendingClick>; 4],
+    pressed: [Option<Press>; BUTTONS.len()],
+    pending: [Option<PendingClick>; BUTTONS.len()],
 }
 struct Press {
     input: &'static str,
@@ -434,8 +467,8 @@ fn button_rule(
     if !config.settings.enabled || !config.settings.mouse_enabled {
         return None;
     }
-    // Left/right stay edge-only. Back/forward use an edge rule when present,
-    // otherwise inherit the global side-button mapping.
+    // Left/right stay edge-only. Back/forward/middle use an edge rule when
+    // present, otherwise inherit their global mapping.
     if button < 2 {
         let edge = edge?;
         let input = BUTTON_INPUTS[edge.scope()].get(button)?;
@@ -454,13 +487,13 @@ fn button_rule(
             }
         }
     }
-    let input = SIDE_BUTTON_GLOBAL.get(button.checked_sub(2)?)?;
+    let input = GLOBAL_BUTTON_INPUTS.get(button.checked_sub(2)?)?;
     let triggers = config.settings.behaviors.get(*input)?;
     has_triggers(triggers).then(|| (*input, triggers.clone()))
 }
 impl ButtonTracker {
     fn tick(&mut self, shared: &Shared, now: Instant) {
-        for index in 0..4 {
+        for index in 0..BUTTONS.len() {
             if let Some(press) = self.pressed[index].as_mut() {
                 if !current_job(shared, press.revision) {
                     press.repeat_active.store(false, Ordering::Release);
@@ -499,7 +532,7 @@ impl ButtonTracker {
         position: (f64, f64),
         now: Instant,
     ) -> bool {
-        if button >= 4 {
+        if button >= BUTTONS.len() {
             return false;
         }
         self.tick(shared, now);
@@ -555,12 +588,7 @@ impl ButtonTracker {
                 } else {
                     vec![NativeBehavior::Mouse {
                         enabled: true,
-                        button: match button {
-                            0 => MouseButton::Left,
-                            1 => MouseButton::Right,
-                            2 => MouseButton::Back,
-                            _ => MouseButton::Forward,
-                        },
+                        button: BUTTONS[button],
                     }]
                 };
                 if has_actions(&press.triggers.double_click) {
@@ -591,6 +619,112 @@ impl Drop for ButtonTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_middle_and_side_buttons_decode_distinct_down_up_messages() {
+        for (down, up, data, button) in [
+            (0x0201, 0x0202, 0, 0),
+            (0x0204, 0x0205, 0, 1),
+            (0x0207, 0x0208, 0, 4),
+            (0x020B, 0x020C, 1 << 16, 2),
+            (0x020B, 0x020C, 2 << 16, 3),
+        ] {
+            assert_eq!(windows_button_event(down, data), Some((button, true)));
+            assert_eq!(windows_button_event(up, data), Some((button, false)));
+        }
+        for data in [0, 3 << 16] {
+            assert_eq!(windows_button_event(0x020B, data), None);
+            assert_eq!(windows_button_event(0x020C, data), None);
+        }
+        assert_eq!(windows_button_event(0x020A, 120 << 16), None);
+    }
+
+    #[test]
+    fn middle_mapping_activates_capture_and_latches_global_or_edge_rules() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonMiddle": {"click":[{"type":"key","key":"M"}]},
+            "mouse.top.buttonMiddle": {"click":[{"type":"key","key":"T"}]},
+            "mouse.left.buttonMiddle": {"click":[{"type":"disabled"}]},
+            "mouse.right.buttonMiddle": {"click":[{"type":"key","key":"R","enabled":false}]}
+        }));
+        let service = MouseService {
+            shared: Arc::new(shared),
+            workers: Mutex::new(Vec::new()),
+        };
+        service.shared.active.store(false, Ordering::Release);
+        let settings = service
+            .shared
+            .configuration
+            .lock()
+            .unwrap()
+            .settings
+            .clone();
+        service.update_settings(&settings).unwrap();
+        assert!(service.shared.active.load(Ordering::Acquire));
+        let mut buttons = ButtonTracker::default();
+        let now = Instant::now();
+        for (edge, expected) in [
+            (None, "M"),
+            (Some(Edge::Top), "T"),
+            (Some(Edge::Right), "M"),
+        ] {
+            assert!(buttons.event(&service.shared, 4, true, edge, (50.0, 50.0), now));
+            assert!(buttons.event(&service.shared, 4, false, None, (80.0, 80.0), now));
+            assert_key(receiver.try_recv().unwrap(), expected);
+        }
+        assert!(buttons.event(&service.shared, 4, true, Some(Edge::Left), (0.0, 50.0), now));
+        assert!(buttons.event(&service.shared, 4, false, None, (50.0, 50.0), now));
+        assert!(matches!(
+            receiver.try_recv().unwrap().behaviors[0],
+            NativeBehavior::Disabled { .. }
+        ));
+        for button in [2, 3] {
+            assert!(!buttons.event(&service.shared, button, true, None, (50.0, 50.0), now));
+        }
+        let mut settings = settings;
+        settings.mouse_enabled = false;
+        service.update_settings(&settings).unwrap();
+        assert!(!service.shared.active.load(Ordering::Acquire));
+        assert!(!buttons.event(&service.shared, 4, true, None, (50.0, 50.0), now));
+    }
+
+    #[test]
+    fn middle_double_and_long_press_preserve_unmapped_taps_and_cancel_repeats() {
+        let (shared, receiver) = fixture(serde_json::json!({
+            "mouse.global.buttonMiddle": {
+                "doubleClick":[{"type":"key","key":"D"}],
+                "longPress":[{"type":"key","key":"L"}]
+            }
+        }));
+        let mut buttons = ButtonTracker::default();
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(0)));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(20)));
+        assert!(receiver.try_recv().is_err());
+        buttons.tick(&shared, at(370));
+        assert!(matches!(
+            receiver.try_recv().unwrap().behaviors[0],
+            NativeBehavior::Mouse {
+                button: MouseButton::Middle,
+                ..
+            }
+        ));
+        for (down, ms) in [(true, 500), (false, 520), (true, 650), (false, 670)] {
+            assert!(buttons.event(&shared, 4, down, None, (50.0, 50.0), at(ms)));
+        }
+        assert_key(receiver.try_recv().unwrap(), "D");
+        assert!(buttons.event(&shared, 4, true, None, (50.0, 50.0), at(1000)));
+        buttons.tick(&shared, at(1600));
+        assert_key(receiver.try_recv().unwrap(), "L");
+        buttons.tick(&shared, at(1950));
+        let repeat = receiver.try_recv().unwrap();
+        assert!(repeat.is_current(&shared));
+        assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(1960)));
+        assert!(!repeat.is_current(&shared));
+        buttons.tick(&shared, at(2500));
+        assert!(receiver.try_recv().is_err());
+    }
 
     #[test]
     fn remote_updates_preserve_queued_mouse_actions_and_own_changes_cancel_them() {
@@ -1270,7 +1404,7 @@ mod tests {
         }));
         let mut buttons = ButtonTracker::default();
         let now = Instant::now();
-        for button in 0..4 {
+        for button in 0..BUTTONS.len() {
             for edge in [None, Some(Edge::Left), Some(Edge::Right)] {
                 assert!(!buttons.event(&shared, button, true, edge, (50.0, 50.0), now));
                 buttons.tick(&shared, now + LONG_PRESS);
