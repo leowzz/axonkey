@@ -23,17 +23,23 @@ pub(crate) struct UpgradeState {
     pub operation: Mutex<()>,
 }
 
+impl Default for Snapshot {
+    fn default() -> Self {
+        Self {
+            status: "checking".into(),
+            stage: "checking".into(),
+            message: "正在检查旧版 Quarbor 驱动…".into(),
+            devices: vec![],
+            reboot_required: false,
+            log_path: None,
+        }
+    }
+}
+
 impl Default for UpgradeState {
     fn default() -> Self {
         Self {
-            snapshot: Mutex::new(Snapshot {
-                status: "checking".into(),
-                stage: "checking".into(),
-                message: "正在检查旧版 Quarbor 驱动…".into(),
-                devices: vec![],
-                reboot_required: false,
-                log_path: None,
-            }),
+            snapshot: Mutex::new(Snapshot::default()),
             gate: Arc::new(AtomicBool::new(true)),
             operation: Mutex::new(()),
         }
@@ -41,6 +47,11 @@ impl Default for UpgradeState {
 }
 
 impl UpgradeState {
+    fn begin_check(&self) {
+        self.gate.store(true, Ordering::Release);
+        *self.snapshot.lock().unwrap() = Snapshot::default();
+    }
+
     pub fn blocks_close(&self) -> bool {
         let snapshot = self.snapshot.lock().unwrap();
         matches!(snapshot.status.as_str(), "pending" | "running")
@@ -58,6 +69,35 @@ impl UpgradeState {
 pub(crate) fn get_driver_upgrade_state(app: tauri::AppHandle) -> Option<Snapshot> {
     app.try_state::<UpgradeState>()
         .map(|state| state.snapshot.lock().unwrap().clone())
+}
+
+/// Recheck on every explicit installation request, including after a dismissed
+/// failure or an earlier successful startup check. true hands off to the modal.
+#[tauri::command]
+pub(crate) async fn check_driver_upgrade_before_install(
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(move || {
+            let state = app.state::<UpgradeState>();
+            let _operation = state
+                .operation
+                .try_lock()
+                .map_err(|_| "已有驱动操作正在执行，请稍后重试。")?;
+            if state.blocks_close() {
+                return Ok(true);
+            }
+            Ok(windows::check_locked(&app))
+        })
+        .await
+        .map_err(|error| format!("驱动检查任务异常：{error}"))?
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("仅 Windows 支持驱动升级。".into())
+    }
 }
 
 #[tauri::command]
@@ -338,27 +378,38 @@ mod windows {
         crate::show_main_window(app);
     }
 
+    pub(super) fn check_locked(app: &tauri::AppHandle) -> bool {
+        let state = app.state::<UpgradeState>();
+        state.begin_check();
+        match prepare(app) {
+            Ok(Some(plan)) => {
+                state.snapshot.lock().unwrap().devices = describe(&plan);
+                state.update(
+                    "pending",
+                    "recorded",
+                    "已记录原驱动绑定设备，正在准备升级…".into(),
+                );
+                // Also reveal the modal for an otherwise hidden autostart launch.
+                crate::show_main_window(app);
+                true
+            }
+            Ok(None) => {
+                state.update("notNeeded", "checking", String::new());
+                state.gate.store(false, Ordering::Release);
+                false
+            }
+            Err(error) => {
+                fail(app, error);
+                true
+            }
+        }
+    }
+
     pub(crate) fn initialize(app: tauri::AppHandle) {
         tauri::async_runtime::spawn_blocking(move || {
             let state = app.state::<UpgradeState>();
             let _operation = state.operation.lock().unwrap();
-            match prepare(&app) {
-                Ok(Some(plan)) => {
-                    state.snapshot.lock().unwrap().devices = describe(&plan);
-                    state.update(
-                        "pending",
-                        "recorded",
-                        "已记录原驱动绑定设备，正在准备升级…".into(),
-                    );
-                    // Also reveal the modal for an otherwise hidden autostart launch.
-                    crate::show_main_window(&app);
-                }
-                Ok(None) => {
-                    state.update("notNeeded", "checking", String::new());
-                    state.gate.store(false, Ordering::Release);
-                }
-                Err(error) => fail(&app, error),
-            }
+            check_locked(&app);
         });
     }
 
@@ -498,6 +549,10 @@ mod windows {
             journal: journal_path(app)?,
             log,
         };
+        // Manual installation can trigger this flow after the input worker has
+        // already connected. Wait for it to drop the pipe before uninstalling.
+        app.state::<crate::input_service::InputService>()
+            .wait_for_driver_pause()?;
         advance(&mut plan, &mut installer)?;
         if !plan.reboot_required {
             state.update("running", "verifying", "正在确认新版驱动绑定…".into());
@@ -719,6 +774,22 @@ mod windows {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn manual_recheck_resets_terminal_results_and_pauses_input_again() {
+        let state = UpgradeState::default();
+        for previous in ["notNeeded", "dismissed", "complete", "failed"] {
+            state.update(previous, "installing", "previous attempt".into());
+            state.gate.store(false, Ordering::Release);
+            state.begin_check();
+            assert!(state.gate.load(Ordering::Acquire));
+            let snapshot = state.snapshot.lock().unwrap();
+            assert_eq!(snapshot.status, "checking");
+            assert_eq!(snapshot.stage, "checking");
+            assert!(snapshot.devices.is_empty());
+            assert!(snapshot.log_path.is_none());
+            assert!(!snapshot.reboot_required);
+        }
+    }
     #[test]
     fn only_pending_and_running_upgrades_block_native_close_and_exit() {
         let state = UpgradeState::default();

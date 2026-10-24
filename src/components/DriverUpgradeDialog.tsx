@@ -14,6 +14,29 @@ export type DriverUpgradeSnapshot = {
   logPath: string | null
 }
 
+export function useDriverUpgradeCheck() {
+  const [checking, setChecking] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const busy = useRef(false)
+  const checkBeforeInstall = async () => {
+    if (busy.current) return false
+    busy.current = true
+    setChecking(true)
+    try {
+      if (await invoke<boolean>('check_driver_upgrade_before_install')) {
+        // Restart observation after a completed startup check or dismissed error.
+        setRevision(current => current + 1)
+        return false
+      }
+      return true
+    } finally {
+      busy.current = false
+      setChecking(false)
+    }
+  }
+  return { checking, revision, checkBeforeInstall }
+}
+
 export function DriverUpgradeDialog({ state, onRetry, onClose }: {
   state: DriverUpgradeSnapshot
   onRetry: () => void

@@ -25,6 +25,7 @@ type SetupDialogProps = {
   platform: Platform
   macPermissions: MacPermissions
   state: SetupState
+  checkingInputDriver?: boolean
   onClose: () => void
   onOpenStep: (step: SetupStepId) => void
   onCompleteStep: () => void
@@ -59,7 +60,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
 const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
-export function SetupDialog({ platform, macPermissions, state, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+export function SetupDialog({ platform, macPermissions, state, checkingInputDriver = false, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   const visibleSteps = platform === 'macos'
@@ -117,6 +118,7 @@ export function SetupDialog({ platform, macPermissions, state, onClose, onOpenSt
           />
           : <DriversSetupScreen
             state={state}
+            checkingInputDriver={checkingInputDriver}
             onAction={onDriverAction}
             onProbeAudio={onProbeAudio}
             onContinue={onCompleteStep}
@@ -357,6 +359,7 @@ export function MacPermissionHelperWindow({ activePermission, permissions, onOpe
 
 type DriversSetupScreenProps = {
   state: SetupState
+  checkingInputDriver?: boolean
   onAction: (driver: DriverKind, action: DriverActionKind) => void
   onProbeAudio: () => void
   onContinue: () => void
@@ -377,9 +380,10 @@ function isDriverInstalled(state: SetupState, kind: DriverKind) {
 type DriverSetupItemProps = Pick<DriversSetupScreenProps, 'state' | 'onAction' | 'onProbeAudio' | 'onOpenSettings' | 'onOpenVendorPage'> & {
   kind: DriverKind
   disabled: boolean
+  checking?: boolean
 }
 
-function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled }: DriverSetupItemProps) {
+function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, onOpenVendorPage, disabled, checking = false }: DriverSetupItemProps) {
   const definition = driverDefinitions[kind]
   const driver = state.drivers[kind]
   const running = driver.action.status === 'running'
@@ -399,7 +403,7 @@ function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, 
     {driver.action.status === 'failed' && <div className="setup-status-panel error" aria-live="assertive"><span className="setup-status-dot" /><div><strong>{driver.action.kind === 'install' ? '安装失败，请重试。' : '卸载失败，请重试。'}</strong></div></div>}
     {kind === 'audio' && <p className="driver-setup-message">微信输入法语音输入可能压低其他媒体音量，甚至中断播放。麦克风请选择 CABLE Output；系统和应用的扬声器输出请保留真实扬声器或耳机，不要选择 CABLE Input 等虚拟设备。Axonkey 会自行向 CABLE Input 写入遥控器语音。</p>}
     <div className="driver-setup-actions">
-      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
+      {!installed && <button type="button" className="dialog-secondary" disabled={disabled || inputInstallBlocked} onClick={() => onAction(kind, 'install')}><Download size={14} /> {checking ? '正在检查旧驱动…' : running ? '等待安装器…' : kind === 'audio' ? '安装 VB-CABLE' : '安装 Quarbor 驱动'}</button>}
       {kind === 'input' && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 Quarbor 驱动'}</button>}
       {kind === 'audio' && installed && <button type="button" className="dialog-secondary danger" disabled={disabled} onClick={() => onAction(kind, 'uninstall')}><Trash2 size={14} /> {running ? '等待安装器…' : '卸载 VB-CABLE'}</button>}
       {kind === 'audio' && <button type="button" className="dialog-secondary" disabled={disabled || driver.status === 'checking'} onClick={onProbeAudio}><RotateCcw size={14} /> {driver.status === 'checking' ? '检测中' : '重新检测'}</button>}
@@ -409,8 +413,8 @@ function DriverSetupItem({ kind, state, onAction, onProbeAudio, onOpenSettings, 
   </section>
 }
 
-function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
-  const anyRunning = (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
+function DriversSetupScreen({ state, checkingInputDriver = false, onAction, onProbeAudio, onContinue, onOpenSettings, onOpenVendorPage }: DriversSetupScreenProps) {
+  const anyRunning = checkingInputDriver || (['input', 'audio'] as const).some((kind) => state.drivers[kind].action.status === 'running')
   const inputInstalled = isDriverInstalled(state, 'input')
   const restartRequired = (['input', 'audio'] as const).some((kind) => state.drivers[kind].restartRequired)
   return <div className="setup-screen drivers-setup-screen">
@@ -419,7 +423,7 @@ function DriversSetupScreen({ state, onAction, onProbeAudio, onContinue, onOpenS
     <h2 id="setup-title">一次完成两个驱动</h2>
     <p className="setup-lead">RC003 已在上一步确认连接。现在为它绑定 Quarbor Universal 键盘驱动，并按需安装 CABLE 虚拟麦克风。Quarbor 会绑定当前遥控器的 BTHLEDEVICE 父设备，不会安装全局键盘过滤器。</p>
     <div className="driver-setup-list">
-      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
+      <DriverSetupItem kind="input" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} checking={checkingInputDriver} />
       <DriverSetupItem kind="audio" state={state} onAction={onAction} onProbeAudio={onProbeAudio} onOpenSettings={onOpenSettings} onOpenVendorPage={onOpenVendorPage} disabled={anyRunning} />
     </div>
     <div className="driver-restart-notice"><RotateCcw size={16} /><div><strong>按安装结果重新连接设备或重启 Windows</strong><span>安装前必须连接并唤醒 RC003；如果设备在安装过程中断开，页面会显示具体失败原因。卸载支持离线设备，安装和卸载时会请求管理员授权，是否需要重启以安装器返回结果为准。</span></div></div>

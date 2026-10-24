@@ -141,5 +141,58 @@ test('startup waits for the modal to paint, starts once, retries failure and clo
     assert.equal(completed, 1)
     assert.equal(root.inert, false)
     assert.equal(timers.size, 0)
+    // An explicit install request must reopen observation after startup finished.
+    snapshot = { ...snapshot, status: 'pending', stage: 'recorded', rebootRequired: false }
+    await act(async () => view.update(React.createElement(module.exports.StartupDriverUpgrade, { key: 1, enabled: true, onComplete: () => completed++ })))
+    assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 1)
+    assert.doesNotMatch(text(view.toJSON()), /驱动升级已提交/)
+    await flush(frames)
+    await flush(frames)
+    assert.equal(starts, 3, 'a later manual request starts a new upgrade')
+  } finally { act(() => view?.unmount()) }
+})
+
+test('every manual install rechecks, hands legacy upgrades to the modal, and blocks double clicks or failed checks', async () => {
+  let resolveCheck
+  let rejectCheck
+  let calls = 0
+  const invoke = command => {
+    assert.equal(command, 'check_driver_upgrade_before_install')
+    calls++
+    return new Promise((resolve, reject) => { resolveCheck = resolve; rejectCheck = reject })
+  }
+  const module = { exports: {} }
+  vm.runInNewContext(source, {
+    module, exports: module.exports,
+    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? { invoke } : name === '../runtimeLogging' ? {} : require(name),
+  })
+  let guard
+  function Host() { guard = module.exports.useDriverUpgradeCheck(); return null }
+  let view
+  act(() => { view = Renderer.create(React.createElement(Host)) })
+  try {
+    let result
+    act(() => { result = guard.checkBeforeInstall() })
+    assert.equal(guard.checking, true)
+    assert.equal(await guard.checkBeforeInstall(), false)
+    assert.equal(calls, 1, 'double click must not launch another check')
+    await act(async () => resolveCheck(false))
+    assert.equal(await result, true, 'no legacy driver continues normal install')
+    assert.equal(guard.checking, false)
+    assert.equal(guard.revision, 0)
+
+    for (const revision of [1, 2]) {
+      act(() => { result = guard.checkBeforeInstall() })
+      await act(async () => resolveCheck(true))
+      assert.equal(await result, false, 'legacy migration replaces normal install')
+      assert.equal(guard.revision, revision, 'reopen the upgrade UI even after an earlier attempt')
+    }
+    act(() => { result = guard.checkBeforeInstall() })
+    const rejected = assert.rejects(result, /check failed/)
+    await act(async () => rejectCheck(new Error('check failed')))
+    await rejected
+    assert.equal(guard.checking, false)
+    assert.equal(guard.revision, 2)
+    assert.equal(calls, 4, 'explicit requests must never reuse a clear startup result')
   } finally { act(() => view?.unmount()) }
 })

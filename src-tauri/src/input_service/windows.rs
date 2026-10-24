@@ -392,6 +392,8 @@ struct Shared {
     status: Mutex<InputServiceStatus>,
     event_app: RwLock<Option<EventApp>>,
     stop: AtomicBool,
+    driver_gate: Arc<AtomicBool>,
+    driver_paused: AtomicBool,
 }
 
 pub struct InputService {
@@ -400,7 +402,7 @@ pub struct InputService {
 }
 
 impl InputService {
-    pub fn start(resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) -> Self {
+    pub fn start(resource_dir: Option<PathBuf>, driver_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
@@ -408,17 +410,19 @@ impl InputService {
             status: Mutex::new(InputServiceStatus::default()),
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
+            driver_gate,
+            driver_paused: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
         #[cfg(windows)]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir, startup_gate))
+            .spawn(move || worker_loop(worker_shared, resource_dir))
             .ok();
         #[cfg(not(windows))]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir, startup_gate))
+            .spawn(move || worker_loop(worker_shared, resource_dir))
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
@@ -453,6 +457,20 @@ impl InputService {
         self.shared
             .settings_revision
             .fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    pub fn wait_for_driver_pause(&self) -> Result<(), String> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !self.shared.driver_paused.load(Ordering::Acquire) {
+            if !self.shared.driver_gate.load(Ordering::Acquire) {
+                return Err("驱动升级尚未暂停输入服务。".into());
+            }
+            if Instant::now() >= deadline {
+                return Err("等待输入服务释放驱动连接超时，请再次尝试升级。".into());
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
         Ok(())
     }
 
@@ -548,22 +566,30 @@ impl QuarborTargetSelector {
 }
 
 #[cfg(windows)]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) {
-    // Do not open a driver pipe until migration has finished or the user has
-    // dismissed its failure. The installer must be able to replace the binding.
-    while startup_gate.load(Ordering::Acquire) && !shared.stop.load(Ordering::Relaxed) {
-        thread::sleep(Duration::from_millis(50));
-    }
-    if shared.stop.load(Ordering::Relaxed) {
-        return;
-    }
+fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
     log::info!(target: "axonkey::input", "Quarbor Universal duplex backend loaded");
     shared.status.lock().unwrap().backend_ready = true;
     let mut last_target_seen_at = None;
-    let mut target_selector = QuarborTargetSelector::new(resource_dir);
+    let mut target_selector = QuarborTargetSelector::new(resource_dir.clone());
     while !shared.stop.load(Ordering::Relaxed) {
+        if shared.driver_gate.load(Ordering::Acquire) {
+            // run_context has returned and dropped its pipe before acknowledging
+            // this pause. Support both startup migration and manual rechecks.
+            shared.status.lock().unwrap().backend_ready = false;
+            shared.driver_paused.store(true, Ordering::Release);
+            while shared.driver_gate.load(Ordering::Acquire) && !shared.stop.load(Ordering::Relaxed)
+            {
+                thread::sleep(Duration::from_millis(25));
+            }
+            shared.driver_paused.store(false, Ordering::Release);
+            target_selector = QuarborTargetSelector::new(resource_dir.clone());
+            if shared.stop.load(Ordering::Relaxed) {
+                break;
+            }
+            shared.status.lock().unwrap().backend_ready = true;
+        }
         if !wait_for_stable_target(&shared, &mut last_target_seen_at, &mut target_selector) {
-            break;
+            continue;
         }
         run_context(
             &mut QuarborContext::default(),
@@ -576,8 +602,8 @@ fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>, startup_gate:
 }
 
 #[cfg(not(windows))]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>, startup_gate: Arc<AtomicBool>) {
-    let _ = (resource_dir, startup_gate);
+fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
+    let _ = resource_dir;
     log::info!(target: "axonkey::input", "Windows input service is unavailable on this platform");
     shared.status.lock().unwrap().backend_ready = false;
     while !shared.stop.load(Ordering::Relaxed) {
@@ -592,6 +618,9 @@ fn wait_for_stable_target(
 ) -> bool {
     let mut stable_since = None;
     while !shared.stop.load(Ordering::Relaxed) {
+        if shared.driver_gate.load(Ordering::Acquire) {
+            return false;
+        }
         let now = Instant::now();
         let hardware_id = target_selector.current();
         let target_present = hardware_id.is_some();
@@ -625,6 +654,9 @@ fn run_context(
     let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
+        if shared.driver_gate.load(Ordering::Acquire) {
+            break;
+        }
         let now = Instant::now();
         if now >= next_probe {
             let device_id = target_selector.current();
@@ -1626,6 +1658,27 @@ unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn input_worker_can_pause_again_after_startup_without_opening_a_device() {
+        let gate = Arc::new(AtomicBool::new(true));
+        // No resource directory means this worker cannot select or open hardware.
+        let service = InputService::start(None, gate.clone());
+        service.wait_for_driver_pause().unwrap();
+        assert!(!service.status().backend_ready);
+        gate.store(false, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while service.shared.driver_paused.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "worker must resume");
+            thread::sleep(Duration::from_millis(5));
+        }
+        gate.store(true, Ordering::Release);
+        service.wait_for_driver_pause().unwrap();
+        assert!(!service.status().backend_ready);
+        assert!(!service.status().capture_active);
+        service.shutdown();
+    }
 
     #[cfg(windows)]
     #[test]

@@ -8,7 +8,7 @@ import appPackage from '../../package.json'
 import { adjacentProfileId, changeProfileState, applySharedProfileSwitch, profileSwitchTargets, removedProfileSwitchTriggers, removeSharedProfileSwitch } from '../profileNavigation'
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
-import { StartupDriverUpgrade } from '../components/DriverUpgradeDialog'
+import { StartupDriverUpgrade, useDriverUpgradeCheck } from '../components/DriverUpgradeDialog'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -211,6 +211,7 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(() => !isSetupComplete(loadSetupState()))
+  const driverUpgradeCheck = useDriverUpgradeCheck()
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
   const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [homeRefreshing, setHomeRefreshing] = useState(false)
@@ -1009,6 +1010,17 @@ function AppController() {
   }
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
+    if (nativeRuntime && platform === 'windows' && driver === 'input' && action === 'install') {
+      try {
+        if (!await driverUpgradeCheck.checkBeforeInstall()) return
+      } catch (error) {
+        logError('Quarbor pre-install upgrade check failed', error)
+        updateSetup((current) => finishDriverAction(current, driver, action, {
+          success: false, status: 'error', error: String(error),
+        }))
+        return
+      }
+    }
     if (platform === 'windows' && driver === 'input' && action === 'install' && setupState.device.status !== 'connected') {
       const message = setupState.device.status === 'checking'
         ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
@@ -1789,11 +1801,12 @@ function AppController() {
         onSave={commitTextInputPreset}
       />}
       {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
-      <StartupDriverUpgrade enabled={nativeRuntime && platform === 'windows'} onComplete={() => void probeSystemState(true)} />
+      <StartupDriverUpgrade key={driverUpgradeCheck.revision} enabled={nativeRuntime && platform === 'windows'} onComplete={() => void probeSystemState(true)} />
       {setupOpen && !(nativeRuntime && platform === 'windows' && setupState.currentStep === 'legacyCleanup' && !legacyStartupChecked) && <SetupDialog
         platform={platform}
         macPermissions={macPermissions}
         state={setupState}
+        checkingInputDriver={driverUpgradeCheck.checking}
         onClose={() => setSetupOpen(false)}
         onOpenStep={openSetupStep}
         onCompleteStep={completeCurrentSetupStep}

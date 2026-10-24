@@ -1432,6 +1432,7 @@ pub fn run() {
             open_log_directory,
             launch_driver_action,
             driver_upgrade::get_driver_upgrade_state,
+            driver_upgrade::check_driver_upgrade_before_install,
             driver_upgrade::start_driver_upgrade,
             driver_upgrade::dismiss_driver_upgrade,
             open_windows_settings,
