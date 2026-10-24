@@ -68,6 +68,7 @@ test('macOS battery reporting reuses the RC003 audio peripheral', () => {
   assert.match(nativeAudio, /AKBatteryServiceUUIDString = @"180F"/)
   assert.match(nativeAudio, /AKBatteryLevelUUIDString = @"2A19"/)
   assert.match(nativeAudio, /discoverServices:@\[_serviceUUID, _batteryServiceUUID\]/)
-  assert.match(nativeAudio, /readValueForCharacteristic:characteristic/)
+  assert.match(nativeAudio, /_batteryLevelCharacteristic = characteristic;\s*\[self requestBatteryLevelIfNeeded\]/)
+  assert.match(nativeAudio, /\[_peripheral readValueForCharacteristic:_batteryLevelCharacteristic\]/)
   assert.match(nativeAudio, /axonkey_macos_audio_battery_level/)
 })

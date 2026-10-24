@@ -201,7 +201,6 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
-  const [inputMappingRecovering, setInputMappingRecovering] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
@@ -1274,7 +1273,6 @@ function AppController() {
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
       const mappingRecovering = probe.platform === 'macos'
         && probe.input_backend_error === 'RC003 modifier hardware mappings could not be applied'
-      setInputMappingRecovering(mappingRecovering)
       setMacPermissions({
         inputMonitoring: probe.input_monitoring_granted === true,
         accessibility: probe.accessibility_granted === true,
@@ -1406,7 +1404,7 @@ function AppController() {
     if (homeRefreshing) return
     setHomeRefreshing(true)
     try {
-      await Promise.all([probeSystemState(false), probeAudioState()])
+      await probeSystemState(false)
     } finally {
       setHomeRefreshing(false)
     }
@@ -1601,6 +1599,7 @@ function AppController() {
     <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled && (!isMouse || mouseEnabled) ? '已保存并生效' : '已保存 · 未开启'}</span>
     {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
     <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
+      audioCalibration={selectedDeviceId === 'rc003' ? { disabled: !nativeRuntime, onOpen: () => setAudioTestOpen(true) } : undefined}
       flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
     <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
   </div>
@@ -1744,20 +1743,12 @@ function AppController() {
           systemProbeState={systemProbeState}
           permissions={macPermissions}
           inputAuthorizationStale={inputAuthorizationStale}
-          inputMappingRecovering={inputMappingRecovering}
-          inputDriver={setupState.drivers.input}
-          audioDriver={setupState.drivers.audio}
           refreshing={homeRefreshing}
-          device={setupState.device}
-          batteryLevel={displayedBatteryLevel}
-          onAdjustBattery={debugMode ? adjustPreviewBattery : undefined}
           enabled={enabled}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           onRefresh={() => void refreshHome()}
-          onTestAudio={() => setAudioTestOpen(true)}
-          onOpenStep={openSetupStep}
           onOpenDevices={() => navigateToPage('devices')}
-          onIntegrateDevices={() => setDeviceIntegrationOpen(true)}
+          onOpenSettings={() => { setSettingsSection('startup'); navigateToPage('settings') }}
           onOpenLogs={() => void openLogDirectory()}
         />}
       </main>

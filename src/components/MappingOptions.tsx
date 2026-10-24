@@ -1,4 +1,4 @@
-import { Download, MoreHorizontal, RotateCcw, Upload } from 'lucide-react'
+import { Download, MoreHorizontal, RotateCcw, SlidersHorizontal, Upload } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
 type MappingOptionsProps = {
@@ -7,9 +7,10 @@ type MappingOptionsProps = {
   onReset: () => void
   flowEditor: boolean
   onFlowEditorChange: (enabled: boolean) => void
+  audioCalibration?: { disabled: boolean; onOpen: () => void }
 }
 
-export function MappingOptions({ onImport, onExport, onReset, flowEditor, onFlowEditorChange }: MappingOptionsProps) {
+export function MappingOptions({ onImport, onExport, onReset, flowEditor, onFlowEditorChange, audioCalibration }: MappingOptionsProps) {
   const menuRef = useRef<HTMLDetailsElement>(null)
 
   useEffect(() => {
@@ -37,6 +38,10 @@ export function MappingOptions({ onImport, onExport, onReset, flowEditor, onFlow
       <button type="button" onClick={onImport}><Download size={15} /> 导入配置</button>
       <button type="button" onClick={onExport}><Upload size={15} /> 导出配置</button>
       <button type="button" onClick={onReset}><RotateCcw size={15} /> 恢复默认映射</button>
+      {audioCalibration && <button type="button" disabled={audioCalibration.disabled} title={audioCalibration.disabled ? '请在桌面应用中校准音量' : undefined} onClick={audioCalibration.disabled ? undefined : () => {
+        if (menuRef.current) menuRef.current.open = false
+        audioCalibration.onOpen()
+      }}><SlidersHorizontal size={15} /> 校准音量</button>}
       <label><input type="checkbox" checked={flowEditor} onChange={(event) => onFlowEditorChange(event.target.checked)} /> 启用新编辑器</label>
     </div>
   </details>
