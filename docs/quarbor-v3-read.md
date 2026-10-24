@@ -25,7 +25,7 @@ RC003 的 `BTHLEDEVICE` 父设备实例有独立管道：
 
 设备原始报告使用 `physical_report.data`，保留 Report ID 和设备自己的字节布局。BTHLEDEVICE 源返回的是被动厂商采集描述符，不能当作键盘描述符交给 `HidP_GetUsages`；Axonkey 按 RC003 的 Report ID 加小端 16 位 usage 槽直接解码，再将 13 个 Usage 转成按键边沿。驱动来源的遥控器动作通过 Universal 的 `keysend` / `mouse_move` 回写；Windows 鼠标服务来源的映射动作通过 `SendInput`，退出或断开前发送 `reset_input`。
 
-`keysend` 的值是 HID Usage，不是 Windows 虚拟键或扫描码。驱动来源的标准键盘和 Consumer 媒体控制通过驱动输出，支持的左键、右键、中键和移动／滚轮也通过 `keysend` / `mouse_move` 输出；驱动来源不会回退到 `SendInput`。鼠标服务来源的键盘、鼠标和滚轮动作使用 Windows `SendInput`，因此鼠标用户无需安装该驱动。驱动鼠标集合没有 XBUTTON，遥控器来源的后键／前键会返回不支持；鼠标服务来源仍可使用 Windows XBUTTON。协议没有 Unicode 文本命令，`Paste` 继续使用文本注入接口。每个驱动命令都等待 `input_result`，非零 NTSTATUS 会使当前连接失效并释放已观察的按键状态。
+`keysend` 的值是 HID Usage，不是 Windows 虚拟键或扫描码。驱动来源的标准键盘和 Consumer 媒体控制、支持的左键／右键／中键以及移动／滚轮优先通过 `keysend` / `mouse_move` 输出；驱动能力缺失或命令失败时回退到对应的 `SendInput` 实现。鼠标服务来源的键盘、鼠标和滚轮动作直接使用 Windows `SendInput`，因此鼠标用户无需安装该驱动。协议没有 Unicode 文本命令，`Paste` 继续使用文本注入接口。每个驱动命令都等待 `input_result`；失败后会触发软件回退并继续输出。
 
 ## 构建与排查
 

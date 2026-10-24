@@ -56,9 +56,16 @@ impl Default for QuarborContext {
 }
 
 #[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeyBackend {
+    Driver(super::remote_actions::HidKey),
+    Virtual(u16),
+}
+
+#[cfg(windows)]
 #[derive(Default)]
 struct RemoteKeyboard {
-    held: Vec<super::remote_actions::HidKey>,
+    held: Vec<(super::remote_actions::HidKey, KeyBackend)>,
 }
 
 #[cfg(windows)]
@@ -68,21 +75,25 @@ impl RemoteKeyboard {
         key: super::remote_actions::HidKey,
         down: bool,
         supported: bool,
-        mut emit: impl FnMut(super::remote_actions::HidKey, bool) -> std::io::Result<()>,
+        mut emit_driver: impl FnMut(super::remote_actions::HidKey, bool) -> std::io::Result<()>,
+        mut emit_virtual: impl FnMut(u16, bool) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
-        if !supported {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                format!(
-                    "Universal driver does not support HID {:#06X}/{:#06X}",
-                    key.page, key.usage
-                ),
-            ));
-        }
-        let held = self.held.iter().position(|held| *held == key);
+        let held = self.held.iter().position(|(held, _)| *held == key);
         if !down {
             if let Some(index) = held {
-                emit(self.held[index], false)?;
+                match self.held[index].1 {
+                    KeyBackend::Driver(driver_key) => {
+                        if let Err(error) = emit_driver(driver_key, false) {
+                            log::warn!(
+                                target: "axonkey::input",
+                                "Universal driver key release failed; trying SendInput fallback: {error}"
+                            );
+                            let virtual_key = virtual_key_for_hid(driver_key).ok_or(error)?;
+                            emit_virtual(virtual_key, false)?;
+                        }
+                    }
+                    KeyBackend::Virtual(virtual_key) => emit_virtual(virtual_key, false)?,
+                }
                 self.held.remove(index);
             }
             return Ok(());
@@ -90,9 +101,47 @@ impl RemoteKeyboard {
         if held.is_some() {
             return Ok(());
         }
-        emit(key, true)?;
-        self.held.push(key);
+        let backend = if supported {
+            match emit_driver(key, true) {
+                Ok(()) => KeyBackend::Driver(key),
+                Err(error) => {
+                    log::warn!(
+                        target: "axonkey::input",
+                        "Universal driver key output failed; trying SendInput fallback: {error}"
+                    );
+                    let virtual_key = virtual_key_for_hid(key).ok_or(error)?;
+                    emit_virtual(virtual_key, true)?;
+                    KeyBackend::Virtual(virtual_key)
+                }
+            }
+        } else {
+            let virtual_key = virtual_key_for_hid(key).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    format!(
+                        "No SendInput mapping for HID {:#06X}/{:#06X}",
+                        key.page, key.usage
+                    ),
+                )
+            })?;
+            emit_virtual(virtual_key, true)?;
+            KeyBackend::Virtual(virtual_key)
+        };
+        self.held.push((key, backend));
         Ok(())
+    }
+
+    fn reset(
+        &mut self,
+        mut emit_driver: impl FnMut(super::remote_actions::HidKey, bool),
+        mut emit_virtual: impl FnMut(u16, bool),
+    ) {
+        for (_, backend) in self.held.drain(..).rev() {
+            match backend {
+                KeyBackend::Driver(key) => emit_driver(key, false),
+                KeyBackend::Virtual(key) => emit_virtual(key, false),
+            }
+        }
     }
 }
 
@@ -245,6 +294,16 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
 
 #[cfg(windows)]
 fn quarbor_release_active_usages(context: &mut QuarborContext) {
+    context.keyboard.reset(
+        |key, down| {
+            if let Some(client) = context.reader.as_mut() {
+                let _ = client.send_key(key.page, key.usage, down);
+            }
+        },
+        |key, down| {
+            let _ = send_remote_virtual_key(key, down);
+        },
+    );
     context.state_epoch = context.state_epoch.wrapping_add(1);
     let active = std::mem::take(&mut context.active_usages);
     for usage in active {
@@ -635,65 +694,74 @@ fn emit_remote_output(
     match output {
         Output::CursorMove(direction, distance) => {
             let (dx, dy) = cursor_delta(direction, distance);
-            let client = context.reader.as_mut().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotConnected,
-                    "Quarbor driver unavailable for remote cursor movement",
-                )
-            })?;
-            if !client.supports_mouse_move() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "Quarbor driver does not support remote cursor movement",
-                ));
+            let driver_supported = context
+                .reader
+                .as_ref()
+                .is_some_and(|client| client.supports_mouse_move());
+            let mut sent_by_driver = false;
+            if driver_supported {
+                if let Some(client) = context.reader.as_mut() {
+                    if let Err(error) = send_driver_mouse_move(client, dx, dy, 0, 0) {
+                        log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver cursor movement failed; trying SendInput fallback: {error}"
+                        );
+                    } else {
+                        sent_by_driver = true;
+                    }
+                }
             }
-            send_driver_mouse_move(client, dx, dy, 0, 0)?;
+            if !sent_by_driver {
+                send_mouse_move(dx, dy);
+            }
         }
         Output::MouseClick(button) => {
-            if let Some(usage) = mouse_button_usage(button) {
-                let supported = context
-                    .reader
-                    .as_ref()
-                    .is_some_and(|client| client.supports_key(0x09, usage));
-                if !supported {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Unsupported,
-                        "Quarbor driver does not support remote mouse button",
-                    ));
+            let driver_supported = mouse_button_usage(button).is_some()
+                && context.reader.as_ref().is_some_and(|client| {
+                    mouse_button_usage(button).is_some_and(|usage| client.supports_key(0x09, usage))
+                });
+            let mut sent_by_driver = false;
+            if driver_supported {
+                let usage = mouse_button_usage(button).expect("driver mouse button usage");
+                if let Some(client) = context.reader.as_mut() {
+                    match client
+                        .send_key(0x09, usage, true)
+                        .and_then(|_| client.send_key(0x09, usage, false))
+                    {
+                        Ok(_) => sent_by_driver = true,
+                        Err(error) => log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver mouse button failed; trying SendInput fallback: {error}"
+                        ),
+                    }
                 }
-                let client = context.reader.as_mut().ok_or_else(|| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::NotConnected,
-                        "Quarbor driver unavailable for remote mouse button",
-                    )
-                })?;
-                client.send_key(0x09, usage, true)?;
-                client.send_key(0x09, usage, false)?;
-            } else {
-                // The Universal mouse collection exposes only left, right and
-                // middle buttons. Do not cross the source boundary by sending
-                // a driver-originated Back/Forward action through SendInput.
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "Quarbor driver does not expose XBUTTON mouse usages",
-                ));
+            }
+            if !sent_by_driver {
+                send_mouse_click(button);
             }
         }
         Output::Wheel(direction) => {
             let (wheel, pan) = driver_wheel_delta(direction);
-            let client = context.reader.as_mut().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::NotConnected,
-                    "Quarbor driver unavailable for remote wheel",
-                )
-            })?;
-            if !client.supports_mouse_move() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Unsupported,
-                    "Quarbor driver does not support remote wheel",
-                ));
+            let driver_supported = context
+                .reader
+                .as_ref()
+                .is_some_and(|client| client.supports_mouse_move());
+            let mut sent_by_driver = false;
+            if driver_supported {
+                if let Some(client) = context.reader.as_mut() {
+                    if let Err(error) = send_driver_mouse_move(client, 0, 0, wheel, pan) {
+                        log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver wheel failed; trying SendInput fallback: {error}"
+                        );
+                    } else {
+                        sent_by_driver = true;
+                    }
+                }
             }
-            send_driver_mouse_move(client, 0, 0, wheel, pan)?;
+            if !sent_by_driver {
+                send_wheel_with_axis(wheel_delta(direction), wheel_horizontal(direction));
+            }
         }
         Output::SwitchProfile(direction, wrap) => super::profile_switch::execute(direction, wrap),
         // The Universal protocol has no Unicode/text command. Keep paste as a
@@ -712,14 +780,23 @@ fn emit_remote_output(
                 .reader
                 .as_ref()
                 .is_some_and(|client| client.supports_key(key.page, key.usage));
-            context
-                .keyboard
-                .edge_with(key, down, supported, |driver_key, driver_down| {
-                    if let Some(client) = context.reader.as_mut() {
-                        client.send_key(driver_key.page, driver_key.usage, driver_down)?;
-                    }
-                    Ok(())
-                })?;
+            context.keyboard.edge_with(
+                key,
+                down,
+                supported,
+                |driver_key, driver_down| {
+                    let client = context.reader.as_mut().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotConnected,
+                            "Quarbor driver unavailable for key output",
+                        )
+                    })?;
+                    client
+                        .send_key(driver_key.page, driver_key.usage, driver_down)
+                        .map(|_| ())
+                },
+                send_remote_virtual_key,
+            )?;
         }
     }
     Ok(())
@@ -1134,6 +1211,31 @@ fn hid_key_for_virtual_key(key: u16) -> Option<super::remote_actions::HidKey> {
         _ => return None,
     };
     Some(super::remote_actions::HidKey { page, usage })
+}
+
+#[cfg(windows)]
+fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
+    (1..=255)
+        .filter(|virtual_key| !matches!(virtual_key, 0x10..=0x12))
+        .find(|virtual_key| hid_key_for_virtual_key(*virtual_key) == Some(key))
+        .or_else(|| (key.page == 7 && key.usage == 0xf1).then_some(0x08))
+}
+
+#[cfg(windows)]
+fn send_remote_virtual_key(key: u16, down: bool) -> std::io::Result<()> {
+    let mut input = virtual_key_input(key);
+    if !down {
+        unsafe {
+            input.value.keyboard.flags |= 2;
+        }
+    }
+    if send_keyboard_inputs(&[input]) == 1 {
+        return Ok(());
+    }
+    Err(std::io::Error::other(format!(
+        "SendInput virtual key {key:#04X} {} failed",
+        if down { "down" } else { "up" }
+    )))
 }
 
 /// Convert the existing key names into USB HID usages, never scan codes or
@@ -1577,7 +1679,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn remote_mouse_outputs_never_fall_back_to_send_input() {
+    fn remote_mouse_outputs_fall_back_to_send_input_when_driver_is_unavailable() {
         use super::super::remote_actions::Output;
 
         let mut context = QuarborContext::default();
@@ -1585,49 +1687,43 @@ mod tests {
         MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
         MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
 
-        assert!(emit_remote_output(&mut context, Output::Wheel(WheelDirection::Up)).is_err());
-        assert!(
-            emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37),)
-                .is_err()
-        );
-        assert!(emit_remote_output(
+        emit_remote_output(&mut context, Output::Wheel(WheelDirection::Up)).unwrap();
+        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        emit_remote_output(
             &mut context,
             Output::MouseClick(super::super::MouseButton::Left),
         )
-        .is_err());
+        .unwrap();
 
-        WHEEL_EVENTS.with(|events| assert!(events.borrow().is_empty()));
-        MOUSE_MOVES.with(|moves| assert!(moves.borrow().is_empty()));
-        MOUSE_BUTTON_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+        WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), [120]));
+        MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
+        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(*events.borrow(), [(2, 0), (4, 0)]));
     }
 
     #[cfg(windows)]
     #[test]
-    fn remote_mouse_clicks_require_the_driver_mouse_collection() {
+    fn remote_mouse_clicks_fall_back_to_send_input() {
         use super::super::remote_actions::Output;
 
         let mut context = QuarborContext::default();
         MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
-        assert!(emit_remote_output(
+        emit_remote_output(
             &mut context,
             Output::MouseClick(super::super::MouseButton::Right),
         )
-        .is_err());
-        MOUSE_BUTTON_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+        .unwrap();
+        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(*events.borrow(), [(8, 0), (16, 0)]));
     }
 
     #[cfg(windows)]
     #[test]
-    fn remote_cursor_moves_require_the_driver_mouse_collection() {
+    fn remote_cursor_moves_fall_back_to_send_input() {
         use super::super::remote_actions::Output;
 
         let mut context = QuarborContext::default();
         MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
-        assert!(
-            emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37),)
-                .is_err()
-        );
-        MOUSE_MOVES.with(|moves| assert!(moves.borrow().is_empty()));
+        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
     }
 
     #[cfg(windows)]
@@ -1832,10 +1928,16 @@ mod tests {
             actions.tick(now, |output| {
                 if let Output::Key(key, down) = output {
                     keyboard
-                        .edge_with(key, down, true, |key, down| {
-                            events.push((key, down));
-                            Ok(())
-                        })
+                        .edge_with(
+                            key,
+                            down,
+                            true,
+                            |key, down| {
+                                events.push((key, down));
+                                Ok(())
+                            },
+                            |_, _| Ok(()),
+                        )
                         .unwrap();
                 }
             });
@@ -1906,24 +2008,97 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn unsupported_keyboard_usage_fails_without_virtual_injection() {
+    fn unsupported_keyboard_usage_falls_back_to_virtual_injection() {
         let mut keyboard = RemoteKeyboard::default();
-        let mut emitted = Vec::new();
-        let error = keyboard.edge_with(
-            super::super::remote_actions::HidKey {
-                page: 7,
-                usage: 0xa5,
-            },
-            true,
-            false,
-            |key, down| {
-                emitted.push((key, down));
-                Ok(())
-            },
-        );
-        assert!(error.is_err());
-        assert!(emitted.is_empty());
+        let mut driver_emitted = Vec::new();
+        let mut virtual_emitted = Vec::new();
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 7,
+                    usage: 0x04,
+                },
+                true,
+                false,
+                |key, down| {
+                    driver_emitted.push((key, down));
+                    Ok(())
+                },
+                |key, down| {
+                    virtual_emitted.push((key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(driver_emitted.is_empty());
+        assert_eq!(virtual_emitted, [(0x41, true)]);
+        assert_eq!(keyboard.held.len(), 1);
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 7,
+                    usage: 0x04,
+                },
+                false,
+                false,
+                |key, down| {
+                    driver_emitted.push((key, down));
+                    Ok(())
+                },
+                |key, down| {
+                    virtual_emitted.push((key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(virtual_emitted, [(0x41, true), (0x41, false)]);
         assert!(keyboard.held.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_driver_key_output_falls_back_and_releases_in_the_same_backend() {
+        let key = super::super::remote_actions::HidKey {
+            page: 7,
+            usage: 0x04,
+        };
+        let mut keyboard = RemoteKeyboard::default();
+        let mut virtual_events = Vec::new();
+        keyboard
+            .edge_with(
+                key,
+                true,
+                true,
+                |_key, _down| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "closed",
+                    ))
+                },
+                |virtual_key, down| {
+                    virtual_events.push((virtual_key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        keyboard
+            .edge_with(
+                key,
+                false,
+                true,
+                |_key, _down| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "closed",
+                    ))
+                },
+                |virtual_key, down| {
+                    virtual_events.push((virtual_key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(virtual_events, [(0x41, true), (0x41, false)]);
     }
 
     #[cfg(windows)]
@@ -1938,10 +2113,16 @@ mod tests {
         let mut events = Vec::new();
         for key in chord {
             keyboard
-                .edge_with(key, true, true, |key, down| {
-                    events.push((key, down));
-                    Ok(())
-                })
+                .edge_with(
+                    key,
+                    true,
+                    true,
+                    |key, down| {
+                        events.push((key, down));
+                        Ok(())
+                    },
+                    |_, _| Ok(()),
+                )
                 .unwrap();
         }
         keyboard
@@ -1956,6 +2137,7 @@ mod tests {
                     events.push((key, down));
                     Ok(())
                 },
+                |_, _| Ok(()),
             )
             .unwrap();
         keyboard
@@ -1970,6 +2152,7 @@ mod tests {
                     events.push((key, down));
                     Ok(())
                 },
+                |_, _| Ok(()),
             )
             .unwrap();
         assert_eq!(events.len(), 4);
