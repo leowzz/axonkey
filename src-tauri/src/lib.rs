@@ -1,6 +1,6 @@
-mod devices;
 mod audio_service;
 mod backup_files;
+mod devices;
 mod driver_upgrade;
 mod input_service;
 mod legacy_driver;
@@ -10,8 +10,10 @@ mod quarbor_installer;
 mod release_update;
 
 use audio_service::{AudioService, AudioServiceStatus};
+use input_service::managed::{
+    DeviceManager, Instance as DeviceInstance, Snapshot as DeviceSnapshot,
+};
 use input_service::mouse::MouseService;
-use input_service::managed::{DeviceManager, Instance as DeviceInstance, Snapshot as DeviceSnapshot};
 use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -1049,19 +1051,29 @@ async fn list_voice_output_devices() -> Result<Vec<String>, String> {
         {
             use cpal::traits::{DeviceTrait, HostTrait};
             let host = cpal::default_host();
-            let devices = host.output_devices()
+            let devices = host
+                .output_devices()
                 .map_err(|error| format!("无法获取音频输出设备：{error}"))?;
-            devices.map(|device| {
-                device.description()
-                    .map(|description| description.name().to_string())
-                    .map_err(|error| format!("无法读取音频输出设备名称：{error}"))
-            }).collect()
+            devices
+                .map(|device| {
+                    device
+                        .description()
+                        .map(|description| description.name().to_string())
+                        .map_err(|error| format!("无法读取音频输出设备名称：{error}"))
+                })
+                .collect()
         }
         #[cfg(target_os = "macos")]
-        { Ok(vec!["MiRemoteV".to_string()]) }
+        {
+            Ok(vec!["MiRemoteV".to_string()])
+        }
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        { Err("当前系统暂不支持语音输出设备列表".to_string()) }
-    }).await.map_err(|error| format!("获取音频输出设备失败：{error}"))?
+        {
+            Err("当前系统暂不支持语音输出设备列表".to_string())
+        }
+    })
+    .await
+    .map_err(|error| format!("获取音频输出设备失败：{error}"))?
 }
 
 #[tauri::command]
@@ -1224,13 +1236,27 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn device_snapshot(manager: tauri::State<'_, DeviceManager>) -> DeviceSnapshot { manager.snapshot() }
+fn device_snapshot(manager: tauri::State<'_, DeviceManager>) -> DeviceSnapshot {
+    manager.snapshot()
+}
 
 #[tauri::command]
-fn put_device_instance(revision: u64, instance: DeviceInstance, manager: tauri::State<'_, DeviceManager>) -> Result<DeviceSnapshot, String> { manager.put(revision, instance) }
+fn put_device_instance(
+    revision: u64,
+    instance: DeviceInstance,
+    manager: tauri::State<'_, DeviceManager>,
+) -> Result<DeviceSnapshot, String> {
+    manager.put(revision, instance)
+}
 
 #[tauri::command]
-fn remove_device_instance(revision: u64, id: String, manager: tauri::State<'_, DeviceManager>) -> Result<DeviceSnapshot, String> { manager.remove(revision, &id) }
+fn remove_device_instance(
+    revision: u64,
+    id: String,
+    manager: tauri::State<'_, DeviceManager>,
+) -> Result<DeviceSnapshot, String> {
+    manager.remove(revision, &id)
+}
 
 #[tauri::command]
 fn get_cmiot_a15_recording(input_service: tauri::State<'_, InputService>) -> bool {
