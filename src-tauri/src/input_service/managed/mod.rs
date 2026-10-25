@@ -1,6 +1,8 @@
 //! Physical-device ownership and input lifetime live here, independently of the editor window.
 mod gesture;
 mod paired;
+#[cfg(target_os = "macos")]
+mod remote;
 mod report;
 use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
 use gesture::Gestures;
@@ -19,6 +21,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Emitter;
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +46,8 @@ pub struct Instance {
     pub capture: String,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
+    #[serde(default)]
+    pub legacy_profiles_migrated: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,6 +102,7 @@ struct Shared {
     stop: AtomicBool,
     enabled: AtomicBool,
     emit: Box<dyn Fn(InputEvent) + Send + Sync>,
+    legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
 }
 pub struct DeviceManager {
     shared: Arc<Shared>,
@@ -286,14 +293,37 @@ fn super_input_ids() -> &'static [&'static str] {
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
-        Self::start_with_emitter(
+        #[cfg(target_os = "macos")]
+        let ownership_app = app.clone();
+        Self::start_with_callbacks(
             path,
             Box::new(move |event| {
                 let _ = app.emit("axonkey-device-input", event);
             }),
+            Box::new(move |owned| {
+                #[cfg(target_os = "macos")]
+                {
+                    ownership_app
+                        .state::<super::InputService>()
+                        .set_managed_remote_owned(owned)
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = owned;
+                    true
+                }
+            }),
         )
     }
+    #[cfg(test)]
     fn start_with_emitter(path: PathBuf, emit: Box<dyn Fn(InputEvent) + Send + Sync>) -> Self {
+        Self::start_with_callbacks(path, emit, Box::new(|_| true))
+    }
+    fn start_with_callbacks(
+        path: PathBuf,
+        emit: Box<dyn Fn(InputEvent) + Send + Sync>,
+        legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
+    ) -> Self {
         let (store, error) = match load(&path) {
             Ok(store) => (store, None),
             Err(error) => (Store::default(), Some(error)),
@@ -311,6 +341,7 @@ impl DeviceManager {
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
             emit,
+            legacy_remote,
         });
         let worker_shared = shared.clone();
         let worker = thread::Builder::new()
@@ -339,13 +370,6 @@ impl DeviceManager {
     }
     pub fn set_enabled(&self, enabled: bool) {
         self.shared.enabled.store(enabled, Ordering::Release);
-    }
-    pub fn owns_remote(&self) -> bool {
-        self.snapshot()
-            .store
-            .instances
-            .iter()
-            .any(|i| i.kind == "rc003" && i.binding.is_some())
     }
     /// Compare-and-swap prevents a stale editor from overwriting a hardware profile switch.
     pub fn put(&self, revision: u64, mut instance: Instance) -> Result<Snapshot, String> {
@@ -433,7 +457,7 @@ impl Drop for DeviceManager {
 
 struct Reader {
     config: Instance,
-    device: HidDevice,
+    device: InputReader,
     values: BTreeMap<String, f64>,
     down: HashSet<String>,
     gestures: Gestures,
@@ -460,6 +484,57 @@ fn emit(shared: &Shared, id: &str, values: BTreeMap<String, f64>, pressed: Vec<S
         values,
         pressed,
     });
+}
+
+enum InputReader {
+    Hid(HidDevice),
+    #[cfg(target_os = "macos")]
+    Remote(remote::RemoteReader),
+}
+impl InputReader {
+    fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
+        match self {
+            Self::Hid(device) => device.read(buffer).map_err(|e| e.to_string()),
+            #[cfg(target_os = "macos")]
+            Self::Remote(device) => device.read(buffer),
+        }
+    }
+    fn state(&self, exclusive: bool) -> &str {
+        match self {
+            #[cfg(target_os = "macos")]
+            Self::Remote(device) => device.state,
+            Self::Hid(_) => {
+                if exclusive {
+                    "exclusive"
+                } else {
+                    "listening"
+                }
+            }
+        }
+    }
+}
+fn open_reader(
+    api: &HidApi,
+    path: &std::ffi::CStr,
+    instance: &Instance,
+) -> Result<InputReader, String> {
+    #[cfg(target_os = "macos")]
+    if instance.kind == "rc003" && instance.capture == "exclusive" {
+        let serial = api
+            .device_list()
+            .find(|info| info.path() == path)
+            .and_then(|info| info.serial_number())
+            .filter(|s| !s.is_empty())
+            .ok_or("此遥控器没有稳定标识，无法按实例拦截")?;
+        return remote::RemoteReader::open(serial).map(InputReader::Remote);
+    }
+    #[cfg(windows)]
+    if instance.kind == "rc003" {
+        return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
+    }
+    let device = open(api, path, instance.capture == "exclusive")?;
+    device.set_blocking_mode(false).map_err(|e| e.to_string())?;
+    Ok(InputReader::Hid(device))
 }
 
 fn open(api: &HidApi, path: &std::ffi::CStr, exclusive: bool) -> Result<HidDevice, String> {
@@ -742,6 +817,11 @@ fn run(shared: Arc<Shared>) {
             }
             keep
         });
+        // Close removed readers before returning ownership to the legacy service.
+        let owns_remote = configs
+            .iter()
+            .any(|i| i.kind == "rc003" && i.binding.is_some());
+        let remote_ready = (shared.legacy_remote)(owns_remote);
         let mut statuses = BTreeMap::new();
         for instance in &configs {
             let mut status = RuntimeStatus::default();
@@ -767,6 +847,10 @@ fn run(shared: Arc<Shared>) {
                 status.error =
                     Some("当前平台不支持此设备的独占模式，请重新绑定并选择共享监听".into());
             }
+            if status.state == "opening" && instance.kind == "rc003" && !remote_ready {
+                statuses.insert(instance.id.clone(), status);
+                continue;
+            }
             if status.state == "opening" && !readers.contains_key(&instance.id) {
                 // Retry an open error on the next scan, not on every 8 ms tick.
                 let retry = scanning
@@ -774,23 +858,7 @@ fn run(shared: Arc<Shared>) {
                         .get(&instance.id)
                         .is_some_and(|(failed, _)| failed == instance);
                 if retry {
-                    #[cfg(windows)]
-                    let opened = if instance.kind == "rc003" {
-                        Err(
-                            "Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区"
-                                .into(),
-                        )
-                    } else {
-                        open(&api, path.unwrap(), false)
-                    };
-                    #[cfg(not(windows))]
-                    let opened = open(&api, path.unwrap(), instance.capture == "exclusive");
-                    match opened.and_then(|device| {
-                        device
-                            .set_blocking_mode(false)
-                            .map(|_| device)
-                            .map_err(|e| e.to_string())
-                    }) {
+                    match open_reader(&api, path.unwrap(), instance) {
                         Ok(device) => {
                             failures.remove(&instance.id);
                             let maps = instance
@@ -895,12 +963,7 @@ fn run(shared: Arc<Shared>) {
                 }
             }
             if let Some(reader) = readers.get_mut(&instance.id) {
-                status.state = if instance.capture == "exclusive" {
-                    "exclusive"
-                } else {
-                    "listening"
-                }
-                .into();
+                status.state = reader.device.state(instance.capture == "exclusive").into();
                 let now = start.elapsed().as_millis() as u64;
                 let mut sequence = reader.gestures.tick(now, &reader.maps);
                 let mut failed = false;
@@ -996,6 +1059,8 @@ fn run(shared: Arc<Shared>) {
         }
         thread::sleep(Duration::from_millis(8));
     }
+    drop(readers);
+    (shared.legacy_remote)(false);
 }
 fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) -> bool {
     !cancel.load(Ordering::Acquire)
@@ -1071,6 +1136,7 @@ mod tests {
                 behaviors: serde_json::json!({}),
             }],
             active_profile_id: "default".into(),
+            legacy_profiles_migrated: false,
         }
     }
     #[test]
@@ -1222,6 +1288,96 @@ mod tests {
             "listing paired devices must not start input sessions"
         );
     }
+    #[test]
+    #[cfg(target_os = "macos")]
+    #[ignore = "requires a connected RC003; temporarily seizes input with empty mappings"]
+    fn connected_remote_legacy_handoff() {
+        eprintln!(
+            "native permissions: input={}, accessibility={}",
+            super::super::InputService::input_monitoring_granted(),
+            super::super::InputService::accessibility_granted()
+        );
+        let legacy = Arc::new(super::super::InputService::start());
+        thread::sleep(Duration::from_millis(500));
+        let ownership = legacy.clone();
+        let path = std::env::temp_dir().join(format!("axonkey-handoff-{}.json", unique_id()));
+        let manager = DeviceManager::start_with_callbacks(
+            path.clone(),
+            Box::new(|_| {}),
+            Box::new(move |owned| ownership.set_managed_remote_owned(owned)),
+        );
+        let snapshot = await_state(&manager, |s| !s.scanning);
+        let physical = snapshot
+            .discovered
+            .iter()
+            .find(|d| d.kind == "rc003" && d.connected)
+            .expect("Connect RC003");
+        let mut remote = instance("test-remote", &physical.id);
+        remote.kind = "rc003".into();
+        remote.capture =
+            std::env::var("AXONKEY_TEST_CAPTURE").unwrap_or_else(|_| "exclusive".into());
+        manager
+            .put(snapshot.store.revision, remote.clone())
+            .unwrap();
+        manager.set_enabled(true);
+        let opened = await_state(&manager, |s| {
+            s.runtime.get(&remote.id).is_some_and(|r| {
+                r.state == "exclusive"
+                    || r.state == "filtered"
+                    || r.state == "listening"
+                    || r.state == "error"
+            })
+        });
+        let status = &opened.runtime[&remote.id];
+        eprintln!("remote handoff: {}, error={:?}", status.state, status.error);
+        let input_seconds = std::env::var("AXONKEY_TEST_INPUT_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        let until = Instant::now() + Duration::from_secs(input_seconds);
+        while Instant::now() < until {
+            thread::sleep(Duration::from_millis(100));
+        }
+        let received = manager.snapshot();
+        eprintln!(
+            "remote reports received: {}",
+            received.runtime[&remote.id].reports
+        );
+        let mut paused = remote.clone();
+        paused.enabled = false;
+        let saved = manager.put(received.store.revision, paused).unwrap();
+        await_state(&manager, |s| s.runtime[&remote.id].state == "paused");
+        manager.put(saved.store.revision, remote.clone()).unwrap();
+        let reopened = await_state(&manager, |s| {
+            matches!(
+                s.runtime[&remote.id].state.as_str(),
+                "exclusive" | "filtered" | "listening" | "error"
+            )
+        });
+        eprintln!("remote reopened: {}", reopened.runtime[&remote.id].state);
+        manager.shutdown();
+        drop(manager);
+        drop(legacy);
+        let _ = std::fs::remove_file(path);
+        assert!(
+            matches!(
+                status.state.as_str(),
+                "exclusive" | "filtered" | "listening"
+            ),
+            "{:?}",
+            status.error
+        );
+        assert!(matches!(
+            reopened.runtime[&remote.id].state.as_str(),
+            "exclusive" | "filtered" | "listening"
+        ));
+        if input_seconds > 0 {
+            assert!(
+                received.runtime[&remote.id].reports > 0,
+                "Press the remote during the capture window"
+            );
+        }
+    }
     fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
@@ -1240,6 +1396,7 @@ mod tests {
                 stop: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
                 emit: Box::new(|_| {}),
+                legacy_remote: Box::new(|_| true),
             }),
             worker: Mutex::new(None),
         }

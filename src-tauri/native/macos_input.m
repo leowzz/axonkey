@@ -80,6 +80,7 @@ typedef struct {
 typedef struct {
     const AxonkeyCallbacks *callbacks;
     bool capture;
+    CFStringRef target_serial;
     CFMutableSetRef devices;
     CFMutableSetRef seized_devices;
     CFMutableSetRef monitored_devices;
@@ -131,7 +132,7 @@ static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
     return CFNumberGetValue((CFNumberRef)value, kCFNumberSInt64Type, result);
 }
 
-static bool axonkey_service_is_rc003(IOHIDServiceClientRef service) {
+static bool axonkey_service_is_rc003(AxonkeyInputState *state, IOHIDServiceClientRef service) {
     if (service == NULL) {
         return false;
     }
@@ -144,6 +145,25 @@ static bool axonkey_service_is_rc003(IOHIDServiceClientRef service) {
         vendor_id == 0x2717 && product_id == 0x32B8;
     if (vendor != NULL) CFRelease(vendor);
     if (product != NULL) CFRelease(product);
+    if (matches && state->target_serial != NULL) {
+        // Event services omit SerialNumber from CopyProperty on Bluetooth RC003;
+        // the same service's registry entry retains the physical identity.
+        CFTypeRef serial = IOHIDServiceClientCopyProperty(service, CFSTR(kIOHIDSerialNumberKey));
+        if (serial == NULL) {
+            uint64_t registry_id = 0;
+            if (axonkey_cf_number_get_u64(IOHIDServiceClientGetRegistryID(service), &registry_id)) {
+                io_service_t entry = IOServiceGetMatchingService(kIOMainPortDefault, IORegistryEntryIDMatching(registry_id));
+                if (entry != IO_OBJECT_NULL) {
+                    serial = IORegistryEntrySearchCFProperty(entry, kIOServicePlane,
+                        CFSTR(kIOHIDSerialNumberKey), kCFAllocatorDefault,
+                        kIORegistryIterateRecursively | kIORegistryIterateParents);
+                    IOObjectRelease(entry);
+                }
+            }
+        }
+        matches = serial != NULL && CFEqual(serial, state->target_serial);
+        if (serial != NULL) CFRelease(serial);
+    }
     return matches;
 }
 
@@ -329,7 +349,7 @@ static void axonkey_restore_modifier_mappings(AxonkeyInputState *state, bool for
                 services,
                 index
             );
-            if (!axonkey_service_is_rc003(service)) {
+            if (!axonkey_service_is_rc003(state, service)) {
                 continue;
             }
             CFTypeRef registry_id = IOHIDServiceClientGetRegistryID(service);
@@ -386,7 +406,7 @@ static void axonkey_remove_unconfigured_modifier_mappings(AxonkeyInputState *sta
             services,
             index
         );
-        if (!axonkey_service_is_rc003(service)) {
+        if (!axonkey_service_is_rc003(state, service)) {
             continue;
         }
         CFMutableArrayRef current = axonkey_copy_service_mappings(service);
@@ -441,7 +461,7 @@ static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
             services,
             index
         );
-        if (!axonkey_service_is_rc003(service)) {
+        if (!axonkey_service_is_rc003(state, service)) {
             continue;
         }
         target_count += 1;
@@ -1110,7 +1130,8 @@ int axonkey_macos_input_run(
     const AxonkeyHardwareModifierMapping *modifier_mappings,
     size_t modifier_mapping_count,
     const uint64_t *cleanup_modifier_mapping_sources,
-    size_t cleanup_modifier_mapping_source_count
+    size_t cleanup_modifier_mapping_source_count,
+    const char *target_serial
 ) {
     if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL ||
         (modifier_mapping_count > 0 && modifier_mappings == NULL) ||
@@ -1166,19 +1187,23 @@ int axonkey_macos_input_run(
         CFRelease(manager);
         return kIOReturnNoMemory;
     }
-    const void *keys[] = {CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey)};
-    const void *values[] = {vendor, product};
+    // Scope both report capture and hardware remapping to this physical remote.
+    state.target_serial = target_serial == NULL ? NULL : CFStringCreateWithCString(
+        kCFAllocatorDefault, target_serial, kCFStringEncodingUTF8);
+    const void *keys[] = {CFSTR(kIOHIDVendorIDKey), CFSTR(kIOHIDProductIDKey), CFSTR(kIOHIDSerialNumberKey)};
+    const void *values[] = {vendor, product, state.target_serial};
     CFDictionaryRef matching = CFDictionaryCreate(
         kCFAllocatorDefault,
         keys,
         values,
-        2,
+        state.target_serial == NULL ? 2 : 3,
         &kCFTypeDictionaryKeyCallBacks,
         &kCFTypeDictionaryValueCallBacks
     );
     if (vendor != NULL) CFRelease(vendor);
     if (product != NULL) CFRelease(product);
     if (matching == NULL) {
+        if (state.target_serial != NULL) CFRelease(state.target_serial);
         CFRelease(monitored_devices);
         CFRelease(seized_devices);
         CFRelease(devices);
@@ -1231,6 +1256,7 @@ int axonkey_macos_input_run(
     CFRelease(devices);
     if (state.original_modifier_mappings != NULL) CFRelease(state.original_modifier_mappings);
     if (state.event_system_client != NULL) CFRelease(state.event_system_client);
+    if (state.target_serial != NULL) CFRelease(state.target_serial);
     CFRelease(manager);
     return result;
 }

@@ -39,12 +39,12 @@ const translations: Record<string, string> = {
   'contextMenu.resetView': '重置视图',
 }
 
-type WorkflowAxonkeyProps = {
+type WorkflowAxonkeyProps<Id extends string> = {
   platform: Platform
-  button: MappingInput
+  button: MappingInput<Id>
   sequences: TriggerBehaviors
-  onRequestProfileSwitch: (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
-  onChange: (inputId: InputId, sequences: TriggerBehaviors) => void | false
+  onRequestProfileSwitch: (inputId: Id, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
+  onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
   onToolboxCategoryChange: (category: string) => void
 }
@@ -55,7 +55,7 @@ type WorkflowAction = {
   description?: string
 }
 
-export function WorkflowAxonkey({ platform, button, sequences, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps) {
+export function WorkflowAxonkey<Id extends string = InputId>({ platform, button, sequences, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps<Id>) {
   const triggers = button.triggerLabel ? [{ id: 'click' as const, label: button.triggerLabel }] : defaultWorkflowTriggers
   const inputLabel = [button.label, button.contextLabel].filter(Boolean).join(' · ')
   const workflowRef = useRef<HTMLElement>(null)

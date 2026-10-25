@@ -1241,10 +1241,7 @@ fn update_input_settings(
 ) -> Result<(), String> {
     log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
     manager.set_enabled(settings.enabled);
-    let mut remote_settings = settings.clone();
-    #[cfg(target_os = "macos")]
-    if manager.owns_remote() { remote_settings.enabled = false; }
-    input_service.update_settings(remote_settings)?;
+    input_service.update_settings(settings.clone())?;
     mouse_service.update_settings(&settings)
 }
 

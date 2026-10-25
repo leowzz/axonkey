@@ -55,7 +55,7 @@
 ### 共享监听与独占拦截
 
 - **共享监听**：读取输入并执行映射，原始输入仍可能被系统或其他应用接收。默认使用此模式。
-- **独占拦截**：macOS 使用 HID 独占打开；打开成功后才报告独占状态。此模式接管整个设备，未配置按键也不透传。停用实例释放句柄。
+- **独占拦截**：支持直接独占的设备使用 HID 独占打开，成功后才报告独占状态。RC003 在 macOS 下沿用原生事件过滤与电源键保护，系统拒绝直接独占时显示“兼容拦截中”，不把共享读取冒充拦截。未配置按键也不透传；停用实例释放句柄并恢复硬件映射。
 - 当前手柄 Windows 支持包不提供独占选项。原有键盘驱动拦截能力不能套用到手柄。
 - 单个“禁用”行为不会让共享模式自动拥有阻断能力。未来若实现按键级透传、虚拟手柄或驱动隐藏，需要独立适配和实测。
 
@@ -109,7 +109,9 @@
 }
 ```
 
-现有型号级配置与工作区保留，遥控器实例设置可显式复制旧配置。不能在升级时把不确定的旧配置自动绑定到某只实物。macOS 一旦为 RC003 建立实物绑定，旧 RC003 捕获停止，避免重复执行；解除所有 RC003 绑定后恢复旧工作区。
+现有型号级配置与工作区保留，遥控器实例设置可显式复制原配置。首次集成某型号时继承原有配置及当前选择，保持配置顺序；已有首个实例若仍是未编辑的“默认配置”占位，则恢复原配置。已有映射、改名或多个配置的实例不覆盖，后续同型号实例不自动继承。`legacyProfilesMigrated` 记录一次性迁移，清空配置后不会再次导入。迁移只复制配置，不推断或更换实物绑定。
+
+macOS 一旦为 RC003 建立实物绑定，旧 RC003 服务必须关闭 IOHIDManager 及设备句柄后，新实例才能打开监听；只设置旧映射 `enabled=false` 不会释放句柄。解除所有 RC003 绑定后才交还旧服务。RC003 的原生事件监听和硬件映射均按序列号限定实物；IOHIDServiceClient 未提供 SerialNumber 时，通过该服务的 IORegistry 条目读取。
 
 浏览器使用独立预览存储 `axonkey.device-instances.preview.v1`，没有真实发现或监听，不与原生绑定混用。现有设置页的 v2 数据备份仍只覆盖原型号级配置；新实例文件目前需单独保存，后续统一备份应加入实例配置并在恢复时要求确认绑定，不能直接抢占另一台电脑的同型号设备。
 
@@ -149,7 +151,9 @@
 
 实现时优先复用并扩展 `src/components/WorkflowAxonkey.tsx` 及配套泳道、行为库组件，使单泳道和多泳道共享拖拽、动作编辑、序列操作与保存逻辑。单泳道是拖拽编辑器的布局变体，不以简化的动作表单或列表代替。
 
-以上是新设备接入及后续工作区调整的目标规范。当前 `src/devices/integration/InstanceBehaviorEditor.tsx` 仍是通过触发按钮切换的动作列表，尚未完成这里要求的“单泳道拖拽编辑＋右侧行为库”；有触发切换按钮不代表已完成该布局。
+RC003 实例工作区直接复用 `WorkflowAxonkey` 的单击、双击、长按三泳道，以及 `ProfileManager`、`DeviceWorkspaceHeader`。设备断线、重连或变更运行状态不切换编辑器。每次编辑以实例和配置 ID 定位，切换配置行为的覆盖确认也限定在当前实例。
+
+手柄当前仍使用 `InstanceBehaviorEditor.tsx` 的触发按钮和动作列表；本次遥控器回归修复保留该布局，后续再实现这里要求的“单泳道拖拽编辑＋右侧行为库”。
 
 ## 当前手柄支持范围
 
@@ -204,3 +208,20 @@ node --test test/managed-device-discovery.test.mjs
 - Windows 配对查询模块通过 `x86_64-pc-windows-msvc` 独立类型检查，尚未进行 Windows 实机配对/取消配对验收。系统没有提供 VID/PID 的配对记录不会按名字归类。
 
 Windows API 依据：[已配对设备选择器](https://learn.microsoft.com/en-us/uwp/api/windows.devices.bluetooth.bluetoothdevice.getdeviceselectorfrompairingstate)、[蓝牙设备厂商标识](https://learn.microsoft.com/en-us/windows/win32/properties/props-system-deviceinterface-bluetooth-vendorid)。
+
+### 遥控器重连与工作区恢复
+
+- `npm run build` 通过；原生输入回归 93 项通过，前端与 macOS 适配回归 42 项通过。
+
+- 复现 macOS RC003 直接独占打开返回 `0xE00002C1`，共享读取正常。接回原生兼容拦截后，实机打开成功；一分钟内收到 55 份真实报告，暂停后恢复监听成功。
+- 临时硬件验证使用空映射，不向系统注入动作；实际动作输出及多只 RC003 同时输入仍需单独实机验证。
+- 遥控器恢复三泳道与原配置菜单，浏览器验证复制配置保留序列、新建配置为空，以及 980×680 无横向溢出。手柄布局保持原状。
+- 一次性旧配置迁移、同型号实例与配置隔离、配置切换行为的共享增删由 `test/instance-profiles.test.mjs` 验证。
+
+```sh
+node --test test/instance-profiles.test.mjs test/managed-device-discovery.test.mjs test/workflow-persistence.test.mjs test/profile-switch.test.mjs
+# 连接 RC003，检查原生句柄交接、兼容拦截与暂停/恢复；不会更改用户配置。
+cargo test --manifest-path src-tauri/Cargo.toml --lib connected_remote_legacy_handoff -- --ignored --nocapture
+# 可选：在一分钟窗口内操作遥控器，核对真实输入报告。
+AXONKEY_TEST_INPUT_SECONDS=60 cargo test --manifest-path src-tauri/Cargo.toml --lib connected_remote_legacy_handoff -- --ignored --nocapture
+```

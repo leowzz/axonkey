@@ -1,18 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { listen } from '@tauri-apps/api/event'
-import { ArrowLeft, ChevronRight, Plus, RefreshCw, Settings2, X } from 'lucide-react'
+import { ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
 import type { MacPermissions, Platform } from '../../appTypes'
-import type { TriggerBehaviors, ButtonId } from '../../behaviorModel'
 import type { DeviceId } from '../../deviceModel'
-import { RemoteControl } from '../../components/RemoteControl'
-import { InstanceBehaviorEditor } from './InstanceBehaviorEditor'
+import { InstanceWorkspace } from './InstanceWorkspace'
+import { migrateLegacyProfiles } from './instanceProfiles'
 import { DeviceBindingPicker, InputModePicker } from './IntegrationControls'
 import { SettingsHelp } from '../../components/SettingsHelp'
-import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
-import { xiaomiRemoteView } from '../xiaomi-remote/view'
-import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
-import { emptyTriggers, instanceStatusLabel, newInstance, packageFor, supportPackages } from './model'
+import { instanceStatusLabel, newInstance, packageFor, supportPackages } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
@@ -21,6 +16,7 @@ type Props = {
   controller: DeviceController; native: boolean; platform: Platform; permissions: MacPermissions
   onBrandClick: () => void; onPermissions: () => void; onDriver: () => void; onLegacy: (id: DeviceId) => void
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
+  legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 export function DeviceHub(props: Props) {
@@ -31,7 +27,7 @@ export function DeviceHub(props: Props) {
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
   const banner = <>{!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}{(error || snapshot.error || snapshot.scanError) && <p className="managed-error" role="alert">{error || snapshot.error || snapshot.scanError}</p>}</>
-  return <section className={`managed-hub ${instance ? 'has-workspace' : ''}`}>
+  return <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
     {banner}
     {instance ? <InstanceWorkspace key={instance.id} {...props} instance={instance} onBack={() => setSelected(null)} onBind={() => setIntegration({ kind: instance.kind, instance })} /> : <>
       <header className="my-devices-heading"><div className="my-devices-heading-main"><button className="my-devices-brand" aria-label="Axonkey" title="Axonkey" onClick={props.onBrandClick}><img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />Axonkey</button><h1>我的设备</h1></div><button className="my-devices-integrate" onClick={() => setIntegration({})}><Plus size={16} />手动添加设备</button></header>
@@ -49,7 +45,7 @@ export function DeviceHub(props: Props) {
 function DeviceCard({ kind, title, subtitle, status, profile, onClick }: { kind: DeviceKind; title: string; subtitle: string; status: string; profile?: string; onClick: () => void }) {
   return <button className="my-devices-card" onClick={onClick}><div className="my-devices-card-main"><span className="my-devices-artwork"><img src={packageFor(kind).artwork} alt="" /></span><span className="my-devices-identity"><strong>{title}</strong><span className="my-devices-count">{subtitle}</span></span></div><span className="my-devices-summary"><span className="my-devices-status"><i className="my-devices-status-dot" />{status}</span><span className="my-devices-profile">{profile ? <>当前配置<strong>{profile}</strong></> : <ChevronRight size={15} aria-hidden="true" />}</span></span></button>
 }
-function IntegrationDialog({ initial, controller, native, platform, permissions, onPermissions, onDriver, onClose, onComplete }: Props & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
+function IntegrationDialog({ initial, controller, native, platform, permissions, onPermissions, onDriver, legacyProfiles, legacyActiveProfileId, onClose, onComplete }: Props & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
   const [kind, setKind] = useState(initial.kind)
   const [name, setName] = useState(initial.instance?.name ?? (initial.kind ? packageFor(initial.kind).name : ''))
   const [binding, setBinding] = useState(initial.device?.id ?? initial.instance?.binding ?? '')
@@ -67,7 +63,8 @@ function IntegrationDialog({ initial, controller, native, platform, permissions,
   async function integrate() {
     if (!kind) return
     try {
-      const instance = { ...(initial.instance ?? newInstance(kind, null)), name: name.trim(), binding: binding || null, capture }
+      const base = initial.instance ?? migrateLegacyProfiles(newInstance(kind, null), controller.snapshot.store.instances.some(i => i.kind === kind) ? [] : legacyProfiles(kind), legacyActiveProfileId?.(kind))
+      const instance = { ...base, name: name.trim(), binding: binding || null, capture }
       const result = await controller.put(instance)
       const saved = instance.id ? result.store.instances.find(i => i.id === instance.id) : result.store.instances[result.store.instances.length - 1]
       if (saved) onComplete(saved.id)
@@ -108,44 +105,4 @@ function IntegrationDialog({ initial, controller, native, platform, permissions,
       <footer className="managed-dialog-footer"><button onClick={onClose}>取消</button>{kind && <button className="managed-primary" disabled={!name.trim() || controller.busy || device?.identityQuality === 'ambiguous' || Boolean(binding && !device)} onClick={() => void integrate()}>{!native ? '保存预览' : initial.instance ? '保存' : binding ? '集成设备' : '添加设备'}</button>}</footer>
     </section>
   </div>
-}
-function InstanceWorkspace({ instance, controller, native, platform, permissions, onPermissions, legacyProfiles, onBack, onBind }: Props & { instance: DeviceInstance; onBack: () => void; onBind: () => void }) {
-  const pkg = packageFor(instance.kind)
-  const [selected, setSelected] = useState(pkg.inputs[0].id as string)
-  const [settings, setSettings] = useState(false)
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
-  const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
-  const selectedInput = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
-  const status = controller.snapshot.runtime[instance.id]
-  useEffect(() => {
-    if (!native) return
-    let alive = true
-    const listener = listen<{ instanceId: string; pressed: string[]; values: Record<string, number> }>('axonkey-device-input', event => { if (alive && event.payload.instanceId === instance.id) setInput(event.payload) })
-    return () => { alive = false; void listener.then(unlisten => unlisten()) }
-  }, [native, instance.id])
-  useEffect(() => { setInput({ pressed: [], values: {} }) }, [instance.enabled, instance.activeProfileId, status?.state])
-  const update = (change: (item: DeviceInstance) => DeviceInstance) => { void controller.update(instance.id, change).catch(() => {}) }
-  const changeSequence = (id: string, sequences: TriggerBehaviors) => update(item => ({ ...item, profiles: item.profiles.map(p => p.id === profile.id ? { ...p, behaviors: { ...p.behaviors, [id]: sequences } } : p) }))
-  const mapped = Object.keys(profile.behaviors).filter(id => Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)))
-  return <>
-    <header className="managed-workspace-header"><button className="managed-back" onClick={onBack}><ArrowLeft size={16} />我的设备</button><strong>{instance.name}</strong><span className="managed-caption">实例 {instance.id.slice(-6)}</span><div className="managed-workspace-actions"><label>配置 <select aria-label="当前设备配置" value={instance.activeProfileId} onChange={e => { const activeProfileId = e.target.value; update(item => ({ ...item, activeProfileId })) }}>{instance.profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button aria-label="新增设备配置" onClick={() => update(item => { const id = crypto.randomUUID(); return { ...item, activeProfileId: id, profiles: [...item.profiles, { id, name: `配置 ${item.profiles.length + 1}`, behaviors: {} }] } })}><Plus size={15} /></button><button aria-label="设备实例设置" aria-pressed={settings} onClick={() => setSettings(v => !v)}><Settings2 size={16} /></button></div></header>
-    <div className="managed-status"><span>{native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}</span><label><input type="checkbox" checked={instance.enabled} onChange={e => { const enabled = e.target.checked; update(item => ({ ...item, enabled })) }} />启用此设备</label><span>{native ? `已收到 ${status?.reports ?? 0} 份报告` : '真实输入需桌面应用'}</span><button onClick={onBind}>{instance.binding ? '重新绑定' : '绑定设备'}</button></div>
-    {status?.error && <p role="alert" className="managed-error">{status.error}</p>}
-    {native && platform === 'macos' && !permissions.accessibility && <p className="managed-notice">执行映射需要辅助功能权限。<button onClick={onPermissions}>前往授权</button></p>}
-    {settings ? <div className="managed-instance-settings"><div className="settings-form-fields">
-      <label className="settings-form-row"><span className="settings-form-label">实例名称：</span><input key={instance.name} defaultValue={instance.name} maxLength={60} onBlur={e => { const name = e.target.value.trim(); if (name && name !== instance.name) update(item => ({ ...item, name })) }} /></label>
-      <label className="settings-form-row"><span className="settings-form-label">配置名称：</span><input key={profile.id + profile.name} defaultValue={profile.name} maxLength={60} onBlur={e => { const name = e.target.value.trim(); if (name) update(item => ({ ...item, profiles: item.profiles.map(p => p.id === profile.id ? { ...p, name } : p) })) }} /></label>
-      <div className="settings-form-row"><span className="settings-form-label">输入模式：</span><div className="settings-form-control"><span>{instance.capture === 'shared' ? '共享监听' : '独占拦截整个设备'}</span><SettingsHelp id="managed-input-mode" label="输入模式">共享监听不会阻止原始输入；独占模式阻止整个设备的原始输入。重新绑定时可调整。</SettingsHelp></div></div>
-      <div className="settings-form-row"><span className="settings-form-label">配置管理：</span><div className="settings-form-control"><button disabled={instance.profiles.length <= 1} onClick={() => update(item => { const profiles = item.profiles.filter(p => p.id !== profile.id); return { ...item, profiles, activeProfileId: profiles[0].id } })}>删除当前配置</button>{instance.kind !== 'xboxBluetooth' && <button onClick={() => update(item => { const copied = legacyProfiles(item.kind).map(p => ({ ...p, id: crypto.randomUUID(), name: `${p.name}（旧配置）` })); return copied.length ? { ...item, profiles: [...item.profiles, ...copied], activeProfileId: copied[0].id } : item })}>复制旧版配置</button>}</div></div>
-      <div className="settings-form-row"><span className="settings-form-label">物理设备：</span><div className="settings-form-control"><button disabled={!instance.binding} onClick={() => update(item => ({ ...item, binding: null }))}>解除绑定，保留配置</button></div></div>
-    </div><div className="managed-remove">{confirmRemove ? <><span>移除此实例及其全部配置？</span><button onClick={() => void controller.remove(instance.id).then(onBack).catch(() => {})}>确认移除</button><button onClick={() => setConfirmRemove(false)}>取消</button></> : <button onClick={() => setConfirmRemove(true)}>移除设备实例</button>}</div></div> : <div className={`managed-editor ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}>
-      <aside className="managed-diagram-panel">{instance.kind === 'xboxBluetooth' ? <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={setSelected} /> : <RemoteControl buttons={[...pkg.inputs] as { id: ButtonId; label: string }[]} activeId={selected as ButtonId} pressedId={(input.pressed[0] ?? null) as ButtonId | null} mappedIds={mapped as ButtonId[]} onSelect={setSelected} remoteView={instance.kind === 'rc003' ? xiaomiRemoteView : cmiotA15RemoteDevice.remoteView} />}
-        <p className="managed-diagram-hint">点击图中按键编辑 · 绿色表示实际输入</p>
-        {instance.kind === 'xboxBluetooth' && <div className="managed-analog"><label>LT <meter min={0} max={1} value={input.values['xbox.lt'] ?? 0} /></label><label>RT <meter min={0} max={1} value={input.values['xbox.rt'] ?? 0} /></label><SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">摇杆方向与扳机超过 55% 时触发，低于 35% 时释放。支持单击、双击和长按；当前输出为动作序列，不模拟虚拟手柄轴。</SettingsHelp></div>}
-        {selected === 'xbox.guide' && <p className="managed-diagram-hint">主键是否上报取决于固件和系统；按下后观察绿色反馈。</p>}
-      </aside>
-      <div className="managed-flow"><InstanceBehaviorEditor key={profile.id + selected} platform={platform} button={{ ...selectedInput, id: selected, originalDescription: instance.capture === 'shared' ? '原始输入仍会发送给其他应用' : '独占模式下未配置的按键也会被拦截' }} sequences={profile.behaviors[selected] ?? emptyTriggers()} onChange={sequences => changeSequence(selected, sequences)} /></div>
-    </div>}
-  </>
 }

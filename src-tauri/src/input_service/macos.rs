@@ -30,7 +30,7 @@ const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
 const HID_FUNCTION_USAGE: u64 = 0x0000_00ff_0000_0003;
 // Neutralize Power before loginwindow sees it; Quartz filtering is too late
 // for the system sleep/shutdown path. Raw HID reports still drive our gestures.
-const POWER_KEY_GUARD: HardwareModifierMapping = HardwareModifierMapping {
+pub(super) const POWER_KEY_GUARD: HardwareModifierMapping = HardwareModifierMapping {
     source: HID_KEYBOARD_USAGE_PAGE | 0x66,
     destination: HID_KEYBOARD_USAGE_PAGE | 0x6f, // F20 (macOS keycode 90)
 };
@@ -52,27 +52,28 @@ type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
 
 #[repr(C)]
-struct NativeCallbacks {
-    context: *mut c_void,
-    should_stop: StopCallback,
-    on_event: EventCallback,
+pub(super) struct NativeCallbacks {
+    pub(super) context: *mut c_void,
+    pub(super) should_stop: StopCallback,
+    pub(super) on_event: EventCallback,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct HardwareModifierMapping {
+pub(super) struct HardwareModifierMapping {
     source: u64,
     destination: u64,
 }
 
 extern "C" {
-    fn axonkey_macos_input_run(
+    pub(super) fn axonkey_macos_input_run(
         callbacks: *const NativeCallbacks,
         capture: bool,
         modifier_mappings: *const HardwareModifierMapping,
         modifier_mapping_count: usize,
         cleanup_modifier_mapping_sources: *const u64,
         cleanup_modifier_mapping_source_count: usize,
+        target_serial: *const std::ffi::c_char,
     ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
@@ -94,12 +95,32 @@ extern "C" {
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
 
+#[derive(Default)]
+struct RemoteOwnership {
+    managed: bool,
+    backend_active: bool,
+}
+impl RemoteOwnership {
+    fn request_managed(&mut self, owned: bool) -> bool {
+        self.managed = owned;
+        !self.backend_active
+    }
+    fn begin_legacy(&mut self) -> bool {
+        if self.managed {
+            return false;
+        }
+        self.backend_active = true;
+        true
+    }
+}
+
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
     event_app: RwLock<Option<tauri::AppHandle>>,
     stop: AtomicBool,
     restart: AtomicBool,
+    remote_ownership: Mutex<RemoteOwnership>,
 }
 
 pub struct InputService {
@@ -116,6 +137,7 @@ impl InputService {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
@@ -130,6 +152,16 @@ impl InputService {
             shared,
             worker: Mutex::new(worker),
         }
+    }
+
+    /// A disabled mapper still owns IOHIDManager handles. Wait for the native
+    /// run loop to close them before the instance service opens this remote.
+    pub fn set_managed_remote_owned(&self, owned: bool) -> bool {
+        self.shared
+            .remote_ownership
+            .lock()
+            .unwrap()
+            .request_managed(owned)
     }
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
@@ -309,6 +341,10 @@ struct WorkerContext {
 fn worker_loop(shared: Arc<Shared>) {
     while !shared.stop.load(Ordering::Acquire) {
         shared.restart.store(false, Ordering::Release);
+        if !shared.remote_ownership.lock().unwrap().begin_legacy() {
+            thread::sleep(Duration::from_millis(20));
+            continue;
+        }
         let capture = desired_capture(&shared);
         if let Ok(mut status) = shared.status.lock() {
             prepare_backend_attempt(&mut status, permission_error(&shared));
@@ -351,6 +387,7 @@ fn worker_loop(shared: Arc<Shared>) {
                 hardware_modifier_mappings.len(),
                 cleanup_modifier_mapping_sources.as_ptr(),
                 cleanup_modifier_mapping_sources.len(),
+                std::ptr::null(),
             )
         };
         if result != 0 {
@@ -367,6 +404,8 @@ fn worker_loop(shared: Arc<Shared>) {
                 }
             }
         }
+        // axonkey_macos_input_run has now closed all native HID handles.
+        shared.remote_ownership.lock().unwrap().backend_active = false;
         if !shared.stop.load(Ordering::Acquire) && !shared.restart.load(Ordering::Acquire) {
             let retry_ms = shared
                 .status
@@ -389,7 +428,9 @@ unsafe extern "C" fn should_stop_callback(context: *mut c_void) -> bool {
         return true;
     }
     let context = &mut *(context.cast::<WorkerContext>());
-    if context.shared.stop.load(Ordering::Acquire) || context.shared.restart.load(Ordering::Acquire)
+    if context.shared.stop.load(Ordering::Acquire)
+        || context.shared.restart.load(Ordering::Acquire)
+        || context.shared.remote_ownership.lock().unwrap().managed
     {
         return true;
     }
@@ -1559,6 +1600,30 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn managed_remote_waits_for_native_handles_and_releases_ownership() {
+        let mut ownership = super::RemoteOwnership::default();
+        assert!(ownership.begin_legacy());
+        assert!(
+            !ownership.request_managed(true),
+            "do not open while legacy handles exist"
+        );
+        assert!(
+            !ownership.begin_legacy(),
+            "legacy must not reopen during handoff"
+        );
+        ownership.backend_active = false;
+        assert!(ownership.request_managed(true));
+        assert!(
+            !ownership.begin_legacy(),
+            "disabled mappings still reserve ownership"
+        );
+        assert!(ownership.request_managed(false));
+        assert!(
+            ownership.begin_legacy(),
+            "unbinding restores the legacy backend"
+        );
+    }
     use super::*;
 
     #[test]
@@ -1580,6 +1645,7 @@ mod tests {
                 event_app: RwLock::new(None),
                 stop: AtomicBool::new(false),
                 restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
             }),
             worker: Mutex::new(None),
         };
@@ -1715,6 +1781,7 @@ mod tests {
                 event_app: RwLock::new(None),
                 stop: AtomicBool::new(false),
                 restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
             };
             let source = source_for_usage(0x52).unwrap();
             let mut state = MacInputState::default();
@@ -1779,6 +1846,7 @@ mod tests {
                 event_app: RwLock::new(None),
                 stop: AtomicBool::new(false),
                 restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
             };
             let source = source_for_usage(0x52).unwrap();
             let mut state = MacInputState::default();
@@ -1841,6 +1909,7 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
         };
         let source = source_for_usage(0x52).unwrap();
         let mut state = MacInputState::default();
@@ -2137,6 +2206,7 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
         };
         let mut state = MacInputState::default();
         TEST_WHEELS.with(|events| events.borrow_mut().clear());
@@ -2366,6 +2436,7 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
         });
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),

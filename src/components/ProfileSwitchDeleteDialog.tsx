@@ -5,7 +5,7 @@ import type { TriggerType } from '../behaviorModel'
 import { triggerLabels } from '../appConfig'
 
 export function ProfileSwitchDeleteDialog({ button, targets, onCancel, onConfirm }: {
-  button: MappingInput
+  button: MappingInput<string>
   targets: { trigger: TriggerType; profiles: { id: string; name: string }[] }[]
   onCancel: () => void
   onConfirm: () => void

@@ -141,7 +141,6 @@ type PendingProfileImport = ImportedMapping & {
 function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const deviceInstances = useDeviceInstances(nativeRuntime)
-  const managedRemoteBindings = deviceInstances.snapshot.store.instances.filter(i => i.kind === 'rc003' && i.binding).length
   const [initialUiState] = useState<StoredUiState>(() => {
     const stored = getStoredUiState()
     const device = devices.find((item) => item.id === stored.selectedDeviceId) ?? devices[0]
@@ -539,7 +538,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [managedRemoteBindings, showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
+  }, [showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
 
   useEffect(() => {
     const persistedProfiles = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
@@ -1747,6 +1746,7 @@ function AppController() {
             onPermissions={() => { setSettingsSection('permissions'); navigateToPage('settings') }}
             onDriver={() => openSetupStep('inputDriver')}
             onLegacy={deviceId => { setSelectedDeviceId(deviceId); const device = devices.find(d => d.id === deviceId)!; selectBehaviorTarget(device.inputIds[0], 'click', false); navigateToPage('mapping') }}
+            legacyActiveProfileId={kind => activeProfileIds[kind as DeviceId]}
             legacyProfiles={kind => profiles.filter(p => p.deviceId === kind).map(p => ({ id: p.id, name: p.name, behaviors: Object.fromEntries(devices.find(d => d.id === kind)!.inputIds.map(id => [id, p.id === activeProfileIds[kind as DeviceId] ? behaviors[id] : p.behaviors[id]])) }))}
           />}
           nativeRuntime={nativeRuntime}

@@ -1,0 +1,108 @@
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { listen } from '@tauri-apps/api/event'
+import type { MacPermissions, MappingInput, Platform } from '../../appTypes'
+import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
+import { removedProfileSwitchTriggers } from '../../profileNavigation'
+import { RemoteControl } from '../../components/RemoteControl'
+import { ProfileManager } from '../../components/ProfileManager'
+import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
+import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
+import { SettingsHelp } from '../../components/SettingsHelp'
+import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
+import { InstanceBehaviorEditor } from './InstanceBehaviorEditor'
+import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
+import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
+import { xiaomiRemoteView } from '../xiaomi-remote/view'
+import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
+import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
+import type { DeviceInstance, DeviceKind, InstanceProfile } from './model'
+import type { DeviceController } from './useDeviceInstances'
+import { addInstanceProfile, applyInstanceProfileSwitch, migrateLegacyProfiles, removeInstanceProfileSwitch, updateInstanceSequence } from './instanceProfiles'
+
+type Props = {
+  instance: DeviceInstance; controller: DeviceController; native: boolean; platform: Platform; permissions: MacPermissions
+  legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
+  onPermissions: () => void; legacyProfiles: (kind: DeviceKind) => InstanceProfile[]; onBack: () => void; onBind: () => void
+}
+export function InstanceWorkspace({ instance, controller, native, platform, permissions, onPermissions, legacyProfiles, legacyActiveProfileId, onBack, onBind }: Props) {
+  const pkg = packageFor(instance.kind)
+  const [selected, setSelected] = useState(pkg.inputs[0].id as string)
+  const [settings, setSettings] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
+  const [pendingSwitch, setPendingSwitch] = useState<{ inputId: string; trigger: TriggerType; behavior: SwitchProfileBehavior } | null>(null)
+  const [pendingDeletion, setPendingDeletion] = useState<{ profileId: string; inputId: string; triggers: TriggerType[]; sequences: TriggerBehaviors } | null>(null)
+  const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
+  const migrationStarted = useRef(false)
+  const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
+  const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
+  const status = controller.snapshot.runtime[instance.id]
+  const update = (change: (item: DeviceInstance) => DeviceInstance) => { void controller.update(instance.id, change).catch(() => {}) }
+  useEffect(() => {
+    if (instance.legacyProfilesMigrated || migrationStarted.current) return
+    migrationStarted.current = true
+    const first = controller.snapshot.store.instances.find(i => i.kind === instance.kind)?.id === instance.id
+    void controller.update(instance.id, item => migrateLegacyProfiles(item, first ? legacyProfiles(item.kind) : [], legacyActiveProfileId?.(item.kind))).catch(() => { migrationStarted.current = false })
+  }, [instance.id, instance.kind, instance.legacyProfilesMigrated, controller, legacyProfiles, legacyActiveProfileId])
+  useEffect(() => {
+    if (!native) return
+    let alive = true
+    const listener = listen<{ instanceId: string; pressed: string[]; values: Record<string, number> }>('axonkey-device-input', event => { if (alive && event.payload.instanceId === instance.id) setInput(event.payload) })
+    return () => { alive = false; void listener.then(unlisten => unlisten()) }
+  }, [native, instance.id])
+  useEffect(() => { setInput({ pressed: [], values: {} }) }, [instance.enabled, instance.activeProfileId, status?.state])
+  const changeSequence = (id: string, sequences: TriggerBehaviors) => {
+    const triggers = removedProfileSwitchTriggers(profile.behaviors[id] ?? emptyTriggers(), sequences)
+    if (triggers.length) {
+      setPendingDeletion({ profileId: profile.id, inputId: id, triggers, sequences })
+      return false
+    }
+    update(item => updateInstanceSequence(item, profile.id, id, sequences))
+  }
+  const renameProfile = (name: string) => update(item => ({ ...item, profiles: item.profiles.map(p => p.id === profile.id ? { ...p, name } : p) }))
+  const deleteProfile = () => update(item => {
+    if (item.profiles.length <= 1) return item
+    const profiles = item.profiles.filter(p => p.id !== profile.id)
+    return { ...item, profiles, activeProfileId: profiles[0].id }
+  })
+  const mapped = Object.keys(profile.behaviors).filter(id => Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)))
+  const ready = status?.state === 'listening' || status?.state === 'exclusive' || status?.state === 'filtered'
+  return <div className={`mapping-page mapping-flow-page managed-instance-workspace ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}>
+    <div className="mapping-workbench">
+      <DeviceWorkspaceHeader deviceName={instance.name} onBackToDevices={onBack} onOpenSettings={() => setSettings(v => !v)} profileControls={<ProfileManager
+        profiles={instance.profiles} activeProfileId={instance.activeProfileId}
+        onSwitch={activeProfileId => update(item => ({ ...item, activeProfileId }))}
+        onCreate={() => update(item => addInstanceProfile(item, false))} onDuplicate={() => update(item => addInstanceProfile(item, true))}
+        onRename={renameProfile} onDelete={deleteProfile}
+      />} />
+      <aside className="mapping-device-rail panel-surface">
+        <section className="managed-instance-status" aria-label="设备状态">
+          <div><span className={ready ? 'ready' : status?.error ? 'warning' : ''}>{native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}</span><button type="button" role="switch" className={`switch ${instance.enabled ? 'on' : ''}`} aria-label="启用此设备" aria-checked={instance.enabled} onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}><span /></button></div>
+          <button className="managed-instance-bind" onClick={onBind}>{instance.binding ? '重新绑定' : '绑定设备'}</button>
+        </section>
+        <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}><div className="remote-art">
+          {instance.kind === 'xboxBluetooth' ? <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={setSelected} /> : <RemoteControl buttons={[...pkg.inputs] as { id: ButtonId; label: string }[]} activeId={selected as ButtonId} pressedId={(input.pressed[0] ?? null) as ButtonId | null} mappedIds={mapped as ButtonId[]} onSelect={setSelected} remoteView={instance.kind === 'rc003' ? xiaomiRemoteView : cmiotA15RemoteDevice.remoteView} />}
+        </div></div>
+        {instance.kind === 'xboxBluetooth' && <div className="managed-analog"><label>LT <meter min={0} max={1} value={input.values['xbox.lt'] ?? 0} /></label><label>RT <meter min={0} max={1} value={input.values['xbox.rt'] ?? 0} /></label><SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">摇杆方向与扳机超过 55% 时触发，低于 35% 时释放。</SettingsHelp></div>}
+      </aside>
+      <section className="mapping-main" aria-label="设备映射流程图工作区">
+        {status?.error && <p role="alert" className="managed-error">{status.error}</p>}
+        {native && platform === 'macos' && (!permissions.accessibility || !permissions.inputMonitoring) && <p className="managed-notice">需要{[!permissions.inputMonitoring && '输入监控', !permissions.accessibility && '辅助功能'].filter(Boolean).join('、')}权限。<button onClick={onPermissions}>前往授权</button></p>}
+        {settings ? <div className="managed-instance-settings"><div className="settings-form-fields">
+          <label className="settings-form-row"><span className="settings-form-label">设备名称：</span><input key={instance.name} defaultValue={instance.name} maxLength={60} onBlur={e => { const name = e.target.value.trim(); if (name && name !== instance.name) update(item => ({ ...item, name })) }} /></label>
+          <div className="settings-form-row"><span className="settings-form-label">输入模式：</span><div className="settings-form-control"><span>{instance.capture === 'shared' ? '共享监听' : '独占拦截'}</span><SettingsHelp id="managed-input-mode" label="输入模式">独占模式会拦截整个设备，包括未配置的按键；停用设备后恢复原始输入。重新绑定时可调整。</SettingsHelp></div></div>
+          {instance.kind !== 'xboxBluetooth' && <div className="settings-form-row"><span className="settings-form-label">原有配置：</span><div className="settings-form-control"><button onClick={() => update(item => { const copied = structuredClone(legacyProfiles(item.kind)).map(p => ({ ...p, id: crypto.randomUUID(), name: `${p.name}（副本）` })); return copied.length ? { ...item, profiles: [...item.profiles, ...copied], activeProfileId: copied[0].id } : item })}>复制原配置</button></div></div>}
+          <div className="settings-form-row"><span className="settings-form-label">物理设备：</span><div className="settings-form-control"><button disabled={!instance.binding} onClick={() => update(item => ({ ...item, binding: null }))}>解除绑定，保留配置</button></div></div>
+        </div><div className="managed-remove">{confirmRemove ? <><span>移除此设备及其全部配置？</span><button onClick={() => void controller.remove(instance.id).then(onBack).catch(() => {})}>确认移除</button><button onClick={() => setConfirmRemove(false)}>取消</button></> : <button onClick={() => setConfirmRemove(true)}>移除设备</button>}</div></div> : <>
+          {instance.kind === 'xboxBluetooth' ? <InstanceBehaviorEditor key={profile.id + selected} platform={platform} button={selectedInput} sequences={profile.behaviors[selected] ?? emptyTriggers()} onChange={sequences => changeSequence(selected, sequences)} /> : <>
+          <section className="key-picker"><div className="key-picker-head"><h2>{selectedInput.label}</h2></div></section>
+          <WorkflowAxonkey key={profile.id + selected} platform={platform} button={selectedInput} sequences={profile.behaviors[selected] ?? emptyTriggers()} onChange={changeSequence} onRequestProfileSwitch={(inputId, trigger, behavior) => setPendingSwitch({ inputId, trigger, behavior })} toolboxCategory={toolboxCategory} onToolboxCategoryChange={setToolboxCategory} />
+          </>}
+        </>}
+      </section>
+    </div>
+    {pendingSwitch && createPortal(<ProfileSwitchConfirmDialog button={pkg.inputs.find(i => i.id === pendingSwitch.inputId)!} trigger={pendingSwitch.trigger} behavior={pendingSwitch.behavior} targets={instance.profiles.map(p => ({ id: p.id, name: p.name, behaviors: p.behaviors[pendingSwitch.inputId]?.[pendingSwitch.trigger] ?? [] }))} activeProfileId={profile.id} platform={platform} onCancel={() => setPendingSwitch(null)} onConfirm={behavior => { update(item => applyInstanceProfileSwitch(item, pendingSwitch.inputId, pendingSwitch.trigger, behavior)); setPendingSwitch(null) }} />, document.body)}
+    {pendingDeletion && createPortal(<ProfileSwitchDeleteDialog button={pkg.inputs.find(i => i.id === pendingDeletion.inputId)!} targets={pendingDeletion.triggers.map(trigger => ({ trigger, profiles: instance.profiles.filter(p => p.behaviors[pendingDeletion.inputId]?.[trigger].some(b => b.type === 'switchProfile')) }))} onCancel={() => setPendingDeletion(null)} onConfirm={() => { update(item => removeInstanceProfileSwitch(item, pendingDeletion.profileId, pendingDeletion.inputId, pendingDeletion.triggers, pendingDeletion.sequences)); setPendingDeletion(null) }} />, document.body)}
+  </div>
+}

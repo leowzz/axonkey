@@ -6,35 +6,19 @@
 .managed-device-grid .my-devices-artwork img { height: 118px; }
 .managed-device-grid .my-devices-status { white-space: normal; overflow-wrap: anywhere; }
 .managed-device-grid .my-devices-count { overflow-wrap: anywhere; }
-.managed-hub button, .managed-hub select, .managed-hub input, .managed-integration-dialog button, .managed-integration-dialog select, .managed-integration-dialog input { font: inherit; }
+:where(.managed-hub button, .managed-hub select, .managed-hub input), .managed-integration-dialog button, .managed-integration-dialog select, .managed-integration-dialog input { font: inherit; }
 .managed-hub button:focus-visible, .managed-integration-dialog button:focus-visible, .managed-controller-diagram [data-key]:focus-visible { outline: 2px solid #3784ce; outline-offset: 3px; }
 .managed-hub button:disabled, .managed-integration-dialog button:disabled { opacity: .5; cursor: default; }
 .managed-icon { display: inline-flex; padding: 5px; border: 0; border-radius: 5px; background: transparent; color: inherit; }
-.managed-status button, .managed-notice button { border: 0; background: transparent; color: #367db8; padding: 4px 0; }
 .managed-notice, .managed-error { margin: 0 0 14px; padding: 10px 14px; font-size: 12px; line-height: 1.8; border-radius: 6px; background: #eef4fa; color: #617c94; }
 .managed-error { background: #fff0ed; color: #ad5144; overflow-wrap: anywhere; }
 .managed-saving { position: fixed; right: 24px; bottom: 12px; border-radius: 6px; padding: 5px 10px; background: #edf4fa; color: #6284a2; font-size: 11px; z-index: 90; }
-.managed-workspace-header { display: flex; gap: 15px; align-items: center; min-height: 40px; flex-shrink: 0; }
-.managed-back { display: inline-flex; gap: 7px; align-items: center; border: 0; background: transparent; color: #67849e; padding: 6px 0; font-size: 12px !important; }
-.managed-workspace-header > strong { color: #365873; font-size: 17px; }
-.managed-workspace-actions { display: flex; align-items: center; margin-left: auto; gap: 6px; font-size: 12px; }
-.managed-workspace-actions label { display: flex; align-items: center; gap: 8px; }
-.managed-workspace-actions button, .managed-instance-settings button, .managed-dialog-footer button { padding: 7px 10px; color: #547a9c; border: 1px solid #d2dfeb; background: #fff; border-radius: 5px; }
-.managed-hub select, .managed-hub input:not([type=checkbox]), .managed-integration-dialog select, .managed-integration-dialog input { padding: 7px 9px; border: 1px solid #ccdbe8; border-radius: 5px; background: #fff; color: #405f7d; min-width: 0; }
-.managed-status { display: flex; align-items: center; gap: 20px; padding: 10px 0 20px; font-size: 11px; color: #8293a5; }
-.managed-status > span:first-child { color: #438164; }
-.managed-status label { display: flex; align-items: center; gap: 5px; color: #637d96; }
-.managed-editor { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 560px; flex: 1; }
-.managed-editor.is-controller { grid-template-columns: minmax(350px, .95fr) minmax(420px, 1fr); }
-.managed-diagram-panel { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 12px; }
-.managed-diagram-panel .remote-control-view { height: 430px; }
+.managed-instance-settings input, .managed-integration-dialog select, .managed-integration-dialog input { padding: 7px 9px; border: 1px solid #ccdbe8; border-radius: 5px; background: #fff; color: #405f7d; min-width: 0; }
 .managed-controller-diagram svg { width: 100%; height: auto; display: block; }
 .managed-controller-diagram [data-key] { cursor: pointer; }
-.managed-diagram-hint { text-align: center; font-size: 11px; color: #8b9aaa; margin: 12px 0; }
 .managed-analog { display: flex; justify-content: center; align-items: center; gap: 18px; color: #8194a5; font-size: 11px; }
 .managed-analog label { display: flex; align-items: center; gap: 6px; }
 .managed-analog meter { width: 62px; height: 6px; }
-.managed-flow { min-width: 0; display: flex; flex-direction: column; border-left: 1px solid #e1e9f0; }
 .managed-instance-settings { padding: 25px 15px; min-height: 450px; }
 .managed-remove { display: flex; gap: 15px; align-items: center; margin: 40px 0 0 162px; font-size: 12px; }
 .behavior-dialog.managed-integration-dialog { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; }
@@ -49,12 +33,39 @@
 .managed-integration-product h3 { margin: 0 0 6px; color: #3d5e7b; }
 .managed-integration-product p { margin: 0; font-size: 12px; }
 .managed-dialog-footer { display: flex; justify-content: flex-end; gap: 9px; padding: 16px 22px; }
-.managed-dialog-footer .managed-primary { background: #237dcb; border-color: #237dcb; color: #fff; }
+
 .managed-package { display: flex; align-items: center; gap: 24px; width: 100%; margin-top: 12px; padding: 15px; text-align: left; border: 1px solid #dae4ee; background: #f7fafc; border-radius: 7px; color: #466986; }
 .managed-package img { width: 72px; height: 64px; object-fit: contain; }
 .managed-package small { display: block; margin-top: 6px; color: #8495a5; font-size: 11px; }
-.macos-vibrancy .managed-device-grid .my-devices-card, .macos-vibrancy .managed-workspace-actions button { background: rgb(255 255 255 / 30%); }
-@media (max-width: 1100px) { .managed-hub { padding: 20px; } .managed-workspace-header > .managed-caption { display: none; } }
+.macos-vibrancy .managed-device-grid .my-devices-card { background: rgb(255 255 255 / 30%); }
+@media (max-width: 1100px) { .managed-hub { padding: 20px; } }
+
+.integration-mode-label { display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: nowrap; }
+.integration-mode-label .settings-help { width: 14px; height: 14px; }
+.integration-mode-label .settings-help svg { width: 13px; height: 13px; }
+.integration-attention { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 0 88px; color: #a17940; font-size: 11px; line-height: 1.7; }
+.integration-attention button { flex-shrink: 0; border: 0; padding: 3px 0; color: #367db8; background: transparent; }
+.integration-preview { margin: 16px 0 0 88px; color: #8d9eae; font-size: 11px; }
+
+/* Use the same full-height workspace and scrolling boundaries as existing mappings. */
+.main-content:has(.managed-hub.has-workspace) { overflow: hidden; }
+.home-page:has(.managed-hub.has-workspace) { flex: 1 1 0; overflow: hidden; }
+.home-page:has(.managed-hub.has-workspace) > .home-footer { display: none; }
+.managed-hub.has-workspace { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; padding: 0; }
+.managed-hub.has-workspace > .managed-notice, .managed-hub.has-workspace > .managed-error { flex-shrink: 0; margin: 8px 16px; }
+.managed-instance-workspace .mapping-main { display: flex; flex-direction: column; }
+.managed-instance-workspace .mapping-main > .managed-error, .managed-instance-workspace .mapping-main > .managed-notice { flex-shrink: 0; margin: 8px 16px; }
+.managed-instance-workspace .key-picker h2 { font-size: 16px; }
+.managed-instance-status { flex-shrink: 0; color: #8192a3; font-size: 12px; }
+.managed-instance-status > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.managed-instance-status .ready { color: #438164; }
+.managed-instance-status .warning { color: #ad5144; }
+.managed-instance-bind { border: 0; background: transparent; color: #367db8; padding: 8px 0; }
+.managed-controller-stage .remote-art { width: 100%; }
+.managed-instance-settings { overflow-y: auto; }
+.managed-instance-settings button { padding: 7px 10px; color: #547a9c; border: 1px solid #d2dfeb; background: #fff; border-radius: 5px; }
+.managed-dialog-footer button { padding: 7px 10px; color: #547a9c; border: 1px solid #d2dfeb; background: #fff; border-radius: 5px; }
+
 .managed-behavior-editor { padding: 16px 22px 24px; min-width: 0; }
 .managed-behavior-editor header h2 { margin: 7px 0; color: #304f6d; font-size: 22px; font-weight: 600; }
 .managed-behavior-editor header p { margin: 0 0 26px; color: #8a9bad; font-size: 11px; }
@@ -80,9 +91,6 @@
 .macos-vibrancy .managed-action-empty, .macos-vibrancy .managed-trigger-tabs { background: rgb(95 110 130 / 6%); }
 .macos-vibrancy .managed-action { background: rgb(255 255 255 / 30%); }
 
-.integration-mode-label { display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: nowrap; }
-.integration-mode-label .settings-help { width: 14px; height: 14px; }
-.integration-mode-label .settings-help svg { width: 13px; height: 13px; }
-.integration-attention { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 0 88px; color: #a17940; font-size: 11px; line-height: 1.7; }
-.integration-attention button { flex-shrink: 0; border: 0; padding: 3px 0; color: #367db8; background: transparent; }
-.integration-preview { margin: 16px 0 0 88px; color: #8d9eae; font-size: 11px; }
+.managed-instance-workspace.is-controller .mapping-workbench { grid-template-columns: minmax(350px, .95fr) minmax(420px, 1fr); }
+
+.managed-dialog-footer .managed-primary { background: #237dcb; border-color: #237dcb; color: #fff; }
