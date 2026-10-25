@@ -1233,6 +1233,11 @@ fn put_device_instance(revision: u64, instance: DeviceInstance, manager: tauri::
 fn remove_device_instance(revision: u64, id: String, manager: tauri::State<'_, DeviceManager>) -> Result<DeviceSnapshot, String> { manager.remove(revision, &id) }
 
 #[tauri::command]
+fn get_cmiot_a15_recording(input_service: tauri::State<'_, InputService>) -> bool {
+    input_service.status().cmiot_a15_recording
+}
+
+#[tauri::command]
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
@@ -1461,6 +1466,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            get_cmiot_a15_recording,
             release_update::check_release_update,
             profile_switch_overlay::show_profile_switch_overlay,
             profile_switch_overlay::get_profile_switch_overlay,

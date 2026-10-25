@@ -1,4 +1,4 @@
-import type { RemoteButton } from '../appTypes'
+import type { CmiotA15RecordingMode, RemoteButton } from '../appTypes'
 import type { XiaomiRemoteButtonId } from './xiaomi-remote/buttons.ts'
 import type { CmiotA15RemoteButtonId } from './cmiot-a15-remote/buttons.ts'
 import type { MouseInputId } from './system-mouse/inputs.ts'
@@ -22,6 +22,8 @@ export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
 
 export type DeviceSettingsPageProps = {
+  cmiotA15RecordingMode: CmiotA15RecordingMode
+  onCmiotA15RecordingModeChange: (mode: CmiotA15RecordingMode) => void
   onBackToDevices: () => void
   showMouseKeyGrid: boolean
   onShowMouseKeyGridChange: (value: boolean) => void

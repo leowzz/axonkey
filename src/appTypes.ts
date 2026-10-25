@@ -19,7 +19,7 @@ export type RemoteButton = {
   side: 'left' | 'right'
   x: number
   y: number
-  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv'
+  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv' | 'mute' | 'settings' | 'm'
 }
 
 export type Platform = 'windows' | 'macos' | 'unsupported'
@@ -136,7 +136,10 @@ export type Connector = {
   y2: number
 }
 
+export type CmiotA15RecordingMode = 'hold' | 'click'
+
 export type StoredSettings = {
+  cmiotA15RecordingMode: CmiotA15RecordingMode
   mouseEdgeWidth: number
   showRemoteKeyGrid: boolean
   showMouseKeyGrid: boolean

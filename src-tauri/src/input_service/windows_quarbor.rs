@@ -77,6 +77,9 @@ pub(super) struct Client {
     started: Option<Instant>,
     key_injection: bool,
     mouse_injection: bool,
+    physical_write: bool,
+    physical_write_max_bytes: u32,
+    physical_output_report_bytes: u32,
     next_request: u64,
     max_payload: usize,
     outgoing: VecDeque<(Vec<u8>, usize)>,
@@ -93,6 +96,13 @@ fn pipe_name(instance_id: &str) -> String {
         }
     }
     format!(r"\\.\pipe\Quarbor.UniversalKeyboard.v1.{hash:016X}")
+}
+
+fn physical_output_command(data: &[u8]) -> proto::client_message::Body {
+    proto::client_message::Body::PhysicalWrite(proto::PhysicalWrite {
+        operation: proto::physical_write::Operation::WriteOutput as i32,
+        data: data.to_vec(),
+    })
 }
 
 /// Decode the RC003 input source carried by the BLE parent pipe.
@@ -234,6 +244,9 @@ impl Client {
             started: None,
             key_injection: false,
             mouse_injection: false,
+            physical_write: false,
+            physical_write_max_bytes: 0,
+            physical_output_report_bytes: 0,
             next_request: 1,
             max_payload: MAX_MESSAGE,
             outgoing: VecDeque::new(),
@@ -305,6 +318,49 @@ impl Client {
             proto::client_message::Body::ResetInput(proto::ResetInput {}),
             "ResetInput".into(),
         )
+    }
+
+    pub fn supports_physical_write(&self) -> bool {
+        self.ready() && self.physical_write
+    }
+
+    pub fn write_physical_output(&mut self, data: &[u8]) -> io::Result<u64> {
+        if !self.supports_physical_write() {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Driver does not support physical HID output",
+            ));
+        }
+        if !(2..=4096).contains(&data.len())
+            || data.len() > self.physical_write_max_bytes as usize
+            || (self.physical_output_report_bytes != 0
+                && data.len() != self.physical_output_report_bytes as usize)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid physical HID output length",
+            ));
+        }
+        self.command(
+            physical_output_command(data),
+            format!("PhysicalWrite({data:02X?})"),
+        )
+    }
+
+    /// Give shutdown's physical stop command a bounded opportunity to complete.
+    pub fn finish_pending(&mut self, timeout: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + timeout;
+        while !self.pending.is_empty() {
+            self.poll()?;
+            if Instant::now() >= deadline {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "Physical stop completion timeout",
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
     }
 
     fn command(
@@ -507,6 +563,9 @@ impl Client {
         }
         self.key_injection = info.supports_keysend;
         self.mouse_injection = info.supports_mouse_move;
+        self.physical_write = info.supports_physical_write;
+        self.physical_write_max_bytes = info.physical_write_max_bytes;
+        self.physical_output_report_bytes = info.physical_output_report_bytes;
         self.stage = Stage::Reports;
         let mut flags = 0;
         if self.report_ids.iter().any(|value| *value != 0) {
@@ -595,6 +654,24 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a15_control_serializes_as_physical_output_not_synthetic_input() {
+        for data in [[0xfb, 1], [0xfb, 0]] {
+            let bytes = proto::ClientMessage {
+                request_id: 7,
+                body: Some(physical_output_command(&data)),
+            }
+            .encode_to_vec();
+            let message = proto::ClientMessage::decode(bytes.as_slice()).unwrap();
+            assert_eq!(message.request_id, 7);
+            let Some(proto::client_message::Body::PhysicalWrite(write)) = message.body else {
+                panic!("physical write required")
+            };
+            assert_eq!(write.operation, 1);
+            assert_eq!(write.data, data);
+        }
+    }
 
     #[test]
     fn uses_universal_pipe_hash_contract() {

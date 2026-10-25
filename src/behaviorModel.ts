@@ -6,6 +6,7 @@
  */
 
 import { cmiotA15ButtonIds, devices, inputIds, remoteButtonIds } from './deviceModel.ts'
+import { cmiotA15AdditionalButtonIds } from './devices/cmiot-a15-remote/buttons.ts'
 import type { DeviceId, InputId, RemoteButtonId } from './deviceModel.ts'
 export type { InputId } from './deviceModel.ts'
 export const buttonIds = [...remoteButtonIds, ...cmiotA15ButtonIds] as const
@@ -515,10 +516,15 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   // absent middle-button group is optional; partial or malformed groups fail.
   const legacyMouseInputs = device.id === 'mouse' && isRecord(source)
     && !Object.keys(source).some(id => id.endsWith('.buttonMiddle'))
+  // A15 exports from before the expanded layout omit the whole new key group.
+  const legacyA15Inputs = device.id === 'cmiotA15' && isRecord(source)
+    && cmiotA15AdditionalButtonIds.every(id => !Object.prototype.hasOwnProperty.call(source, id))
   if (isDeviceExport && (!isRecord(source)
-    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id))
+    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id)
+      && !(device.id === 'cmiotA15' && id === 'cmiotA15.tv'))
     || device.inputIds.some(id => {
       if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
+      if (legacyA15Inputs && (cmiotA15AdditionalButtonIds as readonly string[]).includes(id)) return false
       const triggers = source[id]
       return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
     }))) return null

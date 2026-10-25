@@ -14,6 +14,7 @@ mod remote_actions;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {
+    pub cmiot_a15_recording: bool,
     pub backend_ready: bool,
     pub device_connected: bool,
     pub hardware_id: Option<String>,
@@ -27,6 +28,8 @@ pub struct InputServiceStatus {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct NativeSettings {
+    #[serde(rename = "cmiotA15RecordingMode", default)]
+    pub(super) cmiot_a15_recording_mode: crate::devices::cmiot_a15_recording::RecordingMode,
     #[serde(rename = "mouseEdgeWidth", default = "default_mouse_edge_width")]
     pub(super) mouse_edge_width: u16,
     #[serde(default)]
@@ -61,7 +64,9 @@ pub struct NativeSettings {
 
 impl NativeSettings {
     pub(super) fn remote_settings_changed(&self, next: &Self) -> bool {
-        self.enabled != next.enabled || self.device_behaviors_changed(next, false)
+        self.enabled != next.enabled
+            || self.cmiot_a15_recording_mode != next.cmiot_a15_recording_mode
+            || self.device_behaviors_changed(next, false)
     }
 
     pub(super) fn mouse_settings_changed(&self, next: &Self) -> bool {
@@ -344,6 +349,22 @@ pub use unsupported::InputService;
 #[cfg(test)]
 mod settings_tests {
     use super::NativeSettings;
+
+    #[test]
+    fn recording_mode_defaults_to_hold_and_invalidates_only_remote_settings() {
+        use crate::devices::cmiot_a15_recording::RecordingMode;
+        let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.cmiot_a15_recording_mode, RecordingMode::Hold);
+        let click: NativeSettings =
+            serde_json::from_str(r#"{"cmiotA15RecordingMode":"click"}"#).unwrap();
+        assert_eq!(click.cmiot_a15_recording_mode, RecordingMode::Click);
+        assert!(legacy.remote_settings_changed(&click));
+        assert!(!legacy.mouse_settings_changed(&click));
+        assert!(
+            serde_json::from_str::<NativeSettings>(r#"{"cmiotA15RecordingMode":"invalid"}"#)
+                .is_err()
+        );
+    }
 
     #[test]
     fn mouse_settings_defaults_and_saved_values() {
