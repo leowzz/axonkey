@@ -23,6 +23,7 @@ import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 
 type SetupDialogProps = {
   platform: Platform
+  remoteLabel?: string
   macPermissions: MacPermissions
   state: SetupState
   checkingInputDriver?: boolean
@@ -60,7 +61,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
 const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
-export function SetupDialog({ platform, macPermissions, state, checkingInputDriver = false, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
+export function SetupDialog({ platform, remoteLabel = '小米遥控器 RC003', macPermissions, state, checkingInputDriver = false, onClose, onOpenStep, onCompleteStep, onSkipStep, onSkipAll, onReset, onDriverAction, onProbeAudio, onProbeLegacyCleanup, onCleanupLegacy, onOpenSystemSettings, onRequestMacPermission, onOpenExternalPage, onCheckDevice, onMarkDeviceConnected, onFinish }: SetupDialogProps) {
   const step = state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   const visibleSteps = platform === 'macos'
@@ -134,9 +135,9 @@ export function SetupDialog({ platform, macPermissions, state, checkingInputDriv
         {step === 'deviceConnection' && <div className="setup-screen">
           <span className="setup-hero-icon"><Bluetooth size={24} /></span>
           <span className="section-kicker">DEVICE</span>
-          <h2 id="setup-title">连接小米遥控器 RC003</h2>
+          <h2 id="setup-title">连接{remoteLabel}</h2>
           <p className="setup-lead">先在{platform === 'macos' ? '系统' : ' Windows'}蓝牙设置中完成配对，再按遥控器任意按键将它唤醒。Axonkey 只处理 VID 2717 / PID 32B8 的目标设备。</p>
-          <div className={`setup-status-panel ${state.device.status}`}><span className="setup-status-dot" /><div><strong>{state.device.status === 'connected' ? 'RC003 已连接' : state.device.status === 'checking' ? '正在检查设备' : '尚未确认连接'}</strong><span>{state.device.message ?? '打开系统设置完成蓝牙配对，然后返回这里检查。'}</span></div></div>
+          <div className={`setup-status-panel ${state.device.status}`}><span className="setup-status-dot" /><div><strong>{state.device.status === 'connected' ? `${remoteLabel} 已连接` : state.device.status === 'checking' ? '正在检查设备' : '尚未确认连接'}</strong><span>{state.device.message ?? '打开系统设置完成蓝牙配对，然后返回这里检查。'}</span></div></div>
           <div className="setup-inline-actions"><button type="button" className="dialog-secondary" onClick={() => onOpenSystemSettings('bluetooth')}><Bluetooth size={14} /> 打开蓝牙设置</button><button type="button" className="dialog-secondary" onClick={onCheckDevice}><RotateCcw size={14} /> 重新检测</button><button type="button" className="dialog-secondary" onClick={onMarkDeviceConnected}><Check size={14} /> 我已连接</button></div>
           <div className="setup-actions"><button type="button" className="setup-text-button" onClick={platform === 'macos' ? () => { onSkipStep(); onFinish() } : onSkipStep}>稍后连接</button><button type="button" className="button primary setup-primary" disabled={state.device.status !== 'connected'} onClick={platform === 'macos' ? onFinish : onCompleteStep}>{platform === 'macos' ? '完成设置' : '继续'} <ChevronRight size={15} /></button></div>
         </div>}
@@ -144,7 +145,7 @@ export function SetupDialog({ platform, macPermissions, state, checkingInputDriv
           <span className="setup-hero-icon success"><Check size={26} /></span>
           <span className="section-kicker">READY</span>
           <h2 id="setup-title">{platform === 'macos' ? '基本设置已完成' : '集成设置已完成'}</h2>
-          <p className="setup-lead">{platform === 'macos' ? '映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里检查系统权限或 RC003 连接。' : '映射配置会自动保存。以后从设备集成入口重新打开这里，可以检查按键控制、语音输入或 RC003 连接。'}</p>
+          <p className="setup-lead">{platform === 'macos' ? `映射配置会自动保存。以后点击顶部的设备状态卡，可以重新打开这里检查系统权限或${remoteLabel}连接。` : `映射配置会自动保存。以后从设备集成入口重新打开这里，可以检查按键控制、语音输入或${remoteLabel}连接。`}</p>
           <div className="setup-result-list">
             {platform === 'macos' ? <>
               <span><Keyboard size={15} /> 输入监控：{macPermissions.inputMonitoring ? '已授权' : '稍后授权'}</span>
@@ -154,7 +155,7 @@ export function SetupDialog({ platform, macPermissions, state, checkingInputDriv
               <span><Keyboard size={15} /> 按键控制：{integrationStatusLabel(state.drivers.input.status)}</span>
               <span><AudioLines size={15} /> 语音输入：{integrationStatusLabel(state.drivers.audio.status)}</span>
             </>}
-            <span><Bluetooth size={15} /> RC003：{state.device.status === 'connected' ? '已连接' : '稍后连接'}</span>
+            <span><Bluetooth size={15} /> {remoteLabel}：{state.device.status === 'connected' ? '已连接' : '稍后连接'}</span>
           </div>
           <div className="setup-actions"><button type="button" className="button primary setup-primary" onClick={onFinish}>进入按键映射</button></div>
         </div>}

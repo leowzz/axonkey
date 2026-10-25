@@ -1,5 +1,6 @@
 import { Battery, Check, Plus } from 'lucide-react'
 import type { DeviceId } from '../deviceModel'
+import { devices } from '../deviceModel'
 import { BatteryIndicator } from './BatteryIndicator'
 import './MyDevicesPage.css'
 
@@ -23,9 +24,8 @@ type MyDevicesPageProps = {
 }
 
 function DeviceArtwork({ deviceId }: { deviceId: DeviceId }) {
-  if (deviceId === 'rc003') {
-    return <img src="/rc003-remote-keymap.svg" alt="" width={54} height={132} />
-  }
+  const device = devices.find((item) => item.id === deviceId)
+  if (device?.remoteView) return <img src={device.remoteView.artworkUrl} alt="" width={54} height={132} />
 
   return <img src="/mouse-device.svg" alt="" width={160} height={200} />
 }

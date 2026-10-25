@@ -1,6 +1,7 @@
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from 'react'
 import type { BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
 import type { Platform, RemoteButton } from '../appTypes'
+import type { RemoteView } from '../devices/remoteTypes.ts'
 import { devices, type DeviceId } from '../deviceModel'
 import { RemoteControl } from './RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
@@ -34,6 +35,7 @@ export type MappingPageProps = {
   showMouseKeyGrid: boolean
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
+  remoteView?: RemoteView
 }
 
 export function MappingPage({
@@ -57,6 +59,7 @@ export function MappingPage({
   showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
+  remoteView,
 }: MappingPageProps) {
   return <div className="mapping-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
@@ -73,6 +76,7 @@ export function MappingPage({
               pressedId={pressedId}
               mappedIds={editableButtons.filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0)).map(button => button.id)}
               onSelect={id => selectBehaviorTarget(id, 'click')}
+              remoteView={remoteView}
             />
           </div>
         </div>

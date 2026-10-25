@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ButtonId } from '../behaviorModel'
 import type { RemoteButton } from '../appTypes'
 import { remoteKeyRegions, remoteViewBox } from '../remoteControlGeometry'
-import remoteArtworkUrl from '../../public/rc003-remote-keymap.svg?inline'
+import type { RemoteView } from '../devices/remoteTypes.ts'
 
 type Props = {
   buttons: Pick<RemoteButton, 'id' | 'label'>[]
@@ -12,11 +12,16 @@ type Props = {
   mappedIds: ButtonId[]
   onSelect: (id: ButtonId) => void
   onHover?: (id: ButtonId | null) => void
+  remoteView?: RemoteView
 }
 
 const hintDismissedKey = 'axonkey.remote-interaction-hint.v1'
+const xiaomiRemoteView: RemoteView = {
+  buttons: [], viewBox: remoteViewBox, keyRegions: remoteKeyRegions,
+  artworkUrl: '/rc003-remote-keymap.svg', ariaLabel: '小米 RC003 遥控器按键',
+}
 
-export function RemoteControl({ buttons, activeId, pressedId, highlightedId, mappedIds, onSelect, onHover }: Props) {
+export function RemoteControl({ buttons, activeId, pressedId, highlightedId, mappedIds, onSelect, onHover, remoteView = xiaomiRemoteView }: Props) {
   const [keyboardPressedId, setKeyboardPressedId] = useState<ButtonId | null>(null)
   const [pointerPressedId, setPointerPressedId] = useState<ButtonId | null>(null)
   const [hintDismissed, setHintDismissed] = useState(() => {
@@ -52,8 +57,8 @@ export function RemoteControl({ buttons, activeId, pressedId, highlightedId, map
   }
 
   return <div className="remote-control-view">
-    <svg className="remote-control" viewBox={`0 0 ${remoteViewBox.width} ${remoteViewBox.height}`} role="group" aria-label="小米 RC003 遥控器按键">
-    <image href={remoteArtworkUrl} width={remoteViewBox.width} height={remoteViewBox.height} aria-hidden="true" pointerEvents="none" />
+    <svg className="remote-control" viewBox={`0 0 ${remoteView.viewBox.width} ${remoteView.viewBox.height}`} role="group" aria-label={remoteView.ariaLabel}>
+    <image href={remoteView.artworkUrl} width={remoteView.viewBox.width} height={remoteView.viewBox.height} aria-hidden="true" pointerEvents="none" />
     {buttons.map((button) => <g
       key={button.id}
       data-remote-key={button.id}
@@ -96,9 +101,9 @@ export function RemoteControl({ buttons, activeId, pressedId, highlightedId, map
       }}
     >
       <title>{button.label}</title>
-      <path className="remote-key-halo" d={remoteKeyRegions[button.id].path} aria-hidden="true" />
-      <path className="remote-key-outline" d={remoteKeyRegions[button.id].path} aria-hidden="true" />
-      <path className="remote-key-surface" d={remoteKeyRegions[button.id].path} aria-hidden="true" />
+      <path className="remote-key-halo" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
+      <path className="remote-key-outline" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
+      <path className="remote-key-surface" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
     </g>)}
     </svg>
     <p className={`remote-control-hint${hintDismissed ? ' dismissed' : ''}`} aria-hidden={hintDismissed}>点击按键配置动作</p>
