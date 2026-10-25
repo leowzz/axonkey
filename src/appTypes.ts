@@ -19,7 +19,7 @@ export type RemoteButton = {
   side: 'left' | 'right'
   x: number
   y: number
-  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv'
+  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv' | 'mute' | 'settings' | 'm'
 }
 
 export type Platform = 'windows' | 'macos' | 'unsupported'

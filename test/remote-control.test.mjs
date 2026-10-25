@@ -7,6 +7,7 @@ import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as geometry from '../src/remoteControlGeometry.ts'
+import { cmiotA15RemoteView } from '../src/devices/cmiot-a15-remote/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -39,6 +40,18 @@ function mount(props = {}) {
   const key = id => view.root.findByProps({ 'data-remote-key': id })
   return { view, key, selected }
 }
+
+test('A15 added keys have independent selectable SVG regions', () => {
+  const { view, key, selected } = mount({ buttons: cmiotA15RemoteView.buttons, remoteView: cmiotA15RemoteView })
+  const ids = ['cmiotA15.mute', 'cmiotA15.settings', 'cmiotA15.channelUp', 'cmiotA15.channelDown', 'cmiotA15.m']
+  for (const id of ids) {
+    assert.ok(key(id).findByProps({ className: 'remote-key-surface' }).props.d)
+    act(() => key(id).props.onClick())
+  }
+  assert.deepEqual(selected, ids)
+  assert.notEqual(cmiotA15RemoteView.keyRegions[ids[2]].path, cmiotA15RemoteView.keyRegions[ids[3]].path)
+  act(() => view.unmount())
+})
 
 test('each accessible SVG key selects its own input without activating its neighbours', () => {
   const { view, key, selected } = mount()

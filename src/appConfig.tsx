@@ -12,6 +12,8 @@ import {
   Undo2,
   Volume1,
   Volume2,
+  VolumeX,
+  Settings,
 } from 'lucide-react'
 import {
   createBehavior,
@@ -247,6 +249,9 @@ export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
     case 'home': return <Home {...props} />
     case 'menu': return <Menu {...props} />
     case 'tv': return <Tv {...props} />
+    case 'mute': return <VolumeX {...props} />
+    case 'settings': return <Settings {...props} />
+    case 'm': return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true"><path d="M5 19V5l7 10 7-10v14" /></svg>
     default: return <Command {...props} />
   }
 }
