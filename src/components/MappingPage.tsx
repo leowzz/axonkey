@@ -16,6 +16,7 @@ export type MappingPageProps = {
   debugMode: boolean
   selectedDeviceId: DeviceId
   onBackToDevices: () => void
+  onOpenSettings: () => void
   profileControls: ReactNode
   selectBehaviorTarget: (buttonId: InputId, trigger: TriggerType, reveal?: boolean) => void
   activeId: ButtonId
@@ -42,6 +43,7 @@ export function MappingPage({
   debugMode,
   selectedDeviceId,
   onBackToDevices,
+  onOpenSettings,
   profileControls,
   selectBehaviorTarget,
   activeId,
@@ -63,7 +65,7 @@ export function MappingPage({
 }: MappingPageProps) {
   return <div className="mapping-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
-      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} />
+      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} onOpenSettings={onOpenSettings} />
       <aside className="mapping-device-rail panel-surface">
         <DeviceStatusCard status={deviceStatus} />
         {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>

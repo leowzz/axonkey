@@ -13,6 +13,7 @@ export function MappingFlowPage({
   debugMode,
   selectedDeviceId,
   onBackToDevices,
+  onOpenSettings,
   profileControls,
   selectBehaviorTarget,
   activeId,
@@ -37,7 +38,7 @@ export function MappingFlowPage({
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   return <div className="mapping-page mapping-flow-page">
     <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
-      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} />
+      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} onOpenSettings={onOpenSettings} />
       <aside className="mapping-device-rail panel-surface">
         <DeviceStatusCard status={deviceStatus} />
         {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>

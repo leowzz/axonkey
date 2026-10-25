@@ -24,7 +24,7 @@ type AppSidebarProps = {
 }
 
 export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggleCollapsed, onToggleEnabled, onBrandClick, onNavigate }: AppSidebarProps) {
-  const activeNavigationPage = activePage === 'mapping' || activePage === 'overview' ? 'home' : activePage
+  const activeNavigationPage = activePage === 'mapping' || activePage === 'overview' || activePage === 'device-settings' ? 'home' : activePage
   return <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
     <SidebarButton collapsed={collapsed} className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
       <img src={appIconUrl} alt="" width={28} height={28} />

@@ -1,9 +1,12 @@
 /** Device identity and input capabilities are independent of output behaviors. */
 import type { RemoteButton } from './appTypes'
+import type { ComponentType } from 'react'
 import type { RemoteView } from './devices/remoteTypes'
 import { xiaomiRemoteButtonIds, xiaomiRemoteView } from './devices/xiaomi-remote/index.ts'
 import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from './devices/cmiot-a15-remote/index.ts'
 import { systemMouseDevice } from './devices/system-mouse/index.ts'
+import { XiaomiRemoteSettingsPage } from './devices/xiaomi-remote/XiaomiRemoteSettingsPage'
+import { CmiotA15SettingsPage } from './devices/cmiot-a15-remote/CmiotA15SettingsPage'
 
 export const remoteButtonIds = xiaomiRemoteButtonIds
 export const cmiotA15ButtonIds = cmiotA15RemoteButtonIds
@@ -57,10 +60,11 @@ export type DeviceDefinition = {
   inputKind: 'button' | 'mouse'
   buttons?: readonly RemoteButton[]
   remoteView?: RemoteView
+  settingsPage: ComponentType<{ onBackToDevices: () => void }>
 }
 export const devices: readonly DeviceDefinition[] = [
-  { id: 'rc003', name: '小米遥控器', model: 'RC003', inputIds: remoteButtonIds, inputKind: 'button', buttons: xiaomiRemoteView.buttons, remoteView: xiaomiRemoteView },
-  { id: 'cmiotA15', name: '移动遥控器CMIOT-A15', model: 'CMIOT-A15', inputIds: cmiotA15ButtonIds, inputKind: 'button', buttons: cmiotA15RemoteView.buttons, remoteView: cmiotA15RemoteView },
+  { id: 'rc003', name: '小米遥控器', model: 'RC003', inputIds: remoteButtonIds, inputKind: 'button', buttons: xiaomiRemoteView.buttons, remoteView: xiaomiRemoteView, settingsPage: XiaomiRemoteSettingsPage },
+  { id: 'cmiotA15', name: '移动遥控器CMIOT-A15', model: 'CMIOT-A15', inputIds: cmiotA15ButtonIds, inputKind: 'button', buttons: cmiotA15RemoteView.buttons, remoteView: cmiotA15RemoteView, settingsPage: CmiotA15SettingsPage },
   { ...systemMouseDevice, inputIds: mouseInputIds, inputKind: 'mouse' },
 ]
 export const inputIds: readonly InputId[] = devices.flatMap((device) => device.inputIds)

@@ -596,6 +596,9 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-workspace-back { display: inline-flex; flex-shrink: 0; align-items: center; gap: 5px; min-height: 34px; padding: 0; border: 0; color: #708298; background: transparent; font-size: 13px; white-space: nowrap; }
 .device-workspace-back:hover { color: #176fcf; }
 .device-workspace-back:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; border-radius: 3px; }
+.device-workspace-settings { display: inline-flex; align-items: center; justify-content: center; justify-self: end; width: 30px; height: 30px; padding: 0; border: 1px solid transparent; border-radius: 6px; color: #708298; background: transparent; }
+.device-workspace-settings:hover { color: #176fcf; background: #e7eef4; }
+.device-workspace-settings:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
 .mapping-device-rail { position: relative; display: flex; min-height: 0; align-self: stretch; flex-direction: column; overflow-x: hidden; overflow-y: auto; padding: 18px; border: 0; border-right: 1px solid var(--map-line); border-radius: 0; color: #2f4255; background: #edf3fa; box-shadow: none; }
 .mapping-active .remote-device-card { flex-shrink: 0; margin-top: 0; padding: 11px 12px 10px; border-color: #c9d9e9; color: #24384b; background: rgba(255,255,255,.72); box-shadow: inset 0 1px rgba(255,255,255,.9), 0 5px 16px rgba(47, 83, 117, .05); }
 .mapping-active .remote-device-card:hover { border-color: #76a9dc; background: #fff; }
@@ -1228,6 +1231,23 @@ body.permission-helper-mode #root { min-height: 100vh; }
 }
 
 .main-content:has(> .settings-page) { display: flex; flex-direction: column; overflow: hidden; }
+.main-content:has(> .device-settings-page) { display: flex; flex-direction: column; overflow: hidden; }
+.device-settings-page { display: flex; min-height: 0; flex: 1; flex-direction: column; background: #f0f0f0; }
+.device-settings-layout { display: grid; min-height: 0; flex: 1; grid-template-columns: 170px minmax(0, 1fr); }
+.device-settings-nav { min-height: 0; }
+.device-settings-panel { min-width: 0; min-height: 0; overflow-y: auto; padding: 24px; background: #f7f7f6; }
+.device-settings-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; max-width: 680px; }
+.device-settings-heading h2 { margin: 0; color: #303338; font-size: 18px; font-weight: 600; }
+.device-settings-heading p { margin: 6px 0 0; color: #78828b; font-size: 13px; }
+.device-settings-heading > svg { flex-shrink: 0; color: #879099; }
+.device-settings-empty { display: flex; min-height: 180px; max-width: 680px; flex-direction: column; align-items: center; justify-content: center; gap: 8px; margin-top: 28px; border: 1px dashed #d2d7dc; border-radius: 10px; color: #7c8790; background: rgba(255,255,255,.55); text-align: center; }
+.device-settings-empty svg { color: #9aa7b1; }
+.device-settings-empty strong { color: #586570; font-size: 14px; font-weight: 600; }
+.device-settings-empty span { font-size: 13px; }
+@media (max-width: 640px) {
+  .device-settings-layout { grid-template-columns: 130px minmax(0, 1fr); }
+  .device-settings-panel { padding: 16px; }
+}
 .main-content:has(> .settings-page) > .mapping-disabled-notice { flex-shrink: 0; }
 .settings-page-head { flex-shrink: 0; }
 

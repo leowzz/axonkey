@@ -1595,6 +1595,7 @@ function AppController() {
 
   const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
   const profileControls = <ProfileManager profiles={deviceProfiles} activeProfileId={activeProfileId} onSwitch={switchMappingProfile} onCreate={createMappingProfileFromScratch} onDuplicate={duplicateMappingProfile} onRename={renameMappingProfile} onDelete={deleteMappingProfile} />
+  const DeviceSettingsComponent = selectedDevice.settingsPage
   const mappingActions = <div className="mapping-context-actions">
     <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled && (!isMouse || mouseEnabled) ? '已保存并生效' : '已保存 · 未开启'}</span>
     {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
@@ -1634,6 +1635,7 @@ function AppController() {
           remoteView={selectedDevice.remoteView}
         /> : activePage === 'mapping' ? <MappingPageComponent
           onBackToDevices={() => navigateToPage('home')}
+          onOpenSettings={() => navigateToPage('device-settings')}
           profileControls={profileControls}
           debugMode={debugMode}
           selectedDeviceId={selectedDeviceId}
@@ -1677,7 +1679,7 @@ function AppController() {
             },
           }}
           remoteView={selectedDevice.remoteView}
-        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
+        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'device-settings' ? <DeviceSettingsComponent onBackToDevices={() => navigateToPage('home')} /> : activePage === 'settings' ? <SettingsPage
           backup={{
             onCreateBackup: () => createDataBackup({
               ...profileStateRef.current,

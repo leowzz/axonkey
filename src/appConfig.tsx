@@ -74,7 +74,7 @@ export type StoredUiState = {
   scrollTop: Partial<Record<AppPage, number>>
 }
 
-const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'about']
+const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'device-settings', 'about']
 const settingsSections = ['startup', 'permissions', 'remote', 'mouse', 'backup'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'cmiotA15', 'mouse']
 
