@@ -1,4 +1,13 @@
 fn main() {
+    // Small, bundled Siren7 codec shared by Windows and macOS. No FFmpeg/runtime SDK.
+    let siren = "../vendor/libsiren";
+    let mut codec = cc::Build::new();
+    codec.include(siren);
+    for source in ["common", "dct4", "rmlt", "huffman", "decoder", "encoder"] {
+        codec.file(format!("{siren}/{source}.c"));
+    }
+    codec.compile("axonkey_siren7");
+    println!("cargo:rerun-if-changed={siren}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let proto_dir = "../vendor/QuarborUniversalKeyboardDriverInstaller/SDK";
         let schema = format!("{proto_dir}/keyboard.proto");

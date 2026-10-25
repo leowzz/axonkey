@@ -28,6 +28,9 @@ struct QuarborContext {
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
     a15_reports: crate::devices::cmiot_a15::ReportState,
+    a15_voice: crate::devices::cmiot_a15_fc::VoiceStream,
+    a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15_fc::PcmFrame>,
+    a15_voice_errors: u64,
     a15_recording: crate::devices::cmiot_a15_recording::RecordingControl,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
@@ -48,6 +51,9 @@ impl Default for QuarborContext {
             active_usages: std::collections::HashSet::new(),
             device_id: None,
             a15_reports: Default::default(),
+            a15_voice: Default::default(),
+            a15_pcm: Default::default(),
+            a15_voice_errors: 0,
             a15_recording: Default::default(),
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
             last_sequence: None,
@@ -250,6 +256,24 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 .is_some_and(crate::devices::cmiot_a15::matches_instance)
             {
                 context.usage_error = None;
+                if bytes.first() == Some(&0xfc) {
+                    match context.a15_voice.feed(bytes) {
+                        Ok(Some(frame)) => {
+                            if context.a15_pcm.len() == 32 {
+                                context.a15_pcm.pop_front();
+                            }
+                            context.a15_pcm.push_back(frame);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            context.a15_voice_errors += 1;
+                            if context.a15_voice_errors == 1 || context.a15_voice_errors % 128 == 0
+                            {
+                                log::warn!(target: "axonkey::audio", "A15 FC decode: {error}; errors={}", context.a15_voice_errors);
+                            }
+                        }
+                    }
+                }
                 for (button, pressed) in context.a15_reports.accept(bytes) {
                     context.keys.push_back(RemoteKeyEvent { button, pressed });
                 }
@@ -301,6 +325,8 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 .is_some_and(crate::devices::cmiot_a15::matches_instance)
             {
                 context.a15_recording.reset();
+                context.a15_voice.reset();
+                context.a15_pcm.clear();
                 if context
                     .reader
                     .as_ref()
@@ -336,6 +362,8 @@ fn quarbor_release_active_usages(context: &mut QuarborContext) {
         quarbor_read_error(context, format!("A15 recording stop: {error}"));
     }
     context.a15_recording.reset();
+    context.a15_voice.reset();
+    context.a15_pcm.clear();
     context.keyboard.reset(
         |key, down| {
             if let Some(client) = context.reader.as_mut() {
@@ -769,6 +797,13 @@ fn send_a15_recording_report(
 
 #[cfg(windows)]
 fn publish_a15_recording(shared: &Shared, recording: bool) {
+    #[cfg(not(test))]
+    if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
+        use tauri::Manager;
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioService>() {
+            audio.set_a15_recording(recording);
+        }
+    }
     let changed = if let Ok(mut status) = shared.status.lock() {
         let changed = status.cmiot_a15_recording != recording;
         status.cmiot_a15_recording = recording;
@@ -794,7 +829,13 @@ fn process_remote_actions(
     state_epoch: &mut u64,
     now: Instant,
 ) {
+    while let Some(frame) = context.a15_pcm.pop_front() {
+        emit_a15_pcm(shared, frame);
+    }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
     publish_a15_recording(shared, context.a15_recording.is_recording());
 }
 
@@ -831,6 +872,9 @@ fn process_remote_actions_inner(
         actions.cancel();
         return;
     }
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
     while let Some(key) = context.keys.pop_front() {
         emit_remote_key_event(shared, key.button, key.pressed);
         if key.button == "cmiotA15.voice" {
@@ -842,6 +886,9 @@ fn process_remote_actions_inner(
                 return;
             }
             publish_a15_recording(shared, context.a15_recording.is_recording());
+            context
+                .a15_voice
+                .synchronize(context.a15_recording.is_recording());
             continue;
         }
         actions.edge(key.button, key.pressed, &settings, now);
@@ -1122,6 +1169,21 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
         let _ = app.emit("axonkey-remote-key", RemoteKeyEvent { button, pressed });
     }
 }
+
+// Feed the existing native audio channel directly; the event remains diagnostic.
+#[cfg(not(test))]
+fn emit_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) {
+    if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
+        use tauri::Manager;
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioService>() {
+            audio.push_a15_pcm(&frame.samples);
+        }
+        let _ = app.emit("axonkey-cmiot-a15-pcm", frame);
+    }
+}
+
+#[cfg(test)]
+fn emit_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15_fc::PcmFrame) {}
 
 fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {

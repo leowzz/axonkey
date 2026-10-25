@@ -7,7 +7,7 @@ use cpal::{
 use std::{
     collections::VecDeque,
     sync::{
-        atomic::{AtomicBool, AtomicI32, Ordering},
+        atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError},
         Arc, Mutex,
     },
@@ -71,6 +71,10 @@ struct Shared {
     protocol: Mutex<VoiceProtocolState>,
     decoder: Mutex<AtvvDecoder>,
     samples: Mutex<VecDeque<i16>>,
+    // Source transitions and epoch updates are serialized by the samples mutex.
+    a15_active: AtomicBool,
+    a15_received: AtomicBool,
+    output_epoch: AtomicU64,
     gain_db: AtomicI32,
     stop: AtomicBool,
     audio_refresh: AtomicBool,
@@ -91,6 +95,9 @@ impl Shared {
             protocol: Mutex::new(protocol),
             decoder: Mutex::new(AtvvDecoder::default()),
             samples: Mutex::new(VecDeque::new()),
+            a15_active: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            output_epoch: AtomicU64::new(0),
             gain_db: AtomicI32::new(0),
             stop: AtomicBool::new(false),
             audio_refresh: AtomicBool::new(false),
@@ -102,6 +109,49 @@ impl Shared {
     fn update_status(&self, update: impl FnOnce(&mut AudioServiceStatus)) {
         if let Ok(mut status) = self.status.lock() {
             update(&mut status);
+        }
+    }
+
+    fn set_a15_recording(&self, active: bool) {
+        if let Ok(mut samples) = self.samples.lock() {
+            if self.a15_active.swap(active, Ordering::AcqRel) != active {
+                samples.clear();
+                self.output_epoch.fetch_add(1, Ordering::AcqRel);
+                self.a15_received.store(false, Ordering::Release);
+                self.diagnostics.control(if active { 0x04 } else { 0x00 });
+            }
+        }
+    }
+
+    fn reset_rc003_output(&self) {
+        if let Ok(mut samples) = self.samples.lock() {
+            // Xiaomi BLE reconnects/stops must not flush A15's ongoing stream.
+            if !self.a15_active.load(Ordering::Acquire) {
+                samples.clear();
+                self.output_epoch.fetch_add(1, Ordering::AcqRel);
+            }
+        }
+    }
+
+    fn enqueue_pcm(&self, a15: bool, frame: &[i16]) {
+        if let Ok(mut queued) = self.samples.lock() {
+            // A15 owns the shared channel while recording; never interleave sources.
+            if a15 != self.a15_active.load(Ordering::Acquire) {
+                return;
+            }
+            let overflow = queued
+                .len()
+                .saturating_add(frame.len())
+                .saturating_sub(MAX_QUEUED_SAMPLES);
+            let remove = overflow.min(queued.len());
+            queued.drain(..remove);
+            let skip = overflow - remove;
+            self.diagnostics.overflow(overflow);
+            self.diagnostics.decoded(frame);
+            queued.extend(&frame[skip..]);
+            if a15 {
+                self.a15_received.store(true, Ordering::Release);
+            }
         }
     }
 
@@ -124,9 +174,7 @@ impl Shared {
         // Drop buffered PCM immediately when the remote releases the voice
         // key; otherwise the output callback can play the stale queue for up
         // to MAX_QUEUED_SAMPLES / SOURCE_SAMPLE_RATE (about two seconds).
-        if let Ok(mut samples) = self.samples.lock() {
-            samples.clear();
-        }
+        self.reset_rc003_output();
         self.update_status(|status| {
             status.forwarding = false;
             if status.driver_installed && status.bluetooth_connected {
@@ -147,17 +195,18 @@ impl Shared {
                 )
             })
             .unwrap_or_default();
-        if let Some(report) = self
-            .diagnostics
-            .report(streaming || microphone_opened, window)
-        {
+        if let Some(report) = self.diagnostics.report(
+            streaming || microphone_opened || self.a15_active.load(Ordering::Acquire),
+            window,
+        ) {
             let queued = self
                 .samples
                 .lock()
                 .map(|samples| samples.len())
                 .unwrap_or_default();
             let gain_db = self.gain_db.load(Ordering::Acquire);
-            log::info!(target: "axonkey::audio", "RC003 audio diagnostics: {report} streaming={streaming} microphone_opened={microphone_opened} session_id={session_id} queued_samples={queued} gain_db={gain_db}");
+            let a15 = self.a15_active.load(Ordering::Acquire);
+            log::info!(target: "axonkey::audio", "Remote audio diagnostics: {report} a15_active={a15} streaming={streaming} microphone_opened={microphone_opened} session_id={session_id} queued_samples={queued} gain_db={gain_db}");
         }
     }
 }
@@ -169,6 +218,18 @@ pub struct AudioService {
 }
 
 impl AudioService {
+    pub(crate) fn set_a15_recording(&self, active: bool) {
+        self.shared.set_a15_recording(active);
+    }
+
+    pub(crate) fn push_a15_pcm(&self, samples: &[i16]) {
+        if samples.len() != 320 {
+            return;
+        }
+        self.shared.diagnostics.received(40);
+        self.shared.enqueue_pcm(true, samples);
+    }
+
     pub fn level(&self) -> crate::audio_service::AudioLevel {
         self.shared.diagnostics.level()
     }
@@ -222,7 +283,8 @@ impl AudioService {
     }
 
     pub fn status(&self) -> AudioServiceStatus {
-        self.shared
+        let mut status = self
+            .shared
             .status
             .lock()
             .map(|status| status.clone())
@@ -230,7 +292,25 @@ impl AudioService {
                 state: "error".into(),
                 error: Some("Windows audio status lock is unavailable".into()),
                 ..AudioServiceStatus::default()
-            })
+            });
+        if self.shared.a15_active.load(Ordering::Acquire) {
+            status.bluetooth_connected = true;
+            status.battery_level = None;
+            status.received_data = self.shared.a15_received.load(Ordering::Acquire);
+            status.output_ready =
+                status.driver_installed && !self.shared.output_failed.load(Ordering::Acquire);
+            status.forwarding = status.output_ready && status.received_data;
+            if status.output_ready {
+                status.state = if status.forwarding {
+                    "forwarding"
+                } else {
+                    "ready"
+                }
+                .into();
+                status.error = None; // RC003 discovery errors do not describe A15's channel.
+            }
+        }
+        status
     }
 }
 
@@ -383,6 +463,7 @@ where
 }
 
 struct OutputCursor {
+    epoch: u64,
     output_rate: u32,
     phase: u64,
     current: f32,
@@ -393,6 +474,7 @@ struct OutputCursor {
 impl OutputCursor {
     fn new(output_rate: u32) -> Self {
         Self {
+            epoch: 0,
             output_rate: output_rate.max(1),
             phase: 0,
             current: 0.0,
@@ -456,6 +538,12 @@ where
         shared.diagnostics.output(0, output_frames, true);
         return;
     };
+    let epoch = shared.output_epoch.load(Ordering::Acquire);
+    if cursor.epoch != epoch {
+        cursor.reset();
+        cursor.epoch = epoch;
+    }
+    let streaming = streaming || shared.a15_active.load(Ordering::Acquire);
     let queued_before = samples.len();
     if !cursor.prime(&mut samples, streaming) {
         shared.diagnostics.output(0, output_frames, false);
@@ -571,9 +659,7 @@ impl VoiceConnection {
         if let Ok(mut decoder) = shared.decoder.lock() {
             decoder.reset_session();
         }
-        if let Ok(mut samples) = shared.samples.lock() {
-            samples.clear();
-        }
+        shared.reset_rc003_output();
 
         let transmit = find_characteristic(&service, TRANSMIT_UUID, "transmit")?;
         let audio = find_characteristic(&service, AUDIO_UUID, "audio")?;
@@ -833,7 +919,10 @@ fn event_bytes(args: &GattValueChangedEventArgs) -> windows::core::Result<Vec<u8
 }
 
 fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
-    shared.diagnostics.control(*bytes.first()?);
+    let opcode = *bytes.first()?;
+    if !shared.a15_active.load(Ordering::Acquire) {
+        shared.diagnostics.control(opcode);
+    }
     let command = match bytes.first().copied()? {
         0x0b => {
             if bytes.len() < 7 {
@@ -904,9 +993,7 @@ fn handle_control_packet(shared: &Shared, bytes: &[u8]) -> Option<Vec<u8>> {
                 if let Ok(mut decoder) = shared.decoder.lock() {
                     decoder.reset_session();
                 }
-                if let Ok(mut samples) = shared.samples.lock() {
-                    samples.clear();
-                }
+                shared.reset_rc003_output();
                 shared.update_status(|status| {
                     status.forwarding = true;
                     status.state = "forwarding".into();
@@ -982,22 +1069,8 @@ fn handle_audio_packet(shared: &Shared, bytes: &[u8]) {
     if frames.is_empty() {
         return;
     }
-    for frame in &frames {
-        shared.diagnostics.decoded(frame);
-    }
-    if let Ok(mut queued) = shared.samples.lock() {
-        for frame in frames {
-            let overflow = queued
-                .len()
-                .saturating_add(frame.len())
-                .saturating_sub(MAX_QUEUED_SAMPLES);
-            if overflow > 0 {
-                let remove = overflow.min(queued.len());
-                queued.drain(..remove);
-                shared.diagnostics.overflow(remove);
-            }
-            queued.extend(frame);
-        }
+    for frame in frames {
+        shared.enqueue_pcm(false, &frame);
     }
 }
 
@@ -1013,6 +1086,103 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 
 #[cfg(test)]
 mod tests {
+    use super::{pcm_to_f32, AudioService, Ordering, MAX_QUEUED_SAMPLES};
+    #[test]
+    fn a15_status_does_not_depend_on_xiaomi_bluetooth_discovery() {
+        let audio = AudioService {
+            shared: std::sync::Arc::new(Shared::new()),
+            audio_worker: std::sync::Mutex::new(None),
+            ble_worker: std::sync::Mutex::new(None),
+        };
+        audio.shared.update_status(|status| {
+            status.driver_installed = true;
+            status.state = "scanning".into();
+            status.error = Some("RC003 not connected".into());
+        });
+        audio.set_a15_recording(true);
+        assert_eq!(audio.status().state, "ready");
+        assert!(!audio.status().forwarding);
+        audio.push_a15_pcm(&[1000; 320]);
+        let status = audio.status();
+        assert!(status.forwarding && status.output_ready && status.received_data);
+        assert!(status.error.is_none());
+        audio.shared.update_status(|status| {
+            status.driver_installed = false;
+            status.state = "driverMissing".into();
+            status.error = Some("CABLE Input missing".into());
+        });
+        assert!(!audio.status().forwarding);
+        assert_eq!(audio.status().error.as_deref(), Some("CABLE Input missing"));
+        audio.set_a15_recording(false);
+        assert!(!audio.status().bluetooth_connected);
+    }
+    #[test]
+    fn a15_uses_shared_gain_resampling_and_clears_cursor_on_stop() {
+        let shared = Shared::new();
+        shared.set_a15_recording(true);
+        shared.gain_db.store(6, Ordering::Release);
+        shared.enqueue_pcm(true, &[4000; 320]);
+        let mut cursor = OutputCursor::new(48_000);
+        let mut output = [0.0_f32; 120];
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        let expected = pcm_to_f32(4000) * 10.0_f32.powf(6.0 / 20.0);
+        assert!(output
+            .iter()
+            .all(|sample| (*sample - expected).abs() < 0.00001));
+        assert!(cursor.active);
+        shared.set_a15_recording(false);
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        assert!(output.iter().all(|sample| *sample == 0.0));
+        assert!(!cursor.active);
+        // A new recording cannot reuse an interpolation sample from the old one.
+        shared.set_a15_recording(true);
+        shared.enqueue_pcm(true, &[-4000; 320]);
+        fill_output(&mut output, 2, &mut cursor, &shared);
+        assert!(output.iter().all(|sample| *sample < 0.0));
+    }
+
+    #[test]
+    fn a15_owns_channel_without_rc003_reconnect_or_stop_flushing_it() {
+        let shared = Shared::new();
+        shared.enqueue_pcm(false, &[1000; 320]);
+        shared.set_a15_recording(true);
+        assert!(shared.samples.lock().unwrap().is_empty());
+        shared.enqueue_pcm(true, &[2000; 320]);
+        shared.enqueue_pcm(false, &[3000; 320]);
+        shared.reset_voice_session();
+        shared.reset_rc003_output();
+        assert_eq!(shared.samples.lock().unwrap().len(), 320);
+        assert!(shared
+            .samples
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|sample| *sample == 2000));
+        shared.set_a15_recording(false);
+        shared.enqueue_pcm(true, &[4000; 320]); // Late A15 frame after stop.
+        assert!(shared.samples.lock().unwrap().is_empty());
+        shared.enqueue_pcm(false, &[5000; 320]);
+        assert!(shared
+            .samples
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|sample| *sample == 5000));
+    }
+
+    #[test]
+    fn shared_pcm_queue_is_bounded_and_a15_feeds_level_diagnostics() {
+        let shared = Shared::new();
+        shared.set_a15_recording(true);
+        for _ in 0..110 {
+            shared.enqueue_pcm(true, &[6000; 320]);
+        }
+        assert_eq!(shared.samples.lock().unwrap().len(), MAX_QUEUED_SAMPLES);
+        assert!(shared.a15_received.load(Ordering::Acquire));
+        assert!(shared.diagnostics.level().peak > 0.1);
+        shared.set_a15_recording(false);
+        assert!(!shared.a15_received.load(Ordering::Acquire));
+    }
     use super::{approved_remote_service_id, cable_output_name, fill_output, OutputCursor, Shared};
     use std::time::Duration;
 
