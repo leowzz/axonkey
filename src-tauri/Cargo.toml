@@ -33,6 +33,7 @@ sha2 = "0.10"
 hidapi = { version = "2.6.7", default-features = false, features = ["macos-shared-device", "windows-native", "linux-static-hidraw"] }
 
 [target.'cfg(windows)'.dependencies]
+windows-collections = "0.2"
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread", "net"] }
 winreg = "0.55"

@@ -1,5 +1,6 @@
 //! Physical-device ownership and input lifetime live here, independently of the editor window.
 mod gesture;
+mod paired;
 mod report;
 use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
 use gesture::Gestures;
@@ -35,6 +36,8 @@ pub struct Instance {
     pub binding: Option<String>,
     #[serde(default)]
     pub binding_quality: Option<String>,
+    #[serde(default)]
+    pub binding_pairing_id: Option<String>,
     pub enabled: bool,
     pub capture: String,
     pub profiles: Vec<Profile>,
@@ -66,6 +69,9 @@ pub struct Discovered {
     pub identity_quality: String,
     pub vendor_id: u16,
     pub product_id: u16,
+    pub connected: bool,
+    pub paired: bool,
+    pub pairing_id: Option<String>,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +170,7 @@ fn validate(store: &Store) -> Result<(), String> {
     }
     let mut ids = HashSet::new();
     let mut bindings = HashSet::new();
+    let mut pairing_ids = HashSet::new();
     for instance in &store.instances {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
@@ -180,6 +187,11 @@ fn validate(store: &Store) -> Result<(), String> {
         if let Some(binding) = &instance.binding {
             if !bindings.insert(binding) {
                 return Err("该物理设备已经绑定其他实例".into());
+            }
+            if let Some(pairing_id) = &instance.binding_pairing_id {
+                if !pairing_ids.insert(pairing_id) {
+                    return Err("同一物理设备不能重复绑定".into());
+                }
             }
         }
         if instance.profiles.is_empty()
@@ -355,6 +367,7 @@ impl DeviceManager {
             }
             if old.binding == instance.binding {
                 instance.binding_quality = old.binding_quality.clone();
+                instance.binding_pairing_id = old.binding_pairing_id.clone();
             }
         }
         if instance.capture == "exclusive" && !cfg!(target_os = "macos") {
@@ -371,6 +384,7 @@ impl DeviceManager {
                     return Err("设备标识冲突，不能确定目标实物".into());
                 }
                 instance.binding_quality = Some(device.identity_quality.clone());
+                instance.binding_pairing_id = device.pairing_id.clone();
                 if device.kind != instance.kind {
                     return Err("设备与支持包不匹配".into());
                 }
@@ -378,6 +392,7 @@ impl DeviceManager {
         }
         if instance.binding.is_none() {
             instance.binding_quality = None;
+            instance.binding_pairing_id = None;
         }
         if instance.id.is_empty() {
             instance.id = unique_id();
@@ -507,6 +522,40 @@ impl Drop for HidSession {
         }
     }
 }
+fn remember_pairing_ids(
+    snapshot: &mut Snapshot,
+    discovered: &[Discovered],
+    path: &std::path::Path,
+) {
+    if snapshot.error.is_some() {
+        return;
+    }
+    let mut next = snapshot.store.clone();
+    let mut changed = false;
+    for instance in &mut next.instances {
+        if instance.binding_pairing_id.is_some() {
+            continue;
+        }
+        if let Some(device) = discovered.iter().find(|d| {
+            Some(&d.id) == instance.binding.as_ref()
+                && d.kind == instance.kind
+                && d.identity_quality != "ambiguous"
+                && d.pairing_id.is_some()
+        }) {
+            instance.binding_pairing_id = device.pairing_id.clone();
+            changed = true;
+        }
+    }
+    if !changed {
+        return;
+    }
+    next.revision += 1;
+    match validate(&next).and_then(|_| save(path, &next)) {
+        Ok(()) => snapshot.store = next,
+        Err(error) => snapshot.error = Some(error),
+    }
+}
+
 fn run(shared: Arc<Shared>) {
     let _session = HidSession::acquire();
     let mut api = match HidApi::new() {
@@ -528,7 +577,36 @@ fn run(shared: Arc<Shared>) {
     let mut next_scan = Instant::now();
     let mut next_event = Instant::now();
     let mut dirty = HashSet::new();
+    // OS Bluetooth inventory queries can be slow. Keep them off the HID read loop.
+    let (pair_tx, pair_rx) = sync_channel(1);
+    let pair_shared = shared.clone();
+    thread::spawn(move || {
+        while !pair_shared.stop.load(Ordering::Acquire) {
+            if pair_tx.send(paired::scan()).is_err() {
+                break;
+            }
+            for _ in 0..50 {
+                if pair_shared.stop.load(Ordering::Acquire) {
+                    return;
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    });
+    let mut paired_devices = vec![];
+    let mut pairing_error = None;
     while !shared.stop.load(Ordering::Acquire) {
+        if let Ok(result) = pair_rx.try_recv() {
+            match result {
+                Ok(devices) => {
+                    paired_devices = devices;
+                    pairing_error = None;
+                }
+                // A failed query is not evidence that the user unpaired every device.
+                Err(error) => pairing_error = Some(error),
+            }
+            next_scan = Instant::now();
+        }
         let scanning = Instant::now() >= next_scan;
         if scanning {
             next_scan = Instant::now() + Duration::from_secs(2);
@@ -536,6 +614,13 @@ fn run(shared: Arc<Shared>) {
             let mut discovered = vec![];
             let mut seen_paths = HashSet::new();
             let mut next_paths = HashMap::new();
+            let stored = shared.snapshot.lock().unwrap().store.instances.clone();
+            let bindings: HashSet<String> =
+                stored.iter().filter_map(|i| i.binding.clone()).collect();
+            let pairing_bindings: HashMap<String, String> = stored
+                .iter()
+                .filter_map(|i| Some((i.binding_pairing_id.clone()?, i.binding.clone()?)))
+                .collect();
             if result.is_ok() {
                 for info in api.device_list() {
                     let Some(kind) = supported(info) else {
@@ -544,12 +629,40 @@ fn run(shared: Arc<Shared>) {
                     let path = info.path().to_string_lossy().into_owned();
                     seen_paths.insert(path.clone());
                     let serial = info.serial_number().filter(|s| !s.trim().is_empty());
-                    let id = if let Some(serial) = serial {
+                    let address = paired::hid_address(info);
+                    let pairing_id = address.as_ref().map(|address| {
+                        paired::identity(
+                            kind,
+                            info.vendor_id(),
+                            info.product_id(),
+                            address,
+                            &HashSet::new(),
+                        )
+                    });
+                    let legacy_id = serial.map(|serial| {
                         digest(&format!(
                             "{kind}:{}:{}:{serial}",
                             info.vendor_id(),
                             info.product_id()
                         ))
+                    });
+                    let id = if let Some(id) =
+                        pairing_id.as_ref().and_then(|id| pairing_bindings.get(id))
+                    {
+                        id.clone()
+                    } else if let Some(id) = legacy_id.as_ref().filter(|id| bindings.contains(*id))
+                    {
+                        id.clone()
+                    } else if let Some(address) = &address {
+                        paired::identity(
+                            kind,
+                            info.vendor_id(),
+                            info.product_id(),
+                            address,
+                            &bindings,
+                        )
+                    } else if let Some(id) = legacy_id {
+                        id
                     } else {
                         sessions
                             .entry(path.clone())
@@ -562,7 +675,7 @@ fn run(shared: Arc<Shared>) {
                         kind: kind.into(),
                         name: info.product_string().unwrap_or(kind).into(),
                         transport: format!("{:?}", info.bus_type()),
-                        identity_quality: if serial.is_some() {
+                        identity_quality: if serial.is_some() || address.is_some() {
                             "serial"
                         } else {
                             "session"
@@ -570,6 +683,9 @@ fn run(shared: Arc<Shared>) {
                         .into(),
                         vendor_id: info.vendor_id(),
                         product_id: info.product_id(),
+                        connected: true,
+                        paired: false,
+                        pairing_id,
                     });
                 }
                 sessions.retain(|path, _| seen_paths.contains(path));
@@ -585,12 +701,23 @@ fn run(shared: Arc<Shared>) {
                     }
                 }
                 discovered.dedup_by(|a, b| a.id == b.id);
+                paired::merge(
+                    &mut discovered,
+                    &paired_devices,
+                    &bindings,
+                    &pairing_bindings,
+                );
                 paths = next_paths;
             }
             let mut snapshot = shared.snapshot.lock().unwrap();
             snapshot.scanning = false;
-            snapshot.scan_error = result.err().map(|e| e.to_string());
-            if snapshot.scan_error.is_none() {
+            let hid_ok = result.is_ok();
+            snapshot.scan_error = result
+                .err()
+                .map(|e| e.to_string())
+                .or_else(|| pairing_error.clone());
+            if hid_ok {
+                remember_pairing_ids(&mut snapshot, &discovered, &shared.path);
                 snapshot.discovered = discovered;
             }
         }
@@ -935,6 +1062,7 @@ mod tests {
             name: id.into(),
             binding: Some(binding.into()),
             binding_quality: Some("serial".into()),
+            binding_pairing_id: None,
             enabled: true,
             capture: "shared".into(),
             profiles: vec![Profile {
@@ -1012,7 +1140,7 @@ mod tests {
         let physical = snapshot
             .discovered
             .iter()
-            .find(|d| d.kind == "xboxBluetooth")
+            .find(|d| d.kind == "xboxBluetooth" && d.connected)
             .expect("Connect controller");
         let binding = physical.id.clone();
         let first = instance("test-controller", &binding);
@@ -1067,6 +1195,33 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("bak"));
         eprintln!("verified bind, duplicate rejection, stale revision rejection, pause, resume, persisted restart, removal");
     }
+    #[test]
+    #[ignore = "requires a supported paired device; read-only inventory"]
+    fn paired_devices_in_native_snapshot() {
+        let path =
+            std::env::temp_dir().join(format!("axonkey-paired-snapshot-{}.json", unique_id()));
+        let manager = DeviceManager::start_with_emitter(path, Box::new(|_| {}));
+        let snapshot = await_state(&manager, |s| s.discovered.iter().any(|d| d.paired));
+        manager.shutdown();
+        eprintln!(
+            "PAIRED_SNAPSHOT={}",
+            serde_json::to_string(&snapshot).unwrap()
+        );
+        assert!(snapshot.store.instances.is_empty());
+        let mut identities = HashSet::new();
+        for device in &snapshot.discovered {
+            if let Some(pairing_id) = &device.pairing_id {
+                assert!(
+                    identities.insert(pairing_id),
+                    "HID and pairing records must share one card"
+                );
+            }
+        }
+        assert!(
+            snapshot.runtime.is_empty(),
+            "listing paired devices must not start input sessions"
+        );
+    }
     fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
@@ -1113,6 +1268,9 @@ mod tests {
             identity_quality: "ambiguous".into(),
             vendor_id: 0x045e,
             product_id: 0x02e0,
+            connected: true,
+            paired: false,
+            pairing_id: None,
         };
         manager.shared.snapshot.lock().unwrap().discovered = vec![discovered.clone()];
         assert!(manager.put(0, instance("one", "a")).is_err());
@@ -1148,6 +1306,95 @@ mod tests {
         assert!(validate(&store).is_ok());
         store.instances[1].binding = store.instances[0].binding.clone();
         assert!(validate(&store).is_err());
+    }
+    #[test]
+    fn paired_offline_device_can_be_bound_and_keeps_its_configuration() {
+        let manager = offline_manager(vec![]);
+        manager.shared.snapshot.lock().unwrap().discovered = vec![Discovered {
+            id: "paired-controller".into(),
+            kind: "xboxBluetooth".into(),
+            name: "Controller".into(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x045e,
+            product_id: 0x02e0,
+            connected: false,
+            paired: true,
+            pairing_id: Some("pairing-controller".into()),
+        }];
+        let saved = manager
+            .put(0, instance("desk", "paired-controller"))
+            .unwrap();
+        assert_eq!(saved.store.instances.len(), 1);
+        // An empty online scan or OS unpairing must not delete user mappings.
+        manager.shared.snapshot.lock().unwrap().discovered.clear();
+        let mut changed = saved.store.instances[0].clone();
+        changed.name = "Desk controller".into();
+        manager.put(1, changed).unwrap();
+        let restored = load(&manager.shared.path).unwrap();
+        assert_eq!(
+            restored.instances[0].binding.as_deref(),
+            Some("paired-controller")
+        );
+        assert_eq!(restored.instances[0].name, "Desk controller");
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+    #[test]
+    fn legacy_binding_learns_pairing_identity_without_changing_id_or_profiles() {
+        let mut old = instance("saved", "legacy-serial-id");
+        old.kind = "rc003".into();
+        let manager = offline_manager(vec![old]);
+        let canonical = paired::identity(
+            "rc003",
+            0x2717,
+            0x32b8,
+            "AA:BB:CC:DD:EE:01",
+            &HashSet::new(),
+        );
+        let online = vec![Discovered {
+            id: "legacy-serial-id".into(),
+            kind: "rc003".into(),
+            name: "Remote".into(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x2717,
+            product_id: 0x32b8,
+            connected: true,
+            paired: true,
+            pairing_id: Some(canonical.clone()),
+        }];
+        let mut snapshot = manager.shared.snapshot.lock().unwrap();
+        let original = snapshot.store.instances[0].clone();
+        remember_pairing_ids(&mut snapshot, &online, &manager.shared.path);
+        let restored = load(&manager.shared.path).unwrap();
+        let saved = &restored.instances[0];
+        assert_eq!(saved.id, original.id);
+        assert_eq!(saved.binding, original.binding);
+        assert!(saved.profiles == original.profiles);
+        assert_eq!(saved.binding_pairing_id.as_ref(), Some(&canonical));
+        remember_pairing_ids(&mut snapshot, &online, &manager.shared.path);
+        assert_eq!(
+            snapshot.store.revision, restored.revision,
+            "metadata is persisted only once"
+        );
+        let mut offline = vec![];
+        paired::merge(
+            &mut offline,
+            &[paired::Device {
+                address: "AA:BB:CC:DD:EE:01".into(),
+                name: "Remote".into(),
+                vendor_id: 0x2717,
+                product_id: 0x32b8,
+            }],
+            &HashSet::from(["legacy-serial-id".into()]),
+            &HashMap::from([(canonical, "legacy-serial-id".into())]),
+        );
+        assert_eq!(offline.len(), 1);
+        assert_eq!(offline[0].id, "legacy-serial-id");
+        assert!(!offline[0].connected);
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
     #[test]
     fn persistence_round_trip_and_corruption_preservation() {

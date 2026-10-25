@@ -12,6 +12,7 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         cc::Build::new()
             .file("native/macos_input.m")
+            .file("native/macos_device_identity.m")
             .file("native/devices/xiaomi_remote/macos_audio.m")
             .file("native/macos_overlay.m")
             .flag("-fobjc-arc")
@@ -29,6 +30,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos_pcm_queue.h");
         println!("cargo:rerun-if-changed=native/devices/xiaomi_remote/macos_audio_trace.h");
         println!("cargo:rerun-if-changed=native/macos_input.m");
+        println!("cargo:rerun-if-changed=native/macos_device_identity.m");
         println!("cargo:rerun-if-changed=native/macos_overlay.m");
     }
     tauri_build::build()

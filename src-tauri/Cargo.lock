@@ -319,6 +319,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "windows 0.61.3",
+ "windows-collections 0.2.0",
  "winreg 0.55.0",
 ]
 

@@ -4,7 +4,7 @@ import { Bluetooth, Check, ChevronDown, Clock3, Usb } from 'lucide-react'
 import type { DiscoveredDevice } from './model'
 import './IntegrationControls.css'
 
-type BindingOption = { value: string; name: string; detail: string; status?: string; unavailable?: boolean; bluetooth?: boolean }
+type BindingOption = { value: string; name: string; detail: string; status?: string; unavailable?: boolean; offline?: boolean; bluetooth?: boolean }
 
 export function DeviceBindingPicker({ labelledBy, value, devices, onChange }: {
   labelledBy: string; value: string; devices: readonly DiscoveredDevice[]; onChange: (value: string) => void
@@ -19,11 +19,12 @@ export function DeviceBindingPicker({ labelledBy, value, devices, onChange }: {
     value: device.id, name: device.name,
     detail: `${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`,
     bluetooth: device.transport === 'Bluetooth',
-    status: device.identityQuality === 'ambiguous' ? '标识冲突' : '已连接',
+    status: device.identityQuality === 'ambiguous' ? '标识冲突' : device.connected ? '已连接' : '未连接',
     unavailable: device.identityQuality === 'ambiguous',
+    offline: !device.connected,
   }))
   if (value && !options.some(option => option.value === value)) {
-    options.unshift({ value, name: '原绑定设备', detail: value.slice(-6), status: '已离线', unavailable: true })
+    options.unshift({ value, name: '原绑定设备', detail: value.slice(-6), status: '未连接', unavailable: true, offline: true })
   }
   options.push({ value: '', name: '稍后绑定', detail: '' })
   const selected = options.find(option => option.value === value)!
@@ -88,7 +89,7 @@ export function DeviceBindingPicker({ labelledBy, value, devices, onChange }: {
       }}>
       <span className="device-binding-icon">{icon(selected)}</span>
       <span className="device-binding-copy"><strong>{selected.name}</strong>{selected.detail && <small>{selected.detail}</small>}</span>
-      {selected.status && <span className={`device-binding-status${selected.unavailable ? ' is-unavailable' : ''}`}><i />{selected.status}</span>}
+      {selected.status && <span className={`device-binding-status${selected.unavailable ? ' is-unavailable' : selected.offline ? ' is-offline' : ''}`}><i />{selected.status}</span>}
       <ChevronDown size={15} className={open ? 'is-open' : ''} />
     </button>
     {open && createPortal(<div ref={menu} id={id} role="listbox" aria-labelledby={labelledBy} className="device-binding-menu" style={position}>
@@ -97,7 +98,7 @@ export function DeviceBindingPicker({ labelledBy, value, devices, onChange }: {
         onMouseDown={event => event.preventDefault()} onMouseMove={() => setActive(option.value)} onClick={() => choose(option)}>
         <span className="device-binding-icon">{icon(option)}</span>
         <span className="device-binding-copy"><strong>{option.name}</strong>{option.detail && <small>{option.detail}</small>}</span>
-        {option.unavailable && <small className="device-binding-unavailable">{option.status}</small>}
+        {(option.unavailable || option.offline) && <small className="device-binding-unavailable">{option.status}</small>}
         {option.value === value && <Check size={15} className="device-binding-check" />}
       </div>)}
     </div>, document.body)}

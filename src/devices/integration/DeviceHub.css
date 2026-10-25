@@ -1,11 +1,11 @@
 .managed-hub { flex: 1; min-width: 0; padding: 28px; color: #536b85; }
 .managed-caption { color: #8192a3; font-size: 11px; font-weight: 400; }
-.managed-device-grid { display: flex; flex-wrap: wrap; gap: 16px; }
-.managed-device-grid .my-devices-card { width: 340px; min-height: 210px; }
+.managed-device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.managed-device-grid .my-devices-card { width: 100%; min-height: 210px; }
+.managed-device-grid .my-devices-card-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr); gap: clamp(12px, 1.5vw, 20px); padding: clamp(16px, 1.5vw, 20px); }
 .managed-device-grid .my-devices-artwork img { height: 118px; }
-.managed-section-gap { margin-top: 28px; }
-.managed-empty { display: flex; gap: 14px; align-items: center; padding: 28px 16px; color: #7890a6; font-size: 13px; }
-.managed-empty small { display: block; margin-top: 8px; font-size: 11px; }
+.managed-device-grid .my-devices-status { white-space: normal; overflow-wrap: anywhere; }
+.managed-device-grid .my-devices-count { overflow-wrap: anywhere; }
 .managed-hub button, .managed-hub select, .managed-hub input, .managed-integration-dialog button, .managed-integration-dialog select, .managed-integration-dialog input { font: inherit; }
 .managed-hub button:focus-visible, .managed-integration-dialog button:focus-visible, .managed-controller-diagram [data-key]:focus-visible { outline: 2px solid #3784ce; outline-offset: 3px; }
 .managed-hub button:disabled, .managed-integration-dialog button:disabled { opacity: .5; cursor: default; }

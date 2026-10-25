@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>手柄空间 · Axonkey 场景提案</title>
+  <link rel="icon" href="../../src-tauri/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="controller-space/space.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><img src="../../src-tauri/icons/icon.svg" alt="Axonkey"><strong>axonkey</strong><span class="brand-divider"></span><span>手柄空间</span><small>设计实验室</small></div>
+    <div class="top-actions"><span id="connection-status">虚拟手柄 · 可直接试用</span><button id="gamepad-connect" class="quiet">试用真手柄</button><button id="open-notes" class="quiet">场景思路 ↗</button></div>
+  </header>
+  <nav id="scenes" class="scene-nav" aria-label="设计方案"></nav>
+  <main class="workspace">
+    <div class="experience">
+      <header class="scene-heading"><div><div class="eyebrow" id="scene-eyebrow"></div><h1 id="scene-title"></h1><p id="scene-summary"></p></div><button id="menu-toggle" class="primary">Menu · 唤出菜单</button></header>
+      <section id="stage" class="stage" aria-label="交互场景"></section>
+      <div class="stage-caption"><span><i class="status-dot"></i><span id="activity" role="status" aria-live="polite">就绪</span></span><button id="reset" class="text-button">重置本场景</button></div>
+    </div>
+    <aside class="inspector" aria-label="场景说明与虚拟手柄">
+      <div class="inspector-heading"><span class="eyebrow">WHY A CONTROLLER</span><span id="priority" class="tag"></span></div>
+      <h2 id="use-title"></h2><p id="use-body" class="use-body"></p>
+      <div class="journey" id="journey"></div>
+      <div class="control-heading"><h3>握在手里的交互</h3><span>拖动圆点 / 按住扳机</span></div>
+      <div class="sticks">
+        <div class="stick-column"><div class="stick" id="left-stick" role="group" aria-label="虚拟左摇杆，拖动圆点操作"><span class="stick-axis horizontal"></span><span class="stick-axis vertical"></span><span class="deadzone"></span><span class="stick-thumb"></span><span class="stick-label">L</span></div><strong id="left-role"></strong><small>W A S D</small></div>
+        <div class="stick-column"><div class="stick" id="right-stick" role="group" aria-label="虚拟右摇杆，拖动圆点操作"><span class="stick-axis horizontal"></span><span class="stick-axis vertical"></span><span class="deadzone"></span><span class="stick-thumb"></span><span class="stick-label">R</span></div><strong id="right-role"></strong><small>I J K L</small></div>
+      </div>
+      <div class="triggers">
+        <label><span><b>LT</b><strong id="lt-role"></strong><output id="lt-output">0%</output></span><input id="lt" type="range" min="0" max="100" value="0" aria-label="LT 扳机深度"><small>按住 Q 或拖动 · 松开归零</small></label>
+        <label><span><b>RT</b><strong id="rt-role"></strong><output id="rt-output">0%</output></span><input id="rt" type="range" min="0" max="100" value="0" aria-label="RT 扳机深度"><small>按住 E 或拖动 · 松开归零</small></label>
+      </div>
+      <div class="face-buttons" id="face-buttons"></div>
+      <div class="shoulders"><button data-command="lb"><kbd>LB</kbd><span id="lb-role"></span></button><button data-command="rb"><kbd>RB</kbd><span id="rb-role"></span></button></div>
+      <div class="dpad-row"><div class="dpad"><button data-command="up" aria-label="十字键上">↑</button><button data-command="left" aria-label="十字键左">←</button><button data-command="down" aria-label="十字键下">↓</button><button data-command="right" aria-label="十字键右">→</button></div><span id="dpad-role"></span></div>
+      <p class="keyboard-hint">Enter = A · Esc = B · U = X · O = Y<br>M 唤出 / 收起 · 数字 1–5 切换方案</p>
+      <div class="scope-note"><strong>此刻试的是交互</strong><p id="scope"></p></div>
+    </aside>
+  </main>
+  <footer class="footer"><span>场景原生操作 / 双摇杆 + 线性扳机 + 可见反馈</span><span>所有内容为示例 · 不控制系统和其他应用</span><button id="tweaks-open">Tweaks</button></footer>
+  <dialog id="notes"><div class="dialog-top"><div><span class="eyebrow">PRODUCT THINKING</span><h2>手柄适合做什么？</h2></div><button data-close="notes" class="close-button" aria-label="关闭场景思路">×</button></div><p class="dialog-lead">当操作是方向、速度、力度和空间关系，手柄可以成为一套完整的界面。</p><div id="comparison"></div><div class="principles"><section><h3>统一的使用方式</h3><p>Menu 唤出 → 摇杆选目标 → A 确认。B 总能回退。进入场景后，屏幕显示当前控件语义，不需要逐键配置。</p></section><section><h3>值得先做的组合</h3><p>A 轮盘作为共同入口，B 影音验证线性扳机体验。D 演示作为第二个场景；C 窗口与 E 审片在应用接口确定后扩展。</p></section><section><h3>让手柄发挥长处</h3><p>适合远距离控制、连续浏览、空间摆放和演示讲解。大量文字输入、复杂精确绘图仍交给键鼠。</p></section><section><h3>真实接入的边界</h3><p>需确认目标应用 API、全局唤出和输入冲突。Xbox 键、Share、震动均不作为必需条件；摇杆光点不依赖陀螺仪。</p></section></div><p class="source-links">能力依据：<a href="https://learn.microsoft.com/en-us/windows/win32/api/xinput/ns-xinput-xinput_gamepad" target="_blank" rel="noreferrer">Microsoft XInput</a> · <a href="https://www.w3.org/TR/gamepad/" target="_blank" rel="noreferrer">W3C Gamepad</a> · <a href="controller-space/brand-spec.md">完整设计说明</a></p></dialog>
+  <dialog id="tweaks"><div class="dialog-top"><h2>Tweaks</h2><button data-close="tweaks" class="close-button" aria-label="关闭 Tweaks">×</button></div><label>对比场景<select id="scene-select"></select></label><label>摇杆死区 <output id="deadzone-output">18%</output><input id="deadzone" type="range" min="8" max="35" value="18"></label><label class="check-label"><input id="large-mode" type="checkbox">远看模式：放大场景文字</label><p>这里只改变原型体验。真实设备需要按型号校准。</p></dialog>
+  <script src="controller-space/space.js"></script>
+</body>
+</html>

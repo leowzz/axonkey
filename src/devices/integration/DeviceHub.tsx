@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { ArrowLeft, Bluetooth, ChevronRight, Plus, RefreshCw, Settings2, X } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Plus, RefreshCw, Settings2, X } from 'lucide-react'
 import type { MacPermissions, Platform } from '../../appTypes'
 import type { TriggerBehaviors, ButtonId } from '../../behaviorModel'
 import type { DeviceId } from '../../deviceModel'
@@ -12,7 +12,7 @@ import { SettingsHelp } from '../../components/SettingsHelp'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
 import { xiaomiRemoteView } from '../xiaomi-remote/view'
 import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
-import { emptyTriggers, newInstance, packageFor, stateLabel, supportPackages } from './model'
+import { emptyTriggers, instanceStatusLabel, newInstance, packageFor, supportPackages } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
@@ -35,13 +35,10 @@ export function DeviceHub(props: Props) {
     {banner}
     {instance ? <InstanceWorkspace key={instance.id} {...props} instance={instance} onBack={() => setSelected(null)} onBind={() => setIntegration({ kind: instance.kind, instance })} /> : <>
       <header className="my-devices-heading"><div className="my-devices-heading-main"><button className="my-devices-brand" aria-label="Axonkey" title="Axonkey" onClick={props.onBrandClick}><img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />Axonkey</button><h1>我的设备</h1></div><button className="my-devices-integrate" onClick={() => setIntegration({})}><Plus size={16} />手动添加设备</button></header>
-      <h2 className="my-devices-section-title">发现设备 <span>{native ? '自动扫描' : ''}</span><button className="managed-icon" aria-label="刷新设备" onClick={() => void controller.refresh()} disabled={!native}><RefreshCw size={14} /></button></h2>
+      <h2 className="my-devices-section-title">发现设备 <button className="managed-icon" aria-label="刷新设备" onClick={() => void controller.refresh()} disabled={!native}><RefreshCw size={14} /></button></h2>
       <div className="managed-device-grid">
-        {unboundDevices.map(device => <DeviceCard key={device.id} kind={device.kind} title={packageFor(device.kind).name} subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`} status={device.identityQuality === 'ambiguous' ? '实例标识冲突，无法自动绑定' : '点击集成'} onClick={() => setIntegration({ kind: device.kind, device })} />)}
-        {!unboundDevices.length && <div className="managed-empty"><Bluetooth size={22} /><div>{snapshot.scanning ? '正在扫描设备…' : '暂未发现可添加的设备'}<small>请连接设备，或手动添加。</small></div></div>}
-      </div>
-      <div className="managed-device-grid managed-section-gap">
-        {snapshot.store.instances.map(item => <DeviceCard key={item.id} kind={item.kind} title={item.name} subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`} status={native ? stateLabel(snapshot.runtime[item.id]?.state) : '预览配置'} profile={item.profiles.find(p => p.id === item.activeProfileId)?.name} onClick={() => setSelected(item.id)} />)}
+        {unboundDevices.map(device => <DeviceCard key={device.id} kind={device.kind} title={packageFor(device.kind).name} subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`} status={device.identityQuality === 'ambiguous' ? '实例标识冲突，无法自动绑定' : device.connected ? '点击集成' : '未连接'} onClick={() => setIntegration({ kind: device.kind, device })} />)}
+        {snapshot.store.instances.map(item => <DeviceCard key={item.id} kind={item.kind} title={item.name} subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`} status={native ? instanceStatusLabel(item, snapshot) : '预览配置'} profile={item.profiles.find(p => p.id === item.activeProfileId)?.name} onClick={() => setSelected(item.id)} />)}
         <button className="my-devices-card managed-system-mouse" onClick={() => props.onLegacy('mouse')}><div className="my-devices-card-main"><span className="my-devices-artwork"><img src="/mouse-device.svg" alt="" /></span><div className="my-devices-identity"><strong>系统鼠标</strong><span className="my-devices-count">按键、滚轮和屏幕边缘</span></div></div><div className="my-devices-summary"><span className="my-devices-status">系统输入源</span><span className="my-devices-profile"><strong>编辑映射</strong></span></div></button>
       </div>
     </>}
@@ -133,7 +130,7 @@ function InstanceWorkspace({ instance, controller, native, platform, permissions
   const mapped = Object.keys(profile.behaviors).filter(id => Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)))
   return <>
     <header className="managed-workspace-header"><button className="managed-back" onClick={onBack}><ArrowLeft size={16} />我的设备</button><strong>{instance.name}</strong><span className="managed-caption">实例 {instance.id.slice(-6)}</span><div className="managed-workspace-actions"><label>配置 <select aria-label="当前设备配置" value={instance.activeProfileId} onChange={e => { const activeProfileId = e.target.value; update(item => ({ ...item, activeProfileId })) }}>{instance.profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><button aria-label="新增设备配置" onClick={() => update(item => { const id = crypto.randomUUID(); return { ...item, activeProfileId: id, profiles: [...item.profiles, { id, name: `配置 ${item.profiles.length + 1}`, behaviors: {} }] } })}><Plus size={15} /></button><button aria-label="设备实例设置" aria-pressed={settings} onClick={() => setSettings(v => !v)}><Settings2 size={16} /></button></div></header>
-    <div className="managed-status"><span>{native ? stateLabel(status?.state) : '预览模式'}</span><label><input type="checkbox" checked={instance.enabled} onChange={e => { const enabled = e.target.checked; update(item => ({ ...item, enabled })) }} />启用此设备</label><span>{native ? `已收到 ${status?.reports ?? 0} 份报告` : '真实输入需桌面应用'}</span><button onClick={onBind}>{instance.binding ? '重新绑定' : '绑定设备'}</button></div>
+    <div className="managed-status"><span>{native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}</span><label><input type="checkbox" checked={instance.enabled} onChange={e => { const enabled = e.target.checked; update(item => ({ ...item, enabled })) }} />启用此设备</label><span>{native ? `已收到 ${status?.reports ?? 0} 份报告` : '真实输入需桌面应用'}</span><button onClick={onBind}>{instance.binding ? '重新绑定' : '绑定设备'}</button></div>
     {status?.error && <p role="alert" className="managed-error">{status.error}</p>}
     {native && platform === 'macos' && !permissions.accessibility && <p className="managed-notice">执行映射需要辅助功能权限。<button onClick={onPermissions}>前往授权</button></p>}
     {settings ? <div className="managed-instance-settings"><div className="settings-form-fields">
