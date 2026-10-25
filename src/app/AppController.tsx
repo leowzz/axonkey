@@ -1677,7 +1677,7 @@ function AppController() {
             },
           }}
           remoteView={selectedDevice.remoteView}
-        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'device-settings' ? <DeviceSettingsComponent
+        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} onBack={() => navigateToPage('home')} /> : activePage === 'device-settings' ? <DeviceSettingsComponent
           onBackToDevices={() => navigateToPage('home')}
           showMouseKeyGrid={showMouseKeyGrid}
           onShowMouseKeyGridChange={setShowMouseKeyGrid}

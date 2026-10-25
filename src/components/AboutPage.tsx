@@ -1,12 +1,12 @@
 import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
-import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
 import appPackage from '../../package.json'
 
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
-export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpdate> }) {
+export function AboutPage({ update, onBack }: { update: ReturnType<typeof useReleaseUpdate>; onBack: () => void }) {
   const busy = ['downloading', 'installing', 'restarting'].includes(update.phase)
   const progress = update.total ? `${Math.min(100, Math.floor(update.downloaded / update.total * 100))}%` : `${(update.downloaded / 1024 / 1024).toFixed(1)} MB`
   const status = update.phase === 'downloading' ? `正在下载更新… ${progress}`
@@ -15,6 +15,9 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
     : update.phase === 'ready' ? '更新已安装，等待重启'
     : update.hasUpdate ? `发现新版本 ${update.latestVersion}` : update.checking ? '正在检查更新…' : update.error ? '检查更新失败' : update.checkedAt ? '当前主版本已是最新版本' : '等待检查更新'
   return <div className="about-page">
+    <div className="about-page-header">
+      <button type="button" className="about-back-button" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" />返回</button>
+    </div>
     <section className="about-intro" aria-labelledby="about-title">
       <img className="about-app-icon" src={appIconUrl} alt="Axonkey 应用图标" width={64} height={64} />
       <div>

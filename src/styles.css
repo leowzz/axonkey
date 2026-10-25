@@ -842,7 +842,11 @@ body.permission-helper-mode #root { min-height: 100vh; }
   .audio-test-suggestion { flex-wrap: wrap; }
 }
 
-.about-page { width: min(1000px, calc(100% - 48px)); margin: 24px auto; }
+.about-page { width: min(1000px, calc(100% - 48px)); margin: 20px auto 24px; }
+.about-page-header { display: flex; align-items: center; min-height: 34px; margin-bottom: 10px; }
+.about-back-button { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; padding: 6px 10px; border: 1px solid transparent; border-radius: 6px; color: #6b7d8e; background: transparent; font-size: 13px; }
+.about-back-button:hover { border-color: #d3e0eb; color: #246da9; background: #eef5fa; }
+.about-back-button:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
 .about-intro { display: flex; align-items: center; gap: 24px; padding: 32px; border: 0; border-radius: 0; background: #f8f8f7; }
 .about-app-icon { flex-shrink: 0; width: 64px; height: 64px; object-fit: contain; }
 .about-version { color: #737b83; font-size: 13px; font-variant-numeric: tabular-nums; }
