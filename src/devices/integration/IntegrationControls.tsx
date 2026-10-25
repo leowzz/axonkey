@@ -104,16 +104,3 @@ export function DeviceBindingPicker({ labelledBy, value, devices, onChange }: {
     </div>, document.body)}
   </>
 }
-
-export function InputModePicker({ labelledBy, value, exclusive, onChange }: {
-  labelledBy: string; value: 'shared' | 'exclusive'; exclusive: boolean; onChange: (value: 'shared' | 'exclusive') => void
-}) {
-  const name = useId()
-  const modes = [{ value: 'shared' as const, label: '共享监听', detail: '保留原始输入' }, ...(exclusive ? [{ value: 'exclusive' as const, label: '独占拦截', detail: '拦截整个设备' }] : [])]
-  return <fieldset className="integration-mode-picker" aria-labelledby={labelledBy}>
-    {modes.map(mode => <label key={mode.value} className="integration-mode-option">
-      <input type="radio" name={name} value={mode.value} checked={value === mode.value} onChange={() => onChange(mode.value)} />
-      <span className="integration-mode-copy"><span><strong>{mode.label}</strong><Check size={14} aria-hidden="true" /></span><small>{mode.detail}</small></span>
-    </label>)}
-  </fieldset>
-}

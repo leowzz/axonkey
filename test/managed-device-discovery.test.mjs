@@ -126,16 +126,9 @@ test('saved offline instances keep their card and show connection state even whe
   act(() => view.unmount())
 })
 
-test('RC003 integration has one fixed capture mode and saves exclusive on every platform', async () => {
-  assert.equal(model.newInstance('rc003', null).capture, 'exclusive')
-  assert.equal(model.newInstance('xboxBluetooth', null).capture, 'shared')
-  const old = { ...model.newInstance('rc003', null), capture: 'shared' }
-  const upgraded = model.normalizeInstanceCapture(old)
-  assert.equal(upgraded.capture, 'exclusive')
-  assert.equal(upgraded.profiles, old.profiles)
-  assert.equal(old.capture, 'shared')
-  for (const platform of ['macos', 'windows']) {
-    const remote = { ...device, kind: 'rc003', id: 'remote-one' }
+test('integration saves devices without an input mode on every platform', async () => {
+  for (const platform of ['macos', 'windows']) for (const kind of ['rc003', 'xboxBluetooth']) {
+    const remote = { ...device, kind, id: 'remote-one' }
     const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
     let submitted
     let view
@@ -148,11 +141,11 @@ test('RC003 integration has one fixed capture mode and saves exclusive on every 
     })) })
     act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
     const dialog = view.root.findByProps({ role: 'dialog' })
-    assert.ok(text(dialog).includes('独占拦截'))
+    assert.ok(!text(dialog).includes('输入模式'))
     assert.ok(!text(dialog).includes('共享监听'))
     assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
-    assert.equal(submitted.capture, 'exclusive')
+    assert.ok(!('capture' in submitted))
     act(() => view.unmount())
   }
 })

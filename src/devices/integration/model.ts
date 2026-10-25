@@ -6,7 +6,7 @@ import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
 
 export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15'
 export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
-export type DeviceInstance = { id: string; kind: DeviceKind; name: string; binding: string | null; bindingQuality?: string | null; bindingPairingId?: string | null; enabled: boolean; capture: 'shared' | 'exclusive'; profiles: InstanceProfile[]; activeProfileId: string; legacyProfilesMigrated?: boolean }
+export type DeviceInstance = { id: string; kind: DeviceKind; name: string; binding: string | null; bindingQuality?: string | null; bindingPairingId?: string | null; enabled: boolean; profiles: InstanceProfile[]; activeProfileId: string; legacyProfilesMigrated?: boolean }
 export type DiscoveredDevice = { id: string; kind: DeviceKind; name: string; transport: string; identityQuality: 'serial' | 'session' | 'ambiguous'; vendorId: number; productId: number; connected: boolean; paired: boolean; pairingId?: string | null }
 export type DeviceSnapshot = { store: { version: number; revision: number; instances: DeviceInstance[] }; discovered: DiscoveredDevice[]; runtime: Record<string, { state: string; error: string | null; reports: number }>; error: string | null; scanError: string | null; scanning: boolean }
 export const emptySnapshot = (): DeviceSnapshot => ({ store: { version: 1, revision: 0, instances: [] }, discovered: [], runtime: {}, error: null, scanError: null, scanning: false })
@@ -26,10 +26,7 @@ export const supportPackages = [
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
 export function newInstance(kind: DeviceKind, binding: string | null): DeviceInstance {
-  return { id: '', kind, name: packageFor(kind).name, binding, enabled: true, capture: kind === 'rc003' ? 'exclusive' : 'shared', activeProfileId: 'default', profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
-}
-export function normalizeInstanceCapture(instance: DeviceInstance): DeviceInstance {
-  return instance.kind === 'rc003' && instance.capture === 'shared' ? { ...instance, capture: 'exclusive' } : instance
+  return { id: '', kind, name: packageFor(kind).name, binding, enabled: true, activeProfileId: 'default', profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
 }
 export function rc003BatteryForDevice(binding: string | null, discovered: DiscoveredDevice[], level: number | null): number | null {
   // The existing battery probe has no physical-device ID; only assign it when unambiguous.
@@ -37,7 +34,7 @@ export function rc003BatteryForDevice(binding: string | null, discovered: Discov
   return connected.length === 1 && connected[0].identityQuality !== 'ambiguous' && connected[0].id === binding ? level : null
 }
 export function stateLabel(state?: string): string {
-  return ({ paused: '已暂停', unbound: '等待绑定', disconnected: '未连接', needsRebind: '未连接 · 需重新绑定', opening: '正在连接', error: '需要处理', listening: '共享监听中', exclusive: '独占拦截中', unsupported: '等待输入适配' } as Record<string, string>)[state ?? ''] ?? '等待启动'
+  return ({ paused: '已暂停', unbound: '等待绑定', disconnected: '未连接', needsRebind: '未连接 · 需重新绑定', opening: '正在连接', error: '需要处理', exclusive: '独占拦截中', unsupported: '等待输入适配' } as Record<string, string>)[state ?? ''] ?? '等待启动'
 }
 export function instanceStatusLabel(instance: DeviceInstance, snapshot: DeviceSnapshot): string {
   const state = snapshot.runtime[instance.id]?.state

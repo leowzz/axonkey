@@ -20,16 +20,4 @@
 .device-binding-option.is-later .device-binding-icon { background: transparent; }
 .device-binding-check { flex-shrink: 0; color: #2e83c8; margin: 0 3px; }
 .device-binding-unavailable { font-size: 10px; white-space: nowrap; }
-.integration-mode-picker { display: flex; min-width: 0; margin: 0; padding: 3px; gap: 4px; border: 1px solid #dce5ed; border-radius: 8px; background: #edf2f6; }
-.integration-mode-option { position: relative; flex: 1; min-width: 0; cursor: pointer; }
-.managed-integration-dialog .integration-mode-option input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; clip-path: inset(50%); overflow: hidden; }
-.integration-mode-copy { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 5px; color: #71889c; transition: background .15s, color .15s; }
-.integration-mode-copy > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.integration-mode-copy strong { font-size: 12px; font-weight: 500; }
-.integration-mode-copy small { font-size: 10px; color: #8b9bab; }
-.integration-mode-copy svg { visibility: hidden; }
-.integration-mode-option input:checked + .integration-mode-copy { background: #fff; color: #297ebf; box-shadow: 0 1px 4px rgb(63 89 112 / 10%); }
-.integration-mode-option input:checked + .integration-mode-copy svg { visibility: visible; }
-.integration-mode-option input:focus-visible + .integration-mode-copy { outline: 2px solid #3784ce; outline-offset: 1px; }
-.integration-mode-option:hover .integration-mode-copy { color: #347cb4; }
-@media (prefers-reduced-motion: reduce) { .device-binding-trigger, .device-binding-trigger > svg, .integration-mode-copy { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .device-binding-trigger, .device-binding-trigger > svg { transition: none; } }

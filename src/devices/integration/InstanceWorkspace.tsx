@@ -73,7 +73,7 @@ export function InstanceWorkspace({ instance, controller, native, platform, perm
     return { ...item, profiles, activeProfileId: profiles[0].id }
   })
   const mapped = Object.keys(profile.behaviors).filter(id => Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)))
-  const ready = status?.state === 'listening' || status?.state === 'exclusive'
+  const ready = status?.state === 'exclusive'
   return <div className={`mapping-page mapping-flow-page managed-instance-workspace ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}>
     <div className="mapping-workbench">
       <DeviceWorkspaceHeader deviceName={instance.name} onBackToDevices={onBack} onOpenSettings={() => setSettings(v => !v)} profileControls={<ProfileManager
@@ -99,7 +99,6 @@ export function InstanceWorkspace({ instance, controller, native, platform, perm
         {native && platform === 'macos' && (!permissions.accessibility || !permissions.inputMonitoring) && <p className="managed-notice">需要{[!permissions.inputMonitoring && '输入监控', !permissions.accessibility && '辅助功能'].filter(Boolean).join('、')}权限。<button onClick={onPermissions}>前往授权</button></p>}
         {settings ? <div className="managed-instance-settings"><div className="settings-form-fields">
           <label className="settings-form-row"><span className="settings-form-label">设备名称：</span><input key={instance.name} defaultValue={instance.name} maxLength={60} onBlur={e => { const name = e.target.value.trim(); if (name && name !== instance.name) update(item => ({ ...item, name })) }} /></label>
-          <div className="settings-form-row"><span className="settings-form-label">输入模式：</span><div className="settings-form-control"><span>{instance.capture === 'shared' ? '共享监听' : '独占拦截'}</span><SettingsHelp id="managed-input-mode" label="输入模式">{instance.kind === 'rc003' ? '沿用遥控器专用拦截。未配置按键保留原行为；停用后恢复系统输入。' : '独占模式会拦截整个设备，包括未配置的按键；停用设备后恢复原始输入。'}{instance.kind !== 'rc003' && '重新绑定时可调整。'}</SettingsHelp></div></div>
           {instance.kind !== 'xboxBluetooth' && <div className="settings-form-row"><span className="settings-form-label">原有配置：</span><div className="settings-form-control"><button onClick={() => update(item => { const copied = structuredClone(legacyProfiles(item.kind)).map(p => ({ ...p, id: crypto.randomUUID(), name: `${p.name}（副本）` })); return copied.length ? { ...item, profiles: [...item.profiles, ...copied], activeProfileId: copied[0].id } : item })}>复制原配置</button></div></div>}
           <div className="settings-form-row"><span className="settings-form-label">物理设备：</span><div className="settings-form-control"><button disabled={!instance.binding} onClick={() => update(item => ({ ...item, binding: null }))}>解除绑定，保留配置</button></div></div>
         </div><div className="managed-remove">{confirmRemove ? <><span>移除此设备及其全部配置？</span><button onClick={() => void controller.remove(instance.id).then(onBack).catch(() => {})}>确认移除</button><button onClick={() => setConfirmRemove(false)}>取消</button></> : <button onClick={() => setConfirmRemove(true)}>移除设备</button>}</div></div> : <>

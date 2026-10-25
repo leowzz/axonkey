@@ -40,9 +40,6 @@
 .macos-vibrancy .managed-device-grid .my-devices-card { background: rgb(255 255 255 / 30%); }
 @media (max-width: 1100px) { .managed-hub { padding: 20px; } }
 
-.integration-mode-label { display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: nowrap; }
-.integration-mode-label .settings-help { width: 14px; height: 14px; }
-.integration-mode-label .settings-help svg { width: 13px; height: 13px; }
 .integration-attention { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 0 88px; color: #a17940; font-size: 11px; line-height: 1.7; }
 .integration-attention button { flex-shrink: 0; border: 0; padding: 3px 0; color: #367db8; background: transparent; }
 .integration-preview { margin: 16px 0 0 88px; color: #8d9eae; font-size: 11px; }
