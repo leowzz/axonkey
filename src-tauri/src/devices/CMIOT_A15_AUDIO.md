@@ -16,7 +16,7 @@ The native `axonkey-cmiot-a15-pcm` event carries:
 - `tail`: eight auxiliary payload bytes; their meaning remains unknown.
 
 Windows forwards decoded PCM directly into the existing Xiaomi `AudioService`,
-sharing its CABLE Input playback endpoint, 16 kHz resampling, gain, prebuffer,
+sharing the configured Windows playback endpoint, 16 kHz resampling, gain, prebuffer,
 bounded PCM queue and level diagnostics. The event remains available for
 diagnostics; playback does not depend on a frontend event listener. No audio
 file is written and no speech recognition is performed.

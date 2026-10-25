@@ -1062,9 +1062,10 @@ fn default_voice_output_device() -> Option<String> {
                     .collect()
             })
             .unwrap_or_default();
-        let preferred = devices
-            .iter()
-            .find(|name| name.to_ascii_lowercase().contains("cable input"));
+        let preferred = devices.iter().find(|name| {
+            let normalized = name.trim().to_ascii_lowercase();
+            normalized.starts_with("cable input") && !normalized.contains("16ch")
+        });
         return preferred
             .cloned()
             .or_else(|| {
@@ -1076,10 +1077,21 @@ fn default_voice_output_device() -> Option<String> {
     }
     #[cfg(target_os = "macos")]
     {
-        return Some("MiRemoteV".to_string());
+        return Some("MiRemoteV 2ch".to_string());
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
     None
+}
+
+fn configured_rc003_output_device(snapshot: &DeviceSnapshot) -> Option<String> {
+    snapshot
+        .store
+        .instances
+        .iter()
+        .find(|instance| instance.kind == "rc003")
+        .and_then(|instance| instance.voice_output_device.clone())
+        .map(|device| device.trim().to_string())
+        .filter(|device| !device.is_empty())
 }
 
 #[tauri::command]
@@ -1103,7 +1115,7 @@ async fn list_voice_output_devices() -> Result<Vec<String>, String> {
         }
         #[cfg(target_os = "macos")]
         {
-            Ok(vec!["MiRemoteV".to_string()])
+            Ok(vec!["MiRemoteV 2ch".to_string()])
         }
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
@@ -1283,11 +1295,26 @@ fn put_device_instance(
     revision: u64,
     mut instance: DeviceInstance,
     manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioService>,
 ) -> Result<DeviceSnapshot, String> {
     if instance.id.is_empty() && instance.voice_output_device.is_none() {
         instance.voice_output_device = default_voice_output_device();
     }
-    manager.put(revision, instance)
+    let output_device = (instance.kind == "rc003")
+        .then(|| instance.voice_output_device.clone())
+        .flatten();
+    let snapshot = manager.put(revision, instance)?;
+    if output_device.is_some()
+        || snapshot
+            .store
+            .instances
+            .iter()
+            .any(|item| item.kind == "rc003")
+    {
+        audio_service
+            .set_output_device(output_device.or_else(|| configured_rc003_output_device(&snapshot)));
+    }
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -1295,8 +1322,11 @@ fn remove_device_instance(
     revision: u64,
     id: String,
     manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioService>,
 ) -> Result<DeviceSnapshot, String> {
-    manager.remove(revision, &id)
+    let snapshot = manager.remove(revision, &id)?;
+    audio_service.set_output_device(configured_rc003_output_device(&snapshot));
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -1488,7 +1518,13 @@ pub fn run() {
             let input_service = InputService::start();
             app.manage(input_service);
             app.manage(MouseService::start());
-            app.manage(DeviceManager::start(app.handle().clone(), app.path().app_data_dir()?.join("device-instances.json")));
+            let device_manager = DeviceManager::start(
+                app.handle().clone(),
+                app.path().app_data_dir()?.join("device-instances.json"),
+            );
+            let output_device = configured_rc003_output_device(&device_manager.snapshot());
+            app.manage(device_manager);
+            app.state::<AudioService>().set_output_device(output_device);
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());

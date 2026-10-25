@@ -4,7 +4,7 @@ use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioSe
 use std::{
     ffi::{c_char, c_void},
     sync::{
-        atomic::{AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -62,6 +62,7 @@ extern "C" {
 struct Shared {
     diagnostics: AudioDiagnostics,
     bridge: AtomicPtr<c_void>,
+    output_enabled: AtomicBool,
     decoder: Mutex<AtvvDecoder>,
     signal_monitor: Mutex<SignalMonitor>,
 }
@@ -111,6 +112,7 @@ impl AudioService {
         let shared = Arc::new(Shared {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
+            output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         });
@@ -122,8 +124,7 @@ impl AudioService {
         let bridge = unsafe { axonkey_macos_audio_create(&callbacks) };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
-            unsafe { axonkey_macos_audio_start(bridge) };
-            log::info!(target: "axonkey::audio", "macOS audio bridge started");
+            log::info!(target: "axonkey::audio", "macOS audio bridge created; waiting for an output device");
         } else {
             log::error!(target: "axonkey::audio", "Cannot create the macOS audio bridge");
         }
@@ -135,13 +136,41 @@ impl AudioService {
 
     pub fn refresh(&self) {
         log::debug!(target: "axonkey::audio", "Refreshing macOS audio state");
+        if !self.shared.output_enabled.load(Ordering::Acquire) {
+            return;
+        }
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_refresh(bridge) };
         }
     }
 
+    pub fn set_output_device(&self, device: Option<String>) {
+        let enabled = device
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|name| name == "MiRemoteV" || name == "MiRemoteV 2ch");
+        let was_enabled = self.shared.output_enabled.swap(enabled, Ordering::AcqRel);
+        if was_enabled == enabled {
+            return;
+        }
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        if bridge.is_null() {
+            return;
+        }
+        if enabled {
+            log::info!(target: "axonkey::audio", "Enabling macOS audio output: MiRemoteV 2ch");
+            unsafe { axonkey_macos_audio_start(bridge) };
+        } else {
+            log::info!(target: "axonkey::audio", "Disabling macOS audio output");
+            unsafe { axonkey_macos_audio_stop(bridge) };
+        }
+    }
+
     pub fn restart(&self) -> Result<(), String> {
+        if !self.shared.output_enabled.load(Ordering::Acquire) {
+            return Err("未选择语音输出设备".into());
+        }
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if bridge.is_null() {
             return Err("无法连接 macOS 音频服务".into());
@@ -164,6 +193,9 @@ impl AudioService {
 
     pub fn resume(&self) {
         log::info!(target: "axonkey::audio", "Resuming macOS audio bridge");
+        if !self.shared.output_enabled.load(Ordering::Acquire) {
+            return;
+        }
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_start(bridge) };
@@ -211,6 +243,8 @@ impl AudioService {
             state: state_name(state_code).into(),
             bluetooth_connected: unsafe { axonkey_macos_audio_bluetooth_connected(bridge) },
             forwarding: unsafe { axonkey_macos_audio_forwarding(bridge) },
+            output_ready: self.shared.output_enabled.load(Ordering::Acquire)
+                && matches!(state_code, 3..=6),
             battery_level: battery_level_from_native(unsafe {
                 axonkey_macos_audio_battery_level(bridge)
             }),
@@ -379,6 +413,7 @@ mod tests {
         let shared = Shared {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
+            output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         };
@@ -411,6 +446,7 @@ mod tests {
         let shared = Shared {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
+            output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         };
@@ -457,6 +493,7 @@ mod tests {
         let shared = Shared {
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
+            output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         };

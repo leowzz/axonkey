@@ -59,6 +59,8 @@ impl AudioService {
 
     pub fn refresh(&self) {}
 
+    pub fn set_output_device(&self, _device: Option<String>) {}
+
     pub fn set_gain_db(&self, _gain: i16) -> Result<(), String> {
         log::warn!(target: "axonkey::audio", "Audio gain requested on an unsupported platform");
         Err("音频增益仅支持 macOS 音频转发".into())

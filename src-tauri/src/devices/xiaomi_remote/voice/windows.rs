@@ -71,6 +71,7 @@ struct Shared {
     protocol: Mutex<VoiceProtocolState>,
     decoder: Mutex<AtvvDecoder>,
     samples: Mutex<VecDeque<i16>>,
+    output_device: Mutex<Option<String>>,
     // Source transitions and epoch updates are serialized by the samples mutex.
     a15_active: AtomicBool,
     a15_received: AtomicBool,
@@ -95,6 +96,7 @@ impl Shared {
             protocol: Mutex::new(protocol),
             decoder: Mutex::new(AtvvDecoder::default()),
             samples: Mutex::new(VecDeque::new()),
+            output_device: Mutex::new(None),
             a15_active: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
             output_epoch: AtomicU64::new(0),
@@ -156,10 +158,56 @@ impl Shared {
     }
 
     fn output_available(&self) -> bool {
-        self.status
+        self.output_device_name().is_some()
+            && self
+                .status
+                .lock()
+                .map(|status| status.output_ready)
+                .unwrap_or(false)
+    }
+
+    fn output_device_name(&self) -> Option<String> {
+        self.output_device
             .lock()
-            .map(|status| status.driver_installed)
-            .unwrap_or(false)
+            .ok()
+            .and_then(|device| device.clone())
+            .filter(|device| !device.is_empty())
+    }
+
+    fn set_output_device(&self, device: Option<String>) {
+        let changed = self
+            .output_device
+            .lock()
+            .map(|mut current| {
+                if *current == device {
+                    false
+                } else {
+                    *current = device;
+                    true
+                }
+            })
+            .unwrap_or(false);
+        if !changed {
+            return;
+        }
+        if let Ok(mut samples) = self.samples.lock() {
+            samples.clear();
+            self.output_epoch.fetch_add(1, Ordering::AcqRel);
+        }
+        self.audio_refresh.store(true, Ordering::Release);
+        self.ble_refresh.store(true, Ordering::Release);
+        self.update_status(|status| {
+            status.bluetooth_connected = false;
+            status.forwarding = false;
+            status.output_ready = false;
+            status.state = if self.output_device_name().is_some() {
+                "scanning"
+            } else {
+                "stopped"
+            }
+            .into();
+            status.error = None;
+        });
     }
 
     fn reset_voice_session(&self) {
@@ -239,7 +287,7 @@ impl AudioService {
         let shared = Arc::new(Shared::new());
         let audio_shared = Arc::clone(&shared);
         let audio_worker = thread::Builder::new()
-            .name("Axonkey CABLE audio output".into())
+            .name("Axonkey audio output".into())
             .spawn(move || audio_output_loop(audio_shared))
             .ok();
         let ble_shared = Arc::clone(&shared);
@@ -266,12 +314,24 @@ impl AudioService {
     pub fn refresh(&self) {
         let status = self.status();
         log::debug!(target: "axonkey::audio", "Refreshing Windows audio state");
-        if !status.driver_installed {
+        if !status.output_ready {
             self.shared.audio_refresh.store(true, Ordering::Release);
         }
-        if status.driver_installed && !status.bluetooth_connected {
+        if status.output_ready && !status.bluetooth_connected {
             self.shared.ble_refresh.store(true, Ordering::Release);
         }
+    }
+
+    pub fn set_output_device(&self, device: Option<String>) {
+        let device = device
+            .map(|device| device.trim().to_string())
+            .filter(|device| !device.is_empty());
+        log::info!(
+            target: "axonkey::audio",
+            "Updating Windows audio output device: {}",
+            device.as_deref().unwrap_or("none")
+        );
+        self.shared.set_output_device(device);
     }
 
     pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
@@ -297,8 +357,9 @@ impl AudioService {
             status.bluetooth_connected = true;
             status.battery_level = None;
             status.received_data = self.shared.a15_received.load(Ordering::Acquire);
-            status.output_ready =
-                status.driver_installed && !self.shared.output_failed.load(Ordering::Acquire);
+            status.output_ready = self.shared.output_device_name().is_some()
+                && status.driver_installed
+                && !self.shared.output_failed.load(Ordering::Acquire);
             status.forwarding = status.output_ready && status.received_data;
             if status.output_ready {
                 status.state = if status.forwarding {
@@ -336,17 +397,28 @@ fn audio_output_loop(shared: Arc<Shared>) {
     while !shared.stop.load(Ordering::Acquire) {
         shared.audio_refresh.store(false, Ordering::Release);
         shared.output_failed.store(false, Ordering::Release);
-        match start_cable_output(Arc::clone(&shared)) {
+        let Some(target_name) = shared.output_device_name() else {
+            shared.update_status(|status| {
+                status.forwarding = false;
+                status.output_ready = false;
+                status.state = "stopped".into();
+                status.error = None;
+            });
+            wait_or_stop(&shared, Duration::from_millis(500), &shared.audio_refresh);
+            continue;
+        };
+        match start_output(Arc::clone(&shared), &target_name) {
             Ok((_stream, device_name)) => {
                 shared.update_status(|status| {
                     status.driver_installed = true;
+                    status.output_ready = true;
                     if status.state == "driverMissing" {
                         status.state = "scanning".into();
                     }
                     if status
                         .error
                         .as_deref()
-                        .is_some_and(|error| error.contains("CABLE Input"))
+                        .is_some_and(|error| error.contains(&device_name))
                     {
                         status.error = None;
                     }
@@ -367,7 +439,7 @@ fn audio_output_loop(shared: Arc<Shared>) {
                     .map(|status| status.error.as_deref() != Some(error_message.as_str()))
                     .unwrap_or(true);
                 shared.update_status(|status| {
-                    status.driver_installed = false;
+                    status.output_ready = false;
                     status.forwarding = false;
                     status.state = "driverMissing".into();
                     status.error = Some(error_message.clone());
@@ -381,7 +453,7 @@ fn audio_output_loop(shared: Arc<Shared>) {
     }
 }
 
-fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), String> {
+fn start_output(shared: Arc<Shared>, target_name: &str) -> Result<(cpal::Stream, String), String> {
     let host = cpal::default_host();
     let mut selected = None;
     let devices = host
@@ -391,18 +463,16 @@ fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), Str
         let Ok(description) = device.description() else {
             continue;
         };
-        if cable_output_name(description.name()) {
+        if output_name_matches(description.name(), target_name) {
             selected = Some((device, description.name().to_string()));
             break;
         }
     }
-    let (device, device_name) = selected.ok_or_else(|| {
-        "CABLE Input playback endpoint was not found; install VB-CABLE and restart Windows"
-            .to_string()
-    })?;
+    let (device, device_name) = selected
+        .ok_or_else(|| format!("Windows audio output device '{target_name}' was not found"))?;
     let supported = device
         .default_output_config()
-        .map_err(|error| format!("Cannot read CABLE Input audio format: {error}"))?;
+        .map_err(|error| format!("Cannot read audio format for '{device_name}': {error}"))?;
     let sample_format = supported.sample_format();
     let config: StreamConfig = supported.into();
     log::info!(target: "axonkey::audio", "Windows audio output format: device={device_name} sample_rate={} channels={} sample_format={sample_format:?} source_sample_rate={SOURCE_SAMPLE_RATE}", config.sample_rate, config.channels);
@@ -420,12 +490,12 @@ fn start_cable_output(shared: Arc<Shared>) -> Result<(cpal::Stream, String), Str
         SampleFormat::F32 => build_output_stream::<f32>(&device, config, shared),
         SampleFormat::F64 => build_output_stream::<f64>(&device, config, shared),
         unsupported => Err(format!(
-            "CABLE Input uses an unsupported sample format: {unsupported}"
+            "Selected audio output uses an unsupported sample format: {unsupported}"
         )),
     }?;
     stream
         .play()
-        .map_err(|error| format!("Cannot start CABLE Input playback: {error}"))?;
+        .map_err(|error| format!("Cannot start '{device_name}' playback: {error}"))?;
     Ok((stream, device_name))
 }
 
@@ -448,18 +518,18 @@ where
             move |output: &mut [T], _| fill_output(output, channels, &mut cursor, &callback_shared),
             move |error| {
                 if !error_shared.output_failed.swap(true, Ordering::AcqRel) {
-                    log::warn!(target: "axonkey::audio", "CABLE Input playback callback failed: {error}");
+                    log::warn!(target: "axonkey::audio", "Selected audio output playback callback failed: {error}");
                 }
                 error_shared.update_status(|status| {
-                    status.driver_installed = false;
+                    status.output_ready = false;
                     status.forwarding = false;
                     status.state = "error".into();
-                    status.error = Some(format!("CABLE Input playback failed: {error}"));
+                    status.error = Some(format!("Selected audio output playback failed: {error}"));
                 });
             },
             None,
         )
-        .map_err(|error| format!("Cannot create CABLE Input playback stream: {error}"))
+        .map_err(|error| format!("Cannot create selected audio output playback stream: {error}"))
 }
 
 struct OutputCursor {
@@ -572,9 +642,8 @@ fn pcm_to_f32(sample: i16) -> f32 {
     f32::from(sample) / f32::from(i16::MAX)
 }
 
-fn cable_output_name(name: &str) -> bool {
-    let normalized = name.trim().to_ascii_lowercase();
-    normalized.starts_with("cable input") && !normalized.contains("16ch")
+fn output_name_matches(actual: &str, target: &str) -> bool {
+    actual == target
 }
 
 fn ble_worker_loop(shared: Arc<Shared>) {
@@ -709,7 +778,7 @@ impl VoiceConnection {
                 self.last_report = Instant::now();
             }
             if !shared.output_available() {
-                return Err("CABLE Input playback endpoint became unavailable".into());
+                return Err("Selected audio output playback endpoint became unavailable".into());
             }
             if self
                 .device
@@ -1099,6 +1168,9 @@ mod tests {
             status.state = "scanning".into();
             status.error = Some("RC003 not connected".into());
         });
+        audio
+            .shared
+            .set_output_device(Some("Configured speaker".into()));
         audio.set_a15_recording(true);
         assert_eq!(audio.status().state, "ready");
         assert!(!audio.status().forwarding);
@@ -1109,10 +1181,15 @@ mod tests {
         audio.shared.update_status(|status| {
             status.driver_installed = false;
             status.state = "driverMissing".into();
-            status.error = Some("CABLE Input missing".into());
+            status.error = Some("Selected audio output missing".into());
         });
         assert!(!audio.status().forwarding);
-        assert_eq!(audio.status().error.as_deref(), Some("CABLE Input missing"));
+        assert_eq!(
+            audio.status().error.as_deref(),
+            Some("Selected audio output missing")
+        );
+        audio.shared.set_output_device(None);
+        assert!(!audio.status().output_ready);
         audio.set_a15_recording(false);
         assert!(!audio.status().bluetooth_connected);
     }
@@ -1183,7 +1260,9 @@ mod tests {
         shared.set_a15_recording(false);
         assert!(!shared.a15_received.load(Ordering::Acquire));
     }
-    use super::{approved_remote_service_id, cable_output_name, fill_output, OutputCursor, Shared};
+    use super::{
+        approved_remote_service_id, fill_output, output_name_matches, OutputCursor, Shared,
+    };
     use std::time::Duration;
 
     #[test]
@@ -1233,10 +1312,16 @@ mod tests {
     }
 
     #[test]
-    fn selects_only_the_vb_cable_playback_endpoint() {
-        assert!(cable_output_name("CABLE Input (VB-Audio Virtual Cable)"));
-        assert!(!cable_output_name("CABLE Output (VB-Audio Virtual Cable)"));
-        assert!(!cable_output_name("CABLE In 16ch (VB-Audio Virtual Cable)"));
+    fn selects_the_configured_playback_endpoint_by_exact_name() {
+        let configured = "Speakers (USB Audio Device)";
+        assert!(output_name_matches(
+            configured,
+            "Speakers (USB Audio Device)"
+        ));
+        assert!(!output_name_matches(
+            configured,
+            "CABLE Input (VB-Audio Virtual Cable)"
+        ));
     }
 
     #[test]
