@@ -155,7 +155,7 @@ export function saveStoredUiState(state: StoredUiState) {
 }
 
 export function getStoredSettings(): StoredSettings {
-  const fallback = { mouseEdgeWidth: 8, showRemoteKeyGrid: true, showMouseKeyGrid: false, behaviors: createDefaultBehaviorMap(), enabled: true, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }
+  const fallback: StoredSettings = { cmiotA15RecordingMode: 'hold', mouseEdgeWidth: 8, showRemoteKeyGrid: true, showMouseKeyGrid: false, behaviors: createDefaultBehaviorMap(), enabled: true, mouseEnabled: true, mouseVerticalScrollIntervalMs: 50, mouseHorizontalScrollIntervalMs: 50, mouseKeyHoldMs: 10, mouseScrollSensitivity: 100, mouseIgnoreScrollAcceleration: true }
   if (typeof window === 'undefined') return fallback
   try {
     const stored = window.localStorage.getItem(settingsStorageKey)
@@ -163,6 +163,7 @@ export function getStoredSettings(): StoredSettings {
     const parsed = JSON.parse(stored) as Record<string, unknown>
     return {
       mouseEdgeWidth: typeof parsed.mouseEdgeWidth === 'number' && Number.isFinite(parsed.mouseEdgeWidth) ? Math.max(1, Math.min(100, Math.round(parsed.mouseEdgeWidth))) : 8,
+      cmiotA15RecordingMode: parsed.cmiotA15RecordingMode === 'click' ? 'click' : 'hold',
       showRemoteKeyGrid: parsed.showRemoteKeyGrid !== false,
       showMouseKeyGrid: parsed.showMouseKeyGrid === true,
       behaviors: parseStoredBehaviors(parsed),

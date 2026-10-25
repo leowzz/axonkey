@@ -160,6 +160,7 @@ export function parseDataBackup(text: string): ParsedBackup {
     profiles, activeProfileIds, savedSequences, exportedAt, appVersion: string(root.appVersion, '应用版本'),
     settings: {
       enabled: boolean(settings.enabled, '映射总开关'), mouseEnabled: boolean(settings.mouseEnabled, '鼠标映射开关'),
+      cmiotA15RecordingMode: settings.cmiotA15RecordingMode === 'click' ? 'click' : 'hold',
       showRemoteKeyGrid: boolean(settings.showRemoteKeyGrid, '遥控器按键列表'), showMouseKeyGrid: boolean(settings.showMouseKeyGrid, '鼠标按键列表'),
       mouseIgnoreScrollAcceleration: boolean(settings.mouseIgnoreScrollAcceleration, '滚动加速设置'),
       mouseScrollSensitivity: integer(settings.mouseScrollSensitivity, 25, 400, '滚动灵敏度'),

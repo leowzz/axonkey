@@ -39,6 +39,24 @@ const { DeviceWorkspaceHeader } = load('src/devices/shared/DeviceWorkspaceHeader
 const { MouseInputModel, MouseControlPicker, MouseTriggerSelector } = load('src/components/MouseMapping.tsx')
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
+test('A15 recording mode restores the saved choice and defaults legacy or invalid settings to hold', () => {
+  const { getStoredSettings } = load('src/appConfig.tsx')
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const [stored, expected] of [
+      [null, 'hold'], ['{}', 'hold'], ['invalid', 'hold'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'hold' }), 'hold'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'click' }), 'click'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'unknown' }), 'hold'],
+    ]) {
+      testWindow.localStorage = { getItem: () => stored }
+      assert.equal(getStoredSettings().cmiotA15RecordingMode, expected)
+    }
+  } finally {
+    testWindow.localStorage = previousStorage
+  }
+})
+
 test('device workspace header returns to devices and keeps the current profile controls beside it', () => {
   let view, returns = 0, profileOpens = 0
   function Harness({ device }) {

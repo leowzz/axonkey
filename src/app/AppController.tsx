@@ -186,6 +186,7 @@ function AppController() {
   const canUndoBehavior = behaviorHistory.past.length > 0
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
+  const [cmiotA15RecordingMode, setCmiotA15RecordingMode] = useState(() => getStoredSettings().cmiotA15RecordingMode)
   const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
   const [mouseIgnoreScrollAcceleration, setMouseIgnoreScrollAcceleration] = useState(() => getStoredSettings().mouseIgnoreScrollAcceleration)
   const [mouseScrollSensitivity, setMouseScrollSensitivity] = useState(() => getStoredSettings().mouseScrollSensitivity)
@@ -516,7 +517,7 @@ function AppController() {
   }, [nativeRuntime, platform])
 
   useEffect(() => {
-    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth }))
+    window.localStorage.setItem(settingsStorageKey, JSON.stringify({ cmiotA15RecordingMode, showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth }))
     const revision = saveRevisionRef.current + 1
     saveRevisionRef.current = revision
     const syncNativeSettings = async () => {
@@ -535,7 +536,7 @@ function AppController() {
       }
     }
     void syncNativeSettings()
-  }, [showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
+  }, [cmiotA15RecordingMode, showRemoteKeyGrid, showMouseKeyGrid, behaviors, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth, applyRetry])
 
   useEffect(() => {
     const persistedProfiles = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
@@ -1679,6 +1680,8 @@ function AppController() {
           }}
           remoteView={selectedDevice.remoteView}
         /> : activePage === 'about' ? <AboutPage update={releaseUpdate} onBack={() => navigateToPage('home')} /> : activePage === 'device-settings' ? <DeviceSettingsComponent
+          cmiotA15RecordingMode={cmiotA15RecordingMode}
+          onCmiotA15RecordingModeChange={setCmiotA15RecordingMode}
           onBackToDevices={() => navigateToPage('home')}
           showMouseKeyGrid={showMouseKeyGrid}
           onShowMouseKeyGridChange={setShowMouseKeyGrid}
@@ -1702,7 +1705,7 @@ function AppController() {
             onCreateBackup: () => createDataBackup({
               ...profileStateRef.current,
               savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
-              settings: { showRemoteKeyGrid, showMouseKeyGrid, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth },
+              settings: { cmiotA15RecordingMode, showRemoteKeyGrid, showMouseKeyGrid, enabled, mouseEnabled, mouseKeyHoldMs, mouseScrollSensitivity, mouseIgnoreScrollAcceleration, mouseVerticalScrollIntervalMs, mouseHorizontalScrollIntervalMs, mouseEdgeWidth },
               audio: { gain: audioGain, stretchCompensation }, preferences: { sidebarCollapsed },
             }, appPackage.version),
             onRestoreBackup: restoreDataBackup,

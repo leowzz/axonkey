@@ -136,7 +136,10 @@ export type Connector = {
   y2: number
 }
 
+export type CmiotA15RecordingMode = 'hold' | 'click'
+
 export type StoredSettings = {
+  cmiotA15RecordingMode: CmiotA15RecordingMode
   mouseEdgeWidth: number
   showRemoteKeyGrid: boolean
   showMouseKeyGrid: boolean
