@@ -520,7 +520,8 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   const legacyA15Inputs = device.id === 'cmiotA15' && isRecord(source)
     && cmiotA15AdditionalButtonIds.every(id => !Object.prototype.hasOwnProperty.call(source, id))
   if (isDeviceExport && (!isRecord(source)
-    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id))
+    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id)
+      && !(device.id === 'cmiotA15' && id === 'cmiotA15.tv'))
     || device.inputIds.some(id => {
       if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
       if (legacyA15Inputs && (cmiotA15AdditionalButtonIds as readonly string[]).includes(id)) return false

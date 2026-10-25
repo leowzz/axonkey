@@ -124,8 +124,7 @@ fn schedule_click(
     } else if queue.len() + 2 <= 256 {
         // Configuring only double/long press must preserve an ordinary click.
         // An explicitly enabled Disabled action suppresses this fallback.
-        if let Some(usage) = super::windows::rc003_usage_for_button(button) {
-            let key = HidKey { page: 7, usage };
+        if let Some(key) = super::windows::original_key_for_button(button) {
             queue.extend([
                 (now, Output::Key(key, true)),
                 (now, Output::Key(key, false)),
@@ -170,8 +169,8 @@ impl RemoteActions {
         // A single keyboard click is held for the physical press, just like
         // Windows, rather than our timer, handles keyboard repeat.
         let held = if !settings.enabled || !custom {
-            super::windows::rc003_usage_for_button(button)
-                .map(|usage| vec![HidKey { page: 7, usage }])
+            super::windows::original_key_for_button(button)
+                .map(|key| vec![key])
                 .unwrap_or_default()
         } else if !enabled(&triggers.double_click) && !enabled(&triggers.long_press) {
             let clicks: Vec<_> = triggers
@@ -322,6 +321,28 @@ mod tests {
 
     fn settings(triggers: serde_json::Value) -> NativeSettings {
         serde_json::from_value(json!({"enabled": true, "behaviors": {"up": triggers}})).unwrap()
+    }
+
+    #[test]
+    fn a15_uses_its_own_bindings_and_preserves_consumer_usage_page() {
+        let settings: NativeSettings = serde_json::from_value(json!({
+            "enabled": true,
+            "behaviors": {
+                "confirm": {"click": [{"type": "key", "key": "B"}]},
+                "cmiotA15.confirm": {"click": [{"type": "key", "key": "A"}]}
+            }
+        }))
+        .unwrap();
+        let now = Instant::now();
+        let mut actions = RemoteActions::default();
+        actions.edge("cmiotA15.confirm", true, &settings, now);
+        assert_eq!(keys(&mut actions, now), vec![(7, 4, true)]);
+        actions.edge("cmiotA15.confirm", false, &settings, now);
+        assert_eq!(keys(&mut actions, now), vec![(7, 4, false)]);
+        actions.edge("cmiotA15.volumeUp", true, &settings, now);
+        assert_eq!(keys(&mut actions, now), vec![(12, 0xe9, true)]);
+        actions.cancel();
+        assert_eq!(keys(&mut actions, now), vec![(12, 0xe9, false)]);
     }
 
     fn moves(cursor: &mut RemoteActions, now: Instant) -> Vec<(i32, i32)> {

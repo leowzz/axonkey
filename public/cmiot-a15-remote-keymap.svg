@@ -84,10 +84,6 @@
       <path d="M0-14 V2"/>
     </g>
   </g>
-  <g id="tv" transform="translate(332 101)">
-    <use href="#round-button"/>
-    <path d="M-19-12 H-2 M-10.5-12 V12 M3-12 11.5 12 20-12" stroke="#eeeeeb" stroke-width="3.7" stroke-linejoin="round"/>
-  </g>
 
   <g id="mute" transform="translate(88 214)">
     <use href="#round-button"/>

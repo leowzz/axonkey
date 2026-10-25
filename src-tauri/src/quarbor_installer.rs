@@ -24,6 +24,10 @@ pub(crate) struct Device {
 }
 
 impl Device {
+    pub fn is_supported_remote(&self) -> bool {
+        self.is_rc003() || crate::devices::cmiot_a15::matches_instance(&self.instance_id)
+    }
+
     pub fn is_rc003(&self) -> bool {
         self.instance_id
             .to_ascii_uppercase()
@@ -190,10 +194,10 @@ pub(crate) fn list(resource_dir: &Path) -> Result<Vec<Device>, String> {
 fn install_targets(devices: &[Device]) -> Result<Vec<&Device>, String> {
     let targets: Vec<_> = devices
         .iter()
-        .filter(|d| d.is_rc003() && d.present)
+        .filter(|d| d.is_supported_remote() && d.present)
         .collect();
     if targets.is_empty() {
-        return Err("未发现在线的 RC003 输入源，请连接并唤醒遥控器后重试。".into());
+        return Err("未发现在线的 RC003 或 CMIOT-A15 输入源，请连接并唤醒遥控器后重试。".into());
     }
     Ok(targets)
 }
@@ -201,7 +205,7 @@ fn install_targets(devices: &[Device]) -> Result<Vec<&Device>, String> {
 pub(crate) fn select_bound_target(devices: &[Device]) -> Option<String> {
     devices
         .iter()
-        .filter(|device| device.present && device.bound && device.is_rc003())
+        .filter(|device| device.present && device.bound && device.is_supported_remote())
         .min_by(|left, right| left.instance_id.cmp(&right.instance_id))
         .map(|device| device.instance_id.clone())
 }
@@ -237,6 +241,21 @@ pub(crate) fn run(action: &str, resource_dir: &Path, log: &Path) -> Result<bool,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a15_hid_parent_is_an_install_and_capture_target() {
+        let a15 = device(
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance",
+            true,
+            true,
+            false,
+        );
+        assert!(!a15.is_rc003());
+        let id = a15.instance_id.clone();
+        let devices = vec![a15];
+        assert_eq!(select_bound_target(&devices), Some(id));
+        assert_eq!(install_targets(&devices).unwrap().len(), 1);
+    }
 
     #[test]
     #[ignore = "Read-only integration check requiring the bundled installer and Windows PnP"]

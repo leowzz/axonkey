@@ -27,6 +27,7 @@ struct QuarborContext {
     keys: std::collections::VecDeque<RemoteKeyEvent>,
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
+    a15_reports: crate::devices::cmiot_a15::ReportState,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
     dropped: u64,
@@ -45,6 +46,7 @@ impl Default for QuarborContext {
             keys: std::collections::VecDeque::new(),
             active_usages: std::collections::HashSet::new(),
             device_id: None,
+            a15_reports: Default::default(),
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
             last_sequence: None,
             dropped: 0,
@@ -240,24 +242,35 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
             context.last_sequence = Some(metadata.sequence);
             context.dropped = metadata.dropped;
-            match usages {
-                Ok(usages) => {
-                    context.usage_error = None;
-                    quarbor_decode_usages(context, usages.iter().copied());
+            if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                context.usage_error = None;
+                for (button, pressed) in context.a15_reports.accept(bytes) {
+                    context.keys.push_back(RemoteKeyEvent { button, pressed });
                 }
-                Err(status) => {
-                    // Preserve observed UI state, but never keep moving from
-                    // stale state when the next release cannot be decoded.
-                    context.state_epoch = context.state_epoch.wrapping_add(1);
-                    if context.usage_error != Some(*status) {
-                        let preview = bytes
-                            .iter()
-                            .take(16)
-                            .map(|byte| format!("{byte:02X}"))
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        log::warn!(target: "axonkey::input", "Quarbor RC003 report decode failed: status=0x{status:08X}, bytes={}, preview={preview}", bytes.len());
-                        context.usage_error = Some(*status);
+            } else {
+                match usages {
+                    Ok(usages) => {
+                        context.usage_error = None;
+                        quarbor_decode_usages(context, usages.iter().copied());
+                    }
+                    Err(status) => {
+                        // Preserve observed UI state, but never keep moving from
+                        // stale state when the next release cannot be decoded.
+                        context.state_epoch = context.state_epoch.wrapping_add(1);
+                        if context.usage_error != Some(*status) {
+                            let preview = bytes
+                                .iter()
+                                .take(16)
+                                .map(|byte| format!("{byte:02X}"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            log::warn!(target: "axonkey::input", "Quarbor RC003 report decode failed: status=0x{status:08X}, bytes={}, preview={preview}", bytes.len());
+                            context.usage_error = Some(*status);
+                        }
                     }
                 }
             }
@@ -305,6 +318,9 @@ fn quarbor_release_active_usages(context: &mut QuarborContext) {
         },
     );
     context.state_epoch = context.state_epoch.wrapping_add(1);
+    for (button, pressed) in context.a15_reports.release_all() {
+        context.keys.push_back(RemoteKeyEvent { button, pressed });
+    }
     let active = std::mem::take(&mut context.active_usages);
     for usage in active {
         if let Some(button) = rc003_button_for_usage(usage) {
@@ -361,6 +377,15 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
     RC003_BUTTON_USAGES
         .iter()
         .find_map(|&(button, value)| (value == usage).then_some(button))
+}
+
+pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_actions::HidKey> {
+    if button.starts_with("cmiotA15.") {
+        crate::devices::cmiot_a15::original_usage(button)
+            .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
+    } else {
+        rc003_usage_for_button(button).map(|usage| super::remote_actions::HidKey { page: 7, usage })
+    }
 }
 
 pub(super) fn rc003_usage_for_button(button: &str) -> Option<u16> {
@@ -807,7 +832,16 @@ fn emit_remote_output(
             }
         }
         Output::SwitchProfile(direction, wrap) => {
-            super::profile_switch::execute(super::profile_switch::DeviceId::Rc003, direction, wrap)
+            let device = if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                super::profile_switch::DeviceId::CmiotA15
+            } else {
+                super::profile_switch::DeviceId::Rc003
+            };
+            super::profile_switch::execute(device, direction, wrap)
         }
         // The Universal protocol has no Unicode/text command. Keep paste as a
         // text injection operation; keyboard, media and mouse outputs above
@@ -825,6 +859,21 @@ fn emit_remote_output(
                 .reader
                 .as_ref()
                 .is_some_and(|client| client.supports_key(key.page, key.usage));
+            // Some A15 consumer usages have no Windows/driver output equivalent.
+            // They remain configurable inputs; do not reconnect the capture pipe
+            // merely because their unconfigured original action cannot be emitted.
+            if !supported
+                && virtual_key_for_hid(key).is_none()
+                && context
+                    .device_id
+                    .as_deref()
+                    .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                if down {
+                    log::warn!(target: "axonkey::input", "A15 original usage has no output mapping: {:04X}/{:04X}", key.page, key.usage);
+                }
+                return Ok(());
+            }
             context.keyboard.edge_with(
                 key,
                 down,
@@ -1911,9 +1960,8 @@ mod tests {
 
         WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), [120]));
         MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
-        MOUSE_BUTTON_EVENTS.with(|events| {
-            assert_eq!(*events.borrow(), [(2, 0), (4, 0), (0x20, 0), (0x40, 0)])
-        });
+        MOUSE_BUTTON_EVENTS
+            .with(|events| assert_eq!(*events.borrow(), [(2, 0), (4, 0), (0x20, 0), (0x40, 0)]));
     }
 
     #[cfg(windows)]
@@ -2475,6 +2523,102 @@ mod tests {
         assert_eq!(rc003_button_for_usage(0x28), Some("confirm"));
         assert_eq!(rc003_button_for_usage(0x52), Some("up"));
         assert_eq!(rc003_button_for_usage(0x04), None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a15_reports_route_to_scoped_keys_and_release_only_their_collection() {
+        use super::super::windows_quarbor::{Event, Metadata};
+        let mut context = QuarborContext::default();
+        context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+        let reports = [
+            vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0],
+            vec![3, 0x41, 0],
+            vec![3, 0, 0],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+        for (sequence, bytes) in reports.into_iter().enumerate() {
+            quarbor_accept_event(
+                &mut context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence: sequence as u64,
+                        ..Default::default()
+                    },
+                    bytes,
+                    usages: Err(50), // The RC003 decoder cannot decode A15 consumer packets.
+                },
+            );
+        }
+        assert_eq!(
+            context
+                .keys
+                .iter()
+                .map(|k| (k.button, k.pressed))
+                .collect::<Vec<_>>(),
+            vec![
+                ("cmiotA15.up", true),
+                ("cmiotA15.confirm", true),
+                ("cmiotA15.confirm", false),
+                ("cmiotA15.up", false),
+            ]
+        );
+        assert!(context.usage_error.is_none());
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+        emit_remote_output(
+            &mut context,
+            super::super::remote_actions::Output::SwitchProfile(
+                super::super::ProfileDirection::Next,
+                true,
+            ),
+        )
+        .unwrap();
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&requests.borrow()[0]).unwrap()["deviceId"],
+                "cmiotA15"
+            );
+        });
+        // A sequence gap must release every collection before accepting new data.
+        quarbor_accept_event(
+            &mut context,
+            Event::Report {
+                metadata: Metadata {
+                    sequence: 4,
+                    ..Default::default()
+                },
+                bytes: vec![3, 0xe9, 0],
+                usages: Err(50),
+            },
+        );
+        context.keys.clear();
+        quarbor_accept_event(
+            &mut context,
+            Event::Report {
+                metadata: Metadata {
+                    sequence: 7,
+                    ..Default::default()
+                },
+                bytes: vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0],
+                usages: Err(50),
+            },
+        );
+        assert_eq!(
+            context
+                .keys
+                .iter()
+                .map(|k| (k.button, k.pressed))
+                .collect::<Vec<_>>(),
+            vec![("cmiotA15.volumeUp", false), ("cmiotA15.up", true),]
+        );
+        assert_eq!(
+            original_key_for_button("cmiotA15.back"),
+            Some(super::super::remote_actions::HidKey {
+                page: 12,
+                usage: 0x224
+            })
+        );
+        assert_eq!(original_key_for_button("cmiotA15.tv"), None);
     }
 
     #[test]

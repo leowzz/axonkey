@@ -9,6 +9,7 @@ static EVENT_APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 #[serde(rename_all = "camelCase")]
 pub(super) enum DeviceId {
     Rc003,
+    CmiotA15,
     Mouse,
 }
 
@@ -50,7 +51,11 @@ mod tests {
 
     #[test]
     fn profile_switch_events_preserve_device_direction_and_wrap() {
-        for (device_id, serialized_id) in [(DeviceId::Rc003, "rc003"), (DeviceId::Mouse, "mouse")] {
+        for (device_id, serialized_id) in [
+            (DeviceId::Rc003, "rc003"),
+            (DeviceId::CmiotA15, "cmiotA15"),
+            (DeviceId::Mouse, "mouse"),
+        ] {
             for direction in [ProfileDirection::Previous, ProfileDirection::Next] {
                 for wrap in [false, true] {
                     let value = serde_json::to_value(ProfileSwitchRequest {

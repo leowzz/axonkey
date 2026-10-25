@@ -1,7 +1,7 @@
 import type { RemoteButton } from '../../appTypes'
 
 export const cmiotA15AdditionalButtonIds = ['cmiotA15.mute', 'cmiotA15.settings', 'cmiotA15.channelUp', 'cmiotA15.channelDown', 'cmiotA15.m'] as const
-export const cmiotA15RemoteButtonIds = ['cmiotA15.power', 'cmiotA15.voice', 'cmiotA15.up', 'cmiotA15.left', 'cmiotA15.confirm', 'cmiotA15.right', 'cmiotA15.down', 'cmiotA15.back', 'cmiotA15.volumeUp', 'cmiotA15.home', 'cmiotA15.volumeDown', 'cmiotA15.menu', 'cmiotA15.tv', ...cmiotA15AdditionalButtonIds] as const
+export const cmiotA15RemoteButtonIds = ['cmiotA15.power', 'cmiotA15.voice', 'cmiotA15.up', 'cmiotA15.left', 'cmiotA15.confirm', 'cmiotA15.right', 'cmiotA15.down', 'cmiotA15.back', 'cmiotA15.volumeUp', 'cmiotA15.home', 'cmiotA15.volumeDown', 'cmiotA15.menu', ...cmiotA15AdditionalButtonIds] as const
 export type CmiotA15RemoteButtonId = typeof cmiotA15RemoteButtonIds[number]
 
 // Input IDs are device-scoped; hardware protocol support is implemented separately.
@@ -18,7 +18,6 @@ export const cmiotA15RemoteButtons: RemoteButton[] = [
   { id: 'cmiotA15.home', label: '主页键', short: '主页', side: 'left', x: 22.80, y: 75.72, icon: 'home' },
   { id: 'cmiotA15.volumeDown', label: '音量减', short: '音量 -', side: 'right', x: 60.42, y: 76.85, icon: 'volumeDown' },
   { id: 'cmiotA15.menu', label: '功能键', short: '功能', side: 'left', x: 21.18, y: 90.79, icon: 'menu' },
-  { id: 'cmiotA15.tv', label: '电视键', short: '电视', side: 'right', x: 60.69, y: 91.91, icon: 'tv' },
   { id: 'cmiotA15.mute', label: '静音键', short: '静音', side: 'left', x: 20.95, y: 16.21, icon: 'mute' },
   { id: 'cmiotA15.settings', label: '设置键', short: '设置', side: 'right', x: 79.05, y: 16.21, icon: 'settings' },
   { id: 'cmiotA15.channelUp', label: '频道加', short: '频道 +', side: 'right', x: 79.05, y: 62.42, icon: 'up' },

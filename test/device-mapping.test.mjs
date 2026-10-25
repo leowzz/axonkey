@@ -27,6 +27,17 @@ test('A15 extra keys preserve mappings across storage and transfer, including ol
   assert.equal(parseMappingImport(exported, 'cmiotA15'), null)
 })
 
+test('A15 removes the unsupported TV input while accepting and discarding it from old exports', () => {
+  const map = createDefaultBehaviorMap()
+  assert.equal(map['cmiotA15.tv'], undefined)
+  const exported = createMappingExport(map, true, undefined, undefined, 'cmiotA15')
+  exported.behaviors['cmiotA15.tv'] = { click: [createBehavior({ type: 'key', key: 'A' })], doubleClick: [], longPress: [] }
+  const imported = parseMappingImport(exported, 'cmiotA15')
+  assert.ok(imported)
+  assert.equal(imported.behaviors['cmiotA15.tv'], undefined)
+  assert.deepEqual(imported.behaviors['cmiotA15.power'], map['cmiotA15.power'])
+})
+
 test('legacy remote settings gain empty mouse mappings without losing remote behavior', () => {
   const parsed = parseStoredBehaviors({ mappings: { voice: 'Ctrl+Space', power: 'original' } })
   assert.deepEqual(parsed.voice.click[0].keys, ['Ctrl', 'Space'])

@@ -18,7 +18,7 @@ export const cmiotA15RemoteKeyRegions: Record<CmiotA15RemoteButtonId, RemoteKeyR
   'cmiotA15.left': directionSector(180), 'cmiotA15.confirm': circle(210, 448, 72), 'cmiotA15.right': directionSector(0), 'cmiotA15.down': directionSector(90),
   'cmiotA15.back': circle(332, 701, 40.8), 'cmiotA15.volumeUp': { path: 'M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z', anchor: { x: 88, y: 824 } },
   'cmiotA15.home': circle(88, 701, 40.8), 'cmiotA15.volumeDown': { path: 'M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z', anchor: { x: 88, y: 963 } },
-  'cmiotA15.menu': circle(210, 213, 40.8), 'cmiotA15.tv': circle(332, 101, 40.8),
+  'cmiotA15.menu': circle(210, 213, 40.8),
   'cmiotA15.mute': circle(88, 214, 40.8),
   'cmiotA15.settings': circle(332, 214, 40.8),
   'cmiotA15.m': circle(210, 701, 40.8),
