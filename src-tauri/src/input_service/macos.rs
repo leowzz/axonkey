@@ -1530,7 +1530,7 @@ fn function_key_code(number: u8) -> Option<u16> {
     })
 }
 
-fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
+pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
     for (button, triggers) in &settings.behaviors {
         for behavior in triggers
             .click

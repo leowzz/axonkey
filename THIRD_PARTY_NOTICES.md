@@ -66,3 +66,10 @@ Reviewed binary hashes (SHA-256):
 
 The upstream package contains its complete end-user license in `readme.txt`.
 Additional provenance is recorded in [vendor/vbcable/SOURCE.md](vendor/vbcable/SOURCE.md).
+
+## hidapi
+
+- Rust wrapper: [ruabmbua/hidapi-rs](https://github.com/ruabmbua/hidapi-rs), version 2.6.7, MIT license.
+- Native HIDAPI: [libusb/hidapi](https://github.com/libusb/hidapi), bundled by the Rust crate on macOS; available under BSD 3-Clause, GPL v3, or the original HIDAPI license.
+
+Used for supported-device discovery and per-instance HID input sessions. Windows uses the crate's native Windows backend.

@@ -11,6 +11,7 @@ mod release_update;
 
 use audio_service::{AudioService, AudioServiceStatus};
 use input_service::mouse::MouseService;
+use input_service::managed::{DeviceManager, Instance as DeviceInstance, Snapshot as DeviceSnapshot};
 use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
@@ -1223,13 +1224,27 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn device_snapshot(manager: tauri::State<'_, DeviceManager>) -> DeviceSnapshot { manager.snapshot() }
+
+#[tauri::command]
+fn put_device_instance(revision: u64, instance: DeviceInstance, manager: tauri::State<'_, DeviceManager>) -> Result<DeviceSnapshot, String> { manager.put(revision, instance) }
+
+#[tauri::command]
+fn remove_device_instance(revision: u64, id: String, manager: tauri::State<'_, DeviceManager>) -> Result<DeviceSnapshot, String> { manager.remove(revision, &id) }
+
+#[tauri::command]
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
     mouse_service: tauri::State<'_, MouseService>,
+    manager: tauri::State<'_, DeviceManager>,
 ) -> Result<(), String> {
     log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
-    input_service.update_settings(settings.clone())?;
+    manager.set_enabled(settings.enabled);
+    let mut remote_settings = settings.clone();
+    #[cfg(target_os = "macos")]
+    if manager.owns_remote() { remote_settings.enabled = false; }
+    input_service.update_settings(remote_settings)?;
     mouse_service.update_settings(&settings)
 }
 
@@ -1404,6 +1419,7 @@ pub fn run() {
             let input_service = InputService::start();
             app.manage(input_service);
             app.manage(MouseService::start());
+            app.manage(DeviceManager::start(app.handle().clone(), app.path().app_data_dir()?.join("device-instances.json")));
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());
@@ -1483,6 +1499,9 @@ pub fn run() {
             probe_rc003_connected,
             probe_rc003_battery_level,
             update_input_settings,
+            device_snapshot,
+            put_device_instance,
+            remove_device_instance,
             write_mapping_file,
             backup_files::open_backup_location,
         ])
@@ -1496,6 +1515,7 @@ pub fn run() {
                 }
             }
             if matches!(event, tauri::RunEvent::Exit) {
+                app.state::<DeviceManager>().shutdown();
                 app.state::<MouseService>().shutdown();
             }
             #[cfg(windows)]

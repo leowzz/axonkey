@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { ExternalLink, FileText, Github, Info, Settings2, ShieldCheck, Star } from 'lucide-react'
 import appPackage from '../../package.json'
 import type { DeviceId } from '../deviceModel'
@@ -6,6 +7,7 @@ import { MyDevicesPage, type DeviceOverviewItem } from './MyDevicesPage'
 import './HomeDashboard.css'
 
 type HomeDashboardProps = {
+  deviceContent?: ReactNode
   nativeRuntime: boolean
   devices: readonly DeviceOverviewItem[]
   onSelectDevice: (deviceId: DeviceId) => void
@@ -19,6 +21,7 @@ type HomeDashboardProps = {
 }
 
 export function HomeDashboard({
+  deviceContent,
   nativeRuntime,
   devices,
   onSelectDevice,
@@ -31,7 +34,7 @@ export function HomeDashboard({
   hasUpdate,
 }: HomeDashboardProps) {
   return <div className="home-page">
-    <MyDevicesPage devices={devices} onSelect={onSelectDevice} onIntegrate={onIntegrate} onBrandClick={onBrandClick} />
+    {deviceContent ?? <MyDevicesPage devices={devices} onSelect={onSelectDevice} onIntegrate={onIntegrate} onBrandClick={onBrandClick} />}
     <footer className="home-footer">
       <nav className="home-utilities" aria-label="常用入口">
         <button type="button" className="home-utility-button" aria-label="设置" onClick={onOpenSettings}>

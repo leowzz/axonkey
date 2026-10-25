@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="196" viewBox="40 30 600 490" class="controller" role="img" aria-labelledby="xbox-card-title xbox-card-description">
+  <title id="xbox-card-title">无线手柄</title>
+  <desc id="xbox-card-description">浅灰色标准布局手柄，用于设备卡片。中心为通用主键图标。</desc>
+  <style>
+.controller { font-family: 'Manrope', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+.controller .hit { fill: #343d48; stroke: #222d38; stroke-width: 1.5; }
+.controller .direction .hit { fill: #e8edf1; stroke: #ccd5dd; stroke-width: 1; }
+.controller .chevron { fill: none; stroke: #8b9aa8; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.controller .key text { fill: #e9eef2; font-size: 14px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+.controller .key text.face-a { fill: #70cc74; font-size: 22px; }
+.controller .key text.face-b { fill: #ef7b7b; font-size: 22px; }
+.controller .key text.face-x { fill: #6db6ee; font-size: 22px; }
+.controller .key text.face-y { fill: #eace6a; font-size: 22px; }
+.controller .port { fill: #7b8998; }
+</style>
+  <defs>
+    <linearGradient id="xbox-card-body-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#fafcfd" />
+      <stop offset=".5" stop-color="#edf1f4" />
+      <stop offset="1" stop-color="#d4dce3" />
+    </linearGradient>
+    <linearGradient id="xbox-card-grip-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#e2e8ed" />
+      <stop offset="1" stop-color="#c1cbd4" />
+    </linearGradient>
+    <filter id="xbox-card-body-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#455b70" flood-opacity=".14" />
+    </filter>
+  </defs>
+  <path d="M205 103Q244 73 286 78h108q42-5 81 25" fill="none" stroke="#dce3e9" stroke-width="24" />
+  <g class="key">
+    <path class="hit" d="M161 56Q201 43 243 57L236 103H153Z" />
+    <text x="198" y="78">LT</text>
+  </g>
+  <g class="key">
+    <path class="hit" d="M437 57Q479 43 519 56L527 103H444Z" />
+    <text x="482" y="78">RT</text>
+  </g>
+  <g class="key">
+    <path class="hit" d="M151 115Q194 104 243 114L241 136H147Z" />
+    <text x="196" y="124">LB</text>
+  </g>
+  <g class="key">
+    <path class="hit" d="M437 114Q486 104 529 115L533 136H439Z" />
+    <text x="484" y="124">RB</text>
+  </g>
+  <rect x="324" y="92" width="32" height="7" rx="3.5" fill="#abb8c4" />
+  <path d="M181 155C213 151 234 162 263 166H417C446 162 467 151 499 155C546 162 559 205 574 261L610 416C617 452 605 474 580 474C556 474 536 452 518 424L475 359C439 352 419 365 395 365H285C261 365 241 352 205 359L162 424C144 452 124 474 100 474C75 474 63 452 70 416L106 261C121 205 134 162 181 155Z" fill="url(#xbox-card-body-fill)" stroke="#a8b6c2" stroke-width="1.7" filter="url(#xbox-card-body-shadow)" />
+  <path d="M121 257C108 298 90 370 82 423C77 446 84 461 100 462C120 462 140 439 156 412L196 350C159 338 143 309 121 257Z" fill="url(#xbox-card-grip-fill)" opacity=".75" />
+  <path d="M559 257C572 298 590 370 598 423C603 446 596 461 580 462C560 462 540 439 524 412L484 350C521 338 537 309 559 257Z" fill="url(#xbox-card-grip-fill)" opacity=".75" />
+  <path d="M180 165C213 160 236 173 266 175H414C444 173 467 160 500 165" fill="none" stroke="#fff" stroke-width="2" />
+  <path d="M287 176L300 235Q340 253 380 235L393 176" fill="#e4eaf0" stroke="#d6dee6" stroke-width="1" />
+  <g class="key">
+    <circle class="hit" cx="340" cy="201" r="20" />
+    <path d="m330 200 10-9 10 9m-17-3v14h5v-7h4v7h5v-14" stroke="#edf3f7" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+  <g class="key">
+    <circle class="hit" cx="296" cy="263" r="15" />
+    <path d="M289 257h10v8h-10zM293 261h10v8h-10z" fill="none" stroke="#d9e3ec" stroke-width="1.3" />
+  </g>
+  <g class="key">
+    <circle class="hit" cx="384" cy="263" r="15" />
+    <path d="M378 258h12m-12 5h12m-12 5h12" stroke="#d9e3ec" stroke-width="1.5" stroke-linecap="round" />
+  </g>
+  <g id="xbox-card-left-stick" transform="translate(198 252)">
+    <circle r="65" fill="#dce4eb" stroke="#c5d1db" />
+    <g class="key direction">
+      <path class="hit" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z" />
+      <path class="chevron" d="m-5-47 5-5 5 5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z" />
+      <path class="chevron" d="m47-5 5 5-5 5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z" />
+      <path class="chevron" d="m-5 47 5 5 5-5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z" />
+      <path class="chevron" d="m-47-5-5 5 5 5" />
+    </g>
+    <g class="key">
+      <circle class="hit" r="32" />
+      <circle r="25" fill="none" stroke="#62707e" stroke-width="1.1" />
+      <text y="1" style="font-size:12px">LS</text>
+    </g>
+  </g>
+  <g transform="translate(424 346)">
+    <circle r="65" fill="#dce4eb" stroke="#c5d1db" />
+    <g class="key direction">
+      <path class="hit" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z" />
+      <path class="chevron" d="m-5-47 5-5 5 5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z" />
+      <path class="chevron" d="m47-5 5 5-5 5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z" />
+      <path class="chevron" d="m-5 47 5 5 5-5" />
+    </g>
+    <g class="key direction">
+      <path class="hit" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z" />
+      <path class="chevron" d="m-47-5-5 5 5 5" />
+    </g>
+    <g class="key">
+      <circle class="hit" r="32" />
+      <circle r="25" fill="none" stroke="#62707e" stroke-width="1.1" />
+      <text y="1" style="font-size:12px">RS</text>
+    </g>
+  </g>
+  <g transform="translate(265 352)">
+    <circle r="55" fill="#dce4eb" stroke="#cad5de" />
+    <g class="key">
+      <path class="hit" d="M-16-44H16V-17L0-3-16-17Z" />
+      <path d="m-5-29 5-5 5 5" fill="none" stroke="#a7b4c0" stroke-width="2" />
+    </g>
+    <g class="key">
+      <path class="hit" d="M44-16V16H17L3 0 17-16Z" />
+      <path d="m29-5 5 5-5 5" fill="none" stroke="#a7b4c0" stroke-width="2" />
+    </g>
+    <g class="key">
+      <path class="hit" d="M16 44H-16V17L0 3 16 17Z" />
+      <path d="m-5 29 5 5 5-5" fill="none" stroke="#a7b4c0" stroke-width="2" />
+    </g>
+    <g class="key">
+      <path class="hit" d="M-44 16V-16H-17L-3 0-17 16Z" />
+      <path d="m-29-5-5 5 5 5" fill="none" stroke="#a7b4c0" stroke-width="2" />
+    </g>
+    <circle r="7" fill="#333e49" />
+  </g>
+  <g class="key">
+    <circle class="hit" cx="500" cy="212" r="20" />
+    <text x="500" y="212" class="face-y">Y</text>
+  </g>
+  <g class="key">
+    <circle class="hit" cx="460" cy="252" r="20" />
+    <text x="460" y="252" class="face-x">X</text>
+  </g>
+  <g class="key">
+    <circle class="hit" cx="540" cy="252" r="20" />
+    <text x="540" y="252" class="face-b">B</text>
+  </g>
+  <g class="key">
+    <circle class="hit" cx="500" cy="292" r="20" />
+    <text x="500" y="292" class="face-a">A</text>
+  </g>
+  <circle class="port" cx="340" cy="374" r="4" />
+</svg>

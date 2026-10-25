@@ -30,6 +30,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 log = "0.4"
 sha2 = "0.10"
+hidapi = { version = "2.6.7", default-features = false, features = ["macos-shared-device", "windows-native", "linux-static-hidraw"] }
 
 [target.'cfg(windows)'.dependencies]
 prost = "0.14"

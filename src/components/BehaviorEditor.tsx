@@ -50,7 +50,7 @@ import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, MappingInput
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-function mappingTriggerLabel(button: MappingInput, trigger: TriggerType) {
+function mappingTriggerLabel(button: MappingInput<string>, trigger: TriggerType) {
   return [button.contextLabel, button.triggerLabel ?? triggerLabels[trigger]].filter(Boolean).join(' · ')
 }
 
@@ -270,7 +270,7 @@ function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEd
 
 type BehaviorEditDialogProps = {
   platform: Platform
-  button: MappingInput
+  button: MappingInput<string>
   trigger: TriggerType
   behavior: Behavior
   capturing: boolean
@@ -583,7 +583,7 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
 
 type SequencePasteDialogProps = {
   platform: Platform
-  button: MappingInput
+  button: MappingInput<string>
   trigger: TriggerType
   onClose: () => void
   onApply: (behaviors: Behavior[]) => void
@@ -643,7 +643,7 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
 }
 
 type TextInputPresetDialogProps = {
-  button: MappingInput
+  button: MappingInput<string>
   trigger: TriggerType
   value: string
   onChange: (value: string) => void

@@ -1,0 +1,88 @@
+.managed-hub { flex: 1; min-width: 0; padding: 28px; color: #536b85; }
+.managed-caption { color: #8192a3; font-size: 11px; font-weight: 400; }
+.managed-device-grid { display: flex; flex-wrap: wrap; gap: 16px; }
+.managed-device-grid .my-devices-card { width: 340px; min-height: 210px; }
+.managed-device-grid .my-devices-artwork img { height: 118px; }
+.managed-section-gap { margin-top: 28px; }
+.managed-empty { display: flex; gap: 14px; align-items: center; padding: 28px 16px; color: #7890a6; font-size: 13px; }
+.managed-empty small { display: block; margin-top: 8px; font-size: 11px; }
+.managed-hub button, .managed-hub select, .managed-hub input, .managed-integration-dialog button, .managed-integration-dialog select, .managed-integration-dialog input { font: inherit; }
+.managed-hub button:focus-visible, .managed-integration-dialog button:focus-visible, .managed-controller-diagram [data-key]:focus-visible { outline: 2px solid #3784ce; outline-offset: 3px; }
+.managed-hub button:disabled, .managed-integration-dialog button:disabled { opacity: .5; cursor: default; }
+.managed-icon { display: inline-flex; padding: 5px; border: 0; border-radius: 5px; background: transparent; color: inherit; }
+.managed-status button, .managed-notice button { border: 0; background: transparent; color: #367db8; padding: 4px 0; }
+.managed-notice, .managed-error { margin: 0 0 14px; padding: 10px 14px; font-size: 12px; line-height: 1.8; border-radius: 6px; background: #eef4fa; color: #617c94; }
+.managed-error { background: #fff0ed; color: #ad5144; overflow-wrap: anywhere; }
+.managed-saving { position: fixed; right: 24px; bottom: 12px; border-radius: 6px; padding: 5px 10px; background: #edf4fa; color: #6284a2; font-size: 11px; z-index: 90; }
+.managed-workspace-header { display: flex; gap: 15px; align-items: center; min-height: 40px; flex-shrink: 0; }
+.managed-back { display: inline-flex; gap: 7px; align-items: center; border: 0; background: transparent; color: #67849e; padding: 6px 0; font-size: 12px !important; }
+.managed-workspace-header > strong { color: #365873; font-size: 17px; }
+.managed-workspace-actions { display: flex; align-items: center; margin-left: auto; gap: 6px; font-size: 12px; }
+.managed-workspace-actions label { display: flex; align-items: center; gap: 8px; }
+.managed-workspace-actions button, .managed-instance-settings button, .managed-dialog-footer button { padding: 7px 10px; color: #547a9c; border: 1px solid #d2dfeb; background: #fff; border-radius: 5px; }
+.managed-hub select, .managed-hub input:not([type=checkbox]), .managed-integration-dialog select, .managed-integration-dialog input { padding: 7px 9px; border: 1px solid #ccdbe8; border-radius: 5px; background: #fff; color: #405f7d; min-width: 0; }
+.managed-status { display: flex; align-items: center; gap: 20px; padding: 10px 0 20px; font-size: 11px; color: #8293a5; }
+.managed-status > span:first-child { color: #438164; }
+.managed-status label { display: flex; align-items: center; gap: 5px; color: #637d96; }
+.managed-editor { display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 560px; flex: 1; }
+.managed-editor.is-controller { grid-template-columns: minmax(350px, .95fr) minmax(420px, 1fr); }
+.managed-diagram-panel { min-width: 0; display: flex; flex-direction: column; justify-content: center; padding: 12px; }
+.managed-diagram-panel .remote-control-view { height: 430px; }
+.managed-controller-diagram svg { width: 100%; height: auto; display: block; }
+.managed-controller-diagram [data-key] { cursor: pointer; }
+.managed-diagram-hint { text-align: center; font-size: 11px; color: #8b9aaa; margin: 12px 0; }
+.managed-analog { display: flex; justify-content: center; align-items: center; gap: 18px; color: #8194a5; font-size: 11px; }
+.managed-analog label { display: flex; align-items: center; gap: 6px; }
+.managed-analog meter { width: 62px; height: 6px; }
+.managed-flow { min-width: 0; display: flex; flex-direction: column; border-left: 1px solid #e1e9f0; }
+.managed-instance-settings { padding: 25px 15px; min-height: 450px; }
+.managed-remove { display: flex; gap: 15px; align-items: center; margin: 40px 0 0 162px; font-size: 12px; }
+.behavior-dialog.managed-integration-dialog { width: min(560px, calc(100vw - 48px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; }
+.managed-integration-dialog .behavior-dialog-head, .managed-integration-dialog .managed-dialog-footer { flex-shrink: 0; }
+.managed-integration-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: 13px; line-height: 1.7; color: #607a93; }
+.managed-integration-body .settings-form-fields { margin: 24px 0 8px; gap: 20px; }
+.managed-integration-body .settings-form-row { grid-template-columns: 72px minmax(0, 1fr); gap: 16px; }
+.managed-integration-body .settings-form-label { color: #71869a; font-size: 12px; }
+.managed-integration-body .settings-form-row > input { min-height: 36px; }
+.managed-integration-product { display: flex; align-items: center; gap: 20px; }
+.managed-integration-product img { width: 84px; height: 70px; object-fit: contain; }
+.managed-integration-product h3 { margin: 0 0 6px; color: #3d5e7b; }
+.managed-integration-product p { margin: 0; font-size: 12px; }
+.managed-dialog-footer { display: flex; justify-content: flex-end; gap: 9px; padding: 16px 22px; }
+.managed-dialog-footer .managed-primary { background: #237dcb; border-color: #237dcb; color: #fff; }
+.managed-package { display: flex; align-items: center; gap: 24px; width: 100%; margin-top: 12px; padding: 15px; text-align: left; border: 1px solid #dae4ee; background: #f7fafc; border-radius: 7px; color: #466986; }
+.managed-package img { width: 72px; height: 64px; object-fit: contain; }
+.managed-package small { display: block; margin-top: 6px; color: #8495a5; font-size: 11px; }
+.macos-vibrancy .managed-device-grid .my-devices-card, .macos-vibrancy .managed-workspace-actions button { background: rgb(255 255 255 / 30%); }
+@media (max-width: 1100px) { .managed-hub { padding: 20px; } .managed-workspace-header > .managed-caption { display: none; } }
+.managed-behavior-editor { padding: 16px 22px 24px; min-width: 0; }
+.managed-behavior-editor header h2 { margin: 7px 0; color: #304f6d; font-size: 22px; font-weight: 600; }
+.managed-behavior-editor header p { margin: 0 0 26px; color: #8a9bad; font-size: 11px; }
+.managed-trigger-tabs { display: flex; gap: 6px; margin-bottom: 20px; padding: 4px; background: #edf2f6; border-radius: 7px; }
+.managed-trigger-tabs button { flex: 1; border: 0; border-radius: 5px; background: transparent; padding: 9px; color: #7b91a6; font-size: 12px; }
+.managed-trigger-tabs button[aria-selected=true] { background: #fff; color: #2d7ebf; box-shadow: 0 2px 4px #bdced32b; }
+.managed-trigger-tabs small { margin-left: 6px; }
+.managed-action-list { display: flex; flex-direction: column; gap: 10px; min-height: 180px; }
+.managed-action { display: flex; align-items: center; gap: 9px; padding: 12px; background: #f8fafc; border: 1px solid #dde6ee; border-radius: 7px; }
+.managed-action-order { font-size: 10px; color: #9aacbd; }
+.managed-action label { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.managed-action label span { min-width: 0; }
+.managed-action small, .managed-action strong { display: block; overflow-wrap: anywhere; }
+.managed-action small { font-size: 10px; color: #95a4b2; margin-bottom: 5px; }
+.managed-action strong { color: #486783; font-size: 12px; font-weight: 500; }
+.managed-action-tools { display: flex; flex-wrap: wrap; gap: 2px; width: 55px; }
+.managed-action-tools button { border: 0; padding: 4px; background: transparent; color: #8499ac; }
+.managed-action-empty { display: flex; flex-direction: column; justify-content: center; align-items: center; flex: 1; min-height: 180px; gap: 12px; font-size: 13px; color: #8b9dad; background: #f3f7fa; border-radius: 7px; }
+.managed-action-empty small { max-width: 90%; text-align: center; font-size: 11px; }
+.managed-add-action { display: flex; gap: 10px; margin: 18px 0; }
+.managed-add-action select { flex: 1; font-size: 12px; }
+.managed-add-action button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #bcd4e8; border-radius: 5px; padding: 8px 12px; background: #edf5fc; color: #317bbb; font-size: 12px; }
+.macos-vibrancy .managed-action-empty, .macos-vibrancy .managed-trigger-tabs { background: rgb(95 110 130 / 6%); }
+.macos-vibrancy .managed-action { background: rgb(255 255 255 / 30%); }
+
+.integration-mode-label { display: flex; align-items: center; justify-content: flex-end; gap: 5px; white-space: nowrap; }
+.integration-mode-label .settings-help { width: 14px; height: 14px; }
+.integration-mode-label .settings-help svg { width: 13px; height: 13px; }
+.integration-attention { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px 0 0 88px; color: #a17940; font-size: 11px; line-height: 1.7; }
+.integration-attention button { flex-shrink: 0; border: 0; padding: 3px 0; color: #367db8; background: transparent; }
+.integration-preview { margin: 16px 0 0 88px; color: #8d9eae; font-size: 11px; }

@@ -1,0 +1,34 @@
+.device-binding-trigger { display: flex; align-items: center; gap: 11px; width: 100%; min-width: 0; min-height: 62px; padding: 11px 13px; border: 1px solid #d0dce7; border-radius: 7px; background: #fff; color: #4d6c87; text-align: left; cursor: pointer; transition: border-color .15s, background .15s; }
+.device-binding-trigger:hover { border-color: #a2c2df; background: #fbfdff; }
+.device-binding-trigger[aria-expanded=true] { border-color: #78a9d5; box-shadow: 0 0 0 3px #e9f2fb; }
+.device-binding-icon { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; border-radius: 6px; background: #f0f5f9; color: #7493ad; }
+.device-binding-copy { display: flex; flex: 1; flex-direction: column; min-width: 0; gap: 4px; }
+.device-binding-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 500; line-height: 1.4; }
+.device-binding-copy small { color: #8b9bab; font-size: 10px; line-height: 1.4; font-variant-numeric: tabular-nums; }
+.device-binding-status { display: inline-flex; align-items: center; flex-shrink: 0; gap: 5px; color: #589375; font-size: 10px; }
+.device-binding-status i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+.device-binding-status.is-unavailable, .device-binding-unavailable { color: #a48253; }
+.device-binding-trigger > svg { flex-shrink: 0; color: #94a8b9; transition: transform .15s; }
+.device-binding-trigger > svg.is-open { transform: rotate(180deg); }
+.device-binding-menu { position: fixed; z-index: 1500; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; padding: 5px; border: 1px solid #d3dfeb; border-radius: 8px; background: #fff; box-shadow: 0 10px 28px rgb(46 72 97 / 14%); color: #4d6c87; font-family: inherit; }
+.device-binding-option { display: flex; align-items: center; gap: 10px; min-height: 54px; box-sizing: border-box; padding: 9px; border-radius: 5px; cursor: pointer; }
+.device-binding-option.is-active { background: #f0f6fc; }
+.device-binding-option[aria-selected=true] .device-binding-copy strong { color: #287bc0; }
+.device-binding-option[aria-disabled=true] { opacity: .6; cursor: default; }
+.device-binding-option.is-later { min-height: 44px; }
+.device-binding-option.is-later .device-binding-icon { background: transparent; }
+.device-binding-check { flex-shrink: 0; color: #2e83c8; margin: 0 3px; }
+.device-binding-unavailable { font-size: 10px; white-space: nowrap; }
+.integration-mode-picker { display: flex; min-width: 0; margin: 0; padding: 3px; gap: 4px; border: 1px solid #dce5ed; border-radius: 8px; background: #edf2f6; }
+.integration-mode-option { position: relative; flex: 1; min-width: 0; cursor: pointer; }
+.managed-integration-dialog .integration-mode-option input { position: absolute; width: 1px; height: 1px; margin: 0; padding: 0; border: 0; clip-path: inset(50%); overflow: hidden; }
+.integration-mode-copy { display: flex; flex-direction: column; gap: 5px; padding: 10px 12px; border-radius: 5px; color: #71889c; transition: background .15s, color .15s; }
+.integration-mode-copy > span { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.integration-mode-copy strong { font-size: 12px; font-weight: 500; }
+.integration-mode-copy small { font-size: 10px; color: #8b9bab; }
+.integration-mode-copy svg { visibility: hidden; }
+.integration-mode-option input:checked + .integration-mode-copy { background: #fff; color: #297ebf; box-shadow: 0 1px 4px rgb(63 89 112 / 10%); }
+.integration-mode-option input:checked + .integration-mode-copy svg { visibility: visible; }
+.integration-mode-option input:focus-visible + .integration-mode-copy { outline: 2px solid #3784ce; outline-offset: 1px; }
+.integration-mode-option:hover .integration-mode-copy { color: #347cb4; }
+@media (prefers-reduced-motion: reduce) { .device-binding-trigger, .device-binding-trigger > svg, .integration-mode-copy { transition: none; } }

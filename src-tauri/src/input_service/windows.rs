@@ -1397,7 +1397,7 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
     None
 }
 
-fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
+pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
     for (button, triggers) in &settings.behaviors {
         for behavior in triggers.iter() {
             if !behavior.enabled() {
