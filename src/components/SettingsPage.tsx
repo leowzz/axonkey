@@ -1,4 +1,4 @@
-import { Bluetooth, DatabaseBackup, ExternalLink, Info, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Bluetooth, DatabaseBackup, ExternalLink, Info, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
 import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
@@ -9,6 +9,7 @@ import type { DriverActionKind, SetupState } from '../setupModel'
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
 
 type SettingsPageProps = {
+  onBack: () => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   enabled: boolean
@@ -45,7 +46,7 @@ type SettingsPageProps = {
   backup: Omit<DataBackupSettingsProps, 'nativeRuntime'>
 }
 
-export function SettingsPage({ section, onSectionChange, enabled, onToggleEnabled, platform, nativeRuntime, showRemoteKeyGrid, onShowRemoteKeyGridChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver, backup }: SettingsPageProps) {
+export function SettingsPage({ onBack, section, onSectionChange, enabled, onToggleEnabled, platform, nativeRuntime, showRemoteKeyGrid, onShowRemoteKeyGridChange, systemProbeState, permissions, inputAuthorizationStale, inputDriver, audioDriver, onAudioAction, stretchCompensation, stretchError, stretchUpdating, onStretchCompensationChange, audioRestarting, audioRestartError, onRestartAudio, onProbeAudio, onOpenSound, device, onOpenBluetooth, onCheckDevice, onOpenSignalMonitor, signalMonitorOpening, signalMonitorError, onRequestPermission, onOpenSettings, onRefresh, onOpenDriver, backup }: SettingsPageProps) {
   const currentSection = section
   const sections = [
     { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
@@ -69,6 +70,7 @@ export function SettingsPage({ section, onSectionChange, enabled, onToggleEnable
   return <div className="settings-page settings-form-page">
     <div className="settings-layout">
       <nav className="settings-nav" aria-label="设置分类">
+        <button type="button" className="settings-nav-back" onClick={onBack}><ArrowLeft size={16} aria-hidden="true" /><span>返回</span></button>
         {sections.map((item) => <button key={item.id} id={`settings-nav-${item.id}`} type="button"
           aria-current={currentSection === item.id ? 'page' : undefined} aria-controls={`settings-panel-${item.id}`}
           onClick={() => onSectionChange(item.id)}>{item.icon}<span>{item.label}</span></button>)}

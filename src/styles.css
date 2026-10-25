@@ -34,34 +34,11 @@ input, textarea, [contenteditable='true'] { -webkit-user-select: text; user-sele
 a, img { -webkit-user-drag: none; }
 button { cursor: pointer; }
 
-/* The sidebar and page share the remaining height below the native title bar. */
+/* The page shares the remaining height below the native title bar. */
 .app-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; background: #f6f7f9; }
-.app-workspace { display: flex; flex: 1; min-width: 0; min-height: 0; }
 .app-main { --topbar-height: 0px; --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height)); display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .app-main:has(> .topbar) { --topbar-height: 60px; }
 .app-main:has(.mapping-disabled-notice) { --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height) + var(--disabled-notice-height)); }
-.app-sidebar { display: flex; flex: 0 0 158px; flex-direction: column; gap: 28px; min-width: 0; min-height: 0; padding: 24px 12px 18px; background: #f2f4f6; }
-.app-sidebar .brand-lockup { flex-shrink: 0; margin: 0 7px; }
-.app-sidebar .brand-lockup img { flex-shrink: 0; object-fit: contain; }
-.app-sidebar .brand-name { font-size: 18px; letter-spacing: -.5px; }
-.sidebar-footer { display: flex; flex-direction: column; gap: 16px; margin-top: auto; padding: 0 4px; }
-.sidebar-version { padding: 0 5px; color: #949eac; font-size: 11px; }
-/* Explicit sidebar controls take precedence over the initial window-size default. */
-.sidebar-collapse { display: flex; align-items: center; gap: 9px; min-height: 32px; padding: 6px 5px; border: 0; border-radius: 6px; color: #758192; background: transparent; font-size: 12px; text-align: left; }
-.sidebar-collapse svg { flex-shrink: 0; }
-.sidebar-collapse:hover { color: #246ed6; background: #e3ebf8; }
-.sidebar-collapse:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
-.app-sidebar.is-collapsed { flex-basis: 66px; padding-right: 8px; padding-left: 8px; }
-.app-sidebar.is-collapsed .brand-lockup { justify-content: center; margin: 0; }
-.app-sidebar.is-collapsed .brand-trigger > .brand-name,
-.app-sidebar.is-collapsed .app-nav-label,
-.app-sidebar.is-collapsed .sidebar-version,
-.app-sidebar.is-collapsed .sidebar-collapse > span,
-.app-sidebar.is-collapsed .app-nav button { justify-content: center; padding: 11px; }
-.app-sidebar.is-collapsed .app-nav .update-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
-.app-sidebar.is-collapsed .sidebar-footer { align-items: center; padding: 0; }
-.app-sidebar.is-collapsed .sidebar-collapse { justify-content: center; width: 34px; }
-.sidebar-tooltip { position: fixed; z-index: 1100; max-width: min(320px, calc(100vw - 88px)); padding: 7px 10px; border-radius: 6px; color: #fff; background: #293f53; box-shadow: 0 3px 10px rgb(30 55 80 / 14%); font-size: 12px; line-height: 1.5; transform: translateY(-50%); pointer-events: none; }
 
 
 .brand-lockup { display: flex; align-items: center; gap: 9px; width: auto; padding: 0; }
@@ -108,14 +85,8 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .title-divider { width: 1px; height: 28px; background: #d4d7da; }
 .title-hint { color: #90949a; font-family: 'DM Mono', monospace; font-size: 13px; letter-spacing: .1em; }
 .header-actions { display: flex; flex-shrink: 0; align-items: center; gap: 14px; margin-left: auto; }
-.app-nav { display: flex; flex-direction: column; gap: 5px; min-height: 0; overflow-y: auto; margin: 0; }
-.app-nav button { position: relative; display: flex; flex-shrink: 0; align-items: center; gap: 11px; min-height: 42px; padding: 10px 13px; border: 0; border-radius: 7px; color: #758192; background: transparent; font-size: 14px; font-weight: 500; text-align: left; }
-.app-nav button > svg { flex-shrink: 0; }
-.app-nav button:hover { color: #3b6f9f; background: #f4f6f7; }
-.app-nav button.active { color: #246ed6; background: #e3ebf8; }
-.app-nav button:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
-.settings-nav-enable-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding: 20px 10px 0; color: #6f7c8f; font-size: 12px; font-weight: 500; white-space: nowrap; }
-.settings-nav-enable-switch { display: inline-flex; flex-shrink: 0; align-items: center; width: 34px; height: 21px; padding: 3px; border: 0; border-radius: 999px; background: #b9c1c9; cursor: pointer; transition: background .15s ease; }
+.settings-nav-enable-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; margin-top: auto; padding: 20px 10px 0; color: #6f7c8f; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.settings-nav-enable-switch { appearance: none; display: inline-flex; flex: 0 0 34px; align-items: center; justify-content: flex-start; width: 34px; height: 21px; margin: 0; padding: 3px; border: 0; border-radius: 999px; background: #b9c1c9; cursor: pointer; transition: background .15s ease; }
 .settings-nav-enable-switch span { width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #26384833; transition: transform .15s ease; }
 .settings-nav-enable-switch.on { background: #2876c5; }
 .settings-nav-enable-switch.on span { transform: translateX(13px); }
@@ -1211,10 +1182,12 @@ body.permission-helper-mode #root { min-height: 100vh; }
 /* Settings categories keep navigation separate from the active content. */
 .settings-layout { display: grid; flex: 1; min-height: 0; grid-template-columns: 170px minmax(0, 1fr); gap: 0; align-items: stretch; }
 .settings-nav { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px; border-right: 1px solid #dfe4e8; }
-.settings-nav button { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #6c7882; font-size: 13px; text-align: left; white-space: nowrap; }
-.settings-nav button:hover { background: #edf0f3; color: #354954; }
-.settings-nav button[aria-current='page'] { border-color: #d4e0e9; background: #e7eef4; color: #315b78; font-weight: 600; }
-.settings-nav button:focus-visible { outline: 2px solid #8aa8bd; outline-offset: 2px; }
+.settings-nav > button { display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #6c7882; font-size: 13px; text-align: left; white-space: nowrap; }
+.settings-nav > button:hover { background: #edf0f3; color: #354954; }
+.settings-nav > button[aria-current='page'] { border-color: #d4e0e9; background: #e7eef4; color: #315b78; font-weight: 600; }
+.settings-nav > button:focus-visible { outline: 2px solid #8aa8bd; outline-offset: 2px; }
+.settings-nav-back { margin-bottom: 8px; color: #758192; }
+.settings-nav-back:hover { color: #315b78; }
 .settings-panels { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .settings-panels > section > .settings-section-title, .settings-panels .settings-mouse-heading { margin-top: 0; }
 .settings-panels .permission-drag-note { margin: 8px 0; padding: 10px 12px; }
@@ -1227,7 +1200,7 @@ body.permission-helper-mode #root { min-height: 100vh; }
 }
 @media (max-width: 700px) {
   .settings-layout { grid-template-columns: 130px minmax(0, 1fr); gap: 0; }
-  .settings-nav button { gap: 6px; padding: 8px 6px; font-size: 12px; }
+  .settings-nav > button { gap: 6px; padding: 8px 6px; font-size: 12px; }
 }
 
 .main-content:has(> .settings-page) { display: flex; flex-direction: column; overflow: hidden; }
@@ -1314,7 +1287,6 @@ html.macos-vibrancy,
 /* A single light wash softens dark desktop colors across every page. */
 .macos-vibrancy .app-shell { background: rgb(255 255 255 / 38%); }
 .macos-vibrancy .topbar { background: rgb(255 255 255 / 24%); }
-.macos-vibrancy .app-sidebar { background: rgb(255 255 255 / 16%); }
 .macos-vibrancy .app-nav button.active { background: rgb(224 237 255 / 68%); }
 /* Keep preference categories and their forms on one continuous glass panel. */
 .macos-vibrancy .settings-form-page {
@@ -1328,12 +1300,12 @@ html.macos-vibrancy,
   background: rgb(95 110 130 / 4%);
 }
 .macos-vibrancy .settings-panels { background: transparent; }
-.macos-vibrancy .settings-nav button { color: #536371; }
-.macos-vibrancy .settings-nav button:hover {
+.macos-vibrancy .settings-nav > button { color: #536371; }
+.macos-vibrancy .settings-nav > button:hover {
   color: #315b78;
   background: rgb(255 255 255 / 35%);
 }
-.macos-vibrancy .settings-nav button[aria-current='page'] {
+.macos-vibrancy .settings-nav > button[aria-current='page'] {
   border-color: rgb(20 120 232 / 22%);
   color: #176fcf;
   background: rgb(255 255 255 / 70%);

@@ -74,7 +74,7 @@ import type {
 } from '../appTypes'
 import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
-import { AppHeader, AppSidebar } from '../components/AppHeader'
+import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
@@ -1608,9 +1608,7 @@ function AppController() {
   return (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
-      <div className="app-workspace">
-        <AppSidebar activePage={activePage} hasUpdate={releaseUpdate.hasUpdate} collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} onBrandClick={handleBrandClick} onNavigate={navigateToPage} />
-        <div className="app-main">
+      <div className="app-main">
           {activePage === 'overview' && <AppHeader context={profileControls} actions={mappingActions} />}
       <main ref={mainContentRef} key={activePage} className="main-content">
         {!enabled && !setupOpen && <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
@@ -1696,6 +1694,7 @@ function AppController() {
           mouseKeyHoldMs={mouseKeyHoldMs}
           onMouseKeyHoldMsChange={setMouseKeyHoldMs}
         /> : activePage === 'settings' ? <SettingsPage
+          onBack={() => navigateToPage('home')}
           enabled={enabled}
           onToggleEnabled={toggleEnabled}
           backup={{
@@ -1740,6 +1739,8 @@ function AppController() {
           onOpenDriver={() => openSetupStep('inputDriver')}
         /> : <HomeDashboard
           nativeRuntime={nativeRuntime}
+          onBrandClick={handleBrandClick}
+          onOpenSettings={() => navigateToPage('settings')}
           onOpenPermissions={() => { setSettingsSection('permissions'); setActivePage('settings') }}
           devices={overviewDevices}
           onSelectDevice={deviceId => {
@@ -1749,9 +1750,10 @@ function AppController() {
           }}
           onIntegrate={() => setDeviceIntegrationOpen(true)}
           onOpenLogs={() => void openLogDirectory()}
+          onOpenAbout={() => navigateToPage('about')}
+          hasUpdate={releaseUpdate.hasUpdate}
         />}
       </main>
-        </div>
       </div>
       {toast && <div className="toast"><Check size={15} /> {toast}</div>}
       {deviceIntegrationOpen && createPortal(<DeviceIntegrationDialog

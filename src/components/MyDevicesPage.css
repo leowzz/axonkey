@@ -1,5 +1,10 @@
 .my-devices-page { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 32px 28px 22px; color: #536b85; }
 .my-devices-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 28px; }
+.my-devices-heading-main { display: flex; min-width: 0; align-items: center; gap: 18px; }
+.my-devices-brand { display: inline-flex; align-items: center; gap: 9px; flex-shrink: 0; padding: 0; border: 0; color: #405b76; background: transparent; font-size: 18px; font-weight: 600; letter-spacing: -.5px; }
+.my-devices-brand img { display: block; width: 28px; height: 28px; object-fit: contain; }
+.my-devices-brand:hover { color: #176fcf; }
+.my-devices-brand:focus-visible { outline: 2px solid rgba(20, 120, 232, .45); outline-offset: 5px; border-radius: 5px; }
 .my-devices-heading h1 { color: #354e69; font-size: 25px; font-weight: 650; line-height: 1.35; letter-spacing: -.5px; }
 .my-devices-integrate { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; gap: 7px; min-height: 35px; padding: 8px 12px; border: 1px solid #cfddeb; border-radius: 5px; color: #54799e; background: #fff; font-size: 12px; white-space: nowrap; }
 .my-devices-integrate:hover { border-color: #94b8df; background: #f3f8fe; color: #2674c2; }
@@ -38,6 +43,7 @@
 @media (max-width: 1100px) {
   .my-devices-page { padding: 26px 20px 20px; }
   .my-devices-heading { gap: 12px; margin-bottom: 24px; }
+  .my-devices-heading-main { gap: 12px; }
   .my-devices-heading h1 { font-size: 24px; }
 }
 @media (prefers-reduced-motion: reduce) { .my-devices-card { transition: none; } }

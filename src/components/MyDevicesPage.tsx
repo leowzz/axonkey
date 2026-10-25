@@ -4,6 +4,8 @@ import { devices } from '../deviceModel'
 import { BatteryIndicator } from './BatteryIndicator'
 import './MyDevicesPage.css'
 
+const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
+
 export type DeviceOverviewItem = {
   id: DeviceId
   name: string
@@ -21,6 +23,7 @@ type MyDevicesPageProps = {
   devices: readonly DeviceOverviewItem[]
   onSelect: (deviceId: DeviceId) => void
   onIntegrate: () => void
+  onBrandClick: () => void
 }
 
 function DeviceArtwork({ deviceId }: { deviceId: DeviceId }) {
@@ -30,10 +33,16 @@ function DeviceArtwork({ deviceId }: { deviceId: DeviceId }) {
   return <img src="/mouse-device.svg" alt="" width={160} height={200} />
 }
 
-export function MyDevicesPage({ devices, onSelect, onIntegrate }: MyDevicesPageProps) {
+export function MyDevicesPage({ devices, onSelect, onIntegrate, onBrandClick }: MyDevicesPageProps) {
   return <section className="my-devices-page" aria-labelledby="my-devices-title">
     <header className="my-devices-heading">
-      <h1 id="my-devices-title">设备</h1>
+      <div className="my-devices-heading-main">
+        <button className="my-devices-brand" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
+          <img src={appIconUrl} alt="" width={28} height={28} />
+          <span>axonkey</span>
+        </button>
+        <h1 id="my-devices-title">设备</h1>
+      </div>
       <button className="my-devices-integrate" type="button" onClick={onIntegrate}>
         <Plus size={16} aria-hidden="true" />集成设备
       </button>
