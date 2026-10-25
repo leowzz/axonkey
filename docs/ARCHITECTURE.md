@@ -76,7 +76,7 @@ capture mode safely.
 Installing or removing Quarbor requires administrator access. Normal Axonkey execution uses the current user's privileges. Quitting Axonkey closes the Quarbor pipe client and releases mapped outputs.
 
 The macOS backend is compiled from `native/macos_input.m` and
-`native/macos_audio.m` and links only Apple system frameworks. Input Monitoring
+`native/devices/xiaomi_remote/macos_audio.m` and links only Apple system frameworks. Input Monitoring
 authorizes raw HID reports; Accessibility authorizes event filtering and
 generated keyboard events; the Bluetooth usage description covers the separate
 ATVV voice connection. macOS needs no input driver. Its optional virtual audio

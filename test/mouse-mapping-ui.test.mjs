@@ -35,7 +35,7 @@ function load(file) {
   return module.exports
 }
 const { DeviceStatusCard } = load('src/components/DeviceRail.tsx')
-const { DeviceWorkspaceHeader } = load('src/components/DeviceWorkspaceHeader.tsx')
+const { DeviceWorkspaceHeader } = load('src/devices/shared/DeviceWorkspaceHeader.tsx')
 const { MouseInputModel, MouseControlPicker, MouseTriggerSelector } = load('src/components/MouseMapping.tsx')
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 

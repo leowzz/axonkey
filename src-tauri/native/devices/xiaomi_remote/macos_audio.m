@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <math.h>
 #include <string.h>
-#include "macos_pcm_queue.h"
+#include "../../macos_pcm_queue.h"
 #include "macos_audio_trace.h"
 
 enum {

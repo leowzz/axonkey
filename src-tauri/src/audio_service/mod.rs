@@ -37,25 +37,11 @@ pub(crate) fn clamp_gain_db(gain: i16) -> i16 {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", test))]
-mod atvv;
-
-#[cfg(any(target_os = "windows", target_os = "macos", test))]
-mod diagnostics;
-
+pub(crate) mod diagnostics;
 #[cfg(target_os = "macos")]
-mod macos;
-
-#[cfg(target_os = "macos")]
-mod signal_monitor;
-
-#[cfg(target_os = "macos")]
-pub use macos::AudioService;
-
-#[cfg(target_os = "windows")]
-mod windows;
-
-#[cfg(target_os = "windows")]
-pub use windows::AudioService;
+pub(crate) mod signal_monitor;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub use crate::devices::xiaomi_remote::voice::AudioService;
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub struct AudioService;

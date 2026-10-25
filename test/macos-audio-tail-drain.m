@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "../src-tauri/native/macos_audio.m"
+#import "../src-tauri/native/devices/xiaomi_remote/macos_audio.m"
 
 @interface FakeAudioEngine : NSObject
 @property(nonatomic) BOOL stopped;

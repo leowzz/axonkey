@@ -1,5 +1,6 @@
-use super::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
-use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use crate::audio_service::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
+use super::atvv::AtvvDecoder;
+use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use std::{
     ffi::{c_char, c_void},
     sync::{
@@ -101,7 +102,7 @@ impl AudioService {
         self.shared.signal_monitor.lock().unwrap().clear();
     }
 
-    pub fn level(&self) -> super::AudioLevel {
+    pub fn level(&self) -> crate::audio_service::AudioLevel {
         self.shared.diagnostics.level()
     }
 

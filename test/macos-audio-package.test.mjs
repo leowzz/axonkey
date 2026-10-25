@@ -54,7 +54,7 @@ test('macOS build embeds packages and requires Installer signing for signed rele
 
 test('runtime installation and forwarding do not reference the reference repository', () => {
   const backend = read('src-tauri/src/lib.rs')
-  const nativeAudio = read('src-tauri/native/macos_audio.m')
+  const nativeAudio = read('src-tauri/native/devices/xiaomi_remote/macos_audio.m')
   assert.match(backend, /\/usr\/sbin\/installer -pkg/)
   assert.match(nativeAudio, /AB5E0003-5A21-4F05-BC7D-AF01F617B664/)
   assert.match(nativeAudio, /MiRemoteV2ch_UID/)
@@ -64,7 +64,7 @@ test('runtime installation and forwarding do not reference the reference reposit
 })
 
 test('macOS battery reporting reuses the RC003 audio peripheral', () => {
-  const nativeAudio = read('src-tauri/native/macos_audio.m')
+  const nativeAudio = read('src-tauri/native/devices/xiaomi_remote/macos_audio.m')
   assert.match(nativeAudio, /AKBatteryServiceUUIDString = @"180F"/)
   assert.match(nativeAudio, /AKBatteryLevelUUIDString = @"2A19"/)
   assert.match(nativeAudio, /discoverServices:@\[_serviceUUID, _batteryServiceUUID\]/)

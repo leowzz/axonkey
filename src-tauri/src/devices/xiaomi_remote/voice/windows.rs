@@ -1,4 +1,5 @@
-use super::{atvv::AtvvDecoder, clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use super::atvv::AtvvDecoder;
+use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, Sample, SampleFormat, SizedSample, StreamConfig, I24, U24,
@@ -168,7 +169,7 @@ pub struct AudioService {
 }
 
 impl AudioService {
-    pub fn level(&self) -> super::AudioLevel {
+    pub fn level(&self) -> crate::audio_service::AudioLevel {
         self.shared.diagnostics.level()
     }
 

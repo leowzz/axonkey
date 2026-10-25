@@ -1,3 +1,4 @@
+mod devices;
 mod audio_service;
 mod backup_files;
 mod driver_upgrade;

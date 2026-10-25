@@ -22,7 +22,7 @@ impl Default for TestLevel {
     }
 }
 
-pub(super) struct AudioDiagnostics {
+pub(crate) struct AudioDiagnostics {
     level: std::sync::Mutex<TestLevel>,
     epoch: Instant,
     activity: AtomicBool,
@@ -83,7 +83,7 @@ impl Default for AudioDiagnostics {
 }
 
 impl AudioDiagnostics {
-    pub(super) fn received(&self, bytes: usize) {
+    pub(crate) fn received(&self, bytes: usize) {
         self.activity.store(true, Relaxed);
         self.packets.fetch_add(1, Relaxed);
         self.bytes.fetch_add(bytes as u64, Relaxed);
@@ -91,7 +91,7 @@ impl AudioDiagnostics {
             .store(self.epoch.elapsed().as_millis() as u64, Relaxed);
     }
 
-    pub(super) fn decoded(&self, samples: &[i16]) {
+    pub(crate) fn decoded(&self, samples: &[i16]) {
         let mut energy = 0;
         let mut peak = 0;
         for sample in samples {
@@ -138,7 +138,7 @@ impl AudioDiagnostics {
         }
     }
 
-    pub(super) fn level(&self) -> super::AudioLevel {
+    pub(crate) fn level(&self) -> super::AudioLevel {
         let Ok(level) = self.level.lock() else {
             return super::AudioLevel::default();
         };
@@ -155,7 +155,7 @@ impl AudioDiagnostics {
         }
     }
 
-    pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
+    pub(crate) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
         self.callbacks.fetch_add(1, Relaxed);
         self.consumed.fetch_add(consumed as u64, Relaxed);
         self.silent_frames.fetch_add(silent_frames as u64, Relaxed);
@@ -163,21 +163,21 @@ impl AudioDiagnostics {
     }
 
     #[cfg(any(target_os = "windows", test))]
-    pub(super) fn overflow(&self, samples: usize) {
+    pub(crate) fn overflow(&self, samples: usize) {
         self.overflow.fetch_add(samples as u64, Relaxed);
     }
 
-    pub(super) fn rejected(&self) {
+    pub(crate) fn rejected(&self) {
         self.activity.store(true, Relaxed);
         self.rejected_packets.fetch_add(1, Relaxed);
     }
 
-    pub(super) fn read_error(&self) {
+    pub(crate) fn read_error(&self) {
         self.activity.store(true, Relaxed);
         self.read_errors.fetch_add(1, Relaxed);
     }
 
-    pub(super) fn control(&self, opcode: u8) {
+    pub(crate) fn control(&self, opcode: u8) {
         self.activity.store(true, Relaxed);
         match opcode {
             0x04 => {
@@ -197,7 +197,7 @@ impl AudioDiagnostics {
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn scheduled(&self, samples: usize, success: bool) {
+    pub(crate) fn scheduled(&self, samples: usize, success: bool) {
         self.activity.store(true, Relaxed);
         if success {
             self.scheduled.fetch_add(samples as u64, Relaxed);
@@ -209,7 +209,7 @@ impl AudioDiagnostics {
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn discarded_buffers(&self, count: usize) {
+    pub(crate) fn discarded_buffers(&self, count: usize) {
         if count > 0 {
             self.activity.store(true, Relaxed);
             self.discarded_buffers.fetch_add(count as u64, Relaxed);
@@ -217,12 +217,12 @@ impl AudioDiagnostics {
     }
 
     #[cfg(any(target_os = "windows", test))]
-    pub(super) fn report(&self, active: bool, window: Duration) -> Option<String> {
+    pub(crate) fn report(&self, active: bool, window: Duration) -> Option<String> {
         self.report_platform(active, window, false)
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn decoder_pending(&self, pending: usize, discarded: usize) {
+    pub(crate) fn decoder_pending(&self, pending: usize, discarded: usize) {
         self.decoder_pending_bytes.store(pending as u64, Relaxed);
         if discarded > 0 {
             self.activity.store(true, Relaxed);
@@ -232,12 +232,12 @@ impl AudioDiagnostics {
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn note_native_activity(&self) {
+    pub(crate) fn note_native_activity(&self) {
         self.activity.store(true, Relaxed);
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn report_macos(&self, active: bool, window: Duration) -> Option<String> {
+    pub(crate) fn report_macos(&self, active: bool, window: Duration) -> Option<String> {
         self.report_platform(active, window, true)
     }
 

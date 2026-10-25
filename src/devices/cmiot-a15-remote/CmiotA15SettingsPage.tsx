@@ -1,6 +1,6 @@
 import { Bluetooth, CircleHelp, Keyboard, Settings2 } from 'lucide-react'
 import { useState } from 'react'
-import { DeviceWorkspaceHeader } from '../../components/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 
 type CmiotA15SettingsSection = 'overview' | 'keys' | 'connection'
 

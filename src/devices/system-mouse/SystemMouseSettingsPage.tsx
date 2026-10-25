@@ -1,25 +1,10 @@
 import type { CSSProperties } from 'react'
 import { Mouse } from 'lucide-react'
 import { SettingsHelp } from '../../components/SettingsHelp'
-import { DeviceWorkspaceHeader } from '../../components/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 
-export type SystemMouseSettingsPageProps = {
-  onBackToDevices: () => void
-  showMouseKeyGrid: boolean
-  onShowMouseKeyGridChange: (value: boolean) => void
-  mouseIgnoreScrollAcceleration: boolean
-  onMouseIgnoreScrollAccelerationChange: (value: boolean) => void
-  mouseScrollSensitivity: number
-  onMouseScrollSensitivityChange: (value: number) => void
-  mouseVerticalScrollIntervalMs: number
-  onMouseVerticalScrollIntervalMsChange: (ms: number) => void
-  mouseHorizontalScrollIntervalMs: number
-  onMouseHorizontalScrollIntervalMsChange: (ms: number) => void
-  mouseEdgeWidth: number
-  onMouseEdgeWidthChange: (value: number) => void
-  mouseKeyHoldMs: number
-  onMouseKeyHoldMsChange: (ms: number) => void
-}
+export type { DeviceSettingsPageProps as SystemMouseSettingsPageProps } from '../types'
+import type { DeviceSettingsPageProps as SystemMouseSettingsPageProps } from '../types'
 
 export function SystemMouseSettingsPage({ onBackToDevices, showMouseKeyGrid, onShowMouseKeyGridChange, mouseIgnoreScrollAcceleration, onMouseIgnoreScrollAccelerationChange, mouseScrollSensitivity, onMouseScrollSensitivityChange, mouseVerticalScrollIntervalMs, onMouseVerticalScrollIntervalMsChange, mouseHorizontalScrollIntervalMs, onMouseHorizontalScrollIntervalMsChange, mouseEdgeWidth, onMouseEdgeWidthChange, mouseKeyHoldMs, onMouseKeyHoldMsChange }: SystemMouseSettingsPageProps) {
   return <div className="device-settings-page settings-form-page">

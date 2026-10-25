@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 
-#import "../src-tauri/native/macos_audio.m"
+#import "../src-tauri/native/devices/xiaomi_remote/macos_audio.m"
 
 @interface AKFakeBatteryCharacteristic : NSObject
 @property(nonatomic, strong) CBUUID *UUID;

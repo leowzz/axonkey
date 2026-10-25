@@ -8,7 +8,7 @@ import { BatteryDebugControls } from './BatteryIndicator'
 import { BehaviorEditor } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
-import { DeviceWorkspaceHeader } from './DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader } from '../devices/shared/DeviceWorkspaceHeader'
 import { MappingKeyGrid, MappingTriggerSelector } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseTriggerSelector } from './MouseMapping'
 
