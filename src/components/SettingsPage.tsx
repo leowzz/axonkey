@@ -1,4 +1,4 @@
-import { ArrowLeft, Bluetooth, DatabaseBackup, ExternalLink, Info, Power, Radio, RotateCcw, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, Bluetooth, DatabaseBackup, ExternalLink, Info, LayoutDashboard, Power, RotateCcw, ShieldCheck } from 'lucide-react'
 import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
@@ -51,7 +51,7 @@ export function SettingsPage({ onBack, section, onSectionChange, enabled, onTogg
   const sections = [
     { id: 'startup' as const, label: '启动设置', icon: <Power size={16} /> },
     { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
-    { id: 'remote' as const, label: '遥控器映射', icon: <Radio size={16} /> },
+    { id: 'remote' as const, label: '页面布局', icon: <LayoutDashboard size={16} /> },
     { id: 'backup' as const, label: '数据备份', icon: <DatabaseBackup size={16} /> },
   ]
   const loading = systemProbeState === 'loading'
@@ -172,7 +172,7 @@ export function SettingsPage({ onBack, section, onSectionChange, enabled, onTogg
     </div>}
     </section>
     <section id="settings-panel-remote" aria-labelledby="settings-nav-remote" hidden={currentSection !== 'remote'}>
-      <div className="settings-mouse-heading"><h3 className="settings-section-title">遥控器映射</h3><span>更改自动保存</span></div>
+      <div className="settings-mouse-heading"><h3 className="settings-section-title">页面布局</h3><span>更改自动保存</span></div>
       <div className="settings-form-fields">
         <div className="settings-form-row">
           <span className="settings-form-label">按键列表：</span>
