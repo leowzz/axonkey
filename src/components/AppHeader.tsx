@@ -15,15 +15,13 @@ const pages = [
 type AppSidebarProps = {
   activePage: AppPage
   hasUpdate: boolean
-  enabled: boolean
   collapsed: boolean
   onToggleCollapsed: () => void
-  onToggleEnabled: () => void
   onBrandClick: () => void
   onNavigate: (page: AppPage) => void
 }
 
-export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggleCollapsed, onToggleEnabled, onBrandClick, onNavigate }: AppSidebarProps) {
+export function AppSidebar({ activePage, hasUpdate, collapsed, onToggleCollapsed, onBrandClick, onNavigate }: AppSidebarProps) {
   const activeNavigationPage = activePage === 'mapping' || activePage === 'overview' || activePage === 'device-settings' ? 'home' : activePage
   return <aside className={`app-sidebar${collapsed ? ' is-collapsed' : ''}`}>
     <SidebarButton collapsed={collapsed} className="brand-lockup compact brand-trigger" type="button" aria-label="Axonkey" title="Axonkey" onClick={onBrandClick}>
@@ -44,7 +42,6 @@ export function AppSidebar({ activePage, hasUpdate, enabled, collapsed, onToggle
       <SidebarButton collapsed={collapsed} type="button" className="sidebar-collapse" aria-label={collapsed ? '展开侧栏' : '收起侧栏'} title={collapsed ? '展开侧栏' : '收起侧栏'} aria-expanded={!collapsed} aria-controls="app-navigation" onClick={onToggleCollapsed}>
         {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}<span>收起侧栏</span>
       </SidebarButton>
-      <label className="enable-control"><span>软件总开关</span><SidebarButton collapsed={collapsed} className={`switch ${enabled ? 'on' : ''}`} type="button" aria-label="软件功能总开关" title={`软件总开关 · ${enabled ? '已开启' : '已暂停'}`} aria-pressed={enabled} onClick={onToggleEnabled}><span /></SidebarButton></label>
     </div>
   </aside>
 }

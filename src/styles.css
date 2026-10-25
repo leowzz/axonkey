@@ -57,7 +57,6 @@ button { cursor: pointer; }
 .app-sidebar.is-collapsed .app-nav-label,
 .app-sidebar.is-collapsed .sidebar-version,
 .app-sidebar.is-collapsed .sidebar-collapse > span,
-.app-sidebar.is-collapsed .enable-control > span { display: none; }
 .app-sidebar.is-collapsed .app-nav button { justify-content: center; padding: 11px; }
 .app-sidebar.is-collapsed .app-nav .update-dot { position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%); }
 .app-sidebar.is-collapsed .sidebar-footer { align-items: center; padding: 0; }
@@ -115,11 +114,12 @@ h1 { color: #202327; font-size: 28px; letter-spacing: 0; line-height: 1; }
 .app-nav button:hover { color: #3b6f9f; background: #f4f6f7; }
 .app-nav button.active { color: #246ed6; background: #e3ebf8; }
 .app-nav button:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
-.enable-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #6f7c8f; font-size: 12px; font-weight: 500; white-space: nowrap; }
-.enable-control .switch { flex-shrink: 0; width: 34px; height: 21px; padding: 3px; }
-.enable-control .switch span { width: 15px; height: 15px; }
-.enable-control .switch.on span { transform: translateX(13px); }
-.enable-control .switch:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; }
+.settings-nav-enable-control { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; padding: 20px 10px 0; color: #6f7c8f; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.settings-nav-enable-switch { display: inline-flex; flex-shrink: 0; align-items: center; width: 34px; height: 21px; padding: 3px; border: 0; border-radius: 999px; background: #b9c1c9; cursor: pointer; transition: background .15s ease; }
+.settings-nav-enable-switch span { width: 15px; height: 15px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px #26384833; transition: transform .15s ease; }
+.settings-nav-enable-switch.on { background: #2876c5; }
+.settings-nav-enable-switch.on span { transform: translateX(13px); }
+.settings-nav-enable-switch:focus-visible { outline: 2px solid #2876c5; outline-offset: 3px; }
 .switch { position: relative; width: 50px; height: 28px; padding: 3px; border: 0; border-radius: 20px; background: #d6d8db; transition: background .16s ease; }
 .switch span { display: block; width: 22px; height: 22px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.13); transition: transform .16s ease; }
 .switch.on { background: var(--blue); }

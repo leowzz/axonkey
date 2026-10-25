@@ -1545,7 +1545,7 @@ function AppController() {
         : undefined,
     }],
     toggle: { checked: mouseEnabled, onChange: () => setMouseEnabled((value) => !value) },
-    onOpenSettings: () => { setSettingsSection('mouse'); setActivePage('settings') },
+    onOpenSettings: () => navigateToPage('device-settings'),
   } : {
     title: `${selectedDevice.name}状态`,
     rows: [
@@ -1609,7 +1609,7 @@ function AppController() {
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />}
       <div className="app-workspace">
-        <AppSidebar activePage={activePage} hasUpdate={releaseUpdate.hasUpdate} collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} enabled={enabled} onToggleEnabled={toggleEnabled} onBrandClick={handleBrandClick} onNavigate={navigateToPage} />
+        <AppSidebar activePage={activePage} hasUpdate={releaseUpdate.hasUpdate} collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} onBrandClick={handleBrandClick} onNavigate={navigateToPage} />
         <div className="app-main">
           {activePage === 'overview' && <AppHeader context={profileControls} actions={mappingActions} />}
       <main ref={mainContentRef} key={activePage} className="main-content">
@@ -1617,7 +1617,7 @@ function AppController() {
           <Info size={20} aria-hidden="true" />
           <div className="mapping-disabled-copy">
             <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
-            <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过左下角的总开关开启。</p>
+            <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过设置页左侧的总开关开启。</p>
           </div>
           <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>立即开启</button>
         </section>}
@@ -1679,7 +1679,25 @@ function AppController() {
             },
           }}
           remoteView={selectedDevice.remoteView}
-        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'device-settings' ? <DeviceSettingsComponent onBackToDevices={() => navigateToPage('home')} /> : activePage === 'settings' ? <SettingsPage
+        /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'device-settings' ? <DeviceSettingsComponent
+          onBackToDevices={() => navigateToPage('home')}
+          showMouseKeyGrid={showMouseKeyGrid}
+          onShowMouseKeyGridChange={setShowMouseKeyGrid}
+          mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
+          onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
+          mouseScrollSensitivity={mouseScrollSensitivity}
+          onMouseScrollSensitivityChange={setMouseScrollSensitivity}
+          mouseVerticalScrollIntervalMs={mouseVerticalScrollIntervalMs}
+          onMouseVerticalScrollIntervalMsChange={setMouseVerticalScrollIntervalMs}
+          mouseHorizontalScrollIntervalMs={mouseHorizontalScrollIntervalMs}
+          onMouseHorizontalScrollIntervalMsChange={setMouseHorizontalScrollIntervalMs}
+          mouseEdgeWidth={mouseEdgeWidth}
+          onMouseEdgeWidthChange={setMouseEdgeWidth}
+          mouseKeyHoldMs={mouseKeyHoldMs}
+          onMouseKeyHoldMsChange={setMouseKeyHoldMs}
+        /> : activePage === 'settings' ? <SettingsPage
+          enabled={enabled}
+          onToggleEnabled={toggleEnabled}
           backup={{
             onCreateBackup: () => createDataBackup({
               ...profileStateRef.current,
@@ -1699,21 +1717,7 @@ function AppController() {
           section={settingsSection}
           onSectionChange={setSettingsSection}
           showRemoteKeyGrid={showRemoteKeyGrid}
-          showMouseKeyGrid={showMouseKeyGrid}
           onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
-          onShowMouseKeyGridChange={setShowMouseKeyGrid}
-          mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
-          onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
-          mouseScrollSensitivity={mouseScrollSensitivity}
-          onMouseScrollSensitivityChange={setMouseScrollSensitivity}
-          mouseVerticalScrollIntervalMs={mouseVerticalScrollIntervalMs}
-          onMouseVerticalScrollIntervalMsChange={setMouseVerticalScrollIntervalMs}
-          mouseEdgeWidth={mouseEdgeWidth}
-          onMouseEdgeWidthChange={setMouseEdgeWidth}
-          mouseHorizontalScrollIntervalMs={mouseHorizontalScrollIntervalMs}
-          onMouseHorizontalScrollIntervalMsChange={setMouseHorizontalScrollIntervalMs}
-          mouseKeyHoldMs={mouseKeyHoldMs}
-          onMouseKeyHoldMsChange={setMouseKeyHoldMs}
           platform={platform}
           nativeRuntime={nativeRuntime}
           systemProbeState={systemProbeState}
@@ -1758,8 +1762,7 @@ function AppController() {
           setSelectedDeviceId(deviceId)
           if (deviceId === 'rc003' || deviceId === 'cmiotA15') openSetupStep('deviceConnection')
           else {
-            setSettingsSection(platform === 'macos' ? 'permissions' : 'mouse')
-            navigateToPage('settings')
+            navigateToPage('device-settings')
           }
         }}
       />, document.body)}

@@ -44,6 +44,6 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
       <article><AudioLines size={22} /><h3>遥控器语音</h3><p>长按语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p></article>
       <article><ShieldCheck size={22} /><h3>本地运行</h3><p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p></article>
     </section>
-    <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再开启左下角的软件总开关。</p>
+    <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置页左侧开启软件总开关。</p>
   </div>
 }

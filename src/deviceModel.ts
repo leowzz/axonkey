@@ -7,6 +7,7 @@ import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from './devices/cmiot-a15
 import { systemMouseDevice } from './devices/system-mouse/index.ts'
 import { XiaomiRemoteSettingsPage } from './devices/xiaomi-remote/XiaomiRemoteSettingsPage'
 import { CmiotA15SettingsPage } from './devices/cmiot-a15-remote/CmiotA15SettingsPage'
+import type { SystemMouseSettingsPageProps } from './devices/system-mouse/SystemMouseSettingsPage'
 
 export const remoteButtonIds = xiaomiRemoteButtonIds
 export const cmiotA15ButtonIds = cmiotA15RemoteButtonIds
@@ -60,7 +61,7 @@ export type DeviceDefinition = {
   inputKind: 'button' | 'mouse'
   buttons?: readonly RemoteButton[]
   remoteView?: RemoteView
-  settingsPage: ComponentType<{ onBackToDevices: () => void }>
+  settingsPage: ComponentType<SystemMouseSettingsPageProps>
 }
 export const devices: readonly DeviceDefinition[] = [
   { id: 'rc003', name: '小米遥控器', model: 'RC003', inputIds: remoteButtonIds, inputKind: 'button', buttons: xiaomiRemoteView.buttons, remoteView: xiaomiRemoteView, settingsPage: XiaomiRemoteSettingsPage },
