@@ -9,7 +9,10 @@
   "scripts": {
     "prepare": "husky",
     "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}\"",
-    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}\"",
+    "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+    "format:all": "npm run format && npm run format:rust",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}\" && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "format:rust:check": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "format:staged": "lint-staged",
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "dev": "vite",
@@ -23,7 +26,8 @@
     "tauri": "tauri"
   },
   "lint-staged": {
-    "src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}": "prettier --write"
+    "src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}": "prettier --write",
+    "src-tauri/**/*.rs": "rustfmt --edition 2021"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

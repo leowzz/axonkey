@@ -29,14 +29,16 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 在仓库根目录执行 `npm install` 或 `npm ci` 时，`prepare` 会自动安装 Git 提交钩子。已有依赖的工作区可执行 `npm run prepare` 启用。
 
-每次 `git commit` 前，lint-staged 使用 Prettier 格式化本次暂存的 `src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}` 文件，并将格式化结果纳入提交。部分暂存文件中的未暂存修改会暂时隐藏，完成后恢复；格式化失败会阻止提交。
+每次 `git commit` 前，lint-staged 使用 Prettier 格式化本次暂存的 `src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}` 文件，并使用 `rustfmt` 格式化本次暂存的 `src-tauri/**/*.rs` 文件，再将格式化结果纳入提交。部分暂存文件中的未暂存修改会暂时隐藏，完成后恢复；格式化失败会阻止提交。
 
 格式遵循现有代码习惯：两空格缩进、单引号、不加分号，行宽 120，使用 LF 换行。可手动执行：
 
 ```bash
 npm run format          # 格式化整个 src 的代码
-npm run format:check    # 检查整个 src 的代码格式
-npm run format:staged   # 仅处理暂存的 src 代码
+npm run format:rust     # 格式化整个 src-tauri Rust 工程
+npm run format:all      # 格式化 src 和 src-tauri
+npm run format:check    # 检查 src 和 src-tauri 的格式
+npm run format:staged   # 仅处理暂存的 src 和 src-tauri 代码
 ```
 
 现有文件会在后续提交涉及它们时逐步统一格式；首次全量检查可能报告历史格式差异。
