@@ -39,6 +39,22 @@ const { DeviceWorkspaceHeader } = load('src/devices/shared/DeviceWorkspaceHeader
 const { MouseInputModel, MouseControlPicker, MouseTriggerSelector } = load('src/components/MouseMapping.tsx')
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
+test('device status card announces recording transitions and omits the badge for other devices', () => {
+  let view
+  const status = { title: 'A15 状态', rows: [], recording: false }
+  act(() => { view = Renderer.create(React.createElement(DeviceStatusCard, { status })) })
+  assert.equal(text(view.root.findByProps({ role: 'status' })), '未录音')
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { ...status, recording: true } })) })
+  const badge = view.root.findByProps({ role: 'status' })
+  assert.equal(text(badge), '正在录音')
+  assert.match(badge.props.className, /is-recording/)
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { ...status, recording: false } })) })
+  assert.equal(text(view.root.findByProps({ role: 'status' })), '未录音')
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { title: '小米状态', rows: [] } })) })
+  assert.equal(view.root.findAllByProps({ role: 'status' }).length, 0)
+  act(() => view.unmount())
+})
+
 test('A15 recording mode restores the saved choice and defaults legacy or invalid settings to hold', () => {
   const { getStoredSettings } = load('src/appConfig.tsx')
   const previousStorage = testWindow.localStorage

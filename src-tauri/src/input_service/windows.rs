@@ -28,6 +28,7 @@ struct QuarborContext {
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
     a15_reports: crate::devices::cmiot_a15::ReportState,
+    a15_recording: crate::devices::cmiot_a15_recording::RecordingControl,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
     dropped: u64,
@@ -47,6 +48,7 @@ impl Default for QuarborContext {
             active_usages: std::collections::HashSet::new(),
             device_id: None,
             a15_reports: Default::default(),
+            a15_recording: Default::default(),
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
             last_sequence: None,
             dropped: 0,
@@ -291,6 +293,24 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Capabilities(_) => {
+            // A previous connection may have been lost after a successful start.
+            // Neutralize the physical device before accepting a new recording.
+            if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                context.a15_recording.reset();
+                if context
+                    .reader
+                    .as_ref()
+                    .is_some_and(|client| client.supports_physical_write())
+                {
+                    if let Err(error) = send_a15_recording_report(&mut context.reader, [0xfb, 0]) {
+                        quarbor_output_error(context, error);
+                    }
+                }
+            }
             // Each connection starts with a neutral output state.
             if let Some(client) = context.reader.as_mut() {
                 if let Err(error) = client.reset_input() {
@@ -307,6 +327,15 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
 
 #[cfg(windows)]
 fn quarbor_release_active_usages(context: &mut QuarborContext) {
+    // Never replay a queued start after a gap/disconnect has reset recording.
+    context.keys.retain(|key| key.button != "cmiotA15.voice");
+    if let Err(error) = context
+        .a15_recording
+        .stop(|report| send_a15_recording_report(&mut context.reader, report))
+    {
+        quarbor_read_error(context, format!("A15 recording stop: {error}"));
+    }
+    context.a15_recording.reset();
     context.keyboard.reset(
         |key, down| {
             if let Some(client) = context.reader.as_mut() {
@@ -705,6 +734,18 @@ fn run_context(
         );
     }
     quarbor_release_active_usages(context);
+    publish_a15_recording(shared, false);
+    if context
+        .device_id
+        .as_deref()
+        .is_some_and(crate::devices::cmiot_a15::matches_instance)
+    {
+        if let Some(client) = context.reader.as_mut() {
+            if let Err(error) = client.finish_pending(Duration::from_millis(300)) {
+                quarbor_read_error(context, format!("A15 shutdown stop not confirmed: {error}"));
+            }
+        }
+    }
     context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
         emit_remote_key_event(shared, key.button, key.pressed);
@@ -713,7 +754,52 @@ fn run_context(
 }
 
 #[cfg(windows)]
+fn send_a15_recording_report(
+    reader: &mut Option<super::windows_quarbor::Client>,
+    report: [u8; 2],
+) -> std::io::Result<()> {
+    let client = reader.as_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotConnected,
+            "A15 recording control disconnected",
+        )
+    })?;
+    client.write_physical_output(&report).map(|_| ())
+}
+
+#[cfg(windows)]
+fn publish_a15_recording(shared: &Shared, recording: bool) {
+    let changed = if let Ok(mut status) = shared.status.lock() {
+        let changed = status.cmiot_a15_recording != recording;
+        status.cmiot_a15_recording = recording;
+        changed
+    } else {
+        false
+    };
+    if changed {
+        #[cfg(not(test))]
+        if let Ok(app) = shared.event_app.read() {
+            if let Some(app) = app.as_ref() {
+                let _ = app.emit("axonkey-cmiot-a15-recording", recording);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
 fn process_remote_actions(
+    context: &mut QuarborContext,
+    shared: &Shared,
+    actions: &mut super::remote_actions::RemoteActions,
+    state_epoch: &mut u64,
+    now: Instant,
+) {
+    process_remote_actions_inner(context, shared, actions, state_epoch, now);
+    publish_a15_recording(shared, context.a15_recording.is_recording());
+}
+
+#[cfg(windows)]
+fn process_remote_actions_inner(
     context: &mut QuarborContext,
     shared: &Shared,
     actions: &mut super::remote_actions::RemoteActions,
@@ -736,8 +822,28 @@ fn process_remote_actions(
         shared.settings_revision.load(Ordering::Relaxed),
         settings.enabled,
     );
+    if let Err(error) = context.a15_recording.synchronize(
+        settings.cmiot_a15_recording_mode,
+        settings.enabled,
+        |report| send_a15_recording_report(&mut context.reader, report),
+    ) {
+        quarbor_output_error(context, error);
+        actions.cancel();
+        return;
+    }
     while let Some(key) = context.keys.pop_front() {
         emit_remote_key_event(shared, key.button, key.pressed);
+        if key.button == "cmiotA15.voice" {
+            if let Err(error) = context.a15_recording.edge(key.pressed, |report| {
+                send_a15_recording_report(&mut context.reader, report)
+            }) {
+                quarbor_output_error(context, error);
+                actions.cancel();
+                return;
+            }
+            publish_a15_recording(shared, context.a15_recording.is_recording());
+            continue;
+        }
         actions.edge(key.button, key.pressed, &settings, now);
     }
     let mut output_error = None;
@@ -2523,6 +2629,44 @@ mod tests {
         assert_eq!(rc003_button_for_usage(0x28), Some("confirm"));
         assert_eq!(rc003_button_for_usage(0x52), Some("up"));
         assert_eq!(rc003_button_for_usage(0x04), None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn recording_snapshot_follows_control_and_clears_after_disconnect() {
+        let shared = Shared {
+            settings: RwLock::new(NativeSettings::default()),
+            settings_revision: AtomicU64::new(0),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            driver_gate: Arc::new(AtomicBool::new(false)),
+            driver_paused: AtomicBool::new(false),
+        };
+        let mut context = QuarborContext::default();
+        context
+            .a15_recording
+            .synchronize(
+                crate::devices::cmiot_a15_recording::RecordingMode::Click,
+                true,
+                |_| Ok::<_, ()>(()),
+            )
+            .unwrap();
+        context
+            .a15_recording
+            .edge(true, |_| Ok::<_, ()>(()))
+            .unwrap();
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(shared.status.lock().unwrap().cmiot_a15_recording);
+        context
+            .a15_recording
+            .edge(false, |_| Ok::<_, ()>(()))
+            .unwrap();
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(shared.status.lock().unwrap().cmiot_a15_recording);
+        quarbor_release_active_usages(&mut context);
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(!shared.status.lock().unwrap().cmiot_a15_recording);
     }
 
     #[test]

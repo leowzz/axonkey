@@ -1527,3 +1527,8 @@ html.macos-vibrancy,
 .audio-calibration-envelope { stroke: #b77d2e; stroke-width: 1.8; fill: none; stroke-linejoin: round; }
 .audio-calibration-waveform-empty { position: absolute; inset: 0 16% 0 6%; display: flex; align-items: center; justify-content: center; margin: 0; padding: 12px; font-size: 13px; color: #687581; text-align: center; pointer-events: none; }
 @media (max-width: 640px) { .audio-calibration-waveform { padding: 12px 8px 8px; } }
+
+.device-status-card:has(.device-recording-status) { flex-wrap: wrap; }
+.device-recording-status { display: flex; align-items: center; justify-content: center; gap: 7px; flex-basis: 100%; padding: 8px 10px; border-radius: 6px; background: #e8edf2; color: #607080; font-size: 13px; font-weight: 600; line-height: 20px; }
+.device-recording-status.is-recording { background: #fff0f0; color: #b91c1c; box-shadow: inset 0 0 0 1px #efaaaa; }
+.device-recording-status.is-recording::before { content: ''; width: 9px; height: 9px; border-radius: 50%; background: #dc2626; box-shadow: 0 0 0 4px #dc262618; }
