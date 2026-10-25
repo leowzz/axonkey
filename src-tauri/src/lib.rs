@@ -1041,6 +1041,28 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
 }
 
 #[tauri::command]
+async fn list_voice_output_devices() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        #[cfg(target_os = "windows")]
+        {
+            use cpal::traits::{DeviceTrait, HostTrait};
+            let host = cpal::default_host();
+            let devices = host.output_devices()
+                .map_err(|error| format!("无法获取音频输出设备：{error}"))?;
+            devices.map(|device| {
+                device.description()
+                    .map(|description| description.name().to_string())
+                    .map_err(|error| format!("无法读取音频输出设备名称：{error}"))
+            }).collect()
+        }
+        #[cfg(target_os = "macos")]
+        { Ok(vec!["MiRemoteV".to_string()]) }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        { Err("当前系统暂不支持语音输出设备列表".to_string()) }
+    }).await.map_err(|error| format!("获取音频输出设备失败：{error}"))?
+}
+
+#[tauri::command]
 async fn restart_audio_service(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
@@ -1449,6 +1471,7 @@ pub fn run() {
             probe_legacy_components,
             probe_audio_available,
             probe_audio_state,
+            list_voice_output_devices,
             restart_audio_service,
             get_audio_test_state,
             set_audio_gain,

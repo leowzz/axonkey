@@ -1221,6 +1221,9 @@ body.permission-helper-mode #root { min-height: 100vh; }
 .device-settings-empty svg { color: #9aa7b1; }
 .device-settings-empty strong { color: #586570; font-size: 14px; font-weight: 600; }
 .device-settings-empty span { font-size: 13px; }
+.xiaomi-output-fields { margin-top: 24px; }
+.xiaomi-output-select { width: 320px; max-width: 100%; min-width: 0; min-height: 32px; padding: 5px 8px; border: 1px solid #c7c9cd; border-radius: 4px; color: #303338; background: #fff; font-size: 14px; }
+.xiaomi-output-select:focus-visible { outline: 2px solid #2876c5; outline-offset: 2px; }
 @media (max-width: 640px) {
   .device-settings-layout { grid-template-columns: 130px minmax(0, 1fr); }
   .device-settings-panel { padding: 16px; }
