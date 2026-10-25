@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { SlidersHorizontal } from 'lucide-react'
+import { Settings2, SlidersHorizontal, Speaker } from 'lucide-react'
 import type { MacPermissions, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -16,6 +16,7 @@ import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
+import { VoiceOutput } from '../xiaomi-remote/settings/VoiceOutput'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
 import { xiaomiRemoteView } from '../xiaomi-remote/view'
 import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
@@ -61,6 +62,7 @@ export function InstanceWorkspace({
   const pkg = packageFor(instance.kind)
   const [selected, setSelected] = useState(pkg.inputs[0].id as string)
   const [settings, setSettings] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<'overview' | 'output'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   const [controllerTrigger, setControllerTrigger] = useState<TriggerType>('click')
@@ -246,85 +248,135 @@ export function InstanceWorkspace({
           )}
           {settings ? (
             <div className="managed-instance-settings">
-              <div className="settings-form-fields">
-                <label className="settings-form-row">
-                  <span className="settings-form-label">设备名称：</span>
-                  <input
-                    key={instance.name}
-                    defaultValue={instance.name}
-                    maxLength={60}
-                    onBlur={e => {
-                      const name = e.target.value.trim()
-                      if (name && name !== instance.name) update(item => ({ ...item, name }))
-                    }}
-                  />
-                </label>
-                {instance.kind !== 'xboxBluetooth' && (
-                  <div className="settings-form-row">
-                    <span className="settings-form-label">原有配置：</span>
-                    <div className="settings-form-control">
-                      <button
-                        onClick={() =>
-                          update(item => {
-                            const copied = structuredClone(legacyProfiles(item.kind)).map(p => ({
-                              ...p,
-                              id: crypto.randomUUID(),
-                              name: `${p.name}（副本）`,
-                            }))
-                            return copied.length
-                              ? { ...item, profiles: [...item.profiles, ...copied], activeProfileId: copied[0].id }
-                              : item
-                          })
-                        }
-                      >
-                        复制原配置
-                      </button>
+              <div className="managed-instance-settings-layout">
+                <nav className="settings-nav managed-instance-settings-nav" aria-label={`${instance.name}设置分类`}>
+                  <button
+                    type="button"
+                    aria-current={settingsSection === 'overview' ? 'page' : undefined}
+                    onClick={() => setSettingsSection('overview')}
+                  >
+                    <Settings2 size={16} />
+                    <span>设备设置</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-current={settingsSection === 'output' ? 'page' : undefined}
+                    onClick={() => setSettingsSection('output')}
+                  >
+                    <Speaker size={16} />
+                    <span>输出选择</span>
+                  </button>
+                </nav>
+                <section className="managed-instance-settings-panel" aria-labelledby="managed-instance-settings-title">
+                  <div className="managed-instance-settings-heading">
+                    <div>
+                      <h2 id="managed-instance-settings-title">
+                        {settingsSection === 'overview' ? '设备设置' : '输出选择'}
+                      </h2>
+                      <p>
+                        {settingsSection === 'output'
+                          ? '选择语音输出设备，当前仅展示可用设备。'
+                          : '管理设备名称、物理绑定和已有配置。'}
+                      </p>
                     </div>
                   </div>
-                )}
-                <div className="settings-form-row">
-                  <span className="settings-form-label" id="instance-binding-label">
-                    物理设备：
-                  </span>
-                  <div className="settings-form-control managed-instance-binding-control">
-                    {instance.binding ? (
-                      <BoundDeviceInfo
-                        binding={instance.binding}
-                        device={boundDevice}
-                        onUnbind={() => update(item => ({ ...item, binding: null }))}
+                  {settingsSection === 'output' ? (
+                    <div className="managed-instance-output-panel">
+                      <VoiceOutput
+                        idPrefix={`instance-${instance.id}`}
+                        value={instance.voiceOutputDevice ?? ''}
+                        onChange={voiceOutputDevice => update(item => ({ ...item, voiceOutputDevice }))}
                       />
-                    ) : (
-                      <DeviceBindingPicker
-                        labelledBy="instance-binding-label"
-                        value=""
-                        devices={availableDevices}
-                        onChange={binding => {
-                          if (binding) update(item => ({ ...item, binding }))
-                        }}
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="managed-remove">
-                {confirmRemove ? (
-                  <>
-                    <span>移除此设备及其全部配置？</span>
-                    <button
-                      onClick={() =>
-                        void controller
-                          .remove(instance.id)
-                          .then(onBack)
-                          .catch(() => {})
-                      }
-                    >
-                      确认移除
-                    </button>
-                    <button onClick={() => setConfirmRemove(false)}>取消</button>
-                  </>
-                ) : (
-                  <button onClick={() => setConfirmRemove(true)}>移除设备</button>
-                )}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="settings-form-fields">
+                        <label className="settings-form-row">
+                          <span className="settings-form-label">设备名称：</span>
+                          <input
+                            key={instance.name}
+                            defaultValue={instance.name}
+                            maxLength={60}
+                            onBlur={e => {
+                              const name = e.target.value.trim()
+                              if (name && name !== instance.name) update(item => ({ ...item, name }))
+                            }}
+                          />
+                        </label>
+                        {instance.kind !== 'xboxBluetooth' && (
+                          <div className="settings-form-row">
+                            <span className="settings-form-label">原有配置：</span>
+                            <div className="settings-form-control">
+                              <button
+                                onClick={() =>
+                                  update(item => {
+                                    const copied = structuredClone(legacyProfiles(item.kind)).map(p => ({
+                                      ...p,
+                                      id: crypto.randomUUID(),
+                                      name: `${p.name}（副本）`,
+                                    }))
+                                    return copied.length
+                                      ? {
+                                          ...item,
+                                          profiles: [...item.profiles, ...copied],
+                                          activeProfileId: copied[0].id,
+                                        }
+                                      : item
+                                  })
+                                }
+                              >
+                                复制原配置
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        <div className="settings-form-row">
+                          <span className="settings-form-label" id="instance-binding-label">
+                            物理设备：
+                          </span>
+                          <div className="settings-form-control managed-instance-binding-control">
+                            {instance.binding ? (
+                              <BoundDeviceInfo
+                                binding={instance.binding}
+                                device={boundDevice}
+                                onUnbind={() => update(item => ({ ...item, binding: null }))}
+                              />
+                            ) : (
+                              <DeviceBindingPicker
+                                labelledBy="instance-binding-label"
+                                value=""
+                                devices={availableDevices}
+                                onChange={binding => {
+                                  if (binding) update(item => ({ ...item, binding }))
+                                }}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="managed-remove">
+                        {confirmRemove ? (
+                          <>
+                            <span>移除此设备及其全部配置？</span>
+                            <button
+                              onClick={() =>
+                                void controller
+                                  .remove(instance.id)
+                                  .then(onBack)
+                                  .catch(() => {})
+                              }
+                            >
+                              确认移除
+                            </button>
+                            <button onClick={() => setConfirmRemove(false)}>取消</button>
+                          </>
+                        ) : (
+                          <button onClick={() => setConfirmRemove(true)}>移除设备</button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </section>
               </div>
             </div>
           ) : (

@@ -399,6 +399,54 @@
 .managed-instance-settings {
   overflow-y: auto;
 }
+.managed-instance-settings-layout {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  min-height: 450px;
+}
+.managed-instance-settings-nav {
+  min-height: 0;
+  padding: 8px 12px 8px 0;
+  border-right: 1px solid #dfe4e8;
+}
+.managed-instance-settings-panel {
+  min-width: 0;
+  padding: 4px 0 20px 24px;
+}
+.managed-instance-settings-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 720px;
+}
+.managed-instance-settings-heading h2 {
+  margin: 0;
+  color: #304f6d;
+  font-size: 18px;
+  font-weight: 600;
+}
+.managed-instance-settings-heading p {
+  margin: 6px 0 0;
+  color: #8192a3;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.managed-instance-settings-panel > .settings-form-fields {
+  max-width: 720px;
+  margin-top: 20px;
+}
+.managed-instance-output-panel {
+  max-width: 720px;
+  margin-top: 24px;
+  padding: 4px 18px 18px;
+  border: 1px solid #dce6ee;
+  border-radius: 10px;
+  background: rgb(255 255 255 / 55%);
+}
+.managed-instance-output-panel .xiaomi-output-fields {
+  margin-top: 12px;
+}
 .managed-instance-settings button {
   padding: 7px 10px;
   color: #547a9c;

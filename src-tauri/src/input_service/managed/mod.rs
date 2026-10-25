@@ -42,6 +42,8 @@ pub struct Instance {
     pub binding_quality: Option<String>,
     #[serde(default)]
     pub binding_pairing_id: Option<String>,
+    #[serde(default)]
+    pub voice_output_device: Option<String>,
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
@@ -1140,6 +1142,7 @@ mod tests {
             binding: Some(binding.into()),
             binding_quality: Some("serial".into()),
             binding_pairing_id: None,
+            voice_output_device: None,
             enabled: true,
             profiles: vec![Profile {
                 id: "default".into(),

@@ -1044,6 +1044,44 @@ fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServ
     audio_service.status()
 }
 
+fn default_voice_output_device() -> Option<String> {
+    #[cfg(target_os = "windows")]
+    {
+        use cpal::traits::{DeviceTrait, HostTrait};
+        let host = cpal::default_host();
+        let devices: Vec<String> = host
+            .output_devices()
+            .map(|devices| {
+                devices
+                    .filter_map(|device| {
+                        device
+                            .description()
+                            .ok()
+                            .map(|description| description.name().to_string())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let preferred = devices
+            .iter()
+            .find(|name| name.to_ascii_lowercase().contains("cable input"));
+        return preferred
+            .cloned()
+            .or_else(|| {
+                host.default_output_device()
+                    .and_then(|device| device.description().ok())
+                    .map(|description| description.name().to_string())
+            })
+            .or_else(|| devices.first().cloned());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Some("MiRemoteV".to_string());
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    None
+}
+
 #[tauri::command]
 async fn list_voice_output_devices() -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -1243,9 +1281,12 @@ fn device_snapshot(manager: tauri::State<'_, DeviceManager>) -> DeviceSnapshot {
 #[tauri::command]
 fn put_device_instance(
     revision: u64,
-    instance: DeviceInstance,
+    mut instance: DeviceInstance,
     manager: tauri::State<'_, DeviceManager>,
 ) -> Result<DeviceSnapshot, String> {
+    if instance.id.is_empty() && instance.voice_output_device.is_none() {
+        instance.voice_output_device = default_voice_output_device();
+    }
     manager.put(revision, instance)
 }
 
