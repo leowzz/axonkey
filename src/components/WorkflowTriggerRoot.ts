@@ -35,25 +35,27 @@ export function createTriggerDefinition(): Definition {
 }
 
 type WorkflowLaneAction = 'save' | 'copy' | 'paste'
+type WorkflowTriggers = readonly { id: TriggerType; label: string }[]
 
 // Render the input's supported triggers as independent lanes in one designer.
 export function createTriggerRootExtension(
   onClear: (trigger: TriggerType) => void,
   onScroll: () => void = () => {},
   onAction: (trigger: TriggerType, action: WorkflowLaneAction) => void = () => {},
-  triggers: readonly { id: TriggerType; label: string }[] = defaultWorkflowTriggers,
+  triggers: WorkflowTriggers | (() => WorkflowTriggers) = defaultWorkflowTriggers,
 ): RootComponentExtension {
   const scrollPositions = new Map<TriggerType, number>()
   return {
     create(parent, sequence, _parentPlaceIndicator, context) {
+      const visibleTriggers = typeof triggers === 'function' ? triggers() : triggers
       const root = sequence[0] as BranchedStep
       const g = Dom.svg('g', { class: 'workflow-trigger-root' })
       parent.appendChild(g)
       const canvas = parent.closest('.workflow-axonkey-canvas')!
       const width = canvas.clientWidth
       const height = canvas.clientHeight
-      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(width, height, triggers.length)
-      const lanes = triggers.map(({ id, label }) => {
+      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(width, height, visibleTriggers.length)
+      const lanes = visibleTriggers.map(({ id, label }) => {
         const disabled = isWorkflowLaneDisabled(root.branches[id])
         const lane = Dom.svg('g', { class: `workflow-trigger-lane workflow-trigger-${id}${disabled ? ' workflow-trigger-disabled' : ''}`, 'data-trigger': id })
         g.appendChild(lane)

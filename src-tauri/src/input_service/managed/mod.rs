@@ -124,20 +124,32 @@ fn digest(value: &str) -> String {
 }
 fn load(path: &std::path::Path) -> Result<Store, String> {
     let backup = path.with_extension("bak");
-    let path = if !path.exists() && backup.exists() {
+    let source_path = if !path.exists() && backup.exists() {
         backup.as_path()
     } else {
         path
     };
-    if !path.exists() {
+    if !source_path.exists() {
         return Ok(Store::default());
     }
-    let store: Store = serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
-        .map_err(|e| format!("设备配置无法读取，已保留原文件：{e}"))?;
+    let mut store: Store =
+        serde_json::from_slice(&std::fs::read(source_path).map_err(|e| e.to_string())?)
+            .map_err(|e| format!("设备配置无法读取，已保留原文件：{e}"))?;
     if store.version != 1 {
         return Err("设备配置版本不受支持，已保留原文件".into());
     }
+    let mut migrated = false;
+    for instance in &mut store.instances {
+        if instance.kind == "rc003" && instance.capture == "shared" {
+            instance.capture = "exclusive".into();
+            migrated = true;
+        }
+    }
     validate(&store)?;
+    if migrated {
+        store.revision += 1;
+        save(path, &store)?;
+    }
     Ok(store)
 }
 fn save(path: &std::path::Path, store: &Store) -> Result<(), String> {
@@ -190,6 +202,9 @@ fn validate(store: &Store) -> Result<(), String> {
         }
         if instance.capture != "shared" && instance.capture != "exclusive" {
             return Err("未知拦截模式".into());
+        }
+        if instance.kind == "rc003" && instance.capture != "exclusive" {
+            return Err("小米遥控器仅支持独占拦截".into());
         }
         if let Some(binding) = &instance.binding {
             if !bindings.insert(binding) {
@@ -394,7 +409,8 @@ impl DeviceManager {
                 instance.binding_pairing_id = old.binding_pairing_id.clone();
             }
         }
-        if instance.capture == "exclusive" && !cfg!(target_os = "macos") {
+        if instance.kind != "rc003" && instance.capture == "exclusive" && !cfg!(target_os = "macos")
+        {
             return Err("当前平台的此支持包仅支持共享监听，尚不支持独占拦截".into());
         }
         if instance.binding != old.and_then(|i| i.binding.clone()) {
@@ -502,7 +518,7 @@ impl InputReader {
     fn state(&self, exclusive: bool) -> &str {
         match self {
             #[cfg(target_os = "macos")]
-            Self::Remote(device) => device.state,
+            Self::Remote(_) => "exclusive",
             Self::Hid(_) => {
                 if exclusive {
                     "exclusive"
@@ -513,21 +529,50 @@ impl InputReader {
         }
     }
 }
+fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
+    instance
+        .profiles
+        .iter()
+        .find(|p| p.id == instance.active_profile_id)
+        .and_then(|p| serde_json::from_value(p.behaviors.clone()).ok())
+        .unwrap_or_default()
+}
+
 fn open_reader(
     api: &HidApi,
     path: &std::ffi::CStr,
     instance: &Instance,
+    shared: &Arc<Shared>,
+    cancel: &Arc<AtomicBool>,
 ) -> Result<InputReader, String> {
     #[cfg(target_os = "macos")]
-    if instance.kind == "rc003" && instance.capture == "exclusive" {
+    if instance.kind == "rc003" {
         let serial = api
             .device_list()
             .find(|info| info.path() == path)
             .and_then(|info| info.serial_number())
             .filter(|s| !s.is_empty())
             .ok_or("此遥控器没有稳定标识，无法按实例拦截")?;
-        return remote::RemoteReader::open(serial).map(InputReader::Remote);
+        let settings = super::NativeSettings {
+            enabled: true,
+            behaviors: active_mappings(instance),
+            ..super::NativeSettings::default()
+        };
+        let current_shared = shared.clone();
+        let expected = instance.clone();
+        let current_cancel = cancel.clone();
+        let switch_shared = shared.clone();
+        let id = instance.id.clone();
+        return remote::RemoteReader::open(
+            serial,
+            settings,
+            Box::new(move || actions_current(&current_shared, &expected, &current_cancel)),
+            Box::new(move |direction, wrap| switch_profile(&switch_shared, &id, direction, wrap)),
+        )
+        .map(InputReader::Remote);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = (shared, cancel);
     #[cfg(windows)]
     if instance.kind == "rc003" {
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
@@ -844,8 +889,11 @@ fn run(shared: Arc<Shared>) {
             .into();
             if instance.capture == "exclusive" && !cfg!(target_os = "macos") {
                 status.state = "unsupported".into();
-                status.error =
-                    Some("当前平台不支持此设备的独占模式，请重新绑定并选择共享监听".into());
+                status.error = Some(if instance.kind == "rc003" {
+                    "当前平台尚未接入遥控器实例拦截，请使用原遥控器工作区".into()
+                } else {
+                    "当前平台不支持此设备的独占模式，请重新绑定并选择共享监听".into()
+                });
             }
             if status.state == "opening" && instance.kind == "rc003" && !remote_ready {
                 statuses.insert(instance.id.clone(), status);
@@ -858,16 +906,17 @@ fn run(shared: Arc<Shared>) {
                         .get(&instance.id)
                         .is_some_and(|(failed, _)| failed == instance);
                 if retry {
-                    match open_reader(&api, path.unwrap(), instance) {
+                    let cancel = Arc::new(AtomicBool::new(false));
+                    match open_reader(&api, path.unwrap(), instance, &shared, &cancel) {
                         Ok(device) => {
                             failures.remove(&instance.id);
-                            let maps = instance
-                                .profiles
-                                .iter()
-                                .find(|p| p.id == instance.active_profile_id)
-                                .and_then(|p| serde_json::from_value(p.behaviors.clone()).ok())
-                                .unwrap_or_default();
-                            let cancel = Arc::new(AtomicBool::new(false));
+                            // RC003 executes in its original native service; reports here
+                            // only update the instance UI, never dispatch a second action.
+                            let maps = if cfg!(target_os = "macos") && instance.kind == "rc003" {
+                                HashMap::new()
+                            } else {
+                                active_mappings(instance)
+                            };
                             let (tx, rx) = sync_channel::<Vec<NativeBehavior>>(32);
                             let action_shared = shared.clone();
                             let action_cancel = cancel.clone();
@@ -1290,7 +1339,7 @@ mod tests {
     }
     #[test]
     #[cfg(target_os = "macos")]
-    #[ignore = "requires a connected RC003; temporarily seizes input with empty mappings"]
+    #[ignore = "requires a connected RC003; temporarily blocks its keys without injecting actions"]
     fn connected_remote_legacy_handoff() {
         eprintln!(
             "native permissions: input={}, accessibility={}",
@@ -1314,19 +1363,18 @@ mod tests {
             .expect("Connect RC003");
         let mut remote = instance("test-remote", &physical.id);
         remote.kind = "rc003".into();
-        remote.capture =
-            std::env::var("AXONKEY_TEST_CAPTURE").unwrap_or_else(|_| "exclusive".into());
+        remote.capture = "exclusive".into();
+        remote.profiles[0].behaviors = ["power", "voice", "up", "down", "left", "right", "confirm", "home", "menu", "tv", "back", "volumeUp", "volumeDown"].iter().map(|id| (
+            (*id).to_string(), serde_json::json!({"click": [{"id": "blocked", "type": "disabled", "enabled": true}], "doubleClick": [], "longPress": []})
+        )).collect::<serde_json::Map<String, serde_json::Value>>().into();
         manager
             .put(snapshot.store.revision, remote.clone())
             .unwrap();
         manager.set_enabled(true);
         let opened = await_state(&manager, |s| {
-            s.runtime.get(&remote.id).is_some_and(|r| {
-                r.state == "exclusive"
-                    || r.state == "filtered"
-                    || r.state == "listening"
-                    || r.state == "error"
-            })
+            s.runtime
+                .get(&remote.id)
+                .is_some_and(|r| r.state == "exclusive" || r.state == "error")
         });
         let status = &opened.runtime[&remote.id];
         eprintln!("remote handoff: {}, error={:?}", status.state, status.error);
@@ -1349,10 +1397,7 @@ mod tests {
         await_state(&manager, |s| s.runtime[&remote.id].state == "paused");
         manager.put(saved.store.revision, remote.clone()).unwrap();
         let reopened = await_state(&manager, |s| {
-            matches!(
-                s.runtime[&remote.id].state.as_str(),
-                "exclusive" | "filtered" | "listening" | "error"
-            )
+            matches!(s.runtime[&remote.id].state.as_str(), "exclusive" | "error")
         });
         eprintln!("remote reopened: {}", reopened.runtime[&remote.id].state);
         manager.shutdown();
@@ -1360,16 +1405,13 @@ mod tests {
         drop(legacy);
         let _ = std::fs::remove_file(path);
         assert!(
-            matches!(
-                status.state.as_str(),
-                "exclusive" | "filtered" | "listening"
-            ),
+            matches!(status.state.as_str(), "exclusive"),
             "{:?}",
             status.error
         );
         assert!(matches!(
             reopened.runtime[&remote.id].state.as_str(),
-            "exclusive" | "filtered" | "listening"
+            "exclusive"
         ));
         if input_seconds > 0 {
             assert!(
@@ -1501,6 +1543,7 @@ mod tests {
     fn legacy_binding_learns_pairing_identity_without_changing_id_or_profiles() {
         let mut old = instance("saved", "legacy-serial-id");
         old.kind = "rc003".into();
+        old.capture = "exclusive".into();
         let manager = offline_manager(vec![old]);
         let canonical = paired::identity(
             "rc003",
@@ -1552,6 +1595,35 @@ mod tests {
         assert!(!offline[0].connected);
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+    #[test]
+    fn rc003_shared_configuration_migrates_once_and_cannot_be_saved_again() {
+        let path = std::env::temp_dir().join(format!("axonkey-capture-{}.json", unique_id()));
+        let mut remote = instance("remote", "physical-remote");
+        remote.kind = "rc003".into();
+        let controller = instance("controller", "physical-controller");
+        let store = Store {
+            revision: 3,
+            instances: vec![remote.clone(), controller.clone()],
+            ..Store::default()
+        };
+        save(&path, &store).unwrap();
+        let migrated = load(&path).unwrap();
+        assert_eq!(migrated.revision, 4);
+        assert_eq!(migrated.instances[0].capture, "exclusive");
+        assert_eq!(migrated.instances[0].binding, remote.binding);
+        assert_eq!(
+            migrated.instances[0].active_profile_id,
+            remote.active_profile_id
+        );
+        assert!(migrated.instances[0].profiles == remote.profiles);
+        assert!(migrated.instances[1] == controller);
+        assert_eq!(load(&path).unwrap().revision, 4);
+        let manager = offline_manager(migrated.instances);
+        let error = manager.put(0, remote).err().unwrap();
+        assert!(error.contains("仅支持独占拦截"));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
     }
     #[test]
     fn persistence_round_trip_and_corruption_preservation() {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { emptySnapshot } from './model'
+import { emptySnapshot, normalizeInstanceCapture } from './model'
 import type { DeviceInstance, DeviceSnapshot } from './model'
 const previewKey = 'axonkey.device-instances.preview.v1'
 export function useDeviceInstances(native: boolean) {
@@ -19,7 +19,15 @@ export function useDeviceInstances(native: boolean) {
   }, [native, accept])
   useEffect(() => {
     if (!native) {
-      try { const saved = localStorage.getItem(previewKey); if (saved) accept({ ...emptySnapshot(), store: JSON.parse(saved) }) }
+      try {
+        const saved = localStorage.getItem(previewKey)
+        if (saved) {
+          const store: DeviceSnapshot['store'] = JSON.parse(saved)
+          store.instances = store.instances.map(normalizeInstanceCapture)
+          localStorage.setItem(previewKey, JSON.stringify(store))
+          accept({ ...emptySnapshot(), store })
+        }
+      }
       catch { setError('浏览器预览配置无法读取。') }
       return
     }
@@ -42,13 +50,13 @@ export function useDeviceInstances(native: boolean) {
   }, [accept, native])
   const put = useCallback((instance: DeviceInstance) => transact(async latest => {
     if (native) return invoke<DeviceSnapshot>('put_device_instance', { revision: latest.store.revision, instance })
-    const saved = { ...instance, id: instance.id || crypto.randomUUID() }
+    const saved = normalizeInstanceCapture({ ...instance, id: instance.id || crypto.randomUUID() })
     return { ...latest, store: { ...latest.store, revision: latest.store.revision + 1, instances: [...latest.store.instances.filter(i => i.id !== saved.id), saved] } }
   }), [native, transact])
   const update = useCallback((id: string, change: (instance: DeviceInstance) => DeviceInstance) => transact(async latest => {
     const instance = latest.store.instances.find(i => i.id === id)
     if (!instance) throw new Error('设备已被移除')
-    const updated = change(instance)
+    const updated = native ? change(instance) : normalizeInstanceCapture(change(instance))
     if (native) return invoke<DeviceSnapshot>('put_device_instance', { revision: latest.store.revision, instance: updated })
     return { ...latest, store: { ...latest.store, revision: latest.store.revision + 1, instances: latest.store.instances.map(i => i.id === id ? updated : i) } }
   }), [native, transact])

@@ -1743,8 +1743,11 @@ function AppController() {
           onOpenDriver={() => openSetupStep('inputDriver')}
         /> : <HomeDashboard
           deviceContent={<DeviceHub controller={deviceInstances} onBrandClick={handleBrandClick} native={nativeRuntime} platform={platform} permissions={macPermissions}
+            rc003BatteryLevel={nativeRuntime ? displayedBatteryLevel : null}
+            mouseProfileName={profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'}
             onPermissions={() => { setSettingsSection('permissions'); navigateToPage('settings') }}
             onDriver={() => openSetupStep('inputDriver')}
+            onOpenAudioCalibration={() => setAudioTestOpen(true)}
             onLegacy={deviceId => { setSelectedDeviceId(deviceId); const device = devices.find(d => d.id === deviceId)!; selectBehaviorTarget(device.inputIds[0], 'click', false); navigateToPage('mapping') }}
             legacyActiveProfileId={kind => activeProfileIds[kind as DeviceId]}
             legacyProfiles={kind => profiles.filter(p => p.deviceId === kind).map(p => ({ id: p.id, name: p.name, behaviors: Object.fromEntries(devices.find(d => d.id === kind)!.inputIds.map(id => [id, p.id === activeProfileIds[kind as DeviceId] ? behaviors[id] : p.behaviors[id]])) }))}

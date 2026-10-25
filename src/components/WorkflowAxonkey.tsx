@@ -43,6 +43,7 @@ type WorkflowAxonkeyProps<Id extends string> = {
   platform: Platform
   button: MappingInput<Id>
   sequences: TriggerBehaviors
+  activeTrigger?: TriggerType
   onRequestProfileSwitch: (inputId: Id, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
@@ -55,8 +56,12 @@ type WorkflowAction = {
   description?: string
 }
 
-export function WorkflowAxonkey<Id extends string = InputId>({ platform, button, sequences, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps<Id>) {
-  const triggers = button.triggerLabel ? [{ id: 'click' as const, label: button.triggerLabel }] : defaultWorkflowTriggers
+export function WorkflowAxonkey<Id extends string = InputId>({ platform, button, sequences, activeTrigger, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps<Id>) {
+  const triggers = button.triggerLabel ? [{ id: 'click' as const, label: button.triggerLabel }]
+    : activeTrigger ? defaultWorkflowTriggers.filter(trigger => trigger.id === activeTrigger) : defaultWorkflowTriggers
+  const triggersRef = useRef(triggers)
+  triggersRef.current = triggers
+  const refreshLanesRef = useRef<(() => void) | null>(null)
   const inputLabel = [button.label, button.contextLabel].filter(Boolean).join(' · ')
   const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -207,7 +212,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       theme: 'light',
       textWidthMeasurer: (text) => {
         const full = text.textContent ?? ''
-        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggers.length).laneWidth - 62)
+        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggersRef.current.length).laneWidth - 62)
         if (text.getComputedTextLength() > maxWidth) {
           let end = full.length
           do { text.textContent = `${full.slice(0, --end)}…` } while (end > 0 && text.getComputedTextLength() > maxWidth)
@@ -266,7 +271,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
           else void writeClipboardText(serializeSequence(sequence)).then(() => {
             if (active) setLaneStatus(`${button.triggerLabel ?? triggerLabels[trigger]}序列已复制`)
           }).catch(() => { if (active) setLaneStatus('复制失败，请重试') })
-        }, triggers),
+        }, () => triggersRef.current),
         uiComponents: [{
           create: (root, api) => {
             workflowApi = api
@@ -375,9 +380,17 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       designer.resetViewport()
     })
     resizeObserver.observe(canvasRef.current)
+    // Change only the rendered lanes. Keep every branch, pending edits, lane
+    // scroll position and the toolbox alive when switching the visible trigger.
+    refreshLanesRef.current = () => {
+      designer.clearSelectedStep()
+      workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+      designer.resetViewport()
+    }
 
     return () => {
       active = false
+      refreshLanesRef.current = null
       // Designer events are batched. Flush a last drop/move/delete before a fast
       // key/page switch, but never write the old canvas over an external undo.
       if (workflowApi && workflowSequenceSignature(incomingRef.current) === savedRef.current) {
@@ -403,6 +416,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       designer.destroy()
     }
   }, [platform, button.id, reload])
+
+  useEffect(() => { refreshLanesRef.current?.() }, [activeTrigger, button.triggerLabel])
 
   useEffect(() => {
     // An import, reset, or shared undo replaces the view. Our own save echo keeps

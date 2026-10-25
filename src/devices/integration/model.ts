@@ -26,10 +26,18 @@ export const supportPackages = [
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
 export function newInstance(kind: DeviceKind, binding: string | null): DeviceInstance {
-  return { id: '', kind, name: packageFor(kind).name, binding, enabled: true, capture: 'shared', activeProfileId: 'default', profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
+  return { id: '', kind, name: packageFor(kind).name, binding, enabled: true, capture: kind === 'rc003' ? 'exclusive' : 'shared', activeProfileId: 'default', profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
+}
+export function normalizeInstanceCapture(instance: DeviceInstance): DeviceInstance {
+  return instance.kind === 'rc003' && instance.capture === 'shared' ? { ...instance, capture: 'exclusive' } : instance
+}
+export function rc003BatteryForDevice(binding: string | null, discovered: DiscoveredDevice[], level: number | null): number | null {
+  // The existing battery probe has no physical-device ID; only assign it when unambiguous.
+  const connected = discovered.filter(device => device.kind === 'rc003' && device.connected)
+  return connected.length === 1 && connected[0].identityQuality !== 'ambiguous' && connected[0].id === binding ? level : null
 }
 export function stateLabel(state?: string): string {
-  return ({ paused: '已暂停', unbound: '等待绑定', disconnected: '未连接', needsRebind: '未连接 · 需重新绑定', opening: '正在连接', error: '需要处理', listening: '共享监听中', exclusive: '独占拦截中', filtered: '兼容拦截中', unsupported: '等待输入适配' } as Record<string, string>)[state ?? ''] ?? '等待启动'
+  return ({ paused: '已暂停', unbound: '等待绑定', disconnected: '未连接', needsRebind: '未连接 · 需重新绑定', opening: '正在连接', error: '需要处理', listening: '共享监听中', exclusive: '独占拦截中', unsupported: '等待输入适配' } as Record<string, string>)[state ?? ''] ?? '等待启动'
 }
 export function instanceStatusLabel(instance: DeviceInstance, snapshot: DeviceSnapshot): string {
   const state = snapshot.runtime[instance.id]?.state

@@ -7,7 +7,8 @@ import { InstanceWorkspace } from './InstanceWorkspace'
 import { migrateLegacyProfiles } from './instanceProfiles'
 import { DeviceBindingPicker, InputModePicker } from './IntegrationControls'
 import { SettingsHelp } from '../../components/SettingsHelp'
-import { instanceStatusLabel, newInstance, packageFor, supportPackages } from './model'
+import { BatteryIndicator } from '../../components/BatteryIndicator'
+import { instanceStatusLabel, newInstance, packageFor, rc003BatteryForDevice, supportPackages } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
@@ -15,6 +16,9 @@ import './DeviceHub.css'
 type Props = {
   controller: DeviceController; native: boolean; platform: Platform; permissions: MacPermissions
   onBrandClick: () => void; onPermissions: () => void; onDriver: () => void; onLegacy: (id: DeviceId) => void
+  onOpenAudioCalibration: () => void
+  mouseProfileName: string
+  rc003BatteryLevel: number | null
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
   legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
 }
@@ -29,21 +33,21 @@ export function DeviceHub(props: Props) {
   const banner = <>{!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}{(error || snapshot.error || snapshot.scanError) && <p className="managed-error" role="alert">{error || snapshot.error || snapshot.scanError}</p>}</>
   return <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
     {banner}
-    {instance ? <InstanceWorkspace key={instance.id} {...props} instance={instance} onBack={() => setSelected(null)} onBind={() => setIntegration({ kind: instance.kind, instance })} /> : <>
+    {instance ? <InstanceWorkspace key={instance.id} {...props} instance={instance} batteryLevel={rc003BatteryForDevice(instance.binding, snapshot.discovered, props.rc003BatteryLevel)} onBack={() => setSelected(null)} onBind={() => setIntegration({ kind: instance.kind, instance })} /> : <>
       <header className="my-devices-heading"><div className="my-devices-heading-main"><button className="my-devices-brand" aria-label="Axonkey" title="Axonkey" onClick={props.onBrandClick}><img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />Axonkey</button><h1>我的设备</h1></div><button className="my-devices-integrate" onClick={() => setIntegration({})}><Plus size={16} />手动添加设备</button></header>
       <h2 className="my-devices-section-title">发现设备 <button className="managed-icon" aria-label="刷新设备" onClick={() => void controller.refresh()} disabled={!native}><RefreshCw size={14} /></button></h2>
       <div className="managed-device-grid">
-        {unboundDevices.map(device => <DeviceCard key={device.id} kind={device.kind} title={packageFor(device.kind).name} subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`} status={device.identityQuality === 'ambiguous' ? '实例标识冲突，无法自动绑定' : device.connected ? '点击集成' : '未连接'} onClick={() => setIntegration({ kind: device.kind, device })} />)}
-        {snapshot.store.instances.map(item => <DeviceCard key={item.id} kind={item.kind} title={item.name} subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`} status={native ? instanceStatusLabel(item, snapshot) : '预览配置'} profile={item.profiles.find(p => p.id === item.activeProfileId)?.name} onClick={() => setSelected(item.id)} />)}
-        <button className="my-devices-card managed-system-mouse" onClick={() => props.onLegacy('mouse')}><div className="my-devices-card-main"><span className="my-devices-artwork"><img src="/mouse-device.svg" alt="" /></span><div className="my-devices-identity"><strong>系统鼠标</strong><span className="my-devices-count">按键、滚轮和屏幕边缘</span></div></div><div className="my-devices-summary"><span className="my-devices-status">系统输入源</span><span className="my-devices-profile"><strong>编辑映射</strong></span></div></button>
+        {unboundDevices.map(device => <DeviceCard key={device.id} kind={device.kind} title={packageFor(device.kind).name} subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`} status={device.identityQuality === 'ambiguous' ? '实例标识冲突，无法自动绑定' : device.connected ? '点击集成' : '未连接'} batteryLevel={rc003BatteryForDevice(device.id, snapshot.discovered, props.rc003BatteryLevel)} onClick={() => setIntegration({ kind: device.kind, device })} />)}
+        {snapshot.store.instances.map(item => <DeviceCard key={item.id} kind={item.kind} title={item.name} subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`} status={native ? instanceStatusLabel(item, snapshot) : '预览配置'} batteryLevel={rc003BatteryForDevice(item.binding, snapshot.discovered, props.rc003BatteryLevel)} profile={item.profiles.find(p => p.id === item.activeProfileId)?.name} onClick={() => setSelected(item.id)} />)}
+        <DeviceCard kind="mouse" title="系统鼠标" subtitle="按键、滚轮和屏幕边缘" status="系统输入源" profile={props.mouseProfileName} onClick={() => props.onLegacy('mouse')} />
       </div>
     </>}
     {integration && createPortal(<IntegrationDialog {...props} initial={integration} onClose={() => setIntegration(null)} onComplete={id => { setIntegration(null); setSelected(id) }} />, document.body)}
     {busy && <span className="managed-saving" role="status">正在保存…</span>}
   </section>
 }
-function DeviceCard({ kind, title, subtitle, status, profile, onClick }: { kind: DeviceKind; title: string; subtitle: string; status: string; profile?: string; onClick: () => void }) {
-  return <button className="my-devices-card" onClick={onClick}><div className="my-devices-card-main"><span className="my-devices-artwork"><img src={packageFor(kind).artwork} alt="" /></span><span className="my-devices-identity"><strong>{title}</strong><span className="my-devices-count">{subtitle}</span></span></div><span className="my-devices-summary"><span className="my-devices-status"><i className="my-devices-status-dot" />{status}</span><span className="my-devices-profile">{profile ? <>当前配置<strong>{profile}</strong></> : <ChevronRight size={15} aria-hidden="true" />}</span></span></button>
+function DeviceCard({ kind, title, subtitle, status, profile, batteryLevel = null, onClick }: { kind: DeviceKind | 'mouse'; title: string; subtitle: string; status: string; profile?: string; batteryLevel?: number | null; onClick: () => void }) {
+  return <button className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`} onClick={onClick}><div className="my-devices-card-main"><span className="my-devices-artwork"><img src={kind === 'mouse' ? '/mouse-device.svg' : packageFor(kind).artwork} alt="" /></span><span className="my-devices-identity"><strong>{title}</strong><span className="my-devices-count">{subtitle}</span></span></div><span className="my-devices-summary"><span className="my-devices-telemetry"><span className="my-devices-status"><i className="my-devices-status-dot" />{status}</span>{kind === 'rc003' && <span className="my-devices-power"><BatteryIndicator level={batteryLevel} /></span>}</span><span className="my-devices-profile">{profile ? <>当前配置<strong>{profile}</strong></> : <ChevronRight size={15} aria-hidden="true" />}</span></span></button>
 }
 function IntegrationDialog({ initial, controller, native, platform, permissions, onPermissions, onDriver, legacyProfiles, legacyActiveProfileId, onClose, onComplete }: Props & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
   const [kind, setKind] = useState(initial.kind)
@@ -64,7 +68,7 @@ function IntegrationDialog({ initial, controller, native, platform, permissions,
     if (!kind) return
     try {
       const base = initial.instance ?? migrateLegacyProfiles(newInstance(kind, null), controller.snapshot.store.instances.some(i => i.kind === kind) ? [] : legacyProfiles(kind), legacyActiveProfileId?.(kind))
-      const instance = { ...base, name: name.trim(), binding: binding || null, capture }
+      const instance = { ...base, name: name.trim(), binding: binding || null, capture: kind === 'rc003' ? 'exclusive' as const : capture }
       const result = await controller.put(instance)
       const saved = instance.id ? result.store.instances.find(i => i.id === instance.id) : result.store.instances[result.store.instances.length - 1]
       if (saved) onComplete(saved.id)
@@ -91,7 +95,7 @@ function IntegrationDialog({ initial, controller, native, platform, permissions,
           <div className="settings-form-fields">
             <label className="settings-form-row"><span className="settings-form-label">设备名称</span><input value={name} maxLength={60} onChange={e => setName(e.target.value)} /></label>
             <div className="settings-form-row"><span className="settings-form-label" id="integration-binding-label">绑定设备</span><DeviceBindingPicker labelledBy="integration-binding-label" value={binding} devices={candidates} onChange={setBinding} /></div>
-            <div className="settings-form-row"><span className="settings-form-label integration-mode-label"><span id="integration-mode-label">输入模式</span><SettingsHelp id="integration-mode-help" label="输入模式">独占模式会拦截整个设备，包括未配置的按键；停用设备后恢复原始输入。</SettingsHelp></span><InputModePicker labelledBy="integration-mode-label" value={capture} exclusive={platform === 'macos'} onChange={setCapture} /></div>
+            <div className="settings-form-row"><span className="settings-form-label integration-mode-label"><span id="integration-mode-label">输入模式</span><SettingsHelp id="integration-mode-help" label="输入模式">{kind === 'rc003' ? '沿用遥控器专用拦截。未配置按键保留原行为；停用后恢复系统输入。' : '独占模式会拦截整个设备，包括未配置的按键；停用设备后恢复原始输入。'}</SettingsHelp></span>{kind === 'rc003' ? <span className="settings-form-control" aria-labelledby="integration-mode-label">独占拦截</span> : <InputModePicker labelledBy="integration-mode-label" value={capture} exclusive={platform === 'macos'} onChange={setCapture} />}</div>
           </div>
           {device?.identityQuality === 'session' && <p className="integration-attention">此设备重新连接后需再次绑定。</p>}
           {device?.identityQuality === 'ambiguous' && <p className="managed-error">设备标识冲突，请断开其余同型号设备后重试。</p>}
