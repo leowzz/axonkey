@@ -32,6 +32,7 @@ export function MappingFlowPage({
   showMouseKeyGrid,
   rowRefs,
   behaviorEditorProps,
+  remoteView,
 }: MappingPageProps) {
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   return <div className="mapping-page mapping-flow-page">
@@ -49,6 +50,7 @@ export function MappingFlowPage({
               pressedId={pressedId}
               mappedIds={editableButtons.filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0)).map(button => button.id)}
               onSelect={id => selectBehaviorTarget(id, 'click')}
+              remoteView={remoteView}
             />
           </div>
         </div>

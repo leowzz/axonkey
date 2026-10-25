@@ -64,7 +64,7 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
   {
     id: 'legacyCleanup',
     title: '卸载旧驱动',
-    description: '清理旧版输入组件，再安装新的 Quarbor HID 驱动。',
+    description: '清理旧版输入组件，再安装新的 Quarbor Universal 驱动。',
     skippable: false,
   },
   {
@@ -165,10 +165,10 @@ export type DriverDefinition = {
 export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
   input: {
     kind: 'input',
-    title: 'Quarbor HID 按键过滤驱动',
+    title: 'Quarbor Universal 键盘驱动',
     description: '驱动获取遥控器按键输入。',
     required: true,
-    installerPath: 'vendor/QuarborHIDFilterUserDriver/QuarborHIDFilterUserDriverInstaller.exe',
+    installerPath: 'vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriverInstaller.exe',
   },
   audio: {
     kind: 'audio',

@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="516" height="1255" viewBox="0 0 516 1255" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">小米 RC003 遥控器示意图</title>
+  <desc id="description">银色遥控器正面，透明背景。按键从上至下为电源、语音、方向与确认、返回、音量、主页、菜单及 TV。画布、裁切范围与按键位置对应项目中的 rc003-remote-keymap.png。</desc>
+  <defs>
+    <linearGradient id="shell" x1="17" y1="0" x2="494" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#818383"/>
+      <stop offset=".012" stop-color="#d0d2d2"/>
+      <stop offset=".025" stop-color="#fbfcfc"/>
+      <stop offset=".04" stop-color="#bcbebe"/>
+      <stop offset=".062" stop-color="#f4f5f5"/>
+      <stop offset=".14" stop-color="#f1f2f2"/>
+      <stop offset=".32" stop-color="#dedfdf"/>
+      <stop offset=".56" stop-color="#c4c6c6"/>
+      <stop offset=".79" stop-color="#b8baba"/>
+      <stop offset=".9" stop-color="#a2a4a4"/>
+      <stop offset=".952" stop-color="#737676"/>
+      <stop offset=".975" stop-color="#b5b7b7"/>
+      <stop offset=".99" stop-color="#e3e5e5"/>
+      <stop offset="1" stop-color="#757878"/>
+    </linearGradient>
+    <linearGradient id="shell-light" x1="255" y1="34" x2="255" y2="1222" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff" stop-opacity=".15"/>
+      <stop offset=".35" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".74" stop-color="#fff" stop-opacity=".09"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="silver-button" x1="-48" y1="-40" x2="48" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f5f6f6"/>
+      <stop offset=".48" stop-color="#dadcdc"/>
+      <stop offset="1" stop-color="#bfc2c2"/>
+    </linearGradient>
+    <linearGradient id="silver-mic" x1="-45" y1="-44" x2="45" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d7d9d9"/>
+      <stop offset=".5" stop-color="#bfc2c2"/>
+      <stop offset="1" stop-color="#b0b3b3"/>
+    </linearGradient>
+    <linearGradient id="direction" x1="-120" y1="-160" x2="125" y2="166" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#252727"/>
+      <stop offset=".46" stop-color="#313333"/>
+      <stop offset="1" stop-color="#424444"/>
+    </linearGradient>
+    <linearGradient id="center" x1="-70" y1="-80" x2="76" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2b2d2d"/>
+      <stop offset="1" stop-color="#3b3d3d"/>
+    </linearGradient>
+    <linearGradient id="dark-button" x1="-38" y1="-69" x2="41" y2="70" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#202222"/>
+      <stop offset=".43" stop-color="#2b2d2d"/>
+      <stop offset="1" stop-color="#414343"/>
+    </linearGradient>
+    <linearGradient id="button-rim" x1="-50" y1="-65" x2="48" y2="66" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#dedfdf"/>
+      <stop offset=".38" stop-color="#919494"/>
+      <stop offset=".72" stop-color="#4e5151"/>
+      <stop offset="1" stop-color="#bfc1c1"/>
+    </linearGradient>
+    <linearGradient id="direction-rim" x1="-100" y1="-168" x2="115" y2="169" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e3e4e4"/>
+      <stop offset=".4" stop-color="#919494"/>
+      <stop offset=".68" stop-color="#535656"/>
+      <stop offset="1" stop-color="#c5c7c7"/>
+    </linearGradient>
+    <linearGradient id="volume-body" x1="-62" y1="-155" x2="59" y2="157" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#242626"/>
+      <stop offset=".5" stop-color="#2b2d2d"/>
+      <stop offset="1" stop-color="#1c1e1e"/>
+    </linearGradient>
+    <linearGradient id="volume-plus" x1="0" y1="-165" x2="0" y2="-16" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#202222"/>
+      <stop offset=".5" stop-color="#292b2b"/>
+      <stop offset="1" stop-color="#4b4d4d"/>
+    </linearGradient>
+    <linearGradient id="volume-minus" x1="0" y1="17" x2="0" y2="165" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#161818"/>
+      <stop offset=".5" stop-color="#222424"/>
+      <stop offset="1" stop-color="#383a3a"/>
+    </linearGradient>
+    <clipPath id="volume-clip">
+      <rect x="-77.5" y="-165.5" width="155" height="331" rx="77.5"/>
+    </clipPath>
+    <g id="black-round-button">
+      <circle r="81" fill="#e1e2e2"/>
+      <circle r="79.7" fill="#101212"/>
+      <circle r="76.4" fill="url(#dark-button)" stroke="url(#button-rim)" stroke-width="1.8"/>
+    </g>
+  </defs>
+
+  <!-- Match the original image crop so the existing percentage hotspots align. -->
+  <g id="remote-shell">
+    <path d="M18 1222 V43 Q18 33 30 33 H481 Q494 33 494 44 V1222Z" fill="url(#shell)"/>
+    <path d="M18 1222 V43 Q18 33 30 33 H481 Q494 33 494 44 V1222Z" fill="url(#shell-light)"/>
+    <path d="M18.5 1222 V43 Q18.5 33.5 30 33.5 H481 Q493.5 33.5 493.5 44 V1222" stroke="#5f6262" stroke-width="1.4"/>
+    <path d="M21 1222 V43 Q21 36 30 36 H480 Q491 36 491 44 V1222" stroke="#fafbfb" stroke-opacity=".83" stroke-width="1.7"/>
+    <path d="M25 43 V1222" stroke="#f9fafa" stroke-opacity=".6" stroke-width="1.4"/>
+    <path d="M488 43 V1222" stroke="#4e5151" stroke-opacity=".38" stroke-width="1.1"/>
+  </g>
+
+  <g id="power" transform="translate(132 162)">
+    <circle r="55.1" fill="#f8f9f9"/>
+    <circle r="53.5" fill="#202222"/>
+    <circle r="50.5" fill="url(#silver-button)" stroke="#fbfcfc" stroke-width="1.7"/>
+    <path d="M-10.2-14.5 A18.4 18.4 0 1 0 10.2-14.5 M0-20 V1" stroke="#f4f5f5" stroke-width="7.6" stroke-linecap="round"/>
+    <path d="M-10.2-14.5 A18.4 18.4 0 1 0 10.2-14.5 M0-20 V1" stroke="#282b2b" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g id="voice" transform="translate(378 162)">
+    <circle r="55.1" fill="#e3e5e5"/>
+    <circle r="53.5" fill="#202222"/>
+    <circle r="50.5" fill="url(#silver-mic)" stroke="#e9ebeb" stroke-width="1.7"/>
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <g stroke="#e1e3e3" stroke-width="7">
+        <rect x="-10" y="-21" width="20" height="33" rx="10"/>
+        <path d="M-19-2 V1 C-19 25 19 25 19 1 V-2"/>
+      </g>
+      <g stroke="#252828" stroke-width="4.4">
+        <rect x="-10" y="-21" width="20" height="33" rx="10"/>
+        <path d="M-19-2 V1 C-19 25 19 25 19 1 V-2"/>
+      </g>
+    </g>
+  </g>
+
+  <g id="direction-pad" transform="translate(255 454)">
+    <ellipse cy=".7" rx="199.3" ry="193.4" fill="#e1e3e3"/>
+    <ellipse rx="197.5" ry="192" fill="#0b0d0d"/>
+    <ellipse cy="-.4" rx="193.3" ry="187.8" fill="url(#direction)" stroke="url(#direction-rim)" stroke-width="2"/>
+    <g id="confirm">
+      <circle cy="1" r="105.2" fill="#090b0b"/>
+      <circle cy=".4" r="101" fill="url(#center)" stroke="url(#direction-rim)" stroke-width="1.8"/>
+    </g>
+  </g>
+
+  <g id="back" transform="translate(154 747)">
+    <use href="#black-round-button"/>
+    <path d="M4-18-14 0 4 18" stroke="#141616" stroke-width="7.3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M4-18-14 0 4 18" stroke="#fafbf8" stroke-width="4.7" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g id="home" transform="translate(154 926)">
+    <use href="#black-round-button"/>
+    <path d="M-15 14 V-6 L0-19 15-6 V14Z" stroke="#141616" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M-15 14 V-6 L0-19 15-6 V14Z" stroke="#fafbf8" stroke-width="4.4" stroke-linejoin="round"/>
+  </g>
+  <g id="menu" transform="translate(154 1104)">
+    <use href="#black-round-button"/>
+    <path d="M-15-12 H15 M-15 0 H15 M-15 12 H15" stroke="#141616" stroke-width="7.3" stroke-linecap="round"/>
+    <path d="M-15-12 H15 M-15 0 H15 M-15 12 H15" stroke="#fafbf8" stroke-width="4.7" stroke-linecap="round"/>
+  </g>
+
+  <g id="volume" transform="translate(354 837)">
+    <rect x="-82.5" y="-169.5" width="165" height="339" rx="82.5" fill="#dcdfdf"/>
+    <rect x="-80.5" y="-167.5" width="161" height="335" rx="80.5" fill="#111313"/>
+    <rect x="-77.5" y="-165.5" width="155" height="331" rx="77.5" fill="url(#volume-body)"/>
+    <g clip-path="url(#volume-clip)">
+      <circle cy="-94" r="77.5" fill="url(#volume-plus)"/>
+      <circle cy="94" r="77.5" fill="url(#volume-minus)"/>
+    </g>
+    <rect x="-77.5" y="-165.5" width="155" height="331" rx="77.5" stroke="url(#direction-rim)" stroke-width="1.8"/>
+    <g id="volume-up" stroke-linecap="square">
+      <path d="M-16-90 H16 M0-106 V-74" stroke="#131515" stroke-width="7.3"/>
+      <path d="M-16-90 H16 M0-106 V-74" stroke="#fafbf8" stroke-width="4.6"/>
+    </g>
+    <g id="volume-down" stroke-linecap="square">
+      <path d="M-16 90 H16" stroke="#131515" stroke-width="7.3"/>
+      <path d="M-16 90 H16" stroke="#fafbf8" stroke-width="4.6"/>
+    </g>
+  </g>
+  <g id="tv" transform="translate(354 1105)">
+    <use href="#black-round-button"/>
+    <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#131515" stroke-width="7.2"/>
+    <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#fafbf8" stroke-width="4.6"/>
+    <path d="M-15-7 H-3 M-9-7 V8 M2-7 7.8 8 H9.2 L15-7" stroke="#fafbf8" stroke-width="3.2" stroke-linejoin="round"/>
+  </g>
+</svg>

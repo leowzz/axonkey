@@ -1,5 +1,9 @@
-//! Duplex v3 pipe transport implemented entirely in Rust.
-use super::windows_hid::{KeyBindings, KeyboardDescriptor};
+//! Quarbor Universal Keyboard Driver v1 named-pipe client.
+//!
+//! The universal driver keeps physical input and synthetic Windows output in
+//! one protobuf connection. The client completes the Hello/BasicInfo handshake
+//! before exposing the connection, then drains reports while correlating command
+//! acknowledgements with strictly increasing request IDs.
 use prost::Message;
 use std::{
     collections::VecDeque,
@@ -14,17 +18,19 @@ use tokio::{
     runtime::{Builder, Runtime},
 };
 
-// Generated from the vendor SDK's original schema. No copied wire structures.
 #[allow(dead_code)]
 mod proto {
-    include!(concat!(env!("OUT_DIR"), "/quarbor.hid.v3.rs"));
+    include!(concat!(env!("OUT_DIR"), "/quarbor.keyboard.v1.rs"));
 }
 
-const MAX_REPORT: usize = 4096;
-const MAX_MESSAGE: usize = 8192;
-const FRAME_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_REPORT: usize = 65_536;
+const MAX_MESSAGE: usize = 66_048;
+const FRAME_TIMEOUT: Duration = Duration::from_secs(5);
+const UNIVERSAL_DRIVER_NAME: &str = "QuarborUniversalKeyboardDriver";
+const ERROR_INVALID_DATA: u32 = 13;
+const ERROR_NOT_SUPPORTED: u32 = 50;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct Metadata {
     pub sequence: u64,
     pub timestamp: u64,
@@ -47,7 +53,6 @@ pub(super) enum Event {
     Report {
         metadata: Metadata,
         bytes: Vec<u8>,
-        // Failed usage decoding never discards or alters the raw HID bytes.
         usages: Result<Vec<u16>, u32>,
     },
     Status(Metadata),
@@ -57,7 +62,7 @@ pub(super) enum Event {
 #[derive(PartialEq)]
 enum Stage {
     Hello,
-    Capabilities,
+    BasicInfo,
     Reports,
 }
 
@@ -65,20 +70,21 @@ pub(super) struct Client {
     pipe: Option<NamedPipeClient>,
     instance_id: String,
     stage: Stage,
-    descriptor: Result<KeyboardDescriptor, u32>,
-    key_bindings: KeyBindings,
     report_ids: [u8; 32],
     frame: Box<[u8; MAX_MESSAGE + 4]>,
     offset: usize,
     target: usize,
     started: Option<Instant>,
     key_injection: bool,
+    mouse_injection: bool,
     next_request: u64,
+    max_payload: usize,
     outgoing: VecDeque<(Vec<u8>, usize)>,
     pending: VecDeque<(u64, Instant, String)>,
 }
 
 fn pipe_name(instance_id: &str) -> String {
+    // The SDK uppercases ASCII letters only, then hashes UTF-16LE bytes.
     let mut hash = 0xcbf29ce484222325u64;
     for unit in instance_id.to_ascii_uppercase().encode_utf16() {
         for byte in unit.to_le_bytes() {
@@ -86,23 +92,113 @@ fn pipe_name(instance_id: &str) -> String {
             hash = hash.wrapping_mul(0x100000001b3);
         }
     }
-    format!(r"\\.\pipe\Quarbor.HidUserFilter.v3.{hash:016X}")
+    format!(r"\\.\pipe\Quarbor.UniversalKeyboard.v1.{hash:016X}")
+}
+
+/// Decode the RC003 input source carried by the BLE parent pipe.
+///
+/// The Universal driver deliberately exposes a passive vendor collection for
+/// `BTHLEDEVICE`, so its descriptor cannot be passed to `HidP_GetUsages` as a
+/// keyboard descriptor. RC003's HOGP input is a report ID followed by
+/// little-endian 16-bit keyboard usages. Some firmware/Windows combinations
+/// omit the report ID or use the standard boot-keyboard layout, so accept
+/// those wire forms while keeping the decoding scoped to this known source.
+fn decode_rc003_report(bytes: &[u8]) -> Result<Vec<u16>, u32> {
+    if bytes.is_empty() {
+        return Err(ERROR_INVALID_DATA);
+    }
+
+    if bytes.len() == 8 {
+        // Unnumbered boot keyboard report: modifiers, reserved, six usages.
+        return Ok(bytes[2..]
+            .iter()
+            .copied()
+            .filter(|usage| *usage != 0)
+            .map(u16::from)
+            .collect());
+    }
+
+    let payload = if bytes.len() == 9 && bytes[0] == 0x01 && bytes[1] == 0 && bytes[2] == 0 {
+        // Some HID stacks retain a three-byte report header before the three
+        // 16-bit RC003 usage slots.
+        &bytes[3..]
+    } else if bytes[0] == 0x01 && bytes.len() >= 7 {
+        // Numbered RC003 vendor report. The remaining bytes are 16-bit usage
+        // slots; this also handles a four-slot report without special casing.
+        &bytes[1..]
+    } else if bytes.len() % 2 == 0 {
+        // A report without the optional ID slot.
+        bytes
+    } else {
+        return Err(ERROR_NOT_SUPPORTED);
+    };
+
+    if payload.len() % 2 != 0 {
+        return Err(ERROR_INVALID_DATA);
+    }
+
+    Ok(payload
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .filter(|usage| *usage != 0)
+        .collect())
+}
+
+fn synthetic_usage_supported(page: u16, usage: u16, report_ids: &[u8; 32]) -> bool {
+    let report_id: usize = match page {
+        0x07 if (0x04..=0xA4).contains(&usage)
+            || (0xB0..=0xDD).contains(&usage)
+            || (0xE0..=0xE7).contains(&usage) =>
+        {
+            1
+        }
+        0x0C if matches!(
+            usage,
+            0x00B0
+                | 0x00B1
+                | 0x00B5
+                | 0x00B6
+                | 0x00B7
+                | 0x00CD
+                | 0x00E2
+                | 0x00E9
+                | 0x00EA
+                | 0x0183
+                | 0x018A
+                | 0x0192
+                | 0x0194
+                | 0x0221
+                | 0x0223
+                | 0x0224
+                | 0x0225
+                | 0x0226
+                | 0x0227
+                | 0x022A
+        ) =>
+        {
+            2
+        }
+        0x09 if (1..=3).contains(&usage) => 3,
+        _ => return false,
+    };
+    report_ids[report_id / 8] & (1 << (report_id % 8)) != 0
 }
 
 fn invalid() -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, "invalid Quarbor v3 stream")
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        "invalid Quarbor Universal stream",
+    )
 }
 
 fn pipe_runtime() -> io::Result<&'static Runtime> {
-    // One reactor for all connections/reconnects. The capture thread can keep
-    // using nonblocking poll(), and dropping a client releases its pending I/O.
     static RUNTIME: OnceLock<io::Result<Runtime>> = OnceLock::new();
     RUNTIME
         .get_or_init(|| {
             Builder::new_multi_thread()
                 .worker_threads(1)
                 .enable_io()
-                .thread_name("Axonkey HID pipe IO")
+                .thread_name("Axonkey Universal pipe IO")
                 .build()
         })
         .as_ref()
@@ -116,33 +212,30 @@ impl Client {
 
     pub(super) fn connect_path(path: &str, instance_id: &str) -> io::Result<Self> {
         let _guard = pipe_runtime()?.enter();
-        // Match the SDK: GENERIC_READ | FILE_WRITE_DATA. Tokio's write(true)
-        // requests GENERIC_WRITE, which also includes FILE_CREATE_PIPE_INSTANCE;
-        // the driver's interactive-user ACL deliberately does not grant that.
         let file = OpenOptions::new()
             .read(true)
             .write(true)
+            // The driver ACL grants GENERIC_READ and FILE_WRITE_DATA, but not
+            // GENERIC_WRITE (which would also request FILE_CREATE_PIPE_INSTANCE).
             .access_mode(0x8000_0000 | 0x0002)
             .share_mode(0)
             .custom_flags(0x4000_0000) // FILE_FLAG_OVERLAPPED
-            .security_qos_flags(0x10000) // SECURITY_IDENTIFICATION
+            .security_qos_flags(0x0011_0000) // SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION
             .open(path)?;
-        // SAFETY: into_raw_handle transfers sole ownership; the overlapped pipe
-        // is registered inside the IO runtime. Tokio closes it on errors too.
         let pipe = unsafe { NamedPipeClient::from_raw_handle(file.into_raw_handle()) }?;
         Ok(Self {
             pipe: Some(pipe),
             instance_id: instance_id.into(),
             stage: Stage::Hello,
-            descriptor: Err(21), // ERROR_NOT_READY until Hello.
-            key_bindings: KeyBindings::default(),
             report_ids: [0; 32],
             frame: Box::new([0; MAX_MESSAGE + 4]),
             offset: 0,
             target: 4,
             started: None,
             key_injection: false,
+            mouse_injection: false,
             next_request: 1,
+            max_payload: MAX_MESSAGE,
             outgoing: VecDeque::new(),
             pending: VecDeque::new(),
         })
@@ -155,12 +248,11 @@ impl Client {
     pub fn supports_key(&self, page: u16, usage: u16) -> bool {
         self.ready()
             && self.key_injection
-            && self.key_bindings.supports(page, usage, &self.report_ids)
+            && synthetic_usage_supported(page, usage, &self.report_ids)
     }
 
-    #[cfg(test)]
-    pub(super) fn set_keyboard_fixture(&mut self, usages: &[u16]) {
-        self.key_bindings = KeyBindings::keyboard_fixture(usages);
+    pub fn supports_mouse_move(&self) -> bool {
+        self.ready() && self.mouse_injection && synthetic_usage_supported(0x09, 1, &self.report_ids)
     }
 
     pub fn send_key(&mut self, page: u16, usage: u16, down: bool) -> io::Result<u64> {
@@ -171,16 +263,40 @@ impl Client {
             ));
         }
         self.command(
-            proto::client_message::Body::InjectKey(proto::InjectKey {
-                usage_page: page.into(),
-                usage: usage.into(),
+            proto::client_message::Body::Keysend(proto::KeySend {
+                keys: vec![proto::Key {
+                    usage_page: page.into(),
+                    usage: usage.into(),
+                    report_id: None,
+                }],
                 action: if down { 1 } else { 2 },
-                report_id: None,
             }),
             format!(
                 "SendKey({page:#06X}, {usage:#06X}, {})",
                 if down { "down" } else { "up" }
             ),
+        )
+    }
+
+    pub fn move_mouse(&mut self, x: i32, y: i32, wheel: i32, pan: i32) -> io::Result<u64> {
+        if !self.mouse_injection {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Quarbor driver does not support MoveMouse",
+            ));
+        }
+        if [x, y, wheel, pan]
+            .iter()
+            .any(|value| !(-127..=127).contains(value))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Quarbor MoveMouse values must be in -127..=127",
+            ));
+        }
+        self.command(
+            proto::client_message::Body::MouseMove(proto::MouseMove { x, y, wheel, pan }),
+            format!("MoveMouse({x}, {y}, {wheel}, {pan})"),
         )
     }
 
@@ -202,6 +318,14 @@ impl Client {
                 "Quarbor handshake incomplete",
             ));
         }
+        self.enqueue(body, description)
+    }
+
+    fn enqueue(
+        &mut self,
+        body: proto::client_message::Body,
+        description: String,
+    ) -> io::Result<u64> {
         if self.pending.len() >= 64 {
             return Err(io::Error::new(
                 io::ErrorKind::WouldBlock,
@@ -215,12 +339,13 @@ impl Client {
             body: Some(body),
         }
         .encode_to_vec();
+        if !(1..=self.max_payload).contains(&bytes.len()) {
+            return Err(invalid());
+        }
         let frame = [(bytes.len() as u32).to_le_bytes().to_vec(), bytes].concat();
         self.outgoing.push_back((frame, 0));
         self.pending
             .push_back((request_id, Instant::now(), description));
-        log::debug!(target: "axonkey::input", "Quarbor command queued: request_id={request_id}, {}", self.pending.back().unwrap().2);
-        // Nonblocking: subsequent poll() calls finish a partially written frame.
         self.flush().inspect_err(|_| {
             self.pipe = None;
         })?;
@@ -264,7 +389,6 @@ impl Client {
     pub fn poll(&mut self) -> io::Result<Option<Event>> {
         let result = self.flush().and_then(|_| self.poll_frame());
         if result.is_err() {
-            // Never reuse a connection after a partial/invalid frame.
             self.pipe = None;
             self.frame.fill(0);
             self.outgoing.clear();
@@ -310,7 +434,8 @@ impl Client {
             }
             if self.target == 4 {
                 let size = u32::from_le_bytes(self.frame[..4].try_into().unwrap()) as usize;
-                if !(1..=MAX_MESSAGE).contains(&size) {
+                let max = self.max_payload.min(MAX_MESSAGE);
+                if !(1..=max).contains(&size) {
                     return Err(invalid());
                 }
                 self.target += size;
@@ -327,14 +452,20 @@ impl Client {
         Ok(None)
     }
 
+    fn take_pending(&mut self, request_id: u64) -> io::Result<(u64, Instant, String)> {
+        if request_id == 0 {
+            return Err(invalid());
+        }
+        let position = self
+            .pending
+            .iter()
+            .position(|pending| pending.0 == request_id)
+            .ok_or_else(invalid)?;
+        self.pending.remove(position).ok_or_else(invalid)
+    }
+
     fn accept_result(&mut self, request_id: u64, status: u32) -> io::Result<Event> {
-        if self.stage != Stage::Reports || request_id == 0 {
-            return Err(invalid());
-        }
-        let (id, _, description) = self.pending.pop_front().ok_or_else(invalid)?;
-        if id != request_id {
-            return Err(invalid());
-        }
+        let (id, _, description) = self.take_pending(request_id)?;
         if status != 0 {
             return Err(io::Error::other(format!(
                 "Quarbor request {id} {description}: NTSTATUS=0x{status:08X}"
@@ -343,715 +474,197 @@ impl Client {
         Ok(Event::CommandAccepted(id))
     }
 
-    fn accept(&mut self, message: proto::ServerMessage) -> io::Result<Event> {
-        use proto::server_message::Body;
-        if let Some(Body::Result(_)) = &message.body {
-            return self.accept_result(message.request_id, message.ntstatus);
-        }
-        if message.request_id != 0 {
+    fn accept_basic_info(&mut self, request_id: u64, info: proto::BasicInfo) -> io::Result<Event> {
+        if self.stage != Stage::BasicInfo {
             return Err(invalid());
         }
-        let metadata = Metadata {
-            sequence: message.report_sequence,
-            timestamp: message.timestamp_filetime,
-            dropped: message.dropped,
-            status: message.ntstatus,
-        };
+        self.take_pending(request_id)?;
+        if info.driver_name != UNIVERSAL_DRIVER_NAME
+            || info.device_instance_id.is_empty()
+            || info.device_instance_id.contains('\0')
+            || info.device_instance_id.encode_utf16().count() > 511
+            || !self
+                .instance_id
+                .eq_ignore_ascii_case(&info.device_instance_id)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Quarbor BasicInfo device or driver mismatch",
+            ));
+        }
+        self.report_ids = [0; 32];
+        for report_id in [
+            info.keyboard_report_id,
+            info.media_report_id,
+            info.mouse_report_id,
+        ] {
+            if report_id > 255 {
+                return Err(invalid());
+            }
+            if report_id != 0 {
+                self.report_ids[report_id as usize / 8] |= 1 << (report_id % 8);
+            }
+        }
+        self.key_injection = info.supports_keysend;
+        self.mouse_injection = info.supports_mouse_move;
+        self.stage = Stage::Reports;
+        let mut flags = 0;
+        if self.report_ids.iter().any(|value| *value != 0) {
+            flags |= 1;
+        }
+        if info.supports_keysend {
+            flags |= 2;
+        }
+        if info.supports_mouse_move {
+            flags |= 8;
+        }
+        if info.supports_input_status {
+            flags |= 4;
+        }
+        Ok(Event::Capabilities(Capabilities {
+            input_report_bytes: info.keyboard_report_bytes,
+            queue_capacity: info.input_queue_capacity,
+            flags,
+            report_ids: self.report_ids,
+        }))
+    }
+
+    fn accept(&mut self, message: proto::ServerMessage) -> io::Result<Event> {
+        use proto::server_message::Body;
         match (message.body, &self.stage) {
             (Some(Body::Hello(hello)), Stage::Hello) => {
-                let id = hello.instance_id;
-                if id.is_empty() || id.contains('\0') || id.encode_utf16().count() > 511 {
-                    return Err(invalid());
-                }
-                if !self.instance_id.eq_ignore_ascii_case(&id) {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "Quarbor Hello device mismatch",
-                    ));
-                }
-                self.descriptor = KeyboardDescriptor::load(&id);
-                self.key_bindings = self
-                    .descriptor
-                    .as_ref()
-                    .ok()
-                    .and_then(|descriptor| descriptor.key_bindings().ok())
-                    .unwrap_or_default();
-                self.stage = Stage::Capabilities;
-                Ok(Event::Hello(metadata))
-            }
-            (Some(Body::Capabilities(caps)), Stage::Capabilities) => {
-                if !(1..=u16::MAX as u32).contains(&caps.input_report_bytes)
-                    || caps.queue_capacity != 64
+                if message.request_id != 0
+                    || hello.protocol_version != 2
+                    || !(1..=MAX_MESSAGE as u32).contains(&hello.max_payload_bytes)
                 {
                     return Err(invalid());
                 }
-                let report_ids = caps.report_ids.try_into().map_err(|_| invalid())?;
-                self.report_ids = report_ids;
-                self.key_injection = caps.flags & 2 != 0;
-                self.stage = Stage::Reports;
-                Ok(Event::Capabilities(Capabilities {
-                    input_report_bytes: caps.input_report_bytes,
-                    queue_capacity: caps.queue_capacity,
-                    flags: caps.flags,
-                    report_ids,
-                }))
+                self.max_payload = hello.max_payload_bytes as usize;
+                self.stage = Stage::BasicInfo;
+                self.enqueue(
+                    proto::client_message::Body::QueryBasicInfo(proto::QueryBasicInfo {}),
+                    "QueryBasicInfo".into(),
+                )?;
+                Ok(Event::Hello(Metadata::default()))
             }
-            (Some(Body::Report(report)), Stage::Reports) => {
-                if !(1..=MAX_REPORT).contains(&report.report.len()) || metadata.status != 0 {
+            (Some(Body::BasicInfo(info)), Stage::BasicInfo) => {
+                self.accept_basic_info(message.request_id, info)
+            }
+            (Some(Body::PhysicalReport(report)), Stage::Reports) => {
+                if message.request_id != 0
+                    || report.sequence == 0
+                    || !(1..=MAX_REPORT).contains(&report.data.len())
+                {
                     return Err(invalid());
                 }
-                let usages = match &self.descriptor {
-                    Ok(descriptor) => descriptor.usages(&report.report),
-                    Err(error) => Err(*error),
+                let metadata = Metadata {
+                    sequence: report.sequence,
+                    timestamp: report.timestamp_filetime,
+                    dropped: report
+                        .queue_overwritten
+                        .saturating_add(report.queue_cleared),
+                    status: 0,
                 };
+                let usages = decode_rc003_report(&report.data);
                 Ok(Event::Report {
                     metadata,
-                    bytes: report.report,
+                    bytes: report.data,
                     usages,
                 })
             }
-            (Some(Body::Status(_)), Stage::Reports) => Ok(Event::Status(metadata)),
+            (Some(Body::InputResult(result)), Stage::BasicInfo | Stage::Reports) => {
+                self.accept_result(message.request_id, result.ntstatus)
+            }
+            (Some(Body::PhysicalWriteResult(result)), Stage::Reports) => {
+                self.accept_result(message.request_id, result.ntstatus)
+            }
+            (Some(Body::InputStatus(status)), Stage::Reports) => {
+                self.take_pending(message.request_id)?;
+                Ok(Event::Status(Metadata {
+                    sequence: 0,
+                    timestamp: 0,
+                    dropped: u64::from(status.queued_reports),
+                    status: status.last_read_status,
+                }))
+            }
             _ => Err(invalid()),
         }
     }
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+mod tests {
     use super::*;
-    use std::{
-        sync::{
-            atomic::{AtomicU32, Ordering},
-            mpsc,
-        },
-        thread,
-        time::{Duration, Instant},
-    };
-    use tokio::net::windows::named_pipe::ServerOptions;
-
-    const INSTANCE: &str = r"HID\AXONKEY_V3_READ_TEST";
-    static NEXT_PIPE: AtomicU32 = AtomicU32::new(0);
-
-    // Reproduce the driver's client rights. Explicitly deny bit 0x4 as well so
-    // the test catches GENERIC_WRITE even when run with an administrator token.
-    fn restricted_pipe(path: &str) -> tokio::net::windows::named_pipe::NamedPipeServer {
-        use std::{ffi::c_void, ptr};
-        #[repr(C)]
-        struct SecurityAttributes {
-            length: u32,
-            descriptor: *mut c_void,
-            inherit: i32,
-        }
-        #[link(name = "advapi32")]
-        extern "system" {
-            fn ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl: *const u16,
-                revision: u32,
-                descriptor: *mut *mut c_void,
-                size: *mut u32,
-            ) -> i32;
-        }
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn LocalFree(memory: *mut c_void) -> *mut c_void;
-        }
-        let sddl: Vec<u16> = "D:P(D;;0x4;;;WD)(A;;0x12008b;;;WD)"
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-        let mut descriptor = ptr::null_mut();
-        // SAFETY: the UTF-16 string is NUL-terminated and both output pointers
-        // are valid for this synchronous Windows call.
-        assert_ne!(
-            unsafe {
-                ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                    sddl.as_ptr(),
-                    1,
-                    &mut descriptor,
-                    ptr::null_mut(),
-                )
-            },
-            0,
-            "{}",
-            io::Error::last_os_error()
-        );
-        let mut attributes = SecurityAttributes {
-            length: std::mem::size_of::<SecurityAttributes>() as u32,
-            descriptor,
-            inherit: 0,
-        };
-        // SAFETY: attributes and descriptor stay alive for pipe creation; the
-        // kernel captures the descriptor, then LocalFree releases its buffer.
-        let pipe = unsafe {
-            ServerOptions::new()
-                .first_pipe_instance(true)
-                .create_with_security_attributes_raw(
-                    path,
-                    (&mut attributes as *mut SecurityAttributes).cast(),
-                )
-        };
-        unsafe {
-            LocalFree(descriptor);
-        }
-        pipe.unwrap()
-    }
-
-    fn varint(mut value: u64) -> Vec<u8> {
-        let mut out = Vec::new();
-        while value >= 128 {
-            out.push((value as u8 & 127) | 128);
-            value >>= 7;
-        }
-        out.push(value as u8);
-        out
-    }
-
-    fn bytes_field(tag: u64, bytes: &[u8]) -> Vec<u8> {
-        [
-            varint(tag * 8 + 2),
-            varint(bytes.len() as u64),
-            bytes.to_vec(),
-        ]
-        .concat()
-    }
-
-    // Independent schema-based test encoder; production uses prost.
-    fn message(tag: u64, body: &[u8], sequence: u64) -> Vec<u8> {
-        let mut message = vec![0x11]; // fixed64 timestamp_filetime = field 2
-        message.extend_from_slice(&133_000_000_000_000_123u64.to_le_bytes());
-        message.extend([vec![0x18], varint(sequence)].concat());
-        message.extend(bytes_field(tag, body));
-        message.extend([varint(100 * 8), varint(777)].concat()); // unknown ordinary field
-        [(message.len() as u32).to_le_bytes().to_vec(), message].concat()
-    }
-
-    fn hello(instance: &str) -> Vec<u8> {
-        message(20, &bytes_field(1, instance.as_bytes()), 0)
-    }
-
-    fn capabilities() -> Vec<u8> {
-        let mut body = vec![8, 9, 16, 64, 24, 7];
-        body.extend(bytes_field(4, &[0xff; 32]));
-        message(23, &body, 0)
-    }
-
-    // The server asserts that the reader sends zero bytes, including greetings
-    // or per-report acknowledgements. It lives until the Rust reader closes its handle.
-    fn server(stream: Vec<u8>, chunk_size: usize) -> (String, thread::JoinHandle<()>) {
-        let path = format!(
-            r"\\.\pipe\Axonkey.QuarborV3.ReadTest.{}.{}",
-            std::process::id(),
-            NEXT_PIPE.fetch_add(1, Ordering::Relaxed)
-        );
-        let server_path = path.clone();
-        let (ready, wait_ready) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            runtime.block_on(async {
-                let pipe = restricted_pipe(&server_path);
-                ready.send(()).unwrap();
-                tokio::time::timeout(Duration::from_secs(5), async {
-                    pipe.connect().await.unwrap();
-                    for chunk in stream.chunks(chunk_size) {
-                        let mut offset = 0;
-                        while offset < chunk.len() {
-                            pipe.writable().await.unwrap();
-                            match pipe.try_write(&chunk[offset..]) {
-                                Ok(bytes) => offset += bytes,
-                                Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-                                Err(error)
-                                    if matches!(error.raw_os_error(), Some(109 | 232 | 233)) =>
-                                {
-                                    return
-                                }
-                                Err(error) => panic!("server write: {error}"),
-                            }
-                        }
-                        if chunk_size < 32 {
-                            tokio::time::sleep(Duration::from_millis(2)).await;
-                        }
-                    }
-                    loop {
-                        pipe.readable().await.unwrap();
-                        match pipe.try_read(&mut [0u8; 64]) {
-                            Ok(0) => break,
-                            Ok(bytes) => panic!("read-only client sent {bytes} bytes"),
-                            Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-                            Err(error) if matches!(error.raw_os_error(), Some(109 | 232 | 233)) => {
-                                break
-                            }
-                            Err(error) => panic!("server read: {error}"),
-                        }
-                    }
-                })
-                .await
-                .expect("server or client stalled");
-            });
-        });
-        wait_ready.recv_timeout(Duration::from_secs(5)).unwrap();
-        (path, worker)
-    }
-
-    async fn pipe_write(pipe: &tokio::net::windows::named_pipe::NamedPipeServer, bytes: &[u8]) {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            pipe.writable().await.unwrap();
-            match pipe.try_write(&bytes[offset..]) {
-                Ok(count) => {
-                    assert!(count > 0);
-                    offset += count;
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(error) => panic!("test server write: {error}"),
-            }
-        }
-    }
-
-    async fn pipe_read(pipe: &tokio::net::windows::named_pipe::NamedPipeServer, bytes: &mut [u8]) {
-        let mut offset = 0;
-        while offset < bytes.len() {
-            pipe.readable().await.unwrap();
-            match pipe.try_read(&mut bytes[offset..]) {
-                Ok(count) => {
-                    assert!(count > 0, "client closed mid-command");
-                    offset += count;
-                }
-                Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(error) => panic!("test server read: {error}"),
-            }
-        }
-    }
-
-    pub(crate) fn framed(bytes: Vec<u8>) -> Vec<u8> {
-        [(bytes.len() as u32).to_le_bytes().to_vec(), bytes].concat()
-    }
-
-    pub(crate) fn key_command(id: u64, page: u64, usage: u64, down: bool) -> Vec<u8> {
-        let key = [
-            vec![8],
-            varint(page),
-            vec![16],
-            varint(usage),
-            vec![24, if down { 1 } else { 2 }],
-        ]
-        .concat();
-        framed([vec![8], varint(id), bytes_field(11, &key)].concat())
-    }
-
-    // Independent wire oracle, with physical status frames interleaved between
-    // fragmented command responses. No real HID device or OS input is involved.
-    pub(crate) fn command_server(
-        expected: Vec<Vec<u8>>,
-        mode: u8,
-    ) -> (String, thread::JoinHandle<()>) {
-        let path = format!(
-            r"\\.\pipe\Axonkey.QuarborV3.WriteTest.{}.{}",
-            std::process::id(),
-            NEXT_PIPE.fetch_add(1, Ordering::Relaxed)
-        );
-        let server_path = path.clone();
-        let (ready, wait_ready) = mpsc::channel();
-        let worker = thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            runtime.block_on(async {
-                let pipe = restricted_pipe(&server_path);
-                ready.send(()).unwrap();
-                tokio::time::timeout(Duration::from_secs(5), async {
-                    pipe.connect().await.unwrap();
-                    pipe_write(&pipe, &[hello(INSTANCE), capabilities()].concat()).await;
-                    for (index, expected) in expected.iter().enumerate() {
-                        let mut actual = vec![0; expected.len()];
-                        pipe_read(&pipe, &mut actual).await;
-                        assert_eq!(&actual, expected, "command {index}");
-                        if mode == 3 {
-                            continue;
-                        } // no response
-                        if mode == 4 {
-                            return;
-                        } // disconnect after receiving a down
-                        pipe_write(&pipe, &message(22, &[], 148)).await;
-                        let id = index as u64 + if mode == 2 { 2 } else { 1 };
-                        let status: u32 = if mode == 1 { 0xc0000225 } else { 0 };
-                        let response = framed(
-                            [
-                                vec![8],
-                                varint(id),
-                                vec![0x2d],
-                                status.to_le_bytes().to_vec(),
-                                bytes_field(24, &[]),
-                            ]
-                            .concat(),
-                        );
-                        for chunk in response.chunks(2) {
-                            pipe_write(&pipe, chunk).await;
-                        }
-                    }
-                    loop {
-                        pipe.readable().await.unwrap();
-                        match pipe.try_read(&mut [0; 1]) {
-                            Ok(0) => break,
-                            Ok(_) => panic!("unexpected extra command"),
-                            Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
-                            Err(error) if matches!(error.raw_os_error(), Some(109 | 232 | 233)) => {
-                                break
-                            }
-                            Err(error) => panic!("waiting for client disconnect: {error}"),
-                        }
-                    }
-                })
-                .await
-                .expect("duplex test stalled");
-            });
-        });
-        wait_ready.recv_timeout(Duration::from_secs(5)).unwrap();
-        (path, worker)
-    }
 
     #[test]
-    fn connects_with_sdk_rights_when_generic_write_is_denied() {
-        let (path, worker) = command_server(vec![key_command(1, 7, 0xe6, true)], 0);
-        {
-            let _guard = pipe_runtime().unwrap().enter();
-            let error = tokio::net::windows::named_pipe::ClientOptions::new()
-                .read(true)
-                .write(true)
-                .open(&path)
-                .unwrap_err();
-            assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
-        }
-        let mut client = Client::connect_path(&path, INSTANCE).unwrap();
-        next(&mut client).unwrap();
-        next(&mut client).unwrap();
-        client.send_key(7, 0xe6, true).unwrap();
-        assert!(matches!(next(&mut client).unwrap(), Event::Status(_)));
-        assert!(matches!(
-            next(&mut client).unwrap(),
-            Event::CommandAccepted(1)
-        ));
-        drop(client);
-        worker.join().unwrap();
-    }
-
-    #[test]
-    fn sends_ordered_shift_a_edges_and_correlates_interleaved_results() {
-        let commands = vec![
-            framed(vec![8, 1, 0x62, 0]),
-            key_command(2, 7, 0xe1, true),
-            key_command(3, 7, 4, true),
-            key_command(4, 7, 4, false),
-            key_command(5, 7, 0xe1, false),
-        ];
-        let (path, worker) = command_server(commands, 0);
-        let mut client = Client::connect_path(&path, INSTANCE).unwrap();
-        next(&mut client).unwrap();
-        next(&mut client).unwrap();
-        assert_eq!(client.reset_input().unwrap(), 1);
-        for (usage, down, id) in [
-            (0xe1, true, 2),
-            (4, true, 3),
-            (4, false, 4),
-            (0xe1, false, 5),
-        ] {
-            assert_eq!(client.send_key(7, usage, down).unwrap(), id);
-        }
-        for id in 1..=5 {
-            assert!(matches!(
-                next(&mut client).unwrap(),
-                Event::Status(Metadata { sequence: 148, .. })
-            ));
-            assert!(
-                matches!(next(&mut client).unwrap(), Event::CommandAccepted(received) if received == id)
-            );
-        }
-        assert!(client.pending.is_empty());
-        drop(client);
-        worker.join().unwrap();
-    }
-
-    #[test]
-    fn rejects_driver_errors_wrong_request_ids_and_disconnects() {
-        for mode in [1, 2, 4] {
-            let (path, worker) = command_server(vec![key_command(1, 7, 0xe6, true)], mode);
-            let mut client = Client::connect_path(&path, INSTANCE).unwrap();
-            next(&mut client).unwrap();
-            next(&mut client).unwrap();
-            client.send_key(7, 0xe6, true).unwrap();
-            if mode != 4 {
-                assert!(matches!(next(&mut client).unwrap(), Event::Status(_)));
-            }
-            let error = next(&mut client).unwrap_err();
-            if mode == 1 {
-                assert!(error.to_string().contains("NTSTATUS=0xC0000225"));
-                assert!(error.to_string().contains("0x00E6"));
-            }
-            assert!(!client.ready());
-            drop(client);
-            worker.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn bounds_outstanding_commands_times_out_and_requires_key_capability() {
-        let expected = (1..=64).map(|id| key_command(id, 7, 4, true)).collect();
-        let (path, worker) = command_server(expected, 3);
-        let mut client = Client::connect_path(&path, INSTANCE).unwrap();
-        next(&mut client).unwrap();
-        next(&mut client).unwrap();
-        client.key_injection = false;
+    fn uses_universal_pipe_hash_contract() {
         assert_eq!(
-            client.send_key(7, 4, true).unwrap_err().kind(),
-            io::ErrorKind::Unsupported
+            pipe_name(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055"
+            ),
+            r"\\.\pipe\Quarbor.UniversalKeyboard.v1.695F9E58CAB45BEF"
         );
-        client.key_injection = true;
-        for _ in 0..64 {
-            client.send_key(7, 4, true).unwrap();
+    }
+
+    #[test]
+    fn reports_have_the_new_frame_limit() {
+        assert_eq!(MAX_MESSAGE, 66_048);
+        assert_eq!(MAX_REPORT, 65_536);
+    }
+
+    #[test]
+    fn encodes_the_universal_basic_info_query() {
+        let payload = proto::ClientMessage {
+            request_id: 1,
+            body: Some(proto::client_message::Body::QueryBasicInfo(
+                proto::QueryBasicInfo {},
+            )),
         }
+        .encode_to_vec();
+        assert_eq!(payload, [0x08, 0x01, 0x52, 0x00]);
+    }
+
+    #[test]
+    fn decodes_rc003_numbered_usage_report() {
         assert_eq!(
-            client.send_key(7, 4, true).unwrap_err().kind(),
-            io::ErrorKind::WouldBlock
+            decode_rc003_report(&[1, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
+            vec![0x28, 0x52]
         );
-        // Wait until the server has read every command before forcing expiration.
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while !client.outgoing.is_empty() {
-            client.poll().unwrap();
-            assert!(Instant::now() < deadline);
-            thread::sleep(Duration::from_millis(2));
-        }
-        // A response deadline also bounds an incomplete write, so either failure
-        // closes the connection and invokes the driver's disconnect cleanup.
-        client.pending.front_mut().unwrap().1 = Instant::now() - Duration::from_secs(2);
-        assert_eq!(client.poll().unwrap_err().kind(), io::ErrorKind::TimedOut);
-        assert!(!client.ready());
-        drop(client);
-        worker.join().unwrap();
-    }
-
-    pub(crate) fn next(reader: &mut Client) -> io::Result<Event> {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        loop {
-            if let Some(event) = reader.poll()? {
-                return Ok(event);
-            }
-            assert!(Instant::now() < deadline, "reader stalled");
-            thread::sleep(Duration::from_millis(2));
-        }
     }
 
     #[test]
-    fn receives_fragmented_and_coalesced_reports_without_writing() {
-        for chunk_size in [3, usize::MAX] {
-            let pressed = [3, 0x40, 0, 0x3e, 0, 0, 0, 0, 0];
-            let released = [3, 0, 0, 0, 0, 0, 0, 0, 0];
-            let stream = [
-                hello(INSTANCE),
-                capabilities(),
-                message(21, &bytes_field(1, &pressed), 42),
-                message(21, &bytes_field(1, &released), 43),
-                message(22, &[], 43),
-            ]
-            .concat();
-            let (path, worker) = server(stream, chunk_size);
-            let mut reader = Client::connect_path(&path, &INSTANCE.to_ascii_lowercase()).unwrap();
-            assert!(!reader.ready());
-            assert!(matches!(next(&mut reader).unwrap(), Event::Hello(_)));
-            assert!(!reader.ready());
-            assert!(matches!(
-                next(&mut reader).unwrap(),
-                Event::Capabilities(Capabilities {
-                    input_report_bytes: 9,
-                    ..
-                })
-            ));
-            assert!(reader.ready());
-            for (sequence, expected) in [(42, &pressed), (43, &released)] {
-                let Event::Report {
-                    metadata,
-                    bytes,
-                    usages,
-                } = next(&mut reader).unwrap()
-                else {
-                    panic!("expected raw report")
-                };
-                assert_eq!(bytes, expected);
-                assert_eq!(metadata.sequence, sequence);
-                assert_eq!(metadata.timestamp, 133_000_000_000_000_123);
-                assert!(
-                    usages.is_err(),
-                    "fake device has no descriptor; raw data must still arrive"
-                );
-            }
-            assert!(matches!(next(&mut reader).unwrap(), Event::Status(_)));
-            drop(reader);
-            worker.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn preserves_maximum_hid_payload() {
-        let bytes: Vec<_> = (0..4096).map(|index| index as u8).collect();
-        let (path, worker) = server(
-            [
-                hello(INSTANCE),
-                capabilities(),
-                message(21, &bytes_field(1, &bytes), 1),
-            ]
-            .concat(),
-            usize::MAX,
+    fn decodes_rc003_report_without_id_and_boot_report() {
+        assert_eq!(
+            decode_rc003_report(&[0x28, 0, 0x52, 0, 0, 0]).unwrap(),
+            vec![0x28, 0x52]
         );
-        let mut reader = Client::connect_path(&path, INSTANCE).unwrap();
-        next(&mut reader).unwrap();
-        next(&mut reader).unwrap();
-        let Event::Report {
-            bytes: received, ..
-        } = next(&mut reader).unwrap()
-        else {
-            panic!("expected raw report")
-        };
-        assert_eq!(received, bytes);
-        drop(reader);
-        worker.join().unwrap();
-    }
-
-    #[test]
-    fn rejects_invalid_frames_and_stream_order() {
-        let cases = [
-            ("zero length", vec![0; 4]),
-            ("oversized frame", 8193u32.to_le_bytes().to_vec()),
-            ("client direction", message(10, &bytes_field(1, &[1]), 0)),
-            ("unknown body", message(26, &[], 0)),
-            ("wrong device", hello(r"HID\OTHER_DEVICE")),
-            ("NUL in device", hello("HID\\bad\0id")),
-            ("missing Hello", capabilities()),
-            (
-                "repeated Hello",
-                [hello(INSTANCE), hello(INSTANCE)].concat(),
-            ),
-            (
-                "missing capabilities",
-                [hello(INSTANCE), message(21, &bytes_field(1, &[1]), 1)].concat(),
-            ),
-            (
-                "empty report",
-                [
-                    hello(INSTANCE),
-                    capabilities(),
-                    message(21, &bytes_field(1, &[]), 1),
-                ]
-                .concat(),
-            ),
-            (
-                "oversized report",
-                [
-                    hello(INSTANCE),
-                    capabilities(),
-                    message(21, &bytes_field(1, &[0; 4097]), 1),
-                ]
-                .concat(),
-            ),
-            ("truncated protobuf", vec![1, 0, 0, 0, 0xff]),
-            ("invalid UTF-8", message(20, &bytes_field(1, &[0xff]), 0)),
-            ("oversized instance", hello(&"a".repeat(512))),
-            (
-                "unexpected result",
-                [hello(INSTANCE), capabilities(), message(24, &[], 1)].concat(),
-            ),
-            (
-                "zero capability length",
-                [hello(INSTANCE), message(23, &[16, 64], 0)].concat(),
-            ),
-            (
-                "invalid capability queue",
-                [
-                    hello(INSTANCE),
-                    message(
-                        23,
-                        &[vec![8, 9, 16, 63], bytes_field(4, &[0; 32])].concat(),
-                        0,
-                    ),
-                ]
-                .concat(),
-            ),
-            (
-                "invalid report ID mask",
-                [
-                    hello(INSTANCE),
-                    message(
-                        23,
-                        &[vec![8, 9, 16, 64], bytes_field(4, &[0; 31])].concat(),
-                        0,
-                    ),
-                ]
-                .concat(),
-            ),
-        ];
-        for (name, bytes) in cases {
-            let (path, worker) = server(bytes, usize::MAX);
-            let mut reader = Client::connect_path(&path, INSTANCE).unwrap();
-            let mut rejected = false;
-            for _ in 0..3 {
-                if next(&mut reader).is_err() {
-                    rejected = true;
-                    break;
-                }
-            }
-            assert!(rejected, "accepted invalid stream: {name}");
-            drop(reader);
-            worker.join().unwrap();
-        }
-    }
-
-    #[test]
-    fn incomplete_frame_times_out_and_pending_read_cancels_on_drop() {
-        let (path, worker) = server(vec![5], usize::MAX);
-        let mut reader = Client::connect_path(&path, INSTANCE).unwrap();
-        assert_eq!(next(&mut reader).unwrap_err().raw_os_error(), Some(1460));
-        drop(reader);
-        worker.join().unwrap();
-
-        let (path, worker) = server(Vec::new(), usize::MAX);
-        let mut reader = Client::connect_path(&path, INSTANCE).unwrap();
-        assert!(reader.poll().unwrap().is_none()); // Idle pipe; no report has started.
-        thread::sleep(Duration::from_millis(1100)); // Idle connections do not time out.
-        assert!(reader.poll().unwrap().is_none());
-        let started = Instant::now();
-        drop(reader);
-        assert!(started.elapsed() < Duration::from_millis(500));
-        worker.join().unwrap();
-    }
-
-    #[test]
-    #[ignore = "requires a connected standard boot keyboard; edits/reads report memory only"]
-    fn parses_real_keyboard_descriptor_without_device_input() {
-        let instance =
-            std::env::var("AXONKEY_HID_TEST_DEVICE").expect("keyboard device instance ID");
-        let pressed = [0, 0, 0, 0x3e, 0, 0, 0, 0, 0];
-        let released = [0; 9];
-        let (path, worker) = server(
-            [
-                hello(&instance),
-                capabilities(),
-                message(21, &bytes_field(1, &pressed), 1),
-                message(21, &bytes_field(1, &released), 2),
-            ]
-            .concat(),
-            usize::MAX,
+        assert_eq!(
+            decode_rc003_report(&[0, 0, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
+            vec![0x28, 0x52]
         );
-        let mut reader = Client::connect_path(&path, &instance).unwrap();
-        next(&mut reader).unwrap();
-        next(&mut reader).unwrap();
-        for expected in [vec![0x3e], vec![]] {
-            let Event::Report { usages, .. } = next(&mut reader).unwrap() else {
-                panic!("expected report")
-            };
-            assert_eq!(usages.unwrap(), expected);
-        }
-        drop(reader);
-        worker.join().unwrap();
+        assert_eq!(
+            decode_rc003_report(&[1, 0, 0, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
+            vec![0x28, 0x52]
+        );
+    }
+
+    #[test]
+    fn rejects_incomplete_rc003_report() {
+        assert_eq!(decode_rc003_report(&[1, 0, 0]), Err(ERROR_NOT_SUPPORTED));
+    }
+
+    #[test]
+    fn recognizes_the_independent_output_usage_ranges() {
+        let mut report_ids = [0; 32];
+        report_ids[0] = (1 << 1) | (1 << 2) | (1 << 3);
+        assert!(synthetic_usage_supported(0x07, 0x04, &report_ids));
+        assert!(synthetic_usage_supported(0x07, 0xE7, &report_ids));
+        assert!(synthetic_usage_supported(0x0C, 0x00E9, &report_ids));
+        assert!(synthetic_usage_supported(0x09, 0x0001, &report_ids));
+        assert!(synthetic_usage_supported(0x09, 0x0003, &report_ids));
+        assert!(!synthetic_usage_supported(0x09, 0x0004, &report_ids));
+        assert!(!synthetic_usage_supported(0x07, 0x00A5, &report_ids));
+        assert!(!synthetic_usage_supported(0x07, 0xF1, &report_ids));
+        assert!(!synthetic_usage_supported(0x0C, 0x0001, &report_ids));
     }
 }

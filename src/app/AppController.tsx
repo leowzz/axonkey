@@ -9,6 +9,7 @@ import { adjacentProfileId, changeProfileState, applySharedProfileSwitch, profil
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProfiles } from '../deviceProfiles'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
+import { StartupDriverUpgrade, useDriverUpgradeCheck } from '../components/DriverUpgradeDialog'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -39,6 +40,7 @@ import {
   rightModifierKeys,
   behaviorFromCapturedKey,
   buttons,
+  allRemoteButtons,
   detectBrowserPlatform,
   formatCapturedKey,
   getStoredProfiles,
@@ -135,11 +137,24 @@ type PendingProfileImport = ImportedMapping & {
 
 function AppController() {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-  const [initialUiState] = useState<StoredUiState>(getStoredUiState)
+  const [initialUiState] = useState<StoredUiState>(() => {
+    const stored = getStoredUiState()
+    const device = devices.find((item) => item.id === stored.selectedDeviceId) ?? devices[0]
+    const firstInput = device.inputIds[0]
+    const validInput = device.inputIds.includes(stored.selectedBehavior.buttonId)
+    const validActive = device.inputKind === 'button' && device.inputIds.includes(stored.activeId)
+    const validOverview = device.inputKind === 'button' && device.inputIds.includes(stored.overviewSelection.buttonId)
+    return {
+      ...stored,
+      selectedBehavior: validInput ? stored.selectedBehavior : { buttonId: firstInput, trigger: 'click' },
+      activeId: validActive ? stored.activeId : (device.inputKind === 'button' ? firstInput as ButtonId : 'power'),
+      overviewSelection: validOverview ? stored.overviewSelection : { buttonId: firstInput as ButtonId, trigger: 'click' },
+    }
+  })
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
-  const editableButtons = buttons
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>(initialUiState.selectedDeviceId)
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId)!
+  const editableButtons = selectedDevice.buttons ? [...selectedDevice.buttons] : []
   const isMouse = selectedDevice.inputKind === 'mouse'
   const [macPermissions, setMacPermissions] = useState<MacPermissions>({
     inputMonitoring: false,
@@ -215,6 +230,7 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(false)
+  const driverUpgradeCheck = useDriverUpgradeCheck()
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(nativeRuntime ? 'loading' : 'ready')
   const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
@@ -356,7 +372,7 @@ function AppController() {
   const profileSwitchRef = useRef<(request: ProfileSwitchRequest) => void>(() => {})
   profileSwitchRef.current = (request) => {
     const current = profileStateRef.current
-    if (request.deviceId !== 'rc003' && request.deviceId !== 'mouse') return
+    if (request.deviceId !== 'rc003' && request.deviceId !== 'cmiotA15' && request.deviceId !== 'mouse') return
     const id = adjacentProfileId(current.profiles.filter(profile => profile.deviceId === request.deviceId), current.activeProfileIds[request.deviceId], request)
     if (id) switchMappingProfile(id, true)
   }
@@ -576,7 +592,7 @@ function AppController() {
       setPressedId(null)
     }
     const handleRemoteKey = (event: { payload: RemoteKeyEvent }) => {
-      if (!buttons.some((button) => button.id === event.payload.button)) return
+      if (!(allRemoteButtons ?? buttons).some((button) => button.id === event.payload.button)) return
       if (pressedClearTimerRef.current !== undefined) window.clearTimeout(pressedClearTimerRef.current)
       pressedClearTimerRef.current = undefined
       if (event.payload.pressed) {
@@ -689,7 +705,7 @@ function AppController() {
       dispatchBehaviorHistory({ type: 'replace', present: profileStateRef.current.behaviors })
     }
     setSelectedDeviceId(device.id)
-    if (device.id === 'rc003') setActiveId(buttonId as ButtonId)
+    if (device.inputKind === 'button') setActiveId(buttonId as ButtonId)
     setSelectedBehavior({ buttonId, trigger })
     setCapturingBehaviorId(null)
     setEditingBehaviorId(null)
@@ -1029,10 +1045,21 @@ function AppController() {
   }
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
+    if (nativeRuntime && platform === 'windows' && driver === 'input' && action === 'install') {
+      try {
+        if (!await driverUpgradeCheck.checkBeforeInstall()) return
+      } catch (error) {
+        logError('Quarbor pre-install upgrade check failed', error)
+        updateSetup((current) => finishDriverAction(current, driver, action, {
+          success: false, status: 'error', error: String(error),
+        }))
+        return
+      }
+    }
     if (platform === 'windows' && driver === 'input' && action === 'install' && setupState.device.status !== 'connected') {
       const message = setupState.device.status === 'checking'
         ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
-        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor HID 按键过滤驱动。'
+        : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor Universal 键盘驱动。'
       updateSetup((current) => finishDriverAction(current, driver, action, {
         success: false,
         status: 'error',
@@ -1272,7 +1299,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : probe.device_hardware_id
-              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
+              ? 'Quarbor Universal 驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -1305,12 +1332,12 @@ function AppController() {
                 ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
                 : 'macOS 原生输入服务已就绪。'
           : !probe.input_driver_installed
-            ? '未检测到 Quarbor HID 过滤驱动。'
+            ? '未检测到 Quarbor Universal 驱动。'
             : probe.input_backend_error
               ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
               : probe.input_backend_ready
-                ? 'Quarbor HID 输入服务工作正常。'
-                : '已检测到 Quarbor HID 过滤驱动，输入服务正在启动。'
+                ? 'Quarbor Universal 输入服务工作正常。'
+                : '已检测到 Quarbor Universal 驱动，输入服务正在启动。'
         let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
         if (probe.platform === 'windows') {
           next = setSetupStepStatus(next, 'inputDriver', inputStatus === 'installed' ? 'complete' : 'active')
@@ -1398,7 +1425,7 @@ function AppController() {
               ? 'IOKit 已识别 RC003，原始按键已被拦截。'
               : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
             : current.device.hardwareId
-              ? 'Quarbor HID 过滤驱动已识别并接管 RC003。'
+              ? 'Quarbor Universal 驱动已识别并接管 RC003。'
               : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' }))
@@ -1520,7 +1547,7 @@ function AppController() {
     toggle: { checked: mouseEnabled, onChange: () => setMouseEnabled((value) => !value) },
     onOpenSettings: () => { setSettingsSection('mouse'); setActivePage('settings') },
   } : {
-    title: '遥控器状态',
+    title: `${selectedDevice.name}状态`,
     rows: [
       { label: '连接', value: setupState.device.status === 'connected' ? '已连接' : '未连接', tone: setupState.device.status === 'connected' ? 'ready' : undefined },
       { label: '电量', value: <BatteryIndicator level={displayedBatteryLevel} /> },
@@ -1532,15 +1559,15 @@ function AppController() {
     && macPermissions.inputMonitoring && macPermissions.accessibility && !inputAuthorizationStale)
   const overviewDevices: DeviceOverviewItem[] = devices.map(device => ({
     id: device.id,
-    name: device.id === 'rc003' ? '小米遥控器' : '系统鼠标',
-    power: device.id === 'rc003'
+    name: device.name,
+    power: device.inputKind === 'button'
       ? { kind: 'battery', level: nativeRuntime && setupState.device.status === 'connected' ? displayedBatteryLevel : null }
       : { kind: 'unavailable' },
     profileName: profiles.find(profile => profile.id === activeProfileIds[device.id])?.name ?? '默认配置',
     profileCount: profiles.filter(profile => profile.deviceId === device.id).length,
-    enabled: enabled && (device.id === 'rc003' || mouseEnabled),
+    enabled: device.inputKind === 'button' ? enabled : mouseEnabled,
     status: !nativeRuntime ? { label: '浏览器预览', tone: 'neutral' }
-      : device.id === 'rc003'
+      : device.inputKind === 'button'
         ? setupState.device.status === 'connected' ? { label: '已连接', tone: 'ready' }
           : setupState.device.status === 'checking' ? { label: '检测中', tone: 'neutral' }
             : { label: '未连接', tone: 'neutral' }
@@ -1572,7 +1599,7 @@ function AppController() {
     <span role="status" className={`auto-save-state ${autoSaveState}`}>{autoSaveState === 'error' ? '应用失败' : autoSaveState === 'saving' ? '保存中' : !nativeRuntime ? '已保存 · 预览' : enabled && (!isMouse || mouseEnabled) ? '已保存并生效' : '已保存 · 未开启'}</span>
     {autoSaveState === 'error' && <button type="button" className="reset-button" onClick={() => setApplyRetry((value) => value + 1)}>重试</button>}
     <MappingOptions onImport={openMappingImport} onExport={exportMappings} onReset={resetMappings}
-      audioCalibration={selectedDeviceId === 'rc003' ? { disabled: !nativeRuntime, onOpen: () => setAudioTestOpen(true) } : undefined}
+      audioCalibration={selectedDevice.inputKind === 'button' ? { disabled: !nativeRuntime, onOpen: () => setAudioTestOpen(true) } : undefined}
       flowEditor={mappingStyle === 'flow'} onFlowEditorChange={(enabled) => setMappingStyle(enabled ? 'flow' : 'legacy')} />
     <input ref={mappingFileInputRef} className="mapping-file-input" type="file" accept=".json,application/json" onChange={(event) => void importMappings(event)} />
   </div>
@@ -1604,6 +1631,7 @@ function AppController() {
           saveState={autoSaveState}
           pressedId={pressedId}
           onEdit={(buttonId, trigger) => { navigateToPage('mapping'); selectBehaviorTarget(buttonId, trigger) }}
+          remoteView={selectedDevice.remoteView}
         /> : activePage === 'mapping' ? <MappingPageComponent
           onBackToDevices={() => navigateToPage('home')}
           profileControls={profileControls}
@@ -1648,6 +1676,7 @@ function AppController() {
               showBehaviorToast('当前序列已清除')
             },
           }}
+          remoteView={selectedDevice.remoteView}
         /> : activePage === 'about' ? <AboutPage update={releaseUpdate} /> : activePage === 'settings' ? <SettingsPage
           backup={{
             onCreateBackup: () => createDataBackup({
@@ -1724,7 +1753,8 @@ function AppController() {
         onClose={() => setDeviceIntegrationOpen(false)}
         onSelect={deviceId => {
           setDeviceIntegrationOpen(false)
-          if (deviceId === 'rc003') openSetupStep('deviceConnection')
+          setSelectedDeviceId(deviceId)
+          if (deviceId === 'rc003' || deviceId === 'cmiotA15') openSetupStep('deviceConnection')
           else {
             setSettingsSection(platform === 'macos' ? 'permissions' : 'mouse')
             navigateToPage('settings')
@@ -1825,10 +1855,13 @@ function AppController() {
         onSave={commitTextInputPreset}
       />}
       {audioTestOpen && <AudioTestDialog platform={platform} nativeRuntime={nativeRuntime} audioGain={audioGain} gainError={gainError} onAudioGainChange={updateAudioGain} onClose={() => setAudioTestOpen(false)} />}
+      <StartupDriverUpgrade key={driverUpgradeCheck.revision} enabled={nativeRuntime && platform === 'windows'} onComplete={() => void probeSystemState(true)} />
       {setupOpen && !(nativeRuntime && platform === 'windows' && setupState.currentStep === 'legacyCleanup' && !legacyStartupChecked) && <SetupDialog
         platform={platform}
+        remoteLabel={selectedDevice.name + (selectedDevice.id === 'rc003' ? ' RC003' : '')}
         macPermissions={macPermissions}
         state={setupState}
+        checkingInputDriver={driverUpgradeCheck.checking}
         onClose={() => setSetupOpen(false)}
         onOpenStep={openSetupStep}
         onCompleteStep={completeCurrentSetupStep}

@@ -42,7 +42,10 @@ extern "C" {
     fn axonkey_macos_audio_driver_installed() -> bool;
     fn axonkey_macos_audio_state(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_bluetooth_connected(bridge: *mut c_void) -> bool;
-    fn axonkey_macos_audio_monitor(bridge: *mut c_void, snapshot: *mut NativeMonitorSnapshot) -> bool;
+    fn axonkey_macos_audio_monitor(
+        bridge: *mut c_void,
+        snapshot: *mut NativeMonitorSnapshot,
+    ) -> bool;
     fn axonkey_macos_audio_forwarding(bridge: *mut c_void) -> bool;
     fn axonkey_macos_audio_battery_level(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_copy_error(
@@ -83,7 +86,8 @@ impl AudioService {
         // Never hold the monitor mutex while dispatching to the native main thread.
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         let mut sample = NativeMonitorSnapshot::default();
-        let connected = !bridge.is_null() && unsafe { axonkey_macos_audio_monitor(bridge, &mut sample) };
+        let connected =
+            !bridge.is_null() && unsafe { axonkey_macos_audio_monitor(bridge, &mut sample) };
         let now = now_ms();
         let mut monitor = self.shared.signal_monitor.lock().unwrap();
         // Ignore a read overtaken by clearing/closing the monitor.

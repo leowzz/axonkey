@@ -95,6 +95,15 @@ export function DeviceIntegrationDialog({ platform, nativeRuntime, onSelect, onC
             </span>
             <ChevronRight className="device-integration-arrow" size={17} aria-hidden="true" />
           </button>
+          <button type="button" className="device-integration-option" data-device-id="cmiotA15" onClick={() => onSelect('cmiotA15')}>
+            <Bluetooth className="device-integration-icon" size={23} aria-hidden="true" />
+            <span className="device-integration-copy">
+              <strong>移动遥控器CMIOT-A15</strong>
+              <span>在系统蓝牙设置中配对并唤醒遥控器。</span>
+              <small>{remoteNextStep}</small>
+            </span>
+            <ChevronRight className="device-integration-arrow" size={17} aria-hidden="true" />
+          </button>
           <button type="button" className="device-integration-option" data-device-id="mouse" onClick={() => onSelect('mouse')}>
             <Mouse className="device-integration-icon" size={23} aria-hidden="true" />
             <span className="device-integration-copy">

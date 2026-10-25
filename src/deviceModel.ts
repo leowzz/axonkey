@@ -1,5 +1,12 @@
 /** Device identity and input capabilities are independent of output behaviors. */
-export const remoteButtonIds = ['power', 'voice', 'up', 'left', 'confirm', 'right', 'down', 'back', 'volumeUp', 'home', 'volumeDown', 'menu', 'tv'] as const
+import type { RemoteButton } from './appTypes'
+import type { RemoteView } from './devices/remoteTypes'
+import { xiaomiRemoteButtonIds, xiaomiRemoteView } from './devices/xiaomi-remote/index.ts'
+import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from './devices/cmiot-a15-remote/index.ts'
+import { systemMouseDevice } from './devices/system-mouse/index.ts'
+
+export const remoteButtonIds = xiaomiRemoteButtonIds
+export const cmiotA15ButtonIds = cmiotA15RemoteButtonIds
 export const mouseScopes = [
   { id: 'global', label: '任意位置', description: '指针位于任意位置时生效' },
   { id: 'top', label: '上边缘', description: '指针靠近屏幕上边缘时生效' },
@@ -19,7 +26,7 @@ export const mouseControls = [
 ] as const
 export type MouseScopeId = typeof mouseScopes[number]['id']
 export type MouseControlId = typeof mouseControls[number]['id']
-export type RemoteButtonId = typeof remoteButtonIds[number]
+export type RemoteButtonId = typeof remoteButtonIds[number] | typeof cmiotA15ButtonIds[number]
 export type MouseInputId = Exclude<`mouse.${MouseScopeId}.${MouseControlId}`, 'mouse.global.buttonLeft' | 'mouse.global.buttonRight' | 'mouse.global.up' | 'mouse.global.down' | 'mouse.global.left' | 'mouse.global.right'>
 export function mouseControlAllowsGlobal(control: MouseControlId) {
   return control === 'buttonForward' || control === 'buttonBack' || control === 'buttonMiddle'
@@ -41,16 +48,20 @@ export function mouseInputParts(id: InputId) {
   }
 }
 export type InputId = RemoteButtonId | MouseInputId
-export type DeviceId = 'rc003' | 'mouse'
+export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
 export type DeviceDefinition = {
   id: DeviceId
   name: string
+  model: string
   inputIds: readonly InputId[]
   inputKind: 'button' | 'mouse'
+  buttons?: readonly RemoteButton[]
+  remoteView?: RemoteView
 }
 export const devices: readonly DeviceDefinition[] = [
-  { id: 'rc003', name: '小米遥控器', inputIds: remoteButtonIds, inputKind: 'button' },
-  { id: 'mouse', name: '鼠标', inputIds: mouseInputIds, inputKind: 'mouse' },
+  { id: 'rc003', name: '小米遥控器', model: 'RC003', inputIds: remoteButtonIds, inputKind: 'button', buttons: xiaomiRemoteView.buttons, remoteView: xiaomiRemoteView },
+  { id: 'cmiotA15', name: '移动遥控器CMIOT-A15', model: 'CMIOT-A15', inputIds: cmiotA15ButtonIds, inputKind: 'button', buttons: cmiotA15RemoteView.buttons, remoteView: cmiotA15RemoteView },
+  { ...systemMouseDevice, inputIds: mouseInputIds, inputKind: 'mouse' },
 ]
 export const inputIds: readonly InputId[] = devices.flatMap((device) => device.inputIds)
 export function deviceForInput(id: InputId): DeviceDefinition {

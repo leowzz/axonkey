@@ -27,11 +27,11 @@ $null = Assert-InstallerReply -Json $invalid -ExitCode 87 -ExpectedExitCode 87
 Assert-Rejected { Assert-InstallerReply -Json $invalid -ExitCode 0 -ExpectedExitCode 87 }
 
 # Cleanup must preserve pre-existing Quarbor packages and unrelated/new vendor packages.
-$before = @([pscustomobject]@{ Driver = 'oem1.inf'; OriginalFileName = '/store/QuarborHIDFilterUserDriver.inf' })
+$before = @([pscustomobject]@{ Driver = 'oem1.inf'; OriginalFileName = '/store/QuarborUniversalKeyboardDriver.inf' })
 $after = $before + @(
-    [pscustomobject]@{ Driver = 'oem2.inf'; OriginalFileName = '/store/quarborhidfilteruserdriver.inf' },
+    [pscustomobject]@{ Driver = 'oem2.inf'; OriginalFileName = '/store/quarboruniversalkeyboarddriver.inf' },
     [pscustomobject]@{ Driver = 'oem3.inf'; OriginalFileName = '/store/another-driver.inf' },
-    [pscustomobject]@{ Driver = 'keyboard.inf'; OriginalFileName = '/store/QuarborHIDFilterUserDriver.inf' }
+    [pscustomobject]@{ Driver = 'keyboard.inf'; OriginalFileName = '/store/QuarborUniversalKeyboardDriver.inf' }
 )
 $new = @(Get-NewQuarborPackages -Before $before -After $after)
 if ($new.Count -ne 1 -or $new[0].Driver -ne 'oem2.inf') { throw 'Cleanup selected packages outside this staging operation.' }

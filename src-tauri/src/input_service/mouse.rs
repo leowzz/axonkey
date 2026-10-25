@@ -1,4 +1,4 @@
-//! Mouse input is independent of RC003 discovery and the Quarbor HID driver.
+//! Mouse input is independent of RC003 discovery and the Quarbor Universal driver.
 //! Capture callbacks only classify and enqueue; actions run off the hook thread.
 use super::{MouseButton, NativeBehavior, NativeSettings, TriggerBehaviors};
 use std::sync::{

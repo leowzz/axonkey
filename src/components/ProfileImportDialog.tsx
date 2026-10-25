@@ -3,7 +3,7 @@ import { useState } from 'react'
 import type { BehaviorMap } from '../behaviorModel'
 import { devices, mouseInputParts } from '../deviceModel'
 import type { DeviceId } from '../deviceModel'
-import { behaviorSummary, buttons, normalizeProfileName } from '../appConfig'
+import { buttons, behaviorSummary, normalizeProfileName } from '../appConfig'
 import type { Platform } from '../appTypes'
 
 type ProfileImportDialogProps = {

@@ -4,7 +4,7 @@ import { iconFor, triggerLabels, triggerSummary } from '../appConfig'
 import { BehaviorSummaryPopover } from './BehaviorSummaryPopover'
 import { triggerTypes } from '../behaviorModel'
 import { RemoteControl } from './RemoteControl'
-import { remoteKeyRegions, remoteViewBox } from '../remoteControlGeometry'
+import type { RemoteView } from '../devices/remoteTypes.ts'
 import type { BehaviorMap, ButtonId, TriggerType } from '../behaviorModel'
 import type { Platform, RemoteButton } from '../appTypes'
 
@@ -18,11 +18,12 @@ type Props = {
   selection: { buttonId: ButtonId; trigger: TriggerType }
   onSelect: (id: ButtonId, trigger: TriggerType) => void
   onEdit: (id: ButtonId, trigger: TriggerType) => void
+  remoteView?: RemoteView
 }
 
 type Wire = { id: ButtonId; path: string }
 
-export function MappingOverview({ buttons, behaviors, platform, enabled, saveState, pressedId, selection, onSelect, onEdit }: Props) {
+export function MappingOverview({ buttons, behaviors, platform, enabled, saveState, pressedId, selection, onSelect, onEdit, remoteView }: Props) {
   const { buttonId: selectedId, trigger } = selection
   const [hoveredId, setHoveredId] = useState<ButtonId | null>(null)
   const [wires, setWires] = useState<Wire[]>([])
@@ -47,12 +48,14 @@ export function MappingOverview({ buttons, behaviors, platform, enabled, saveSta
         const x1 = (button.side === 'left' ? card.right : card.left) - root.left
         const y1 = card.top + card.height / 2 - root.top
         const elbow = button.side === 'left' ? image.left - root.left - 22 : image.right - root.left + 22
-        let endpoint = remoteKeyRegions[button.id].anchor
+        let endpoint = remoteView?.keyRegions[button.id]?.anchor
+        if (!endpoint) return []
         // Direction-pad regions need a center connection to make adjacent sectors easy to distinguish.
-        if (!['up', 'left', 'confirm', 'right', 'down'].includes(button.id)) {
+        const geometryKey = button.id.replace(/^cmiotA15\./, '')
+        if (!['up', 'left', 'confirm', 'right', 'down'].includes(geometryKey)) {
           let outside = {
-            x: (elbow + root.left - image.left) * remoteViewBox.width / image.width,
-            y: (y1 + root.top - image.top) * remoteViewBox.height / image.height,
+            x: (elbow + root.left - image.left) * (remoteView?.viewBox.width ?? 516) / image.width,
+            y: (y1 + root.top - image.top) * (remoteView?.viewBox.height ?? 1255) / image.height,
           }
           let inside = endpoint
           // Other keys stop at the incoming line's intersection with their actual SVG outline.
@@ -63,8 +66,8 @@ export function MappingOverview({ buttons, behaviors, platform, enabled, saveSta
           }
           endpoint = outside
         }
-        const x2 = image.left - root.left + image.width * endpoint.x / remoteViewBox.width
-        const y2 = image.top - root.top + image.height * endpoint.y / remoteViewBox.height
+        const x2 = image.left - root.left + image.width * endpoint.x / (remoteView?.viewBox.width ?? 516)
+        const y2 = image.top - root.top + image.height * endpoint.y / (remoteView?.viewBox.height ?? 1255)
         return [{ id: button.id, path: `M ${x1} ${y1} H ${elbow} L ${x2} ${y2}` }]
       }))
     }
@@ -74,7 +77,7 @@ export function MappingOverview({ buttons, behaviors, platform, enabled, saveSta
     Object.values(cardRefs.current).forEach((card) => { if (card) observer.observe(card) })
     measure()
     return () => observer.disconnect()
-  }, [buttons])
+  }, [buttons, remoteView])
 
   return <div className="mapping-overview">
     <section className="overview-surface" aria-label="当前按键映射示意图">
@@ -115,6 +118,7 @@ export function MappingOverview({ buttons, behaviors, platform, enabled, saveSta
               mappedIds={buttons.filter(button => behaviors[button.id][trigger].length > 0).map(button => button.id)}
               onSelect={id => onSelect(id, trigger)}
               onHover={setHoveredId}
+              remoteView={remoteView}
             />
           </div>
         </div>
