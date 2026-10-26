@@ -74,6 +74,7 @@ struct Shared {
     output_device: Mutex<Option<String>>,
     // Source transitions and epoch updates are serialized by the samples mutex.
     a15_active: AtomicBool,
+    a15_connected: AtomicBool,
     a15_received: AtomicBool,
     output_epoch: AtomicU64,
     gain_db: AtomicI32,
@@ -99,6 +100,7 @@ impl Shared {
             samples: Mutex::new(VecDeque::new()),
             output_device: Mutex::new(None),
             a15_active: AtomicBool::new(false),
+            a15_connected: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
             output_epoch: AtomicU64::new(0),
             gain_db: AtomicI32::new(0),
@@ -129,7 +131,7 @@ impl Shared {
 
     fn reset_rc003_output(&self) {
         if let Ok(mut samples) = self.samples.lock() {
-            // Xiaomi BLE reconnects/stops must not flush A15's ongoing stream.
+            // A recording session retains its queued samples until it stops.
             if !self.a15_active.load(Ordering::Acquire) {
                 samples.clear();
                 self.output_epoch.fetch_add(1, Ordering::AcqRel);
@@ -139,7 +141,7 @@ impl Shared {
 
     fn enqueue_pcm(&self, a15: bool, frame: &[i16]) {
         if let Ok(mut queued) = self.samples.lock() {
-            // A15 owns the shared channel while recording; never interleave sources.
+            // Ignore late PCM after the recording session stops.
             if a15 != self.a15_active.load(Ordering::Acquire) {
                 return;
             }
@@ -268,8 +270,24 @@ pub struct AudioService {
 }
 
 impl AudioService {
+    #[cfg(test)]
+    pub(crate) fn without_workers() -> Self {
+        Self {
+            shared: Arc::new(Shared::new(None)),
+            audio_worker: Mutex::new(None),
+            ble_worker: Mutex::new(None),
+        }
+    }
+
     pub(crate) fn set_a15_recording(&self, active: bool) {
         self.shared.set_a15_recording(active);
+    }
+
+    pub(crate) fn set_a15_input_state(&self, connected: bool, recording: bool) {
+        self.shared
+            .a15_connected
+            .store(connected, Ordering::Release);
+        self.set_a15_recording(recording);
     }
 
     pub(crate) fn push_a15_pcm(&self, samples: &[i16]) {
@@ -289,6 +307,14 @@ impl AudioService {
     }
 
     pub fn start_for(target_bluetooth_address: Option<String>) -> Self {
+        Self::start_workers(target_bluetooth_address, true)
+    }
+
+    pub fn start_a15() -> Self {
+        Self::start_workers(None, false)
+    }
+
+    fn start_workers(target_bluetooth_address: Option<String>, bluetooth: bool) -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows audio service");
         let shared = Arc::new(Shared::new(target_bluetooth_address));
         let audio_shared = Arc::clone(&shared);
@@ -297,12 +323,16 @@ impl AudioService {
             .spawn(move || audio_output_loop(audio_shared))
             .ok();
         let ble_shared = Arc::clone(&shared);
-        let ble_worker = thread::Builder::new()
-            .name("Axonkey RC003 voice BLE".into())
-            .spawn(move || ble_worker_loop(ble_shared))
-            .ok();
+        let ble_worker = if bluetooth {
+            thread::Builder::new()
+                .name("Axonkey RC003 voice BLE".into())
+                .spawn(move || ble_worker_loop(ble_shared))
+                .ok()
+        } else {
+            None
+        };
 
-        if audio_worker.is_none() || ble_worker.is_none() {
+        if audio_worker.is_none() || (bluetooth && ble_worker.is_none()) {
             log::error!(target: "axonkey::audio", "Cannot start the Windows audio bridge workers");
             shared.update_status(|status| {
                 status.state = "error".into();
@@ -374,7 +404,9 @@ impl AudioService {
                 error: Some("Windows audio status lock is unavailable".into()),
                 ..AudioServiceStatus::default()
             });
-        if self.shared.a15_active.load(Ordering::Acquire) {
+        if self.shared.a15_connected.load(Ordering::Acquire)
+            || self.shared.a15_active.load(Ordering::Acquire)
+        {
             status.bluetooth_connected = true;
             status.battery_level = None;
             status.received_data = self.shared.a15_received.load(Ordering::Acquire);
@@ -389,7 +421,7 @@ impl AudioService {
                     "ready"
                 }
                 .into();
-                status.error = None; // RC003 discovery errors do not describe A15's channel.
+                status.error = None;
             }
         }
         status

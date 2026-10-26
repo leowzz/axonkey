@@ -780,7 +780,9 @@ async fn uninstall_bound_device_drivers(
             .store
             .instances
             .iter()
-            .filter(|instance| instance.kind == "rc003" && instance.binding.is_some())
+            .filter(|instance| {
+                matches!(instance.kind.as_str(), "rc003" | "cmiotA15") && instance.binding.is_some()
+            })
             .map(|instance| instance.id.clone())
             .collect::<Vec<_>>();
         let resource_dir = app
@@ -1066,26 +1068,22 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
         .store
         .instances
         .iter()
-        .find(|instance| instance.id == instance_id && instance.kind == "rc003")
-        .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
-    if let Some(target) = instance.quarbor_target.as_deref() {
-        return Ok(target.to_string());
-    }
-    let address = instance
-        .binding
-        .as_ref()
-        .and_then(|binding| {
-            snapshot
-                .discovered
-                .iter()
-                .find(|device| &device.id == binding)
+        .find(|instance| {
+            instance.id == instance_id && matches!(instance.kind.as_str(), "rc003" | "cmiotA15")
         })
-        .and_then(|device| device.bluetooth_address.as_deref())
-        .ok_or_else(|| "该设备当前没有可用的蓝牙地址，请先连接并唤醒设备。".to_string())?;
+        .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
+    if instance.binding.is_none() {
+        return Err("请先绑定物理设备。".into());
+    }
     let devices = windows_driver_devices::list()?;
-    quarbor_installer::target_for_bluetooth_address(&devices, address)
-        .map(|(target, _)| target)
-        .ok_or_else(|| "未找到该设备对应的 Quarbor 设备节点，请先连接并唤醒设备。".into())
+    input_service::managed::driver_target(
+        instance,
+        &snapshot.store.instances,
+        &snapshot.discovered,
+        &devices,
+    )
+    .map(|(target, _)| target)
+    .ok_or_else(|| "未找到该设备对应的 Quarbor 设备节点，请先连接并唤醒设备。".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -1102,45 +1100,18 @@ fn resolve_installed_quarbor_target(
         .iter()
         .find(|instance| instance.id == instance_id)
         .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
-    if instance.kind != "rc003" || instance.binding.is_none() {
+    if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") || instance.binding.is_none() {
         return Ok(None);
     }
     let devices = windows_driver_devices::list()?;
-    if let Some(target) = instance.quarbor_target.as_deref() {
-        return Ok(devices
-            .iter()
-            .find(|device| device.instance_id.eq_ignore_ascii_case(target))
-            .filter(|device| device.bound || device.recovery_active)
-            .map(|device| device.instance_id.clone()));
-    }
-    let address = instance
-        .binding
-        .as_ref()
-        .and_then(|binding| {
-            snapshot
-                .discovered
-                .iter()
-                .find(|device| &device.id == binding)
-        })
-        .and_then(|device| device.bluetooth_address.as_deref());
-    Ok(address
-        .and_then(|address| {
-            quarbor_installer::target_for_bluetooth_address(&devices, address)
-                .filter(|(_, installed)| *installed)
-                .map(|(target, _)| target)
-        })
-        .or_else(|| {
-            let only_rc003_instance = snapshot
-                .store
-                .instances
-                .iter()
-                .filter(|candidate| candidate.kind == "rc003" && candidate.binding.is_some())
-                .count()
-                == 1;
-            only_rc003_instance
-                .then(|| quarbor_installer::unique_installed_rc003_target(&devices))?
-                .map(|(target, _)| target)
-        }))
+    Ok(input_service::managed::driver_target(
+        instance,
+        &snapshot.store.instances,
+        &snapshot.discovered,
+        &devices,
+    )
+    .filter(|(_, installed)| *installed)
+    .map(|(target, _)| target))
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -1325,7 +1296,9 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .store
         .instances
         .iter()
-        .filter(|instance| instance.kind == "rc003")
+        .filter(|instance| {
+            instance.kind == "rc003" || (cfg!(windows) && instance.kind == "cmiotA15")
+        })
         .map(|instance| {
             let voice_target = instance.voice_target.clone().or_else(|| {
                 instance.binding.as_ref().and_then(|binding| {
@@ -1338,6 +1311,7 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
             });
             AudioTarget {
                 instance_id: instance.id.clone(),
+                kind: instance.kind.clone(),
                 voice_target,
                 output_device: instance
                     .voice_output_device
@@ -1599,11 +1573,6 @@ fn remove_device_instance(
 }
 
 #[tauri::command]
-fn get_cmiot_a15_recording(input_service: tauri::State<'_, InputService>) -> bool {
-    input_service.status().cmiot_a15_recording
-}
-
-#[tauri::command]
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
@@ -1844,7 +1813,6 @@ pub fn run() {
             driver_migration::get_driver_migration,
             driver_migration::check_driver_migration,
             driver_migration::run_driver_migration,
-            get_cmiot_a15_recording,
             release_update::check_release_update,
             profile_switch_overlay::show_profile_switch_overlay,
             profile_switch_overlay::get_profile_switch_overlay,

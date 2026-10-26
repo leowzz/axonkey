@@ -213,7 +213,7 @@ export function InstanceWorkspace({
   const driverMissing =
     native &&
     platform === 'windows' &&
-    instance.kind === 'rc003' &&
+    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
     (!instance.binding || status?.driverState === 'missing')
   const currentDriverAction = instance.binding && driverAction?.instanceId === instance.id ? driverAction : null
   const driverRunning = currentDriverAction?.status === 'running'
@@ -294,7 +294,11 @@ export function InstanceWorkspace({
           <section className="managed-instance-status" aria-label="设备状态">
             <div>
               <span className={ready ? 'ready' : status?.error ? 'warning' : ''}>
-                {native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}
+                {native
+                  ? status?.recording
+                    ? '录音中'
+                    : instanceStatusLabel(instance, controller.snapshot)
+                  : '预览模式'}
               </span>
               <button
                 type="button"
@@ -332,7 +336,7 @@ export function InstanceWorkspace({
               )}
             </div>
           </div>
-          {instance.kind === 'rc003' && (
+          {(instance.kind === 'rc003' || (instance.kind === 'cmiotA15' && platform === 'windows')) && (
             <button
               type="button"
               className="managed-audio-calibration"
@@ -417,7 +421,7 @@ export function InstanceWorkspace({
                     </div>
                   ) : (
                     <>
-                      {instance.kind === 'rc003' && platform === 'windows' && (
+                      {(instance.kind === 'rc003' || instance.kind === 'cmiotA15') && platform === 'windows' && (
                         <div className="settings-form-row managed-driver-status-row">
                           <span className="settings-form-label">按键驱动：</span>
                           <div className="settings-form-control managed-driver-status-control">
@@ -447,6 +451,21 @@ export function InstanceWorkspace({
                         </div>
                       )}
                       <div className="settings-form-fields">
+                        {instance.kind === 'cmiotA15' && platform === 'windows' && (
+                          <label className="settings-form-row">
+                            <span className="settings-form-label">语音录制：</span>
+                            <select
+                              value={instance.cmiotA15RecordingMode ?? 'hold'}
+                              onChange={event => {
+                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                update(item => ({ ...item, cmiotA15RecordingMode }))
+                              }}
+                            >
+                              <option value="hold">按住录音，松开停止</option>
+                              <option value="click">点击开始，再次点击停止</option>
+                            </select>
+                          </label>
+                        )}
                         <label className="settings-form-row">
                           <span className="settings-form-label">设备名称：</span>
                           <input

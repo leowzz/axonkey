@@ -189,31 +189,6 @@ function AppController() {
   const canUndoBehavior = behaviorHistory.past.length > 0
   const canRedoBehavior = behaviorHistory.future.length > 0
   const [enabled, setEnabled] = useState(() => getStoredSettings().enabled)
-  const [cmiotA15Recording, setCmiotA15Recording] = useState(false)
-  useEffect(() => {
-    if (!nativeRuntime) return
-    let active = true
-    let receivedEvent = false
-    let unlisten: (() => void) | undefined
-    void listen<boolean>('axonkey-cmiot-a15-recording', ({ payload }) => {
-      receivedEvent = true
-      if (active) setCmiotA15Recording(payload)
-    })
-      .then(async cleanup => {
-        if (!active) {
-          cleanup()
-          return
-        }
-        unlisten = cleanup
-        const recording = await invoke<boolean>('get_cmiot_a15_recording')
-        if (active && !receivedEvent) setCmiotA15Recording(recording)
-      })
-      .catch(error => logError('Failed to read A15 recording status', error))
-    return () => {
-      active = false
-      unlisten?.()
-    }
-  }, [nativeRuntime])
   const [cmiotA15RecordingMode, setCmiotA15RecordingMode] = useState(() => getStoredSettings().cmiotA15RecordingMode)
   const [mouseEnabled, setMouseEnabled] = useState(() => getStoredSettings().mouseEnabled)
   const [mouseIgnoreScrollAcceleration, setMouseIgnoreScrollAcceleration] = useState(
@@ -1806,7 +1781,6 @@ function AppController() {
       }
     : {
         title: `${selectedDevice.name}状态`,
-        recording: selectedDevice.id === 'cmiotA15' ? cmiotA15Recording : undefined,
         rows: [
           {
             label: '连接',

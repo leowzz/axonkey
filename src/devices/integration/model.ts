@@ -15,6 +15,7 @@ export type DeviceInstance = {
   bindingPairingId?: string | null
   voiceOutputDevice?: string | null
   audioGainDb?: number
+  cmiotA15RecordingMode?: 'hold' | 'click'
   quarborTarget?: string | null
   hideDriverMissingReminder?: boolean
   enabled: boolean
@@ -43,6 +44,7 @@ export type DeviceSnapshot = {
       state: string
       error: string | null
       reports: number
+      recording?: boolean
       driverInstalled?: boolean
       driverState?: string
     }
@@ -101,7 +103,7 @@ export const supportPackages = [
     model: 'RC003',
     artwork: xiaomiRemoteView.artworkUrl,
     inputs: xiaomiRemoteButtons,
-    note: 'macOS 支持按物理实例绑定；Windows 继续使用现有驱动工作区。',
+    note: '按物理实例管理映射、按键驱动和语音输出。',
   },
   {
     kind: 'cmiotA15' as const,
@@ -109,7 +111,7 @@ export const supportPackages = [
     model: 'CMIOT A15',
     artwork: cmiotA15RemoteDevice.remoteView!.artworkUrl,
     inputs: cmiotA15RemoteDevice.buttons!,
-    note: '可先建立配置；硬件识别和输入适配尚待验证。',
+    note: 'Windows 支持按物理实例绑定、按键驱动和独立语音输出。',
   },
 ]
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
@@ -122,6 +124,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     binding,
     voiceOutputDevice: null,
     audioGainDb: 0,
+    cmiotA15RecordingMode: 'hold',
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

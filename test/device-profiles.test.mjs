@@ -7,10 +7,11 @@ import {
   mergeDeviceBehaviors, migrateLegacyProfiles, parseStoredDeviceProfiles, snapshotDeviceProfiles,
 } from '../src/deviceProfiles.ts'
 
-function mapping(remote = 'A', mouse = 'B') {
+function mapping(remote = 'A', mouse = 'B', a15 = 'V') {
   const behaviors = createEmptyBehaviorMap()
   behaviors.power.click = [createBehavior({ type: 'shortcut', keys: [remote], id: `remote-${remote}` })]
   behaviors['mouse.top.up'].click = [createBehavior({ type: 'key', key: mouse, id: `mouse-${mouse}` })]
+  behaviors['cmiotA15.power'].click = [createBehavior({ type: 'key', key: a15, id: `a15-${a15}` })]
   return behaviors
 }
 
@@ -39,9 +40,10 @@ test('legacy profiles split deterministically while preserving each device order
   const legacy = [{ id: 'work', name: '工作', behaviors: mapping() }, { id: 'play', name: '娱乐', behaviors: mapping('C', 'D') }]
   const before = structuredClone(legacy)
   const migrated = migrateLegacyProfiles(legacy, 'play')
-  assert.deepEqual(migrated.activeProfileIds, { rc003: 'rc003:play', mouse: 'mouse:play' })
+  assert.deepEqual(migrated.activeProfileIds, { rc003: 'rc003:play', cmiotA15: 'cmiotA15:play', mouse: 'mouse:play' })
   assert.deepEqual(migrated.profiles.map(({ id, name, deviceId }) => ({ id, name, deviceId })), [
     { id: 'rc003:work', name: '工作', deviceId: 'rc003' }, { id: 'rc003:play', name: '娱乐', deviceId: 'rc003' },
+    { id: 'cmiotA15:work', name: '工作', deviceId: 'cmiotA15' }, { id: 'cmiotA15:play', name: '娱乐', deviceId: 'cmiotA15' },
     { id: 'mouse:work', name: '工作', deviceId: 'mouse' }, { id: 'mouse:play', name: '娱乐', deviceId: 'mouse' },
   ])
   migrated.profiles.forEach(assertOwned)
@@ -49,15 +51,15 @@ test('legacy profiles split deterministically while preserving each device order
   assert.deepEqual(migrateLegacyProfiles(legacy, 'play'), migrated)
   migrated.profiles[0].behaviors.power.click[0].keys.push('Shift')
   assert.deepEqual(legacy, before)
-  assert.deepEqual(migrateLegacyProfiles(legacy, 'missing').activeProfileIds, { rc003: 'rc003:work', mouse: 'mouse:work' })
+  assert.deepEqual(migrateLegacyProfiles(legacy, 'missing').activeProfileIds, { rc003: 'rc003:work', cmiotA15: 'cmiotA15:work', mouse: 'mouse:work' })
 })
 
-test('snapshots persist both active live maps and composition independently selects each device profile', () => {
+test('snapshots persist all active live maps and composition independently selects each device profile', () => {
   const state = migrateLegacyProfiles([
     { id: 'work', name: '工作', behaviors: mapping() }, { id: 'play', name: '娱乐', behaviors: mapping('C', 'D') },
   ], 'work')
-  const activeProfileIds = { rc003: 'rc003:work', mouse: 'mouse:play' }
-  const live = mapping('EDITED REMOTE', 'EDITED MOUSE')
+  const activeProfileIds = { rc003: 'rc003:work', cmiotA15: 'cmiotA15:play', mouse: 'mouse:play' }
+  const live = mapping('EDITED REMOTE', 'EDITED MOUSE', 'EDITED A15')
   const before = structuredClone(state)
   const snapshots = snapshotDeviceProfiles(state.profiles, activeProfileIds, live)
   assert.deepEqual(composeActiveProfileBehaviors(snapshots, activeProfileIds), live)
@@ -65,8 +67,9 @@ test('snapshots persist both active live maps and composition independently sele
   assert.deepEqual(snapshots[2].behaviors, state.profiles[2].behaviors)
   snapshots.forEach(assertOwned)
   snapshots[0].behaviors.power.click[0].keys.push('Ctrl')
-  snapshots[3].behaviors['mouse.top.up'].click[0].key = 'changed'
-  assert.deepEqual(live, mapping('EDITED REMOTE', 'EDITED MOUSE'))
+  snapshots.find(p => p.id === 'mouse:play').behaviors['mouse.top.up'].click[0].key = 'changed'
+  snapshots.find(p => p.id === 'cmiotA15:play').behaviors['cmiotA15.power'].click[0].key = 'changed'
+  assert.deepEqual(live, mapping('EDITED REMOTE', 'EDITED MOUSE', 'EDITED A15'))
   assert.deepEqual(state, before)
 })
 
@@ -77,9 +80,9 @@ test('old local storage repairs missing and duplicate IDs without losing entries
     { name: '', behaviors: mapping('E', 'F') },
   ] }
   const parsed = parseStoredDeviceProfiles(JSON.stringify(value), createEmptyBehaviorMap())
-  assert.equal(parsed.profiles.length, 6)
-  assert.equal(new Set(parsed.profiles.map(profile => profile.id)).size, 6)
-  assert.deepEqual(parsed.activeProfileIds, { rc003: 'rc003:same', mouse: 'mouse:same' })
+  assert.equal(parsed.profiles.length, 9)
+  assert.equal(new Set(parsed.profiles.map(profile => profile.id)).size, 9)
+  assert.deepEqual(parsed.activeProfileIds, { rc003: 'rc003:same', cmiotA15: 'cmiotA15:same', mouse: 'mouse:same' })
   assert.equal(parsed.profiles[0].name, '工作')
   assert.equal(parsed.profiles[1].behaviors.power.click[0].keys[0], 'C')
   assert.deepEqual(parseStoredDeviceProfiles(value, createEmptyBehaviorMap()), parsed)
@@ -91,8 +94,8 @@ test('v2 reload enforces device ownership, repairs the active choice and fills o
     { id: 'remote-profile', name: '工作', deviceId: 'rc003', behaviors: mapping('STORED', 'CONTAMINATION') },
     { id: 'future-profile', name: '未来设备', deviceId: 'future', behaviors: mapping() },
   ] }, fallback)
-  assert.equal(parsed.profiles.length, 2)
-  assert.deepEqual(parsed.activeProfileIds, { rc003: 'remote-profile', mouse: 'mouse:default' })
+  assert.equal(parsed.profiles.length, 3)
+  assert.deepEqual(parsed.activeProfileIds, { rc003: 'remote-profile', cmiotA15: 'cmiotA15:default', mouse: 'mouse:default' })
   parsed.profiles.forEach(assertOwned)
   const runtime = composeActiveProfileBehaviors(parsed.profiles, parsed.activeProfileIds)
   assert.equal(runtime.power.click[0].keys[0], 'STORED')
@@ -100,7 +103,7 @@ test('v2 reload enforces device ownership, repairs the active choice and fills o
   assert.deepEqual(parseStoredDeviceProfiles({ version: 2, ...parsed }, fallback), parsed)
 })
 
-test('default and unreadable storage preserve the existing runtime settings for both devices', () => {
+test('default and unreadable storage preserve the existing runtime settings for all devices', () => {
   const behaviors = mapping()
   const expected = createDefaultDeviceProfiles(behaviors)
   for (const value of [null, 'invalid', {}, { profiles: [] }, { version: 999, profiles: [] }]) {

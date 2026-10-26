@@ -14,13 +14,12 @@ use std::{
 use tauri::Emitter;
 
 const WAIT_TIMEOUT_MS: u32 = 50;
-const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
 
 #[cfg(windows)]
 struct QuarborContext {
     reader: Option<super::windows_quarbor::Client>,
+    switch_profile: Option<Arc<dyn Fn(super::ProfileDirection, bool) + Send + Sync>>,
     keyboard: RemoteKeyboard,
     events: std::collections::VecDeque<super::windows_quarbor::Event>,
     keys: std::collections::VecDeque<RemoteKeyEvent>,
@@ -44,6 +43,7 @@ impl Default for QuarborContext {
     fn default() -> Self {
         Self {
             reader: None,
+            switch_profile: None,
             keyboard: RemoteKeyboard::default(),
             events: std::collections::VecDeque::new(),
             keys: std::collections::VecDeque::new(),
@@ -468,6 +468,7 @@ type EventApp = tauri::AppHandle;
 type EventApp = ();
 
 struct Shared {
+    instance_id: Option<String>,
     settings: RwLock<NativeSettings>,
     settings_revision: AtomicU64,
     status: Mutex<InputServiceStatus>,
@@ -488,6 +489,7 @@ impl InputService {
     pub fn start(driver_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
+            instance_id: None,
             settings: RwLock::new(NativeSettings::default()),
             settings_revision: AtomicU64::new(0),
             status: Mutex::new(InputServiceStatus::default()),
@@ -615,8 +617,7 @@ impl Drop for InputService {
     }
 }
 
-/// One managed RC003 owns one Quarbor pipe and one action state machine.
-/// The legacy InputService is retained only for the Windows A15 recorder.
+/// Each RC003/A15 instance owns one Quarbor pipe and one action state machine.
 #[cfg(windows)]
 pub(super) struct ManagedQuarborChannel {
     shared: Arc<Shared>,
@@ -627,14 +628,24 @@ pub(super) struct ManagedQuarborChannel {
 impl ManagedQuarborChannel {
     #[cfg(not(test))]
     pub(super) fn start(
+        instance_id: String,
         target: String,
         settings: NativeSettings,
         app: tauri::AppHandle,
         driver_gate: Arc<AtomicBool>,
         emit: Arc<dyn Fn(String, bool) + Send + Sync>,
     ) -> Self {
+        let switch_app = app.clone();
+        let switch_id = instance_id.clone();
+        let switch_profile = Arc::new(move |direction, wrap| {
+            use tauri::Manager;
+            switch_app
+                .state::<crate::DeviceManager>()
+                .switch_instance_profile(&switch_id, direction, wrap);
+        });
         let event_app = Some(app);
         let shared = Arc::new(Shared {
+            instance_id: Some(instance_id.clone()),
             settings: RwLock::new(settings),
             settings_revision: AtomicU64::new(0),
             status: Mutex::new(InputServiceStatus::default()),
@@ -647,16 +658,13 @@ impl ManagedQuarborChannel {
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
-            .name("Axonkey managed Quarbor RC003".into())
+            .name(format!("Axonkey Quarbor {instance_id}"))
             .spawn(move || {
-                let mut last_target_seen_at = None;
-                let mut selector = QuarborTargetSelector::fixed(target);
-                run_context(
-                    &mut QuarborContext::default(),
-                    &worker_shared,
-                    &mut last_target_seen_at,
-                    &mut selector,
-                );
+                let mut context = QuarborContext {
+                    switch_profile: Some(switch_profile),
+                    ..Default::default()
+                };
+                run_context(&mut context, &worker_shared, target);
             })
             .ok();
         Self {
@@ -707,171 +715,25 @@ impl Drop for ManagedQuarborChannel {
     }
 }
 
-struct QuarborTargetSelector {
-    last_probe: Instant,
-    target: Option<String>,
-    probe_failure_logged: bool,
-    fixed_target: Option<String>,
-}
-
-impl QuarborTargetSelector {
-    fn new() -> Self {
-        Self {
-            last_probe: Instant::now() - Duration::from_secs(1),
-            target: None,
-            probe_failure_logged: false,
-            fixed_target: None,
-        }
-    }
-
-    fn fixed(target: String) -> Self {
-        Self {
-            target: Some(target.clone()),
-            fixed_target: Some(target),
-            ..Self::new()
-        }
-    }
-
-    fn current(&mut self) -> Option<String> {
-        if self.fixed_target.is_some() {
-            return self.target.clone();
-        }
-        #[cfg(all(windows, not(test)))]
-        if self.last_probe.elapsed() >= Duration::from_secs(1) {
-            self.last_probe = Instant::now();
-            self.target = self.probe();
-        }
-        self.target.clone()
-    }
-
-    #[cfg(windows)]
-    fn probe(&mut self) -> Option<String> {
-        match crate::windows_driver_devices::list() {
-            Ok(devices) => {
-                self.probe_failure_logged = false;
-                crate::quarbor_installer::select_legacy_target(&devices)
-            }
-            Err(error) => {
-                if !self.probe_failure_logged {
-                    log::warn!(
-                        target: "axonkey::input",
-                        "Windows device list unavailable; waiting for a valid bound BTHLEDEVICE target: {error}"
-                    );
-                    self.probe_failure_logged = true;
-                }
-                None
-            }
-        }
-    }
-}
-
-#[cfg(windows)]
 fn worker_loop(shared: Arc<Shared>) {
-    log::info!(target: "axonkey::input", "Quarbor Universal duplex backend loaded");
-    shared.status.lock().unwrap().backend_ready = true;
-    let mut last_target_seen_at = None;
-    let mut target_selector = QuarborTargetSelector::new();
+    // Global settings remain available, but physical devices are owned by the registry.
     while !shared.stop.load(Ordering::Relaxed) {
-        if shared.managed_remote_owned.load(Ordering::Acquire) {
-            let mut status = shared.status.lock().unwrap();
-            status.backend_ready = false;
-            status.capture_active = false;
-            status.device_connected = false;
-            thread::sleep(DEVICE_POLL_INTERVAL);
-            continue;
-        }
-        if shared.driver_gate.load(Ordering::Acquire) {
-            // run_context has returned and dropped its pipe before acknowledging
-            // this pause. Support both startup migration and manual rechecks.
-            shared.status.lock().unwrap().backend_ready = false;
-            shared.driver_paused.store(true, Ordering::Release);
-            while shared.driver_gate.load(Ordering::Acquire) && !shared.stop.load(Ordering::Relaxed)
-            {
-                thread::sleep(Duration::from_millis(25));
-            }
-            shared.driver_paused.store(false, Ordering::Release);
-            target_selector = QuarborTargetSelector::new();
-            if shared.stop.load(Ordering::Relaxed) {
-                break;
-            }
-            shared.status.lock().unwrap().backend_ready = true;
-        }
-        if !wait_for_stable_target(&shared, &mut last_target_seen_at, &mut target_selector) {
-            continue;
-        }
-        run_context(
-            &mut QuarborContext::default(),
-            &shared,
-            &mut last_target_seen_at,
-            &mut target_selector,
+        shared.driver_paused.store(
+            shared.driver_gate.load(Ordering::Acquire),
+            Ordering::Release,
         );
+        thread::sleep(Duration::from_millis(25));
     }
-    shared.status.lock().unwrap().capture_active = false;
-}
-
-#[cfg(not(windows))]
-fn worker_loop(shared: Arc<Shared>) {
-    log::info!(target: "axonkey::input", "Windows input service is unavailable on this platform");
-    shared.status.lock().unwrap().backend_ready = false;
-    while !shared.stop.load(Ordering::Relaxed) {
-        thread::sleep(Duration::from_millis(50));
-    }
-}
-
-fn wait_for_stable_target(
-    shared: &Shared,
-    last_target_seen_at: &mut Option<Instant>,
-    target_selector: &mut QuarborTargetSelector,
-) -> bool {
-    let mut stable_since = None;
-    while !shared.stop.load(Ordering::Relaxed) {
-        if shared.driver_gate.load(Ordering::Acquire) {
-            return false;
-        }
-        let now = Instant::now();
-        let hardware_id = target_selector.current();
-        let target_present = hardware_id.is_some();
-        update_device_status(shared, hardware_id, last_target_seen_at, now);
-
-        // Universal capture is independent of mappings. Keep observing even when
-        // mappings are disabled; forward original keys through the driver.
-        if target_present {
-            let first_stable = *stable_since.get_or_insert(now);
-            if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
-                return true;
-            }
-        } else {
-            stable_since = None;
-        }
-
-        thread::sleep(DEVICE_POLL_INTERVAL);
-    }
-    false
 }
 
 #[cfg(windows)]
-fn run_context(
-    context: &mut QuarborContext,
-    shared: &Shared,
-    last_target_seen_at: &mut Option<Instant>,
-    target_selector: &mut QuarborTargetSelector,
-) {
-    context.device_id = target_selector.current();
-    let mut next_probe = Instant::now();
+fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
+    context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
         if shared.driver_gate.load(Ordering::Acquire) {
             break;
-        }
-        let now = Instant::now();
-        if now >= next_probe {
-            let device_id = target_selector.current();
-            update_device_status(shared, device_id.clone(), last_target_seen_at, now);
-            if device_id.as_deref() != context.device_id.as_deref() {
-                break;
-            }
-            next_probe = now + Duration::from_secs(1);
         }
         quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS);
         quarbor_publish_events(context, shared);
@@ -884,12 +746,13 @@ fn run_context(
         );
     }
     quarbor_release_active_usages(context);
-    publish_a15_recording(shared, false);
     if context
         .device_id
         .as_deref()
         .is_some_and(crate::devices::cmiot_a15::matches_instance)
     {
+        shared.status.lock().unwrap().capture_active = false;
+        publish_a15_recording(shared, false);
         if let Some(client) = context.reader.as_mut() {
             if let Err(error) = client.finish_pending(Duration::from_millis(300)) {
                 quarbor_read_error(context, format!("A15 shutdown stop not confirmed: {error}"));
@@ -923,7 +786,8 @@ fn publish_a15_recording(shared: &Shared, recording: bool) {
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
         if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
-            audio.set_a15_recording(recording);
+            let connected = shared.status.lock().unwrap().capture_active;
+            audio.set_a15_input_state(shared.instance_id.as_deref(), connected, recording);
         }
     }
     let changed = if let Ok(mut status) = shared.status.lock() {
@@ -937,7 +801,10 @@ fn publish_a15_recording(shared: &Shared, recording: bool) {
         #[cfg(not(test))]
         if let Ok(app) = shared.event_app.read() {
             if let Some(app) = app.as_ref() {
-                let _ = app.emit("axonkey-cmiot-a15-recording", recording);
+                let _ = app.emit(
+                    "axonkey-device-recording",
+                    serde_json::json!({"instanceId": shared.instance_id, "recording": recording}),
+                );
             }
         }
     }
@@ -958,7 +825,13 @@ fn process_remote_actions(
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
-    publish_a15_recording(shared, context.a15_recording.is_recording());
+    if context
+        .device_id
+        .as_deref()
+        .is_some_and(crate::devices::cmiot_a15::matches_instance)
+    {
+        publish_a15_recording(shared, context.a15_recording.is_recording());
+    }
 }
 
 #[cfg(windows)]
@@ -1107,6 +980,10 @@ fn emit_remote_output(
             }
         }
         Output::SwitchProfile(direction, wrap) => {
+            if let Some(switch) = &context.switch_profile {
+                switch(direction, wrap);
+                return Ok(());
+            }
             let device = if context
                 .device_id
                 .as_deref()
@@ -1194,6 +1071,8 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
         }
     }
     let mut status = shared.status.lock().unwrap();
+    status.backend_ready = true;
+    status.hardware_id = context.device_id.clone();
     status.capture_active = context.reader.as_ref().is_some_and(|reader| reader.ready());
     status.device_connected = context.reader.is_some();
     status.error = context.error.clone();
@@ -1243,37 +1122,6 @@ fn emit_raw_hid_event(
 ) {
 }
 
-fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: Instant) -> bool {
-    found
-        || last_seen_at.is_some_and(|last_seen| {
-            now.saturating_duration_since(last_seen) < DEVICE_DISCONNECT_GRACE
-        })
-}
-
-fn update_device_status(
-    shared: &Shared,
-    hardware_id: Option<String>,
-    last_target_seen_at: &mut Option<Instant>,
-    now: Instant,
-) {
-    let found = hardware_id.is_some();
-    if found {
-        *last_target_seen_at = Some(now);
-    }
-    let connected = device_connection_visible(found, *last_target_seen_at, now);
-    let mut status = shared.status.lock().unwrap();
-    let previous_connected = status.device_connected;
-    status.backend_ready = true;
-    status.device_connected = connected;
-    if found || !connected {
-        status.hardware_id = hardware_id;
-    }
-    status.error = None;
-    if previous_connected != connected {
-        log::info!(target: "axonkey::input", "RC003 connection changed: connected={connected}");
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct RemoteKeyEvent {
@@ -1285,6 +1133,7 @@ struct RemoteKeyEvent {
 fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
     if let Some(emit) = &shared.managed_event {
         emit(button.to_string(), pressed);
+        return;
     }
     let app = shared
         .event_app
@@ -1302,9 +1151,12 @@ fn emit_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) 
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
         if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
-            audio.push_a15_pcm(&frame.samples);
+            audio.push_a15_pcm(shared.instance_id.as_deref(), &frame.samples);
         }
-        let _ = app.emit("axonkey-cmiot-a15-pcm", frame);
+        let _ = app.emit(
+            "axonkey-device-pcm",
+            serde_json::json!({"instanceId": shared.instance_id, "frame": frame}),
+        );
     }
 }
 
@@ -2034,6 +1886,7 @@ mod tests {
                 Self {
                     channel: ManagedQuarborChannel {
                         shared: Arc::new(Shared {
+                            instance_id: Some("test-device".into()),
                             settings: RwLock::new(settings),
                             settings_revision: AtomicU64::new(0),
                             status: Mutex::new(InputServiceStatus::default()),
@@ -2069,6 +1922,76 @@ mod tests {
                     self.start + Duration::from_millis(ms),
                 );
             }
+        }
+
+        #[test]
+        fn a15_instances_keep_report_edges_mappings_and_profile_switches_separate() {
+            let make_settings = |key: &str| {
+                serde_json::from_value::<NativeSettings>(json!({
+                "enabled": true, "behaviors": {"cmiotA15.up": {"click": [{"type":"key", "key":key}]}}
+            })).unwrap()
+            };
+            let first_settings = make_settings("A");
+            let second_settings = make_settings("B");
+            let mut first = Harness::new(first_settings.clone());
+            let mut second = Harness::new(second_settings.clone());
+            let node = |address: &str| {
+                format!(
+                    r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&010416_PID&0300_REV&0100_{address}\instance"
+                )
+            };
+            first.context.device_id = Some(node("AABBCCDDEE01"));
+            second.context.device_id = Some(node("AABBCCDDEE02"));
+            let report = |context: &mut QuarborContext, sequence, down| {
+                quarbor_accept_event(
+                    context,
+                    super::super::super::windows_quarbor::Event::Report {
+                        metadata: super::super::super::windows_quarbor::Metadata {
+                            sequence,
+                            ..Default::default()
+                        },
+                        bytes: vec![1, 0, 0, if down { 0x52 } else { 0 }, 0, 0, 0, 0, 0],
+                        usages: Err(50),
+                    },
+                );
+            };
+            report(&mut first.context, 1, true);
+            report(&mut second.context, 1, true);
+            first.tick(&first_settings, 0, &[]);
+            second.tick(&second_settings, 0, &[]);
+            report(&mut first.context, 2, false);
+            first.tick(&first_settings, 50, &[]);
+            assert_eq!(second.context.keyboard.held.len(), 1);
+            report(&mut second.context, 2, false);
+            second.tick(&second_settings, 80, &[]);
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    vec![
+                        vec![(0x41, 0)],
+                        vec![(0x42, 0)],
+                        vec![(0x41, 2)],
+                        vec![(0x42, 2)]
+                    ]
+                )
+            });
+            let switches = Arc::new(Mutex::new(Vec::new()));
+            for (id, harness) in [("first", &mut first), ("second", &mut second)] {
+                let switches = Arc::clone(&switches);
+                harness.context.switch_profile = Some(Arc::new(move |direction, wrap| {
+                    switches.lock().unwrap().push((id, direction, wrap))
+                }));
+            }
+            emit_remote_output(
+                &mut first.context,
+                crate::input_service::remote_actions::Output::SwitchProfile(
+                    super::super::super::ProfileDirection::Next,
+                    true,
+                ),
+            )
+            .unwrap();
+            assert_eq!(switches.lock().unwrap().len(), 1);
+            assert_eq!(switches.lock().unwrap()[0].0, "first");
         }
 
         #[test]
@@ -2184,6 +2107,7 @@ mod tests {
             .unwrap();
             let service = InputService {
                 shared: Arc::new(Shared {
+                    instance_id: None,
                     settings: RwLock::new(settings.clone()),
                     settings_revision: AtomicU64::new(1),
                     status: Mutex::new(InputServiceStatus::default()),
@@ -2590,22 +2514,6 @@ mod tests {
         MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), vec![(-20, 0)]));
     }
 
-    #[test]
-    fn keeps_short_ble_hid_disconnects_out_of_the_visible_status() {
-        let now = Instant::now();
-        assert!(device_connection_visible(true, None, now));
-        assert!(device_connection_visible(
-            false,
-            now.checked_sub(Duration::from_secs(7)),
-            now
-        ));
-        assert!(!device_connection_visible(
-            false,
-            now.checked_sub(Duration::from_secs(8)),
-            now
-        ));
-    }
-
     #[cfg(windows)]
     #[test]
     fn driver_chords_keep_shared_modifiers_and_connected_chords_on_one_backend() {
@@ -2970,6 +2878,7 @@ mod tests {
     #[cfg(windows)]
     fn recording_snapshot_follows_control_and_clears_after_disconnect() {
         let shared = Shared {
+            instance_id: None,
             settings: RwLock::new(NativeSettings::default()),
             settings_revision: AtomicU64::new(0),
             status: Mutex::new(InputServiceStatus::default()),

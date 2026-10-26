@@ -25,7 +25,7 @@ const model = compile('src/devices/integration/model.ts', {
   '../xiaomi-remote/buttons': { xiaomiRemoteButtons: [] },
   '../xiaomi-remote/view': { xiaomiRemoteView: { artworkUrl: 'remote.svg' } },
   '../xbox-controller/xbox-controller.svg': { default: 'controller.svg' },
-  '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: { remoteView: { artworkUrl: 'remote.svg' }, buttons: [] } },
+  '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: { remoteView: { artworkUrl: 'remote.svg' }, buttons: require('../src/devices/cmiot-a15-remote/buttons.ts').cmiotA15RemoteButtons } },
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
@@ -127,7 +127,7 @@ test('saved offline instances keep their card and show connection state even whe
 })
 
 test('integration saves devices without an input mode on every platform', async () => {
-  for (const platform of ['macos', 'windows']) for (const kind of ['rc003', 'xboxBluetooth']) {
+  for (const platform of ['macos', 'windows']) for (const kind of ['rc003', 'xboxBluetooth', 'cmiotA15']) {
     const remote = { ...device, kind, id: 'remote-one' }
     const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
     let submitted
@@ -142,10 +142,88 @@ test('integration saves devices without an input mode on every platform', async 
     act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
     const dialog = view.root.findByProps({ role: 'dialog' })
     assert.ok(!text(dialog).includes('输入模式'))
+    if (kind === 'cmiotA15' && platform === 'windows') {
+      assert.ok(!text(dialog).includes('暂不支持输入监听'))
+      assert.ok(text(dialog).includes('Quarbor Universal'))
+    }
     assert.ok(!text(dialog).includes('共享监听'))
     assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.ok(!('capture' in submitted))
     act(() => view.unmount())
   }
+})
+
+test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async () => {
+  const listeners = []
+  const RemoteControl = () => null
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async (_, listener) => { listeners.push(listener); return () => {} } },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../../components/RemoteControl': { RemoteControl },
+    '../../components/ProfileManager': { ProfileManager: () => null },
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey: () => null },
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    './IntegrationControls': controls,
+    '../xiaomi-remote/settings/VoiceOutput': { VoiceOutput: () => null },
+    '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
+    '../xiaomi-remote/view': { xiaomiRemoteView: {} },
+    '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: {} },
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  })
+  const instances = ['one', 'two'].map(id => ({ ...model.newInstance('cmiotA15', `physical-${id}`), id, legacyProfilesMigrated: true }))
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = instances
+  snapshot.runtime = {
+    one: { state: 'driverMissing', driverState: 'missing', driverInstalled: false },
+    two: { state: 'exclusive', driverState: 'connected', driverInstalled: true, recording: true },
+  }
+  const actions = []
+  const controller = { snapshot, update: async (id, change) => {
+    const index = instances.findIndex(item => item.id === id)
+    instances[index] = change(instances[index])
+    return snapshot
+  } }
+  const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
+    legacyProfiles: () => [], driverAction: null, batteryLevel: null,
+    onInstallDriver: id => actions.push(['install', id]),
+    onUnbindDevice: async id => actions.push(['unbind', id]),
+    onOpenAudioCalibration: id => actions.push(['calibrate', id]),
+  })
+  const views = []
+  await act(async () => { for (let index = 0; index < 2; index++) views.push(Renderer.create(React.createElement(InstanceWorkspace, props(index)))) })
+  try {
+    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
+    assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    assert.ok(text(views[1].root.findByProps({ 'aria-label': '设备状态' })).includes('录音中'))
+    act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
+    act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
+    assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
+
+    act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
+    assert.equal(views[0].root.findByType(RemoteControl).props.pressedId, null)
+    assert.equal(views[1].root.findByType(RemoteControl).props.pressedId, 'cmiotA15.up')
+
+    act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
+    await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'click' } }))
+    assert.equal(instances[0].cmiotA15RecordingMode, 'click')
+    assert.equal(instances[1].cmiotA15RecordingMode, 'hold')
+    await act(async () => views[0].root.findByProps({ className: 'managed-bound-device' }).findByType('button').props.onClick())
+    assert.deepEqual(actions.at(-1), ['unbind', 'one'])
+    act(() => {
+      instances[0] = { ...instances[0], hideDriverMissingReminder: true }
+      views[0].update(React.createElement(InstanceWorkspace, props(0)))
+    })
+    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
+  } finally { act(() => views.forEach(view => view.unmount())) }
 })

@@ -29,6 +29,25 @@ impl Device {
         (id.starts_with("BTHLEDEVICE\\") || id.starts_with("HID\\")) && self.is_rc003_hardware()
     }
 
+    pub fn matches_kind(&self, kind: &str) -> bool {
+        match kind {
+            "rc003" => self.is_rc003(),
+            "cmiotA15" => crate::devices::cmiot_a15::matches_instance(&self.instance_id),
+            _ => false,
+        }
+    }
+
+    pub fn bluetooth_address(&self) -> Option<String> {
+        let id = self.instance_id.to_ascii_uppercase();
+        if !id.starts_with("BTHLEDEVICE\\{00001812-0000-1000-8000-00805F9B34FB}_") {
+            return None;
+        }
+        let segment = id.split('\\').nth(1)?;
+        let address = segment.rsplit('_').next()?;
+        (address.len() == 12 && address.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| address.to_string())
+    }
+
     pub fn is_rc003_hardware(&self) -> bool {
         let id = self.instance_id.to_ascii_uppercase();
         let hardware = self.hardware_id.to_ascii_uppercase();
@@ -176,18 +195,6 @@ pub(crate) fn invoke(
     result
 }
 
-pub(crate) fn select_legacy_target(devices: &[Device]) -> Option<String> {
-    devices
-        .iter()
-        .filter(|device| {
-            device.present
-                && device.bound
-                && crate::devices::cmiot_a15::matches_instance(&device.instance_id)
-        })
-        .min_by(|left, right| left.instance_id.cmp(&right.instance_id))
-        .map(|device| device.instance_id.clone())
-}
-
 fn compact_address(value: &str) -> String {
     value
         .chars()
@@ -209,6 +216,7 @@ fn reversed_address(value: &str) -> String {
 pub(crate) fn target_for_bluetooth_address(
     devices: &[Device],
     address: &str,
+    kind: &str,
 ) -> Option<(String, bool)> {
     let compact = compact_address(address);
     if compact.len() < 12 {
@@ -220,7 +228,7 @@ pub(crate) fn target_for_bluetooth_address(
             let instance = compact_address(&device.instance_id);
             let hardware = compact_address(&device.hardware_id);
             let reversed = reversed_address(&compact);
-            device.is_rc003()
+            device.matches_kind(kind)
                 && (device.instance_id.to_ascii_uppercase().contains(&compact)
                     || instance.contains(&compact)
                     || hardware.contains(&compact)
@@ -228,13 +236,18 @@ pub(crate) fn target_for_bluetooth_address(
                     || instance.contains(&reversed)
                     || hardware.contains(&reversed))
         })
+        .min_by_key(|device| {
+            (
+                !device.instance_id.starts_with("BTHLEDEVICE\\"),
+                !device.present,
+            )
+        })
         .map(|device| {
             (
                 device.instance_id.clone(),
                 device.bound || device.recovery_active,
             )
         })
-        .next()
 }
 
 pub(crate) fn unique_installed_rc003_target(devices: &[Device]) -> Option<(String, bool)> {
@@ -268,20 +281,6 @@ pub(crate) fn run_for_device(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a15_hid_parent_is_an_install_and_capture_target() {
-        let a15 = device(
-            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance",
-            true,
-            true,
-            false,
-        );
-        assert!(!a15.is_rc003());
-        let id = a15.instance_id.clone();
-        let devices = vec![a15];
-        assert_eq!(select_legacy_target(&devices), Some(id));
-    }
 
     fn device(id: &str, present: bool, bound: bool, recovery_active: bool) -> Device {
         Device {
@@ -326,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_only_the_bound_ble_parent() {
+    fn target_lookup_never_crosses_remote_models() {
         let devices = vec![
             device(
                 r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055",
@@ -336,7 +335,10 @@ mod tests {
             ),
             device(r"HID\VID_2717&PID_32B8\other", true, true, false),
         ];
-        assert_eq!(select_legacy_target(&devices), None);
+        assert_eq!(
+            target_for_bluetooth_address(&devices, "C05D39C2CF83", "cmiotA15"),
+            None
+        );
     }
 
     #[test]
@@ -347,12 +349,12 @@ mod tests {
             true,
             false,
         )];
-        let matched = target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83");
+        let matched = target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83", "rc003");
         assert_eq!(
             matched.as_ref().map(|(_, installed)| *installed),
             Some(true)
         );
-        assert!(target_for_bluetooth_address(&devices, "aa:bb:cc:dd:ee:ff").is_none());
+        assert!(target_for_bluetooth_address(&devices, "aa:bb:cc:dd:ee:ff", "rc003").is_none());
     }
 
     #[test]
@@ -363,7 +365,7 @@ mod tests {
             true,
             false,
         )];
-        assert!(target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83").is_some());
+        assert!(target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83", "rc003").is_some());
     }
 
     #[test]
@@ -374,7 +376,7 @@ mod tests {
             true,
             false,
         )];
-        let matched = target_for_bluetooth_address(&devices, "C0:5D:39:C2:CF:83");
+        let matched = target_for_bluetooth_address(&devices, "C0:5D:39:C2:CF:83", "rc003");
         assert_eq!(matched.map(|(_, installed)| installed), Some(true));
     }
 

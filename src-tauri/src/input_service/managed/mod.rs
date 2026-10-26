@@ -50,6 +50,8 @@ pub struct Instance {
     pub voice_output_device: Option<String>,
     #[serde(default)]
     pub audio_gain_db: i16,
+    #[serde(default)]
+    pub cmiot_a15_recording_mode: crate::devices::cmiot_a15_recording::RecordingMode,
     #[serde(default, skip_serializing)]
     pub voice_target: Option<String>,
     #[serde(default)]
@@ -100,6 +102,7 @@ pub struct RuntimeStatus {
     pub state: String,
     pub error: Option<String>,
     pub reports: u64,
+    pub recording: bool,
     #[serde(default)]
     pub driver_installed: bool,
     #[serde(default)]
@@ -126,7 +129,7 @@ struct QuarborRegistration {
 struct QuarborRegistry {
     app: tauri::AppHandle,
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
-    channels: Mutex<BTreeMap<String, ManagedQuarborChannel>>,
+    channels: Mutex<BTreeMap<String, (String, ManagedQuarborChannel)>>,
     gate: Arc<AtomicBool>,
 }
 
@@ -157,29 +160,42 @@ impl QuarborRegistry {
             channels.remove(&id);
         }
         for (id, registration) in registrations {
-            if let Some(channel) = channels.get(id) {
-                channel.update_settings(registration.settings.clone());
-                continue;
+            if let Some((target, channel)) = channels.get(id) {
+                if target == &registration.target {
+                    channel.update_settings(registration.settings.clone());
+                    continue;
+                }
             }
+            channels.remove(id);
             let event_emit = Arc::clone(&self.emit);
             let instance_id = id.clone();
+            let pressed_keys = Mutex::new(HashSet::new());
             let emit = Arc::new(move |button: String, pressed: bool| {
-                let mut values = BTreeMap::new();
-                values.insert(button.clone(), if pressed { 1.0 } else { 0.0 });
+                let mut keys = pressed_keys.lock().unwrap();
+                if pressed {
+                    keys.insert(button);
+                } else {
+                    keys.remove(&button);
+                }
+                let values = keys.iter().map(|key| (key.clone(), 1.0)).collect();
                 event_emit(InputEvent {
                     instance_id: instance_id.clone(),
                     values,
-                    pressed: if pressed { vec![button] } else { Vec::new() },
+                    pressed: keys.iter().cloned().collect(),
                 });
             });
             channels.insert(
                 id.clone(),
-                ManagedQuarborChannel::start(
+                (
                     registration.target.clone(),
-                    registration.settings.clone(),
-                    self.app.clone(),
-                    Arc::clone(&self.gate),
-                    emit,
+                    ManagedQuarborChannel::start(
+                        id.clone(),
+                        registration.target.clone(),
+                        registration.settings.clone(),
+                        self.app.clone(),
+                        Arc::clone(&self.gate),
+                        emit,
+                    ),
                 ),
             );
         }
@@ -189,7 +205,7 @@ impl QuarborRegistry {
         self.channels
             .lock()
             .ok()
-            .and_then(|channels| channels.get(id).map(ManagedQuarborChannel::status))
+            .and_then(|channels| channels.get(id).map(|(_, channel)| channel.status()))
     }
 }
 
@@ -538,6 +554,15 @@ impl DeviceManager {
             let _ = worker.join();
         }
     }
+    pub(crate) fn switch_instance_profile(
+        &self,
+        id: &str,
+        direction: ProfileDirection,
+        wrap: bool,
+    ) {
+        switch_profile(&self.shared, id, direction, wrap);
+    }
+
     pub fn set_enabled(&self, enabled: bool) {
         self.shared.enabled.store(enabled, Ordering::Release);
     }
@@ -618,8 +643,8 @@ impl DeviceManager {
             .iter_mut()
             .find(|instance| instance.id == instance_id)
             .ok_or("未找到要更新驱动状态的设备实例")?;
-        if instance.kind != "rc003" {
-            return Err("只有 RC003 支持 Quarbor 设备驱动".into());
+        if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
+            return Err("此设备不支持 Quarbor 按键驱动".into());
         }
         if instance.quarbor_target.as_deref() != Some(target) {
             instance.quarbor_target = Some(target.to_string());
@@ -853,7 +878,8 @@ fn remember_pairing_ids(
                 changed = true;
             }
         }
-        if instance.kind == "rc003" && instance.voice_target.is_none() {
+        if matches!(instance.kind.as_str(), "rc003" | "cmiotA15") && instance.voice_target.is_none()
+        {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
                     && d.kind == instance.kind
@@ -872,6 +898,105 @@ fn remember_pairing_ids(
     match validate(&next).and_then(|_| save(path, &next)) {
         Ok(()) => snapshot.store = next,
         Err(error) => snapshot.error = Some(error),
+    }
+}
+
+#[cfg(windows)]
+pub(crate) fn driver_target(
+    instance: &Instance,
+    instances: &[Instance],
+    discovered: &[Discovered],
+    devices: &[crate::quarbor_installer::Device],
+) -> Option<(String, bool)> {
+    if instance.binding.is_none() {
+        return None;
+    }
+    if let Some(device) = instance.quarbor_target.as_ref().and_then(|target| {
+        devices
+            .iter()
+            .find(|d| d.instance_id.eq_ignore_ascii_case(target) && d.matches_kind(&instance.kind))
+    }) {
+        return Some((
+            device.instance_id.clone(),
+            device.bound || device.recovery_active,
+        ));
+    }
+    let address = instance.voice_target.as_deref().or_else(|| {
+        discovered
+            .iter()
+            .find(|d| Some(&d.id) == instance.binding.as_ref())
+            .and_then(|d| d.bluetooth_address.as_deref())
+    });
+    if let Some(address) = address {
+        return crate::quarbor_installer::target_for_bluetooth_address(
+            devices,
+            address,
+            &instance.kind,
+        );
+    }
+    // Compatibility for old RC003 bindings without a Bluetooth identity.
+    if instance.kind == "rc003"
+        && instances
+            .iter()
+            .filter(|i| i.kind == "rc003" && i.binding.is_some())
+            .count()
+            == 1
+    {
+        return crate::quarbor_installer::unique_installed_rc003_target(devices);
+    }
+    None
+}
+
+#[cfg(windows)]
+fn merge_driver_devices(
+    discovered: &mut Vec<Discovered>,
+    devices: &[crate::quarbor_installer::Device],
+    bindings: &HashSet<String>,
+    pairing_bindings: &HashMap<String, String>,
+) {
+    for device in devices {
+        let (kind, vendor_id, product_id) = if device.matches_kind("cmiotA15") {
+            ("cmiotA15", 0x0416, 0x0300)
+        } else if device.is_rc003() {
+            ("rc003", 0x2717, 0x32b8)
+        } else {
+            continue;
+        };
+        let Some(address) = device
+            .bluetooth_address()
+            .and_then(|address| paired::address(&address))
+        else {
+            continue;
+        };
+        let pairing_id = paired::identity(kind, vendor_id, product_id, &address, &HashSet::new());
+        let id = pairing_bindings
+            .get(&pairing_id)
+            .cloned()
+            .unwrap_or_else(|| paired::identity(kind, vendor_id, product_id, &address, bindings));
+        if let Some(existing) = discovered
+            .iter_mut()
+            .find(|d| d.id == id || d.pairing_id.as_ref() == Some(&pairing_id))
+        {
+            existing.connected |= device.present;
+            continue;
+        }
+        // Offline historical PnP nodes are not proof of an active pairing.
+        if !device.present {
+            continue;
+        }
+        discovered.push(Discovered {
+            id,
+            kind: kind.into(),
+            name: device.name.clone(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id,
+            product_id,
+            connected: true,
+            paired: false,
+            pairing_id: Some(pairing_id),
+            bluetooth_address: Some(address),
+        });
     }
 }
 
@@ -931,6 +1056,14 @@ fn run(shared: Arc<Shared>) {
         let scanning = Instant::now() >= next_scan;
         if scanning {
             next_scan = Instant::now() + Duration::from_secs(2);
+            #[cfg(all(windows, not(test)))]
+            let driver_error = match crate::windows_driver_devices::list() {
+                Ok(devices) => {
+                    driver_devices = devices;
+                    None
+                }
+                Err(error) => Some(error),
+            };
             let result = api.refresh_devices();
             let mut discovered = vec![];
             let mut seen_paths = HashSet::new();
@@ -1029,6 +1162,13 @@ fn run(shared: Arc<Shared>) {
                     &bindings,
                     &pairing_bindings,
                 );
+                #[cfg(all(windows, not(test)))]
+                merge_driver_devices(
+                    &mut discovered,
+                    &driver_devices,
+                    &bindings,
+                    &pairing_bindings,
+                );
                 paths = next_paths;
             }
             let mut snapshot = shared.snapshot.lock().unwrap();
@@ -1038,16 +1178,18 @@ fn run(shared: Arc<Shared>) {
                 .err()
                 .map(|e| e.to_string())
                 .or_else(|| pairing_error.clone());
+            #[cfg(all(windows, not(test)))]
+            if snapshot.scan_error.is_none() {
+                snapshot.scan_error = driver_error;
+            }
             if hid_ok {
                 remember_pairing_ids(&mut snapshot, &discovered, &shared.path);
                 snapshot.discovered = discovered;
             }
         }
-        let config_changed;
         {
             let snapshot = shared.snapshot.lock().unwrap();
-            config_changed = config_revision != snapshot.store.revision;
-            if config_changed {
+            if config_revision != snapshot.store.revision {
                 config_revision = snapshot.store.revision;
                 configs = snapshot.store.instances.clone();
             }
@@ -1058,65 +1200,13 @@ fn run(shared: Arc<Shared>) {
         let mut driver_matches: BTreeMap<String, (Option<String>, bool)> = BTreeMap::new();
         #[cfg(all(windows, not(test)))]
         if shared.quarbor.is_some() {
-            if (scanning || config_changed)
-                && configs
-                    .iter()
-                    .any(|instance| instance.kind == "rc003" && instance.binding.is_some())
-            {
-                match crate::windows_driver_devices::list() {
-                    Ok(devices) => driver_devices = devices,
-                    Err(error) => {
-                        log::warn!(target: "axonkey::input", "Device driver scan failed: {error}");
-                        shared.snapshot.lock().unwrap().scan_error = Some(error);
-                    }
-                }
-            }
             let snapshot = shared.snapshot.lock().unwrap();
             for instance in &configs {
-                if instance.kind != "rc003" {
+                if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
                     continue;
                 }
-                let address = instance.binding.as_ref().and_then(|binding| {
-                    snapshot
-                        .discovered
-                        .iter()
-                        .find(|device| &device.id == binding)
-                        .and_then(|device| device.bluetooth_address.as_deref())
-                });
-                let matched = instance
-                    .quarbor_target
-                    .as_deref()
-                    .and_then(|target| {
-                        driver_devices
-                            .iter()
-                            .find(|device| device.instance_id.eq_ignore_ascii_case(target))
-                            .map(|device| {
-                                (
-                                    device.instance_id.clone(),
-                                    device.bound || device.recovery_active,
-                                )
-                            })
-                    })
-                    .or_else(|| {
-                        address.and_then(|address| {
-                            crate::quarbor_installer::target_for_bluetooth_address(
-                                &driver_devices,
-                                address,
-                            )
-                        })
-                    })
-                    .or_else(|| {
-                        let only_rc003_instance = configs
-                            .iter()
-                            .filter(|candidate| {
-                                candidate.kind == "rc003" && candidate.binding.is_some()
-                            })
-                            .count()
-                            == 1;
-                        only_rc003_instance.then(|| {
-                            crate::quarbor_installer::unique_installed_rc003_target(&driver_devices)
-                        })?
-                    });
+                let matched =
+                    driver_target(instance, &configs, &snapshot.discovered, &driver_devices);
                 driver_matches.insert(
                     instance.id.clone(),
                     matched
@@ -1132,7 +1222,7 @@ fn run(shared: Arc<Shared>) {
                 let Some((Some(target), true)) = driver_matches.get(&instance.id) else {
                     continue;
                 };
-                if instance.kind != "rc003"
+                if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15")
                     || instance.binding.is_none()
                     || !instance.enabled
                     || !enabled
@@ -1146,6 +1236,7 @@ fn run(shared: Arc<Shared>) {
                         settings: super::NativeSettings {
                             enabled: true,
                             behaviors: active_mappings(instance),
+                            cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
                             ..Default::default()
                         },
                     },
@@ -1176,7 +1267,7 @@ fn run(shared: Arc<Shared>) {
             let path = instance.binding.as_ref().and_then(|id| paths.get(id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if instance.kind == "cmiotA15" {
+            } else if instance.kind == "cmiotA15" && !cfg!(windows) {
                 "unsupported"
             } else if instance.binding.is_none() {
                 "unbound"
@@ -1191,20 +1282,22 @@ fn run(shared: Arc<Shared>) {
             }
             .into();
             #[cfg(all(windows, not(test)))]
-            if instance.kind == "rc003" {
+            if matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
                     .cloned()
                     .unwrap_or((None, false));
+                let service = shared
+                    .quarbor
+                    .as_ref()
+                    .and_then(|registry| registry.status(&instance.id));
                 status.driver_installed = installed;
                 status.driver_state = if !installed {
                     "missing"
                 } else if target.is_none() {
                     "disconnected"
-                } else if shared
-                    .quarbor
+                } else if service
                     .as_ref()
-                    .and_then(|registry| registry.status(&instance.id))
                     .is_some_and(|service| service.capture_active)
                 {
                     "connected"
@@ -1212,16 +1305,25 @@ fn run(shared: Arc<Shared>) {
                     "connecting"
                 }
                 .into();
-                if status.state == "opening" {
+                status.recording = service
+                    .as_ref()
+                    .is_some_and(|service| service.cmiot_a15_recording);
+                if enabled && instance.enabled && instance.binding.is_some() {
                     status.state = if !installed {
                         "driverMissing"
-                    } else if target.is_none() {
-                        "disconnected"
+                    } else if service
+                        .as_ref()
+                        .is_some_and(|service| service.capture_active)
+                    {
+                        "exclusive"
                     } else {
-                        "opening"
+                        "disconnected"
                     }
                     .into();
+                    status.error = service.and_then(|service| service.error);
                 }
+                statuses.insert(instance.id.clone(), status);
+                continue;
             }
             if status.state == "opening" && !cfg!(target_os = "macos") && instance.kind != "rc003" {
                 status.state = "unsupported".into();
@@ -1514,6 +1616,7 @@ mod tests {
             binding_pairing_id: None,
             voice_output_device: None,
             audio_gain_db: 0,
+            cmiot_a15_recording_mode: Default::default(),
             voice_target: None,
             quarbor_target: None,
             hide_driver_missing_reminder: None,
@@ -1797,6 +1900,103 @@ mod tests {
         cancel.store(true, Ordering::Release);
         assert!(!actions_current(&manager.shared, &second, &cancel));
     }
+    #[test]
+    #[cfg(windows)]
+    fn a15_discovery_and_driver_resolution_stay_with_each_physical_device() {
+        let node = |address: &str, bound| crate::quarbor_installer::Device {
+            instance_id: format!(
+                r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&010416_PID&0300_REV&0100_{address}\instance"
+            ),
+            hardware_id: String::new(),
+            name: "CMIOT-A15".into(),
+            present: true,
+            bound,
+            recovery_active: false,
+            inf: String::new(),
+            section: String::new(),
+        };
+        let devices = vec![node("AABBCCDDEE01", true), node("AABBCCDDEE02", false)];
+        let mut discovered = vec![];
+        merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+        merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+        assert_eq!(discovered.len(), 2);
+        assert_ne!(discovered[0].id, discovered[1].id);
+        assert!(discovered
+            .iter()
+            .all(|d| d.kind == "cmiotA15" && d.connected));
+        let instances: Vec<_> = discovered
+            .iter()
+            .enumerate()
+            .map(|(index, d)| {
+                let mut item = instance(&format!("remote-{index}"), &d.id);
+                item.kind = "cmiotA15".into();
+                item.voice_target = d.bluetooth_address.clone();
+                item
+            })
+            .collect();
+        for index in 0..2 {
+            assert_eq!(
+                driver_target(&instances[index], &instances, &discovered, &devices),
+                Some((devices[index].instance_id.clone(), index == 0))
+            );
+        }
+        assert_eq!(
+            driver_target(&instances[1], &instances, &[], &devices[..1]),
+            None
+        );
+        let mut unknown = instances[0].clone();
+        unknown.voice_target = None;
+        assert_eq!(
+            driver_target(&unknown, &[unknown.clone()], &[], &devices[..1]),
+            None
+        );
+        let mut wrong_model = instances[0].clone();
+        wrong_model.kind = "rc003".into();
+        assert_eq!(
+            driver_target(&wrong_model, &[wrong_model.clone()], &discovered, &devices),
+            None
+        );
+    }
+
+    #[test]
+    fn a15_driver_binding_recording_mode_and_unbind_are_instance_scoped() {
+        let mut first = instance("desk", "a15-one");
+        first.kind = "cmiotA15".into();
+        first.hide_driver_missing_reminder = Some(true);
+        let mut second = instance("sofa", "a15-two");
+        second.kind = "cmiotA15".into();
+        let manager = offline_manager(vec![first.clone(), second]);
+        first.cmiot_a15_recording_mode = crate::devices::cmiot_a15_recording::RecordingMode::Click;
+        manager.put(0, first).unwrap();
+        manager
+            .remember_quarbor_target("desk", "first-target")
+            .unwrap();
+        manager
+            .remember_quarbor_target("sofa", "second-target")
+            .unwrap();
+        let saved = load(&manager.shared.path).unwrap();
+        assert_eq!(
+            saved.instances[0].cmiot_a15_recording_mode,
+            crate::devices::cmiot_a15_recording::RecordingMode::Click
+        );
+        assert_eq!(
+            saved.instances[1].cmiot_a15_recording_mode,
+            crate::devices::cmiot_a15_recording::RecordingMode::Hold
+        );
+        let unbound = manager.unbind("desk").unwrap();
+        assert!(unbound.store.instances[0].binding.is_none());
+        assert!(unbound.store.instances[0].quarbor_target.is_none());
+        assert!(unbound.store.instances[0]
+            .hide_driver_missing_reminder
+            .is_none());
+        assert_eq!(
+            unbound.store.instances[1].quarbor_target.as_deref(),
+            Some("second-target")
+        );
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
     #[test]
     fn rc003_audio_gain_edits_persist_without_changing_other_devices() {
         let mut first = instance("desk", "remote-one");

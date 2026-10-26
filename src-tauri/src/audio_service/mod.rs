@@ -98,16 +98,17 @@ impl AudioService {
 #[derive(Clone, Debug, Default)]
 pub struct AudioTarget {
     pub instance_id: String,
+    pub kind: String,
     pub voice_target: Option<String>,
     pub output_device: Option<String>,
     pub gain_db: i16,
     pub enabled: bool,
 }
 
-/// Owns one platform audio service per configured RC003 instance.
+/// Owns one platform audio service per configured RC003/A15 instance.
 ///
 /// The legacy service remains available for the old global setup page and the
-/// Windows A15 channel. New RC003 instance UI and commands address a service
+/// unscoped commands. Instance UI and commands address a service
 /// by `instance_id`.
 pub struct AudioServiceManager {
     services: Mutex<BTreeMap<String, Arc<PlatformAudioService>>>,
@@ -124,18 +125,10 @@ impl AudioServiceManager {
         }
     }
 
-    fn default_service(&self) -> Arc<PlatformAudioService> {
-        self.services
-            .lock()
-            .ok()
-            .and_then(|services| services.values().next().cloned())
-            .unwrap_or_else(|| Arc::clone(&self.legacy))
-    }
-
     fn service(&self, instance_id: Option<&str>) -> Option<Arc<PlatformAudioService>> {
         match instance_id {
             Some(id) => self.services.lock().ok()?.get(id).cloned(),
-            None => Some(self.default_service()),
+            None => Some(Arc::clone(&self.legacy)),
         }
     }
 
@@ -181,6 +174,10 @@ impl AudioServiceManager {
                 services
                     .entry(target.instance_id.clone())
                     .or_insert_with(|| {
+                        #[cfg(windows)]
+                        if target.kind == "cmiotA15" {
+                            return Arc::new(PlatformAudioService::start_a15());
+                        }
                         Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
                     })
                     .clone()
@@ -296,24 +293,72 @@ impl AudioServiceManager {
         let _ = instance_id;
     }
 
-    pub(crate) fn set_a15_recording(&self, active: bool) {
+    pub(crate) fn set_a15_input_state(
+        &self,
+        instance_id: Option<&str>,
+        connected: bool,
+        recording: bool,
+    ) {
         #[cfg(target_os = "windows")]
-        self.legacy.set_a15_recording(active);
+        if let Some(service) = self.service(instance_id) {
+            service.set_a15_input_state(connected, recording);
+        }
         #[cfg(not(target_os = "windows"))]
-        let _ = active;
+        let _ = (instance_id, connected, recording);
     }
 
-    pub(crate) fn push_a15_pcm(&self, samples: &[i16]) {
+    pub(crate) fn push_a15_pcm(&self, instance_id: Option<&str>, samples: &[i16]) {
         #[cfg(target_os = "windows")]
-        self.legacy.push_a15_pcm(samples);
+        if let Some(service) = self.service(instance_id) {
+            service.push_a15_pcm(samples);
+        }
         #[cfg(not(target_os = "windows"))]
-        let _ = samples;
+        let _ = (instance_id, samples);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{clamp_gain_db, AUDIO_GAIN_MAX_DB};
+
+    #[cfg(windows)]
+    #[test]
+    fn a15_pcm_and_recording_are_routed_to_the_requested_instance() {
+        use super::*;
+        let first = Arc::new(PlatformAudioService::without_workers());
+        let second = Arc::new(PlatformAudioService::without_workers());
+        let legacy = Arc::new(PlatformAudioService::without_workers());
+        let manager = AudioServiceManager {
+            services: Mutex::new(BTreeMap::from([
+                ("one".into(), first.clone()),
+                ("two".into(), second.clone()),
+            ])),
+            target_identities: Mutex::new(BTreeMap::new()),
+            legacy: legacy.clone(),
+        };
+        assert!(Arc::ptr_eq(&manager.service(None).unwrap(), &legacy));
+        manager.set_a15_input_state(Some("one"), true, true);
+        for _ in 0..11 {
+            manager.push_a15_pcm(Some("one"), &[4000; 320]);
+        }
+        assert!(first.status().received_data);
+        assert!(!second.status().received_data);
+        assert_eq!(legacy.level().peak, 0.0);
+        manager.set_a15_input_state(Some("two"), true, true);
+        for _ in 0..11 {
+            manager.push_a15_pcm(Some("two"), &[8000; 320]);
+        }
+        assert!(second.level().peak > first.level().peak);
+        manager.set_a15_input_state(Some("one"), true, false);
+        assert!(first.status().bluetooth_connected);
+        assert!(!first.status().received_data);
+        assert!(second.status().received_data);
+        manager.set_a15_input_state(Some("one"), false, false);
+        assert!(!first.status().bluetooth_connected);
+        assert!(second.status().bluetooth_connected);
+        manager.push_a15_pcm(Some("removed"), &[16000; 320]);
+        assert_eq!(legacy.level().peak, 0.0);
+    }
 
     #[test]
     fn gain_is_limited_to_driver_range() {
