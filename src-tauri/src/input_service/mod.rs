@@ -7,7 +7,7 @@ pub mod mouse;
 mod profile_switch;
 
 #[cfg(windows)]
-mod windows_quarbor;
+pub(super) mod windows_quarbor;
 
 #[cfg(any(windows, test))]
 mod remote_actions;
@@ -310,7 +310,7 @@ pub(super) enum MouseButton {
 mod macos;
 #[cfg(any(target_os = "windows", test))]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod windows;
+pub(super) mod windows;
 
 #[cfg(target_os = "macos")]
 pub use macos::InputService;

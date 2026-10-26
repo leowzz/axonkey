@@ -436,6 +436,20 @@
   max-width: 720px;
   margin-top: 20px;
 }
+.managed-driver-status-row {
+  max-width: 720px;
+  margin-top: 20px;
+}
+.managed-driver-status-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.managed-driver-status-control strong {
+  color: #547a9c;
+  font-size: 13px;
+  font-weight: 600;
+}
 .managed-instance-output-panel {
   max-width: 720px;
   margin-top: 24px;

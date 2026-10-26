@@ -19,9 +19,11 @@ type Props = {
   permissions: MacPermissions
   onBrandClick: () => void
   onPermissions: () => void
-  onDriver: () => void
   onLegacy: (id: DeviceId) => void
   onOpenAudioCalibration: (instanceId: string) => void
+  onOpenDriverInstall: (instanceId: string) => void
+  onUnbindDevice: (instanceId: string) => Promise<void>
+  onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
   rc003BatteryLevel: number | null
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
@@ -250,7 +252,6 @@ function IntegrationDialog({
   platform,
   permissions,
   onPermissions,
-  onDriver,
   legacyProfiles,
   legacyActiveProfileId,
   onClose,
@@ -415,17 +416,9 @@ function IntegrationDialog({
               )}
               {kind === 'cmiotA15' && <p className="integration-attention">此设备暂不支持输入监听。</p>}
               {platform === 'windows' && kind === 'rc003' && (
-                <div className="integration-attention">
-                  <span>此设备的 Windows 映射仍需使用原工作区。</span>
-                  <button
-                    onClick={() => {
-                      onClose()
-                      onDriver()
-                    }}
-                  >
-                    驱动设置
-                  </button>
-                </div>
+                <p className="integration-attention">
+                  添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
+                </p>
               )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
             </>

@@ -1,7 +1,6 @@
 mod audio_service;
 mod backup_files;
 mod devices;
-mod driver_upgrade;
 mod input_service;
 mod legacy_driver;
 mod profile_switch_overlay;
@@ -497,14 +496,6 @@ fn run_driver_action(
     std::fs::write(&log_path, started)
         .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
 
-    if driver == "input" {
-        let reboot_required = quarbor_installer::run(action, resource_dir, &log_path)?;
-        return Ok(DriverActionResult {
-            log_path: log_path.to_string_lossy().into_owned(),
-            reboot_required,
-        });
-    }
-
     let helper = find_driver_helper(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
         format!("{error}. Log: {}", log_path.display())
@@ -611,7 +602,7 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if !matches!(driver.as_str(), "input" | "audio" | "legacy") {
+    if !matches!(driver.as_str(), "audio" | "legacy") {
         return Err("Unsupported driver kind".into());
     }
     if !matches!(action.as_str(), "install" | "uninstall")
@@ -625,23 +616,11 @@ async fn launch_driver_action(
     {
         use tauri::Manager;
 
-        if _app
-            .state::<driver_upgrade::UpgradeState>()
-            .gate
-            .load(std::sync::atomic::Ordering::Acquire)
-        {
-            return Err("正在检查或升级 Quarbor 驱动，请先处理升级窗口。".into());
-        }
         let resource_dir = _app
             .path()
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         tauri::async_runtime::spawn_blocking(move || {
-            let state = _app.state::<driver_upgrade::UpgradeState>();
-            let _operation = state
-                .operation
-                .try_lock()
-                .map_err(|_| "已有驱动操作正在执行，请稍后重试。")?;
             run_driver_action(&driver, &action, &resource_dir)
         })
         .await
@@ -675,6 +654,98 @@ async fn launch_driver_action(
         let _ = driver;
         let _ = action;
         Err("Driver installation is only supported on Windows and macOS".into())
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn run_device_driver_action(
+    action: &str,
+    resource_dir: &std::path::Path,
+    target: &str,
+) -> Result<DriverActionResult, String> {
+    let log_path = driver_log_path("input", action)?;
+    std::fs::write(
+        &log_path,
+        format!(
+            "Axonkey device driver {action} requested for {target:?}: {:?}\r\n",
+            std::time::SystemTime::now()
+        ),
+    )
+    .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
+    let reboot_required =
+        quarbor_installer::run_for_device(action, resource_dir, target, &log_path)?;
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required,
+    })
+}
+
+#[tauri::command]
+async fn install_device_driver(
+    _app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<DriverActionResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        let target = resolve_quarbor_target(&_app, &instance_id)?;
+        let resource_dir = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        let target_for_store = target.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            run_device_driver_action("install", &resource_dir, &target)
+        })
+        .await
+        .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+        _app.state::<DeviceManager>()
+            .remember_quarbor_target(&instance_id, &target_for_store)?;
+        Ok(result)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (_app, instance_id);
+        Err("设备驱动安装仅支持 Windows".into())
+    }
+}
+
+#[tauri::command]
+async fn unbind_device_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<DeviceSnapshot, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        if let Some(target) = resolve_installed_quarbor_target(&app, &instance_id)? {
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+            tauri::async_runtime::spawn_blocking(move || {
+                run_device_driver_action("uninstall", &resource_dir, &target)
+            })
+            .await
+            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+        }
+
+        let manager = app.state::<DeviceManager>();
+        let snapshot = manager.unbind(&instance_id)?;
+        app.state::<AudioServiceManager>()
+            .sync_instances(&audio_targets(&snapshot));
+        return Ok(snapshot);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri::Manager;
+        let manager = app.state::<DeviceManager>();
+        let snapshot = manager.unbind(&instance_id)?;
+        app.state::<AudioServiceManager>()
+            .sync_instances(&audio_targets(&snapshot));
+        Ok(snapshot)
     }
 }
 
@@ -854,7 +925,6 @@ fn open_external_page(page: String) -> Result<(), String> {
 #[derive(serde::Serialize)]
 struct SystemProbe {
     platform: &'static str,
-    input_driver_installed: bool,
     rc003_connected: bool,
     rc003_battery_level: Option<u8>,
     input_backend_ready: bool,
@@ -891,6 +961,100 @@ fn powershell_output(expression: &str) -> Option<String> {
 #[cfg(target_os = "windows")]
 fn powershell_probe(expression: &str) -> bool {
     powershell_output(expression).as_deref() == Some("1")
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
+    use tauri::Manager;
+
+    let snapshot = app.state::<DeviceManager>().snapshot();
+    let instance = snapshot
+        .store
+        .instances
+        .iter()
+        .find(|instance| instance.id == instance_id && instance.kind == "rc003")
+        .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
+    if let Some(target) = instance.quarbor_target.as_deref() {
+        return Ok(target.to_string());
+    }
+    let address = instance
+        .binding
+        .as_ref()
+        .and_then(|binding| {
+            snapshot
+                .discovered
+                .iter()
+                .find(|device| &device.id == binding)
+        })
+        .and_then(|device| device.bluetooth_address.as_deref())
+        .ok_or_else(|| "该设备当前没有可用的蓝牙地址，请先连接并唤醒设备。".to_string())?;
+    let resources = app
+        .path()
+        .resource_dir()
+        .map_err(|error| error.to_string())?;
+    let devices = quarbor_installer::list(&resources)?;
+    quarbor_installer::target_for_bluetooth_address(&devices, address)
+        .map(|(target, _)| target)
+        .ok_or_else(|| "未找到该设备对应的 Quarbor 设备节点，请先连接并唤醒设备。".into())
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_installed_quarbor_target(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Option<String>, String> {
+    use tauri::Manager;
+
+    let snapshot = app.state::<DeviceManager>().snapshot();
+    let instance = snapshot
+        .store
+        .instances
+        .iter()
+        .find(|instance| instance.id == instance_id)
+        .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
+    if instance.kind != "rc003" || instance.binding.is_none() {
+        return Ok(None);
+    }
+    let resources = app
+        .path()
+        .resource_dir()
+        .map_err(|error| error.to_string())?;
+    let devices = quarbor_installer::list(&resources)?;
+    if let Some(target) = instance.quarbor_target.as_deref() {
+        return Ok(devices
+            .iter()
+            .find(|device| device.instance_id.eq_ignore_ascii_case(target))
+            .filter(|device| device.bound || device.recovery_active)
+            .map(|device| device.instance_id.clone()));
+    }
+    let address = instance
+        .binding
+        .as_ref()
+        .and_then(|binding| {
+            snapshot
+                .discovered
+                .iter()
+                .find(|device| &device.id == binding)
+        })
+        .and_then(|device| device.bluetooth_address.as_deref());
+    Ok(address
+        .and_then(|address| {
+            quarbor_installer::target_for_bluetooth_address(&devices, address)
+                .filter(|(_, installed)| *installed)
+                .map(|(target, _)| target)
+        })
+        .or_else(|| {
+            let only_rc003_instance = snapshot
+                .store
+                .instances
+                .iter()
+                .filter(|candidate| candidate.kind == "rc003" && candidate.binding.is_some())
+                .count()
+                == 1;
+            only_rc003_instance
+                .then(|| quarbor_installer::unique_installed_rc003_target(&devices))?
+                .map(|(target, _)| target)
+        }))
 }
 
 #[tauri::command]
@@ -1414,18 +1578,8 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|error| error.to_string())?;
-        let devices =
-            tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
-                .await
-                .map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
-        let input_driver_installed = devices.iter().any(|device| device.needs_uninstall());
         Ok(SystemProbe {
             platform: "windows",
-            input_driver_installed,
             rc003_connected: input_status.device_connected,
             rc003_battery_level: None,
             input_backend_ready: input_status.backend_ready,
@@ -1445,7 +1599,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
         let audio_status = audio_service.status(None);
         Ok(SystemProbe {
             platform: "macos",
-            input_driver_installed: true,
             rc003_connected: rc003_connected(
                 input_status.device_connected,
                 audio_status.bluetooth_connected,
@@ -1465,7 +1618,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     {
         Ok(SystemProbe {
             platform: "unsupported",
-            input_driver_installed: false,
             rc003_connected: false,
             rc003_battery_level: None,
             input_backend_ready: input_status.backend_ready,
@@ -1552,12 +1704,10 @@ pub fn run() {
             }
             app.manage(AudioServiceManager::start());
             #[cfg(target_os = "windows")]
-            let input_service = {
-                let upgrade = driver_upgrade::UpgradeState::default();
-                let gate = upgrade.gate.clone();
-                app.manage(upgrade);
-                InputService::start(app.path().resource_dir().ok(), gate)
-            };
+        let input_service = InputService::start(
+                app.path().resource_dir().ok(),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
             #[cfg(not(target_os = "windows"))]
             let input_service = InputService::start();
             app.manage(input_service);
@@ -1586,8 +1736,6 @@ pub fn run() {
             } else {
                 show_main_window(app.handle());
             }
-            #[cfg(windows)]
-            driver_upgrade::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
         })
@@ -1603,9 +1751,6 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                if window.try_state::<driver_upgrade::UpgradeState>().is_some_and(|state| state.blocks_close()) {
-                    return;
-                }
                 let _ = window.hide();
                 log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 
@@ -1627,10 +1772,8 @@ pub fn run() {
             get_log_info,
             open_log_directory,
             launch_driver_action,
-            driver_upgrade::get_driver_upgrade_state,
-            driver_upgrade::check_driver_upgrade_before_install,
-            driver_upgrade::start_driver_upgrade,
-            driver_upgrade::dismiss_driver_upgrade,
+            install_device_driver,
+            unbind_device_instance,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,
@@ -1662,10 +1805,6 @@ pub fn run() {
         .expect("error while building Axonkey")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-                if app.try_state::<driver_upgrade::UpgradeState>().is_some_and(|state| state.blocks_close()) {
-                    api.prevent_exit();
-                    show_main_window(app);
-                }
             }
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<DeviceManager>().shutdown();

@@ -15,6 +15,7 @@ export type DeviceInstance = {
   bindingPairingId?: string | null
   voiceOutputDevice?: string | null
   audioGainDb?: number
+  quarborTarget?: string | null
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
@@ -35,7 +36,16 @@ export type DiscoveredDevice = {
 export type DeviceSnapshot = {
   store: { version: number; revision: number; instances: DeviceInstance[] }
   discovered: DiscoveredDevice[]
-  runtime: Record<string, { state: string; error: string | null; reports: number }>
+  runtime: Record<
+    string,
+    {
+      state: string
+      error: string | null
+      reports: number
+      driverInstalled?: boolean
+      driverState?: string
+    }
+  >
   error: string | null
   scanError: string | null
   scanning: boolean

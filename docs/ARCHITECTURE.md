@@ -34,7 +34,7 @@ macOS
     -> MiRemoteV 2ch input selected by the consuming application
 ```
 
-The input service discovers the RC003 `BTHLEDEVICE` parent, computes the Quarbor pipe hash, and accepts only frames from that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
+The device manager discovers each RC003 instance, resolves its Bluetooth address to the matching Quarbor node, and starts one pipe client for that instance. Other keyboards do not enter Axonkey's event loop and therefore cannot be suppressed by an RC003 mapping.
 
 The Windows Universal client is implemented in Rust. `protox` and `prost-build` generate
 types from the vendor schema without protoc; Tokio handles the duplex pipe,
@@ -110,7 +110,7 @@ paused; see [measurements, limitations, and shelved experiments](RC003_AUDIO_LAT
 The experimental background queue and post-stop packet handling are not part of
 the current implementation and must not be described as confirmed fixes.
 
-The first-run guide presents Quarbor and VB-CABLE on one driver setup page. Tauri invokes the bundled QuarborUniversalKeyboardDriverInstaller.exe directly. Its --list JSON provides binding and recovery state without elevation; --install targets the online RC003 BTHLEDEVICE parent and lets the installer request UAC. App uninstall invokes --uninstall-all so the installer can restore online and offline instances, including legacy Quarbor bindings, before removing its published packages. The installer owns package staging and restoration; the UI uses its rebootRequired result and accepts exit code 3010 as success requiring a reboot.
+The first-run guide does not install or probe the Windows input driver. After an RC003 instance is added, its workspace resolves the matching Quarbor node and invokes `--install <instanceId>` for that device only. Runtime status is read from that same node and is shown in the instance settings panel; a missing driver opens the per-device install dialog. The installer owns package staging and restoration, while the UI uses its `rebootRequired` result and accepts exit code 3010 as success requiring a reboot.
 The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
 the archive hash, extracted x64 installer hash, and Authenticode publisher
 signature before requesting elevation. Driver readiness is detected from the

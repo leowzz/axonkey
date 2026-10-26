@@ -9,13 +9,7 @@
 
 export const setupStorageKey = 'axonkey.setup.v1'
 
-export const setupStepIds = [
-  'welcome',
-  'legacyCleanup',
-  'deviceConnection',
-  'inputDriver',
-  'complete',
-] as const
+export const setupStepIds = ['welcome', 'legacyCleanup', 'deviceConnection', 'inputDriver', 'complete'] as const
 
 export type SetupStepId = (typeof setupStepIds)[number]
 export type SetupStepStatus = 'pending' | 'active' | 'complete' | 'skipped'
@@ -47,10 +41,7 @@ export type LegacyCleanupActionState = {
   logPath?: string
 }
 
-export const skippableSetupStepIds = [
-  'deviceConnection',
-  'inputDriver',
-] as const satisfies readonly SetupStepId[]
+export const skippableSetupStepIds = ['deviceConnection', 'inputDriver'] as const satisfies readonly SetupStepId[]
 
 export type SkippableSetupStepId = (typeof skippableSetupStepIds)[number]
 
@@ -64,7 +55,7 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
   {
     id: 'legacyCleanup',
     title: '卸载旧驱动',
-    description: '清理旧版输入组件，再安装新的 Quarbor Universal 驱动。',
+    description: '清理旧版输入组件，避免它们继续占用设备。',
     skippable: false,
   },
   {
@@ -76,7 +67,7 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
   {
     id: 'inputDriver',
     title: '配置输入环境',
-    description: '按当前系统安装 Windows 驱动或授予 macOS 原生输入权限。',
+    description: '在 macOS 上授予原生输入权限，并按需配置语音输入。',
     skippable: true,
   },
   {
@@ -89,15 +80,7 @@ export const setupStepDefinitions: readonly SetupStepDefinition[] = [
 
 export type DriverKind = 'input' | 'audio'
 
-export const driverKinds = ['input', 'audio'] as const
-
-export type DriverStatus =
-  | 'unknown'
-  | 'checking'
-  | 'missing'
-  | 'installed'
-  | 'restartRequired'
-  | 'error'
+export type DriverStatus = 'unknown' | 'checking' | 'missing' | 'installed' | 'restartRequired' | 'error'
 
 export type DriverActionKind = 'install' | 'uninstall'
 export type DriverActionStatus = 'idle' | 'running' | 'succeeded' | 'skipped' | 'failed'
@@ -121,13 +104,7 @@ export type DriverState = {
 }
 
 export type DeviceConnectionStatus =
-  | 'unknown'
-  | 'checking'
-  | 'disconnected'
-  | 'connecting'
-  | 'connected'
-  | 'unsupported'
-  | 'error'
+  'unknown' | 'checking' | 'disconnected' | 'connecting' | 'connected' | 'unsupported' | 'error'
 
 export type DeviceConnectionState = {
   status: DeviceConnectionStatus
@@ -151,32 +128,6 @@ export type SetupState = {
   drivers: Record<DriverKind, DriverState>
   device: DeviceConnectionState
   updatedAt: number
-}
-
-export type DriverDefinition = {
-  kind: DriverKind
-  title: string
-  description: string
-  required: boolean
-  installerPath: string
-}
-
-/** Paths mirror the installers shipped in the repository. */
-export const driverDefinitions: Record<DriverKind, DriverDefinition> = {
-  input: {
-    kind: 'input',
-    title: 'Quarbor Universal 键盘驱动',
-    description: '驱动获取遥控器按键输入。',
-    required: true,
-    installerPath: 'vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriverInstaller.exe',
-  },
-  audio: {
-    kind: 'audio',
-    title: 'CABLE 虚拟麦克风',
-    description: '安装 VB-Audio VB-CABLE，使 Windows 出现 CABLE Output 虚拟录音设备。',
-    required: false,
-    installerPath: 'scripts/vbcable-driver.ps1',
-  },
 }
 
 const defaultTimestamp = 0
@@ -239,18 +190,29 @@ function normalizeCurrentStep(value: unknown): SetupStepId {
   return isSetupStepId(value) ? value : 'welcome'
 }
 
-function isDriverKind(value: unknown): value is DriverKind {
-  return typeof value === 'string' && (driverKinds as readonly string[]).includes(value)
-}
-
 function isStatus<T extends string>(value: unknown, values: readonly T[]): value is T {
   return typeof value === 'string' && values.includes(value as T)
 }
 
 const stepStatuses: readonly SetupStepStatus[] = ['pending', 'active', 'complete', 'skipped']
-const driverStatuses: readonly DriverStatus[] = ['unknown', 'checking', 'missing', 'installed', 'restartRequired', 'error']
+const driverStatuses: readonly DriverStatus[] = [
+  'unknown',
+  'checking',
+  'missing',
+  'installed',
+  'restartRequired',
+  'error',
+]
 const actionStatuses: readonly DriverActionStatus[] = ['idle', 'running', 'succeeded', 'skipped', 'failed']
-const connectionStatuses: readonly DeviceConnectionStatus[] = ['unknown', 'checking', 'disconnected', 'connecting', 'connected', 'unsupported', 'error']
+const connectionStatuses: readonly DeviceConnectionStatus[] = [
+  'unknown',
+  'checking',
+  'disconnected',
+  'connecting',
+  'connected',
+  'unsupported',
+  'error',
+]
 
 function cleanText(value: unknown) {
   return typeof value === 'string' ? value.trim() : undefined
@@ -334,8 +296,12 @@ function normalizeLegacyCleanup(value: unknown, fallback: LegacyCleanupState): L
   const components = {
     frida: Boolean(value.components && isRecord(value.components) && value.components.frida === true),
     interception: Boolean(value.components && isRecord(value.components) && value.components.interception === true),
-    interceptionFix: Boolean(value.components && isRecord(value.components) && value.components.interceptionFix === true),
-    namedPipeServer: Boolean(value.components && isRecord(value.components) && value.components.namedPipeServer === true),
+    interceptionFix: Boolean(
+      value.components && isRecord(value.components) && value.components.interceptionFix === true,
+    ),
+    namedPipeServer: Boolean(
+      value.components && isRecord(value.components) && value.components.namedPipeServer === true,
+    ),
   }
   const statuses = ['unknown', 'checking', 'present', 'clear', 'error'] as const
   const status = isStatus(value.status, statuses) ? value.status : fallback.status
@@ -378,7 +344,7 @@ export function parseStoredSetup(value: unknown): SetupState {
   const rawDrivers = isRecord(parsed.drivers) ? parsed.drivers : {}
   const currentStep = normalizeCurrentStep(parsed.currentStep)
   const steps = Object.fromEntries(
-    setupStepIds.map((id) => [
+    setupStepIds.map(id => [
       id,
       id === 'inputDriver'
         ? normalizeDriverSetupStep(rawSteps, fallback.steps.inputDriver)
@@ -454,7 +420,10 @@ export function clearSetupState(storage?: Storage) {
 function cloneState(state: SetupState): SetupState {
   return {
     ...state,
-    steps: Object.fromEntries(setupStepIds.map((id) => [id, { ...state.steps[id] }])) as Record<SetupStepId, SetupStepState>,
+    steps: Object.fromEntries(setupStepIds.map(id => [id, { ...state.steps[id] }])) as Record<
+      SetupStepId,
+      SetupStepState
+    >,
     drivers: {
       input: { ...state.drivers.input, action: { ...state.drivers.input.action } },
       audio: { ...state.drivers.audio, action: { ...state.drivers.audio.action } },
@@ -473,21 +442,27 @@ export function canSkipSetupStep(step: SetupStepId): step is SkippableSetupStepI
 }
 
 export function getNextSetupStep(state: SetupState): SetupStepId {
-  const next = setupStepIds.find((id) => id !== 'complete' && !['complete', 'skipped'].includes(state.steps[id].status))
+  const next = setupStepIds.find(id => id !== 'complete' && !['complete', 'skipped'].includes(state.steps[id].status))
   return next ?? 'complete'
 }
 
 export function isSetupComplete(state: SetupState): boolean {
   if (state.setupSkipped) return true
-  return setupStepIds.every((id) => id === 'complete'
-    ? state.steps[id].status === 'complete'
-    : ['complete', 'skipped'].includes(state.steps[id].status))
+  return setupStepIds.every(id =>
+    id === 'complete'
+      ? state.steps[id].status === 'complete'
+      : ['complete', 'skipped'].includes(state.steps[id].status),
+  )
 }
 
 export function setCurrentSetupStep(state: SetupState, step: SetupStepId): SetupState {
   const next = cloneState(state)
   next.currentStep = step
-  next.steps[step] = { ...next.steps[step], visited: true, status: next.steps[step].status === 'pending' ? 'active' : next.steps[step].status }
+  next.steps[step] = {
+    ...next.steps[step],
+    visited: true,
+    status: next.steps[step].status === 'pending' ? 'active' : next.steps[step].status,
+  }
   next.updatedAt = Date.now()
   return next
 }
@@ -536,7 +511,12 @@ export function setLegacyCleanupProbe(
       next.steps[next.currentStep] = {
         ...next.steps[next.currentStep],
         visited: true,
-        status: next.currentStep === 'complete' ? 'complete' : next.steps[next.currentStep].status === 'pending' ? 'active' : next.steps[next.currentStep].status,
+        status:
+          next.currentStep === 'complete'
+            ? 'complete'
+            : next.steps[next.currentStep].status === 'pending'
+              ? 'active'
+              : next.steps[next.currentStep].status,
       }
     }
   }
@@ -573,7 +553,11 @@ export function completeSetupStep(state: SetupState, step: SetupStepId): SetupSt
   next.steps[step] = { status: 'complete', visited: true }
   next.setupSkipped = false
   next.currentStep = getNextSetupStep(next)
-  next.steps[next.currentStep] = { ...next.steps[next.currentStep], visited: true, status: next.currentStep === 'complete' ? 'complete' : 'active' }
+  next.steps[next.currentStep] = {
+    ...next.steps[next.currentStep],
+    visited: true,
+    status: next.currentStep === 'complete' ? 'complete' : 'active',
+  }
   next.updatedAt = Date.now()
   return next
 }
@@ -583,7 +567,11 @@ export function skipSetupStep(state: SetupState, step: SetupStepId): SetupState 
   const next = cloneState(state)
   next.steps[step] = { status: 'skipped', visited: true }
   next.currentStep = getNextSetupStep(next)
-  next.steps[next.currentStep] = { ...next.steps[next.currentStep], visited: true, status: next.currentStep === 'complete' ? 'complete' : 'active' }
+  next.steps[next.currentStep] = {
+    ...next.steps[next.currentStep],
+    visited: true,
+    status: next.currentStep === 'complete' ? 'complete' : 'active',
+  }
   next.updatedAt = Date.now()
   return next
 }
@@ -620,7 +608,12 @@ export function setDriverStatus(
   return next
 }
 
-export function beginDriverAction(state: SetupState, driver: DriverKind, kind: DriverActionKind, now = Date.now()): SetupState {
+export function beginDriverAction(
+  state: SetupState,
+  driver: DriverKind,
+  kind: DriverActionKind,
+  now = Date.now(),
+): SetupState {
   const next = cloneState(state)
   next.drivers[driver] = {
     ...next.drivers[driver],

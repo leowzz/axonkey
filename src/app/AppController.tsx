@@ -18,7 +18,6 @@ import {
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProfiles } from '../deviceProfiles'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
-import { StartupDriverUpgrade, useDriverUpgradeCheck } from '../components/DriverUpgradeDialog'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -90,6 +89,7 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
+import { ManagedDriverDialog } from '../components/ManagedDriverDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import type { DeviceOverviewItem } from '../components/MyDevicesPage'
@@ -115,7 +115,6 @@ import {
   beginDriverAction,
   activateSetupStep,
   completeSetupStep,
-  driverDefinitions,
   finishDriverAction,
   finishLegacyCleanup,
   loadSetupState,
@@ -125,7 +124,6 @@ import {
   setDeviceConnection,
   setDriverStatus,
   setLegacyCleanupProbe,
-  setSetupStepStatus,
   skipSetup,
   skipSetupStep,
 } from '../setupModel'
@@ -295,7 +293,11 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(false)
-  const driverUpgradeCheck = useDriverUpgradeCheck()
+  const [managedDriverDialog, setManagedDriverDialog] = useState<{
+    instanceId: string
+    status: 'idle' | 'running' | 'error'
+    error?: string
+  } | null>(null)
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(
     nativeRuntime ? 'loading' : 'ready',
   )
@@ -1291,6 +1293,7 @@ function AppController() {
   }
 
   const openSetupStep = (step: SetupStepId) => {
+    if (platform === 'windows' && step === 'inputDriver') step = 'deviceConnection'
     if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
       step = 'legacyCleanup'
     }
@@ -1303,14 +1306,12 @@ function AppController() {
 
   const completeCurrentSetupStep = () => {
     updateSetup(current => {
-      if (platform === 'windows' && current.currentStep === 'inputDriver') {
-        const inputStatus = current.drivers.input.status
-        if (inputStatus !== 'installed' && inputStatus !== 'restartRequired') return current
-      }
       const next = completeSetupStep(current, current.currentStep)
       // The shared setup model follows the Windows dependency order. macOS
       // still starts with permissions/audio and connects the remote second.
-      return platform === 'macos' && current.currentStep === 'welcome' ? setCurrentSetupStep(next, 'inputDriver') : next
+      if (platform === 'macos' && current.currentStep === 'welcome') return setCurrentSetupStep(next, 'inputDriver')
+      if (platform === 'windows' && next.currentStep === 'inputDriver') return completeSetupStep(next, 'inputDriver')
+      return next
     })
   }
 
@@ -1319,55 +1320,14 @@ function AppController() {
   }
 
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
-    if (nativeRuntime && platform === 'windows' && driver === 'input' && action === 'install') {
-      try {
-        if (!(await driverUpgradeCheck.checkBeforeInstall())) return
-      } catch (error) {
-        logError('Quarbor pre-install upgrade check failed', error)
-        updateSetup(current =>
-          finishDriverAction(current, driver, action, {
-            success: false,
-            status: 'error',
-            error: String(error),
-          }),
-        )
-        return
-      }
-    }
-    if (
-      platform === 'windows' &&
-      driver === 'input' &&
-      action === 'install' &&
-      setupState.device.status !== 'connected'
-    ) {
-      const message =
-        setupState.device.status === 'checking'
-          ? '正在检查 RC003 连接状态，请等待检测完成后重试。'
-          : '未检测到在线的 RC003。请先连接并唤醒小米遥控器，再安装 Quarbor Universal 键盘驱动。'
-      updateSetup(current =>
-        finishDriverAction(current, driver, action, {
-          success: false,
-          status: 'error',
-          error: message,
-        }),
-      )
-      logError(`Driver action blocked: ${driver}/${action}`, message)
-      return
-    }
+    if (driver === 'input') return
     updateSetup(current => beginDriverAction(current, driver, action))
     try {
       logInfo(`Starting driver action: ${driver}/${action}`)
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
       const driverName = driver === 'audio' ? (platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE') : '按键驱动'
       const restartRequired = result.rebootRequired
-      const reportedStatus =
-        platform === 'windows' && driver === 'input'
-          ? 'checking'
-          : action === 'install'
-            ? restartRequired
-              ? 'restartRequired'
-              : 'installed'
-            : 'missing'
+      const reportedStatus = action === 'install' ? (restartRequired ? 'restartRequired' : 'installed') : 'missing'
       updateSetup(current =>
         finishDriverAction(current, driver, action, {
           success: true,
@@ -1380,7 +1340,6 @@ function AppController() {
         }),
       )
       if (platform === 'macos') window.setTimeout(() => void probeAudioState(), 800)
-      if (platform === 'windows' && driver === 'input') await probeSystemState(true)
       logInfo(`Driver action completed: ${driver}/${action}`)
     } catch (error) {
       logError(`Driver action failed: ${driver}/${action}`, error)
@@ -1392,6 +1351,58 @@ function AppController() {
           error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
         }),
       )
+    }
+  }
+
+  const installManagedDriver = async () => {
+    const dialog = managedDriverDialog
+    if (!dialog) return
+    setManagedDriverDialog(current => (current ? { ...current, status: 'running', error: undefined } : current))
+    try {
+      const result = await invoke<DriverActionResult>('install_device_driver', {
+        instanceId: dialog.instanceId,
+      })
+      await deviceInstances.refresh()
+      await new Promise(resolve => window.setTimeout(resolve, 900))
+      await deviceInstances.refresh()
+      setManagedDriverDialog(null)
+      setToast(
+        result.rebootRequired ? '该设备驱动已安装，重启 Windows 后完成接管' : '该设备的 Quarbor Universal 驱动已安装',
+      )
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (error) {
+      setManagedDriverDialog(current => (current ? { ...current, status: 'error', error: String(error) } : current))
+    }
+  }
+
+  const unbindManagedInstance = async (instanceId: string) => {
+    try {
+      if (nativeRuntime) {
+        await invoke('unbind_device_instance', { instanceId })
+      } else {
+        await deviceInstances.update(instanceId, item => ({ ...item, binding: null }))
+      }
+      await deviceInstances.refresh()
+      setToast('物理设备已解除绑定')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (error) {
+      setToast(String(error))
+      window.setTimeout(() => setToast(''), 4200)
+      throw error
+    }
+  }
+
+  const removeManagedInstance = async (instanceId: string) => {
+    await unbindManagedInstance(instanceId)
+    try {
+      await deviceInstances.remove(instanceId)
+      await deviceInstances.refresh()
+      setToast('设备已移除')
+      window.setTimeout(() => setToast(''), 3200)
+    } catch (error) {
+      setToast(String(error))
+      window.setTimeout(() => setToast(''), 4200)
+      throw error
     }
   }
 
@@ -1507,16 +1518,6 @@ function AppController() {
     window.setTimeout(() => setToast(''), 2400)
   }
 
-  const openExternalPage = async (page: 'vbcable') => {
-    try {
-      await invoke('open_external_page', { page })
-    } catch (error) {
-      logError('Failed to open the VB-Audio page', error)
-      setToast('无法打开 VB-Audio 官方页面')
-      window.setTimeout(() => setToast(''), 2200)
-    }
-  }
-
   const openLogDirectory = async () => {
     try {
       const info = await invoke<{ directory: string; currentFile: string }>('open_log_directory')
@@ -1567,11 +1568,7 @@ function AppController() {
       return false
     systemProbeRunningRef.current = true
     if (showChecking) {
-      updateSetup(current => {
-        let next = setDriverStatus(current, 'input', 'checking', { message: '正在检查按键拦截驱动…' })
-        if (platform === 'windows') next = setSetupStepStatus(next, 'inputDriver', 'active')
-        return setDeviceConnection(next, { status: 'checking', message: '正在检查 RC003…' })
-      })
+      updateSetup(current => setDeviceConnection(current, { status: 'checking', message: '正在检查 RC003…' }))
     }
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
@@ -1602,7 +1599,7 @@ function AppController() {
                   ? 'IOKit 已识别 RC003，原始按键已被拦截。'
                   : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
               : probe.device_hardware_id
-                ? 'Quarbor Universal 驱动已识别并接管 RC003。'
+                ? 'Windows 已检测到 RC003；设备驱动状态请在设备工作区查看。'
                 : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
         }
         const disconnectedDevice = {
@@ -1613,46 +1610,30 @@ function AppController() {
         }
         const device = probe.rc003_connected ? connectedDevice : disconnectedDevice
         const macPermissionsReady = probe.input_monitoring_granted === true && probe.accessibility_granted === true
-        const inputStatus =
-          probe.platform === 'macos'
-            ? probe.input_authorization_stale
+        const inputStatus = probe.input_authorization_stale
+          ? 'error'
+          : !macPermissionsReady
+            ? 'missing'
+            : probe.input_backend_error
               ? 'error'
-              : !macPermissionsReady
-                ? 'missing'
-                : probe.input_backend_error
-                  ? 'error'
-                  : probe.input_backend_ready
-                    ? 'installed'
-                    : 'checking'
-            : !probe.input_driver_installed
-              ? 'missing'
-              : probe.input_backend_error
-                ? 'error'
-                : 'installed'
-        const inputMessage =
+              : probe.input_backend_ready
+                ? 'installed'
+                : 'checking'
+        const inputMessage = probe.input_authorization_stale
+          ? '当前构建的输入监控授权已失效。请在系统设置中移除旧 Axonkey，重新添加当前 Axonkey.app 并打开开关。'
+          : !macPermissionsReady
+            ? '需要授予输入监控和辅助功能权限。'
+            : probe.input_backend_error
+              ? mappingRecovering
+                ? 'RC003 硬件按键映射尚未恢复，正在自动重试。'
+                : `输入服务异常：${probe.input_backend_error}`
+              : probe.capture_active
+                ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
+                : 'macOS 原生输入服务已就绪。'
+        let next =
           probe.platform === 'macos'
-            ? probe.input_authorization_stale
-              ? '当前构建的输入监控授权已失效。请在系统设置中移除旧 Axonkey，重新添加当前 Axonkey.app 并打开开关。'
-              : !macPermissionsReady
-                ? '需要授予输入监控和辅助功能权限。'
-                : probe.input_backend_error
-                  ? mappingRecovering
-                    ? 'RC003 硬件按键映射尚未恢复，正在自动重试。'
-                    : `输入服务异常：${probe.input_backend_error}`
-                  : probe.capture_active
-                    ? 'macOS 原生输入服务已接管并拦截 RC003 原始按键。'
-                    : 'macOS 原生输入服务已就绪。'
-            : !probe.input_driver_installed
-              ? '未检测到 Quarbor Universal 驱动。'
-              : probe.input_backend_error
-                ? `驱动已安装，但输入服务启动失败：${probe.input_backend_error}`
-                : probe.input_backend_ready
-                  ? 'Quarbor Universal 输入服务工作正常。'
-                  : '已检测到 Quarbor Universal 驱动，输入服务正在启动。'
-        let next = setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
-        if (probe.platform === 'windows') {
-          next = setSetupStepStatus(next, 'inputDriver', inputStatus === 'installed' ? 'complete' : 'active')
-        }
+            ? setDriverStatus(current, 'input', inputStatus, { message: inputMessage })
+            : current
         if (!showChecking) {
           const unchanged =
             next.device.status === device.status &&
@@ -1669,8 +1650,7 @@ function AppController() {
       logError('System probe failed', error)
       if (showChecking) {
         updateSetup(current => {
-          const next = setDriverStatus(current, 'input', 'error', { message: `按键驱动检测失败：${String(error)}` })
-          return setDeviceConnection(next, { status: 'error', message: String(error) })
+          return setDeviceConnection(current, { status: 'error', message: String(error) })
         })
       }
       setSystemProbeState('error')
@@ -2239,7 +2219,6 @@ function AppController() {
               device={setupState.device}
               onOpenBluetooth={() => void openSystemSettings('bluetooth')}
               onCheckDevice={checkDeviceConnection}
-              onOpenDriver={() => openSetupStep('inputDriver')}
             />
           ) : (
             <HomeDashboard
@@ -2256,8 +2235,12 @@ function AppController() {
                     setSettingsSection('permissions')
                     navigateToPage('settings')
                   }}
-                  onDriver={() => openSetupStep('inputDriver')}
                   onOpenAudioCalibration={openInstanceAudioCalibration}
+                  onOpenDriverInstall={instanceId => {
+                    setManagedDriverDialog(current => current ?? { instanceId, status: 'idle' })
+                  }}
+                  onUnbindDevice={unbindManagedInstance}
+                  onRemoveDevice={removeManagedInstance}
                   onLegacy={deviceId => {
                     setSelectedDeviceId(deviceId)
                     const device = devices.find(d => d.id === deviceId)!
@@ -2474,11 +2457,18 @@ function AppController() {
           }}
         />
       )}
-      <StartupDriverUpgrade
-        key={driverUpgradeCheck.revision}
-        enabled={nativeRuntime && platform === 'windows'}
-        onComplete={() => void probeSystemState(true)}
-      />
+      {managedDriverDialog && (
+        <ManagedDriverDialog
+          deviceName={
+            deviceInstances.snapshot.store.instances.find(item => item.id === managedDriverDialog.instanceId)?.name ??
+            '小米遥控器'
+          }
+          status={managedDriverDialog.status}
+          error={managedDriverDialog.error}
+          onInstall={() => void installManagedDriver()}
+          onClose={() => setManagedDriverDialog(null)}
+        />
+      )}
       {setupOpen &&
         !(
           nativeRuntime &&
@@ -2491,7 +2481,6 @@ function AppController() {
             remoteLabel={selectedDevice.name + (selectedDevice.id === 'rc003' ? ' RC003' : '')}
             macPermissions={macPermissions}
             state={setupState}
-            checkingInputDriver={driverUpgradeCheck.checking}
             onClose={() => setSetupOpen(false)}
             onOpenStep={openSetupStep}
             onCompleteStep={completeCurrentSetupStep}
@@ -2507,7 +2496,6 @@ function AppController() {
             onCleanupLegacy={() => void runLegacyCleanup()}
             onOpenSystemSettings={page => void openSystemSettings(page)}
             onRequestMacPermission={kind => void requestMacPermission(kind)}
-            onOpenExternalPage={page => void openExternalPage(page)}
             onCheckDevice={checkDeviceConnection}
             onMarkDeviceConnected={() =>
               updateSetup(current =>

@@ -24,15 +24,9 @@ pub(crate) struct Device {
 }
 
 impl Device {
-    pub fn is_supported_remote(&self) -> bool {
-        self.is_rc003() || crate::devices::cmiot_a15::matches_instance(&self.instance_id)
-    }
-
     pub fn is_rc003(&self) -> bool {
-        self.instance_id
-            .to_ascii_uppercase()
-            .starts_with("BTHLEDEVICE\\")
-            && self.is_rc003_hardware()
+        let id = self.instance_id.to_ascii_uppercase();
+        (id.starts_with("BTHLEDEVICE\\") || id.starts_with("HID\\")) && self.is_rc003_hardware()
     }
 
     pub fn is_rc003_hardware(&self) -> bool {
@@ -46,10 +40,6 @@ impl Device {
             && tokens
                 .windows(2)
                 .any(|pair| pair[0] == "PID" && pair[1] == "32B8")
-    }
-
-    pub fn needs_uninstall(&self) -> bool {
-        self.is_rc003() && (self.bound || self.recovery_active)
     }
 }
 
@@ -191,51 +181,93 @@ pub(crate) fn list(resource_dir: &Path) -> Result<Vec<Device>, String> {
     Ok(invoke(&exe, "list", None, None)?.devices)
 }
 
-fn install_targets(devices: &[Device]) -> Result<Vec<&Device>, String> {
-    let targets: Vec<_> = devices
-        .iter()
-        .filter(|d| d.is_supported_remote() && d.present)
-        .collect();
-    if targets.is_empty() {
-        return Err("未发现在线的 RC003 或 CMIOT-A15 输入源，请连接并唤醒遥控器后重试。".into());
-    }
-    Ok(targets)
-}
-
-pub(crate) fn select_bound_target(devices: &[Device]) -> Option<String> {
+pub(crate) fn select_legacy_target(devices: &[Device]) -> Option<String> {
     devices
         .iter()
-        .filter(|device| device.present && device.bound && device.is_supported_remote())
+        .filter(|device| {
+            device.present
+                && device.bound
+                && crate::devices::cmiot_a15::matches_instance(&device.instance_id)
+        })
         .min_by(|left, right| left.instance_id.cmp(&right.instance_id))
         .map(|device| device.instance_id.clone())
 }
 
-fn run_installer(action: &str, resource_dir: &Path, log: &Path) -> Result<bool, String> {
+fn compact_address(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_ascii_hexdigit())
+        .flat_map(|ch| ch.to_uppercase())
+        .collect()
+}
+
+fn reversed_address(value: &str) -> String {
+    value
+        .as_bytes()
+        .chunks(2)
+        .rev()
+        .flat_map(|chunk| chunk.iter().copied())
+        .map(char::from)
+        .collect()
+}
+
+pub(crate) fn target_for_bluetooth_address(
+    devices: &[Device],
+    address: &str,
+) -> Option<(String, bool)> {
+    let compact = compact_address(address);
+    if compact.len() < 12 {
+        return None;
+    }
+    devices
+        .iter()
+        .filter(|device| {
+            let instance = compact_address(&device.instance_id);
+            let hardware = compact_address(&device.hardware_id);
+            let reversed = reversed_address(&compact);
+            device.is_rc003()
+                && (device.instance_id.to_ascii_uppercase().contains(&compact)
+                    || instance.contains(&compact)
+                    || hardware.contains(&compact)
+                    || device.instance_id.to_ascii_uppercase().contains(&reversed)
+                    || instance.contains(&reversed)
+                    || hardware.contains(&reversed))
+        })
+        .map(|device| {
+            (
+                device.instance_id.clone(),
+                device.bound || device.recovery_active,
+            )
+        })
+        .next()
+}
+
+pub(crate) fn unique_installed_rc003_target(devices: &[Device]) -> Option<(String, bool)> {
+    let mut matches = devices
+        .iter()
+        .filter(|device| device.is_rc003() && (device.bound || device.recovery_active));
+    let first = matches.next()?;
+    if matches.next().is_some() {
+        return None;
+    }
+    Some((first.instance_id.clone(), true))
+}
+
+pub(crate) fn run_for_device(
+    action: &str,
+    resource_dir: &Path,
+    target: &str,
+    log: &Path,
+) -> Result<bool, String> {
     if !matches!(action, "install" | "uninstall") {
         return Err("不支持的 Quarbor 驱动操作。".into());
     }
+    if target.trim().is_empty() {
+        return Err("未找到该设备对应的 Quarbor 设备节点。".into());
+    }
     let exe = find(resource_dir)?;
-    if action == "uninstall" {
-        // Only uninstall-all supports offline devnodes and recovery records.
-        let reply = invoke(&exe, "uninstall-all", None, Some(log))?;
-        return Ok(reply.reboot_required || reply.exit_code == 3010);
-    }
-    let devices = invoke(&exe, "list", None, Some(log))?.devices;
-    let mut reboot = false;
-    for device in install_targets(&devices)? {
-        let reply = invoke(&exe, action, Some(&device.instance_id), Some(log))?;
-        reboot |= reply.reboot_required || reply.exit_code == 3010;
-    }
-    Ok(reboot)
-}
-
-pub(crate) fn run(action: &str, resource_dir: &Path, log: &Path) -> Result<bool, String> {
-    run_installer(action, resource_dir, log).map_err(|error| {
-        if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(log) {
-            let _ = writeln!(file, "ERROR: {error}");
-        }
-        format!("{error} 日志：{}", log.display())
-    })
+    let reply = invoke(&exe, action, Some(target), Some(log))?;
+    Ok(reply.reboot_required || reply.exit_code == 3010)
 }
 
 #[cfg(test)]
@@ -253,8 +285,7 @@ mod tests {
         assert!(!a15.is_rc003());
         let id = a15.instance_id.clone();
         let devices = vec![a15];
-        assert_eq!(select_bound_target(&devices), Some(id));
-        assert_eq!(install_targets(&devices).unwrap().len(), 1);
+        assert_eq!(select_legacy_target(&devices), Some(id));
     }
 
     #[test]
@@ -279,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn selects_only_rc003_and_keeps_offline_recovery() {
+    fn recognizes_only_supported_rc003_nodes() {
         let devices = vec![
             device(
                 r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055",
@@ -304,11 +335,7 @@ mod tests {
             device(r"BTHLEDEVICE\VID_2717&PID_32B80\wrong", true, true, true),
             device(r"USB\VID_2717&PID_32B8\parent", true, true, true),
         ];
-        assert_eq!(install_targets(&devices).unwrap().len(), 1);
-        let uninstall: Vec<_> = devices.iter().filter(|d| d.needs_uninstall()).collect();
-        assert_eq!(uninstall.len(), 2);
-        assert!(uninstall.iter().all(|d| !d.present));
-        assert!(install_targets(&devices[1..]).is_err());
+        assert_eq!(devices.iter().filter(|device| device.is_rc003()).count(), 4);
     }
 
     #[test]
@@ -322,23 +349,46 @@ mod tests {
             ),
             device(r"HID\VID_2717&PID_32B8\other", true, true, false),
         ];
+        assert_eq!(select_legacy_target(&devices), None);
+    }
+
+    #[test]
+    fn matches_rc003_driver_node_to_bluetooth_address() {
+        let devices = vec![device(
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\instance",
+            true,
+            true,
+            false,
+        )];
+        let matched = target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83");
         assert_eq!(
-            select_bound_target(&devices),
-            Some(devices[0].instance_id.clone())
+            matched.as_ref().map(|(_, installed)| *installed),
+            Some(true)
         );
-        assert_eq!(
-            install_targets(&devices)
-                .unwrap()
-                .into_iter()
-                .map(|device| device.instance_id.clone())
-                .collect::<Vec<_>>(),
-            vec![devices[0].instance_id.clone()]
-        );
-        assert_eq!(
-            select_bound_target(&devices[..1]),
-            Some(devices[0].instance_id.clone())
-        );
-        assert_eq!(select_bound_target(&devices[1..]), None);
+        assert!(target_for_bluetooth_address(&devices, "aa:bb:cc:dd:ee:ff").is_none());
+    }
+
+    #[test]
+    fn matches_reversed_bluetooth_instance_addresses() {
+        let devices = vec![device(
+            r"HID\VID_2717&PID_32B8\8&83CFC2395DC0&0&0055",
+            true,
+            true,
+            false,
+        )];
+        assert!(target_for_bluetooth_address(&devices, "c0:5d:39:c2:cf:83").is_some());
+    }
+
+    #[test]
+    fn matches_the_reported_rc003_instance_id() {
+        let devices = vec![device(
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\C&276375FB&D&0055",
+            true,
+            true,
+            false,
+        )];
+        let matched = target_for_bluetooth_address(&devices, "C0:5D:39:C2:CF:83");
+        assert_eq!(matched.map(|(_, installed)| installed), Some(true));
     }
 
     #[test]

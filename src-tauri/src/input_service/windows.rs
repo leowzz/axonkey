@@ -476,6 +476,8 @@ struct Shared {
     stop: AtomicBool,
     driver_gate: Arc<AtomicBool>,
     driver_paused: AtomicBool,
+    managed_event: Option<Arc<dyn Fn(String, bool) + Send + Sync>>,
+    managed_remote_owned: AtomicBool,
 }
 
 pub struct InputService {
@@ -494,6 +496,8 @@ impl InputService {
             stop: AtomicBool::new(false),
             driver_gate,
             driver_paused: AtomicBool::new(false),
+            managed_event: None,
+            managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
         #[cfg(windows)]
@@ -588,6 +592,13 @@ impl InputService {
                 ..InputServiceStatus::default()
             })
     }
+
+    pub fn set_managed_remote_owned(&self, owned: bool) -> bool {
+        self.shared
+            .managed_remote_owned
+            .store(owned, Ordering::Release);
+        true
+    }
 }
 
 impl Drop for InputService {
@@ -596,11 +607,103 @@ impl Drop for InputService {
     }
 }
 
+/// One managed RC003 owns one Quarbor pipe and one action state machine.
+/// The legacy InputService is retained only for the Windows A15 recorder.
+#[cfg(all(windows, not(test)))]
+pub(super) struct ManagedQuarborChannel {
+    shared: Arc<Shared>,
+    worker: Mutex<Option<JoinHandle<()>>>,
+}
+
+#[cfg(all(windows, not(test)))]
+impl ManagedQuarborChannel {
+    pub(super) fn start(
+        target: String,
+        settings: NativeSettings,
+        app: tauri::AppHandle,
+        driver_gate: Arc<AtomicBool>,
+        emit: Arc<dyn Fn(String, bool) + Send + Sync>,
+    ) -> Self {
+        #[cfg(test)]
+        let _ = app;
+        #[cfg(not(test))]
+        let event_app = Some(app);
+        #[cfg(test)]
+        let event_app = None;
+        let shared = Arc::new(Shared {
+            settings: RwLock::new(settings),
+            settings_revision: AtomicU64::new(0),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(event_app),
+            stop: AtomicBool::new(false),
+            driver_gate,
+            driver_paused: AtomicBool::new(false),
+            managed_event: Some(emit),
+            managed_remote_owned: AtomicBool::new(false),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let worker = thread::Builder::new()
+            .name("Axonkey managed Quarbor RC003".into())
+            .spawn(move || {
+                let mut last_target_seen_at = None;
+                let mut selector = QuarborTargetSelector::fixed(target);
+                run_context(
+                    &mut QuarborContext::default(),
+                    &worker_shared,
+                    &mut last_target_seen_at,
+                    &mut selector,
+                );
+            })
+            .ok();
+        Self {
+            shared,
+            worker: Mutex::new(worker),
+        }
+    }
+
+    pub(super) fn update_settings(&self, settings: NativeSettings) {
+        if let Ok(mut current) = self.shared.settings.write() {
+            *current = settings;
+            self.shared
+                .settings_revision
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(super) fn status(&self) -> InputServiceStatus {
+        self.shared
+            .status
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_else(|_| InputServiceStatus {
+                error: Some("Managed Quarbor status lock is unavailable".into()),
+                ..InputServiceStatus::default()
+            })
+    }
+
+    pub(super) fn stop(&self) {
+        self.shared.stop.store(true, Ordering::Release);
+        if let Ok(mut worker) = self.worker.lock() {
+            if let Some(worker) = worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+}
+
+#[cfg(all(windows, not(test)))]
+impl Drop for ManagedQuarborChannel {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 struct QuarborTargetSelector {
     resource_dir: Option<PathBuf>,
     last_probe: Instant,
     target: Option<String>,
     installer_failure_logged: bool,
+    fixed_target: Option<String>,
 }
 
 impl QuarborTargetSelector {
@@ -610,10 +713,22 @@ impl QuarborTargetSelector {
             last_probe: Instant::now() - Duration::from_secs(1),
             target: None,
             installer_failure_logged: false,
+            fixed_target: None,
+        }
+    }
+
+    fn fixed(target: String) -> Self {
+        Self {
+            target: Some(target.clone()),
+            fixed_target: Some(target),
+            ..Self::new(None)
         }
     }
 
     fn current(&mut self) -> Option<String> {
+        if self.fixed_target.is_some() {
+            return self.target.clone();
+        }
         #[cfg(windows)]
         if self.last_probe.elapsed() >= Duration::from_secs(1) {
             self.last_probe = Instant::now();
@@ -635,7 +750,7 @@ impl QuarborTargetSelector {
             return None;
         };
         match crate::quarbor_installer::list(resource_dir) {
-            Ok(devices) => crate::quarbor_installer::select_bound_target(&devices),
+            Ok(devices) => crate::quarbor_installer::select_legacy_target(&devices),
             Err(error) => {
                 if !self.installer_failure_logged {
                     log::warn!(
@@ -657,6 +772,14 @@ fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
     let mut last_target_seen_at = None;
     let mut target_selector = QuarborTargetSelector::new(resource_dir.clone());
     while !shared.stop.load(Ordering::Relaxed) {
+        if shared.managed_remote_owned.load(Ordering::Acquire) {
+            let mut status = shared.status.lock().unwrap();
+            status.backend_ready = false;
+            status.capture_active = false;
+            status.device_connected = false;
+            thread::sleep(DEVICE_POLL_INTERVAL);
+            continue;
+        }
         if shared.driver_gate.load(Ordering::Acquire) {
             // run_context has returned and dropped its pipe before acknowledging
             // this pause. Support both startup migration and manual rechecks.
@@ -1073,6 +1196,7 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
     }
     let mut status = shared.status.lock().unwrap();
     status.capture_active = context.reader.as_ref().is_some_and(|reader| reader.ready());
+    status.device_connected = context.reader.is_some();
     status.error = context.error.clone();
 }
 
@@ -1160,6 +1284,9 @@ struct RemoteKeyEvent {
 
 #[cfg(not(test))]
 fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
+    if let Some(emit) = &shared.managed_event {
+        emit(button.to_string(), pressed);
+    }
     let app = shared
         .event_app
         .read()
@@ -1919,6 +2046,8 @@ mod tests {
                     stop: AtomicBool::new(false),
                     driver_gate: Arc::new(AtomicBool::new(false)),
                     driver_paused: AtomicBool::new(false),
+                    managed_event: None,
+                    managed_remote_owned: AtomicBool::new(false),
                 }),
                 worker: Mutex::new(None),
             };
@@ -2704,6 +2833,8 @@ mod tests {
             stop: AtomicBool::new(false),
             driver_gate: Arc::new(AtomicBool::new(false)),
             driver_paused: AtomicBool::new(false),
+            managed_event: None,
+            managed_remote_owned: AtomicBool::new(false),
         };
         let mut context = QuarborContext::default();
         context

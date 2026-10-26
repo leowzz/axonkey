@@ -42,7 +42,10 @@ type Props = {
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
   onBack: () => void
   onBind: () => void
+  onUnbindDevice: (instanceId: string) => Promise<void>
+  onRemoveDevice: (instanceId: string) => Promise<void>
   onOpenAudioCalibration: (instanceId: string) => void
+  onOpenDriverInstall: (instanceId: string) => void
   batteryLevel: number | null
 }
 export function InstanceWorkspace({
@@ -56,7 +59,10 @@ export function InstanceWorkspace({
   legacyActiveProfileId,
   onBack,
   onBind,
+  onUnbindDevice,
+  onRemoveDevice,
   onOpenAudioCalibration,
+  onOpenDriverInstall,
   batteryLevel,
 }: Props) {
   const pkg = packageFor(instance.kind)
@@ -64,6 +70,7 @@ export function InstanceWorkspace({
   const [settings, setSettings] = useState(false)
   const [settingsSection, setSettingsSection] = useState<'overview' | 'output'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
   const [controllerTrigger, setControllerTrigger] = useState<TriggerType>('click')
   const [pendingSwitch, setPendingSwitch] = useState<{
@@ -79,6 +86,7 @@ export function InstanceWorkspace({
   } | null>(null)
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
   const migrationStarted = useRef(false)
+  const driverPrompted = useRef(false)
   const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
   const status = controller.snapshot.runtime[instance.id]
@@ -92,6 +100,19 @@ export function InstanceWorkspace({
   )
   const update = (change: (item: DeviceInstance) => DeviceInstance) => {
     void controller.update(instance.id, change).catch(() => {})
+  }
+  const unbindDevice = () => {
+    setPendingPhysicalAction('unbind')
+    void onUnbindDevice(instance.id)
+      .catch(() => {})
+      .finally(() => setPendingPhysicalAction(null))
+  }
+  const removeDevice = () => {
+    setPendingPhysicalAction('remove')
+    void onRemoveDevice(instance.id)
+      .then(onBack)
+      .catch(() => {})
+      .finally(() => setPendingPhysicalAction(null))
   }
   useEffect(() => {
     if (instance.legacyProfilesMigrated || migrationStarted.current) return
@@ -142,6 +163,18 @@ export function InstanceWorkspace({
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
   const ready = status?.state === 'exclusive'
+  const driverMissing =
+    native && platform === 'windows' && instance.kind === 'rc003' && status?.driverState === 'missing'
+  useEffect(() => {
+    if (!driverMissing) {
+      driverPrompted.current = false
+      return
+    }
+    if (!driverPrompted.current) {
+      driverPrompted.current = true
+      onOpenDriverInstall(instance.id)
+    }
+  }, [driverMissing, instance.id, onOpenDriverInstall])
   return (
     <div
       className={`mapping-page mapping-flow-page managed-instance-workspace ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}
@@ -290,6 +323,31 @@ export function InstanceWorkspace({
                     </div>
                   ) : (
                     <>
+                      {instance.kind === 'rc003' && platform === 'windows' && (
+                        <div className="settings-form-row managed-driver-status-row">
+                          <span className="settings-form-label">按键驱动：</span>
+                          <div className="settings-form-control managed-driver-status-control">
+                            <strong>
+                              {!native
+                                ? '预览模式'
+                                : status?.driverState === 'connected'
+                                  ? '已连接'
+                                  : status?.driverState === 'connecting'
+                                    ? '连接中'
+                                    : status?.driverState === 'missing'
+                                      ? '未安装'
+                                      : status?.driverState === 'disconnected'
+                                        ? '等待设备'
+                                        : '检测中'}
+                            </strong>
+                            {native && status?.driverState !== 'connected' && (
+                              <button type="button" onClick={() => onOpenDriverInstall(instance.id)}>
+                                安装或重试
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       <div className="settings-form-fields">
                         <label className="settings-form-row">
                           <span className="settings-form-label">设备名称：</span>
@@ -339,7 +397,8 @@ export function InstanceWorkspace({
                               <BoundDeviceInfo
                                 binding={instance.binding}
                                 device={boundDevice}
-                                onUnbind={() => update(item => ({ ...item, binding: null }))}
+                                onUnbind={unbindDevice}
+                                disabled={pendingPhysicalAction !== null}
                               />
                             ) : (
                               <DeviceBindingPicker
@@ -358,15 +417,8 @@ export function InstanceWorkspace({
                         {confirmRemove ? (
                           <>
                             <span>移除此设备及其全部配置？</span>
-                            <button
-                              onClick={() =>
-                                void controller
-                                  .remove(instance.id)
-                                  .then(onBack)
-                                  .catch(() => {})
-                              }
-                            >
-                              确认移除
+                            <button disabled={pendingPhysicalAction !== null} onClick={removeDevice}>
+                              {pendingPhysicalAction === 'remove' ? '正在解除绑定…' : '确认移除'}
                             </button>
                             <button onClick={() => setConfirmRemove(false)}>取消</button>
                           </>
@@ -474,10 +526,12 @@ function BoundDeviceInfo({
   binding,
   device,
   onUnbind,
+  disabled,
 }: {
   binding: string
   device?: DiscoveredDevice
   onUnbind: () => void
+  disabled: boolean
 }) {
   const transport = device?.transport === 'Bluetooth' ? '蓝牙' : device?.transport
   const status = device?.identityQuality === 'ambiguous' ? '标识冲突' : device?.connected ? '已连接' : '未连接'
@@ -493,8 +547,8 @@ function BoundDeviceInfo({
           {status}
         </span>
       </div>
-      <button type="button" onClick={onUnbind}>
-        解除绑定，保留配置
+      <button type="button" onClick={onUnbind} disabled={disabled}>
+        {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
       </button>
     </div>
   )

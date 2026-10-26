@@ -1,6 +1,6 @@
 # Windows 输入
 
-Axonkey 在 Windows 11 x64 上使用 `QuarborUniversalKeyboardDriver` 处理 RC003 按键映射。首次使用时，引导会把驱动绑定到当前 RC003 的 `BTHLEDEVICE` 父设备。卸载时使用保存的原驱动信息恢复设备，即使设备暂时离线也会保留恢复记录。
+Axonkey 在 Windows 11 x64 上使用 `QuarborUniversalKeyboardDriver` 处理 RC003 按键映射。驱动属于设备实例：添加 RC003 后，在该实例的设备工作区完成安装和状态检查。卸载时使用保存的原驱动信息恢复设备，即使设备暂时离线也会保留恢复记录。
 
 [返回首页](../README.md) · [首次使用](USAGE.md#windows)
 
@@ -18,19 +18,15 @@ Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28
 
 ## 安装与语音
 
-Tauri 直接运行随包提供的 `QuarborUniversalKeyboardDriverInstaller.exe`：`--list` 以普通权限查询设备，安装使用 `--install <instanceId>`，由安装器自行请求 UAC；卸载使用 `--uninstall-all`，因此设备离线时也能清理 Universal 和旧版 Quarbor 的恢复记录。由于安装器是 GUI 子系统程序，应用按 SDK 约定通过唯一临时 JSON 文件读取结果，不依赖 stdout。输入服务只连接列表中 `present=true` 且 `bound=true` 的 RC003 `BTHLEDEVICE` 实例。包暂存、绑定、升级和恢复记录都由安装器管理。状态查询使用 JSON 的 `bound` / `recoveryActive` 字段，操作按退出码和 `rebootRequired` 提示重启，取消 UAC 单独显示。接口见 [安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
+设备工作区直接运行随包提供的 `QuarborUniversalKeyboardDriverInstaller.exe`：`--list` 以普通权限查询设备，安装使用当前实例对应的 `--install <instanceId>`，由安装器自行请求 UAC。由于安装器是 GUI 子系统程序，应用按 SDK 约定通过唯一临时 JSON 文件读取结果，不依赖 stdout。实例运行时只连接自己匹配的 Quarbor 节点；状态查询使用 JSON 的 `bound` / `recoveryActive` 字段，操作按退出码和 `rebootRequired` 提示重启，取消 UAC 单独显示。接口见 [Quarbor 安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
 RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
 
 ## 从旧版迁移
 
-Windows 启动时，输入服务会在首次驱动握手前检查 `QuarborHIDFilterUserDriver` 的设备绑定和已发布 INF 包。发现旧驱动后自动显示升级弹窗，先持久保存原设备实例，再调用安装器 `--uninstall-all`，最后逐台执行 `--install <instanceId>`。旧 RC003 HID 子设备通过真实 PnP 父子关系转换为蓝牙父设备；全部卸载会影响的已有 Universal 绑定也会记录并恢复。
+Windows 启动时不再执行全局 Quarbor 驱动升级或全局状态检查。进入缺少驱动的 RC003 设备工作区后，页面显示该实例的安装引导；安装结束后重新读取该实例的节点状态。
 
-设置引导中的“安装 Quarbor 驱动”每次点击也会重新检查，不复用启动时的检测结论。发现旧驱动或未完成的升级记录时，重新打开同一升级弹窗，并等待输入服务释放已有管道连接后再执行卸载；未发现旧驱动时继续普通安装。检测期间安装按钮显示“正在检查旧驱动…”，防止重复操作。
-
-升级期间不能关闭弹窗、隐藏主窗口或从托盘退出。失败（包括取消 UAC、设备离线）会显示错误及日志位置，可关闭或再次尝试；离线目标需要连接后才能继续。升级记录保存在应用数据目录的 `quarbor-driver-upgrade.json`，卸载和逐台安装完成后更新进度，重试或重启应用时继续未完成步骤。成功后自动关闭弹窗并恢复握手；安装器要求重启时另行显示重启提示。驱动操作日志位于 `%LOCALAPPDATA%\Axonkey\logs\quarbor-upgrade.log`。
-
-旧版 Interception 驱动和 AxonkeyInterceptionFix 重连修复服务不再参与输入链路，也不会随新版本安装。启动时检测到旧驱动或修复服务残留，会先显示清理步骤；按提示清理、重新检测，并在需要时重启 Windows，然后为在线 RC003 安装 Quarbor 驱动。
+旧版 Interception 驱动和 AxonkeyInterceptionFix 重连修复服务不再参与输入链路，也不会随新版本安装。启动时检测到旧组件会先显示清理步骤；清理完成后，回到对应 RC003 设备工作区安装 Quarbor 驱动。
 
 旧版本的问题记录保留在 [Interception 重连问题说明](./INTERCEPTION_HOTPLUG_INCIDENT.md)，仅供历史排查参考。
 
@@ -52,7 +48,7 @@ $rc003Id = 'RC003 的完整设备实例 ID'
 & $installer --install $rc003Id
 ```
 
-查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用安装只对 RC003 的 `BTHLEDEVICE` 父设备实例执行操作；卸载时调用 `--uninstall-all` 彻底移除 Quarbor 绑定，因此设备离线也可以处理。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
+查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用安装只对当前 RC003 实例对应的设备节点执行操作。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
 在仓库根目录也可以手动启动经过校验的 VB-CABLE 安装流程：
 
@@ -75,4 +71,4 @@ $rc003Id = 'RC003 的完整设备实例 ID（可以离线）'
 & $installer --uninstall $rc003Id
 ```
 
-安装器会申请管理员权限，并返回是否需要重启 Windows。也可以运行 `make uninstall-driver DEVICE="设备实例 ID"`。应用内“卸载驱动”使用安装器的 `--uninstall-all`，会解除所有设备的 Quarbor 绑定并清理未使用的驱动包。
+安装器会申请管理员权限，并返回是否需要重启 Windows。也可以运行 `make uninstall-driver DEVICE="设备实例 ID"`，只处理指定设备。

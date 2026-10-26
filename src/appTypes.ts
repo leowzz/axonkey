@@ -19,7 +19,23 @@ export type RemoteButton = {
   side: 'left' | 'right'
   x: number
   y: number
-  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv' | 'mute' | 'settings' | 'm'
+  icon:
+    | 'power'
+    | 'mic'
+    | 'up'
+    | 'left'
+    | 'center'
+    | 'right'
+    | 'down'
+    | 'back'
+    | 'volumeUp'
+    | 'volumeDown'
+    | 'home'
+    | 'menu'
+    | 'tv'
+    | 'mute'
+    | 'settings'
+    | 'm'
 }
 
 export type Platform = 'windows' | 'macos' | 'unsupported'
@@ -40,7 +56,6 @@ export type LegacyDriverProbe = {
 
 export type SystemProbe = {
   platform: Platform
-  input_driver_installed: boolean
   rc003_connected: boolean
   rc003_battery_level?: number | null
   input_backend_ready: boolean
@@ -64,7 +79,17 @@ export type DriverActionResult = {
 
 export type AudioProbe = {
   driverInstalled: boolean
-  state: 'stopped' | 'driverMissing' | 'bluetoothUnavailable' | 'scanning' | 'connecting' | 'ready' | 'forwarding' | 'error' | 'unknown' | 'unsupported'
+  state:
+    | 'stopped'
+    | 'driverMissing'
+    | 'bluetoothUnavailable'
+    | 'scanning'
+    | 'connecting'
+    | 'ready'
+    | 'forwarding'
+    | 'error'
+    | 'unknown'
+    | 'unsupported'
   bluetoothConnected: boolean
   forwarding: boolean
   receivedData?: boolean

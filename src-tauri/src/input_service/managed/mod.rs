@@ -4,6 +4,10 @@ mod paired;
 #[cfg(target_os = "macos")]
 mod remote;
 mod report;
+#[cfg(all(windows, not(test)))]
+use super::windows::ManagedQuarborChannel;
+#[cfg(all(windows, not(test)))]
+use super::NativeSettings;
 use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
 use gesture::Gestures;
 use hidapi::{HidApi, HidDevice};
@@ -21,7 +25,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tauri::Emitter;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -48,6 +52,8 @@ pub struct Instance {
     pub audio_gain_db: i16,
     #[serde(default, skip_serializing)]
     pub voice_target: Option<String>,
+    #[serde(default)]
+    pub quarbor_target: Option<String>,
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
@@ -92,6 +98,10 @@ pub struct RuntimeStatus {
     pub state: String,
     pub error: Option<String>,
     pub reports: u64,
+    #[serde(default)]
+    pub driver_installed: bool,
+    #[serde(default)]
+    pub driver_state: String,
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,12 +113,98 @@ pub struct Snapshot {
     pub scan_error: Option<String>,
     pub scanning: bool,
 }
+
+#[cfg(all(windows, not(test)))]
+struct QuarborRegistration {
+    target: String,
+    settings: NativeSettings,
+}
+
+#[cfg(all(windows, not(test)))]
+struct QuarborRegistry {
+    app: tauri::AppHandle,
+    emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
+    channels: Mutex<BTreeMap<String, ManagedQuarborChannel>>,
+    gate: Arc<AtomicBool>,
+}
+
+#[cfg(all(windows, not(test)))]
+impl QuarborRegistry {
+    fn new(app: tauri::AppHandle, emit: Arc<dyn Fn(InputEvent) + Send + Sync>) -> Self {
+        Self {
+            app,
+            emit,
+            channels: Mutex::new(BTreeMap::new()),
+            gate: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    fn sync(&self, registrations: &BTreeMap<String, QuarborRegistration>) {
+        let Ok(mut channels) = self.channels.lock() else {
+            return;
+        };
+        let stale = channels
+            .keys()
+            .filter(|id| !registrations.contains_key(*id))
+            .cloned()
+            .collect::<Vec<_>>();
+        for id in stale {
+            channels.remove(&id);
+        }
+        for (id, registration) in registrations {
+            if let Some(channel) = channels.get(id) {
+                channel.update_settings(registration.settings.clone());
+                continue;
+            }
+            let event_emit = Arc::clone(&self.emit);
+            let instance_id = id.clone();
+            let emit = Arc::new(move |button: String, pressed: bool| {
+                let mut values = BTreeMap::new();
+                values.insert(button.clone(), if pressed { 1.0 } else { 0.0 });
+                event_emit(InputEvent {
+                    instance_id: instance_id.clone(),
+                    values,
+                    pressed: if pressed { vec![button] } else { Vec::new() },
+                });
+            });
+            channels.insert(
+                id.clone(),
+                ManagedQuarborChannel::start(
+                    registration.target.clone(),
+                    registration.settings.clone(),
+                    self.app.clone(),
+                    Arc::clone(&self.gate),
+                    emit,
+                ),
+            );
+        }
+    }
+
+    fn status(&self, id: &str) -> Option<super::InputServiceStatus> {
+        self.channels
+            .lock()
+            .ok()
+            .and_then(|channels| channels.get(id).map(ManagedQuarborChannel::status))
+    }
+
+    fn list_devices(&self) -> Result<Vec<crate::quarbor_installer::Device>, String> {
+        let resource_dir = self
+            .app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        crate::quarbor_installer::list(&resource_dir)
+    }
+}
+
 struct Shared {
     snapshot: Mutex<Snapshot>,
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
-    emit: Box<dyn Fn(InputEvent) + Send + Sync>,
+    emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
+    #[cfg(all(windows, not(test)))]
+    quarbor: Option<Arc<QuarborRegistry>>,
     legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
 }
 pub struct DeviceManager {
@@ -298,27 +394,29 @@ fn super_input_ids() -> &'static [&'static str] {
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         let ownership_app = app.clone();
-        Self::start_with_callbacks(
-            path,
-            Box::new(move |event| {
-                let _ = app.emit("axonkey-device-input", event);
-            }),
-            Box::new(move |owned| {
-                #[cfg(target_os = "macos")]
-                {
-                    ownership_app
-                        .state::<super::InputService>()
-                        .set_managed_remote_owned(owned)
-                }
-                #[cfg(not(target_os = "macos"))]
-                {
-                    let _ = owned;
-                    true
-                }
-            }),
-        )
+        let emit_app = app.clone();
+        let emit = Box::new(move |event| {
+            let _ = emit_app.emit("axonkey-device-input", event);
+        });
+        let legacy_remote = Box::new(move |owned| {
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            {
+                ownership_app
+                    .state::<super::InputService>()
+                    .set_managed_remote_owned(owned)
+            }
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            {
+                let _ = owned;
+                true
+            }
+        });
+        #[cfg(all(target_os = "windows", not(test)))]
+        return Self::start_with_callbacks_and_app(path, emit, legacy_remote, Some(app));
+        #[cfg(any(not(target_os = "windows"), test))]
+        Self::start_with_callbacks(path, emit, legacy_remote)
     }
     #[cfg(test)]
     fn start_with_emitter(path: PathBuf, emit: Box<dyn Fn(InputEvent) + Send + Sync>) -> Self {
@@ -327,6 +425,57 @@ impl DeviceManager {
     fn start_with_callbacks(
         path: PathBuf,
         emit: Box<dyn Fn(InputEvent) + Send + Sync>,
+        legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
+    ) -> Self {
+        #[cfg(all(windows, not(test)))]
+        return Self::start_with_callbacks_and_app(path, emit, legacy_remote, None);
+        #[cfg(any(not(windows), test))]
+        Self::start_with_shared(path, Arc::from(emit), legacy_remote)
+    }
+    #[cfg(all(windows, not(test)))]
+    fn start_with_callbacks_and_app(
+        path: PathBuf,
+        emit: Box<dyn Fn(InputEvent) + Send + Sync>,
+        legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
+        app: Option<tauri::AppHandle>,
+    ) -> Self {
+        let emit: Arc<dyn Fn(InputEvent) + Send + Sync> = Arc::from(emit);
+        let quarbor = app.map(|app| Arc::new(QuarborRegistry::new(app, Arc::clone(&emit))));
+        Self::start_with_shared(path, emit, legacy_remote, quarbor)
+    }
+    #[cfg(all(windows, not(test)))]
+    fn start_with_shared(
+        path: PathBuf,
+        emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
+        legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
+        quarbor: Option<Arc<QuarborRegistry>>,
+    ) -> Self {
+        let (store, error) = match load(&path) {
+            Ok(store) => (store, None),
+            Err(error) => (Store::default(), Some(error)),
+        };
+        let shared = Arc::new(Shared {
+            snapshot: Mutex::new(Snapshot {
+                store,
+                discovered: vec![],
+                runtime: BTreeMap::new(),
+                error,
+                scan_error: None,
+                scanning: true,
+            }),
+            path,
+            stop: AtomicBool::new(false),
+            enabled: AtomicBool::new(false),
+            emit,
+            legacy_remote,
+            quarbor,
+        });
+        Self::spawn(shared)
+    }
+    #[cfg(any(not(windows), test))]
+    fn start_with_shared(
+        path: PathBuf,
+        emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
         legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
     ) -> Self {
         let (store, error) = match load(&path) {
@@ -348,6 +497,9 @@ impl DeviceManager {
             emit,
             legacy_remote,
         });
+        Self::spawn(shared)
+    }
+    fn spawn(shared: Arc<Shared>) -> Self {
         let worker_shared = shared.clone();
         let worker = thread::Builder::new()
             .name("Axonkey devices".into())
@@ -399,9 +551,11 @@ impl DeviceManager {
                 instance.binding_pairing_id = old.binding_pairing_id.clone();
                 instance.voice_target = old.voice_target.clone();
                 instance.audio_gain_db = old.audio_gain_db;
+                instance.quarbor_target = old.quarbor_target.clone();
             }
         }
         if instance.binding != old.and_then(|i| i.binding.clone()) {
+            instance.quarbor_target = None;
             if let Some(binding) = &instance.binding {
                 let device = snapshot
                     .discovered
@@ -423,6 +577,7 @@ impl DeviceManager {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
             instance.voice_target = None;
+            instance.quarbor_target = None;
         }
         if instance.id.is_empty() {
             instance.id = unique_id();
@@ -435,6 +590,52 @@ impl DeviceManager {
         }
         validate(&next)?;
         next.revision += 1;
+        save(&self.shared.path, &next)?;
+        snapshot.store = next;
+        Ok(snapshot.clone())
+    }
+    pub fn remember_quarbor_target(
+        &self,
+        instance_id: &str,
+        target: &str,
+    ) -> Result<Snapshot, String> {
+        let mut snapshot = self.shared.snapshot.lock().unwrap();
+        let mut next = snapshot.store.clone();
+        let instance = next
+            .instances
+            .iter_mut()
+            .find(|instance| instance.id == instance_id)
+            .ok_or("未找到要更新驱动状态的设备实例")?;
+        if instance.kind != "rc003" {
+            return Err("只有 RC003 支持 Quarbor 设备驱动".into());
+        }
+        if instance.quarbor_target.as_deref() != Some(target) {
+            instance.quarbor_target = Some(target.to_string());
+            next.revision += 1;
+            validate(&next)?;
+            save(&self.shared.path, &next)?;
+            snapshot.store = next;
+        }
+        Ok(snapshot.clone())
+    }
+    pub fn unbind(&self, instance_id: &str) -> Result<Snapshot, String> {
+        let mut snapshot = self.shared.snapshot.lock().unwrap();
+        let mut next = snapshot.store.clone();
+        let instance = next
+            .instances
+            .iter_mut()
+            .find(|instance| instance.id == instance_id)
+            .ok_or("未找到要解除绑定的设备实例")?;
+        if instance.binding.is_none() {
+            return Ok(snapshot.clone());
+        }
+        instance.binding = None;
+        instance.binding_quality = None;
+        instance.binding_pairing_id = None;
+        instance.voice_target = None;
+        instance.quarbor_target = None;
+        next.revision += 1;
+        validate(&next)?;
         save(&self.shared.path, &next)?;
         snapshot.store = next;
         Ok(snapshot.clone())
@@ -836,6 +1037,93 @@ fn run(shared: Arc<Shared>) {
         }
         failures.retain(|id, _| configs.iter().any(|i| &i.id == id));
         let enabled = shared.enabled.load(Ordering::Acquire);
+        #[cfg(all(windows, not(test)))]
+        let mut driver_matches: BTreeMap<String, (Option<String>, bool)> = BTreeMap::new();
+        #[cfg(all(windows, not(test)))]
+        if let Some(registry) = &shared.quarbor {
+            let driver_devices = registry.list_devices().unwrap_or_default();
+            let snapshot = shared.snapshot.lock().unwrap();
+            for instance in &configs {
+                if instance.kind != "rc003" {
+                    continue;
+                }
+                let address = instance.binding.as_ref().and_then(|binding| {
+                    snapshot
+                        .discovered
+                        .iter()
+                        .find(|device| &device.id == binding)
+                        .and_then(|device| device.bluetooth_address.as_deref())
+                });
+                let matched = instance
+                    .quarbor_target
+                    .as_deref()
+                    .and_then(|target| {
+                        driver_devices
+                            .iter()
+                            .find(|device| device.instance_id.eq_ignore_ascii_case(target))
+                            .map(|device| {
+                                (
+                                    device.instance_id.clone(),
+                                    device.bound || device.recovery_active,
+                                )
+                            })
+                    })
+                    .or_else(|| {
+                        address.and_then(|address| {
+                            crate::quarbor_installer::target_for_bluetooth_address(
+                                &driver_devices,
+                                address,
+                            )
+                        })
+                    })
+                    .or_else(|| {
+                        let only_rc003_instance = configs
+                            .iter()
+                            .filter(|candidate| {
+                                candidate.kind == "rc003" && candidate.binding.is_some()
+                            })
+                            .count()
+                            == 1;
+                        only_rc003_instance.then(|| {
+                            crate::quarbor_installer::unique_installed_rc003_target(&driver_devices)
+                        })?
+                    });
+                driver_matches.insert(
+                    instance.id.clone(),
+                    matched
+                        .map(|(target, installed)| (Some(target), installed))
+                        .unwrap_or((None, false)),
+                );
+            }
+        }
+        #[cfg(all(windows, not(test)))]
+        if let Some(registry) = &shared.quarbor {
+            let mut registrations = BTreeMap::new();
+            for instance in &configs {
+                let Some((Some(target), true)) = driver_matches.get(&instance.id) else {
+                    continue;
+                };
+                if instance.kind != "rc003"
+                    || instance.binding.is_none()
+                    || !instance.enabled
+                    || !enabled
+                {
+                    continue;
+                }
+                registrations.insert(
+                    instance.id.clone(),
+                    QuarborRegistration {
+                        target: target.clone(),
+                        settings: super::NativeSettings {
+                            enabled: true,
+                            behaviors: active_mappings(instance),
+                            ..Default::default()
+                        },
+                    },
+                );
+            }
+            registry.sync(&registrations);
+        }
         readers.retain(|id, reader| {
             let keep = enabled
                 && configs.iter().any(|i| {
@@ -873,19 +1161,51 @@ fn run(shared: Arc<Shared>) {
                 "opening"
             }
             .into();
-            if status.state == "opening" && !cfg!(target_os = "macos") {
-                status.state = "unsupported".into();
-                status.error = Some(if instance.kind == "rc003" {
-                    "当前平台尚未接入遥控器实例拦截，请使用原遥控器工作区".into()
+            #[cfg(all(windows, not(test)))]
+            if instance.kind == "rc003" {
+                let (target, installed) = driver_matches
+                    .get(&instance.id)
+                    .cloned()
+                    .unwrap_or((None, false));
+                status.driver_installed = installed;
+                status.driver_state = if !installed {
+                    "missing"
+                } else if target.is_none() {
+                    "disconnected"
+                } else if shared
+                    .quarbor
+                    .as_ref()
+                    .and_then(|registry| registry.status(&instance.id))
+                    .is_some_and(|service| service.capture_active)
+                {
+                    "connected"
                 } else {
-                    "当前平台尚未支持此设备的独占拦截".into()
-                });
+                    "connecting"
+                }
+                .into();
+                if status.state == "opening" {
+                    status.state = if !installed {
+                        "driverMissing"
+                    } else if target.is_none() {
+                        "disconnected"
+                    } else {
+                        "opening"
+                    }
+                    .into();
+                }
+            }
+            if status.state == "opening" && !cfg!(target_os = "macos") && instance.kind != "rc003" {
+                status.state = "unsupported".into();
+                status.error = Some("当前平台尚未支持此设备的独占拦截".into());
             }
             if status.state == "opening" && instance.kind == "rc003" && !remote_ready {
                 statuses.insert(instance.id.clone(), status);
                 continue;
             }
-            if status.state == "opening" && !readers.contains_key(&instance.id) {
+            if status.state == "opening"
+                && instance.kind != "rc003"
+                && !readers.contains_key(&instance.id)
+            {
                 // Retry an open error on the next scan, not on every 8 ms tick.
                 let retry = scanning
                     || !failures
@@ -1166,6 +1486,7 @@ mod tests {
             voice_output_device: None,
             audio_gain_db: 0,
             voice_target: None,
+            quarbor_target: None,
             enabled: true,
             profiles: vec![Profile {
                 id: "default".into(),
@@ -1425,8 +1746,10 @@ mod tests {
                 path: std::env::temp_dir().join(format!("axonkey-offline-{}.json", unique_id())),
                 stop: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
-                emit: Box::new(|_| {}),
+                emit: Arc::new(|_| {}),
                 legacy_remote: Box::new(|_| true),
+                #[cfg(all(windows, not(test)))]
+                quarbor: None,
             }),
             worker: Mutex::new(None),
         }
@@ -1479,6 +1802,22 @@ mod tests {
         let mut wrong_kind = instance("one", "a");
         wrong_kind.kind = "rc003".into();
         assert!(manager.put(2, wrong_kind).is_err());
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+    #[test]
+    fn unbind_clears_physical_identity_and_driver_target() {
+        let mut saved_instance = instance("one", "physical-one");
+        saved_instance.kind = "rc003".into();
+        saved_instance.quarbor_target = Some(r"BTHLEDEVICE\target".into());
+        let manager = offline_manager(vec![saved_instance]);
+        let snapshot = manager.unbind("one").unwrap();
+        let cleared = &snapshot.store.instances[0];
+        assert!(cleared.binding.is_none());
+        assert!(cleared.binding_quality.is_none());
+        assert!(cleared.binding_pairing_id.is_none());
+        assert!(cleared.voice_target.is_none());
+        assert!(cleared.quarbor_target.is_none());
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
