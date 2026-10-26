@@ -21,7 +21,8 @@ type Props = {
   onPermissions: () => void
   onLegacy: (id: DeviceId) => void
   onOpenAudioCalibration: (instanceId: string) => void
-  onOpenDriverInstall: (instanceId: string) => void
+  driverAction: { instanceId: string; status: 'idle' | 'running' | 'error'; error?: string } | null
+  onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string

@@ -58,7 +58,7 @@ pub(crate) struct Reply {
 
 fn decode_reply(bytes: &[u8], code: Option<i32>, action: &str) -> Result<Reply, String> {
     if code == Some(1223) {
-        return Err("已取消管理员授权，驱动操作未完成。".into());
+        return Err("已取消管理员授权，驱动操作未完成，请重新尝试。".into());
     }
     let text = std::str::from_utf8(bytes)
         .map_err(|error| format!("Quarbor 安装器返回了无效 UTF-8：{error}"))?;

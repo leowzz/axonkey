@@ -1,6 +1,5 @@
 import {
   ArrowLeft,
-  Bluetooth,
   DatabaseBackup,
   ExternalLink,
   Info,
@@ -43,9 +42,7 @@ type SettingsPageProps = {
   onRestartAudio: () => void
   onProbeAudio: () => void
   onOpenSound: () => void
-  device: SetupState['device']
-  onOpenBluetooth: () => void
-  onCheckDevice: () => void
+  onOpenDeviceSetup: () => void
   onOpenSignalMonitor: () => void
   signalMonitorOpening: boolean
   signalMonitorError: string
@@ -80,9 +77,7 @@ export function SettingsPage({
   onRestartAudio,
   onProbeAudio,
   onOpenSound,
-  device,
-  onOpenBluetooth,
-  onCheckDevice,
+  onOpenDeviceSetup,
   onOpenSignalMonitor,
   signalMonitorOpening,
   signalMonitorError,
@@ -134,18 +129,6 @@ export function SettingsPage({
           }[audioDriver.status]
   const audioError =
     audioRestartError || audioDriver.action.error || (audioDriver.status === 'error' ? audioDriver.message : undefined)
-  const deviceBusy = device.status === 'checking' || device.status === 'connecting'
-  const deviceStatus = !nativeRuntime
-    ? '未检测'
-    : {
-        unknown: '未检测',
-        checking: '检测中',
-        disconnected: '未连接',
-        connecting: '连接中',
-        connected: '已连接',
-        unsupported: '暂不支持',
-        error: '检测失败',
-      }[device.status]
   const grantedCount = items.filter(item => item.granted).length
   return (
     <div className="settings-page settings-form-page">
@@ -382,15 +365,83 @@ export function SettingsPage({
                 )}
               </>
             ) : platform === 'windows' ? (
-              <section className="settings-platform-note" aria-labelledby="windows-device-settings-title">
-                <span className="settings-platform-note-icon">
-                  <ShieldCheck size={24} />
-                </span>
-                <div className="settings-platform-note-copy">
-                  <h3 id="windows-device-settings-title">Windows 设备服务</h3>
-                  <p>每台 RC003 的按键驱动在设备工作区单独连接和管理。</p>
+              <>
+                <section className="settings-platform-note" aria-labelledby="windows-device-settings-title">
+                  <span className="settings-platform-note-icon">
+                    <ShieldCheck size={24} />
+                  </span>
+                  <div className="settings-platform-note-copy">
+                    <h3 id="windows-device-settings-title">Windows 设备服务</h3>
+                    <p>每台 RC003 的按键驱动在设备工作区单独连接和管理。</p>
+                  </div>
+                </section>
+                <div className="settings-form-fields settings-device-fields">
+                  <section className="settings-form-row" aria-labelledby="settings-device-setup-label">
+                    <span id="settings-device-setup-label" className="settings-form-label">
+                      设备设置：
+                    </span>
+                    <div className="settings-form-control">
+                      <span>旧驱动清理、CABLE Input 与设备级驱动清理</span>
+                      <button
+                        type="button"
+                        className="dialog-secondary"
+                        disabled={!nativeRuntime}
+                        onClick={onOpenDeviceSetup}
+                      >
+                        打开设备设置
+                        <ExternalLink size={14} />
+                      </button>
+                    </div>
+                  </section>
+                  <section className="settings-form-row" aria-labelledby="settings-windows-audio-label">
+                    <span id="settings-windows-audio-label" className="settings-form-label">
+                      CABLE Input：
+                    </span>
+                    <div className="settings-form-control">
+                      <span
+                        className={`settings-permission-status ${nativeRuntime && audioInstalled && !audioBusy ? 'granted' : ''}`}
+                      >
+                        {audioStatus}
+                      </span>
+                      <button
+                        type="button"
+                        className={`dialog-secondary ${audioInstalled ? 'danger' : ''}`}
+                        disabled={!nativeRuntime || audioBusy}
+                        onClick={() => onAudioAction(audioInstalled ? 'uninstall' : 'install')}
+                      >
+                        {audioInstalled ? '卸载' : '安装驱动'}
+                      </button>
+                      <button
+                        type="button"
+                        className="dialog-secondary"
+                        disabled={!nativeRuntime || !audioInstalled || audioBusy}
+                        aria-busy={audioRestarting}
+                        onClick={onRestartAudio}
+                      >
+                        {audioRestarting ? '重启中…' : '重启驱动'}
+                      </button>
+                      <button
+                        type="button"
+                        className="dialog-secondary"
+                        disabled={!nativeRuntime || audioBusy}
+                        onClick={onProbeAudio}
+                      >
+                        <RotateCcw size={14} />
+                        重新检测
+                      </button>
+                      <button
+                        type="button"
+                        className="dialog-secondary"
+                        disabled={!nativeRuntime || audioBusy}
+                        onClick={onOpenSound}
+                      >
+                        声音设置
+                        <ExternalLink size={14} />
+                      </button>
+                    </div>
+                  </section>
                 </div>
-              </section>
+              </>
             ) : (
               <section className="settings-platform-note">
                 <Info size={28} />
@@ -398,69 +449,32 @@ export function SettingsPage({
                 <p>请在 macOS 或 Windows 桌面版中配置系统权限。</p>
               </section>
             )}
-            {(platform === 'macos' || platform === 'windows') && (
+            {platform === 'macos' && (
               <div className="settings-form-fields settings-device-fields">
-                <section className="settings-form-row" aria-labelledby="settings-device-label">
-                  <span id="settings-device-label" className="settings-form-label">
-                    设备连接：
+                <section className="settings-form-row" aria-labelledby="settings-signal-label">
+                  <span id="settings-signal-label" className="settings-form-label">
+                    语音链路监测：
                   </span>
                   <div className="settings-form-control">
-                    <span>RC003</span>
-                    <span
-                      className={`settings-permission-status ${nativeRuntime && device.status === 'connected' ? 'granted' : ''}`}
-                      aria-live="polite"
-                    >
-                      {deviceStatus}
-                    </span>
                     <button
                       type="button"
                       className="dialog-secondary"
-                      disabled={!nativeRuntime}
-                      onClick={onOpenBluetooth}
+                      disabled={!nativeRuntime || signalMonitorOpening}
+                      aria-busy={signalMonitorOpening}
+                      onClick={onOpenSignalMonitor}
                     >
-                      <Bluetooth size={14} />
-                      打开蓝牙设置
+                      {signalMonitorOpening ? '正在打开…' : '打开监测'}
                     </button>
-                    <button
-                      type="button"
-                      className="dialog-secondary"
-                      disabled={!nativeRuntime || deviceBusy}
-                      onClick={onCheckDevice}
-                    >
-                      <RotateCcw size={14} />
-                      重新检测
-                    </button>
-                    <SettingsHelp id="settings-device-help" label="连接 RC003">
-                      先在系统蓝牙设置中配对小米遥控器 RC003，再按任意按键唤醒，然后返回这里重新检测。
+                    <SettingsHelp id="settings-signal-help" label="语音链路监测">
+                      查看遥控器蓝牙信号、语音收包速度、音频波形和应用音频队列的实时图表，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。
                     </SettingsHelp>
+                    {signalMonitorError && (
+                      <span role="alert" className="settings-form-error">
+                        {signalMonitorError}
+                      </span>
+                    )}
                   </div>
                 </section>
-                {platform === 'macos' && (
-                  <section className="settings-form-row" aria-labelledby="settings-signal-label">
-                    <span id="settings-signal-label" className="settings-form-label">
-                      语音链路监测：
-                    </span>
-                    <div className="settings-form-control">
-                      <button
-                        type="button"
-                        className="dialog-secondary"
-                        disabled={!nativeRuntime || signalMonitorOpening}
-                        aria-busy={signalMonitorOpening}
-                        onClick={onOpenSignalMonitor}
-                      >
-                        {signalMonitorOpening ? '正在打开…' : '打开监测'}
-                      </button>
-                      <SettingsHelp id="settings-signal-help" label="语音链路监测">
-                        查看遥控器蓝牙信号、语音收包速度、音频波形和应用音频队列的实时图表，排查卡顿与延迟。支持清空图表历史、标记位置和导出读数；清空历史不会清空音频队列。关闭窗口后停止监测。
-                      </SettingsHelp>
-                      {signalMonitorError && (
-                        <span role="alert" className="settings-form-error">
-                          {signalMonitorError}
-                        </span>
-                      )}
-                    </div>
-                  </section>
-                )}
               </div>
             )}
           </section>

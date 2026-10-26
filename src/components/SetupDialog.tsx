@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   AudioLines,
   Bluetooth,
@@ -21,6 +22,19 @@ import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from '../s
 import { isSetupComplete } from '../setupModel'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 
+export type ManagedDriverUninstallResult = {
+  deviceCount: number
+  uninstalledCount: number
+  unboundCount: number
+  rebootRequired: boolean
+  failures: Array<{ instanceId: string; error: string }>
+}
+type ManagedDriverAction = {
+  status: 'idle' | 'running' | 'done'
+  result?: ManagedDriverUninstallResult
+  error?: string
+}
+
 type SetupDialogProps = {
   platform: Platform
   remoteLabel?: string
@@ -36,6 +50,7 @@ type SetupDialogProps = {
   onProbeAudio: () => void
   onProbeLegacyCleanup: () => void
   onCleanupLegacy: () => void
+  onUninstallManagedDrivers: () => Promise<ManagedDriverUninstallResult>
   onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'services' | MacPermissionKind) => void
   onRequestMacPermission: (kind: MacPermissionKind) => void
   onCheckDevice: () => void
@@ -56,7 +71,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
   inputDriver: '权限与音频',
 }
 
-const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'complete']
+const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'inputDriver', 'deviceConnection', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
 export function SetupDialog({
@@ -74,6 +89,7 @@ export function SetupDialog({
   onProbeAudio,
   onProbeLegacyCleanup,
   onCleanupLegacy,
+  onUninstallManagedDrivers,
   onOpenSystemSettings,
   onRequestMacPermission,
   onCheckDevice,
@@ -81,6 +97,7 @@ export function SetupDialog({
   onFinish,
 }: SetupDialogProps) {
   const step = state.currentStep
+  const [managedDriverAction, setManagedDriverAction] = useState<ManagedDriverAction>({ status: 'idle' })
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
   const visibleSteps =
     platform === 'macos'
@@ -194,6 +211,19 @@ export function SetupDialog({
               onAudioAction={onDriverAction}
               onProbeAudio={onProbeAudio}
               onOpenSound={() => onOpenSystemSettings('sound')}
+              onContinue={onCompleteStep}
+              onSkip={onSkipStep}
+            />
+          )}
+          {step === 'inputDriver' && platform === 'windows' && (
+            <WindowsDeviceDriverSetupScreen
+              action={managedDriverAction}
+              onUninstall={() => {
+                setManagedDriverAction({ status: 'running' })
+                void onUninstallManagedDrivers()
+                  .then(result => setManagedDriverAction({ status: 'done', result }))
+                  .catch(error => setManagedDriverAction({ status: 'idle', error: String(error) }))
+              }}
               onContinue={onCompleteStep}
               onSkip={onSkipStep}
             />
@@ -315,6 +345,91 @@ export function SetupDialog({
           )}
         </div>
       </section>
+    </div>
+  )
+}
+
+type WindowsDeviceDriverSetupScreenProps = {
+  action: ManagedDriverAction
+  onUninstall: () => void
+  onContinue: () => void
+  onSkip: () => void
+}
+
+function WindowsDeviceDriverSetupScreen({
+  action,
+  onUninstall,
+  onContinue,
+  onSkip,
+}: WindowsDeviceDriverSetupScreenProps) {
+  const result = action.result
+  const running = action.status === 'running'
+  return (
+    <div className="setup-screen">
+      <span className="setup-hero-icon">
+        <Trash2 size={24} />
+      </span>
+      <span className="section-kicker">DEVICE DRIVER</span>
+      <h2 id="setup-title">卸载设备级按键驱动</h2>
+      <p className="setup-lead">
+        Quarbor Universal
+        驱动已经改为在设备工作区按设备管理。这里保留一次性清理入口，会卸载当前已绑定的设备驱动，并解除这些设备的物理绑定。
+      </p>
+      {action.error && (
+        <div className="setup-status-panel error" role="alert">
+          <span className="setup-status-dot" />
+          <div>
+            <strong>卸载未完成</strong>
+            <span>{action.error}</span>
+          </div>
+        </div>
+      )}
+      {result && (
+        <div className={`setup-status-panel ${result.failures.length ? 'error' : 'success'}`} aria-live="polite">
+          <span className="setup-status-dot" />
+          <div>
+            <strong>
+              {result.failures.length
+                ? '部分设备未完成'
+                : result.deviceCount
+                  ? '设备驱动已清理'
+                  : '没有需要清理的设备驱动'}
+            </strong>
+            <span>
+              发现 {result.deviceCount} 台已绑定设备，卸载 {result.uninstalledCount} 台，解除绑定 {result.unboundCount}{' '}
+              台。
+              {result.rebootRequired ? ' 完成后请重启 Windows。' : ''}
+            </span>
+          </div>
+        </div>
+      )}
+      {result && result.failures.length > 0 && (
+        <div className="legacy-cleanup-list">
+          {result.failures.map(failure => (
+            <section key={failure.instanceId} className="legacy-cleanup-item present">
+              <div className="legacy-cleanup-item-heading">
+                <span className="setup-status-dot" />
+                <strong>设备实例 {failure.instanceId.slice(-6)}</strong>
+                <span>失败</span>
+              </div>
+              <p>{failure.error}</p>
+            </section>
+          ))}
+        </div>
+      )}
+      <div className="legacy-cleanup-actions">
+        <button type="button" className="button primary" disabled={running} onClick={onUninstall}>
+          <Trash2 size={14} /> {running ? '正在卸载设备驱动…' : '一键卸载已绑定设备驱动'}
+        </button>
+      </div>
+      <div className="setup-actions">
+        <button type="button" className="setup-text-button" disabled={running} onClick={onSkip}>
+          稍后处理
+        </button>
+        <button type="button" className="button primary setup-primary" disabled={running} onClick={onContinue}>
+          继续连接 RC003 <ChevronRight size={15} />
+        </button>
+      </div>
     </div>
   )
 }

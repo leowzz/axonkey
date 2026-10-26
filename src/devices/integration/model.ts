@@ -16,6 +16,7 @@ export type DeviceInstance = {
   voiceOutputDevice?: string | null
   audioGainDb?: number
   quarborTarget?: string | null
+  hideDriverMissingReminder?: boolean
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string

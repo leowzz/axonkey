@@ -54,6 +54,8 @@ pub struct Instance {
     pub voice_target: Option<String>,
     #[serde(default)]
     pub quarbor_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide_driver_missing_reminder: Option<bool>,
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
@@ -634,6 +636,7 @@ impl DeviceManager {
         instance.binding_pairing_id = None;
         instance.voice_target = None;
         instance.quarbor_target = None;
+        instance.hide_driver_missing_reminder = None;
         next.revision += 1;
         validate(&next)?;
         save(&self.shared.path, &next)?;
@@ -1487,6 +1490,7 @@ mod tests {
             audio_gain_db: 0,
             voice_target: None,
             quarbor_target: None,
+            hide_driver_missing_reminder: None,
             enabled: true,
             profiles: vec![Profile {
                 id: "default".into(),
@@ -1810,6 +1814,7 @@ mod tests {
         let mut saved_instance = instance("one", "physical-one");
         saved_instance.kind = "rc003".into();
         saved_instance.quarbor_target = Some(r"BTHLEDEVICE\target".into());
+        saved_instance.hide_driver_missing_reminder = Some(true);
         let manager = offline_manager(vec![saved_instance]);
         let snapshot = manager.unbind("one").unwrap();
         let cleared = &snapshot.store.instances[0];
@@ -1818,6 +1823,38 @@ mod tests {
         assert!(cleared.binding_pairing_id.is_none());
         assert!(cleared.voice_target.is_none());
         assert!(cleared.quarbor_target.is_none());
+        assert!(cleared.hide_driver_missing_reminder.is_none());
+        let persisted = load(&manager.shared.path).unwrap();
+        assert!(serde_json::to_value(&persisted.instances[0])
+            .unwrap()
+            .get("hideDriverMissingReminder")
+            .is_none());
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+    #[test]
+    fn hidden_driver_reminder_is_persisted_per_instance() {
+        let manager = offline_manager(vec![instance("one", "a"), instance("two", "b")]);
+        let mut changed = manager.snapshot().store.instances[0].clone();
+        changed.hide_driver_missing_reminder = Some(true);
+        let saved = manager.put(0, changed).unwrap();
+        let mut renamed = saved.store.instances[0].clone();
+        renamed.name = "Desk remote".into();
+        manager.put(saved.store.revision, renamed).unwrap();
+        let persisted = load(&manager.shared.path).unwrap();
+        assert_eq!(
+            persisted.instances[0].hide_driver_missing_reminder,
+            Some(true)
+        );
+        assert_eq!(persisted.instances[1].hide_driver_missing_reminder, None);
+        let legacy = serde_json::to_value(&persisted.instances[1]).unwrap();
+        assert!(legacy.get("hideDriverMissingReminder").is_none());
+        assert_eq!(
+            serde_json::from_value::<Instance>(legacy)
+                .unwrap()
+                .hide_driver_missing_reminder,
+            None
+        );
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

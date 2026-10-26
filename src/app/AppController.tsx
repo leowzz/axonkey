@@ -89,7 +89,6 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
-import { ManagedDriverDialog } from '../components/ManagedDriverDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
 import type { DeviceOverviewItem } from '../components/MyDevicesPage'
@@ -107,7 +106,7 @@ import { MappingOptions } from '../components/MappingOptions'
 import { ProfileImportDialog } from '../components/ProfileImportDialog'
 import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
-import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
+import { MacPermissionHelperWindow, SetupDialog, type ManagedDriverUninstallResult } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
 import { logError, logInfo } from '../runtimeLogging'
 import {
@@ -293,7 +292,7 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(false)
-  const [managedDriverDialog, setManagedDriverDialog] = useState<{
+  const [managedDriverAction, setManagedDriverAction] = useState<{
     instanceId: string
     status: 'idle' | 'running' | 'error'
     error?: string
@@ -1293,7 +1292,6 @@ function AppController() {
   }
 
   const openSetupStep = (step: SetupStepId) => {
-    if (platform === 'windows' && step === 'inputDriver') step = 'deviceConnection'
     if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
       step = 'legacyCleanup'
     }
@@ -1310,7 +1308,6 @@ function AppController() {
       // The shared setup model follows the Windows dependency order. macOS
       // still starts with permissions/audio and connects the remote second.
       if (platform === 'macos' && current.currentStep === 'welcome') return setCurrentSetupStep(next, 'inputDriver')
-      if (platform === 'windows' && next.currentStep === 'inputDriver') return completeSetupStep(next, 'inputDriver')
       return next
     })
   }
@@ -1354,24 +1351,23 @@ function AppController() {
     }
   }
 
-  const installManagedDriver = async () => {
-    const dialog = managedDriverDialog
-    if (!dialog) return
-    setManagedDriverDialog(current => (current ? { ...current, status: 'running', error: undefined } : current))
+  const installManagedDriver = async (instanceId: string) => {
+    if (managedDriverAction?.status === 'running') return
+    setManagedDriverAction({ instanceId, status: 'running' })
     try {
       const result = await invoke<DriverActionResult>('install_device_driver', {
-        instanceId: dialog.instanceId,
+        instanceId,
       })
       await deviceInstances.refresh()
       await new Promise(resolve => window.setTimeout(resolve, 900))
       await deviceInstances.refresh()
-      setManagedDriverDialog(null)
+      setManagedDriverAction(null)
       setToast(
         result.rebootRequired ? '该设备驱动已安装，重启 Windows 后完成接管' : '该设备的 Quarbor Universal 驱动已安装',
       )
       window.setTimeout(() => setToast(''), 3200)
     } catch (error) {
-      setManagedDriverDialog(current => (current ? { ...current, status: 'error', error: String(error) } : current))
+      setManagedDriverAction(current => (current ? { ...current, status: 'error', error: String(error) } : current))
     }
   }
 
@@ -1404,6 +1400,21 @@ function AppController() {
       window.setTimeout(() => setToast(''), 4200)
       throw error
     }
+  }
+
+  const uninstallManagedDrivers = async (): Promise<ManagedDriverUninstallResult> => {
+    if (!nativeRuntime || platform !== 'windows') throw new Error('设备驱动清理仅支持 Windows 桌面版')
+    const result = await invoke<ManagedDriverUninstallResult>('uninstall_bound_device_drivers')
+    await deviceInstances.refresh()
+    if (result.failures.length === 0) {
+      setToast(
+        result.deviceCount === 0
+          ? '没有发现已绑定的 Quarbor Universal 设备驱动'
+          : `已卸载 ${result.unboundCount} 台设备的 Quarbor Universal 驱动并解除绑定`,
+      )
+      window.setTimeout(() => setToast(''), 4200)
+    }
+    return result
   }
 
   const runLegacyCleanup = async () => {
@@ -2216,9 +2227,7 @@ function AppController() {
               onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
               onProbeAudio={() => void probeAudioState()}
               onOpenSound={() => void openSystemSettings('sound')}
-              device={setupState.device}
-              onOpenBluetooth={() => void openSystemSettings('bluetooth')}
-              onCheckDevice={checkDeviceConnection}
+              onOpenDeviceSetup={() => openSetupStep('inputDriver')}
             />
           ) : (
             <HomeDashboard
@@ -2236,9 +2245,8 @@ function AppController() {
                     navigateToPage('settings')
                   }}
                   onOpenAudioCalibration={openInstanceAudioCalibration}
-                  onOpenDriverInstall={instanceId => {
-                    setManagedDriverDialog(current => current ?? { instanceId, status: 'idle' })
-                  }}
+                  driverAction={managedDriverAction}
+                  onInstallDriver={instanceId => void installManagedDriver(instanceId)}
                   onUnbindDevice={unbindManagedInstance}
                   onRemoveDevice={removeManagedInstance}
                   onLegacy={deviceId => {
@@ -2457,18 +2465,6 @@ function AppController() {
           }}
         />
       )}
-      {managedDriverDialog && (
-        <ManagedDriverDialog
-          deviceName={
-            deviceInstances.snapshot.store.instances.find(item => item.id === managedDriverDialog.instanceId)?.name ??
-            '小米遥控器'
-          }
-          status={managedDriverDialog.status}
-          error={managedDriverDialog.error}
-          onInstall={() => void installManagedDriver()}
-          onClose={() => setManagedDriverDialog(null)}
-        />
-      )}
       {setupOpen &&
         !(
           nativeRuntime &&
@@ -2494,6 +2490,7 @@ function AppController() {
             onProbeAudio={() => void probeAudioState()}
             onProbeLegacyCleanup={() => void probeLegacyComponents(true)}
             onCleanupLegacy={() => void runLegacyCleanup()}
+            onUninstallManagedDrivers={uninstallManagedDrivers}
             onOpenSystemSettings={page => void openSystemSettings(page)}
             onRequestMacPermission={kind => void requestMacPermission(kind)}
             onCheckDevice={checkDeviceConnection}

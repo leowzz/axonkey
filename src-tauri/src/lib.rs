@@ -369,6 +369,23 @@ struct DriverActionResult {
     reboot_required: bool,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedDriverUninstallFailure {
+    instance_id: String,
+    error: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedDriverUninstallResult {
+    device_count: usize,
+    uninstalled_count: usize,
+    unbound_count: usize,
+    reboot_required: bool,
+    failures: Vec<ManagedDriverUninstallFailure>,
+}
+
 #[cfg(target_os = "windows")]
 fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, String> {
     let local_app_data = std::env::var_os("LOCALAPPDATA")
@@ -746,6 +763,83 @@ async fn unbind_device_instance(
         app.state::<AudioServiceManager>()
             .sync_instances(&audio_targets(&snapshot));
         Ok(snapshot)
+    }
+}
+
+#[tauri::command]
+async fn uninstall_bound_device_drivers(
+    app: tauri::AppHandle,
+) -> Result<ManagedDriverUninstallResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        let instance_ids = app
+            .state::<DeviceManager>()
+            .snapshot()
+            .store
+            .instances
+            .iter()
+            .filter(|instance| instance.kind == "rc003" && instance.binding.is_some())
+            .map(|instance| instance.id.clone())
+            .collect::<Vec<_>>();
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        let manager = app.state::<DeviceManager>();
+        let mut result = ManagedDriverUninstallResult {
+            device_count: 0,
+            uninstalled_count: 0,
+            unbound_count: 0,
+            reboot_required: false,
+            failures: Vec::new(),
+        };
+        for instance_id in instance_ids {
+            let target = match resolve_installed_quarbor_target(&app, &instance_id) {
+                Ok(Some(target)) => target,
+                Ok(None) => continue,
+                Err(error) => {
+                    result
+                        .failures
+                        .push(ManagedDriverUninstallFailure { instance_id, error });
+                    continue;
+                }
+            };
+            result.device_count += 1;
+            let resource_dir_for_task = resource_dir.clone();
+            let action = tauri::async_runtime::spawn_blocking(move || {
+                run_device_driver_action("uninstall", &resource_dir_for_task, &target)
+            })
+            .await
+            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
+            match action {
+                Ok(action) => {
+                    result.uninstalled_count += 1;
+                    result.reboot_required |= action.reboot_required;
+                    match manager.unbind(&instance_id) {
+                        Ok(_) => result.unbound_count += 1,
+                        Err(error) => result
+                            .failures
+                            .push(ManagedDriverUninstallFailure { instance_id, error }),
+                    }
+                }
+                Err(error) => result
+                    .failures
+                    .push(ManagedDriverUninstallFailure { instance_id, error }),
+            }
+        }
+        if result.unbound_count > 0 {
+            let snapshot = manager.snapshot();
+            app.state::<AudioServiceManager>()
+                .sync_instances(&audio_targets(&snapshot));
+        }
+        return Ok(result);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("设备驱动卸载仅支持 Windows".into())
     }
 }
 
@@ -1774,6 +1868,7 @@ pub fn run() {
             launch_driver_action,
             install_device_driver,
             unbind_device_instance,
+            uninstall_bound_device_drivers,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,

@@ -337,6 +337,115 @@
   display: flex;
   flex-direction: column;
 }
+.managed-instance-workspace .mapping-workbench:has(> .managed-driver-notice) {
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+.managed-driver-notice {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 16px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #fff0ef;
+  color: #a33732;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.managed-driver-notice > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.managed-driver-notice > button {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid #e7b5b2;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+.managed-driver-notice > button:disabled {
+  opacity: 0.6;
+}
+.managed-driver-notice > .managed-driver-notice-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+}
+.managed-driver-notice > .managed-driver-notice-close:hover {
+  background: #f8deda;
+}
+.managed-driver-notice[data-dismissing] {
+  position: relative;
+  z-index: 5;
+  pointer-events: none;
+  transform-origin: center;
+}
+.managed-instance-workspace[data-driver-settings-hint] .device-workspace-settings {
+  color: #a33732;
+  background: #fff0ef;
+  animation: managed-settings-receive 750ms ease-out;
+}
+.managed-instance-workspace .device-workspace-settings-hint {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 16px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #fff0ef;
+  color: #a33732;
+  box-shadow: 0 3px 12px rgb(87 36 32 / 12%);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+  animation: managed-settings-hint 2800ms ease both;
+}
+.managed-instance-workspace .device-workspace-settings-hint::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  right: 10px;
+  width: 8px;
+  height: 8px;
+  background: #fff0ef;
+  transform: rotate(45deg);
+}
+@keyframes managed-settings-receive {
+  0% {
+    box-shadow: 0 0 0 0 rgb(190 79 71 / 35%);
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.14);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgb(190 79 71 / 0%);
+    transform: scale(1);
+  }
+}
+@keyframes managed-settings-hint {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  12%,
+  85% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .managed-instance-workspace[data-driver-settings-hint] .device-workspace-settings,
+  .managed-instance-workspace .device-workspace-settings-hint {
+    animation: none;
+  }
+}
 .managed-instance-workspace .mapping-main > .managed-error,
 .managed-instance-workspace .mapping-main > .managed-notice {
   flex-shrink: 0;
