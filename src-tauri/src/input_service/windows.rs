@@ -316,8 +316,8 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Capabilities(_) => {
-            // A previous connection may have been lost after a successful start.
-            // Neutralize the physical device before accepting a new recording.
+            // Pipe readiness does not mean the BLE peripheral is awake. Reset
+            // local state without writing FB 00 to an idle physical device.
             if context
                 .device_id
                 .as_deref()
@@ -326,15 +326,6 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 context.a15_recording.reset();
                 context.a15_voice.reset();
                 context.a15_pcm.clear();
-                if context
-                    .reader
-                    .as_ref()
-                    .is_some_and(|client| client.supports_physical_write())
-                {
-                    if let Err(error) = send_a15_recording_report(&mut context.reader, [0xfb, 0]) {
-                        quarbor_output_error(context, error);
-                    }
-                }
             }
             // Each connection starts with a neutral output state.
             if let Some(client) = context.reader.as_mut() {
