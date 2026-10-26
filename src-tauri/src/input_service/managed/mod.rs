@@ -145,6 +145,9 @@ impl QuarborRegistry {
         let Ok(mut channels) = self.channels.lock() else {
             return;
         };
+        if self.gate.load(Ordering::Acquire) {
+            return;
+        }
         let stale = channels
             .keys()
             .filter(|id| !registrations.contains_key(*id))
@@ -520,6 +523,23 @@ impl DeviceManager {
     }
     pub fn snapshot(&self) -> Snapshot {
         self.shared.snapshot.lock().unwrap().clone()
+    }
+    #[cfg(windows)]
+    pub fn pause_for_driver_migration(&self) {
+        #[cfg(not(test))]
+        if let Some(registry) = &self.shared.quarbor {
+            let mut channels = registry.channels.lock().unwrap();
+            registry.gate.store(true, Ordering::Release);
+            // Dropping a channel joins its worker and releases the driver handle.
+            channels.clear();
+        }
+    }
+    #[cfg(windows)]
+    pub fn resume_after_driver_migration(&self) {
+        #[cfg(not(test))]
+        if let Some(registry) = &self.shared.quarbor {
+            registry.gate.store(false, Ordering::Release);
+        }
     }
     pub fn shutdown(&self) {
         self.shared.stop.store(true, Ordering::Release);

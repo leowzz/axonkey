@@ -18,6 +18,8 @@ import type { DriverActionKind, SetupState } from '../setupModel'
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
 
 type SettingsPageProps = {
+  debugMode: boolean
+  onOpenDriverMigration: () => void
   onBack: () => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
@@ -55,6 +57,8 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  debugMode,
+  onOpenDriverMigration,
   onBack,
   section,
   onSectionChange,
@@ -396,9 +400,26 @@ export function SettingsPage({
                       </button>
                     </div>
                   </section>
+                  {debugMode && (
+                    <section className="settings-form-row" aria-labelledby="settings-driver-migration-label">
+                      <span id="settings-driver-migration-label" className="settings-form-label">
+                        Quarbor HID Filter 驱动迁移：
+                      </span>
+                      <div className="settings-form-control">
+                        <button
+                          type="button"
+                          className="dialog-secondary"
+                          disabled={!nativeRuntime}
+                          onClick={onOpenDriverMigration}
+                        >
+                          打开升级窗口
+                        </button>
+                      </div>
+                    </section>
+                  )}
                   <section className="settings-form-row" aria-labelledby="settings-quarbor-cleanup-label">
                     <span id="settings-quarbor-cleanup-label" className="settings-form-label">
-                      Quarbor 驱动：
+                      Quarbor Universal Keyboard 驱动：
                     </span>
                     <div>
                       <div className="settings-form-control">

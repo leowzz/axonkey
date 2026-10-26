@@ -1,3 +1,4 @@
+import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
 import { createPortal } from 'react-dom'
@@ -231,6 +232,7 @@ function AppController() {
   )
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [debugMode, setDebugMode] = useState(false)
+  const [driverMigrationOpen, setDriverMigrationOpen] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
   const [audioTestInstanceGain, setAudioTestInstanceGain] = useState(0)
@@ -2164,6 +2166,8 @@ function AppController() {
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
+              debugMode={debugMode}
+              onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2459,6 +2463,9 @@ function AppController() {
             setAudioTestInstanceId(null)
           }}
         />
+      )}
+      {driverMigrationOpen && platform === 'windows' && (
+        <DriverMigrationFlow onComplete={() => setDriverMigrationOpen(false)} />
       )}
       {setupOpen &&
         !(

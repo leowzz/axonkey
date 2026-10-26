@@ -8,191 +8,153 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
-const source = ts.transpileModule(readFileSync('src/components/DriverUpgradeDialog.tsx', 'utf8'), {
+const source = ts.transpileModule(readFileSync('src/components/DriverMigrationDialog.tsx', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
 const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
 
-test('upgrade blocks dismissal while running, traps focus, then exposes error, close and retry', () => {
+function harness(invoke = async () => null) {
   const root = { inert: false }
   const document = { body: { style: { overflow: 'auto' } }, getElementById: () => root }
   class Element { isConnected = true; focus() { document.activeElement = this } }
   const previous = new Element()
   document.activeElement = previous
+  const dialog = new Element()
   const summary = new Element()
-  const dialog = new Element()
-  let controls = [summary]
-  dialog.querySelectorAll = () => controls
-  const module = { exports: {} }
-  vm.runInNewContext(source, {
-    module, exports: module.exports, document, HTMLElement: Element,
-    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? {} : name === '../runtimeLogging' ? {} : require(name),
-  })
-  let closes = 0
-  let retries = 0
-  const props = {
-    state: { status: 'running', stage: 'uninstalling', message: '正在卸载', devices: ['原设备'], rebootRequired: false, logPath: 'upgrade.log' },
-    onClose: () => closes++, onRetry: () => retries++,
-  }
-  let view
-  const render = () => act(() => {
-    const element = React.createElement(module.exports.DriverUpgradeDialog, props)
-    if (view) view.update(element)
-    else view = Renderer.create(element, { createNodeMock: node => node.type === 'section' ? dialog : null })
-  })
-  const key = (name, shiftKey = false) => act(() => view.root.findByProps({ role: 'presentation' }).props.onKeyDown({ key: name, shiftKey, preventDefault() {}, stopPropagation() {} }))
-  try {
-    render()
-    assert.equal(root.inert, true)
-    assert.equal(document.activeElement, dialog)
-    assert.equal(document.body.style.overflow, 'hidden')
-    assert.equal(view.root.findAllByType('button').length, 0)
-    key('Escape')
-    assert.equal(closes, 0)
-    document.activeElement = summary
-    key('Tab')
-    assert.equal(document.activeElement, summary)
-    assert.match(text(view.toJSON()), /升级期间无法关闭窗口/)
-
-    props.state = { ...props.state, status: 'failed', message: '已取消管理员授权', rebootRequired: true }
-    controls = [new Element(), summary, new Element(), new Element()]
-    render()
-    assert.match(text(view.root.findByProps({ role: 'alert' })), /已取消管理员授权/)
-    assert.match(text(view.toJSON()), /upgrade.log/)
-    assert.match(text(view.toJSON()), /Windows 要求重启/)
-    const button = label => view.root.findAllByType('button').find(node => text(node) === label)
-    act(() => button('再次尝试升级').props.onClick())
-    assert.equal(retries, 1)
-    key('Escape')
-    assert.equal(closes, 1)
-    act(() => button('关闭窗口').props.onClick())
-    assert.equal(closes, 2)
-    document.activeElement = controls.at(-1)
-    key('Tab')
-    assert.equal(document.activeElement, controls[0])
-
-    props.state = { ...props.state, status: 'running' }
-    render()
-    assert.equal(document.activeElement, dialog)
-    assert.equal(view.root.findAllByType('button').length, 0)
-    key('Escape')
-    assert.equal(closes, 2)
-  } finally { act(() => view?.unmount()) }
-  assert.equal(root.inert, false)
-  assert.equal(document.body.style.overflow, 'auto')
-  assert.equal(document.activeElement, previous)
-})
-
-test('startup waits for the modal to paint, starts once, retries failure and closes on success', async () => {
-  const root = { inert: false }
-  const document = { body: { style: {} }, getElementById: () => root }
-  class Element { isConnected = true; focus() { document.activeElement = this } }
-  const dialog = new Element()
-  dialog.querySelectorAll = () => []
+  const action = new Element()
+  dialog.contains = element => [dialog, summary, action].includes(element)
+  dialog.querySelectorAll = () => [summary, action]
   const timers = new Map()
-  const frames = new Map()
   let nextId = 0
-  let snapshot = { status: 'pending', stage: 'recorded', message: '设备已记录', devices: [], rebootRequired: false, logPath: null }
-  let starts = 0
-  let completed = 0
   const module = { exports: {} }
-  const invoke = async command => {
-    if (command === 'get_driver_upgrade_state') return { ...snapshot }
-    if (command === 'start_driver_upgrade') { starts++; snapshot.status = 'running' }
-  }
   vm.runInNewContext(source, {
     module, exports: module.exports, document, HTMLElement: Element,
+    window: { __TAURI_INTERNALS__: {} },
     setTimeout: callback => { const id = ++nextId; timers.set(id, callback); return id },
     clearTimeout: id => timers.delete(id),
-    requestAnimationFrame: callback => { const id = ++nextId; frames.set(id, callback); return id },
-    cancelAnimationFrame: id => frames.delete(id),
-    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? { invoke } : name === '../runtimeLogging' ? { logError() {} } : name === 'react-dom' ? { createPortal: element => element } : require(name),
+    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? { invoke } : name === 'react-dom' ? { createPortal: element => element } : require(name),
   })
-  const flush = async queue => {
-    const entries = [...queue.values()]
-    queue.clear()
-    await act(async () => { for (const callback of entries) await callback() })
+  return { ...module.exports, root, document, previous, dialog, summary, action, timers,
+    nodeMock: node => node.type === 'section' ? dialog : null,
+    tick: async () => {
+      const [id, callback] = timers.entries().next().value ?? []
+      if (callback) { timers.delete(id); await act(async () => { await callback() }) }
+    },
   }
+}
+
+const state = { status: 'required', message: '发现旧驱动', devices: ['设备 A'], rebootRequired: false, logPath: null }
+
+test('migration never offers dismissal, including errors, and traps keyboard focus', () => {
+  const h = harness()
+  let retries = 0
   let view
+  const render = status => act(() => {
+    const element = React.createElement(h.DriverMigrationDialog, { state: { ...state, status }, onRetry: () => retries++ })
+    if (view) view.update(element)
+    else view = Renderer.create(element, { createNodeMock: h.nodeMock })
+  })
   try {
-    await act(async () => {
-      view = Renderer.create(React.createElement(module.exports.StartupDriverUpgrade, { enabled: true, onComplete: () => completed++ }), { createNodeMock: node => node.type === 'section' ? dialog : null })
-    })
-    assert.equal(starts, 0)
-    assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 1)
-    await flush(frames)
-    assert.equal(starts, 0)
-    await flush(frames)
-    assert.equal(starts, 1)
-    await flush(timers)
-    await flush(frames)
-    assert.equal(starts, 1)
-    snapshot = { ...snapshot, status: 'failed', stage: 'installing', message: '安装失败' }
-    await flush(timers)
-    assert.match(text(view.toJSON()), /安装失败/)
-    const retry = view.root.findAllByType('button').find(button => text(button) === '再次尝试升级')
-    await act(async () => retry.props.onClick())
-    assert.equal(starts, 2)
-    assert.equal(view.root.findAllByType('button').length, 0)
-    snapshot = { ...snapshot, status: 'complete', stage: 'complete', rebootRequired: true }
-    await flush(timers)
-    assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
-    assert.match(text(view.toJSON()), /请重启 Windows/)
-    assert.equal(completed, 1)
-    assert.equal(root.inert, false)
-    assert.equal(timers.size, 0)
-    // An explicit install request must reopen observation after startup finished.
-    snapshot = { ...snapshot, status: 'pending', stage: 'recorded', rebootRequired: false }
-    await act(async () => view.update(React.createElement(module.exports.StartupDriverUpgrade, { key: 1, enabled: true, onComplete: () => completed++ })))
-    assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 1)
-    assert.doesNotMatch(text(view.toJSON()), /驱动升级已提交/)
-    await flush(frames)
-    await flush(frames)
-    assert.equal(starts, 3, 'a later manual request starts a new upgrade')
-  } finally { act(() => view?.unmount()) }
+    for (const status of ['required', 'running', 'failed']) {
+      render(status)
+      assert.equal(h.root.inert, true)
+      assert.equal(h.document.body.style.overflow, 'hidden')
+      const buttons = view.root.findAllByType('button')
+      assert.equal(buttons.length, status === 'running' ? 0 : 1)
+      if (status !== 'running') act(() => buttons[0].props.onClick())
+      const handler = view.root.findByProps({ role: 'presentation' }).props.onKeyDown
+      let prevented = false
+      handler({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() {} })
+      assert.equal(prevented, true)
+      h.document.activeElement = h.action
+      handler({ key: 'Tab', shiftKey: false, preventDefault() {}, stopPropagation() {} })
+      assert.equal(h.document.activeElement, h.summary)
+      assert.match(text(view.toJSON()), /升级完成前无法关闭此窗口/)
+    }
+    assert.equal(retries, 2)
+  } finally { act(() => view.unmount()) }
+  assert.equal(h.root.inert, false)
+  assert.equal(h.document.body.style.overflow, 'auto')
+  assert.equal(h.document.activeElement, h.previous)
 })
 
-test('every manual install rechecks, hands legacy upgrades to the modal, and blocks double clicks or failed checks', async () => {
-  let resolveCheck
-  let rejectCheck
-  let calls = 0
-  const invoke = command => {
-    assert.equal(command, 'check_driver_upgrade_before_install')
-    calls++
-    return new Promise((resolve, reject) => { resolveCheck = resolve; rejectCheck = reject })
-  }
-  const module = { exports: {} }
-  vm.runInNewContext(source, {
-    module, exports: module.exports,
-    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? { invoke } : name === '../runtimeLogging' ? {} : require(name),
-  })
-  let guard
-  function Host() { guard = module.exports.useDriverUpgradeCheck(); return null }
+test('startup keeps children unmounted until native migration is ready; polling never triggers a scan or install', async () => {
+  let reply = state
+  const calls = []
+  const h = harness(async command => { calls.push(command); return reply })
+  let mounted = 0
+  function Child() { React.useEffect(() => { mounted++ }, []); return React.createElement('main', null, '设备工作区') }
   let view
-  act(() => { view = Renderer.create(React.createElement(Host)) })
+  await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, null, React.createElement(Child)), { createNodeMock: h.nodeMock }) })
   try {
-    let result
-    act(() => { result = guard.checkBeforeInstall() })
-    assert.equal(guard.checking, true)
-    assert.equal(await guard.checkBeforeInstall(), false)
-    assert.equal(calls, 1, 'double click must not launch another check')
-    await act(async () => resolveCheck(false))
-    assert.equal(await result, true, 'no legacy driver continues normal install')
-    assert.equal(guard.checking, false)
-    assert.equal(guard.revision, 0)
+    assert.equal(mounted, 0)
+    reply = { ...state, status: 'failed', message: '授权取消' }
+    await h.tick()
+    assert.equal(mounted, 0)
+    assert.match(text(view.toJSON()), /授权取消/)
+    reply = { ...state, status: 'ready' }
+    await h.tick()
+    assert.equal(mounted, 1)
+    assert.match(text(view.toJSON()), /设备工作区/)
+    assert(calls.every(command => command === 'get_driver_migration'))
+    assert.equal(h.timers.size, 0)
+  } finally { act(() => view.unmount()) }
+})
 
-    for (const revision of [1, 2]) {
-      act(() => { result = guard.checkBeforeInstall() })
-      await act(async () => resolveCheck(true))
-      assert.equal(await result, false, 'legacy migration replaces normal install')
-      assert.equal(guard.revision, revision, 'reopen the upgrade UI even after an earlier attempt')
+test('non-Windows native reply bypasses migration', async () => {
+  const h = harness()
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, null, React.createElement('main', null, '正常启动')), { createNodeMock: h.nodeMock }) })
+  assert.match(text(view.toJSON()), /正常启动/)
+  act(() => view.unmount())
+})
+
+test('manual entry checks real state and uses the same native upgrade command for install and retry', async () => {
+  const commands = []
+  let reply = state
+  let attempts = 0
+  const h = harness(async command => {
+    commands.push(command)
+    if (command === 'run_driver_migration') {
+      attempts++
+      reply = { ...state, status: attempts === 1 ? 'failed' : 'ready', message: attempts === 1 ? '安装器授权取消' : '升级完成' }
+      return
     }
-    act(() => { result = guard.checkBeforeInstall() })
-    const rejected = assert.rejects(result, /check failed/)
-    await act(async () => rejectCheck(new Error('check failed')))
-    await rejected
-    assert.equal(guard.checking, false)
-    assert.equal(guard.revision, 2)
-    assert.equal(calls, 4, 'explicit requests must never reuse a clear startup result')
-  } finally { act(() => view?.unmount()) }
+    if (command === 'get_driver_migration') return reply
+  })
+  let completed = 0
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, { onComplete: () => completed++ }), { createNodeMock: h.nodeMock }) })
+  try {
+    assert.deepEqual(commands, ['check_driver_migration', 'get_driver_migration'])
+    assert.match(text(view.toJSON()), /开始升级/)
+    await act(async () => { await view.root.findByType('button').props.onClick() })
+    await h.tick()
+    assert.match(text(view.toJSON()), /安装器授权取消/)
+    assert.match(text(view.toJSON()), /重试/)
+    await act(async () => { await view.root.findByType('button').props.onClick() })
+    await h.tick()
+    assert.match(text(view.toJSON()), /升级完成/)
+    act(() => view.root.findByType('button').props.onClick())
+    assert.equal(completed, 1)
+    assert.equal(commands.filter(command => command === 'run_driver_migration').length, 2)
+    assert.equal(commands.filter(command => command === 'check_driver_migration').length, 1)
+  } finally { act(() => view.unmount()) }
+})
+
+test('manual entry with no old driver shows the native result without uninstalling anything', async () => {
+  const commands = []
+  const h = harness(async command => {
+    commands.push(command)
+    return command === 'get_driver_migration' ? { ...state, status: 'ready', devices: [], message: '无待迁移设备' } : undefined
+  })
+  let completed = 0
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, { onComplete: () => completed++ }), { createNodeMock: h.nodeMock }) })
+  try {
+    assert.match(text(view.toJSON()), /无待迁移设备/)
+    assert.deepEqual(commands, ['check_driver_migration', 'get_driver_migration'])
+    act(() => view.root.findByType('button').props.onClick())
+    assert.equal(completed, 1)
+  } finally { act(() => view.unmount()) }
 })

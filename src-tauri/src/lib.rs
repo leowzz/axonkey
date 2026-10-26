@@ -1,6 +1,7 @@
 mod audio_service;
 mod backup_files;
 mod devices;
+mod driver_migration;
 mod input_service;
 mod legacy_driver;
 mod profile_switch_overlay;
@@ -1729,6 +1730,31 @@ fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
     input_connected || bluetooth_connected
 }
 
+fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
+    let device_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("device-instances.json");
+    app.manage(AudioServiceManager::start());
+    #[cfg(target_os = "windows")]
+    let input_service = InputService::start(
+        app.path().resource_dir().ok(),
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+    #[cfg(not(target_os = "windows"))]
+    let input_service = InputService::start();
+    app.manage(input_service);
+    app.manage(MouseService::start());
+    let device_manager = DeviceManager::start(app.clone(), device_path);
+    let initial_snapshot = device_manager.snapshot();
+    app.manage(device_manager);
+    app.state::<AudioServiceManager>()
+        .sync_instances(&audio_targets(&initial_snapshot));
+    app.state::<InputService>().set_event_app(app.clone());
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1796,29 +1822,13 @@ pub fn run() {
             if let Err(error) = initialize_autostart(app.handle()) {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
-            app.manage(AudioServiceManager::start());
             #[cfg(target_os = "windows")]
-        let input_service = InputService::start(
-                app.path().resource_dir().ok(),
-                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            );
+            app.manage(driver_migration::MigrationState::default());
             #[cfg(not(target_os = "windows"))]
-            let input_service = InputService::start();
-            app.manage(input_service);
-            app.manage(MouseService::start());
-            let device_manager = DeviceManager::start(
-                app.handle().clone(),
-                app.path().app_data_dir()?.join("device-instances.json"),
-            );
-            let initial_snapshot = device_manager.snapshot();
-            app.manage(device_manager);
-            app.state::<AudioServiceManager>()
-                .sync_instances(&audio_targets(&initial_snapshot));
+            start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());
-            app.state::<InputService>()
-                .set_event_app(app.handle().clone());
             if let Err(error) = install_tray(app) {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");
                 return Err(error.into());
@@ -1830,6 +1840,8 @@ pub fn run() {
             } else {
                 show_main_window(app.handle());
             }
+            #[cfg(target_os = "windows")]
+            driver_migration::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
         })
@@ -1845,6 +1857,9 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
+                if window.try_state::<driver_migration::MigrationState>().is_some_and(|s| s.blocks_close()) {
+                    return;
+                }
                 let _ = window.hide();
                 log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 
@@ -1855,6 +1870,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            driver_migration::get_driver_migration,
+            driver_migration::check_driver_migration,
+            driver_migration::run_driver_migration,
             get_cmiot_a15_recording,
             release_update::check_release_update,
             profile_switch_overlay::show_profile_switch_overlay,
@@ -1902,12 +1920,12 @@ pub fn run() {
             if let tauri::RunEvent::ExitRequested { api, .. } = &event {
             }
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<DeviceManager>().shutdown();
-                app.state::<MouseService>().shutdown();
+                if let Some(service) = app.try_state::<DeviceManager>() { service.shutdown(); }
+                if let Some(service) = app.try_state::<MouseService>() { service.shutdown(); }
             }
             #[cfg(windows)]
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<InputService>().shutdown();
+                if let Some(service) = app.try_state::<InputService>() { service.shutdown(); }
             }
             #[cfg(not(windows))]
             let _ = (app, event);

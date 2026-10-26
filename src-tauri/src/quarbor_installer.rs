@@ -53,7 +53,7 @@ pub(crate) struct Reply {
     pub reboot_required: bool,
     message: String,
     #[serde(default)]
-    devices: Vec<Device>,
+    pub devices: Vec<Device>,
 }
 
 fn decode_reply(bytes: &[u8], code: Option<i32>, action: &str) -> Result<Reply, String> {

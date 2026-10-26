@@ -563,6 +563,15 @@ impl InputService {
         Ok(())
     }
 
+    pub fn pause_for_driver_migration(&self) -> Result<(), String> {
+        self.shared.driver_gate.store(true, Ordering::Release);
+        self.wait_for_driver_pause()
+    }
+
+    pub fn resume_after_driver_migration(&self) {
+        self.shared.driver_gate.store(false, Ordering::Release);
+    }
+
     pub fn shutdown(&self) {
         self.shared.stop.store(true, Ordering::Relaxed);
         if let Ok(mut worker) = self.worker.lock() {
@@ -2160,14 +2169,13 @@ mod tests {
         let service = InputService::start(None, gate.clone());
         service.wait_for_driver_pause().unwrap();
         assert!(!service.status().backend_ready);
-        gate.store(false, Ordering::Release);
+        service.resume_after_driver_migration();
         let deadline = Instant::now() + Duration::from_secs(2);
         while service.shared.driver_paused.load(Ordering::Acquire) {
             assert!(Instant::now() < deadline, "worker must resume");
             thread::sleep(Duration::from_millis(5));
         }
-        gate.store(true, Ordering::Release);
-        service.wait_for_driver_pause().unwrap();
+        service.pause_for_driver_migration().unwrap();
         assert!(!service.status().backend_ready);
         assert!(!service.status().capture_active);
         service.shutdown();
