@@ -77,6 +77,8 @@ import type {
   CommonBehaviorPreset,
   DraftBehaviorState,
   DriverActionResult,
+  ManagedDriverUninstallResult,
+  ManagedDriverCleanupState,
   LegacyDriverProbe,
   MacPermissionKind,
   MacPermissions,
@@ -106,7 +108,7 @@ import { MappingOptions } from '../components/MappingOptions'
 import { ProfileImportDialog } from '../components/ProfileImportDialog'
 import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
-import { MacPermissionHelperWindow, SetupDialog, type ManagedDriverUninstallResult } from '../components/SetupDialog'
+import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
 import { logError, logInfo } from '../runtimeLogging'
 import {
@@ -292,6 +294,7 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(false)
+  const [managedDriverCleanup, setManagedDriverCleanup] = useState<ManagedDriverCleanupState>({ status: 'idle' })
   const [managedDriverAction, setManagedDriverAction] = useState<{
     instanceId: string
     status: 'idle' | 'running' | 'error'
@@ -1402,19 +1405,17 @@ function AppController() {
     }
   }
 
-  const uninstallManagedDrivers = async (): Promise<ManagedDriverUninstallResult> => {
-    if (!nativeRuntime || platform !== 'windows') throw new Error('设备驱动清理仅支持 Windows 桌面版')
-    const result = await invoke<ManagedDriverUninstallResult>('uninstall_bound_device_drivers')
-    await deviceInstances.refresh()
-    if (result.failures.length === 0) {
-      setToast(
-        result.deviceCount === 0
-          ? '没有发现已绑定的 Quarbor Universal 设备驱动'
-          : `已卸载 ${result.unboundCount} 台设备的 Quarbor Universal 驱动并解除绑定`,
-      )
-      window.setTimeout(() => setToast(''), 4200)
+  const uninstallManagedDrivers = async () => {
+    if (!nativeRuntime || platform !== 'windows' || managedDriverCleanup.status === 'running') return
+    setManagedDriverCleanup({ status: 'running' })
+    try {
+      const result = await invoke<ManagedDriverUninstallResult>('uninstall_bound_device_drivers')
+      setManagedDriverCleanup({ status: 'done', result })
+    } catch (error) {
+      setManagedDriverCleanup({ status: 'idle', error: String(error) })
+    } finally {
+      await deviceInstances.refresh()
     }
-    return result
   }
 
   const runLegacyCleanup = async () => {
@@ -1778,17 +1779,9 @@ function AppController() {
   }, [setupOpen])
 
   useEffect(() => {
-    // Move an unfinished setup saved by the old Windows order to the device
-    // check before allowing Quarbor installation.
     if (!setupOpen || platform !== 'windows' || setupState.currentStep !== 'inputDriver') return
-    if (setupState.steps.deviceConnection.status === 'pending') {
-      updateSetup(current =>
-        current.currentStep === 'inputDriver' && current.steps.deviceConnection.status === 'pending'
-          ? setCurrentSetupStep(current, 'deviceConnection')
-          : current,
-      )
-    }
-  }, [platform, setupOpen, setupState.currentStep, setupState.steps.deviceConnection.status])
+    updateSetup(current => skipSetupStep(current, 'inputDriver'))
+  }, [platform, setupOpen, setupState.currentStep])
 
   useEffect(() => {
     if (!setupOpen || platform !== 'macos' || setupState.currentStep !== 'welcome') return
@@ -2227,7 +2220,9 @@ function AppController() {
               onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
               onProbeAudio={() => void probeAudioState()}
               onOpenSound={() => void openSystemSettings('sound')}
-              onOpenDeviceSetup={() => openSetupStep('inputDriver')}
+              onOpenDeviceSetup={() => openSetupStep('legacyCleanup')}
+              managedDriverCleanup={managedDriverCleanup}
+              onUninstallManagedDrivers={() => void uninstallManagedDrivers()}
             />
           ) : (
             <HomeDashboard
@@ -2490,7 +2485,6 @@ function AppController() {
             onProbeAudio={() => void probeAudioState()}
             onProbeLegacyCleanup={() => void probeLegacyComponents(true)}
             onCleanupLegacy={() => void runLegacyCleanup()}
-            onUninstallManagedDrivers={uninstallManagedDrivers}
             onOpenSystemSettings={page => void openSystemSettings(page)}
             onRequestMacPermission={kind => void requestMacPermission(kind)}
             onCheckDevice={checkDeviceConnection}

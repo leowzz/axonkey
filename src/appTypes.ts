@@ -72,6 +72,19 @@ export type RemoteKeyEvent = {
   pressed: boolean
 }
 
+export type ManagedDriverUninstallResult = {
+  deviceCount: number
+  uninstalledCount: number
+  unboundCount: number
+  rebootRequired: boolean
+  failures: Array<{ instanceId: string; error: string }>
+}
+export type ManagedDriverCleanupState = {
+  status: 'idle' | 'running' | 'done'
+  result?: ManagedDriverUninstallResult
+  error?: string
+}
+
 export type DriverActionResult = {
   logPath: string
   rebootRequired: boolean

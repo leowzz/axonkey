@@ -12,7 +12,7 @@ import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
-import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
+import type { MacPermissionKind, MacPermissions, Platform, ManagedDriverCleanupState } from '../appTypes'
 import type { DriverActionKind, SetupState } from '../setupModel'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
@@ -43,6 +43,8 @@ type SettingsPageProps = {
   onProbeAudio: () => void
   onOpenSound: () => void
   onOpenDeviceSetup: () => void
+  managedDriverCleanup: ManagedDriverCleanupState
+  onUninstallManagedDrivers: () => void
   onOpenSignalMonitor: () => void
   signalMonitorOpening: boolean
   signalMonitorError: string
@@ -78,6 +80,8 @@ export function SettingsPage({
   onProbeAudio,
   onOpenSound,
   onOpenDeviceSetup,
+  managedDriverCleanup,
+  onUninstallManagedDrivers,
   onOpenSignalMonitor,
   signalMonitorOpening,
   signalMonitorError,
@@ -381,7 +385,6 @@ export function SettingsPage({
                       设备设置：
                     </span>
                     <div className="settings-form-control">
-                      <span>旧驱动清理、CABLE Input 与设备级驱动清理</span>
                       <button
                         type="button"
                         className="dialog-secondary"
@@ -391,6 +394,48 @@ export function SettingsPage({
                         打开设备设置
                         <ExternalLink size={14} />
                       </button>
+                    </div>
+                  </section>
+                  <section className="settings-form-row" aria-labelledby="settings-quarbor-cleanup-label">
+                    <span id="settings-quarbor-cleanup-label" className="settings-form-label">
+                      Quarbor 驱动：
+                    </span>
+                    <div>
+                      <div className="settings-form-control">
+                        <button
+                          type="button"
+                          className="dialog-secondary danger"
+                          disabled={!nativeRuntime || managedDriverCleanup.status === 'running'}
+                          aria-busy={managedDriverCleanup.status === 'running'}
+                          onClick={onUninstallManagedDrivers}
+                        >
+                          {managedDriverCleanup.status === 'running' ? '正在卸载设备驱动…' : '一键卸载已绑定设备驱动'}
+                        </button>
+                        <SettingsHelp id="settings-quarbor-cleanup-help" label="卸载 Quarbor 设备驱动">
+                          读取“我的设备”，逐台卸载已绑定的 Quarbor Universal
+                          驱动。成功后解除该设备的物理绑定并清除隐藏提醒标志，保留映射配置；失败的设备保留绑定。
+                        </SettingsHelp>
+                      </div>
+                      {managedDriverCleanup.error && (
+                        <p className="settings-form-error" role="alert">
+                          {managedDriverCleanup.error}
+                        </p>
+                      )}
+                      {managedDriverCleanup.result && (
+                        <div role="status" aria-live="polite">
+                          <p>
+                            已找到 {managedDriverCleanup.result.deviceCount} 台设备，卸载{' '}
+                            {managedDriverCleanup.result.uninstalledCount} 台，解除绑定{' '}
+                            {managedDriverCleanup.result.unboundCount} 台。
+                            {managedDriverCleanup.result.rebootRequired && ' 请重启 Windows 完成卸载。'}
+                          </p>
+                          {managedDriverCleanup.result.failures.map(failure => (
+                            <p className="settings-form-error" key={failure.instanceId}>
+                              设备 {failure.instanceId.slice(-6)}：{failure.error}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </section>
                   <section className="settings-form-row" aria-labelledby="settings-windows-audio-label">
