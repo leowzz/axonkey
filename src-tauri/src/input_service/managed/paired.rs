@@ -126,6 +126,7 @@ pub(super) fn merge(
             .find(|d| d.id == id || d.pairing_id.as_ref() == Some(&pairing_id))
         {
             connected.paired = true;
+            connected.bluetooth_address = Some(address.clone());
             continue;
         }
         online.push(Discovered {
@@ -139,6 +140,7 @@ pub(super) fn merge(
             connected: false,
             paired: true,
             pairing_id: Some(pairing_id),
+            bluetooth_address: Some(address),
         });
     }
 }

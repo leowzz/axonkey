@@ -800,7 +800,7 @@ fn publish_a15_recording(shared: &Shared, recording: bool) {
     #[cfg(not(test))]
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
-        if let Some(audio) = app.try_state::<crate::audio_service::AudioService>() {
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
             audio.set_a15_recording(recording);
         }
     }
@@ -1175,7 +1175,7 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
 fn emit_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) {
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
-        if let Some(audio) = app.try_state::<crate::audio_service::AudioService>() {
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
             audio.push_a15_pcm(&frame.samples);
         }
         let _ = app.emit("axonkey-cmiot-a15-pcm", frame);

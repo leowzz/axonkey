@@ -83,10 +83,14 @@ ATVV voice connection. macOS needs no input driver. Its optional virtual audio
 driver is a pinned BlackHole derivative built and packaged by Axonkey as
 `MiRemoteV2ch.driver`.
 
-`AudioService` is the application-facing audio module on both platforms. Rust
-owns frame accumulation, ADPCM decoding, gain, and audio diagnostics. On Windows,
-the service uses Windows Bluetooth GATT APIs and CPAL to forward voice to
-VB-CABLE. On macOS, the Objective-C adapter hides CoreBluetooth,
+`AudioServiceManager` is the application-facing audio module on both platforms.
+It owns one `AudioService` per RC003 instance, keyed by `instanceId`; each
+service owns its Bluetooth session, frame accumulation, ADPCM decoder, gain,
+PCM queue and diagnostics. Rust owns frame accumulation, ADPCM decoding, gain,
+and audio diagnostics. On Windows, each service uses Windows Bluetooth GATT
+APIs and CPAL to forward voice to its configured output; when available, the
+GATT selector is filtered by the bound Bluetooth address. On macOS, each
+service owns an Objective-C adapter that hides CoreBluetooth,
 ATVV session control, AVAudioEngine device binding, reconnect timeouts and
 sleep-safe audio-engine lifetime. The macOS service prepares Core Audio output
 when RC003 voice capabilities are confirmed and reuses the configured engine
@@ -95,6 +99,10 @@ disconnect and shutdown release the output. A bounded single-producer,
 single-consumer PCM ring feeds an AVAudioSourceNode, with a 30 ms prebuffer and
 2 ms fades at underruns. The render callback performs no allocation, logging,
 or blocking synchronization; the main queue collects rendered-sample counters.
+
+The legacy setup page and the Windows CMIOT A15 recorder retain a compatibility
+audio service. Their commands omit `instanceId`; RC003 instance settings and
+calibration commands include it and are routed to that instance's service.
 
 Long presses can still exhibit approximately 1.8–2 seconds of cumulative delay
 and missing speech at release on RC003 firmware 2671. The investigation is

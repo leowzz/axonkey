@@ -22,7 +22,7 @@ use windows::{
             GenericAttributeProfile::{
                 GattCharacteristic, GattCharacteristicProperties,
                 GattClientCharacteristicConfigurationDescriptorValue, GattCommunicationStatus,
-                GattDeviceService, GattValueChangedEventArgs, GattWriteOption,
+                GattDeviceService, GattSharingMode, GattValueChangedEventArgs, GattWriteOption,
             },
         },
         Enumeration::DeviceInformation,
@@ -81,10 +81,11 @@ struct Shared {
     audio_refresh: AtomicBool,
     ble_refresh: AtomicBool,
     output_failed: AtomicBool,
+    target_bluetooth_address: Option<String>,
 }
 
 impl Shared {
-    fn new() -> Self {
+    fn new(target_bluetooth_address: Option<String>) -> Self {
         let mut protocol = VoiceProtocolState::default();
         protocol.reset_connection();
         Self {
@@ -105,6 +106,7 @@ impl Shared {
             audio_refresh: AtomicBool::new(false),
             ble_refresh: AtomicBool::new(false),
             output_failed: AtomicBool::new(false),
+            target_bluetooth_address,
         }
     }
 
@@ -283,8 +285,12 @@ impl AudioService {
     }
 
     pub fn start() -> Self {
+        Self::start_for(None)
+    }
+
+    pub fn start_for(target_bluetooth_address: Option<String>) -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows audio service");
-        let shared = Arc::new(Shared::new());
+        let shared = Arc::new(Shared::new(target_bluetooth_address));
         let audio_shared = Arc::clone(&shared);
         let audio_worker = thread::Builder::new()
             .name("Axonkey audio output".into())
@@ -320,6 +326,21 @@ impl AudioService {
         if status.output_ready && !status.bluetooth_connected {
             self.shared.ble_refresh.store(true, Ordering::Release);
         }
+    }
+
+    pub fn pause(&self) {
+        self.shared.audio_refresh.store(true, Ordering::Release);
+        self.shared.ble_refresh.store(true, Ordering::Release);
+    }
+
+    pub fn resume(&self) {
+        self.refresh();
+    }
+
+    pub fn restart(&self) -> Result<(), String> {
+        self.pause();
+        self.resume();
+        Ok(())
     }
 
     pub fn set_output_device(&self, device: Option<String>) {
@@ -716,7 +737,8 @@ struct VoiceConnection {
 
 impl VoiceConnection {
     fn connect(shared: Arc<Shared>) -> Result<Self, String> {
-        let (device, service) = find_remote()?;
+        let target = shared.target_bluetooth_address.as_deref();
+        let (device, service) = find_remote(target)?;
         shared.update_status(|status| {
             status.bluetooth_connected = true;
             status.state = "connecting".into();
@@ -835,7 +857,9 @@ impl VoiceConnection {
     }
 }
 
-fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
+fn find_remote(
+    target_bluetooth_address: Option<&str>,
+) -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     let selector = GattDeviceService::GetDeviceSelectorFromUuid(VOICE_SERVICE_UUID)
         .map_err(|error| format!("Cannot create the RC003 voice service selector: {error}"))?;
     let devices = DeviceInformation::FindAllAsyncAqsFilter(&selector)
@@ -849,7 +873,7 @@ fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
         let Ok(id) = info.Id() else {
             continue;
         };
-        if !approved_remote_service_id(&id.to_string()) {
+        if !approved_remote_service_id(&id.to_string(), target_bluetooth_address) {
             continue;
         }
         let name = info
@@ -857,9 +881,19 @@ fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
             .map(|value| value.to_string())
             .unwrap_or_default();
         let result = (|| {
-            let service = GattDeviceService::FromIdAsync(&id)?.get()?;
-            let device_id = service.Session()?.DeviceId()?.Id()?;
-            let device = BluetoothLEDevice::FromIdAsync(&device_id)?.get()?;
+            // A service can be shared with the HID side of the remote. The
+            // default sharing mode is left unspecified by Windows and can
+            // produce a null object (reported as HRESULT 0) on those paths.
+            let service = GattDeviceService::FromIdWithSharingModeAsync(
+                &id,
+                GattSharingMode::SharedReadAndWrite,
+            )?
+            .get()?;
+            // The service already owns the BluetoothLEDevice for the same
+            // instance. Re-opening it from GattSession.DeviceId() is not
+            // equivalent: that ID is a Bluetooth device ID on some Windows
+            // builds and a service/session ID on others.
+            let device = service.Device()?;
             Ok::<_, windows::core::Error>((device, service))
         })();
         match result {
@@ -877,10 +911,29 @@ fn find_remote() -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     }
 }
 
-fn approved_remote_service_id(id: &str) -> bool {
+fn approved_remote_service_id(id: &str, target_bluetooth_address: Option<&str>) -> bool {
     // Windows GATT instance paths retain the hardware identity even when the
     // device has a localized or user-chosen Bluetooth name.
-    id.to_ascii_lowercase().contains("_vid&012717_pid&32b8_")
+    let normalized = id.to_ascii_lowercase();
+    let approved = normalized.contains("_vid&012717_pid&32b8_")
+        // Newer Windows Bluetooth stacks expose the same service below the
+        // address-only BTHLE\DEV_* parent (for example C05D39C2CF83).
+        || (normalized.contains(
+            "bthledevice#{ab5e0001-5a21-4f05-bc7d-af01f617b664}_dev_",
+        ) && !normalized.contains("_vid&")
+            && !normalized.contains("_pid&"));
+    if !approved {
+        return false;
+    }
+    let Some(target) = target_bluetooth_address else {
+        return true;
+    };
+    let compact: String = target
+        .chars()
+        .filter(|ch| ch.is_ascii_hexdigit())
+        .map(|ch| ch.to_ascii_lowercase())
+        .collect();
+    compact.len() == 12 && normalized.contains(&compact)
 }
 
 fn find_characteristic(
@@ -1159,7 +1212,7 @@ mod tests {
     #[test]
     fn a15_status_does_not_depend_on_xiaomi_bluetooth_discovery() {
         let audio = AudioService {
-            shared: std::sync::Arc::new(Shared::new()),
+            shared: std::sync::Arc::new(Shared::new(None)),
             audio_worker: std::sync::Mutex::new(None),
             ble_worker: std::sync::Mutex::new(None),
         };
@@ -1195,7 +1248,7 @@ mod tests {
     }
     #[test]
     fn a15_uses_shared_gain_resampling_and_clears_cursor_on_stop() {
-        let shared = Shared::new();
+        let shared = Shared::new(None);
         shared.set_a15_recording(true);
         shared.gain_db.store(6, Ordering::Release);
         shared.enqueue_pcm(true, &[4000; 320]);
@@ -1220,7 +1273,7 @@ mod tests {
 
     #[test]
     fn a15_owns_channel_without_rc003_reconnect_or_stop_flushing_it() {
-        let shared = Shared::new();
+        let shared = Shared::new(None);
         shared.enqueue_pcm(false, &[1000; 320]);
         shared.set_a15_recording(true);
         assert!(shared.samples.lock().unwrap().is_empty());
@@ -1249,7 +1302,7 @@ mod tests {
 
     #[test]
     fn shared_pcm_queue_is_bounded_and_a15_feeds_level_diagnostics() {
-        let shared = Shared::new();
+        let shared = Shared::new(None);
         shared.set_a15_recording(true);
         for _ in 0..110 {
             shared.enqueue_pcm(true, &[6000; 320]);
@@ -1267,7 +1320,7 @@ mod tests {
 
     #[test]
     fn output_diagnostics_count_source_samples_without_changing_stereo_audio() {
-        let shared = Shared::new();
+        let shared = Shared::new(None);
         shared.samples.lock().unwrap().extend([1000; 640]);
         let mut cursor = OutputCursor::new(48_000);
         let mut output = [0.0_f32; 960];
@@ -1285,7 +1338,7 @@ mod tests {
 
     #[test]
     fn output_diagnostics_distinguish_prebuffer_and_queue_contention() {
-        let shared = Shared::new();
+        let shared = Shared::new(None);
         shared.protocol.lock().unwrap().streaming = true;
         shared.samples.lock().unwrap().extend([1000; 240]);
         let mut cursor = OutputCursor::new(48_000);
@@ -1327,11 +1380,33 @@ mod tests {
     #[test]
     fn selects_rc003_voice_service_by_hardware_identity() {
         let id = r"\\?\BTHLEDevice#{ab5e0001-5a21-4f05-bc7d-af01f617b664}_Dev_VID&012717_PID&32b8_REV&00a4_001122334455#device";
-        assert!(approved_remote_service_id(id));
-        assert!(approved_remote_service_id(&id.to_ascii_uppercase()));
-        assert!(!approved_remote_service_id(&id.replace("012717", "01046D")));
-        assert!(!approved_remote_service_id(&id.replace("32b8", "32b9")));
-        assert!(!approved_remote_service_id(&id.replace("32b8", "32b80")));
-        assert!(!approved_remote_service_id("RC003"));
+        assert!(approved_remote_service_id(id, None));
+        assert!(approved_remote_service_id(id, Some("00:11:22:33:44:55")));
+        assert!(approved_remote_service_id(&id.to_ascii_uppercase(), None));
+        assert!(!approved_remote_service_id(
+            &id.replace("012717", "01046D"),
+            None
+        ));
+        assert!(!approved_remote_service_id(
+            &id.replace("32b8", "32b9"),
+            None
+        ));
+        assert!(!approved_remote_service_id(
+            &id.replace("32b8", "32b80"),
+            None
+        ));
+        assert!(!approved_remote_service_id("RC003", None));
+    }
+
+    #[test]
+    fn accepts_address_only_rc003_voice_service_instance() {
+        let id = r"\\?\BTHLEDevice#{ab5e0001-5a21-4f05-bc7d-af01f617b664}_Dev_C05D39C2CF83#device";
+        assert!(approved_remote_service_id(id, None));
+        assert!(approved_remote_service_id(id, Some("C0:5D:39:C2:CF:83")));
+        assert!(!approved_remote_service_id(id, Some("AA:BB:CC:DD:EE:FF")));
+        assert!(!approved_remote_service_id(
+            r"\\?\BTHLEDevice#{0000180f-0000-1000-8000-00805f9b34fb}_Dev_C05D39C2CF83#device",
+            None
+        ));
     }
 }

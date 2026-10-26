@@ -9,7 +9,7 @@ mod profile_switch_overlay;
 mod quarbor_installer;
 mod release_update;
 
-use audio_service::{AudioService, AudioServiceStatus};
+use audio_service::{AudioServiceManager, AudioServiceStatus, AudioTarget};
 use input_service::managed::{
     DeviceManager, Instance as DeviceInstance, Snapshot as DeviceSnapshot,
 };
@@ -658,12 +658,12 @@ async fn launch_driver_action(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         let action_for_task = action.clone();
-        _app.state::<AudioService>().pause();
+        _app.state::<AudioServiceManager>().pause(None);
         let task_result = tauri::async_runtime::spawn_blocking(move || {
             run_macos_driver_action(&action_for_task, &resource_dir)
         })
         .await;
-        _app.state::<AudioService>().resume();
+        _app.state::<AudioServiceManager>().resume(None);
         let result =
             task_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
         Ok(result)
@@ -1008,7 +1008,9 @@ async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
     {
         use tauri::Manager;
 
-        app.state::<AudioService>().status().battery_level
+        app.state::<AudioServiceManager>()
+            .status(None)
+            .battery_level
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1019,16 +1021,23 @@ async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
 }
 
 #[tauri::command]
-fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Result<bool, String> {
+fn probe_audio_available(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        audio_service.refresh();
-        Ok(audio_service.status().driver_installed)
+        audio_service.refresh(instance_id.as_deref());
+        Ok(audio_service
+            .status(instance_id.as_deref())
+            .driver_installed)
     }
 
     #[cfg(target_os = "macos")]
     {
-        Ok(audio_service.status().driver_installed)
+        Ok(audio_service
+            .status(instance_id.as_deref())
+            .driver_installed)
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1039,9 +1048,12 @@ fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Resul
 }
 
 #[tauri::command]
-fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServiceStatus {
-    audio_service.refresh();
-    audio_service.status()
+fn probe_audio_state(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> AudioServiceStatus {
+    audio_service.refresh(instance_id.as_deref());
+    audio_service.status(instance_id.as_deref())
 }
 
 fn default_voice_output_device() -> Option<String> {
@@ -1083,15 +1095,35 @@ fn default_voice_output_device() -> Option<String> {
     None
 }
 
-fn configured_rc003_output_device(snapshot: &DeviceSnapshot) -> Option<String> {
+fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
     snapshot
         .store
         .instances
         .iter()
-        .find(|instance| instance.kind == "rc003")
-        .and_then(|instance| instance.voice_output_device.clone())
-        .map(|device| device.trim().to_string())
-        .filter(|device| !device.is_empty())
+        .filter(|instance| instance.kind == "rc003")
+        .map(|instance| {
+            let voice_target = instance.voice_target.clone().or_else(|| {
+                instance.binding.as_ref().and_then(|binding| {
+                    snapshot
+                        .discovered
+                        .iter()
+                        .find(|device| &device.id == binding)
+                        .and_then(|device| device.bluetooth_address.clone())
+                })
+            });
+            AudioTarget {
+                instance_id: instance.id.clone(),
+                voice_target,
+                output_device: instance
+                    .voice_output_device
+                    .clone()
+                    .map(|device| device.trim().to_string())
+                    .filter(|device| !device.is_empty()),
+                gain_db: instance.audio_gain_db,
+                enabled: instance.enabled && instance.binding.is_some(),
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1127,13 +1159,19 @@ async fn list_voice_output_devices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn restart_audio_service(app: tauri::AppHandle) -> Result<(), String> {
+async fn restart_audio_service(
+    app: tauri::AppHandle,
+    instance_id: Option<String>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        tauri::async_runtime::spawn_blocking(move || app.state::<AudioService>().restart())
-            .await
-            .map_err(|error| format!("音频重启失败：{error}"))?
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AudioServiceManager>()
+                .restart(instance_id.as_deref())
+        })
+        .await
+        .map_err(|error| format!("音频重启失败：{error}"))?
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -1173,14 +1211,18 @@ async fn open_signal_monitor(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn get_signal_monitor_state(
     app: tauri::AppHandle,
+    instance_id: Option<String>,
     after: Option<u64>,
     clear: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "macos")]
     {
         tauri::async_runtime::spawn_blocking(move || {
-            app.state::<AudioService>()
-                .signal_snapshot(after, clear.unwrap_or(false))
+            app.state::<AudioServiceManager>().signal_snapshot(
+                instance_id.as_deref(),
+                after,
+                clear.unwrap_or(false),
+            )
         })
         .await
         .map_err(|e| format!("无法读取监测数据：{e}"))
@@ -1224,19 +1266,24 @@ async fn export_signal_monitor(
 
 #[tauri::command]
 fn get_audio_test_state(
-    audio_service: tauri::State<'_, AudioService>,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> (AudioServiceStatus, audio_service::AudioLevel) {
-    (audio_service.status(), audio_service.level())
+    (
+        audio_service.status(instance_id.as_deref()),
+        audio_service.level(instance_id.as_deref()),
+    )
 }
 
 #[tauri::command]
 fn set_audio_stretch_compensation(
     enabled: bool,
-    audio_service: tauri::State<'_, AudioService>,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        audio_service.set_stretch_compensation(enabled)
+        audio_service.set_stretch_compensation(instance_id.as_deref(), enabled)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -1246,8 +1293,12 @@ fn set_audio_stretch_compensation(
 }
 
 #[tauri::command]
-fn set_audio_gain(gain: i16, audio_service: tauri::State<'_, AudioService>) -> Result<(), String> {
-    audio_service.set_gain_db(gain)
+fn set_audio_gain(
+    gain: i16,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<(), String> {
+    audio_service.set_gain_db(instance_id.as_deref(), gain)
 }
 
 #[tauri::command]
@@ -1260,11 +1311,11 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 
     #[cfg(target_os = "macos")]
     {
-        let audio_service = app.state::<AudioService>();
-        audio_service.refresh();
+        let audio_service = app.state::<AudioServiceManager>();
+        audio_service.refresh(None);
         return Ok(rc003_connected(
             false,
-            audio_service.status().bluetooth_connected,
+            audio_service.status(None).bluetooth_connected,
         ));
     }
 
@@ -1286,8 +1337,13 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn device_snapshot(manager: tauri::State<'_, DeviceManager>) -> DeviceSnapshot {
-    manager.snapshot()
+fn device_snapshot(
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> DeviceSnapshot {
+    let snapshot = manager.snapshot();
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    snapshot
 }
 
 #[tauri::command]
@@ -1295,25 +1351,13 @@ fn put_device_instance(
     revision: u64,
     mut instance: DeviceInstance,
     manager: tauri::State<'_, DeviceManager>,
-    audio_service: tauri::State<'_, AudioService>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
     if instance.id.is_empty() && instance.voice_output_device.is_none() {
         instance.voice_output_device = default_voice_output_device();
     }
-    let output_device = (instance.kind == "rc003")
-        .then(|| instance.voice_output_device.clone())
-        .flatten();
     let snapshot = manager.put(revision, instance)?;
-    if output_device.is_some()
-        || snapshot
-            .store
-            .instances
-            .iter()
-            .any(|item| item.kind == "rc003")
-    {
-        audio_service
-            .set_output_device(output_device.or_else(|| configured_rc003_output_device(&snapshot)));
-    }
+    audio_service.sync_instances(&audio_targets(&snapshot));
     Ok(snapshot)
 }
 
@@ -1322,10 +1366,10 @@ fn remove_device_instance(
     revision: u64,
     id: String,
     manager: tauri::State<'_, DeviceManager>,
-    audio_service: tauri::State<'_, AudioService>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
     let snapshot = manager.remove(revision, &id)?;
-    audio_service.set_output_device(configured_rc003_output_device(&snapshot));
+    audio_service.sync_instances(&audio_targets(&snapshot));
     Ok(snapshot)
 }
 
@@ -1396,9 +1440,9 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "macos")]
     {
-        let audio_service = app.state::<AudioService>();
-        audio_service.refresh();
-        let audio_status = audio_service.status();
+        let audio_service = app.state::<AudioServiceManager>();
+        audio_service.refresh(None);
+        let audio_status = audio_service.status(None);
         Ok(SystemProbe {
             platform: "macos",
             input_driver_installed: true,
@@ -1506,7 +1550,7 @@ pub fn run() {
             if let Err(error) = initialize_autostart(app.handle()) {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
-            app.manage(AudioService::start());
+            app.manage(AudioServiceManager::start());
             #[cfg(target_os = "windows")]
             let input_service = {
                 let upgrade = driver_upgrade::UpgradeState::default();
@@ -1522,9 +1566,10 @@ pub fn run() {
                 app.handle().clone(),
                 app.path().app_data_dir()?.join("device-instances.json"),
             );
-            let output_device = configured_rc003_output_device(&device_manager.snapshot());
+            let initial_snapshot = device_manager.snapshot();
             app.manage(device_manager);
-            app.state::<AudioService>().set_output_device(output_device);
+            app.state::<AudioServiceManager>()
+                .sync_instances(&audio_targets(&initial_snapshot));
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());
@@ -1549,7 +1594,9 @@ pub fn run() {
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
             if window.label() == "signal-monitor" && matches!(event, tauri::WindowEvent::Destroyed) {
-                window.state::<AudioService>().stop_signal_monitor();
+                window
+                    .state::<AudioServiceManager>()
+                    .stop_signal_monitor(None);
             }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;

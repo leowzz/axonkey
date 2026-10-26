@@ -55,8 +55,10 @@ src-tauri/native/devices/xiaomi_remote/
   macos_audio_trace.h       RC003 蓝牙事件追踪
 ```
 
-`audio_service` 保留统一入口、公共状态、增益约束、诊断和监测；当前服务通过
-重导出使用 RC003 后端。`native/macos_pcm_queue.h` 是共享 PCM 缓冲实现。
+`audio_service` 保留统一入口、公共状态、增益约束、诊断和监测；
+`AudioServiceManager` 按 `instanceId` 管理 RC003 的独立语音服务，每个服务
+拥有自己的蓝牙会话、解码器、PCM 队列、增益和输出设备。`native/macos_pcm_queue.h`
+是每个 macOS 音频实例使用的 PCM 缓冲实现。
 `input_service` 和 `native/macos_input.m` 仍承载共享输入捕获与映射执行，不能
 整块移入某个型号目录；后续应先明确协议解析与平台输入基础设施的接口。
 macOS 原生构建入口和直接引用桥接源码的测试已更新到新路径。
@@ -69,4 +71,6 @@ macOS 原生构建入口和直接引用桥接源码的测试已更新到新路�
 - `src/devices/xbox-controller/`：无品牌图标的 SVG 资源与交互图。
 - `src-tauri/src/input_service/managed/`：HID 发现、物理身份、原生持久化、独立输入会话、协议解码与手势调度。
 
-新的实例存储独立于旧型号级配置。当前 macOS RC003 与已验证蓝牙手柄可使用实例监听；Windows RC003 继续走旧驱动工作区，语音尚未迁移为多实例服务。具体支持边界不能仅凭目录是否存在判断，参见集成约定中的平台支持说明。
+新的实例存储独立于旧型号级配置。当前 macOS RC003 与已验证蓝牙手柄可使用实例监听；
+Windows RC003 输入继续走旧驱动工作区，但语音服务已按实例拆分，Windows GATT 会话按绑定的
+蓝牙地址筛选。具体支持边界不能仅凭目录是否存在判断，参见集成约定中的平台支持说明。

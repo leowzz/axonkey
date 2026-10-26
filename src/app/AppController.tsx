@@ -233,6 +233,24 @@ function AppController() {
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [debugMode, setDebugMode] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
+  const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
+  const [audioTestInstanceGain, setAudioTestInstanceGain] = useState(0)
+  const openLegacyAudioCalibration = () => {
+    setAudioTestInstanceId(null)
+    setAudioTestOpen(true)
+  }
+  const openInstanceAudioCalibration = (instanceId: string) => {
+    const instance = deviceInstances.snapshot.store.instances.find(item => item.id === instanceId)
+    setAudioTestInstanceId(instanceId)
+    setAudioTestInstanceGain(instance?.audioGainDb ?? 0)
+    setAudioTestOpen(true)
+  }
+  const updateInstanceAudioGain = (gain: number) => {
+    setAudioTestInstanceGain(gain)
+    if (audioTestInstanceId) {
+      void deviceInstances.update(audioTestInstanceId, item => ({ ...item, audioGainDb: gain })).catch(() => {})
+    }
+  }
   const [autoSaveState, setAutoSaveState] = useState<'saved' | 'saving' | 'error'>('saved')
   const [applyRetry, setApplyRetry] = useState(0)
   const [toast, setToast] = useState('')
@@ -2008,7 +2026,7 @@ function AppController() {
         onReset={resetMappings}
         audioCalibration={
           selectedDevice.inputKind === 'button'
-            ? { disabled: !nativeRuntime, onOpen: () => setAudioTestOpen(true) }
+            ? { disabled: !nativeRuntime, onOpen: openLegacyAudioCalibration }
             : undefined
         }
         flowEditor={mappingStyle === 'flow'}
@@ -2239,7 +2257,7 @@ function AppController() {
                     navigateToPage('settings')
                   }}
                   onDriver={() => openSetupStep('inputDriver')}
-                  onOpenAudioCalibration={() => setAudioTestOpen(true)}
+                  onOpenAudioCalibration={openInstanceAudioCalibration}
                   onLegacy={deviceId => {
                     setSelectedDeviceId(deviceId)
                     const device = devices.find(d => d.id === deviceId)!
@@ -2446,10 +2464,14 @@ function AppController() {
         <AudioTestDialog
           platform={platform}
           nativeRuntime={nativeRuntime}
-          audioGain={audioGain}
+          instanceId={audioTestInstanceId ?? undefined}
+          audioGain={audioTestInstanceId ? audioTestInstanceGain : audioGain}
           gainError={gainError}
-          onAudioGainChange={updateAudioGain}
-          onClose={() => setAudioTestOpen(false)}
+          onAudioGainChange={audioTestInstanceId ? updateInstanceAudioGain : updateAudioGain}
+          onClose={() => {
+            setAudioTestOpen(false)
+            setAudioTestInstanceId(null)
+          }}
         />
       )}
       <StartupDriverUpgrade

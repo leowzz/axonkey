@@ -21,7 +21,7 @@ type Props = {
   onPermissions: () => void
   onDriver: () => void
   onLegacy: (id: DeviceId) => void
-  onOpenAudioCalibration: () => void
+  onOpenAudioCalibration: (instanceId: string) => void
   mouseProfileName: string
   rc003BatteryLevel: number | null
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]

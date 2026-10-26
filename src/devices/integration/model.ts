@@ -14,6 +14,7 @@ export type DeviceInstance = {
   bindingQuality?: string | null
   bindingPairingId?: string | null
   voiceOutputDevice?: string | null
+  audioGainDb?: number
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
@@ -109,6 +110,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     name: packageFor(kind).name,
     binding,
     voiceOutputDevice: null,
+    audioGainDb: 0,
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

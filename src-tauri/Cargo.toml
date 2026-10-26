@@ -41,6 +41,7 @@ cpal = "0.18.2"
 windows = { version = "0.61.3", features = [
   "Devices_Bluetooth",
   "Devices_Bluetooth_GenericAttributeProfile",
+  "deprecated",
   "Devices_Enumeration",
   "Foundation",
   "Storage_Streams",

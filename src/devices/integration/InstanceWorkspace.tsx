@@ -42,7 +42,7 @@ type Props = {
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
   onBack: () => void
   onBind: () => void
-  onOpenAudioCalibration: () => void
+  onOpenAudioCalibration: (instanceId: string) => void
   batteryLevel: number | null
 }
 export function InstanceWorkspace({
@@ -211,7 +211,7 @@ export function InstanceWorkspace({
               className="managed-audio-calibration"
               disabled={!native}
               title={!native ? '请在桌面应用中校准音量' : undefined}
-              onClick={native ? onOpenAudioCalibration : undefined}
+              onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
             >
               <SlidersHorizontal size={16} aria-hidden="true" />
               校准音量

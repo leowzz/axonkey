@@ -44,6 +44,10 @@ pub struct Instance {
     pub binding_pairing_id: Option<String>,
     #[serde(default)]
     pub voice_output_device: Option<String>,
+    #[serde(default)]
+    pub audio_gain_db: i16,
+    #[serde(default, skip_serializing)]
+    pub voice_target: Option<String>,
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
@@ -79,6 +83,8 @@ pub struct Discovered {
     pub connected: bool,
     pub paired: bool,
     pub pairing_id: Option<String>,
+    #[serde(skip_serializing)]
+    pub bluetooth_address: Option<String>,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -391,6 +397,8 @@ impl DeviceManager {
             if old.binding == instance.binding {
                 instance.binding_quality = old.binding_quality.clone();
                 instance.binding_pairing_id = old.binding_pairing_id.clone();
+                instance.voice_target = old.voice_target.clone();
+                instance.audio_gain_db = old.audio_gain_db;
             }
         }
         if instance.binding != old.and_then(|i| i.binding.clone()) {
@@ -405,6 +413,7 @@ impl DeviceManager {
                 }
                 instance.binding_quality = Some(device.identity_quality.clone());
                 instance.binding_pairing_id = device.pairing_id.clone();
+                instance.voice_target = device.bluetooth_address.clone();
                 if device.kind != instance.kind {
                     return Err("设备与支持包不匹配".into());
                 }
@@ -413,6 +422,7 @@ impl DeviceManager {
         if instance.binding.is_none() {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
+            instance.voice_target = None;
         }
         if instance.id.is_empty() {
             instance.id = unique_id();
@@ -618,17 +628,27 @@ fn remember_pairing_ids(
     let mut next = snapshot.store.clone();
     let mut changed = false;
     for instance in &mut next.instances {
-        if instance.binding_pairing_id.is_some() {
-            continue;
+        if instance.binding_pairing_id.is_none() {
+            if let Some(device) = discovered.iter().find(|d| {
+                Some(&d.id) == instance.binding.as_ref()
+                    && d.kind == instance.kind
+                    && d.identity_quality != "ambiguous"
+                    && d.pairing_id.is_some()
+            }) {
+                instance.binding_pairing_id = device.pairing_id.clone();
+                changed = true;
+            }
         }
-        if let Some(device) = discovered.iter().find(|d| {
-            Some(&d.id) == instance.binding.as_ref()
-                && d.kind == instance.kind
-                && d.identity_quality != "ambiguous"
-                && d.pairing_id.is_some()
-        }) {
-            instance.binding_pairing_id = device.pairing_id.clone();
-            changed = true;
+        if instance.kind == "rc003" && instance.voice_target.is_none() {
+            if let Some(device) = discovered.iter().find(|d| {
+                Some(&d.id) == instance.binding.as_ref()
+                    && d.kind == instance.kind
+                    && d.identity_quality != "ambiguous"
+                    && d.bluetooth_address.is_some()
+            }) {
+                instance.voice_target = device.bluetooth_address.clone();
+                changed = true;
+            }
         }
     }
     if !changed {
@@ -771,6 +791,7 @@ fn run(shared: Arc<Shared>) {
                         connected: true,
                         paired: false,
                         pairing_id,
+                        bluetooth_address: address,
                     });
                 }
                 sessions.retain(|path, _| seen_paths.contains(path));
@@ -1143,6 +1164,8 @@ mod tests {
             binding_quality: Some("serial".into()),
             binding_pairing_id: None,
             voice_output_device: None,
+            audio_gain_db: 0,
+            voice_target: None,
             enabled: true,
             profiles: vec![Profile {
                 id: "default".into(),
@@ -1435,6 +1458,7 @@ mod tests {
             connected: true,
             paired: false,
             pairing_id: None,
+            bluetooth_address: None,
         };
         manager.shared.snapshot.lock().unwrap().discovered = vec![discovered.clone()];
         assert!(manager.put(0, instance("one", "a")).is_err());
@@ -1485,6 +1509,7 @@ mod tests {
             connected: false,
             paired: true,
             pairing_id: Some("pairing-controller".into()),
+            bluetooth_address: None,
         }];
         let saved = manager
             .put(0, instance("desk", "paired-controller"))
@@ -1527,6 +1552,7 @@ mod tests {
             connected: true,
             paired: true,
             pairing_id: Some(canonical.clone()),
+            bluetooth_address: Some("AA:BB:CC:DD:EE:01".into()),
         }];
         let mut snapshot = manager.shared.snapshot.lock().unwrap();
         let original = snapshot.store.instances[0].clone();

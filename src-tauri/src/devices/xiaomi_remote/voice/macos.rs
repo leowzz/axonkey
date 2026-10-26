@@ -108,6 +108,10 @@ impl AudioService {
     }
 
     pub fn start() -> Self {
+        Self::start_for(None)
+    }
+
+    pub fn start_for(_target_identity: Option<String>) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
             diagnostics: AudioDiagnostics::default(),
