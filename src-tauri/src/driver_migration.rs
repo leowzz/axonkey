@@ -266,7 +266,7 @@ mod windows {
                     .into_iter()
                     .find(|id| id.to_ascii_uppercase().starts_with("BTHLEDEVICE\\"))
                 {
-                    // The ancestor need not appear in the installer's HID enumeration.
+                    // The ancestor may be outside the input device enumeration.
                     target.instance_id = parent;
                 }
             }
@@ -296,8 +296,7 @@ mod windows {
         if let Some(plan) = load(&path)? {
             return Ok(Some(plan));
         }
-        let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
-        let devices = quarbor_installer::list(&resources)?;
+        let devices = crate::windows_driver_devices::list()?;
         let plan = make_plan(&devices, &legacy_packages()?, parents)?;
         if let Some(plan) = &plan {
             save(&path, plan)?;
@@ -396,9 +395,9 @@ mod windows {
                 .update("running", "正在卸载旧版驱动，请允许管理员授权…");
             let reply =
                 quarbor_installer::invoke(&self.exe, "uninstall-all", None, Some(&self.log))?;
-            let devices = quarbor_installer::invoke(&self.exe, "list", None, None)?;
+            let devices = crate::windows_driver_devices::list()?;
             let packages = legacy_packages()?;
-            if devices.devices.iter().any(|d| is_legacy(d, &packages)) {
+            if devices.iter().any(|d| is_legacy(d, &packages)) {
                 return Err("旧驱动仍绑定在设备上，尚未开始安装新版。请重启 Windows 后重试；原设备清单已保存。".into());
             }
             Ok(reply.reboot_required || reply.exit_code == 3010)
@@ -424,7 +423,7 @@ mod windows {
         };
         let state = app.state::<MigrationState>();
         let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
-        let current = quarbor_installer::list(&resources)?;
+        let current = crate::windows_driver_devices::list()?;
         if !plan.cleanup_done {
             let packages = legacy_packages()?;
             // A resumed journal must also preserve bindings added while the app was closed.
@@ -474,7 +473,7 @@ mod windows {
         advance(&mut plan, &mut installer)?;
         state.update("running", "正在确认所有设备已绑定新版驱动…");
         for _ in 0..10 {
-            let devices = quarbor_installer::list(&resources)?;
+            let devices = crate::windows_driver_devices::list()?;
             let packages = legacy_packages()?;
             if plan.targets.iter().all(|target| {
                 devices

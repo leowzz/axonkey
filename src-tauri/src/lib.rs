@@ -3,11 +3,14 @@ mod backup_files;
 mod devices;
 mod driver_migration;
 mod input_service;
+mod legacy_cleanup;
 mod legacy_driver;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
 mod release_update;
+#[cfg(target_os = "windows")]
+mod windows_driver_devices;
 
 use audio_service::{AudioServiceManager, AudioServiceStatus, AudioTarget};
 use input_service::managed::{
@@ -529,7 +532,7 @@ fn run_driver_action(
         let mut command = std::process::Command::new(&helper);
         command
             .arg("--confirmed")
-            .arg("--auto-close")
+            .arg("--headless")
             .arg("--log-path")
             .arg(&log_path);
         command
@@ -548,9 +551,7 @@ fn run_driver_action(
             .arg(action);
         command
     };
-    if driver != "legacy" {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    command.creation_flags(CREATE_NO_WINDOW);
     let output = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -610,7 +611,7 @@ fn run_driver_action(
 
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
-        reboot_required: driver != "legacy",
+        reboot_required: true,
     })
 }
 
@@ -620,12 +621,10 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if !matches!(driver.as_str(), "audio" | "legacy") {
+    if driver != "audio" {
         return Err("Unsupported driver kind".into());
     }
-    if !matches!(action.as_str(), "install" | "uninstall")
-        && !(driver == "legacy" && action == "cleanup")
-    {
+    if !matches!(action.as_str(), "install" | "uninstall") {
         return Err("Unsupported driver action".into());
     }
     log::info!(target: "axonkey::runtime", "Driver action requested: {driver}/{action}");
@@ -1083,11 +1082,7 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
         })
         .and_then(|device| device.bluetooth_address.as_deref())
         .ok_or_else(|| "该设备当前没有可用的蓝牙地址，请先连接并唤醒设备。".to_string())?;
-    let resources = app
-        .path()
-        .resource_dir()
-        .map_err(|error| error.to_string())?;
-    let devices = quarbor_installer::list(&resources)?;
+    let devices = windows_driver_devices::list()?;
     quarbor_installer::target_for_bluetooth_address(&devices, address)
         .map(|(target, _)| target)
         .ok_or_else(|| "未找到该设备对应的 Quarbor 设备节点，请先连接并唤醒设备。".into())
@@ -1110,11 +1105,7 @@ fn resolve_installed_quarbor_target(
     if instance.kind != "rc003" || instance.binding.is_none() {
         return Ok(None);
     }
-    let resources = app
-        .path()
-        .resource_dir()
-        .map_err(|error| error.to_string())?;
-    let devices = quarbor_installer::list(&resources)?;
+    let devices = windows_driver_devices::list()?;
     if let Some(target) = instance.quarbor_target.as_deref() {
         return Ok(devices
             .iter()
@@ -1150,31 +1141,6 @@ fn resolve_installed_quarbor_target(
                 .then(|| quarbor_installer::unique_installed_rc003_target(&devices))?
                 .map(|(target, _)| target)
         }))
-}
-
-#[tauri::command]
-async fn probe_legacy_components(
-    app: tauri::AppHandle,
-    refresh: bool,
-) -> Result<legacy_driver::LegacyComponents, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|error| error.to_string())?;
-        tauri::async_runtime::spawn_blocking(move || {
-            app.state::<legacy_driver::LegacyProbeState>()
-                .check(refresh, || legacy_driver::probe(&resource_dir))
-        })
-        .await
-        .map_err(|error| format!("Legacy driver status task failed: {error}"))?
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (app, refresh);
-        Err("Legacy driver status is only supported on Windows".into())
-    }
 }
 
 #[cfg(any(target_os = "windows", test))]
@@ -1738,10 +1704,9 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
         .join("device-instances.json");
     app.manage(AudioServiceManager::start());
     #[cfg(target_os = "windows")]
-    let input_service = InputService::start(
-        app.path().resource_dir().ok(),
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
+    let input_service = InputService::start(std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(false),
+    ));
     #[cfg(not(target_os = "windows"))]
     let input_service = InputService::start();
     app.manage(input_service);
@@ -1824,6 +1789,8 @@ pub fn run() {
             }
             #[cfg(target_os = "windows")]
             app.manage(driver_migration::MigrationState::default());
+            #[cfg(target_os = "windows")]
+            app.manage(legacy_cleanup::CleanupState::default());
             #[cfg(not(target_os = "windows"))]
             start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
@@ -1841,7 +1808,7 @@ pub fn run() {
                 show_main_window(app.handle());
             }
             #[cfg(target_os = "windows")]
-            driver_migration::initialize(app.handle().clone());
+            legacy_cleanup::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
             Ok(())
         })
@@ -1857,7 +1824,8 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                if window.try_state::<driver_migration::MigrationState>().is_some_and(|s| s.blocks_close()) {
+                if window.try_state::<driver_migration::MigrationState>().is_some_and(|s| s.blocks_close())
+                    || window.try_state::<legacy_cleanup::CleanupState>().is_some_and(|s| s.blocks_close()) {
                     return;
                 }
                 let _ = window.hide();
@@ -1870,6 +1838,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            legacy_cleanup::get_legacy_cleanup,
+            legacy_cleanup::check_legacy_cleanup,
+            legacy_cleanup::run_legacy_cleanup,
             driver_migration::get_driver_migration,
             driver_migration::check_driver_migration,
             driver_migration::run_driver_migration,
@@ -1894,7 +1865,6 @@ pub fn run() {
             open_external_page,
             request_macos_permission,
             probe_system_state,
-            probe_legacy_components,
             probe_audio_available,
             probe_audio_state,
             list_voice_output_devices,

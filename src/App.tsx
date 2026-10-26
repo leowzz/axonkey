@@ -1,10 +1,13 @@
 import AppController from './app/index'
 import { DriverMigrationFlow } from './components/DriverMigrationDialog'
+import { LegacyCleanupFlow } from './components/LegacyCleanupDialog'
 
 export default function App() {
   return (
-    <DriverMigrationFlow>
-      <AppController />
-    </DriverMigrationFlow>
+    <LegacyCleanupFlow>
+      <DriverMigrationFlow>
+        <AppController />
+      </DriverMigrationFlow>
+    </LegacyCleanupFlow>
   )
 }

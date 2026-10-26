@@ -191,15 +191,6 @@ impl QuarborRegistry {
             .ok()
             .and_then(|channels| channels.get(id).map(ManagedQuarborChannel::status))
     }
-
-    fn list_devices(&self) -> Result<Vec<crate::quarbor_installer::Device>, String> {
-        let resource_dir = self
-            .app
-            .path()
-            .resource_dir()
-            .map_err(|error| error.to_string())?;
-        crate::quarbor_installer::list(&resource_dir)
-    }
 }
 
 struct Shared {
@@ -900,6 +891,8 @@ fn run(shared: Arc<Shared>) {
     let mut failures: HashMap<String, (Instance, String)> = HashMap::new();
     let mut configs = Vec::new();
     let mut config_revision = u64::MAX;
+    #[cfg(all(windows, not(test)))]
+    let mut driver_devices = Vec::new();
     let mut paths = HashMap::new();
     let mut sessions: HashMap<String, String> = HashMap::new();
     let start = Instant::now();
@@ -1051,9 +1044,11 @@ fn run(shared: Arc<Shared>) {
                 snapshot.discovered = discovered;
             }
         }
+        let config_changed;
         {
             let snapshot = shared.snapshot.lock().unwrap();
-            if config_revision != snapshot.store.revision {
+            config_changed = config_revision != snapshot.store.revision;
+            if config_changed {
                 config_revision = snapshot.store.revision;
                 configs = snapshot.store.instances.clone();
             }
@@ -1063,8 +1058,20 @@ fn run(shared: Arc<Shared>) {
         #[cfg(all(windows, not(test)))]
         let mut driver_matches: BTreeMap<String, (Option<String>, bool)> = BTreeMap::new();
         #[cfg(all(windows, not(test)))]
-        if let Some(registry) = &shared.quarbor {
-            let driver_devices = registry.list_devices().unwrap_or_default();
+        if shared.quarbor.is_some() {
+            if (scanning || config_changed)
+                && configs
+                    .iter()
+                    .any(|instance| instance.kind == "rc003" && instance.binding.is_some())
+            {
+                match crate::windows_driver_devices::list() {
+                    Ok(devices) => driver_devices = devices,
+                    Err(error) => {
+                        log::warn!(target: "axonkey::input", "Device driver scan failed: {error}");
+                        shared.snapshot.lock().unwrap().scan_error = Some(error);
+                    }
+                }
+            }
             let snapshot = shared.snapshot.lock().unwrap();
             for instance in &configs {
                 if instance.kind != "rc003" {

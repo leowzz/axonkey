@@ -20,6 +20,7 @@ export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
 type SettingsPageProps = {
   debugMode: boolean
   onOpenDriverMigration: () => void
+  onOpenLegacyCleanup: () => void
   onBack: () => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
@@ -59,6 +60,7 @@ type SettingsPageProps = {
 export function SettingsPage({
   debugMode,
   onOpenDriverMigration,
+  onOpenLegacyCleanup,
   onBack,
   section,
   onSectionChange,
@@ -413,6 +415,23 @@ export function SettingsPage({
                           onClick={onOpenDriverMigration}
                         >
                           打开升级窗口
+                        </button>
+                      </div>
+                    </section>
+                  )}
+                  {debugMode && (
+                    <section className="settings-form-row" aria-labelledby="settings-legacy-cleanup-label">
+                      <span id="settings-legacy-cleanup-label" className="settings-form-label">
+                        旧驱动清理：
+                      </span>
+                      <div className="settings-form-control">
+                        <button
+                          type="button"
+                          className="dialog-secondary"
+                          disabled={!nativeRuntime}
+                          onClick={onOpenLegacyCleanup}
+                        >
+                          打开旧驱动清理
                         </button>
                       </div>
                     </section>

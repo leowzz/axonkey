@@ -12,7 +12,6 @@ import {
   Keyboard,
   RotateCcw,
   Settings2,
-  ShieldAlert,
   ShieldCheck,
   Trash2,
   X,
@@ -34,8 +33,6 @@ type SetupDialogProps = {
   onReset: () => void
   onDriverAction: (driver: DriverKind, action: DriverActionKind) => void
   onProbeAudio: () => void
-  onProbeLegacyCleanup: () => void
-  onCleanupLegacy: () => void
   onOpenSystemSettings: (page: 'bluetooth' | 'sound' | 'services' | MacPermissionKind) => void
   onRequestMacPermission: (kind: MacPermissionKind) => void
   onCheckDevice: () => void
@@ -45,7 +42,6 @@ type SetupDialogProps = {
 
 const windowsSetupStepLabels: Record<SetupStepId, string> = {
   welcome: '开始',
-  legacyCleanup: '卸载旧驱动',
   inputDriver: '权限与音频',
   deviceConnection: '连接设备',
   complete: '完成',
@@ -56,7 +52,7 @@ const macSetupStepLabels: Record<SetupStepId, string> = {
   inputDriver: '权限与音频',
 }
 
-const windowsSetupSteps: SetupStepId[] = ['welcome', 'legacyCleanup', 'deviceConnection', 'complete']
+const windowsSetupSteps: SetupStepId[] = ['welcome', 'deviceConnection', 'complete']
 const macSetupSteps: SetupStepId[] = ['inputDriver', 'deviceConnection']
 
 export function SetupDialog({
@@ -72,8 +68,6 @@ export function SetupDialog({
   onReset,
   onDriverAction,
   onProbeAudio,
-  onProbeLegacyCleanup,
-  onCleanupLegacy,
   onOpenSystemSettings,
   onRequestMacPermission,
   onCheckDevice,
@@ -85,10 +79,7 @@ export function SetupDialog({
       ? skipSetupStep(state, 'inputDriver').currentStep
       : state.currentStep
   const setupStepLabels = platform === 'macos' ? macSetupStepLabels : windowsSetupStepLabels
-  const visibleSteps =
-    platform === 'macos'
-      ? macSetupSteps
-      : windowsSetupSteps.filter(stepId => stepId !== 'legacyCleanup' || state.steps.legacyCleanup.status !== 'skipped')
+  const visibleSteps = platform === 'macos' ? macSetupSteps : windowsSetupSteps
   return (
     <div className="setup-backdrop" role="presentation">
       <section className="setup-dialog" role="dialog" aria-modal="true" aria-labelledby="setup-title">
@@ -121,7 +112,6 @@ export function SetupDialog({
           <button
             type="button"
             className="setup-skip-all"
-            disabled={step === 'legacyCleanup' && state.legacyCleanup.status === 'present'}
             onClick={state.setupSkipped || isSetupComplete(state) ? onReset : onSkipAll}
           >
             {state.setupSkipped || isSetupComplete(state) ? '重新运行引导' : '跳过整个引导'}
@@ -199,14 +189,6 @@ export function SetupDialog({
               onOpenSound={() => onOpenSystemSettings('sound')}
               onContinue={onCompleteStep}
               onSkip={onSkipStep}
-            />
-          )}
-          {step === 'legacyCleanup' && platform === 'windows' && (
-            <LegacyCleanupScreen
-              state={state}
-              onRecheck={onProbeLegacyCleanup}
-              onCleanup={onCleanupLegacy}
-              onContinue={onCompleteStep}
             />
           )}
           {step === 'deviceConnection' && (
@@ -318,135 +300,6 @@ export function SetupDialog({
           )}
         </div>
       </section>
-    </div>
-  )
-}
-
-type LegacyCleanupScreenProps = {
-  state: SetupState
-  onRecheck: () => void
-  onCleanup: () => void
-  onContinue: () => void
-}
-
-function LegacyCleanupScreen({ state, onRecheck, onCleanup, onContinue }: LegacyCleanupScreenProps) {
-  const cleanup = state.legacyCleanup
-  const items = [
-    {
-      key: 'interception' as const,
-      title: 'Interception 旧键盘驱动',
-      description: '旧版全局键盘过滤驱动会和设备级输入通道冲突。请使用旧版 Axonkey 的卸载入口或原驱动安装器执行卸载。',
-    },
-    {
-      key: 'interceptionFix' as const,
-      title: 'AxonkeyInterceptionFix 修复服务',
-      description: '旧版驱动修复服务已不再需要。点击“一键卸载旧组件”移除服务及其安装目录。',
-    },
-    {
-      key: 'frida' as const,
-      title: 'Frida 运行组件',
-      description: '退出旧版输入辅助工具和 Frida 相关进程，再删除旧版 Axonkey 安装目录中残留的 Frida 文件。',
-    },
-    {
-      key: 'namedPipeServer' as const,
-      title: 'NamedPipeServer 服务',
-      description:
-        '在 Windows 服务中停止并删除旧 NamedPipeServer 服务。当前版本使用 Quarbor 的按设备管道，不需要这个服务。',
-    },
-  ]
-  const present = items.filter(item => cleanup.components[item.key])
-  const ready = cleanup.status === 'clear' && present.length === 0
-  const cleanupRunning = cleanup.action.status === 'running'
-  const cleanupWaitingForRestart = cleanup.action.status === 'succeeded'
-  return (
-    <div className="setup-screen legacy-cleanup-screen">
-      <span className="setup-hero-icon">
-        <ShieldAlert size={24} />
-      </span>
-      <span className="section-kicker">MIGRATION</span>
-      <h2 id="setup-title">先卸载旧驱动</h2>
-      <p className="setup-lead">检测到旧版输入组件。请先完成清理，避免旧输入链路继续接管 RC003。</p>
-      <div
-        className={`legacy-cleanup-summary ${ready ? 'ready' : cleanup.status === 'checking' ? 'checking' : ''}`}
-        aria-live="polite"
-      >
-        <span className="setup-status-dot" />
-        <div>
-          <strong>
-            {ready
-              ? '旧组件已清理'
-              : cleanup.status === 'checking'
-                ? '正在检查旧组件…'
-                : cleanup.status === 'error'
-                  ? '旧驱动检测失败'
-                  : '仍有旧组件需要处理'}
-          </strong>
-          <span>
-            {ready
-              ? '现在可以在设备工作区管理输入驱动。'
-              : (cleanup.message ?? '完成下面列出的卸载操作后，点击“重新检测”。')}
-          </span>
-        </div>
-      </div>
-      {!ready && (
-        <div className="legacy-cleanup-list">
-          {(present.length > 0 ? present : items).map(item => (
-            <section
-              key={item.key}
-              className={`legacy-cleanup-item ${cleanup.components[item.key] ? 'present' : 'clear'}`}
-            >
-              <div className="legacy-cleanup-item-heading">
-                <span className="setup-status-dot" />
-                <strong>{item.title}</strong>
-                <span>{cleanup.components[item.key] ? '检测到' : '未检测到'}</span>
-              </div>
-              <p>{item.description}</p>
-            </section>
-          ))}
-        </div>
-      )}
-      {cleanup.action.status === 'failed' && (
-        <div className="setup-status-panel error" aria-live="polite">
-          <span className="setup-status-dot" />
-          <div>
-            <strong>自动清理未完成</strong>
-            <span>{cleanup.action.error ?? '请查看日志后重试，或使用 Windows 服务管理器手动清理。'}</span>
-          </div>
-        </div>
-      )}
-      {cleanup.action.status === 'succeeded' && (
-        <div className="setup-status-panel success" aria-live="polite">
-          <span className="setup-status-dot" />
-          <div>
-            <strong>卸载已完成，请重启</strong>
-            <span>请点击“重新检测”确认旧组件已清理；如果 Windows 仍占用文件，可以稍后再次运行卸载。</span>
-          </div>
-        </div>
-      )}
-      <div className="legacy-cleanup-actions">
-        <button
-          type="button"
-          className="button primary"
-          disabled={cleanupRunning || cleanupWaitingForRestart || cleanup.status === 'checking'}
-          onClick={onCleanup}
-        >
-          <ShieldCheck size={14} />{' '}
-          {cleanupWaitingForRestart ? '等待重启' : cleanupRunning ? '正在卸载旧组件…' : '一键卸载旧组件'}
-        </button>
-        <button
-          type="button"
-          className="dialog-secondary"
-          disabled={cleanup.status === 'checking' || cleanupRunning}
-          onClick={onRecheck}
-        >
-          <RotateCcw size={14} /> {cleanup.status === 'checking' ? '检测中…' : '重新检测'}
-        </button>
-      </div>
-      <div className="setup-actions">
-        <button type="button" className="button primary setup-primary" disabled={!ready} onClick={onContinue}>
-          继续连接 RC003 <ChevronRight size={15} />
-        </button>
-      </div>
     </div>
   )
 }

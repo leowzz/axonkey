@@ -49,11 +49,6 @@ export type MacPermissions = {
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
 export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'device-settings' | 'about'
 
-export type LegacyDriverProbe = {
-  interception: boolean
-  interceptionFix: boolean
-}
-
 export type SystemProbe = {
   platform: Platform
   rc003_connected: boolean

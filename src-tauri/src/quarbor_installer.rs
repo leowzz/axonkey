@@ -176,11 +176,6 @@ pub(crate) fn invoke(
     result
 }
 
-pub(crate) fn list(resource_dir: &Path) -> Result<Vec<Device>, String> {
-    let exe = find(resource_dir)?;
-    Ok(invoke(&exe, "list", None, None)?.devices)
-}
-
 pub(crate) fn select_legacy_target(devices: &[Device]) -> Option<String> {
     devices
         .iter()
@@ -286,14 +281,6 @@ mod tests {
         let id = a15.instance_id.clone();
         let devices = vec![a15];
         assert_eq!(select_legacy_target(&devices), Some(id));
-    }
-
-    #[test]
-    #[ignore = "Read-only integration check requiring the bundled installer and Windows PnP"]
-    fn bundled_installer_lists_devices() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let devices = list(root).expect("bundled --list must return valid device JSON");
-        assert!(devices.iter().all(|d| !d.instance_id.is_empty()));
     }
 
     fn device(id: &str, present: bool, bound: bool, recovery_active: bool) -> Device {

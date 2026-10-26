@@ -3,7 +3,6 @@ use super::{cursor_delta, InputServiceStatus, NativeBehavior, NativeSettings, Wh
 use super::{repeatable_click, RepeatableClick, TriggerBehaviors};
 use serde::Serialize;
 use std::{
-    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
@@ -486,7 +485,7 @@ pub struct InputService {
 }
 
 impl InputService {
-    pub fn start(resource_dir: Option<PathBuf>, driver_gate: Arc<AtomicBool>) -> Self {
+    pub fn start(driver_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
             settings: RwLock::new(NativeSettings::default()),
@@ -503,12 +502,12 @@ impl InputService {
         #[cfg(windows)]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir))
+            .spawn(move || worker_loop(worker_shared))
             .ok();
         #[cfg(not(windows))]
         let worker = thread::Builder::new()
             .name("Axonkey Quarbor Universal input".into())
-            .spawn(move || worker_loop(worker_shared, resource_dir))
+            .spawn(move || worker_loop(worker_shared))
             .ok();
         if worker.is_none() {
             shared.status.lock().unwrap().error = Some("Cannot start the input worker".into());
@@ -618,14 +617,15 @@ impl Drop for InputService {
 
 /// One managed RC003 owns one Quarbor pipe and one action state machine.
 /// The legacy InputService is retained only for the Windows A15 recorder.
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 pub(super) struct ManagedQuarborChannel {
     shared: Arc<Shared>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 impl ManagedQuarborChannel {
+    #[cfg(not(test))]
     pub(super) fn start(
         target: String,
         settings: NativeSettings,
@@ -633,12 +633,7 @@ impl ManagedQuarborChannel {
         driver_gate: Arc<AtomicBool>,
         emit: Arc<dyn Fn(String, bool) + Send + Sync>,
     ) -> Self {
-        #[cfg(test)]
-        let _ = app;
-        #[cfg(not(test))]
         let event_app = Some(app);
-        #[cfg(test)]
-        let event_app = None;
         let shared = Arc::new(Shared {
             settings: RwLock::new(settings),
             settings_revision: AtomicU64::new(0),
@@ -672,10 +667,15 @@ impl ManagedQuarborChannel {
 
     pub(super) fn update_settings(&self, settings: NativeSettings) {
         if let Ok(mut current) = self.shared.settings.write() {
+            let changed = current.remote_settings_changed(&settings);
             *current = settings;
-            self.shared
-                .settings_revision
-                .fetch_add(1, Ordering::Relaxed);
+            // The device manager syncs every read cycle; unchanged settings must
+            // preserve the physical press and any actions waiting on a delay.
+            if changed {
+                self.shared
+                    .settings_revision
+                    .fetch_add(1, Ordering::Relaxed);
+            }
         }
     }
 
@@ -700,7 +700,7 @@ impl ManagedQuarborChannel {
     }
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 impl Drop for ManagedQuarborChannel {
     fn drop(&mut self) {
         self.stop();
@@ -708,20 +708,18 @@ impl Drop for ManagedQuarborChannel {
 }
 
 struct QuarborTargetSelector {
-    resource_dir: Option<PathBuf>,
     last_probe: Instant,
     target: Option<String>,
-    installer_failure_logged: bool,
+    probe_failure_logged: bool,
     fixed_target: Option<String>,
 }
 
 impl QuarborTargetSelector {
-    fn new(resource_dir: Option<PathBuf>) -> Self {
+    fn new() -> Self {
         Self {
-            resource_dir,
             last_probe: Instant::now() - Duration::from_secs(1),
             target: None,
-            installer_failure_logged: false,
+            probe_failure_logged: false,
             fixed_target: None,
         }
     }
@@ -730,7 +728,7 @@ impl QuarborTargetSelector {
         Self {
             target: Some(target.clone()),
             fixed_target: Some(target),
-            ..Self::new(None)
+            ..Self::new()
         }
     }
 
@@ -738,7 +736,7 @@ impl QuarborTargetSelector {
         if self.fixed_target.is_some() {
             return self.target.clone();
         }
-        #[cfg(windows)]
+        #[cfg(all(windows, not(test)))]
         if self.last_probe.elapsed() >= Duration::from_secs(1) {
             self.last_probe = Instant::now();
             self.target = self.probe();
@@ -748,25 +746,18 @@ impl QuarborTargetSelector {
 
     #[cfg(windows)]
     fn probe(&mut self) -> Option<String> {
-        let Some(resource_dir) = self.resource_dir.as_deref() else {
-            if !self.installer_failure_logged {
-                log::warn!(
-                    target: "axonkey::input",
-                    "Quarbor installer resource directory unavailable; waiting for a valid bound BTHLEDEVICE target"
-                );
-                self.installer_failure_logged = true;
+        match crate::windows_driver_devices::list() {
+            Ok(devices) => {
+                self.probe_failure_logged = false;
+                crate::quarbor_installer::select_legacy_target(&devices)
             }
-            return None;
-        };
-        match crate::quarbor_installer::list(resource_dir) {
-            Ok(devices) => crate::quarbor_installer::select_legacy_target(&devices),
             Err(error) => {
-                if !self.installer_failure_logged {
+                if !self.probe_failure_logged {
                     log::warn!(
                         target: "axonkey::input",
-                        "Quarbor installer device list unavailable; waiting for a valid bound BTHLEDEVICE target: {error}"
+                        "Windows device list unavailable; waiting for a valid bound BTHLEDEVICE target: {error}"
                     );
-                    self.installer_failure_logged = true;
+                    self.probe_failure_logged = true;
                 }
                 None
             }
@@ -775,11 +766,11 @@ impl QuarborTargetSelector {
 }
 
 #[cfg(windows)]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
+fn worker_loop(shared: Arc<Shared>) {
     log::info!(target: "axonkey::input", "Quarbor Universal duplex backend loaded");
     shared.status.lock().unwrap().backend_ready = true;
     let mut last_target_seen_at = None;
-    let mut target_selector = QuarborTargetSelector::new(resource_dir.clone());
+    let mut target_selector = QuarborTargetSelector::new();
     while !shared.stop.load(Ordering::Relaxed) {
         if shared.managed_remote_owned.load(Ordering::Acquire) {
             let mut status = shared.status.lock().unwrap();
@@ -799,7 +790,7 @@ fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
                 thread::sleep(Duration::from_millis(25));
             }
             shared.driver_paused.store(false, Ordering::Release);
-            target_selector = QuarborTargetSelector::new(resource_dir.clone());
+            target_selector = QuarborTargetSelector::new();
             if shared.stop.load(Ordering::Relaxed) {
                 break;
             }
@@ -819,8 +810,7 @@ fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
 }
 
 #[cfg(not(windows))]
-fn worker_loop(shared: Arc<Shared>, resource_dir: Option<PathBuf>) {
-    let _ = resource_dir;
+fn worker_loop(shared: Arc<Shared>) {
     log::info!(target: "axonkey::input", "Windows input service is unavailable on this platform");
     shared.status.lock().unwrap().backend_ready = false;
     while !shared.stop.load(Ordering::Relaxed) {
@@ -2023,6 +2013,152 @@ unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) 
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    mod managed_regressions {
+        use super::*;
+        use crate::input_service::remote_actions::RemoteActions;
+        use serde_json::json;
+
+        struct Harness {
+            channel: ManagedQuarborChannel,
+            context: QuarborContext,
+            actions: RemoteActions,
+            epoch: u64,
+            start: Instant,
+        }
+
+        impl Harness {
+            fn new(settings: NativeSettings) -> Self {
+                MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+                UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
+                Self {
+                    channel: ManagedQuarborChannel {
+                        shared: Arc::new(Shared {
+                            settings: RwLock::new(settings),
+                            settings_revision: AtomicU64::new(0),
+                            status: Mutex::new(InputServiceStatus::default()),
+                            event_app: RwLock::new(None),
+                            stop: AtomicBool::new(false),
+                            driver_gate: Arc::new(AtomicBool::new(false)),
+                            driver_paused: AtomicBool::new(false),
+                            managed_event: None,
+                            managed_remote_owned: AtomicBool::new(false),
+                        }),
+                        worker: Mutex::new(None),
+                    },
+                    context: QuarborContext::default(),
+                    actions: RemoteActions::default(),
+                    epoch: 0,
+                    start: Instant::now(),
+                }
+            }
+
+            fn tick(&mut self, settings: &NativeSettings, ms: u64, edges: &[bool]) {
+                self.channel.update_settings(settings.clone());
+                self.context
+                    .keys
+                    .extend(edges.iter().map(|pressed| RemoteKeyEvent {
+                        button: "up",
+                        pressed: *pressed,
+                    }));
+                process_remote_actions(
+                    &mut self.context,
+                    &self.channel.shared,
+                    &mut self.actions,
+                    &mut self.epoch,
+                    self.start + Duration::from_millis(ms),
+                );
+            }
+        }
+
+        #[test]
+        fn repeated_settings_preserve_wait_and_following_key() {
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true, "behaviors": {"up": {"click": [
+                    {"type": "key", "key": "A"},
+                    {"type": "delay", "ms": 100},
+                    {"type": "key", "key": "B"}
+                ]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.tick(&settings, 0, &[true, false]);
+            for ms in (8..100).step_by(8) {
+                harness.tick(&settings, ms, &[]);
+            }
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0x41, 0)], vec![(0x41, 2)]])
+            });
+            harness.tick(&settings, 100, &[]);
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    vec![
+                        vec![(0x41, 0)],
+                        vec![(0x41, 2)],
+                        vec![(0x42, 0)],
+                        vec![(0x42, 2)]
+                    ]
+                )
+            });
+        }
+
+        #[test]
+        fn repeated_settings_preserve_paste_press_until_release() {
+            let text = "中文🙂\nsecond line";
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true, "behaviors": {"up": {"click": [
+                    {"type": "paste", "text": text}
+                ]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.tick(&settings, 0, &[true]);
+            for ms in (8..80).step_by(8) {
+                harness.tick(&settings, ms, &[]);
+            }
+            UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+            harness.tick(&settings, 80, &[false]);
+            harness.tick(&settings, 88, &[]);
+            UNICODE_EVENTS.with(|events| {
+                let events = events.borrow();
+                assert_eq!(events.len(), text.encode_utf16().count() * 2);
+                let typed: Vec<u16> = events
+                    .iter()
+                    .filter(|(_, flags)| *flags == 4)
+                    .map(|(unit, _)| *unit)
+                    .collect();
+                assert_eq!(String::from_utf16(&typed).unwrap(), text);
+                assert!(events
+                    .chunks_exact(2)
+                    .all(|pair| pair[0].0 == pair[1].0 && pair[1].1 == 6));
+            });
+        }
+
+        #[test]
+        fn changed_mapping_or_disable_still_cancels_pending_paste() {
+            for disable in [false, true] {
+                let mut settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true, "behaviors": {"up": {"click": [
+                        {"type": "delay", "ms": 100},
+                        {"type": "paste", "text": "must not be typed"}
+                    ]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.tick(&settings, 0, &[true, false]);
+                if disable {
+                    settings.enabled = false;
+                } else {
+                    settings.behaviors.clear();
+                }
+                harness.tick(&settings, 80, &[]);
+                harness.tick(&settings, 100, &[]);
+                UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+            }
+        }
+    }
+
     #[test]
     fn mouse_updates_preserve_remote_sequences_and_held_keys() {
         use super::super::remote_actions::{Output, RemoteActions};
@@ -2165,8 +2301,8 @@ mod tests {
     #[test]
     fn input_worker_can_pause_again_after_startup_without_opening_a_device() {
         let gate = Arc::new(AtomicBool::new(true));
-        // No resource directory means this worker cannot select or open hardware.
-        let service = InputService::start(None, gate.clone());
+        // Automatic hardware discovery is disabled in unit tests.
+        let service = InputService::start(gate.clone());
         service.wait_for_driver_pause().unwrap();
         assert!(!service.status().backend_ready);
         service.resume_after_driver_migration();

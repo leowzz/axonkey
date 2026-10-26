@@ -1,47 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import vm from 'node:vm'
-import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 
-const require = createRequire(import.meta.url)
-const source = ts.transpileModule(readFileSync('src/components/DriverMigrationDialog.tsx', 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
-}).outputText
-const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
-
-function harness(invoke = async () => null) {
-  const root = { inert: false }
-  const document = { body: { style: { overflow: 'auto' } }, getElementById: () => root }
-  class Element { isConnected = true; focus() { document.activeElement = this } }
-  const previous = new Element()
-  document.activeElement = previous
-  const dialog = new Element()
-  const summary = new Element()
-  const action = new Element()
-  dialog.contains = element => [dialog, summary, action].includes(element)
-  dialog.querySelectorAll = () => [summary, action]
-  const timers = new Map()
-  let nextId = 0
-  const module = { exports: {} }
-  vm.runInNewContext(source, {
-    module, exports: module.exports, document, HTMLElement: Element,
-    window: { __TAURI_INTERNALS__: {} },
-    setTimeout: callback => { const id = ++nextId; timers.set(id, callback); return id },
-    clearTimeout: id => timers.delete(id),
-    require: name => name.endsWith('.css') ? {} : name === '@tauri-apps/api/core' ? { invoke } : name === 'react-dom' ? { createPortal: element => element } : require(name),
-  })
-  return { ...module.exports, root, document, previous, dialog, summary, action, timers,
-    nodeMock: node => node.type === 'section' ? dialog : null,
-    tick: async () => {
-      const [id, callback] = timers.entries().next().value ?? []
-      if (callback) { timers.delete(id); await act(async () => { await callback() }) }
-    },
-  }
-}
+import { harness, text } from './helpers/driver-dialog-harness.mjs'
 
 const state = { status: 'required', message: '发现旧驱动', devices: ['设备 A'], rebootRequired: false, logPath: null }
 
@@ -79,7 +41,7 @@ test('migration never offers dismissal, including errors, and traps keyboard foc
 })
 
 test('startup keeps children unmounted until native migration is ready; polling never triggers a scan or install', async () => {
-  let reply = state
+  let reply = { ...state, status: 'checking' }
   const calls = []
   const h = harness(async command => { calls.push(command); return reply })
   let mounted = 0
@@ -88,6 +50,11 @@ test('startup keeps children unmounted until native migration is ready; polling 
   await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, null, React.createElement(Child)), { createNodeMock: h.nodeMock }) })
   try {
     assert.equal(mounted, 0)
+    assert.equal(view.toJSON(), null)
+    assert.equal(h.root.inert, false)
+    reply = state
+    await h.tick()
+    assert.match(text(view.toJSON()), /开始升级/)
     reply = { ...state, status: 'failed', message: '授权取消' }
     await h.tick()
     assert.equal(mounted, 0)
@@ -99,6 +66,25 @@ test('startup keeps children unmounted until native migration is ready; polling 
     assert(calls.every(command => command === 'get_driver_migration'))
     assert.equal(h.timers.size, 0)
   } finally { act(() => view.unmount()) }
+})
+
+test('clean startup stays silent throughout checking and opens the workspace directly', async () => {
+  for (const kind of ['migration', 'legacyCleanup']) {
+    let reply = { ...state, status: 'checking' }
+    const h = harness(async () => reply)
+    let view
+    await act(async () => { view = Renderer.create(React.createElement(h.DriverMigrationFlow, { kind }, React.createElement('main', null, '正常启动')), { createNodeMock: h.nodeMock }) })
+    try {
+      assert.equal(view.toJSON(), null)
+      await h.tick()
+      assert.equal(view.toJSON(), null)
+      assert.equal(h.root.inert, false)
+      reply = { ...state, status: 'ready' }
+      await h.tick()
+      assert.match(text(view.toJSON()), /正常启动/)
+      assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
+    } finally { act(() => view.unmount()) }
+  }
 })
 
 test('non-Windows native reply bypasses migration', async () => {

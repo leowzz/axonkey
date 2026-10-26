@@ -5,10 +5,10 @@ import { ArrowRight, CheckCircle2, LoaderCircle, ShieldCheck } from 'lucide-reac
 import './DriverMigrationDialog.css'
 
 export type DriverMigrationState = {
-  status: 'checking' | 'required' | 'running' | 'failed' | 'ready'
+  status: 'checking' | 'required' | 'running' | 'failed' | 'rebootRequired' | 'ready'
   message: string
-  devices: string[]
-  rebootRequired: boolean
+  devices?: string[]
+  rebootRequired?: boolean
   logPath: string | null
 }
 
@@ -24,11 +24,16 @@ export function DriverMigrationDialog({
   state,
   onRetry,
   onContinue,
+  onRecheck,
+  kind = 'migration',
 }: {
   state: DriverMigrationState
   onRetry: () => void
   onContinue?: () => void
+  onRecheck?: () => void
+  kind?: 'migration' | 'legacyCleanup'
 }) {
+  const legacy = kind === 'legacyCleanup'
   const ref = useRef<HTMLElement>(null)
   const busy = state.status === 'checking' || state.status === 'running'
   useEffect(() => {
@@ -85,19 +90,25 @@ export function DriverMigrationDialog({
         <div className="driver-migration-icon">
           <ShieldCheck size={28} />
         </div>
-        <h2 id="driver-migration-title">升级设备按键驱动</h2>
-        <p id="driver-migration-description">升级会保留原设备的对应关系，升级期间会暂停按键驱动连接。</p>
-        <div className="driver-migration-route">
-          <span>QuarborHIDFilterUserDriver</span>
-          <ArrowRight size={16} aria-hidden="true" />
-          <span>QuarborUniversalKeyboardDriver</span>
-        </div>
+        <h2 id="driver-migration-title">{legacy ? '先卸载旧驱动' : '升级设备按键驱动'}</h2>
+        <p id="driver-migration-description">
+          {legacy
+            ? '使用 uninstall-old-driver.exe 清理 Interception 旧驱动，完成后需要重启 Windows。'
+            : '升级会保留原设备的对应关系，升级期间会暂停按键驱动连接。'}
+        </p>
+        {!legacy && (
+          <div className="driver-migration-route">
+            <span>QuarborHIDFilterUserDriver</span>
+            <ArrowRight size={16} aria-hidden="true" />
+            <span>QuarborUniversalKeyboardDriver</span>
+          </div>
+        )}
         <div className="driver-migration-status" role={state.status === 'failed' ? 'alert' : 'status'}>
           {busy && <LoaderCircle size={18} className="driver-migration-spinner" aria-hidden="true" />}
           {state.status === 'ready' && <CheckCircle2 size={18} aria-hidden="true" />}
           <span>{state.message}</span>
         </div>
-        {state.devices.length > 0 && (
+        {state.devices && state.devices.length > 0 && (
           <details>
             <summary>迁移设备（{state.devices.length}）</summary>
             <ul>
@@ -112,10 +123,21 @@ export function DriverMigrationDialog({
         )}
         {state.logPath && <p className="driver-migration-log">日志：{state.logPath}</p>}
         <footer>
-          <span>{state.status === 'ready' ? '设备迁移已完成' : '升级完成前无法关闭此窗口'}</span>
+          <span>
+            {state.status === 'ready'
+              ? '驱动检查已完成'
+              : legacy
+                ? '清理并重启前无法关闭此窗口'
+                : '升级完成前无法关闭此窗口'}
+          </span>
           {(state.status === 'required' || state.status === 'failed') && (
             <button type="button" className="button primary" onClick={onRetry}>
-              {state.status === 'failed' ? '重试' : '开始升级'}
+              {state.status === 'failed' ? '重试' : legacy ? '卸载旧驱动' : '开始升级'}
+            </button>
+          )}
+          {state.status === 'rebootRequired' && onRecheck && (
+            <button type="button" className="dialog-secondary" onClick={onRecheck}>
+              重新检测重启状态
             </button>
           )}
           {state.status === 'ready' && onContinue && (
@@ -130,9 +152,19 @@ export function DriverMigrationDialog({
   )
 }
 
-export function DriverMigrationFlow({ children, onComplete }: { children?: ReactNode; onComplete?: () => void }) {
+export function DriverMigrationFlow({
+  children,
+  onComplete,
+  kind = 'migration',
+}: {
+  children?: ReactNode
+  onComplete?: () => void
+  kind?: 'migration' | 'legacyCleanup'
+}) {
+  const command = kind === 'legacyCleanup' ? 'legacy_cleanup' : 'driver_migration'
   const manual = !!onComplete
   const checkRequest = useRef<Promise<unknown>>()
+  const [checkRequested, setCheckRequested] = useState(manual)
   const native = '__TAURI_INTERNALS__' in window
   const [state, setState] = useState<DriverMigrationState | null>(manual ? checking : null)
   const [ready, setReady] = useState(!native)
@@ -144,11 +176,11 @@ export function DriverMigrationFlow({ children, onComplete }: { children?: React
     let timer: ReturnType<typeof setTimeout>
     const poll = async () => {
       try {
-        if (manual) {
-          checkRequest.current ??= invoke('check_driver_migration')
+        if (checkRequested) {
+          checkRequest.current ??= invoke(`check_${command}`)
           await checkRequest.current
         }
-        const next = await invoke<DriverMigrationState | null>('get_driver_migration')
+        const next = await invoke<DriverMigrationState | null>(`get_${command}`)
         if (!active) return
         setState(next)
         setRequestError('')
@@ -156,9 +188,9 @@ export function DriverMigrationFlow({ children, onComplete }: { children?: React
           setReady(true)
           return
         }
-        if (next.status !== 'ready') timer = setTimeout(() => void poll(), 500)
+        if (next.status !== 'ready' && next.status !== 'rebootRequired') timer = setTimeout(() => void poll(), 500)
       } catch (error) {
-        if (active) setRequestError(`无法读取驱动迁移状态：${String(error)}`)
+        if (active) setRequestError(`无法读取驱动状态：${String(error)}`)
       }
     }
     void poll()
@@ -166,7 +198,7 @@ export function DriverMigrationFlow({ children, onComplete }: { children?: React
       active = false
       clearTimeout(timer)
     }
-  }, [native, ready, pollAttempt, manual])
+  }, [native, ready, pollAttempt, manual, checkRequested, command])
 
   const run = async () => {
     if (requestError) {
@@ -175,17 +207,32 @@ export function DriverMigrationFlow({ children, onComplete }: { children?: React
       setPollAttempt(value => value + 1)
       return
     }
-    setState(current => current && { ...current, status: 'running', message: '正在准备升级…' })
+    setState(
+      current =>
+        current && {
+          ...current,
+          status: 'running',
+          message: kind === 'legacyCleanup' ? '正在准备卸载旧驱动…' : '正在准备升级…',
+        },
+    )
     try {
-      await invoke('run_driver_migration')
+      await invoke(`run_${command}`)
     } catch (error) {
       setRequestError(String(error))
     }
   }
   if (ready) return children
   if (!state && !requestError) return null
+  if (!manual && !checkRequested && state?.status === 'checking' && !requestError) return null
   return (
     <DriverMigrationDialog
+      kind={kind}
+      onRecheck={() => {
+        checkRequest.current = undefined
+        setState(current => current && { ...current, status: 'checking', message: '正在检查重启状态…' })
+        setCheckRequested(true)
+        setPollAttempt(value => value + 1)
+      }}
       state={requestError ? { ...(state ?? checking), status: 'failed', message: requestError } : (state ?? checking)}
       onRetry={() => void run()}
       onContinue={() => (onComplete ? onComplete() : setReady(true))}

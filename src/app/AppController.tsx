@@ -1,3 +1,4 @@
+import { LegacyCleanupFlow } from '../components/LegacyCleanupDialog'
 import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
@@ -80,7 +81,6 @@ import type {
   DriverActionResult,
   ManagedDriverUninstallResult,
   ManagedDriverCleanupState,
-  LegacyDriverProbe,
   MacPermissionKind,
   MacPermissions,
   Platform,
@@ -113,19 +113,16 @@ import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialo
 import { useAudioControls } from '../hooks/useAudioControls'
 import { logError, logInfo } from '../runtimeLogging'
 import {
-  beginLegacyCleanup,
   beginDriverAction,
   activateSetupStep,
   completeSetupStep,
   finishDriverAction,
-  finishLegacyCleanup,
   loadSetupState,
   resetSetup,
   saveSetupState,
   setCurrentSetupStep,
   setDeviceConnection,
   setDriverStatus,
-  setLegacyCleanupProbe,
   skipSetup,
   skipSetupStep,
 } from '../setupModel'
@@ -233,6 +230,7 @@ function AppController() {
   const [mouseKeyHoldMs, setMouseKeyHoldMs] = useState(() => getStoredSettings().mouseKeyHoldMs)
   const [debugMode, setDebugMode] = useState(false)
   const [driverMigrationOpen, setDriverMigrationOpen] = useState(false)
+  const [legacyCleanupOpen, setLegacyCleanupOpen] = useState(false)
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
   const [audioTestInstanceGain, setAudioTestInstanceGain] = useState(0)
@@ -305,7 +303,6 @@ function AppController() {
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(
     nativeRuntime ? 'loading' : 'ready',
   )
-  const [legacyStartupChecked, setLegacyStartupChecked] = useState(false)
   const [pressedId, setPressedId] = useState<ButtonId | null>(null)
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const mappingMainRef = useRef<HTMLElement>(null)
@@ -318,9 +315,6 @@ function AppController() {
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
   const systemProbeRunningRef = useRef(false)
-  const legacyCleanupPromptedRef = useRef(false)
-  const legacyProbeStartedRef = useRef(false)
-  const legacyProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
   const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
@@ -1297,9 +1291,6 @@ function AppController() {
   }
 
   const openSetupStep = (step: SetupStepId) => {
-    if (step === 'inputDriver' && setupState.legacyCleanup.status === 'present') {
-      step = 'legacyCleanup'
-    }
     updateSetup(current =>
       step === 'inputDriver' ? activateSetupStep(current, step) : setCurrentSetupStep(current, step),
     )
@@ -1420,38 +1411,6 @@ function AppController() {
     }
   }
 
-  const runLegacyCleanup = async () => {
-    updateSetup(current => beginLegacyCleanup(current))
-    try {
-      logInfo('Starting legacy Windows input component cleanup')
-      const result = await withTimeout(
-        invoke<DriverActionResult>('launch_driver_action', { driver: 'legacy', action: 'cleanup' }),
-        180_000,
-        '卸载过程超时，请查看日志后重试。',
-      )
-      updateSetup(current =>
-        finishLegacyCleanup(current, {
-          success: true,
-          logPath: result.logPath,
-        }),
-      )
-      setToast('旧组件已卸载，请重新检测')
-      window.setTimeout(() => setToast(''), 3200)
-      await probeLegacyComponents(true)
-      await probeSystemState(true)
-      logInfo('Legacy Windows input component cleanup completed')
-    } catch (error) {
-      logError('Legacy Windows input component cleanup failed', error)
-      const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
-      updateSetup(current =>
-        finishLegacyCleanup(current, {
-          success: false,
-          error: browserPreview ? '浏览器预览不会启动系统脚本，请在 Tauri 桌面版中操作。' : String(error),
-        }),
-      )
-    }
-  }
-
   const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility') => {
     try {
       await invoke('open_system_settings', { page })
@@ -1542,39 +1501,6 @@ function AppController() {
       setToast(nativeRuntime ? `无法打开日志目录：${String(error)}` : '浏览器预览不会打开日志目录')
     }
     window.setTimeout(() => setToast(''), 2600)
-  }
-
-  const probeLegacyComponents = async (refresh = false) => {
-    if (!nativeRuntime || platform !== 'windows' || legacyProbeRunningRef.current) return
-    legacyProbeRunningRef.current = true
-    updateSetup(current => setLegacyCleanupProbe(current, current.legacyCleanup.components, { checking: true }))
-    try {
-      const probe = await invoke<LegacyDriverProbe>('probe_legacy_components', { refresh })
-      const components = { frida: false, namedPipeServer: false, ...probe }
-      const present = probe.interception || probe.interceptionFix
-      updateSetup(current => {
-        const next = setLegacyCleanupProbe(current, components)
-        return present ? activateSetupStep(next, 'legacyCleanup') : next
-      })
-      if (present && !legacyCleanupPromptedRef.current) {
-        legacyCleanupPromptedRef.current = true
-        setSetupOpen(true)
-      } else if (!present) {
-        legacyCleanupPromptedRef.current = false
-      }
-    } catch (error) {
-      logError('Legacy driver check failed', error)
-      updateSetup(current =>
-        setLegacyCleanupProbe(current, current.legacyCleanup.components, {
-          error: `旧驱动检测失败：${String(error)}`,
-        }),
-      )
-      setToast(`旧驱动检测失败：${String(error)}`)
-      window.setTimeout(() => setToast(''), 5000)
-    } finally {
-      legacyProbeRunningRef.current = false
-      setLegacyStartupChecked(true)
-    }
   }
 
   const probeSystemState = async (showChecking = true) => {
@@ -1818,16 +1744,6 @@ function AppController() {
       window.clearInterval(interval)
     }
   }, [])
-
-  useEffect(() => {
-    if (!nativeRuntime || platform !== 'windows' || legacyProbeStartedRef.current) return
-    const timer = window.setTimeout(() => {
-      // One startup check per launch; polling and opening setup reuse its result.
-      legacyProbeStartedRef.current = true
-      void probeLegacyComponents()
-    }, 1_200)
-    return () => window.clearTimeout(timer)
-  }, [nativeRuntime, platform])
 
   useEffect(() => {
     if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
@@ -2168,6 +2084,7 @@ function AppController() {
             <SettingsPage
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
+              onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2224,7 +2141,7 @@ function AppController() {
               onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
               onProbeAudio={() => void probeAudioState()}
               onOpenSound={() => void openSystemSettings('sound')}
-              onOpenDeviceSetup={() => openSetupStep('legacyCleanup')}
+              onOpenDeviceSetup={() => openSetupStep('welcome')}
               managedDriverCleanup={managedDriverCleanup}
               onUninstallManagedDrivers={() => void uninstallManagedDrivers()}
             />
@@ -2467,53 +2384,48 @@ function AppController() {
       {driverMigrationOpen && platform === 'windows' && (
         <DriverMigrationFlow onComplete={() => setDriverMigrationOpen(false)} />
       )}
-      {setupOpen &&
-        !(
-          nativeRuntime &&
-          platform === 'windows' &&
-          setupState.currentStep === 'legacyCleanup' &&
-          !legacyStartupChecked
-        ) && (
-          <SetupDialog
-            platform={platform}
-            remoteLabel={selectedDevice.name + (selectedDevice.id === 'rc003' ? ' RC003' : '')}
-            macPermissions={macPermissions}
-            state={setupState}
-            onClose={() => setSetupOpen(false)}
-            onOpenStep={openSetupStep}
-            onCompleteStep={completeCurrentSetupStep}
-            onSkipStep={skipCurrentSetupStep}
-            onSkipAll={() => {
-              setSetupState(current => skipSetup(current))
-              setSetupOpen(false)
-            }}
-            onReset={() => setSetupState(resetSetup())}
-            onDriverAction={(driver, action) => void runDriverAction(driver, action)}
-            onProbeAudio={() => void probeAudioState()}
-            onProbeLegacyCleanup={() => void probeLegacyComponents(true)}
-            onCleanupLegacy={() => void runLegacyCleanup()}
-            onOpenSystemSettings={page => void openSystemSettings(page)}
-            onRequestMacPermission={kind => void requestMacPermission(kind)}
-            onCheckDevice={checkDeviceConnection}
-            onMarkDeviceConnected={() =>
-              updateSetup(current =>
-                setDeviceConnection(current, {
-                  status: 'connected',
-                  name: '小米遥控器 RC003',
-                  message: '设备已由用户确认连接。',
-                }),
-              )
-            }
-            onFinish={() => {
-              updateSetup(current => {
-                const next =
-                  current.currentStep === 'complete' ? current : completeSetupStep(current, current.currentStep)
-                return completeSetupStep(next, 'complete')
-              })
-              setSetupOpen(false)
-            }}
-          />
-        )}
+      {legacyCleanupOpen && platform === 'windows' && (
+        <LegacyCleanupFlow onComplete={() => setLegacyCleanupOpen(false)} />
+      )}
+      {setupOpen && (
+        <SetupDialog
+          platform={platform}
+          remoteLabel={selectedDevice.name + (selectedDevice.id === 'rc003' ? ' RC003' : '')}
+          macPermissions={macPermissions}
+          state={setupState}
+          onClose={() => setSetupOpen(false)}
+          onOpenStep={openSetupStep}
+          onCompleteStep={completeCurrentSetupStep}
+          onSkipStep={skipCurrentSetupStep}
+          onSkipAll={() => {
+            setSetupState(current => skipSetup(current))
+            setSetupOpen(false)
+          }}
+          onReset={() => setSetupState(resetSetup())}
+          onDriverAction={(driver, action) => void runDriverAction(driver, action)}
+          onProbeAudio={() => void probeAudioState()}
+          onOpenSystemSettings={page => void openSystemSettings(page)}
+          onRequestMacPermission={kind => void requestMacPermission(kind)}
+          onCheckDevice={checkDeviceConnection}
+          onMarkDeviceConnected={() =>
+            updateSetup(current =>
+              setDeviceConnection(current, {
+                status: 'connected',
+                name: '小米遥控器 RC003',
+                message: '设备已由用户确认连接。',
+              }),
+            )
+          }
+          onFinish={() => {
+            updateSetup(current => {
+              const next =
+                current.currentStep === 'complete' ? current : completeSetupStep(current, current.currentStep)
+              return completeSetupStep(next, 'complete')
+            })
+            setSetupOpen(false)
+          }}
+        />
+      )}
     </div>
   )
 }
