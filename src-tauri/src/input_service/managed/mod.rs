@@ -563,7 +563,6 @@ impl DeviceManager {
                 instance.binding_quality = old.binding_quality.clone();
                 instance.binding_pairing_id = old.binding_pairing_id.clone();
                 instance.voice_target = old.voice_target.clone();
-                instance.audio_gain_db = old.audio_gain_db;
                 instance.quarbor_target = old.quarbor_target.clone();
             }
         }
@@ -1798,6 +1797,38 @@ mod tests {
         cancel.store(true, Ordering::Release);
         assert!(!actions_current(&manager.shared, &second, &cancel));
     }
+    #[test]
+    fn rc003_audio_gain_edits_persist_without_changing_other_devices() {
+        let mut first = instance("desk", "remote-one");
+        first.kind = "rc003".into();
+        first.voice_target = Some("C05D39C2CF83".into());
+        let mut second = instance("sofa", "remote-two");
+        second.kind = "rc003".into();
+        second.audio_gain_db = -6;
+        let manager = offline_manager(vec![first, second]);
+        for gain in [19, -12, 0] {
+            let snapshot = manager.snapshot();
+            let mut edited = snapshot.store.instances[0].clone();
+            edited.audio_gain_db = gain;
+            let saved = manager.put(snapshot.store.revision, edited).unwrap();
+            assert_eq!(saved.store.instances[0].audio_gain_db, gain);
+            let persisted = load(&manager.shared.path).unwrap();
+            assert_eq!(persisted.instances[0].audio_gain_db, gain);
+            assert_eq!(
+                saved.store.instances[0].voice_target.as_deref(),
+                Some("C05D39C2CF83")
+            );
+            assert_eq!(persisted.instances[1].audio_gain_db, -6);
+            let target = crate::audio_targets(&saved)
+                .into_iter()
+                .find(|target| target.instance_id == "desk")
+                .unwrap();
+            assert_eq!(target.gain_db, gain);
+        }
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
     #[test]
     fn bindings_validate_identity_and_preserve_server_owned_quality() {
         let manager = offline_manager(vec![]);

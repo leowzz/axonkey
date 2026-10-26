@@ -1247,6 +1247,36 @@ mod tests {
         assert!(!audio.status().bluetooth_connected);
     }
     #[test]
+    fn rc003_output_applies_live_gain_after_resampling_and_limits_clipping() {
+        let audio = AudioService {
+            shared: std::sync::Arc::new(Shared::new(Some("C05D39C2CF83".into()))),
+            audio_worker: std::sync::Mutex::new(None),
+            ble_worker: std::sync::Mutex::new(None),
+        };
+        audio.shared.protocol.lock().unwrap().streaming = true;
+        audio.shared.enqueue_pcm(false, &[4000; 3200]);
+        let mut cursor = OutputCursor::new(48_000);
+        let mut output = [0.0_f32; 120];
+        for (gain, amplitude) in [
+            (0, 4000.0 / 32767.0),
+            (20, 1.0),
+            (-20, 400.0 / 32767.0),
+            (0, 4000.0 / 32767.0),
+        ] {
+            audio.set_gain_db(gain).unwrap();
+            fill_output(&mut output, 2, &mut cursor, &audio.shared);
+            assert!(
+                output
+                    .iter()
+                    .all(|sample| (*sample - amplitude).abs() < 0.00001),
+                "gain={gain}, output={}",
+                output[0]
+            );
+        }
+        assert!(!audio.shared.a15_active.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn a15_uses_shared_gain_resampling_and_clears_cursor_on_stop() {
         let shared = Shared::new(None);
         shared.set_a15_recording(true);
