@@ -105,26 +105,19 @@ import { MappingOptions } from '../components/MappingOptions'
 import { ProfileImportDialog } from '../components/ProfileImportDialog'
 import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
-import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
+import { MacPermissionHelperWindow } from '../components/MacPermissionHelperWindow'
 import { useAudioControls } from '../hooks/useAudioControls'
 import { useCableDriver } from '../hooks/useCableDriver'
 import { CableDriverDialog } from '../components/CableDriverDialog'
 import { logError, logInfo } from '../runtimeLogging'
 import {
   beginDriverAction,
-  activateSetupStep,
-  completeSetupStep,
   finishDriverAction,
-  loadSetupState,
-  resetSetup,
-  saveSetupState,
-  setCurrentSetupStep,
+  createDefaultSystemState,
   setDeviceConnection,
   setDriverStatus,
-  skipSetup,
-  skipSetupStep,
-} from '../setupModel'
-import type { DriverActionKind, DriverKind, SetupState, SetupStepId } from '../setupModel'
+} from '../systemState'
+import type { DriverActionKind, DriverKind, SystemState } from '../systemState'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { save } from '@tauri-apps/plugin-dialog'
@@ -259,8 +252,7 @@ function AppController() {
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
-  const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
-  const [setupOpen, setSetupOpen] = useState(false)
+  const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
   const [managedDriverCleanup, setManagedDriverCleanup] = useState<ManagedDriverCleanupState>({ status: 'idle' })
   const [managedDriverAction, setManagedDriverAction] = useState<{
     instanceId: string
@@ -282,7 +274,6 @@ function AppController() {
   const saveRevisionRef = useRef(0)
   const audioProbeRunningRef = useRef(false)
   const systemProbeRunningRef = useRef(false)
-  const deviceProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
@@ -674,10 +665,6 @@ function AppController() {
     }
   }, [profiles, activeProfileIds, behaviors])
 
-  useEffect(() => {
-    saveSetupState(setupState)
-  }, [setupState])
-
   useEffect(
     () => () => {
       if (behaviorAttentionTimerRef.current !== undefined) {
@@ -755,8 +742,8 @@ function AppController() {
 
   const toggleEnabled = () => {
     if (!enabled && platform === 'macos' && (!macPermissions.inputMonitoring || !macPermissions.accessibility)) {
-      updateSetup(current => setCurrentSetupStep(current, 'inputDriver'))
-      setSetupOpen(true)
+      setSettingsSection('permissions')
+      navigateToPage('settings')
     }
     setEnabled(value => !value)
     setAutoSaveState('saving')
@@ -1219,42 +1206,16 @@ function AppController() {
     commitDraftBehavior(behaviorFromCapturedKey(captured, behavior.id))
   }
 
-  const updateSetup = (update: (current: SetupState) => SetupState) => {
-    setSetupState(current => update(current))
-  }
-
-  const openSetupStep = (step: SetupStepId) => {
-    updateSetup(current =>
-      step === 'inputDriver' ? activateSetupStep(current, step) : setCurrentSetupStep(current, step),
-    )
-    setSetupOpen(true)
-    if (step === 'inputDriver') void probeSystemState(false)
-  }
-
-  const completeCurrentSetupStep = () => {
-    updateSetup(current => {
-      const next = completeSetupStep(current, current.currentStep)
-      // The shared setup model follows the Windows dependency order. macOS
-      // still starts with permissions/audio and connects the remote second.
-      if (platform === 'macos' && current.currentStep === 'welcome') return setCurrentSetupStep(next, 'inputDriver')
-      return next
-    })
-  }
-
-  const skipCurrentSetupStep = () => {
-    updateSetup(current => skipSetupStep(current, current.currentStep))
-  }
-
   const runDriverAction = async (driver: DriverKind, action: DriverActionKind) => {
     if (driver === 'input') return
-    updateSetup(current => beginDriverAction(current, driver, action))
+    setSystemState(current => beginDriverAction(current, driver, action))
     try {
       logInfo(`Starting driver action: ${driver}/${action}`)
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
       const driverName = driver === 'audio' ? (platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE') : '按键驱动'
       const restartRequired = result.rebootRequired
       const reportedStatus = action === 'install' ? (restartRequired ? 'restartRequired' : 'installed') : 'missing'
-      updateSetup(current =>
+      setSystemState(current =>
         finishDriverAction(current, driver, action, {
           success: true,
           status: reportedStatus,
@@ -1270,7 +1231,7 @@ function AppController() {
     } catch (error) {
       logError(`Driver action failed: ${driver}/${action}`, error)
       const browserPreview = typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window)
-      updateSetup(current =>
+      setSystemState(current =>
         finishDriverAction(current, driver, action, {
           success: false,
           status: 'error',
@@ -1393,7 +1354,7 @@ function AppController() {
     window.setTimeout(() => void probeSystemState(false), 900)
   }
 
-  const closePermissionHelper = async (continueSetup = false) => {
+  const closePermissionHelper = async () => {
     if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
       try {
         await invoke('set_permission_helper_mode', { enabled: false })
@@ -1404,11 +1365,6 @@ function AppController() {
     }
     setPermissionHelperKind(null)
     void probeSystemState(false)
-    if (continueSetup) {
-      updateSetup(current =>
-        current.currentStep === 'inputDriver' ? completeSetupStep(current, 'inputDriver') : current,
-      )
-    }
   }
 
   const revealCurrentApp = async () => {
@@ -1441,7 +1397,7 @@ function AppController() {
       return false
     systemProbeRunningRef.current = true
     if (showChecking) {
-      updateSetup(current => setDeviceConnection(current, { status: 'checking', message: '正在检查 RC003…' }))
+      setSystemState(current => setDeviceConnection(current, { status: 'checking', message: '正在检查 RC003…' }))
     }
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
@@ -1456,7 +1412,7 @@ function AppController() {
         accessibility: probe.accessibility_granted === true,
         captureActive: probe.capture_active,
       })
-      updateSetup(current => {
+      setSystemState(current => {
         const connectedDevice = {
           status: 'connected' as const,
           name: '小米遥控器 RC003',
@@ -1519,7 +1475,7 @@ function AppController() {
     } catch (error) {
       logError('System probe failed', error)
       if (showChecking) {
-        updateSetup(current => {
+        setSystemState(current => {
           return setDeviceConnection(current, { status: 'error', message: String(error) })
         })
       }
@@ -1534,7 +1490,7 @@ function AppController() {
     if (audioProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     audioProbeRunningRef.current = true
     // Keep the last result visible during subsequent probes, including polling.
-    updateSetup(current =>
+    setSystemState(current =>
       current.drivers.audio.status !== 'unknown'
         ? current
         : setDriverStatus(current, 'audio', 'checking', {
@@ -1556,7 +1512,7 @@ function AppController() {
               : probe.error
                 ? `${outputName} 已就绪；语音通道：${probe.error}`
                 : `${outputName} 已就绪，按住语音键时会自动开始转发。`
-      updateSetup(current =>
+      setSystemState(current =>
         setDriverStatus(current, 'audio', probe.driverInstalled ? 'installed' : 'missing', {
           message: probe.driverInstalled
             ? stateMessage
@@ -1568,7 +1524,7 @@ function AppController() {
     } catch (error) {
       logError('Audio probe failed', error)
       const detail = error instanceof Error ? error.message : String(error)
-      updateSetup(current =>
+      setSystemState(current =>
         setDriverStatus(current, 'audio', 'error', {
           message: `音频检测失败：${detail}。可点击“重新检测”，不影响按键映射。`,
         }),
@@ -1578,92 +1534,10 @@ function AppController() {
     }
   }
 
-  const probeDeviceConnection = async () => {
-    if (deviceProbeRunningRef.current || typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
-    deviceProbeRunningRef.current = true
-    updateSetup(current => setDeviceConnection(current, { status: 'checking', message: '正在后台检查 RC003…' }))
-    try {
-      const connected = await invoke<boolean>('probe_rc003_connected')
-      updateSetup(current =>
-        setDeviceConnection(
-          current,
-          connected
-            ? {
-                status: 'connected',
-                name: '小米遥控器 RC003',
-                hardwareId: current.device.hardwareId,
-                message:
-                  platform === 'macos'
-                    ? macPermissions.captureActive
-                      ? 'IOKit 已识别 RC003，原始按键已被拦截。'
-                      : 'macOS 已识别 RC003；启用映射后会由 Axonkey 接管。'
-                    : current.device.hardwareId
-                      ? 'Quarbor Universal 驱动已识别并接管 RC003。'
-                      : 'Windows 已检测到 RC003；按任意键唤醒后即可接管输入。',
-              }
-            : { status: 'disconnected', message: '未检测到 RC003，请确认蓝牙已配对并按任意键唤醒。' },
-        ),
-      )
-    } catch (error) {
-      logError('Device probe failed', error)
-      updateSetup(current =>
-        setDeviceConnection(current, { status: 'error', message: `设备检测失败：${String(error)}` }),
-      )
-    } finally {
-      deviceProbeRunningRef.current = false
-    }
-  }
-
-  const checkDeviceConnection = () => {
-    if (typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window) {
-      void probeDeviceConnection()
-      return
-    }
-    updateSetup(current => setDeviceConnection(current, { status: 'checking', message: '正在检查 RC003…' }))
-    window.setTimeout(() => {
-      updateSetup(current =>
-        current.device.status === 'checking'
-          ? setDeviceConnection(current, {
-              status: 'disconnected',
-              message: '未自动检测到 RC003，请确认蓝牙已配对并按任意键唤醒。',
-            })
-          : current,
-      )
-    }, 900)
-  }
-
-  useEffect(() => {
-    if (setupOpen) void probeSystemState()
-  }, [setupOpen])
-
-  useEffect(() => {
-    if (!setupOpen || platform !== 'windows' || setupState.currentStep !== 'inputDriver') return
-    updateSetup(current => skipSetupStep(current, 'inputDriver'))
-  }, [platform, setupOpen, setupState.currentStep])
-
-  useEffect(() => {
-    if (!setupOpen || platform !== 'macos' || setupState.currentStep !== 'welcome') return
-    completeCurrentSetupStep()
-  }, [platform, setupOpen, setupState.currentStep])
-
   useEffect(() => {
     document.body.classList.toggle('permission-helper-mode', permissionHelperKind !== null)
     return () => document.body.classList.remove('permission-helper-mode')
   }, [permissionHelperKind])
-
-  useEffect(() => {
-    if (!setupOpen || platform !== 'macos') return
-    const refreshPermissions = () => void probeSystemState()
-    const refreshVisiblePermissions = () => {
-      if (document.visibilityState === 'visible') refreshPermissions()
-    }
-    window.addEventListener('focus', refreshPermissions)
-    document.addEventListener('visibilitychange', refreshVisiblePermissions)
-    return () => {
-      window.removeEventListener('focus', refreshPermissions)
-      document.removeEventListener('visibilitychange', refreshVisiblePermissions)
-    }
-  }, [setupOpen, platform])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -1676,10 +1550,6 @@ function AppController() {
   }, [])
 
   useEffect(() => {
-    if (setupOpen && setupState.currentStep === 'inputDriver') void probeAudioState()
-  }, [setupOpen, setupState.currentStep, platform])
-
-  useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
     const initialTimer = window.setTimeout(() => void probeAudioState(), 1_500)
     const interval = window.setInterval(() => void probeAudioState(), 30_000)
@@ -1688,10 +1558,6 @@ function AppController() {
       window.clearInterval(interval)
     }
   }, [platform])
-
-  useEffect(() => {
-    if (setupOpen && setupState.currentStep === 'deviceConnection') void probeDeviceConnection()
-  }, [setupOpen, setupState.currentStep])
 
   const editingBehavior = editingBehaviorId
     ? (behaviors[selectedBehavior.buttonId][selectedBehavior.trigger].find(
@@ -1739,20 +1605,26 @@ function AppController() {
         rows: [
           {
             label: '连接',
-            value: setupState.device.status === 'connected' ? '已连接' : '未连接',
-            tone: setupState.device.status === 'connected' ? 'ready' : undefined,
+            value: systemState.device.status === 'connected' ? '已连接' : '未连接',
+            tone: systemState.device.status === 'connected' ? 'ready' : undefined,
           },
           { label: '电量', value: <BatteryIndicator level={displayedBatteryLevel} /> },
         ],
         action: {
           label: '查看状态',
           title: inputAuthorizationStale ? '权限失效 · 查看状态' : '查看设备状态',
-          onClick: () => openSetupStep(inputAuthorizationStale ? 'inputDriver' : 'deviceConnection'),
+          onClick: () => {
+            if (inputAuthorizationStale) {
+              setSettingsSection('permissions')
+              navigateToPage('settings')
+            } else {
+              navigateToPage('home')
+            }
+          },
         },
       }
 
   if (permissionHelperKind) {
-    const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
     const activePermission = !macPermissions.inputMonitoring
       ? 'inputMonitoring'
       : !macPermissions.accessibility
@@ -1766,7 +1638,7 @@ function AppController() {
           onOpenSettings={kind => void openSystemSettings(kind)}
           onRevealApp={() => void revealCurrentApp()}
           onRefresh={() => void probeSystemState(false)}
-          onClose={() => void closePermissionHelper(permissionsReady)}
+          onClose={() => void closePermissionHelper()}
         />
         {toast && (
           <div className="toast">
@@ -1846,7 +1718,7 @@ function AppController() {
       )}
       <div className="app-main">
         <main ref={mainContentRef} key={activePage} className="main-content">
-          {!enabled && !setupOpen && (
+          {!enabled && (
             <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
               <Info size={20} aria-hidden="true" />
               <div className="mapping-disabled-copy">
@@ -2010,18 +1882,17 @@ function AppController() {
               systemProbeState={systemProbeState}
               permissions={macPermissions}
               inputAuthorizationStale={inputAuthorizationStale}
-              inputDriver={setupState.drivers.input}
+              inputDriver={systemState.drivers.input}
               onRequestPermission={kind => void requestMacPermission(kind)}
               onOpenSettings={kind => void openSystemSettings(kind)}
               onRefresh={() => void probeSystemState(false)}
-              audioDriver={setupState.drivers.audio}
+              audioDriver={systemState.drivers.audio}
               onAudioAction={action => void runDriverAction('audio', action)}
               audioRestarting={audioRestarting}
               audioRestartError={audioRestartError}
               onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
               onProbeAudio={() => void probeAudioState()}
               onOpenSound={() => void openSystemSettings('sound')}
-              onOpenDeviceSetup={() => openSetupStep('welcome')}
               managedDriverCleanup={managedDriverCleanup}
               onUninstallManagedDrivers={() => void uninstallManagedDrivers()}
             />
@@ -2249,45 +2120,6 @@ function AppController() {
       )}
       {legacyCleanupOpen && platform === 'windows' && (
         <LegacyCleanupFlow onComplete={() => setLegacyCleanupOpen(false)} />
-      )}
-      {setupOpen && (
-        <SetupDialog
-          platform={platform}
-          remoteLabel={selectedDevice.name + (selectedDevice.id === 'rc003' ? ' RC003' : '')}
-          macPermissions={macPermissions}
-          state={setupState}
-          onClose={() => setSetupOpen(false)}
-          onOpenStep={openSetupStep}
-          onCompleteStep={completeCurrentSetupStep}
-          onSkipStep={skipCurrentSetupStep}
-          onSkipAll={() => {
-            setSetupState(current => skipSetup(current))
-            setSetupOpen(false)
-          }}
-          onReset={() => setSetupState(resetSetup())}
-          onDriverAction={(driver, action) => void runDriverAction(driver, action)}
-          onProbeAudio={() => void probeAudioState()}
-          onOpenSystemSettings={page => void openSystemSettings(page)}
-          onRequestMacPermission={kind => void requestMacPermission(kind)}
-          onCheckDevice={checkDeviceConnection}
-          onMarkDeviceConnected={() =>
-            updateSetup(current =>
-              setDeviceConnection(current, {
-                status: 'connected',
-                name: '小米遥控器 RC003',
-                message: '设备已由用户确认连接。',
-              }),
-            )
-          }
-          onFinish={() => {
-            updateSetup(current => {
-              const next =
-                current.currentStep === 'complete' ? current : completeSetupStep(current, current.currentStep)
-              return completeSetupStep(next, 'complete')
-            })
-            setSetupOpen(false)
-          }}
-        />
       )}
     </div>
   )

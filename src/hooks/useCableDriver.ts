@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import type { DriverActionResult } from '../appTypes'
-import type { DriverActionKind } from '../setupModel'
+import type { DriverActionKind } from '../systemState'
 
 export function useCableDriver(nativeRuntime: boolean) {
   const [installed, setInstalled] = useState<boolean | null>(null)

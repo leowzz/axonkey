@@ -1058,33 +1058,6 @@ struct SystemProbe {
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_output(expression: &str) -> Option<String> {
-    use std::os::windows::process::CommandExt;
-
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = std::process::Command::new("powershell.exe");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .arg("-NoProfile")
-        .arg("-NonInteractive")
-        .arg("-Command")
-        .arg(expression);
-    command
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| {
-            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            (!value.is_empty()).then_some(value)
-        })
-}
-
-#[cfg(target_os = "windows")]
-fn powershell_probe(expression: &str) -> bool {
-    powershell_output(expression).as_deref() == Some("1")
-}
-
-#[cfg(target_os = "windows")]
 fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
     use tauri::Manager;
 
@@ -1444,41 +1417,6 @@ fn set_audio_gain(
 }
 
 #[tauri::command]
-async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri::Manager;
-
-    if app.state::<InputService>().status().device_connected {
-        return Ok(true);
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        let audio_service = app.state::<AudioServiceManager>();
-        audio_service.refresh(None);
-        return Ok(rc003_connected(
-            false,
-            audio_service.status(None).bluetooth_connected,
-        ));
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        tauri::async_runtime::spawn_blocking(|| {
-            powershell_probe(
-                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match '(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' }).Count -gt 0) { '1' } else { '0' }"#,
-            )
-        })
-        .await
-        .map_err(|error| format!("Device probe task failed unexpectedly: {error}"))
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        Ok(false)
-    }
-}
-
-#[tauri::command]
 fn refresh_device_information(
     binding: String,
     manager: tauri::State<'_, DeviceManager>,
@@ -1799,7 +1737,6 @@ pub fn run() {
             open_signal_monitor,
             get_signal_monitor_state,
             export_signal_monitor,
-            probe_rc003_connected,
             update_input_settings,
             device_snapshot,
             refresh_device_information,

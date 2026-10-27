@@ -13,7 +13,7 @@ import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform, ManagedDriverCleanupState } from '../appTypes'
-import type { DriverActionKind, SetupState } from '../setupModel'
+import type { DriverActionKind, DriverState } from '../systemState'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
 
@@ -34,8 +34,8 @@ type SettingsPageProps = {
   systemProbeState: 'loading' | 'ready' | 'error'
   permissions: MacPermissions
   inputAuthorizationStale: boolean
-  inputDriver: SetupState['drivers']['input']
-  audioDriver: SetupState['drivers']['audio']
+  inputDriver: DriverState
+  audioDriver: DriverState
   onAudioAction: (action: DriverActionKind) => void
   stretchCompensation: boolean
   stretchError: string
@@ -46,7 +46,6 @@ type SettingsPageProps = {
   onRestartAudio: () => void
   onProbeAudio: () => void
   onOpenSound: () => void
-  onOpenDeviceSetup: () => void
   managedDriverCleanup: ManagedDriverCleanupState
   onUninstallManagedDrivers: () => void
   onOpenSignalMonitor: () => void
@@ -87,7 +86,6 @@ export function SettingsPage({
   onRestartAudio,
   onProbeAudio,
   onOpenSound,
-  onOpenDeviceSetup,
   managedDriverCleanup,
   onUninstallManagedDrivers,
   onOpenSignalMonitor,
@@ -388,22 +386,6 @@ export function SettingsPage({
                   </div>
                 </section>
                 <div className="settings-form-fields settings-device-fields">
-                  <section className="settings-form-row" aria-labelledby="settings-device-setup-label">
-                    <span id="settings-device-setup-label" className="settings-form-label">
-                      设备设置：
-                    </span>
-                    <div className="settings-form-control">
-                      <button
-                        type="button"
-                        className="dialog-secondary"
-                        disabled={!nativeRuntime}
-                        onClick={onOpenDeviceSetup}
-                      >
-                        打开设备设置
-                        <ExternalLink size={14} />
-                      </button>
-                    </div>
-                  </section>
                   {debugMode && (
                     <section className="settings-form-row" aria-labelledby="settings-driver-migration-label">
                       <span id="settings-driver-migration-label" className="settings-form-label">

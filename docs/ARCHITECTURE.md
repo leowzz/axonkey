@@ -61,8 +61,8 @@ are available, it first requests exclusive device access. If exclusive access
 is unavailable, it keeps a monitored device open and arms a short-lived
 CGEventTap match from each RC003 HID edge. Only the corresponding native event
 is suppressed; generated Axonkey events carry a private marker and bypass the
-filter. This keeps native remote behavior intact during onboarding or after
-permissions are revoked. Back and Volume +/- are device-specific raw usages on
+filter. This keeps native remote behavior intact before permissions are granted or after
+they are revoked. Back and Volume +/- are device-specific raw usages on
 macOS, so they enter the same mapping and gesture state machine as the other ten
 buttons. Their preserve-original behavior emits Delete or AppKit system-volume
 events with the remote's native repeat timing.
