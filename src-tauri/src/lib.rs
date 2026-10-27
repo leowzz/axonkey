@@ -697,6 +697,27 @@ fn run_device_driver_action(
     })
 }
 
+#[cfg(target_os = "windows")]
+fn run_uninstall_all_driver_action(
+    resource_dir: &std::path::Path,
+) -> Result<DriverActionResult, String> {
+    let log_path = driver_log_path("input", "uninstall-all")?;
+    std::fs::write(
+        &log_path,
+        format!(
+            "Axonkey device driver uninstall-all requested: {:?}\r\n",
+            std::time::SystemTime::now()
+        ),
+    )
+    .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
+    let exe = quarbor_installer::find(resource_dir)?;
+    let reply = quarbor_installer::invoke(&exe, "uninstall-all", None, Some(&log_path))?;
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: reply.reboot_required || reply.exit_code == 3010,
+    })
+}
+
 #[tauri::command]
 async fn install_device_driver(
     _app: tauri::AppHandle,
@@ -797,28 +818,27 @@ async fn uninstall_bound_device_drivers(
             reboot_required: false,
             failures: Vec::new(),
         };
-        for instance_id in instance_ids {
-            let target = match resolve_installed_quarbor_target(&app, &instance_id) {
-                Ok(Some(target)) => target,
-                Ok(None) => continue,
-                Err(error) => {
-                    result
-                        .failures
-                        .push(ManagedDriverUninstallFailure { instance_id, error });
-                    continue;
-                }
-            };
-            result.device_count += 1;
-            let resource_dir_for_task = resource_dir.clone();
-            let action = tauri::async_runtime::spawn_blocking(move || {
-                run_device_driver_action("uninstall", &resource_dir_for_task, &target)
-            })
-            .await
-            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
-            match action {
-                Ok(action) => {
-                    result.uninstalled_count += 1;
-                    result.reboot_required |= action.reboot_required;
+        result.device_count = instance_ids.len();
+        if instance_ids.is_empty() {
+            return Ok(result);
+        }
+
+        // The global action must release every per-device pipe before the
+        // installer removes all bindings in one transaction.
+        manager.pause_for_driver_migration();
+        let action_result = tauri::async_runtime::spawn_blocking(move || {
+            run_uninstall_all_driver_action(&resource_dir)
+        })
+        .await;
+        manager.resume_after_driver_migration();
+        let action =
+            action_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
+
+        match action {
+            Ok(action) => {
+                result.uninstalled_count = result.device_count;
+                result.reboot_required = action.reboot_required;
+                for instance_id in instance_ids {
                     match manager.unbind(&instance_id) {
                         Ok(_) => result.unbound_count += 1,
                         Err(error) => result
@@ -826,9 +846,15 @@ async fn uninstall_bound_device_drivers(
                             .push(ManagedDriverUninstallFailure { instance_id, error }),
                     }
                 }
-                Err(error) => result
-                    .failures
-                    .push(ManagedDriverUninstallFailure { instance_id, error }),
+            }
+            Err(error) => {
+                result.failures = instance_ids
+                    .into_iter()
+                    .map(|instance_id| ManagedDriverUninstallFailure {
+                        instance_id,
+                        error: error.clone(),
+                    })
+                    .collect();
             }
         }
         if result.unbound_count > 0 {
@@ -1241,6 +1267,25 @@ fn probe_audio_available(
         let _ = audio_service;
         Ok(false)
     }
+}
+
+#[tauri::command]
+fn probe_cable_driver() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
+        // Match the service checked by vbcable-driver.ps1, independently of
+        // remote connections and the user's selected playback endpoint.
+        match RegKey::predef(HKEY_LOCAL_MACHINE)
+            .open_subkey(r"SYSTEM\CurrentControlSet\Services\VBAudioVACMME")
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(format!("无法读取 CABLE 驱动状态：{error}")),
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    Err("CABLE 驱动管理仅支持 Windows".into())
 }
 
 #[tauri::command]
@@ -1835,6 +1880,7 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
+            probe_cable_driver,
             list_voice_output_devices,
             restart_audio_service,
             get_audio_test_state,

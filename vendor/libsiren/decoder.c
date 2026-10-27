@@ -70,9 +70,9 @@ Siren7_CloseDecoder (SirenDecoder decoder)
   free (decoder);
 }
 
-int
-Siren7_DecodeFrame (SirenDecoder decoder, unsigned char *DataIn,
-    unsigned char *DataOut)
+static int
+decode_frame (SirenDecoder decoder, unsigned char *DataIn,
+    unsigned char *DataOut, int codec_flag)
 {
   int number_of_coefs,
       sample_rate_bits,
@@ -111,7 +111,7 @@ Siren7_DecodeFrame (SirenDecoder decoder, unsigned char *DataIn,
     In[i] = ((unsigned int) DataIn[2 * i] << 8) | DataIn[2 * i + 1];
 
   dwRes =
-      GetSirenCodecInfo (1, decoder->sample_rate, &number_of_coefs,
+      GetSirenCodecInfo (codec_flag, decoder->sample_rate, &number_of_coefs,
       &sample_rate_bits, &rate_control_bits, &rate_control_possibilities,
       &checksum_bits, &esf_adjustment, &scale_factor, &number_of_regions,
       &sample_rate_code, &bits_per_frame);
@@ -250,4 +250,19 @@ Siren7_DecodeFrame (SirenDecoder decoder, unsigned char *DataIn,
 
 
   return 0;
+}
+
+int
+Siren7_DecodeFrame (SirenDecoder decoder, unsigned char *DataIn,
+    unsigned char *DataOut)
+{
+  return decode_frame (decoder, DataIn, DataOut, 1);
+}
+
+/* A15 uses the headerless G.722.1 mode already described by common.c. */
+int
+Siren7_DecodeG7221Frame (SirenDecoder decoder, unsigned char *DataIn,
+    unsigned char *DataOut)
+{
+  return decode_frame (decoder, DataIn, DataOut, 0);
 }

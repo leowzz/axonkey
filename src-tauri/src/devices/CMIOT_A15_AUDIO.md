@@ -7,13 +7,19 @@ HID driver does not hide a device. Targets are matched by model and Bluetooth
 address; there is no automatic selection of the first A15.
 
 Each channel owns its HID key state, mappings, recording control, fragment
-reassembler and Siren decoder. FC reports are accepted only on A15 while that
+reassembler and G.722.1 decoder. FC reports are accepted only on A15 while that
 instance is recording, independently of ordinary key mappings. Hold/click recording
 mode is saved in the instance's `cmiotA15RecordingMode` field (default: `hold`).
 
 Pipeline: exact 21-byte HID report -> three consecutive fragments in one group
 -> first 40 of 48 payload bytes -> ICO word rotation/XOR/endian conversion
--> libsiren Siren7 -> 320 signed PCM16 samples at 16000 Hz, mono.
+-> libsiren G.722.1 mode -> 320 signed PCM16 samples at 16000 Hz, mono.
+
+A15 frames use `GetSirenCodecInfo(0, ...)`: no sample-rate header bits, no
+checksum bits, envelope adjustment 7 and scale factor 22. The upstream Siren7
+entry point uses mode 1 (two sample-rate bits and a four-bit checksum), which
+rejects or conceals real A15 frames. The bundled codec exposes separate G.722.1
+encode/decode entry points while preserving the original Siren7 API.
 
 The native `axonkey-device-pcm` diagnostic event carries `{ instanceId, frame }`.
 The frame contains:
@@ -47,16 +53,23 @@ Start/stop, disconnect, transport loss and mode changes reset session state.
 Partial/cross-group/malformed fragments are discarded, duplicate reports ignored.
 The DSP history is reset after reported fragment errors; no time
 stretching or missing-frame insertion is performed. Upstream libsiren may conceal
-checksum errors with its previous-frame fallback rather than return an error.
+bitstream errors with its previous-frame fallback rather than return an error.
 
 The decoder and reassembler are platform-independent. Only the existing Windows
 HID route is wired here; macOS A15 transport is separate work.
 
-Validation uses generated Siren tone frames, the inverse ICO transformation and
-synthetic FC packets, plus session reset and malformed packet tests. These do not
-establish compatibility or audio quality for actual A15 recordings. The provided
-reverse-engineering document also identifies the 21-byte format as requiring real
-capture confirmation. No FFmpeg is used in the implementation or tests.
+Validation uses generated G.722.1 tone frames, the inverse ICO transformation and
+synthetic FC packets, plus session reset and malformed packet tests. A physical
+A15 capture on 2026-10-27 confirmed the 21-byte format and ICO transformation:
+all 412 complete groups passed G.722.1 bitstream checks; none passed Siren7 checks.
+A single captured 20 ms group is retained as a regression test, including the
+four identical reports per fragment observed from the driver. No FFmpeg is used
+in the implementation or tests.
+
+The patched Windows app was also verified live through the configured VB-CABLE
+endpoint: an independent WinMM recording of `CABLE Output` captured nonzero PCM
+(peak 17459 at 16 kHz PCM16), with no new A15 decode errors. The Rust library suite
+passed 179 tests, with five existing hardware-dependent tests ignored.
 
 Instance regression tests cover two physical identities, separate HID edges and
 mappings, profile switch routing, recording settings, unbinding and PCM delivery.

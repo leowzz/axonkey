@@ -69,9 +69,9 @@ Siren7_CloseEncoder (SirenEncoder encoder)
 
 
 
-int
-Siren7_EncodeFrame (SirenEncoder encoder, unsigned char *DataIn,
-    unsigned char *DataOut)
+static int
+encode_frame (SirenEncoder encoder, unsigned char *DataIn,
+    unsigned char *DataOut, int codec_flag)
 {
   int number_of_coefs,
       sample_rate_bits,
@@ -123,7 +123,7 @@ Siren7_EncodeFrame (SirenEncoder encoder, unsigned char *DataIn,
     return dwRes;
 
   dwRes =
-      GetSirenCodecInfo (1, sample_rate, &number_of_coefs, &sample_rate_bits,
+      GetSirenCodecInfo (codec_flag, sample_rate, &number_of_coefs, &sample_rate_bits,
       &rate_control_bits, &rate_control_possibilities, &checksum_bits,
       &esf_adjustment, &scale_factor, &number_of_regions, &sample_rate_code,
       &bits_per_frame);
@@ -254,4 +254,18 @@ Siren7_EncodeFrame (SirenEncoder encoder, unsigned char *DataIn,
 
 
   return 0;
+}
+
+int
+Siren7_EncodeFrame (SirenEncoder encoder, unsigned char *DataIn,
+    unsigned char *DataOut)
+{
+  return encode_frame (encoder, DataIn, DataOut, 1);
+}
+
+int
+Siren7_EncodeG7221Frame (SirenEncoder encoder, unsigned char *DataIn,
+    unsigned char *DataOut)
+{
+  return encode_frame (encoder, DataIn, DataOut, 0);
 }

@@ -50,7 +50,7 @@ impl VoiceStream {
             .decoder
             .as_mut()
             .unwrap()
-            .decode(&unscramble_ico(&frame.data))
+            .decode_g7221(&unscramble_ico(&frame.data))
         {
             Ok(samples) => samples.to_vec(),
             Err(code) => {
@@ -168,9 +168,51 @@ pub(crate) fn unscramble_ico(block: &[u8; 40]) -> [u8; 40] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captured_a15_group_uses_headerless_g7221_and_ignores_driver_duplicates() {
+        // One 20 ms group from the physical A15, not a Siren7 encoder fixture.
+        let reports = [
+            [
+                0xfc, 0x4b, 0x5f, 0x00, 0x00, 0x48, 0xbc, 0x92, 0xd4, 0xde, 0xeb, 0x0e, 0xc1, 0x9e,
+                0x2d, 0x5f, 0xb0, 0x56, 0xe6, 0x9a, 0x06,
+            ],
+            [
+                0xfc, 0x4b, 0x5f, 0x01, 0x00, 0x01, 0xef, 0x2e, 0xb0, 0x4d, 0x0c, 0x71, 0xec, 0x7c,
+                0xbc, 0x18, 0x30, 0x8c, 0x31, 0xbb, 0xad,
+            ],
+            [
+                0xfc, 0x4b, 0x5f, 0x02, 0x00, 0xf2, 0x02, 0xb2, 0x92, 0x95, 0x06, 0x21, 0x91, 0x04,
+                0x00, 0x1d, 0x00, 0x00, 0x00, 0x00, 0x00,
+            ],
+        ];
+        let mut stream = VoiceStream::default();
+        stream.synchronize(true);
+        let mut decoded = Vec::new();
+        for report in reports {
+            for _ in 0..4 {
+                if let Some(frame) = stream.feed(&report).unwrap() {
+                    decoded.push(frame);
+                }
+            }
+        }
+        assert_eq!(decoded.len(), 1);
+        let frame = &decoded[0];
+        assert_eq!(frame.group, 0x5f4b);
+        assert_eq!(frame.samples.len(), 320);
+        assert_eq!(frame.tail, [4, 0, 29, 0, 0, 0, 0, 0]);
+        let peak = frame
+            .samples
+            .iter()
+            .map(|s| i32::from(*s).abs())
+            .max()
+            .unwrap();
+        assert!((3500..3600).contains(&peak), "captured frame peak: {peak}");
+    }
+
     #[test]
     fn full_fc_pipeline_decodes_and_does_not_leak_between_sessions() {
-        let encoded = super::super::siren::encode_test_frames()[0];
+        let encoded = super::super::siren::encode_test_frames(true)[0];
         let mut words = [0u16; 20];
         for (word, pair) in words.iter_mut().zip(encoded.chunks_exact(2)) {
             *word = u16::from_be_bytes(pair.try_into().unwrap()) ^ 0x0416;
@@ -199,7 +241,7 @@ mod tests {
             pcm.samples,
             super::super::siren::Decoder::new()
                 .unwrap()
-                .decode(&encoded)
+                .decode_g7221(&encoded)
                 .unwrap()
         );
         assert_eq!(pcm.tail, [0x99; 8]);

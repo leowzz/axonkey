@@ -42,6 +42,7 @@ typedef struct stSirenEncoder {
 extern SirenEncoder Siren7_NewEncoder(int sample_rate);
 extern void Siren7_CloseEncoder(SirenEncoder encoder);
 extern int Siren7_EncodeFrame(SirenEncoder encoder, unsigned char *DataIn, unsigned char *DataOut);
+extern int Siren7_EncodeG7221Frame(SirenEncoder encoder, unsigned char *DataIn, unsigned char *DataOut);
 
 
 #endif /* _SIREN_ENCODER_H */
