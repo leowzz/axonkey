@@ -16,12 +16,12 @@ export type RemoteView = {
   ariaLabel: string
 }
 
-
 export type RemoteButtonId = XiaomiRemoteButtonId | CmiotA15RemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
 
 export type DeviceSettingsPageProps = {
+  onOpenAudioDriver: () => void
   cmiotA15RecordingMode: CmiotA15RecordingMode
   onCmiotA15RecordingModeChange: (mode: CmiotA15RecordingMode) => void
   onBackToDevices: () => void

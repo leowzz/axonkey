@@ -6558,18 +6558,25 @@ html.macos-vibrancy,
   justify-content: center;
   gap: 7px;
   flex-basis: 100%;
-  padding: 8px 10px;
+  flex-shrink: 0;
+  padding: 10px 12px;
   border-radius: 6px;
   background: #e8edf2;
   color: #607080;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 20px;
 }
 .device-recording-status.is-recording {
-  background: #fff0f0;
-  color: #b91c1c;
-  box-shadow: inset 0 0 0 1px #efaaaa;
+  background: #fee2e2;
+  color: #991b1b;
+  box-shadow: inset 0 0 0 1px #f0a2a2;
+}
+.mapping-device-rail > .device-recording-status {
+  flex-basis: auto;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 .device-recording-status.is-recording::before {
   content: '';

@@ -22,7 +22,7 @@ function compile(path, imports = {}) {
   return module.exports
 }
 const model = compile('src/devices/integration/model.ts', {
-  '../xiaomi-remote/buttons': { xiaomiRemoteButtons: [] },
+  '../xiaomi-remote/buttons': { xiaomiRemoteButtons: require('../src/devices/xiaomi-remote/buttons.ts').xiaomiRemoteButtons },
   '../xiaomi-remote/view': { xiaomiRemoteView: { artworkUrl: 'remote.svg' } },
   '../xbox-controller/xbox-controller.svg': { default: 'controller.svg' },
   '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: { remoteView: { artworkUrl: 'remote.svg' }, buttons: require('../src/devices/cmiot-a15-remote/buttons.ts').cmiotA15RemoteButtons } },
@@ -169,6 +169,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: () => null },
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     './IntegrationControls': controls,
@@ -203,7 +204,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   try {
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
-    assert.ok(text(views[1].root.findByProps({ 'aria-label': '设备状态' })).includes('录音中'))
+    assert.ok(text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes('正在录音'))
+    assert.ok(!text(views[0].root.findByProps({ className: 'mapping-device-rail panel-surface' })).includes('正在录音'))
     act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
     assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
@@ -225,5 +227,22 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
+    for (const kind of ['rc003', 'cmiotA15']) {
+      for (const recording of [true, false]) {
+        act(() => {
+          instances[1] = { ...instances[1], kind }
+          snapshot.runtime.two = { ...snapshot.runtime.two, recording }
+          views[1].update(React.createElement(InstanceWorkspace, props(1)))
+        })
+        const indicator = views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })
+        assert.equal(text(indicator), recording ? '正在录音' : '未录音')
+        assert.equal(indicator.props.className.includes('is-recording'), recording)
+      }
+    }
+    act(() => {
+      instances[1] = { ...instances[1], kind: 'xboxBluetooth' }
+      views[1].update(React.createElement(InstanceWorkspace, props(1)))
+    })
+    assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
   } finally { act(() => views.forEach(view => view.unmount())) }
 })

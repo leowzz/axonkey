@@ -1882,6 +1882,15 @@ function AppController() {
     />
   )
   const DeviceSettingsComponent = deviceSettingsPages[selectedDevice.id]
+  const openAudioDriver = () => {
+    if (platform === 'windows') {
+      setCableDriverOpen(true)
+      void cableDriver.probe()
+    } else {
+      setSettingsSection('permissions')
+      navigateToPage('settings')
+    }
+  }
   const mappingActions = (
     <div className="mapping-context-actions">
       <span role="status" className={`auto-save-state ${autoSaveState}`}>
@@ -2040,6 +2049,7 @@ function AppController() {
             <AboutPage update={releaseUpdate} onBack={() => navigateToPage('home')} />
           ) : activePage === 'device-settings' ? (
             <DeviceSettingsComponent
+              onOpenAudioDriver={openAudioDriver}
               cmiotA15RecordingMode={cmiotA15RecordingMode}
               onCmiotA15RecordingModeChange={setCmiotA15RecordingMode}
               onBackToDevices={() => navigateToPage('home')}
@@ -2063,10 +2073,7 @@ function AppController() {
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
-              onOpenCableDriver={() => {
-                setCableDriverOpen(true)
-                void cableDriver.probe()
-              }}
+              onOpenCableDriver={openAudioDriver}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2131,6 +2138,7 @@ function AppController() {
             <HomeDashboard
               deviceContent={
                 <DeviceHub
+                  onOpenAudioDriver={openAudioDriver}
                   controller={deviceInstances}
                   onBrandClick={handleBrandClick}
                   native={nativeRuntime}

@@ -5,10 +5,12 @@ export function VoiceOutput({
   idPrefix = 'xiaomi',
   value,
   onChange,
+  onOpenAudioDriver,
 }: {
   idPrefix?: string
   value?: string
   onChange?: (value: string) => void
+  onOpenAudioDriver: () => void
 }) {
   const [outputs, setOutputs] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
@@ -75,6 +77,14 @@ export function VoiceOutput({
               {error}
             </span>
           )}
+        </div>
+      </div>
+      <div className="settings-form-row">
+        <span className="settings-form-label">虚拟麦克风：</span>
+        <div className="settings-form-control">
+          <button type="button" className="dialog-secondary" onClick={onOpenAudioDriver}>
+            管理驱动
+          </button>
         </div>
       </div>
     </div>

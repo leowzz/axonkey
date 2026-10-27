@@ -21,6 +21,7 @@ type Props = {
   onPermissions: () => void
   onLegacy: (id: DeviceId) => void
   onOpenAudioCalibration: (instanceId: string) => void
+  onOpenAudioDriver: () => void
   driverAction: { instanceId: string; status: 'idle' | 'running' | 'error'; error?: string } | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>

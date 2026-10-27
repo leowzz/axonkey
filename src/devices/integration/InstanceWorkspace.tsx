@@ -13,6 +13,7 @@ import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfir
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
 import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
+import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
@@ -45,6 +46,7 @@ type Props = {
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   onOpenAudioCalibration: (instanceId: string) => void
+  onOpenAudioDriver: () => void
   driverAction: { instanceId: string; status: 'idle' | 'running' | 'error'; error?: string } | null
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
@@ -63,6 +65,7 @@ export function InstanceWorkspace({
   onUnbindDevice,
   onRemoveDevice,
   onOpenAudioCalibration,
+  onOpenAudioDriver,
   onInstallDriver,
   driverAction,
   batteryLevel,
@@ -291,14 +294,13 @@ export function InstanceWorkspace({
           </div>
         )}
         <aside className="mapping-device-rail panel-surface">
+          {(instance.kind === 'rc003' || instance.kind === 'cmiotA15') && (
+            <DeviceRecordingStatus recording={native && !!status?.recording} />
+          )}
           <section className="managed-instance-status" aria-label="设备状态">
             <div>
               <span className={ready ? 'ready' : status?.error ? 'warning' : ''}>
-                {native
-                  ? status?.recording
-                    ? '录音中'
-                    : instanceStatusLabel(instance, controller.snapshot)
-                  : '预览模式'}
+                {native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}
               </span>
               <button
                 type="button"
@@ -414,6 +416,7 @@ export function InstanceWorkspace({
                   {settingsSection === 'output' ? (
                     <div className="managed-instance-output-panel">
                       <VoiceOutput
+                        onOpenAudioDriver={onOpenAudioDriver}
                         idPrefix={`instance-${instance.id}`}
                         value={instance.voiceOutputDevice ?? ''}
                         onChange={voiceOutputDevice => update(item => ({ ...item, voiceOutputDevice }))}

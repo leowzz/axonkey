@@ -757,7 +757,7 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     shared.status.lock().unwrap().capture_active = false;
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn send_a15_recording_report(
     reader: &mut Option<super::windows_quarbor::Client>,
     report: [u8; 2],
@@ -769,6 +769,15 @@ fn send_a15_recording_report(
         )
     })?;
     client.write_physical_output(&report).map(|_| ())
+}
+
+#[cfg(all(windows, test))]
+fn send_a15_recording_report(
+    _reader: &mut Option<super::windows_quarbor::Client>,
+    report: [u8; 2],
+) -> std::io::Result<()> {
+    A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().push(report));
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -875,7 +884,6 @@ fn process_remote_actions_inner(
             context
                 .a15_voice
                 .synchronize(context.a15_recording.is_recording());
-            continue;
         }
         actions.edge(key.button, key.pressed, &settings, now);
     }
@@ -1667,6 +1675,7 @@ fn wheel_input(delta: i32, horizontal: bool) -> Input {
 
 #[cfg(test)]
 thread_local! {
+    static A15_RECORDING_REPORTS: std::cell::RefCell<Vec<[u8; 2]>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -1912,6 +1921,73 @@ mod tests {
                     &mut self.epoch,
                     self.start + Duration::from_millis(ms),
                 );
+            }
+        }
+
+        #[test]
+        fn a15_voice_records_and_maps_right_alt_in_both_recording_modes() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+
+            for mode in ["hold", "click"] {
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true,
+                    "cmiotA15RecordingMode": mode,
+                    "behaviors": {"cmiotA15.voice": {"click": [{"type": "key", "key": "RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(
+                    r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_AABBCCDDEEFF\instance".into()
+                );
+                let mut sequence = 0;
+                for (index, down) in [true, false, true, false].into_iter().enumerate() {
+                    // Real driver traffic repeats each F8 report four times.
+                    for _ in 0..4 {
+                        sequence += 1;
+                        let mut bytes = vec![0; 21];
+                        bytes[..4].copy_from_slice(&[0xf8, 0x82, 3, u8::from(down)]);
+                        quarbor_accept_event(
+                            &mut harness.context,
+                            Event::Report {
+                                metadata: Metadata {
+                                    sequence,
+                                    ..Default::default()
+                                },
+                                bytes,
+                                usages: Err(50),
+                            },
+                        );
+                    }
+                    harness.tick(&settings, index as u64 * 1000, &[]);
+                    assert_eq!(
+                        harness.context.a15_recording.is_recording(),
+                        if mode == "hold" { down } else { index < 2 }
+                    );
+                    assert_eq!(harness.context.keyboard.held.len(), usize::from(down));
+                    MOUSE_KEY_BATCHES.with(|events| assert_eq!(events.borrow().len(), index + 1));
+                }
+                MOUSE_KEY_BATCHES.with(|events| {
+                    assert_eq!(
+                        *events.borrow(),
+                        vec![
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)],
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)],
+                        ]
+                    )
+                });
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(
+                        *reports.borrow(),
+                        if mode == "hold" {
+                            vec![[0xfb, 1], [0xfb, 0], [0xfb, 1], [0xfb, 0]]
+                        } else {
+                            vec![[0xfb, 1], [0xfb, 0]]
+                        }
+                    )
+                });
             }
         }
 

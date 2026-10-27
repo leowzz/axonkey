@@ -1585,8 +1585,15 @@ fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> DeviceSnapshot {
-    let snapshot = manager.snapshot();
+    let mut snapshot = manager.snapshot();
     audio_service.sync_instances(&audio_targets(&snapshot));
+    for instance in &snapshot.store.instances {
+        if instance.kind == "rc003" {
+            if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
+                status.recording = audio_service.status(Some(&instance.id)).forwarding;
+            }
+        }
+    }
     snapshot
 }
 

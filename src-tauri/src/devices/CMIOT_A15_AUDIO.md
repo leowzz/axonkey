@@ -10,6 +10,9 @@ Each channel owns its HID key state, mappings, recording control, fragment
 reassembler and G.722.1 decoder. FC reports are accepted only on A15 while that
 instance is recording, independently of ordinary key mappings. Hold/click recording
 mode is saved in the instance's `cmiotA15RecordingMode` field (default: `hold`).
+Voice-key edges also run the configured key mapping. A single mapped key such as
+right Alt follows the physical press/release in both recording modes; click mode
+toggles recording independently and does not latch the mapped key.
 
 Pipeline: exact 21-byte HID report -> three consecutive fragments in one group
 -> first 40 of 48 payload bytes -> ICO word rotation/XOR/endian conversion
