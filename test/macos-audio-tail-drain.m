@@ -117,6 +117,33 @@ static void CaptureAudioEvent(void *context, int event, const uint8_t *data,
 }
 #define CHECK(condition, message) do { if (!(condition)) { fputs(message "\n", stderr); return 1; } } while (0)
 
+static int CheckExternalA15Session(void) {
+    RouteAudioBridge *bridge = [[RouteAudioBridge alloc] initWithCallbacks:NULL];
+    bridge.externalInput = YES;
+    [bridge setValue:@YES forKey:@"shouldRun"];
+    int16_t samples[320] = {1000};
+    CHECK(![bridge enqueueSamples:samples count:320], "idle A15 accepted audio");
+    [bridge setExternalRecording:YES];
+    CHECK([bridge isForwarding] && [bridge valueForKey:@"central"] == nil,
+          "A15 did not start output independently of RC003 Bluetooth");
+    CHECK([bridge enqueueSamples:samples count:320], "A15 PCM enqueue failed");
+    AKAudioPCMStorage *storage = [bridge valueForKey:@"pcmStorage"];
+    [bridge setExternalRecording:YES];
+    CHECK(AKPCMQueueCount(&storage->queue) == 320, "duplicate start discarded A15 audio");
+    [bridge setExternalRecording:NO];
+    CHECK(![bridge isForwarding] && atomic_load(&storage->queue.draining),
+          "A15 stop did not drain the tail");
+    CHECK([bridge currentState] == AKAudioStateReady, "A15 stop lost readiness");
+    CHECK(![bridge enqueueSamples:samples count:320], "stopped A15 accepted stale audio");
+    [bridge setExternalRecording:YES];
+    CHECK(AKPCMQueueCount(&storage->queue) == 0, "new A15 session retained stale audio");
+    [bridge stop];
+    [bridge setExternalRecording:YES];
+    CHECK(![bridge isForwarding] && ![bridge enqueueSamples:samples count:320],
+          "disabled output was restarted by A15 input");
+    return 0;
+}
+
 @interface FakeAudioCharacteristic : NSObject
 @property(nonatomic, strong) CBUUID *UUID;
 @property(nonatomic, strong) NSData *value;
@@ -260,6 +287,7 @@ static int CheckMonitorSnapshots(void) {
 
 int main(void) {
     @autoreleasepool {
+        CHECK(CheckExternalA15Session() == 0, "A15 external audio session failed");
         CHECK(CheckMonitorSnapshots() == 0, "queue monitor snapshots failed");
         CHECK(CheckStretchConfiguration() == 0, "stretch settings failed");
         CHECK(CheckWindowDiagnostics() == 0, "window diagnostics failed");

@@ -244,5 +244,14 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       views[1].update(React.createElement(InstanceWorkspace, props(1)))
     })
     assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
+    act(() => views[0].update(React.createElement(InstanceWorkspace, {
+      ...props(0), platform: 'macos', permissions: { accessibility: true, inputMonitoring: true },
+    })))
+    assert.equal(views[0].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 0)
+    assert.equal(views[0].root.findByType('select').props.value, 'click')
+    await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'hold' } }))
+    assert.equal(instances[0].cmiotA15RecordingMode, 'hold')
+    act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
+    assert.deepEqual(actions.at(-1), ['calibrate', 'one'])
   } finally { act(() => views.forEach(view => view.unmount())) }
 })

@@ -65,6 +65,13 @@ pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>>
         ] {
             values.insert(key.into(), if usages.contains(&usage) { 1. } else { 0. });
         }
+    } else if kind == "cmiotA15" {
+        let (report_id, down) = crate::devices::cmiot_a15::decode(report)?;
+        for &(id, _, button) in crate::devices::cmiot_a15::BUTTONS {
+            if id == report_id {
+                values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
+            }
+        }
     } else {
         return None;
     }
@@ -79,6 +86,18 @@ pub(super) fn pressed(value: f64, was_pressed: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a15_reports_update_only_their_own_controls() {
+        let keys = decode("cmiotA15", &[1, 0, 0, 0x52, 0, 0, 0, 0, 0]).unwrap();
+        assert_eq!(keys["cmiotA15.up"], 1.0);
+        assert!(!keys.contains_key("cmiotA15.voice"));
+        assert!(!keys.contains_key("cmiotA15.volumeUp"));
+        let keys = decode("cmiotA15", &[3, 0xe9, 0]).unwrap();
+        assert_eq!(keys["cmiotA15.volumeUp"], 1.0);
+        assert!(!keys.contains_key("cmiotA15.up"));
+        assert!(decode("cmiotA15", &[0xfc; 21]).is_none());
+    }
+
     #[test]
     fn xbox_buttons_axes_and_diagonal_hat_are_independent() {
         let report = [1, 0, 0, 255, 255, 0, 128, 0, 128, 255, 3, 0, 0, 2, 1, 2];

@@ -1342,7 +1342,8 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .instances
         .iter()
         .filter(|instance| {
-            instance.kind == "rc003" || (cfg!(windows) && instance.kind == "cmiotA15")
+            instance.kind == "rc003"
+                || (cfg!(any(windows, target_os = "macos")) && instance.kind == "cmiotA15")
         })
         .map(|instance| {
             let voice_target = instance.voice_target.clone().or_else(|| {

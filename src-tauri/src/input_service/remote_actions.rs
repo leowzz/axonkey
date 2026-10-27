@@ -1,4 +1,4 @@
-//! Remote gestures schedule mouse actions and semantic HID keyboard edges.
+//! Shared remote gestures; each platform supplies its keyboard representation.
 use super::{
     MouseButton, NativeBehavior, NativeSettings, RepeatableClick, TriggerBehaviors, WheelDirection,
 };
@@ -10,56 +10,75 @@ use std::{
 const DOUBLE_CLICK: Duration = Duration::from_millis(350);
 const LONG_PRESS: Duration = Duration::from_millis(600);
 
-struct Press {
+struct Press<K> {
     started: Instant,
     triggers: TriggerBehaviors,
     second: bool,
     long_fired: bool,
     repeat: Option<RepeatableClick>,
     next_repeat: Instant,
-    held: Vec<HidKey>,
+    held: Vec<K>,
 }
 
 #[derive(Default)]
-struct Button {
-    press: Option<Press>,
+struct Button<K> {
+    press: Option<Press<K>>,
     pending: Option<(Instant, Vec<NativeBehavior>)>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub(super) struct HidKey {
     pub page: u16,
     pub usage: u16,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) enum Output {
+pub(super) enum Output<K = HidKey> {
     CursorMove(WheelDirection, u32),
     MouseClick(MouseButton),
     Wheel(WheelDirection),
     Paste(String),
     OpenApp(String),
     OpenWebsite(String),
-    Key(HidKey, bool),
+    Key(K, bool),
     SwitchProfile(super::ProfileDirection, bool),
 }
 
 #[derive(Default)]
-pub(super) struct RemoteActions {
+pub(super) struct RemoteActions<K = HidKey> {
     revision: u64,
     enabled: bool,
-    held: HashMap<HidKey, usize>,
-    held_order: Vec<HidKey>,
-    releases: Vec<Output>,
-    buttons: HashMap<&'static str, Button>,
-    scheduled: Vec<(Instant, Output)>,
+    held: HashMap<K, usize>,
+    held_order: Vec<K>,
+    releases: Vec<Output<K>>,
+    buttons: HashMap<&'static str, Button<K>>,
+    scheduled: Vec<(Instant, Output<K>)>,
+}
+
+pub(super) trait RemoteKey: Copy + Eq + std::hash::Hash + Default {
+    fn chord(behavior: &NativeBehavior) -> Option<Vec<Self>>;
+    fn original(button: &str) -> Option<Self>;
+}
+
+#[cfg(any(windows, test))]
+impl RemoteKey for HidKey {
+    fn chord(behavior: &NativeBehavior) -> Option<Vec<Self>> {
+        super::windows::behavior_hid_chord(behavior)
+    }
+    fn original(button: &str) -> Option<Self> {
+        super::windows::original_key_for_button(button)
+    }
 }
 
 fn enabled(actions: &[NativeBehavior]) -> bool {
     actions.iter().any(NativeBehavior::enabled)
 }
 
-fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now: Instant) {
+fn schedule<K: RemoteKey>(
+    queue: &mut Vec<(Instant, Output<K>)>,
+    actions: &[NativeBehavior],
+    now: Instant,
+) {
     let mut due = now;
     for action in actions.iter().filter(|action| action.enabled()) {
         if queue.len() >= 256 {
@@ -86,7 +105,7 @@ fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now:
                 queue.push((due, Output::OpenWebsite(url.clone())))
             }
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
-                if let Some(keys) = super::windows::behavior_hid_chord(action) {
+                if let Some(keys) = K::chord(action) {
                     if queue.len() + keys.len() * 2 <= 256 {
                         queue.extend(keys.iter().map(|key| (due, Output::Key(*key, true))));
                         queue.extend(keys.iter().rev().map(|key| (due, Output::Key(*key, false))));
@@ -103,7 +122,7 @@ fn schedule(queue: &mut Vec<(Instant, Output)>, actions: &[NativeBehavior], now:
     }
 }
 
-fn repeat_output(action: RepeatableClick) -> Output {
+fn repeat_output<K>(action: RepeatableClick) -> Output<K> {
     match action {
         RepeatableClick::Wheel(direction) => Output::Wheel(direction),
         RepeatableClick::CursorMove {
@@ -113,8 +132,8 @@ fn repeat_output(action: RepeatableClick) -> Output {
     }
 }
 
-fn schedule_click(
-    queue: &mut Vec<(Instant, Output)>,
+fn schedule_click<K: RemoteKey>(
+    queue: &mut Vec<(Instant, Output<K>)>,
     actions: &[NativeBehavior],
     button: &str,
     now: Instant,
@@ -124,7 +143,7 @@ fn schedule_click(
     } else if queue.len() + 2 <= 256 {
         // Configuring only double/long press must preserve an ordinary click.
         // An explicitly enabled Disabled action suppresses this fallback.
-        if let Some(key) = super::windows::original_key_for_button(button) {
+        if let Some(key) = K::original(button) {
             queue.extend([
                 (now, Output::Key(key, true)),
                 (now, Output::Key(key, false)),
@@ -133,7 +152,7 @@ fn schedule_click(
     }
 }
 
-impl RemoteActions {
+impl<K: RemoteKey> RemoteActions<K> {
     pub fn cancel(&mut self) {
         self.releases.extend(
             self.held_order
@@ -166,12 +185,10 @@ impl RemoteActions {
         let custom = enabled(&triggers.click)
             || enabled(&triggers.double_click)
             || enabled(&triggers.long_press);
-        // A single keyboard click is held for the physical press, just like
-        // Windows, rather than our timer, handles keyboard repeat.
+        // A single keyboard click follows the physical press. The platform
+        // output adapter owns keyboard repeat.
         let held = if !settings.enabled || !custom {
-            super::windows::original_key_for_button(button)
-                .map(|key| vec![key])
-                .unwrap_or_default()
+            K::original(button).map(|key| vec![key]).unwrap_or_default()
         } else if !enabled(&triggers.double_click) && !enabled(&triggers.long_press) {
             let clicks: Vec<_> = triggers
                 .click
@@ -179,7 +196,7 @@ impl RemoteActions {
                 .filter(|action| action.enabled())
                 .collect();
             if clicks.len() == 1 {
-                super::windows::behavior_hid_chord(clicks[0]).unwrap_or_default()
+                K::chord(clicks[0]).unwrap_or_default()
             } else {
                 Vec::new()
             }
@@ -255,7 +272,7 @@ impl RemoteActions {
         }
     }
 
-    pub fn tick(&mut self, now: Instant, mut emit: impl FnMut(Output)) {
+    pub fn tick(&mut self, now: Instant, mut emit: impl FnMut(Output<K>)) {
         for (button, state) in &mut self.buttons {
             if let Some(press) = state.press.as_mut() {
                 if !press.held.is_empty() {

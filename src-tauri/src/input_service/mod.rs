@@ -9,7 +9,7 @@ mod profile_switch;
 #[cfg(windows)]
 pub(super) mod windows_quarbor;
 
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 mod remote_actions;
 
 #[derive(Debug, Clone, Default, Serialize)]

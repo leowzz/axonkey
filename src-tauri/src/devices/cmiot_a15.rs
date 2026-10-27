@@ -38,7 +38,7 @@ pub(crate) fn original_usage(button: &str) -> Option<(u16, u16)> {
     })
 }
 
-fn decode(bytes: &[u8]) -> Option<(u8, HashSet<&'static str>)> {
+pub(crate) fn decode(bytes: &[u8]) -> Option<(u8, HashSet<&'static str>)> {
     let report = *bytes.first()?;
     let usages: Vec<u16> = match report {
         1 if bytes.len() == 9 && bytes[1..3] == [0, 0] => {
@@ -96,9 +96,116 @@ impl ReportState {
     }
 }
 
+/// One exclusive HID connection. Recording and key mapping consume the same
+/// voice edge independently, including when click-to-record stays active.
+#[derive(Default)]
+pub(crate) struct HidSession {
+    reports: ReportState,
+    recording: super::cmiot_a15_recording::RecordingControl,
+    voice: super::cmiot_a15_fc::VoiceStream,
+}
+
+impl HidSession {
+    pub fn start(&mut self, mode: super::cmiot_a15_recording::RecordingMode) {
+        self.recording
+            .synchronize(mode, true, |_| Ok::<_, String>(()))
+            .unwrap();
+    }
+
+    pub fn recording(&self) -> bool {
+        self.recording.is_recording()
+    }
+
+    pub fn accept(
+        &mut self,
+        report: &[u8],
+        mut send: impl FnMut([u8; 2]) -> Result<(), String>,
+    ) -> Result<
+        (
+            Vec<(&'static str, bool)>,
+            Option<super::cmiot_a15_fc::PcmFrame>,
+        ),
+        String,
+    > {
+        let edges = self.reports.accept(report);
+        for &(button, pressed) in &edges {
+            if button == "cmiotA15.voice" {
+                self.recording.edge(pressed, &mut send)?;
+                self.voice.synchronize(self.recording());
+            }
+        }
+        let pcm = match self.voice.feed(report) {
+            Ok(pcm) => pcm,
+            Err(error) => {
+                log::warn!(target: "axonkey::audio", "A15 audio packet: {error}");
+                None
+            }
+        };
+        Ok((edges, pcm))
+    }
+
+    pub fn stop(&mut self, send: impl FnMut([u8; 2]) -> Result<(), String>) -> Result<(), String> {
+        let result = self.recording.stop(send);
+        self.recording.reset();
+        self.voice.reset();
+        self.reports.release_all();
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hid_session_keeps_voice_key_edges_independent_of_click_recording() {
+        use super::super::cmiot_a15_recording::RecordingMode;
+        for mode in [RecordingMode::Hold, RecordingMode::Click] {
+            let mut session = HidSession::default();
+            session.start(mode);
+            let mut writes = Vec::new();
+            let mut send = |report| {
+                writes.push(report);
+                Ok(())
+            };
+            let mut report = [0; 21];
+            report[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+            let (edges, _) = session.accept(&report, &mut send).unwrap();
+            assert_eq!(edges, vec![("cmiotA15.voice", true)]);
+            assert!(session.recording());
+            assert!(session.accept(&report, &mut send).unwrap().0.is_empty());
+            report[3] = 0;
+            assert_eq!(
+                session.accept(&report, &mut send).unwrap().0,
+                vec![("cmiotA15.voice", false)]
+            );
+            assert_eq!(session.recording(), mode == RecordingMode::Click);
+            session.stop(&mut send).unwrap();
+            assert!(!session.recording());
+            assert_eq!(writes, [[0xfb, 1], [0xfb, 0]]);
+        }
+    }
+
+    #[test]
+    fn hid_session_drops_audio_outside_recording_and_does_not_commit_failed_start() {
+        let mut session = HidSession::default();
+        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        assert!(session.accept(&[0xfc; 21], |_| Ok(())).unwrap().1.is_none());
+        let mut report = [0; 21];
+        report[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+        assert!(session
+            .accept(&report, |_| Err("write failed".into()))
+            .is_err());
+        assert!(!session.recording());
+        session.stop(|_| Ok(())).unwrap();
+        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        assert_eq!(
+            session.accept(&report, |_| Ok(())).unwrap().0,
+            vec![("cmiotA15.voice", true)]
+        );
+        assert!(session.recording());
+    }
+
     #[test]
     fn every_documented_key_presses_and_releases_without_repeat_edges() {
         for &(report, usage, id) in BUTTONS {

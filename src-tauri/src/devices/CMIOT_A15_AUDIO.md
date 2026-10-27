@@ -42,12 +42,12 @@ Selecting the same Windows playback endpoint still allows Windows to mix their
 outputs. Playback does not depend on a frontend event listener. No audio file is
 written and no speech recognition is performed.
 
-Recording status is part of each instance's runtime snapshot; transitions also
+Recording status is part of each instance's runtime snapshot; Windows transitions also
 emit `axonkey-device-recording` with `{ instanceId, recording }`. Audio connection
 status follows that instance's driver channel and remains connected between
 recordings, allowing gain calibration to finish after recording stops.
 
-The native pending queue is capped at 32 frames, dropping the oldest on overflow;
+The Windows native pending queue is capped at 32 frames, dropping the oldest on overflow;
 each instance's audio queue retains the existing two-second sample limit. Original HID
 reports remain in the existing report event path. Decode errors are rate-limited
 in the audio log.
@@ -58,8 +58,32 @@ The DSP history is reset after reported fragment errors; no time
 stretching or missing-frame insertion is performed. Upstream libsiren may conceal
 bitstream errors with its previous-frame fallback rather than return an error.
 
-The decoder and reassembler are platform-independent. Only the existing Windows
-HID route is wired here; macOS A15 transport is separate work.
+The decoder and reassembler are platform-independent. macOS opens the bound
+0416:0300 keyboard HID exclusively through hidapi/IOHID, reads the numbered
+reports and writes the same FB start/stop output reports. Input Monitoring and
+Accessibility permissions are required for capture and mapped output respectively.
+`managed/a15.rs` owns the connection, recording session and shared gesture
+scheduler; macOS key names use the existing native key parser (RAlt is right
+Option). Recordings and mapped key edges remain independent in both modes.
+The native adapter releases held outputs and stops recording on removal,
+disconnection, mode/profile changes or disabling the instance. Consumer buttons
+with no macOS equivalent (settings/M) remain available for explicit mappings.
+
+macOS decoded PCM goes to that instance's MiRemoteV 2ch bridge in external-input
+mode. This mode does not start CoreBluetooth/RC003 discovery. It reuses gain,
+output route verification, bounded PCM buffering, tail draining and idle pause.
+A new session discards the previous queue. Runtime recording state comes from
+the HID recording controller, independently of whether an output is selected.
+The macOS UI exposes recording mode, volume calibration and the existing virtual
+microphone driver management entry.
+
+macOS implementation validation still requires a Mac: build with Xcode, grant
+Input Monitoring/Accessibility, bind A15, select MiRemoteV 2ch, then check hold
+and click recording with a simultaneous right-Option mapping. Verify independent
+MiRemoteV input capture, releases on disconnect/disable, and reconnect. Current
+Windows-side tests cover the real HID session/controller, shared gestures,
+record-group isolation and the captured audio codec fixture; they do not certify
+macOS hardware behavior.
 
 Validation uses generated G.722.1 tone frames, the inverse ICO transformation and
 synthetic FC packets, plus session reset and malformed packet tests. A physical

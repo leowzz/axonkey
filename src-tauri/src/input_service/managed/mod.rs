@@ -1,4 +1,6 @@
 //! Physical-device ownership and input lifetime live here, independently of the editor window.
+#[cfg(target_os = "macos")]
+mod a15;
 mod gesture;
 mod paired;
 #[cfg(target_os = "macos")]
@@ -210,6 +212,8 @@ impl QuarborRegistry {
 }
 
 struct Shared {
+    #[cfg(target_os = "macos")]
+    app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
     path: PathBuf,
     stop: AtomicBool,
@@ -428,7 +432,14 @@ impl DeviceManager {
         #[cfg(all(target_os = "windows", not(test)))]
         return Self::start_with_callbacks_and_app(path, emit, legacy_remote, Some(app));
         #[cfg(any(not(target_os = "windows"), test))]
-        Self::start_with_callbacks(path, emit, legacy_remote)
+        {
+            let manager = Self::start_with_callbacks(path, emit, legacy_remote);
+            #[cfg(target_os = "macos")]
+            {
+                *manager.shared.app.lock().unwrap() = Some(app);
+            }
+            manager
+        }
     }
     #[cfg(test)]
     fn start_with_emitter(path: PathBuf, emit: Box<dyn Fn(InputEvent) + Send + Sync>) -> Self {
@@ -467,6 +478,8 @@ impl DeviceManager {
             Err(error) => (Store::default(), Some(error)),
         };
         let shared = Arc::new(Shared {
+            #[cfg(target_os = "macos")]
+            app: Mutex::new(None),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -495,6 +508,8 @@ impl DeviceManager {
             Err(error) => (Store::default(), Some(error)),
         };
         let shared = Arc::new(Shared {
+            #[cfg(target_os = "macos")]
+            app: Mutex::new(None),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -732,6 +747,8 @@ fn emit(shared: &Shared, id: &str, values: BTreeMap<String, f64>, pressed: Vec<S
 }
 
 enum InputReader {
+    #[cfg(target_os = "macos")]
+    A15(a15::A15Reader),
     Hid(HidDevice),
     #[cfg(target_os = "macos")]
     Remote(remote::RemoteReader),
@@ -739,6 +756,8 @@ enum InputReader {
 impl InputReader {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         match self {
+            #[cfg(target_os = "macos")]
+            Self::A15(device) => device.read(buffer),
             Self::Hid(device) => device.read(buffer).map_err(|e| e.to_string()),
             #[cfg(target_os = "macos")]
             Self::Remote(device) => device.read(buffer),
@@ -793,8 +812,18 @@ fn open_reader(
     if instance.kind == "rc003" {
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
     }
+    #[cfg(target_os = "macos")]
+    if instance.kind == "cmiotA15" && !super::InputService::input_monitoring_granted() {
+        return Err("请先授予输入监控权限，再连接 A15".into());
+    }
     let device = open(api, path)?;
     device.set_blocking_mode(false).map_err(|e| e.to_string())?;
+    #[cfg(target_os = "macos")]
+    if instance.kind == "cmiotA15" {
+        return Ok(InputReader::A15(a15::A15Reader::open(
+            device, instance, shared, cancel,
+        )));
+    }
     Ok(InputReader::Hid(device))
 }
 
@@ -828,6 +857,8 @@ fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
     ) {
         (0x045e, 0x02e0, 1, 5) => Some("xboxBluetooth"),
         (0x2717, 0x32b8, 1, 6) => Some("rc003"),
+        #[cfg(target_os = "macos")]
+        (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
         _ => None,
     }
 }
@@ -1267,7 +1298,7 @@ fn run(shared: Arc<Shared>) {
             let path = instance.binding.as_ref().and_then(|id| paths.get(id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if instance.kind == "cmiotA15" && !cfg!(windows) {
+            } else if instance.kind == "cmiotA15" && !cfg!(any(windows, target_os = "macos")) {
                 "unsupported"
             } else if instance.binding.is_none() {
                 "unbound"
@@ -1347,9 +1378,11 @@ fn run(shared: Arc<Shared>) {
                     match open_reader(&api, path.unwrap(), instance, &shared, &cancel) {
                         Ok(device) => {
                             failures.remove(&instance.id);
-                            // RC003 executes in its original native service; reports here
-                            // only update the instance UI, never dispatch a second action.
-                            let maps = if cfg!(target_os = "macos") && instance.kind == "rc003" {
+                            // macOS remote adapters execute their own actions; reports here
+                            // only update the instance UI.
+                            let maps = if cfg!(target_os = "macos")
+                                && matches!(instance.kind.as_str(), "rc003" | "cmiotA15")
+                            {
                                 HashMap::new()
                             } else {
                                 active_mappings(instance)
@@ -1503,6 +1536,10 @@ fn run(shared: Arc<Shared>) {
                             break;
                         }
                     }
+                }
+                #[cfg(target_os = "macos")]
+                if let InputReader::A15(device) = &reader.device {
+                    status.recording = device.recording();
                 }
                 status.reports = reader.reports;
                 if !failed && !sequence.is_empty() && reader.actions.try_send(sequence).is_err() {
@@ -1865,6 +1902,8 @@ mod tests {
     fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
+                #[cfg(target_os = "macos")]
+                app: Mutex::new(None),
                 snapshot: Mutex::new(Snapshot {
                     store: Store {
                         instances,

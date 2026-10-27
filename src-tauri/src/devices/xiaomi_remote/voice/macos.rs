@@ -4,7 +4,7 @@ use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioSe
 use std::{
     ffi::{c_char, c_void},
     sync::{
-        atomic::{AtomicBool, AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::Duration,
@@ -34,7 +34,11 @@ struct NativeCallbacks {
 }
 
 extern "C" {
-    fn axonkey_macos_audio_create(callbacks: *const NativeCallbacks) -> *mut c_void;
+    fn axonkey_macos_audio_create(
+        callbacks: *const NativeCallbacks,
+        external_input: bool,
+    ) -> *mut c_void;
+    fn axonkey_macos_audio_set_recording(bridge: *mut c_void, recording: bool);
     fn axonkey_macos_audio_start(bridge: *mut c_void);
     fn axonkey_macos_audio_refresh(bridge: *mut c_void);
     fn axonkey_macos_audio_restart(bridge: *mut c_void) -> bool;
@@ -60,6 +64,11 @@ extern "C" {
 }
 
 struct Shared {
+    a15: bool,
+    a15_connected: AtomicBool,
+    a15_recording: AtomicBool,
+    a15_received: AtomicBool,
+    event_version: AtomicU64,
     diagnostics: AudioDiagnostics,
     bridge: AtomicPtr<c_void>,
     output_enabled: AtomicBool,
@@ -112,8 +121,21 @@ impl AudioService {
     }
 
     pub fn start_for(_target_identity: Option<String>) -> Self {
+        Self::create(false)
+    }
+
+    pub fn start_a15() -> Self {
+        Self::create(true)
+    }
+
+    fn create(a15: bool) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
+            a15,
+            a15_connected: AtomicBool::new(false),
+            a15_recording: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            event_version: AtomicU64::new(0),
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
@@ -125,7 +147,7 @@ impl AudioService {
             context: callback_context.cast_mut().cast(),
             on_event: native_event_callback,
         };
-        let bridge = unsafe { axonkey_macos_audio_create(&callbacks) };
+        let bridge = unsafe { axonkey_macos_audio_create(&callbacks, a15) };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
             log::info!(target: "axonkey::audio", "macOS audio bridge created; waiting for an output device");
@@ -146,6 +168,7 @@ impl AudioService {
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
             unsafe { axonkey_macos_audio_refresh(bridge) };
+            self.sync_a15_recording(bridge);
         }
     }
 
@@ -164,7 +187,10 @@ impl AudioService {
         }
         if enabled {
             log::info!(target: "axonkey::audio", "Enabling macOS audio output: MiRemoteV 2ch");
-            unsafe { axonkey_macos_audio_start(bridge) };
+            unsafe {
+                axonkey_macos_audio_start(bridge);
+                self.sync_a15_recording(bridge);
+            };
         } else {
             log::info!(target: "axonkey::audio", "Disabling macOS audio output");
             unsafe { axonkey_macos_audio_stop(bridge) };
@@ -180,6 +206,7 @@ impl AudioService {
             return Err("无法连接 macOS 音频服务".into());
         }
         if unsafe { axonkey_macos_audio_restart(bridge) } {
+            self.sync_a15_recording(bridge);
             Ok(())
         } else {
             Err(native_error(bridge)
@@ -202,7 +229,10 @@ impl AudioService {
         }
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if !bridge.is_null() {
-            unsafe { axonkey_macos_audio_start(bridge) };
+            unsafe {
+                axonkey_macos_audio_start(bridge);
+                self.sync_a15_recording(bridge);
+            };
         }
     }
 
@@ -225,7 +255,6 @@ impl AudioService {
             return Err("无法连接 macOS 音频服务".into());
         }
         let gain_db = clamp_gain_db(gain);
-        log::info!(target: "axonkey::audio", "Updating audio gain to {gain_db} dB");
         unsafe { axonkey_macos_audio_set_gain_db(bridge, f32::from(gain_db)) };
         Ok(())
     }
@@ -242,7 +271,7 @@ impl AudioService {
             };
         }
         let state_code = unsafe { axonkey_macos_audio_state(bridge) };
-        AudioServiceStatus {
+        let mut status = AudioServiceStatus {
             driver_installed: unsafe { axonkey_macos_audio_driver_installed() },
             state: state_name(state_code).into(),
             bluetooth_connected: unsafe { axonkey_macos_audio_bluetooth_connected(bridge) },
@@ -254,7 +283,57 @@ impl AudioService {
             }),
             error: native_error(bridge),
             ..AudioServiceStatus::default()
+        };
+        if self.shared.a15 {
+            status.bluetooth_connected = self.shared.a15_connected.load(Ordering::Acquire);
+            status.received_data = self.shared.a15_received.load(Ordering::Acquire);
+            status.event_version = self.shared.event_version.load(Ordering::Acquire);
+            if state_code == 5 && !status.bluetooth_connected {
+                status.state = "disconnected".into();
+            }
         }
+        status
+    }
+
+    fn sync_a15_recording(&self, bridge: *mut c_void) {
+        if self.shared.a15 {
+            unsafe {
+                axonkey_macos_audio_set_recording(
+                    bridge,
+                    self.shared.a15_recording.load(Ordering::Acquire),
+                );
+            }
+        }
+    }
+
+    pub(crate) fn set_a15_input_state(&self, connected: bool, recording: bool) {
+        self.shared
+            .a15_connected
+            .store(connected, Ordering::Release);
+        if self.shared.a15_recording.swap(recording, Ordering::AcqRel) != recording {
+            self.shared.a15_received.store(false, Ordering::Release);
+            self.shared.event_version.fetch_add(1, Ordering::AcqRel);
+            let bridge = self.shared.bridge.load(Ordering::Acquire);
+            if !bridge.is_null() {
+                unsafe { axonkey_macos_audio_set_recording(bridge, recording) };
+            }
+        }
+    }
+
+    pub(crate) fn push_a15_pcm(&self, samples: &[i16]) {
+        if !self.shared.a15_recording.load(Ordering::Acquire) {
+            return;
+        }
+        self.shared.a15_received.store(true, Ordering::Release);
+        self.shared.diagnostics.received(40);
+        self.shared.diagnostics.decoded(samples);
+        if !self.shared.output_enabled.load(Ordering::Acquire) {
+            return;
+        }
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        let success = !bridge.is_null()
+            && unsafe { axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len()) };
+        self.shared.diagnostics.scheduled(samples.len(), success);
     }
 }
 
@@ -378,7 +457,7 @@ unsafe extern "C" fn native_event_callback(
             } else {
                 "stopped"
             };
-            log::info!(target: "axonkey::audio", "macOS RC003 voice session {state}: session_id={value1}");
+            log::info!(target: "axonkey::audio", "macOS voice session {state}: session_id={value1}");
         }
         EVENT_RECEIVED => shared.diagnostics.received(value1.max(0) as usize),
         EVENT_REJECTED => shared.diagnostics.rejected(),
@@ -415,6 +494,11 @@ mod tests {
     #[test]
     fn native_packets_record_decode_and_enqueue_failure_separately() {
         let shared = Shared {
+            a15: false,
+            a15_connected: AtomicBool::new(false),
+            a15_recording: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            event_version: AtomicU64::new(0),
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
@@ -448,6 +532,11 @@ mod tests {
     #[test]
     fn partial_decoder_frames_are_accounted_on_sync_and_stop() {
         let shared = Shared {
+            a15: false,
+            a15_connected: AtomicBool::new(false),
+            a15_recording: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            event_version: AtomicU64::new(0),
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
@@ -495,6 +584,11 @@ mod tests {
     #[test]
     fn native_telemetry_does_not_take_the_decoder_lock() {
         let shared = Shared {
+            a15: false,
+            a15_connected: AtomicBool::new(false),
+            a15_recording: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            event_version: AtomicU64::new(0),
             diagnostics: AudioDiagnostics::default(),
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),

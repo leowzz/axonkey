@@ -359,7 +359,7 @@ function IntegrationDialog({
                     <strong>{pkg.name}</strong>
                     <small>
                       {pkg.model.split(' · ')[0]}
-                      {pkg.kind === 'cmiotA15' && platform !== 'windows' ? ' · 仅配置' : ''}
+                      {pkg.kind === 'cmiotA15' && platform !== 'windows' && platform !== 'macos' ? ' · 仅配置' : ''}
                     </small>
                   </span>
                 </button>
@@ -416,7 +416,7 @@ function IntegrationDialog({
                   </button>
                 </div>
               )}
-              {kind === 'cmiotA15' && platform !== 'windows' && (
+              {kind === 'cmiotA15' && platform !== 'windows' && platform !== 'macos' && (
                 <p className="integration-attention">此设备暂不支持输入监听。</p>
               )}
               {platform === 'windows' && (kind === 'rc003' || kind === 'cmiotA15') && (

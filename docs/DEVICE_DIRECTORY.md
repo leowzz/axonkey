@@ -71,6 +71,9 @@ macOS 原生构建入口和直接引用桥接源码的测试已更新到新路�
 - `src/devices/xbox-controller/`：无品牌图标的 SVG 资源与交互图。
 - `src-tauri/src/input_service/managed/`：HID 发现、物理身份、原生持久化、独立输入会话、协议解码与手势调度。
 
-新的实例存储独立于旧型号级配置。当前 macOS RC003 与已验证蓝牙手柄可使用实例监听；
+新的实例存储独立于旧型号级配置。macOS RC003 与已验证蓝牙手柄可使用实例监听；
+A15 已接入 macOS 独占 HID、共享按键/录音协议和 MiRemoteV 输出，仍待 macOS 实机验证。
+A15 的 macOS 输入适配位于 `input_service/managed/a15.rs`，平台按键输出位于
+`input_service/macos/remote_output.rs`，音频桥以 external-input 模式复用现有 PCM 播放器。
 Windows RC003 输入和语音服务都按实例维护；每个实例注册自己的 Quarbor pipe 和蓝牙会话，Windows GATT 会话按绑定的
 蓝牙地址筛选。具体支持边界不能仅凭目录是否存在判断，参见集成约定中的平台支持说明。

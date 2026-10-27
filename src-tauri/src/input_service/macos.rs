@@ -581,11 +581,20 @@ unsafe extern "C" fn event_callback(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MacKey {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(super) enum MacKey {
     Keyboard { code: u16, modifier: u64 },
     System { kind: i32 },
 }
+
+impl Default for MacKey {
+    fn default() -> Self {
+        Self::keyboard(0)
+    }
+}
+
+mod remote_output;
+pub(super) use remote_output::RemoteOutput;
 
 impl MacKey {
     const fn keyboard(code: u16) -> Self {

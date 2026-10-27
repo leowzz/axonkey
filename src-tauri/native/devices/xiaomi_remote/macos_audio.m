@@ -209,6 +209,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 
 @interface AKMacAudioBridge : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
+@property(nonatomic) BOOL externalInput;
+- (void)setExternalRecording:(BOOL)recording;
 - (void)start;
 - (void)refresh;
 - (BOOL)restart;
@@ -559,6 +561,14 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
         [self setState:AKAudioStateDriverMissing error:nil];
         return;
     }
+    if (_externalInput) {
+        if (!_streaming && _engine != nil && _state == AKAudioStateReady) return;
+        if ([self ensureAudioOutput]) {
+            [self setState:_streaming ? AKAudioStateForwarding : AKAudioStateReady error:nil];
+            if (!_streaming) [self scheduleAudioIdle];
+        }
+        return;
+    }
     if (_central == nil) {
         [self beginBluetooth];
     } else if (_central.state == CBManagerStatePoweredOn && _peripheral == nil) {
@@ -750,6 +760,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (void)closeMicrophoneIfNeeded {
+    if (_externalInput) return;
     if (!_microphoneOpened && !_streaming) {
         return;
     }
@@ -757,6 +768,19 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     NSUInteger length = _protocolVersion >= 0x0100 ? 2 : 1;
     [self writeData:[NSData dataWithBytes:bytes length:length]];
     _microphoneOpened = NO;
+}
+
+- (void)setExternalRecording:(BOOL)recording {
+    if (!_externalInput || !_shouldRun) return;
+    if (recording) {
+        if (!_streaming) {
+            // A new A15 session must not replay audio queued by the previous one.
+            [self resetAudioQueue];
+            [self beginVoiceSession];
+        }
+    } else {
+        [self endVoiceSession];
+    }
 }
 
 - (void)beginVoiceSession {
@@ -784,7 +808,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     _streaming = NO;
     _microphoneOpened = NO;
     [self emitEvent:AKAudioEventSessionStop data:nil value1:_sessionID value2:0];
-    if (_capabilitiesConfirmed) {
+    if (_capabilitiesConfirmed || (_externalInput && [self outputTargetsDriver])) {
         [self setState:AKAudioStateReady error:nil];
     }
     if (_pcmStorage != nil) atomic_store(&_pcmStorage->queue.draining, true);
@@ -1084,6 +1108,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 }
 
 - (BOOL)enqueueSamples:(const int16_t *)samples count:(size_t)count {
+    if (_externalInput && (!_shouldRun || !_streaming)) return NO;
     if (samples == NULL || count == 0) {
         _audioWindow.enqueueInvalid += 1;
         return NO;
@@ -1499,12 +1524,19 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 
 @end
 
-void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks) {
+void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externalInput) {
     __block AKMacAudioBridge *bridge = nil;
     AKOnMainSync(^{
         bridge = [[AKMacAudioBridge alloc] initWithCallbacks:callbacks];
+        bridge.externalInput = externalInput;
     });
     return (__bridge_retained void *)bridge;
+}
+
+void axonkey_macos_audio_set_recording(void *rawBridge, bool recording) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ [bridge setExternalRecording:recording]; });
 }
 
 void axonkey_macos_audio_start(void *rawBridge) {

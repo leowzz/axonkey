@@ -338,7 +338,8 @@ export function InstanceWorkspace({
               )}
             </div>
           </div>
-          {(instance.kind === 'rc003' || (instance.kind === 'cmiotA15' && platform === 'windows')) && (
+          {(instance.kind === 'rc003' ||
+            (instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos'))) && (
             <button
               type="button"
               className="managed-audio-calibration"
@@ -454,7 +455,7 @@ export function InstanceWorkspace({
                         </div>
                       )}
                       <div className="settings-form-fields">
-                        {instance.kind === 'cmiotA15' && platform === 'windows' && (
+                        {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
                           <label className="settings-form-row">
                             <span className="settings-form-label">语音录制：</span>
                             <span className="settings-form-control">

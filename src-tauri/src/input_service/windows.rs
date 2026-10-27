@@ -2188,7 +2188,7 @@ mod tests {
                 worker: Mutex::new(None),
             };
             let now = Instant::now();
-            let mut actions = RemoteActions::default();
+            let mut actions: RemoteActions = RemoteActions::default();
             actions.synchronize(1, true);
             actions.edge("up", true, &settings, now);
             actions.edge("up", false, &settings, now);
@@ -2593,7 +2593,7 @@ mod tests {
             }}))
             .unwrap();
         let mut keyboard = RemoteKeyboard::default();
-        let mut actions = RemoteActions::default();
+        let mut actions: RemoteActions = RemoteActions::default();
         let now = Instant::now();
         let mut events = Vec::new();
         for (button, down) in [

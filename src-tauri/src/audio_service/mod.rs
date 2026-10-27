@@ -174,7 +174,7 @@ impl AudioServiceManager {
                 services
                     .entry(target.instance_id.clone())
                     .or_insert_with(|| {
-                        #[cfg(windows)]
+                        #[cfg(any(windows, target_os = "macos"))]
                         if target.kind == "cmiotA15" {
                             return Arc::new(PlatformAudioService::start_a15());
                         }
@@ -299,20 +299,20 @@ impl AudioServiceManager {
         connected: bool,
         recording: bool,
     ) {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         if let Some(service) = self.service(instance_id) {
             service.set_a15_input_state(connected, recording);
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = (instance_id, connected, recording);
     }
 
     pub(crate) fn push_a15_pcm(&self, instance_id: Option<&str>, samples: &[i16]) {
-        #[cfg(target_os = "windows")]
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
         if let Some(service) = self.service(instance_id) {
             service.push_a15_pcm(samples);
         }
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = (instance_id, samples);
     }
 }
