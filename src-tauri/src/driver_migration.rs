@@ -452,7 +452,7 @@ mod windows {
                 .any(|d| d.bound && d.instance_id.eq_ignore_ascii_case(id))
         });
         publish_plan(app, &plan);
-        let log = crate::driver_log_path("input", "migration")?;
+        let log = crate::driver_log_path(app, "input", "migration")?;
         std::fs::OpenOptions::new()
             .create(true)
             .append(true)

@@ -391,12 +391,15 @@ struct ManagedDriverUninstallResult {
 }
 
 #[cfg(target_os = "windows")]
-fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, String> {
-    let local_app_data = std::env::var_os("LOCALAPPDATA")
-        .ok_or_else(|| "Cannot locate the Windows local application data directory".to_string())?;
-    let directory = std::path::PathBuf::from(local_app_data)
-        .join("Axonkey")
-        .join("logs");
+fn driver_log_path(
+    app: &tauri::AppHandle,
+    driver: &str,
+    action: &str,
+) -> Result<std::path::PathBuf, String> {
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
     let file_name = if driver == "audio" {
@@ -501,6 +504,7 @@ end run"#;
 
 #[cfg(target_os = "windows")]
 fn run_driver_action(
+    app: &tauri::AppHandle,
     driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
@@ -509,7 +513,7 @@ fn run_driver_action(
     use std::process::Stdio;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let log_path = driver_log_path(driver, action)?;
+    let log_path = driver_log_path(app, driver, action)?;
     let started = format!(
         "Axonkey {driver} driver {action} requested: {:?}\r\n",
         std::time::SystemTime::now()
@@ -548,7 +552,9 @@ fn run_driver_action(
             .arg("-File")
             .arg(&helper)
             .arg("-Action")
-            .arg(action);
+            .arg(action)
+            .arg("-LogPath")
+            .arg(&log_path);
         command
     };
     command.creation_flags(CREATE_NO_WINDOW);
@@ -638,7 +644,7 @@ async fn launch_driver_action(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         tauri::async_runtime::spawn_blocking(move || {
-            run_driver_action(&driver, &action, &resource_dir)
+            run_driver_action(&_app, &driver, &action, &resource_dir)
         })
         .await
         .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
@@ -676,11 +682,12 @@ async fn launch_driver_action(
 
 #[cfg(target_os = "windows")]
 fn run_device_driver_action(
+    app: &tauri::AppHandle,
     action: &str,
     resource_dir: &std::path::Path,
     target: &str,
 ) -> Result<DriverActionResult, String> {
-    let log_path = driver_log_path("input", action)?;
+    let log_path = driver_log_path(app, "input", action)?;
     std::fs::write(
         &log_path,
         format!(
@@ -699,9 +706,10 @@ fn run_device_driver_action(
 
 #[cfg(target_os = "windows")]
 fn run_uninstall_all_driver_action(
+    app: &tauri::AppHandle,
     resource_dir: &std::path::Path,
 ) -> Result<DriverActionResult, String> {
-    let log_path = driver_log_path("input", "uninstall-all")?;
+    let log_path = driver_log_path(app, "input", "uninstall-all")?;
     std::fs::write(
         &log_path,
         format!(
@@ -733,8 +741,9 @@ async fn install_device_driver(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         let target_for_store = target.clone();
+        let app_for_task = _app.clone();
         let result = tauri::async_runtime::spawn_blocking(move || {
-            run_device_driver_action("install", &resource_dir, &target)
+            run_device_driver_action(&app_for_task, "install", &resource_dir, &target)
         })
         .await
         .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
@@ -763,8 +772,9 @@ async fn unbind_device_instance(
                 .path()
                 .resource_dir()
                 .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+            let app_for_task = app.clone();
             tauri::async_runtime::spawn_blocking(move || {
-                run_device_driver_action("uninstall", &resource_dir, &target)
+                run_device_driver_action(&app_for_task, "uninstall", &resource_dir, &target)
             })
             .await
             .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
@@ -826,8 +836,9 @@ async fn uninstall_bound_device_drivers(
         // The global action must release every per-device pipe before the
         // installer removes all bindings in one transaction.
         manager.pause_for_driver_migration();
+        let app_for_task = app.clone();
         let action_result = tauri::async_runtime::spawn_blocking(move || {
-            run_uninstall_all_driver_action(&resource_dir)
+            run_uninstall_all_driver_action(&app_for_task, &resource_dir)
         })
         .await;
         manager.resume_after_driver_migration();

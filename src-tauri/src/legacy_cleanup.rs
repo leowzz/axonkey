@@ -285,13 +285,13 @@ mod windows {
             completed: false,
         };
         save(&path, &record)?;
-        let log = crate::driver_log_path("legacy", "cleanup")?;
+        let log = crate::driver_log_path(app, "legacy", "cleanup")?;
         app.state::<CleanupState>()
             .snapshot
             .lock()
             .unwrap()
             .log_path = Some(log.to_string_lossy().into_owned());
-        crate::run_driver_action("legacy", "cleanup", &resources)?;
+        crate::run_driver_action(app, "legacy", "cleanup", &resources)?;
         record.completed = true;
         save(&path, &record)?;
         publish(app, "rebootRequired");

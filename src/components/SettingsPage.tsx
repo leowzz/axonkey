@@ -12,7 +12,7 @@ import { DataBackupSettings } from './DataBackupSettings'
 import type { DataBackupSettingsProps } from './DataBackupSettings'
 import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
-import type { MacPermissionKind, MacPermissions, Platform, ManagedDriverCleanupState } from '../appTypes'
+import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, DriverState } from '../systemState'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
@@ -46,8 +46,7 @@ type SettingsPageProps = {
   onRestartAudio: () => void
   onProbeAudio: () => void
   onOpenSound: () => void
-  managedDriverCleanup: ManagedDriverCleanupState
-  onUninstallManagedDrivers: () => void
+  onOpenManagedDriverCleanup: () => void
   onOpenSignalMonitor: () => void
   signalMonitorOpening: boolean
   signalMonitorError: string
@@ -86,8 +85,7 @@ export function SettingsPage({
   onRestartAudio,
   onProbeAudio,
   onOpenSound,
-  managedDriverCleanup,
-  onUninstallManagedDrivers,
+  onOpenManagedDriverCleanup,
   onOpenSignalMonitor,
   signalMonitorOpening,
   signalMonitorError,
@@ -376,15 +374,6 @@ export function SettingsPage({
               </>
             ) : platform === 'windows' ? (
               <>
-                <section className="settings-platform-note" aria-labelledby="windows-device-settings-title">
-                  <span className="settings-platform-note-icon">
-                    <ShieldCheck size={24} />
-                  </span>
-                  <div className="settings-platform-note-copy">
-                    <h3 id="windows-device-settings-title">Windows 设备服务</h3>
-                    <p>每台 RC003 的按键驱动在设备工作区单独连接和管理。</p>
-                  </div>
-                </section>
                 <div className="settings-form-fields settings-device-fields">
                   {debugMode && (
                     <section className="settings-form-row" aria-labelledby="settings-driver-migration-label">
@@ -424,42 +413,16 @@ export function SettingsPage({
                     <span id="settings-quarbor-cleanup-label" className="settings-form-label">
                       Quarbor Universal Keyboard 驱动：
                     </span>
-                    <div>
-                      <div className="settings-form-control">
-                        <button
-                          type="button"
-                          className="dialog-secondary danger"
-                          disabled={!nativeRuntime || managedDriverCleanup.status === 'running'}
-                          aria-busy={managedDriverCleanup.status === 'running'}
-                          onClick={onUninstallManagedDrivers}
-                        >
-                          {managedDriverCleanup.status === 'running' ? '正在卸载设备驱动…' : '一键卸载已绑定设备驱动'}
-                        </button>
-                        <SettingsHelp id="settings-quarbor-cleanup-help" label="卸载 Quarbor 设备驱动">
-                          读取“我的设备”中的绑定设备，调用 Quarbor 安装器的 uninstall-all 一次性卸载所有 Quarbor
-                          Universal 驱动。成功后解除这些设备的物理绑定并清除隐藏提醒标志，保留映射配置；失败时保留绑定。
-                        </SettingsHelp>
-                      </div>
-                      {managedDriverCleanup.error && (
-                        <p className="settings-form-error" role="alert">
-                          {managedDriverCleanup.error}
-                        </p>
-                      )}
-                      {managedDriverCleanup.result && (
-                        <div role="status" aria-live="polite">
-                          <p>
-                            已找到 {managedDriverCleanup.result.deviceCount} 台设备，卸载{' '}
-                            {managedDriverCleanup.result.uninstalledCount} 台，解除绑定{' '}
-                            {managedDriverCleanup.result.unboundCount} 台。
-                            {managedDriverCleanup.result.rebootRequired && ' 请重启 Windows 完成卸载。'}
-                          </p>
-                          {managedDriverCleanup.result.failures.map(failure => (
-                            <p className="settings-form-error" key={failure.instanceId}>
-                              设备 {failure.instanceId.slice(-6)}：{failure.error}
-                            </p>
-                          ))}
-                        </div>
-                      )}
+                    <div className="settings-form-control">
+                      <button
+                        type="button"
+                        className="dialog-secondary"
+                        disabled={!nativeRuntime}
+                        onClick={onOpenManagedDriverCleanup}
+                      >
+                        卸载已绑定设备驱动
+                        <ExternalLink size={14} aria-hidden="true" />
+                      </button>
                     </div>
                   </section>
                   <section className="settings-form-row" aria-labelledby="settings-windows-audio-label">

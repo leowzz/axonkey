@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ExternalLink, FileText, Github, Info, Settings2, ShieldCheck, Star } from 'lucide-react'
+import { ExternalLink, FileText, Github, Info, Settings2, Star } from 'lucide-react'
 import appPackage from '../../package.json'
 import { openGitHub } from '../openGitHub'
 import './HomeDashboard.css'
@@ -8,7 +8,6 @@ type HomeDashboardProps = {
   deviceContent: ReactNode
   nativeRuntime: boolean
   onOpenSettings: () => void
-  onOpenPermissions: () => void
   onOpenLogs: () => void
   onOpenAbout: () => void
   hasUpdate: boolean
@@ -18,7 +17,6 @@ export function HomeDashboard({
   deviceContent,
   nativeRuntime,
   onOpenSettings,
-  onOpenPermissions,
   onOpenLogs,
   onOpenAbout,
   hasUpdate,
@@ -31,10 +29,6 @@ export function HomeDashboard({
           <button type="button" className="home-utility-button" aria-label="设置" onClick={onOpenSettings}>
             <Settings2 size={15} aria-hidden="true" />
             设置
-          </button>
-          <button type="button" className="home-utility-button" aria-label="权限设置" onClick={onOpenPermissions}>
-            <ShieldCheck size={15} aria-hidden="true" />
-            权限设置
           </button>
           <button
             type="button"

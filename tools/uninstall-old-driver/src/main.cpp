@@ -70,7 +70,7 @@ fs::path baseDir() {
 
 fs::path logPath(const Options& options) {
     if (!options.logPath.empty()) return fs::path(options.logPath);
-    return fs::path(env(L"LOCALAPPDATA")) / L"Axonkey" / L"logs" / L"old-driver-uninstall.log";
+    return fs::path(env(L"LOCALAPPDATA")) / L"com.axonkey.app" / L"logs" / L"old-driver-uninstall.log";
 }
 
 std::string utf8(const std::wstring& value) {

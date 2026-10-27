@@ -79,8 +79,6 @@ import type {
   CommonBehaviorPreset,
   DraftBehaviorState,
   DriverActionResult,
-  ManagedDriverUninstallResult,
-  ManagedDriverCleanupState,
   MacPermissionKind,
   MacPermissions,
   Platform,
@@ -109,6 +107,7 @@ import { MacPermissionHelperWindow } from '../components/MacPermissionHelperWind
 import { useAudioControls } from '../hooks/useAudioControls'
 import { useCableDriver } from '../hooks/useCableDriver'
 import { CableDriverDialog } from '../components/CableDriverDialog'
+import { ManagedDriverCleanupDialog } from '../components/ManagedDriverCleanupDialog'
 import { logError, logInfo } from '../runtimeLogging'
 import {
   beginDriverAction,
@@ -253,7 +252,7 @@ function AppController() {
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
-  const [managedDriverCleanup, setManagedDriverCleanup] = useState<ManagedDriverCleanupState>({ status: 'idle' })
+  const [managedDriverCleanupOpen, setManagedDriverCleanupOpen] = useState(false)
   const [managedDriverAction, setManagedDriverAction] = useState<{
     instanceId: string
     status: 'idle' | 'running' | 'error'
@@ -1292,19 +1291,6 @@ function AppController() {
     }
   }
 
-  const uninstallManagedDrivers = async () => {
-    if (!nativeRuntime || platform !== 'windows' || managedDriverCleanup.status === 'running') return
-    setManagedDriverCleanup({ status: 'running' })
-    try {
-      const result = await invoke<ManagedDriverUninstallResult>('uninstall_bound_device_drivers')
-      setManagedDriverCleanup({ status: 'done', result })
-    } catch (error) {
-      setManagedDriverCleanup({ status: 'idle', error: String(error) })
-    } finally {
-      await deviceInstances.refresh()
-    }
-  }
-
   const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility') => {
     try {
       await invoke('open_system_settings', { page })
@@ -1893,8 +1879,7 @@ function AppController() {
               onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
               onProbeAudio={() => void probeAudioState()}
               onOpenSound={() => void openSystemSettings('sound')}
-              managedDriverCleanup={managedDriverCleanup}
-              onUninstallManagedDrivers={() => void uninstallManagedDrivers()}
+              onOpenManagedDriverCleanup={() => setManagedDriverCleanupOpen(true)}
             />
           ) : (
             <HomeDashboard
@@ -1943,10 +1928,6 @@ function AppController() {
               }
               nativeRuntime={nativeRuntime}
               onOpenSettings={() => navigateToPage('settings')}
-              onOpenPermissions={() => {
-                setSettingsSection('permissions')
-                setActivePage('settings')
-              }}
               onOpenLogs={() => void openLogDirectory()}
               onOpenAbout={() => navigateToPage('about')}
               hasUpdate={releaseUpdate.hasUpdate}
@@ -2116,6 +2097,12 @@ function AppController() {
           nativeRuntime={nativeRuntime}
           onOpenSound={() => void openSystemSettings('sound')}
           onClose={() => setCableDriverOpen(false)}
+        />
+      )}
+      {managedDriverCleanupOpen && platform === 'windows' && (
+        <ManagedDriverCleanupDialog
+          onClose={() => setManagedDriverCleanupOpen(false)}
+          onDevicesChanged={() => void deviceInstances.refresh()}
         />
       )}
       {legacyCleanupOpen && platform === 'windows' && (

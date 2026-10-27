@@ -1,0 +1,61 @@
+.managed-driver-cleanup-dialog {
+  width: min(580px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #dbe4ed;
+  border-radius: 10px;
+  color: #344d61;
+  background: #f7f9fb;
+  box-shadow: 0 18px 56px rgb(30 50 70 / 18%);
+}
+.managed-driver-cleanup-dialog::backdrop {
+  background: rgb(29 33 38 / 42%);
+}
+:root:has(.managed-driver-cleanup-dialog[open]),
+body:has(.managed-driver-cleanup-dialog[open]),
+.app-shell:has(.managed-driver-cleanup-dialog[open]) .main-content {
+  overflow: hidden;
+}
+.managed-driver-cleanup-content {
+  display: flex;
+  max-height: calc(100dvh - 50px);
+  flex-direction: column;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.managed-driver-cleanup-devices,
+.managed-driver-cleanup-errors {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+.managed-driver-cleanup-devices li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+.managed-driver-cleanup-devices span {
+  flex-shrink: 0;
+  color: #657c8e;
+  font-size: 12px;
+}
+.managed-driver-cleanup-status p {
+  margin-top: 16px;
+}
+.managed-driver-cleanup-errors {
+  color: #b34b4b;
+}
+.managed-driver-cleanup-spinner {
+  margin-right: 8px;
+  vertical-align: middle;
+  animation: managed-driver-cleanup-spin 1s linear infinite;
+}
+@keyframes managed-driver-cleanup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -32,7 +32,7 @@ Windows 启动时不再执行全局 Quarbor 驱动升级或全局状态检查。
 
 ## 故障排查
 
-若设备已连接但按键没有响应，请查询安装器 `--list`，确认 RC003 的 `present` 和 `bound` 状态，并重新连接 RC003。运行日志位于 `%LOCALAPPDATA%\com.axonkey.app\logs`，驱动操作日志位于 `%LOCALAPPDATA%\Axonkey\logs`。驱动日志包含安装器命令、退出码及 JSON 输出；音频字段说明见 [运行日志](TROUBLESHOOTING.md#运行日志)。
+若设备已连接但按键没有响应，请查询安装器 `--list`，确认 RC003 的 `present` 和 `bound` 状态，并重新连接 RC003。运行日志与驱动操作日志统一位于 `%LOCALAPPDATA%\com.axonkey.app\logs`，可从首页“运行日志”打开。驱动日志包含安装器命令、退出码及 JSON 输出；音频字段说明见 [运行日志](TROUBLESHOOTING.md#运行日志)。
 
 ## 手动安装驱动
 

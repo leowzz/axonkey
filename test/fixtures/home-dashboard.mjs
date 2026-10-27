@@ -21,6 +21,6 @@ export const { HomeDashboard } = loadComponent('HomeDashboard')
 export const base = {
   nativeRuntime: true,
   deviceContent: null, hasUpdate: false,
-  onOpenSettings() {}, onOpenPermissions() {}, onOpenLogs() {}, onOpenAbout() {},
+  onOpenSettings() {}, onOpenLogs() {}, onOpenAbout() {},
 }
 export const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')

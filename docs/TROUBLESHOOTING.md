@@ -58,7 +58,7 @@ Windows 的系统和应用扬声器输出应保留真实扬声器或耳机，不
 
 Axonkey 会在本地记录启动、设备连接、输入/音频服务、系统探测和命令失败等运行时信息，不会上传日志，也不会记录映射文本内容。主页“运行日志”按钮可以直接打开日志目录，反馈问题时可附上 `axonkey.log` 和相关滚动旧日志。
 
-日志按文件大小滚动：单个文件达到 5 MB 后自动切换，并保留最近 5 个旧文件。Tauri 默认日志目录为：Windows 的 `%LOCALAPPDATA%\com.axonkey.app\logs`，macOS 的 `~/Library/Logs/com.axonkey.app`。Windows 驱动安装器日志位于 `%LOCALAPPDATA%\Axonkey\logs`；macOS MiRemoteV 安装和卸载日志位于 `~/Library/Logs/Axonkey`。
+运行日志按文件大小滚动：单个文件达到 5 MB 后自动切换，并保留最近 5 个旧文件。Tauri 默认日志目录为：Windows 的 `%LOCALAPPDATA%\com.axonkey.app\logs`，macOS 的 `~/Library/Logs/com.axonkey.app`。Windows 驱动操作日志（`quarbor-*.log`、`vbcable-*.log`、`old-driver-uninstall.log`）也写入同一目录；旧版本在 `%LOCALAPPDATA%\Axonkey\logs` 中留下的历史日志仍保留原位。macOS MiRemoteV 安装和卸载日志位于 `~/Library/Logs/Axonkey`。
 
 ### Windows 音频诊断字段
 

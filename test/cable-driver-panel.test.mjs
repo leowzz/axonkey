@@ -109,18 +109,23 @@ test('Windows permissions settings exposes only the CABLE panel entry', () => {
     './DataBackupSettings': { DataBackupSettings: () => null },
     './AutostartControl': { AutostartControl: () => null },
   })
-  let opened = 0
+  let opened = 0, cleanupOpened = 0
   let view
   act(() => { view = Renderer.create(React.createElement(SettingsPage, {
     platform: 'windows', nativeRuntime: true, section: 'permissions', permissions: {},
     inputDriver: {}, audioDriver: { status: 'installed', action: { status: 'idle' } },
-    managedDriverCleanup: { status: 'idle' }, backup: {}, onOpenCableDriver: () => opened++,
+    backup: {}, onOpenCableDriver: () => opened++, onOpenManagedDriverCleanup: () => cleanupOpened++,
   })) })
   try {
     const row = view.root.findByProps({ 'aria-labelledby': 'settings-windows-audio-label' })
     assert.equal(row.findAllByType('button').length, 1)
     assert.equal(text(row.findByType('button')), '管理 CABLE 驱动')
     act(() => row.findByType('button').props.onClick())
+    assert.equal(opened, 1)
+    const cleanup = view.root.findByProps({ 'aria-labelledby': 'settings-quarbor-cleanup-label' })
+    assert.equal(text(cleanup.findByType('button')), '卸载已绑定设备驱动')
+    act(() => cleanup.findByType('button').props.onClick())
+    assert.equal(cleanupOpened, 1)
     assert.equal(opened, 1)
   } finally { act(() => view.unmount()) }
 })

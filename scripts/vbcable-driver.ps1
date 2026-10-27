@@ -16,7 +16,7 @@ $expectedInstallerHash = '734C35DFA6D98F48782A451633CEB471166EC70D60482FD89A1123
 $servicePath = 'HKLM:\SYSTEM\CurrentControlSet\Services\VBAudioVACMME'
 
 if ([string]::IsNullOrWhiteSpace($LogPath)) {
-    $LogPath = Join-Path $env:LOCALAPPDATA "Axonkey\logs\vbcable-$Action.log"
+    $LogPath = Join-Path $env:LOCALAPPDATA "com.axonkey.app\logs\vbcable-$Action.log"
 }
 $logDirectory = Split-Path -Parent $LogPath
 New-Item -ItemType Directory -Path $logDirectory -Force | Out-Null
