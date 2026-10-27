@@ -52,7 +52,6 @@ extern "C" {
         snapshot: *mut NativeMonitorSnapshot,
     ) -> bool;
     fn axonkey_macos_audio_forwarding(bridge: *mut c_void) -> bool;
-    fn axonkey_macos_audio_battery_level(bridge: *mut c_void) -> i32;
     fn axonkey_macos_audio_copy_error(
         bridge: *mut c_void,
         buffer: *mut c_char,
@@ -278,9 +277,6 @@ impl AudioService {
             forwarding: unsafe { axonkey_macos_audio_forwarding(bridge) },
             output_ready: self.shared.output_enabled.load(Ordering::Acquire)
                 && matches!(state_code, 3..=6),
-            battery_level: battery_level_from_native(unsafe {
-                axonkey_macos_audio_battery_level(bridge)
-            }),
             error: native_error(bridge),
             ..AudioServiceStatus::default()
         };
@@ -365,10 +361,6 @@ fn state_name(code: i32) -> &'static str {
         7 => "error",
         _ => "unknown",
     }
-}
-
-fn battery_level_from_native(level: i32) -> Option<u8> {
-    u8::try_from(level).ok().filter(|level| *level <= 100)
 }
 
 fn native_error(bridge: *mut c_void) -> Option<String> {
@@ -609,13 +601,5 @@ mod tests {
         assert!(report.contains("completed_buffers=1 rendered_samples=240"));
         assert!(report.contains("notification_read_errors=1"));
         assert!(report.contains("discarded_pending_buffers=2"));
-    }
-
-    #[test]
-    fn accepts_only_valid_native_battery_percentages() {
-        assert_eq!(battery_level_from_native(-1), None);
-        assert_eq!(battery_level_from_native(0), Some(0));
-        assert_eq!(battery_level_from_native(100), Some(100));
-        assert_eq!(battery_level_from_native(101), None);
     }
 }

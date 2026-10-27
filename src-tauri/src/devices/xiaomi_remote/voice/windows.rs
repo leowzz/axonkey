@@ -402,7 +402,6 @@ impl AudioService {
             || self.shared.a15_active.load(Ordering::Acquire)
         {
             status.bluetooth_connected = true;
-            status.battery_level = None;
             status.received_data = self.shared.a15_received.load(Ordering::Acquire);
             status.output_ready = self.shared.output_device_name().is_some()
                 && status.driver_installed

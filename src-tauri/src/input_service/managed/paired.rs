@@ -140,6 +140,7 @@ pub(super) fn merge(
             product_id: device.product_id,
             connected: false,
             paired: true,
+            device_info: Default::default(),
             pairing_id: Some(pairing_id),
             bluetooth_address: Some(address),
         });

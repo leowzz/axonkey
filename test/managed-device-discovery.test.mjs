@@ -16,6 +16,8 @@ function compile(path, imports = {}) {
   const module = { exports: {} }
   vm.runInNewContext(source, {
     module, exports: module.exports, URL,
+    setTimeout: (...args) => globalThis.setTimeout(...args), clearTimeout: (...args) => globalThis.clearTimeout(...args),
+    setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
     document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
     require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
   })
@@ -45,21 +47,55 @@ const { DeviceHub } = compile('src/devices/integration/DeviceHub.tsx', {
 })
 const device = { id: 'paired-one', kind: 'xboxBluetooth', name: 'Controller', transport: 'Bluetooth', identityQuality: 'serial', vendorId: 1118, productId: 736, connected: false, paired: true }
 
-test('the legacy battery reading belongs only to the sole connected RC003', () => {
-  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true }
+test('RC003 readings are scoped to each physical device', () => {
+  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
   const offline = { ...remote, id: 'remote-two', connected: false }
-  assert.equal(model.rc003BatteryForDevice(remote.id, [remote, offline, device], 78), 78)
-  assert.equal(model.rc003BatteryForDevice(offline.id, [remote, offline], 78), null)
-  assert.equal(model.rc003BatteryForDevice(null, [remote], 78), null)
-  assert.equal(model.rc003BatteryForDevice(remote.id, [remote, { ...offline, connected: true }], 78), null)
-  assert.equal(model.rc003BatteryForDevice(remote.id, [{ ...remote, identityQuality: 'ambiguous' }], 78), null)
+  assert.equal(model.batteryForDevice(remote.id, [remote, offline, device]), 78)
+  assert.equal(model.batteryForDevice(offline.id, [remote, offline]), null)
+  assert.equal(model.batteryForDevice(null, [remote]), null)
+  assert.equal(model.batteryForDevice(remote.id, [remote, { ...offline, connected: true }]), 78)
+  assert.equal(model.batteryForDevice(remote.id, [{ ...remote, identityQuality: 'ambiguous' }]), null)
+})
+
+test('A15 and RC003 batteries belong to physical devices', () => {
+  const first = { ...device, id: 'a15-one', kind: 'cmiotA15', connected: true, deviceInfo: { status: 'ready', batteryLevel: 0 } }
+  const second = { ...first, id: 'a15-two', deviceInfo: { status: 'ready', batteryLevel: 100 } }
+  const remote = { ...first, id: 'rc003', kind: 'rc003', deviceInfo: { status: 'ready', batteryLevel: 78 } }
+  const discovered = [first, second, remote]
+  assert.equal(model.batteryForDevice(first.id, discovered), 0)
+  assert.equal(model.batteryForDevice(second.id, discovered), 100)
+  assert.equal(model.batteryForDevice(remote.id, discovered), 78)
+  assert.equal(model.batteryForDevice(first.id, [{ ...first, connected: false }]), null)
+  assert.equal(model.batteryForDevice(first.id, [{ ...first, identityQuality: 'ambiguous' }]), null)
+  assert.equal(model.batteryForDevice(first.id, [{ ...first, deviceInfo: { status: 'error', batteryLevel: null } }]), null)
+})
+
+test('A15 discovery and saved cards show battery updates, low/full states and disconnects', () => {
+  const remote = { ...device, id: 'a15-one', kind: 'cmiotA15', connected: true, deviceInfo: { status: 'ready', batteryLevel: 56 } }
+  const instance = { ...model.newInstance('cmiotA15', remote.id), id: 'saved-a15' }
+  const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'windows', permissions: {}, legacyProfiles: () => [] }
+  let view
+  act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
+  const indicator = () => view.root.findByType(battery.BatteryIndicator)
+  try {
+    assert.ok(text(indicator()).includes('56%'))
+    act(() => { snapshot.store.instances = [instance]; view.update(React.createElement(DeviceHub, props)) })
+    assert.ok(text(indicator()).includes('56%'))
+    for (const [batteryLevel, label] of [[0, '0%，电量不足'], [100, '100%，已满电']]) {
+      act(() => { snapshot.discovered = [{ ...remote, deviceInfo: { status: 'ready', batteryLevel } }]; view.update(React.createElement(DeviceHub, props)) })
+      assert.equal(indicator().findByType('span').props['aria-label'], label)
+    }
+    act(() => { snapshot.discovered = [{ ...remote, connected: false }]; view.update(React.createElement(DeviceHub, props)) })
+    assert.ok(text(indicator()).includes('电量未知'))
+  } finally { act(() => view.unmount()) }
 })
 
 test('RC003 discovery and saved cards show live battery values and clear them on disconnect', () => {
-  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true }
+  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
   const instance = { ...model.newInstance('rc003', remote.id), id: 'saved-remote' }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
-  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {}, legacyProfiles: () => [], rc003BatteryLevel: 78 }
+  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {}, legacyProfiles: () => [] }
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
   const indicator = () => view.root.findByType(battery.BatteryIndicator)
@@ -67,12 +103,12 @@ test('RC003 discovery and saved cards show live battery values and clear them on
     assert.ok(text(indicator()).includes('78%'), 'discovered devices expose battery before integration')
     act(() => { snapshot.store.instances = [instance]; view.update(React.createElement(DeviceHub, props)) })
     assert.ok(text(indicator()).includes('78%'), 'integration preserves the reading')
-    act(() => { props.rc003BatteryLevel = 0; view.update(React.createElement(DeviceHub, props)) })
+    act(() => { remote.deviceInfo.batteryLevel = 0; view.update(React.createElement(DeviceHub, props)) })
     assert.ok(text(indicator()).includes('0%'))
     assert.equal(indicator().findByType('span').props['aria-label'], '0%，电量不足')
     act(() => { snapshot.discovered = [{ ...remote, connected: false }]; view.update(React.createElement(DeviceHub, props)) })
     assert.ok(text(indicator()).includes('电量未知'))
-    act(() => { snapshot.discovered = [remote]; props.rc003BatteryLevel = 100; view.update(React.createElement(DeviceHub, props)) })
+    act(() => { snapshot.discovered = [remote]; remote.deviceInfo.batteryLevel = 100; view.update(React.createElement(DeviceHub, props)) })
     assert.equal(indicator().findByType('span').props['aria-label'], '100%，已满电')
   } finally { act(() => view.unmount()) }
 })
@@ -154,7 +190,8 @@ test('integration saves devices without an input mode on every platform', async 
   }
 })
 
-test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async () => {
+test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
   const RemoteControl = () => null
   const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
@@ -188,13 +225,14 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     two: { state: 'exclusive', driverState: 'connected', driverInstalled: true, recording: true },
   }
   const actions = []
-  const controller = { snapshot, update: async (id, change) => {
+  const informationRefreshes = []
+  const controller = { snapshot, refreshInformation: async binding => { informationRefreshes.push(binding) }, update: async (id, change) => {
     const index = instances.findIndex(item => item.id === id)
     instances[index] = change(instances[index])
     return snapshot
   } }
   const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
-    legacyProfiles: () => [], driverAction: null, batteryLevel: null,
+    legacyProfiles: () => [], driverAction: null, batteryLevel: index === 0 ? 15 : 78,
     onInstallDriver: id => actions.push(['install', id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
     onOpenAudioCalibration: id => actions.push(['calibrate', id]),
@@ -202,6 +240,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const views = []
   await act(async () => { for (let index = 0; index < 2; index++) views.push(Renderer.create(React.createElement(InstanceWorkspace, props(index)))) })
   try {
+    assert.ok(text(views[0].root.findByProps({ className: 'managed-instance-power' })).includes('15%'))
+    assert.ok(text(views[1].root.findByProps({ className: 'managed-instance-power' })).includes('78%'))
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     assert.ok(text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes('正在录音'))
@@ -252,6 +292,50 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'hold' } }))
     assert.equal(instances[0].cmiotA15RecordingMode, 'hold')
     act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
+
+    for (const kind of ['rc003', 'cmiotA15']) {
+      const info = { status: 'ready', bluetoothName: 'REMOTE_NATIVE', batteryLevel: 54, manufacturer: 'IFLY_RCU', serialNumber: '20190620', hardwareRevision: 'HW1', firmwareRevision: 'FW1', softwareRevision: 'SW1' }
+      act(() => {
+        instances[0] = { ...instances[0], kind, binding: 'info-device' }
+        snapshot.discovered = [{ ...device, id: 'info-device', kind, connected: true, bluetoothAddress: 'AA:BB:CC:DD:EE:FF', deviceInfo: info }]
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
+      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备信息').props.onClick())
+      const panel = () => views[0].root.findByProps({ className: 'settings-form-fields managed-device-information' })
+      const refreshButton = () => views[0].root.findByProps({ 'aria-label': '刷新设备信息' })
+      const refreshCount = informationRefreshes.length
+      assert.ok(refreshCount > 0, 'entering the information page reads the device')
+      assert.equal(informationRefreshes.at(-1), 'info-device')
+      assert.equal(refreshButton().props.disabled, false)
+      act(() => refreshButton().props.onClick())
+      assert.equal(refreshButton().props.disabled, true)
+      assert.equal(informationRefreshes.length, refreshCount + 1)
+      act(() => refreshButton().props.onClick())
+      assert.equal(informationRefreshes.length, refreshCount + 1, 'cooldown blocks duplicate clicks')
+      assert.equal(text(refreshButton()), '10s')
+      act(() => t.mock.timers.tick(1000))
+      assert.equal(text(refreshButton()), '9s')
+      act(() => t.mock.timers.tick(8999))
+      assert.equal(text(refreshButton()), '1s')
+      assert.equal(refreshButton().props.disabled, true)
+      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
+      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备信息').props.onClick())
+      assert.equal(informationRefreshes.length, refreshCount + 2, 'reentering the page refreshes once')
+      assert.equal(refreshButton().props.disabled, true, 'navigation preserves the manual cooldown')
+      act(() => t.mock.timers.tick(1))
+      assert.equal(refreshButton().props.disabled, false)
+      assert.equal(refreshButton().props.title, '刷新设备信息')
+
+      for (const value of ['REMOTE_NATIVE', '54%', 'AA:BB:CC:DD:EE:FF', 'IFLY_RCU', '20190620', 'HW1', 'FW1', 'SW1']) assert.ok(text(panel()).includes(value))
+      act(() => { info.manufacturer = null; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      assert.ok(text(panel()).includes('设备未提供'))
+      act(() => { info.status = 'retrying'; info.error = '读取超时'; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      assert.ok(text(panel()).includes('正在重试'))
+      act(() => { instances[0] = { ...instances[0], binding: null }; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 8)
+      assert.ok(!text(panel()).includes('REMOTE_NATIVE'))
+      assert.equal(refreshButton().props.disabled, true)
+    }
     assert.deepEqual(actions.at(-1), ['calibrate', 'one'])
   } finally { act(() => views.forEach(view => view.unmount())) }
 })

@@ -7,7 +7,7 @@ import { InstanceWorkspace } from './InstanceWorkspace'
 import { migrateLegacyProfiles } from './instanceProfiles'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
-import { instanceStatusLabel, newInstance, packageFor, rc003BatteryForDevice, supportPackages } from './model'
+import { instanceStatusLabel, newInstance, packageFor, batteryForDevice, supportPackages } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
@@ -28,7 +28,6 @@ type Props = {
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
-  rc003BatteryLevel: number | null
   legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
   legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
 }
@@ -76,7 +75,7 @@ export function DeviceHub(props: Props) {
           key={instance.id}
           {...props}
           instance={instance}
-          batteryLevel={rc003BatteryForDevice(instance.binding, snapshot.discovered, props.rc003BatteryLevel)}
+          batteryLevel={batteryForDevice(instance.binding, snapshot.discovered)}
           onBack={() => setSelected(null)}
           onBind={() => setIntegration({ kind: instance.kind, instance })}
         />
@@ -108,7 +107,7 @@ export function DeviceHub(props: Props) {
                     title={item.name}
                     subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
                     status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
-                    batteryLevel={rc003BatteryForDevice(item.binding, snapshot.discovered, props.rc003BatteryLevel)}
+                    batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
                     profile={item.profiles.find(p => p.id === item.activeProfileId)?.name}
                     onClick={() => setSelected(item.id)}
                   />
@@ -158,7 +157,7 @@ export function DeviceHub(props: Props) {
                             ? '点击集成'
                             : '未连接'
                       }
-                      batteryLevel={rc003BatteryForDevice(device.id, snapshot.discovered, props.rc003BatteryLevel)}
+                      batteryLevel={batteryForDevice(device.id, snapshot.discovered)}
                       onClick={() => setIntegration({ kind: device.kind, device })}
                     />
                   ))}
@@ -229,7 +228,7 @@ function DeviceCard({
             <i className="my-devices-status-dot" />
             {status}
           </span>
-          {kind === 'rc003' && (
+          {(kind === 'rc003' || kind === 'cmiotA15') && (
             <span className="my-devices-power">
               <BatteryIndicator level={batteryLevel} />
             </span>

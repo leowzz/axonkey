@@ -283,7 +283,6 @@ function AppController() {
   const audioProbeRunningRef = useRef(false)
   const systemProbeRunningRef = useRef(false)
   const deviceProbeRunningRef = useRef(false)
-  const batteryProbeRunningRef = useRef(false)
   const pressedClearTimerRef = useRef<number | undefined>(undefined)
   const behaviorAttentionTimerRef = useRef<number | undefined>(undefined)
   const [behaviorEditorAttention, setBehaviorEditorAttention] = useState(false)
@@ -689,31 +688,9 @@ function AppController() {
   )
 
   useEffect(() => {
-    // macOS already supplies the cached BLE level with the frequent system
-    // probe. Keep the slower standalone query for Windows' battery lookup.
-    if (!nativeRuntime || platform !== 'windows') return
-    let active = true
-    const refreshBattery = async () => {
-      if (batteryProbeRunningRef.current) return
-      batteryProbeRunningRef.current = true
-      try {
-        const level = await invoke<number | null>('probe_rc003_battery_level')
-        if (active) setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
-      } catch (error) {
-        logError('Failed to read battery level', error)
-        if (active) setBatteryLevel(null)
-      } finally {
-        batteryProbeRunningRef.current = false
-      }
-    }
-    const initialTimer = window.setTimeout(refreshBattery, 10_000)
-    const interval = window.setInterval(refreshBattery, 60_000)
-    return () => {
-      active = false
-      window.clearTimeout(initialTimer)
-      window.clearInterval(interval)
-    }
-  }, [nativeRuntime, platform])
+    const remotes = deviceInstances.snapshot.discovered.filter(d => d.kind === 'rc003' && d.connected)
+    setBatteryLevel(remotes.length === 1 ? (remotes[0].deviceInfo?.batteryLevel ?? null) : null)
+  }, [deviceInstances.snapshot.discovered])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window)) return
@@ -1469,10 +1446,7 @@ function AppController() {
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
-      if (probe.platform === 'macos') {
-        const level = probe.rc003_battery_level
-        setBatteryLevel(typeof level === 'number' && level >= 0 && level <= 100 ? Math.round(level) : null)
-      }
+
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
       const mappingRecovering =
         probe.platform === 'macos' &&
@@ -2061,7 +2035,6 @@ function AppController() {
                   native={nativeRuntime}
                   platform={platform}
                   permissions={macPermissions}
-                  rc003BatteryLevel={nativeRuntime ? displayedBatteryLevel : null}
                   mouseProfileName={profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'}
                   onPermissions={() => {
                     setSettingsSection('permissions')

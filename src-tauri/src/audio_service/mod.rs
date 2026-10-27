@@ -29,7 +29,6 @@ pub struct AudioServiceStatus {
     pub received_data: bool,
     pub output_ready: bool,
     pub event_version: u64,
-    pub battery_level: Option<u8>,
     pub error: Option<String>,
 }
 

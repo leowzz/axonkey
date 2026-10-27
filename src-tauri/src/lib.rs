@@ -1048,7 +1048,6 @@ fn open_external_page(page: String) -> Result<(), String> {
 struct SystemProbe {
     platform: &'static str,
     rc003_connected: bool,
-    rc003_battery_level: Option<u8>,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
     device_hardware_id: Option<String>,
@@ -1138,108 +1137,6 @@ fn resolve_installed_quarbor_target(
     )
     .filter(|(_, installed)| *installed)
     .map(|(target, _)| target))
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn parse_battery_level(value: &str) -> Option<u8> {
-    value
-        .trim()
-        .parse::<u8>()
-        .ok()
-        .filter(|level| *level <= 100)
-}
-
-#[cfg(target_os = "windows")]
-fn rc003_battery_level() -> Option<u8> {
-    const SCRIPT: &str = r#"
-$ErrorActionPreference = 'Stop'
-try {
-    $target = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-        Where-Object { $_.InstanceId -match '^HID\\.*(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' } |
-        Select-Object -First 1
-
-    if (-not $target) {
-        $target = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-            Where-Object { $_.InstanceId -match 'BTHLEDEVICE\\\{0000180F-0000-1000-8000-00805F9B34FB\}_DEV_.*(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' } |
-            Select-Object -First 1
-    }
-    if (-not $target) { return }
-
-    $addressMatch = [regex]::Match($target.InstanceId, '_([0-9A-F]{12})\\', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if (-not $addressMatch.Success) { return }
-
-    Add-Type -AssemblyName System.Runtime.WindowsRuntime
-    [void][Windows.Devices.Bluetooth.BluetoothLEDevice, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.BluetoothCacheMode, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceServicesResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattCharacteristicsResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattReadResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Storage.Streams.IBuffer, Windows.Storage.Streams, ContentType=WindowsRuntime]
-
-    function Await-Result($operation, [Type]$resultType) {
-        $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-            Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } |
-            Select-Object -First 1
-        $task = $asTask.MakeGenericMethod($resultType).Invoke($null, @($operation))
-        $task.Wait()
-        $task.Result
-    }
-
-    $address = [Convert]::ToUInt64($addressMatch.Groups[1].Value, 16)
-    $device = Await-Result ([Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($address)) ([Windows.Devices.Bluetooth.BluetoothLEDevice])
-    if (-not $device) { return }
-
-    $services = Await-Result ($device.GetGattServicesForUuidAsync([Guid]'0000180f-0000-1000-8000-00805f9b34fb', [Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceServicesResult])
-    if ($services.Status.ToString() -ne 'Success') { return }
-    $service = $services.Services | Select-Object -First 1
-    if (-not $service) { return }
-
-    $characteristics = Await-Result ($service.GetCharacteristicsForUuidAsync([Guid]'00002a19-0000-1000-8000-00805f9b34fb', [Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattCharacteristicsResult])
-    if ($characteristics.Status.ToString() -ne 'Success') { return }
-    $characteristic = $characteristics.Characteristics | Select-Object -First 1
-    if (-not $characteristic) { return }
-
-    $read = Await-Result ($characteristic.ReadValueAsync([Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattReadResult])
-    if ($read.Status.ToString() -ne 'Success' -or $read.Value.Length -lt 1) { return }
-
-    $toArray = [System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions].GetMethods() |
-        Where-Object { $_.Name -eq 'ToArray' -and $_.GetParameters().Count -eq 1 } |
-        Select-Object -First 1
-    $bytes = $toArray.Invoke($null, @($read.Value))
-    if ($bytes.Count -gt 0) { [int]$bytes[0] }
-    $device.Dispose()
-} catch {
-    return
-}
-"#;
-
-    powershell_output(SCRIPT).and_then(|value| parse_battery_level(&value))
-}
-
-#[tauri::command]
-async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        tauri::async_runtime::spawn_blocking(rc003_battery_level)
-            .await
-            .unwrap_or_default()
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        use tauri::Manager;
-
-        app.state::<AudioServiceManager>()
-            .status(None)
-            .battery_level
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        let _ = app;
-        None
-    }
 }
 
 #[tauri::command]
@@ -1582,6 +1479,14 @@ async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn refresh_device_information(
+    binding: String,
+    manager: tauri::State<'_, DeviceManager>,
+) -> Result<DeviceSnapshot, String> {
+    manager.refresh_information(&binding)
+}
+
+#[tauri::command]
 fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
@@ -1664,7 +1569,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
         Ok(SystemProbe {
             platform: "windows",
             rc003_connected: input_status.device_connected,
-            rc003_battery_level: None,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
@@ -1686,7 +1590,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
                 input_status.device_connected,
                 audio_status.bluetooth_connected,
             ),
-            rc003_battery_level: audio_status.battery_level,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
@@ -1702,7 +1605,6 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
         Ok(SystemProbe {
             platform: "unsupported",
             rc003_connected: false,
-            rc003_battery_level: None,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
             device_hardware_id: input_status.hardware_id,
@@ -1898,9 +1800,9 @@ pub fn run() {
             get_signal_monitor_state,
             export_signal_monitor,
             probe_rc003_connected,
-            probe_rc003_battery_level,
             update_input_settings,
             device_snapshot,
+            refresh_device_information,
             put_device_instance,
             remove_device_instance,
             write_mapping_file,
@@ -1926,9 +1828,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        app_bundle_for_executable, args_request_autostart, parse_battery_level, rc003_connected,
-    };
+    use super::{app_bundle_for_executable, args_request_autostart, rc003_connected};
 
     #[test]
     fn recognizes_only_the_autostart_launch_argument() {
@@ -1947,15 +1847,6 @@ mod tests {
         assert!(rc003_connected(false, true));
         assert!(rc003_connected(true, false));
         assert!(!rc003_connected(false, false));
-    }
-
-    #[test]
-    fn parses_valid_battery_percentages_only() {
-        assert_eq!(parse_battery_level("91\r\n"), Some(91));
-        assert_eq!(parse_battery_level("0"), Some(0));
-        assert_eq!(parse_battery_level("100"), Some(100));
-        assert_eq!(parse_battery_level("101"), None);
-        assert_eq!(parse_battery_level("unknown"), None);
     }
 
     #[test]

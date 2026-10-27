@@ -52,7 +52,6 @@ export type AppPage = 'home' | 'mapping' | 'settings' | 'device-settings' | 'abo
 export type SystemProbe = {
   platform: Platform
   rc003_connected: boolean
-  rc003_battery_level?: number | null
   input_backend_ready: boolean
   input_backend_error?: string | null
   device_hardware_id?: string | null

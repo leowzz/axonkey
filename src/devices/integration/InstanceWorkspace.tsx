@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Settings2, SlidersHorizontal, Speaker, X } from 'lucide-react'
+import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal, Speaker, X } from 'lucide-react'
 import type { MacPermissions, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -77,7 +77,7 @@ export function InstanceWorkspace({
   const [driverSettingsHint, setDriverSettingsHint] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
   const driverNoticeRef = useRef<HTMLDivElement>(null)
-  const [settingsSection, setSettingsSection] = useState<'overview' | 'output'>('overview')
+  const [settingsSection, setSettingsSection] = useState<'overview' | 'output' | 'information'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
@@ -101,6 +101,20 @@ export function InstanceWorkspace({
   const boundDevice = instance.binding
     ? controller.snapshot.discovered.find(device => device.id === instance.binding)
     : undefined
+  const [informationRefreshRemaining, setInformationRefreshRemaining] = useState(0)
+  const informationRefreshLocked = informationRefreshRemaining > 0
+  const informationAvailable = !!boundDevice?.connected && boundDevice.identityQuality !== 'ambiguous'
+  const refreshInformation = controller.refreshInformation
+  useEffect(() => {
+    if (settings && settingsSection === 'information' && native && informationAvailable && instance.binding) {
+      void refreshInformation(instance.binding).catch(() => {})
+    }
+  }, [settings, settingsSection, native, informationAvailable, instance.binding, refreshInformation])
+  useEffect(() => {
+    if (!informationRefreshLocked) return
+    const timer = setInterval(() => setInformationRefreshRemaining(seconds => Math.max(0, seconds - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [informationRefreshLocked])
   const availableDevices = controller.snapshot.discovered.filter(
     device =>
       device.kind === instance.kind &&
@@ -313,7 +327,7 @@ export function InstanceWorkspace({
                 <span />
               </button>
             </div>
-            {instance.kind === 'rc003' && (
+            {(instance.kind === 'rc003' || instance.kind === 'cmiotA15') && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -400,21 +414,63 @@ export function InstanceWorkspace({
                     <Speaker size={16} />
                     <span>输出选择</span>
                   </button>
+                  {instance.kind !== 'xboxBluetooth' && (
+                    <button
+                      type="button"
+                      aria-current={settingsSection === 'information' ? 'page' : undefined}
+                      onClick={() => setSettingsSection('information')}
+                    >
+                      <Info size={16} />
+                      <span>设备信息</span>
+                    </button>
+                  )}
                 </nav>
                 <section className="managed-instance-settings-panel" aria-labelledby="managed-instance-settings-title">
                   <div className="managed-instance-settings-heading">
                     <div>
                       <h2 id="managed-instance-settings-title">
-                        {settingsSection === 'overview' ? '设备设置' : '输出选择'}
+                        {settingsSection === 'information'
+                          ? '设备信息'
+                          : settingsSection === 'overview'
+                            ? '设备设置'
+                            : '输出选择'}
                       </h2>
-                      <p>
-                        {settingsSection === 'output'
-                          ? '选择语音输出设备，当前仅展示可用设备。'
-                          : '管理设备名称、物理绑定和已有配置。'}
-                      </p>
+                      {settingsSection !== 'information' && (
+                        <p>
+                          {settingsSection === 'output'
+                            ? '选择语音输出设备，当前仅展示可用设备。'
+                            : '管理设备名称、物理绑定和已有配置。'}
+                        </p>
+                      )}
                     </div>
+                    {settingsSection === 'information' && (
+                      <button
+                        type="button"
+                        className="settings-refresh"
+                        aria-label="刷新设备信息"
+                        title={
+                          informationRefreshLocked ? `${informationRefreshRemaining} 秒后可再次刷新` : '刷新设备信息'
+                        }
+                        disabled={!native || !informationAvailable || !instance.binding || informationRefreshLocked}
+                        onClick={() => {
+                          if (!instance.binding || informationRefreshLocked) return
+                          setInformationRefreshRemaining(10)
+                          void refreshInformation(instance.binding).catch(() => {})
+                        }}
+                      >
+                        {informationRefreshLocked ? (
+                          <span className="device-information-countdown" aria-hidden="true">
+                            {informationRefreshRemaining}s
+                          </span>
+                        ) : (
+                          <RefreshCw size={14} aria-hidden="true" />
+                        )}
+                      </button>
+                    )}
                   </div>
-                  {settingsSection === 'output' ? (
+                  {settingsSection === 'information' ? (
+                    <DeviceInformationPanel binding={instance.binding} device={boundDevice} native={native} />
+                  ) : settingsSection === 'output' ? (
                     <div className="managed-instance-output-panel">
                       <VoiceOutput
                         onOpenAudioDriver={onOpenAudioDriver}
@@ -678,6 +734,69 @@ function BoundDeviceInfo({
       <button type="button" onClick={onUnbind} disabled={disabled}>
         {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
       </button>
+    </div>
+  )
+}
+
+function DeviceInformationPanel({
+  binding,
+  device,
+  native,
+}: {
+  binding: string | null
+  device?: DiscoveredDevice
+  native: boolean
+}) {
+  const info = device?.deviceInfo
+  const unavailable = !binding
+    ? '未绑定设备'
+    : !native
+      ? '预览模式'
+      : !device?.connected
+        ? '设备未连接'
+        : device.identityQuality === 'ambiguous'
+          ? '设备身份冲突'
+          : info?.status === 'ready'
+            ? '设备未提供'
+            : info?.status === 'error'
+              ? '读取失败'
+              : info?.status === 'retrying'
+                ? '正在重试…'
+                : '读取中…'
+  const value = (text?: string | number | null) => (!binding ? '未绑定设备' : (text ?? unavailable))
+  const fields = [
+    ['设备蓝牙名称', value(info?.bluetoothName)],
+    ['设备蓝牙地址', value(device?.bluetoothAddress)],
+    [
+      '电量',
+      !binding ? (
+        '未绑定设备'
+      ) : device?.connected && info?.batteryLevel != null ? (
+        <BatteryIndicator level={info.batteryLevel} />
+      ) : (
+        unavailable
+      ),
+    ],
+    ['制造商', value(info?.manufacturer)],
+    ['序列号', value(info?.serialNumber)],
+    ['硬件版本', value(info?.hardwareRevision)],
+    ['固件版本', value(info?.firmwareRevision)],
+    ['软件版本', value(info?.softwareRevision)],
+  ] as const
+  return (
+    <div className="settings-form-fields managed-device-information">
+      {fields.map(([label, value]) => (
+        <div className="settings-form-row" key={label}>
+          <span className="settings-form-label">{label}：</span>
+          <span className="settings-form-control">{value}</span>
+        </div>
+      ))}
+      {binding && info?.error && (
+        <p role="status" className="managed-error">
+          {info.status === 'retrying' ? '读取失败，正在重试。' : '读取失败，稍后自动刷新。'}
+          {info.error}
+        </p>
+      )}
     </div>
   )
 }

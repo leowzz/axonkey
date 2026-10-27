@@ -1,6 +1,7 @@
 //! Physical-device ownership and input lifetime live here, independently of the editor window.
 #[cfg(target_os = "macos")]
 mod a15;
+mod device_info;
 mod gesture;
 mod paired;
 #[cfg(target_os = "macos")]
@@ -94,8 +95,8 @@ pub struct Discovered {
     pub product_id: u16,
     pub connected: bool,
     pub paired: bool,
+    pub device_info: device_info::DeviceInformation,
     pub pairing_id: Option<String>,
-    #[serde(skip_serializing)]
     pub bluetooth_address: Option<String>,
 }
 #[derive(Clone, Default, Serialize)]
@@ -215,6 +216,7 @@ struct Shared {
     #[cfg(target_os = "macos")]
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
+    information_requests: Mutex<HashSet<String>>,
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
@@ -480,6 +482,7 @@ impl DeviceManager {
         let shared = Arc::new(Shared {
             #[cfg(target_os = "macos")]
             app: Mutex::new(None),
+            information_requests: Mutex::new(HashSet::new()),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -510,6 +513,7 @@ impl DeviceManager {
         let shared = Arc::new(Shared {
             #[cfg(target_os = "macos")]
             app: Mutex::new(None),
+            information_requests: Mutex::new(HashSet::new()),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -527,6 +531,8 @@ impl DeviceManager {
         Self::spawn(shared)
     }
     fn spawn(shared: Arc<Shared>) -> Self {
+        #[cfg(all(any(windows, target_os = "macos"), not(test)))]
+        device_info::start(shared.clone());
         let worker_shared = shared.clone();
         let worker = thread::Builder::new()
             .name("Axonkey devices".into())
@@ -546,6 +552,10 @@ impl DeviceManager {
     pub fn snapshot(&self) -> Snapshot {
         self.shared.snapshot.lock().unwrap().clone()
     }
+    pub fn refresh_information(&self, binding: &str) -> Result<Snapshot, String> {
+        device_info::request(&self.shared, binding)
+    }
+
     #[cfg(windows)]
     pub fn pause_for_driver_migration(&self) {
         #[cfg(not(test))]
@@ -1025,6 +1035,7 @@ fn merge_driver_devices(
             product_id,
             connected: true,
             paired: false,
+            device_info: Default::default(),
             pairing_id: Some(pairing_id),
             bluetooth_address: Some(address),
         });
@@ -1170,6 +1181,7 @@ fn run(shared: Arc<Shared>) {
                         product_id: info.product_id(),
                         connected: true,
                         paired: false,
+                        device_info: Default::default(),
                         pairing_id,
                         bluetooth_address: address,
                     });
@@ -1214,6 +1226,7 @@ fn run(shared: Arc<Shared>) {
                 snapshot.scan_error = driver_error;
             }
             if hid_ok {
+                device_info::retain_readings(&mut discovered, &snapshot.discovered);
                 remember_pairing_ids(&mut snapshot, &discovered, &shared.path);
                 snapshot.discovered = discovered;
             }
@@ -1904,6 +1917,7 @@ mod tests {
             shared: Arc::new(Shared {
                 #[cfg(target_os = "macos")]
                 app: Mutex::new(None),
+                information_requests: Mutex::new(HashSet::new()),
                 snapshot: Mutex::new(Snapshot {
                     store: Store {
                         instances,
@@ -2069,6 +2083,43 @@ mod tests {
     }
 
     #[test]
+    fn information_refresh_queues_only_the_selected_connected_remote() {
+        let manager = offline_manager(vec![]);
+        let device = |id: &str| Discovered {
+            id: id.into(),
+            kind: "cmiotA15".into(),
+            name: "remote".into(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x0416,
+            product_id: 0x0300,
+            connected: true,
+            paired: true,
+            pairing_id: None,
+            bluetooth_address: Some(id.into()),
+            device_info: device_info::DeviceInformation {
+                status: "ready".into(),
+                battery_level: Some(54),
+                ..Default::default()
+            },
+        };
+        manager.shared.snapshot.lock().unwrap().discovered = vec![device("one"), device("two")];
+        let snapshot = manager.refresh_information("one").unwrap();
+        assert_eq!(snapshot.discovered[0].device_info.status, "pending");
+        assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(54));
+        assert_eq!(snapshot.discovered[1].device_info.status, "ready");
+        manager.refresh_information("one").unwrap();
+        assert_eq!(
+            *manager.shared.information_requests.lock().unwrap(),
+            HashSet::from(["one".into()])
+        );
+        assert!(manager.refresh_information("missing").is_err());
+        manager.shared.snapshot.lock().unwrap().discovered[1].connected = false;
+        assert!(manager.refresh_information("two").is_err());
+        assert_eq!(manager.shared.information_requests.lock().unwrap().len(), 1);
+    }
+
+    #[test]
     fn bindings_validate_identity_and_preserve_server_owned_quality() {
         let manager = offline_manager(vec![]);
         let mut discovered = Discovered {
@@ -2081,6 +2132,7 @@ mod tests {
             product_id: 0x02e0,
             connected: true,
             paired: false,
+            device_info: Default::default(),
             pairing_id: None,
             bluetooth_address: None,
         };
@@ -2181,6 +2233,7 @@ mod tests {
             product_id: 0x02e0,
             connected: false,
             paired: true,
+            device_info: Default::default(),
             pairing_id: Some("pairing-controller".into()),
             bluetooth_address: None,
         }];
@@ -2224,6 +2277,7 @@ mod tests {
             product_id: 0x32b8,
             connected: true,
             paired: true,
+            device_info: Default::default(),
             pairing_id: Some(canonical.clone()),
             bluetooth_address: Some("AA:BB:CC:DD:EE:01".into()),
         }];

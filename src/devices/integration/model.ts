@@ -23,6 +23,18 @@ export type DeviceInstance = {
   activeProfileId: string
   legacyProfilesMigrated?: boolean
 }
+export type DeviceInformation = {
+  status: 'pending' | 'ready' | 'retrying' | 'error' | 'disconnected'
+  bluetoothName?: string | null
+  batteryLevel?: number | null
+  manufacturer?: string | null
+  serialNumber?: string | null
+  hardwareRevision?: string | null
+  firmwareRevision?: string | null
+  softwareRevision?: string | null
+  updatedAt?: number | null
+  error?: string | null
+}
 export type DiscoveredDevice = {
   id: string
   kind: DeviceKind
@@ -33,6 +45,8 @@ export type DiscoveredDevice = {
   productId: number
   connected: boolean
   paired: boolean
+  bluetoothAddress?: string | null
+  deviceInfo?: DeviceInformation
   pairingId?: string | null
 }
 export type DeviceSnapshot = {
@@ -130,16 +144,10 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],
   }
 }
-export function rc003BatteryForDevice(
-  binding: string | null,
-  discovered: DiscoveredDevice[],
-  level: number | null,
-): number | null {
-  // The existing battery probe has no physical-device ID; only assign it when unambiguous.
-  const connected = discovered.filter(device => device.kind === 'rc003' && device.connected)
-  return connected.length === 1 && connected[0].identityQuality !== 'ambiguous' && connected[0].id === binding
-    ? level
-    : null
+export function batteryForDevice(binding: string | null, discovered: DiscoveredDevice[]): number | null {
+  const device = discovered.find(device => device.id === binding)
+  if (!device?.connected || device.identityQuality === 'ambiguous') return null
+  return device.deviceInfo?.batteryLevel ?? null
 }
 export function stateLabel(state?: string): string {
   return (

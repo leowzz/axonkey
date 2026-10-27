@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-test('macOS audio bridge reads, retries and throttles BLE battery values on its existing connection', {
+test('macOS device information parses GATT fields and refuses ambiguous identities', {
   skip: process.platform !== 'darwin',
 }, () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-battery-'))
@@ -21,7 +21,7 @@ test('macOS audio bridge reads, retries and throttles BLE battery values on its 
       '-framework', 'AudioToolbox',
       '-framework', 'CoreAudio',
       '-framework', 'CoreBluetooth',
-      new URL('./macos-audio-battery.m', import.meta.url).pathname,
+      new URL('./macos-device-information.m', import.meta.url).pathname,
       '-o', executable,
     ], { encoding: 'utf8' })
     assert.equal(compile.status, 0, compile.stderr)
