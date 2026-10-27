@@ -377,16 +377,10 @@ impl AudioService {
         let device = device
             .map(|device| device.trim().to_string())
             .filter(|device| !device.is_empty());
-        log::info!(
-            target: "axonkey::audio",
-            "Updating Windows audio output device: {}",
-            device.as_deref().unwrap_or("none")
-        );
         self.shared.set_output_device(device);
     }
 
     pub fn set_gain_db(&self, gain: i16) -> Result<(), String> {
-        log::info!(target: "axonkey::audio", "Updating audio gain to {} dB", clamp_gain_db(gain));
         self.shared
             .gain_db
             .store(i32::from(clamp_gain_db(gain)), Ordering::Release);
