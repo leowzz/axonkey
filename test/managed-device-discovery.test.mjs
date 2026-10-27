@@ -59,6 +59,49 @@ test('installation feedback distinguishes submitted installs from reboot before 
   assert.doesNotMatch(pending, /已安装|已提交/)
 })
 
+test('discovery help opens without toggling the device list and routes Bluetooth settings', () => {
+  for (const [platform, native, system] of [['windows', true, 'Windows 设置'], ['macos', true, 'macOS 系统设置'], ['windows', false, 'Windows 设置']]) {
+    let opened = 0, closed = 0, settingsOpened = 0
+    const modal = { showModal() { opened++ }, close() { closed++ } }
+    const props = {
+      controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
+      native, platform, permissions: {}, legacyProfiles: () => [],
+      onOpenBluetoothSettings: () => settingsOpened++,
+    }
+    let view
+    act(() => { view = Renderer.create(React.createElement(DeviceHub, props), { createNodeMock: node => node.type === 'dialog' ? modal : null }) })
+    try {
+      const summary = view.root.findByProps({ className: 'managed-discovered-summary' })
+      const help = summary.findByProps({ className: 'managed-discovery-help' })
+      assert.equal(text(help), '找不到设备？')
+      let prevented = false, stopped = false
+      const clickHelp = () => act(() => help.props.onClick({ preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+      clickHelp()
+      assert.equal(prevented && stopped, true)
+      assert.equal(view.root.findByType('details').props.open, true)
+      assert.equal(opened, 1)
+      const dialog = view.root.findByType('dialog')
+      assert.ok(text(dialog).includes(`蓝牙设备需要先在 ${system}中进行蓝牙配对。`))
+      const buttons = dialog.findAllByType('button')
+      assert.deepEqual(buttons.map(text), ['打开系统蓝牙设置', '关闭'])
+      assert.equal(buttons[0].props.disabled, !native)
+      assert.equal(settingsOpened, 0, 'opening help does not open system settings')
+      if (native) {
+        act(() => buttons[0].props.onClick())
+        assert.equal(settingsOpened, 1)
+        assert.equal(view.root.findAllByType('dialog').length, 1)
+      }
+      act(() => buttons[1].props.onClick())
+      assert.equal(view.root.findAllByType('dialog').length, 0)
+      assert.equal(closed, 1)
+      clickHelp()
+      act(() => view.root.findByType('dialog').props.onCancel())
+      assert.equal(view.root.findAllByType('dialog').length, 0)
+      assert.equal(closed, 2)
+    } finally { act(() => view.unmount()) }
+  }
+})
+
 test('RC003 readings are scoped to each physical device', () => {
   const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
   const offline = { ...remote, id: 'remote-two', connected: false }

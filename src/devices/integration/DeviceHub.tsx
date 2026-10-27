@@ -23,6 +23,7 @@ type Props = {
   onLegacy: (id: DeviceId) => void
   onOpenAudioCalibration: (instanceId: string) => void
   onOpenAudioDriver: () => void
+  onOpenBluetoothSettings: () => void
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
@@ -46,6 +47,7 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const [selected, setSelected] = useState<string | null>(null)
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
   const [discoveredExpanded, setDiscoveredExpanded] = useState(getDiscoveredDevicesExpanded)
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
@@ -130,6 +132,18 @@ export function DeviceHub(props: Props) {
               <summary className="managed-discovered-summary">
                 <span>发现设备</span>
                 <span className="managed-discovered-count">{unboundDevices.length}</span>
+                <button
+                  type="button"
+                  className="managed-discovery-help"
+                  aria-haspopup="dialog"
+                  onClick={event => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setDiscoveryHelpOpen(true)
+                  }}
+                >
+                  找不到设备？
+                </button>
               </summary>
               <div className="managed-discovered-content">
                 <div className="managed-discovered-toolbar">
@@ -167,6 +181,16 @@ export function DeviceHub(props: Props) {
           </div>
         </>
       )}
+      {discoveryHelpOpen &&
+        createPortal(
+          <DiscoveryHelpDialog
+            native={native}
+            platform={props.platform}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onClose={() => setDiscoveryHelpOpen(false)}
+          />,
+          document.body,
+        )}
       {integration &&
         createPortal(
           <IntegrationDialog
@@ -188,6 +212,59 @@ export function DeviceHub(props: Props) {
     </section>
   )
 }
+function DiscoveryHelpDialog({
+  native,
+  platform,
+  onOpenBluetoothSettings,
+  onClose,
+}: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings'> & { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const previousFocus = document.activeElement
+    dialog?.showModal()
+    return () => {
+      dialog?.close()
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
+    }
+  }, [])
+  const system = platform === 'windows' ? 'Windows 设置' : platform === 'macos' ? 'macOS 系统设置' : '系统设置'
+  return (
+    <dialog
+      ref={dialogRef}
+      className="managed-discovery-help-dialog"
+      aria-labelledby="managed-discovery-help-title"
+      aria-describedby="managed-discovery-help-description"
+      onCancel={onClose}
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div>
+        <header className="behavior-dialog-head">
+          <h2 id="managed-discovery-help-title">找不到设备？</h2>
+        </header>
+        <div className="behavior-dialog-body">
+          <p id="managed-discovery-help-description">蓝牙设备需要先在 {system}中进行蓝牙配对。</p>
+        </div>
+        <footer className="managed-dialog-footer">
+          <button
+            type="button"
+            className="managed-primary"
+            disabled={!native || (platform !== 'windows' && platform !== 'macos')}
+            onClick={onOpenBluetoothSettings}
+          >
+            打开系统蓝牙设置
+          </button>
+          <button type="button" onClick={onClose} autoFocus>
+            关闭
+          </button>
+        </footer>
+      </div>
+    </dialog>
+  )
+}
+
 function DeviceCard({
   kind,
   discovered = false,

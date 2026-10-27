@@ -1887,6 +1887,7 @@ function AppController() {
               deviceContent={
                 <DeviceHub
                   onOpenAudioDriver={openAudioDriver}
+                  onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
                   controller={deviceInstances}
                   onBrandClick={handleBrandClick}
                   native={nativeRuntime}
