@@ -16,7 +16,6 @@ src/devices/
     view.ts                 按键视图、区域与图片地址
     buttons.ts              按键定义
     geometry.ts             区域定义
-    XiaomiRemoteControl.tsx
     XiaomiRemoteSettingsPage.tsx
     settings/VoiceOutput.tsx 输出列表获取及展示
   cmiot-a15-remote/
@@ -24,7 +23,6 @@ src/devices/
     view.ts
     buttons.ts
     geometry.ts
-    CmiotA15RemoteControl.tsx
     CmiotA15SettingsPage.tsx
   system-mouse/
     definition.ts

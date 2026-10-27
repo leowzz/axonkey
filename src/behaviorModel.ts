@@ -15,7 +15,19 @@ export type ButtonId = RemoteButtonId
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
 export type TriggerType = (typeof triggerTypes)[number]
 
-export const behaviorTypes = ['key', 'shortcut', 'wheel', 'mouse', 'cursorMove', 'paste', 'delay', 'openApp', 'openWebsite', 'switchProfile', 'disabled'] as const
+export const behaviorTypes = [
+  'key',
+  'shortcut',
+  'wheel',
+  'mouse',
+  'cursorMove',
+  'paste',
+  'delay',
+  'openApp',
+  'openWebsite',
+  'switchProfile',
+  'disabled',
+] as const
 export type BehaviorType = (typeof behaviorTypes)[number]
 export const cursorDirections = ['up', 'down', 'left', 'right'] as const
 export type CursorDirection = (typeof cursorDirections)[number]
@@ -59,7 +71,18 @@ export type ProfileDirection = 'previous' | 'next'
 export type SwitchProfileBehavior = BehaviorBase & { type: 'switchProfile'; direction: ProfileDirection; wrap: boolean }
 export type OpenWebsiteBehavior = BehaviorBase & { type: 'openWebsite'; url: string }
 
-export type Behavior = KeyBehavior | ShortcutBehavior | WheelBehavior | MouseBehavior | CursorMoveBehavior | PasteBehavior | DelayBehavior | OpenAppBehavior | OpenWebsiteBehavior | DisabledBehavior | SwitchProfileBehavior
+export type Behavior =
+  | KeyBehavior
+  | ShortcutBehavior
+  | WheelBehavior
+  | MouseBehavior
+  | CursorMoveBehavior
+  | PasteBehavior
+  | DelayBehavior
+  | OpenAppBehavior
+  | OpenWebsiteBehavior
+  | DisabledBehavior
+  | SwitchProfileBehavior
 
 export type TriggerBehaviors = Record<TriggerType, Behavior[]>
 export type BehaviorMap = Record<InputId, TriggerBehaviors>
@@ -112,7 +135,9 @@ export function normalizeWebsiteUrl(value: unknown): string | null {
   try {
     const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(input) && !/^[^/?#:\s]+:\d+(?:[/?#]|$)/.test(input)
     const url = new URL(hasScheme ? input : `https://${input}`)
-    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname && !url.username && !url.password ? url.href : null
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname && !url.username && !url.password
+      ? url.href
+      : null
   } catch {
     return null
   }
@@ -169,7 +194,13 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
     case 'mouse':
       return { id, enabled, type: 'mouse', button: options.button }
     case 'cursorMove':
-      return { id, enabled, type: 'cursorMove', direction: options.direction, distance: finiteCursorDistance(options.distance) }
+      return {
+        id,
+        enabled,
+        type: 'cursorMove',
+        direction: options.direction,
+        distance: finiteCursorDistance(options.distance),
+      }
     case 'key':
       return { id, enabled, type: 'key', key: cleanKey(options.key) || 'Enter' }
     case 'shortcut': {
@@ -185,7 +216,13 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
     case 'openWebsite':
       return { id, enabled, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
     case 'switchProfile':
-      return { id, enabled, type: 'switchProfile', direction: options.direction ?? 'next', wrap: options.wrap !== false }
+      return {
+        id,
+        enabled,
+        type: 'switchProfile',
+        direction: options.direction ?? 'next',
+        wrap: options.wrap !== false,
+      }
     case 'disabled':
       return { id, enabled, type: 'disabled' }
   }
@@ -201,7 +238,7 @@ function emptyTriggers(): TriggerBehaviors {
 
 /** Returns a fresh map so callers can mutate their state without sharing defaults. */
 export function createEmptyBehaviorMap(): BehaviorMap {
-  return Object.fromEntries(inputIds.map((id) => [id, emptyTriggers()])) as BehaviorMap
+  return Object.fromEntries(inputIds.map(id => [id, emptyTriggers()])) as BehaviorMap
 }
 
 /** The initial configuration mirrors the two mappings used by the current UI. */
@@ -216,23 +253,23 @@ export function createDefaultBehaviorMap(): BehaviorMap {
 
 /** Clone every sequence so a profile can be edited independently of its source. */
 export function cloneBehaviorMap(map: BehaviorMap): BehaviorMap {
-  return Object.fromEntries(inputIds.map((id) => [
-    id,
-    Object.fromEntries(triggerTypes.map((trigger) => [
-      trigger,
-      map[id][trigger].map((behavior) => behavior.type === 'shortcut'
-        ? { ...behavior, keys: [...behavior.keys] }
-        : { ...behavior }),
-    ])),
-  ])) as BehaviorMap
+  return Object.fromEntries(
+    inputIds.map(id => [
+      id,
+      Object.fromEntries(
+        triggerTypes.map(trigger => [
+          trigger,
+          map[id][trigger].map(behavior =>
+            behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior },
+          ),
+        ]),
+      ),
+    ]),
+  ) as BehaviorMap
 }
 
 function isButtonId(value: string): value is InputId {
   return (inputIds as readonly string[]).includes(value)
-}
-
-function isTriggerType(value: string): value is TriggerType {
-  return (triggerTypes as readonly string[]).includes(value)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -249,12 +286,22 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
 
   switch (type) {
     case 'wheel':
-      return ['up', 'down', 'left', 'right'].includes(String(value.direction)) ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] } : null
+      return ['up', 'down', 'left', 'right'].includes(String(value.direction))
+        ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] }
+        : null
     case 'mouse':
-      return ['left', 'right', 'back', 'forward'].includes(String(value.button)) ? { id, enabled, type, button: value.button as MouseBehavior['button'] } : null
+      return ['left', 'right', 'back', 'forward'].includes(String(value.button))
+        ? { id, enabled, type, button: value.button as MouseBehavior['button'] }
+        : null
     case 'cursorMove':
       return (cursorDirections as readonly string[]).includes(String(value.direction))
-        ? { id, enabled, type, direction: value.direction as CursorDirection, distance: finiteCursorDistance(value.distance) }
+        ? {
+            id,
+            enabled,
+            type,
+            direction: value.direction as CursorDirection,
+            distance: finiteCursorDistance(value.distance),
+          }
         : null
     case 'key': {
       const key = cleanKey(value.key)
@@ -277,8 +324,10 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       return url ? { id, enabled, type, url } : null
     }
     case 'switchProfile':
-      return (value.direction === 'previous' || value.direction === 'next') && (value.wrap === undefined || typeof value.wrap === 'boolean')
-        ? { id, enabled, type, direction: value.direction, wrap: value.wrap !== false } : null
+      return (value.direction === 'previous' || value.direction === 'next') &&
+        (value.wrap === undefined || typeof value.wrap === 'boolean')
+        ? { id, enabled, type, direction: value.direction, wrap: value.wrap !== false }
+        : null
     case 'disabled':
       return { id, enabled, type }
   }
@@ -294,10 +343,15 @@ export function legacyMappingsToBehaviorMap(mappings: unknown): BehaviorMap {
     if (!isButtonId(id) || typeof value !== 'string') continue
     const action = value.trim()
     if (!action || action === 'original') continue
-    const keys = action.split('+').map((key) => key.trim()).filter(Boolean)
-    map[id].click = [keys.length > 1
-      ? createBehavior({ type: 'shortcut', keys, id: `${id}-click-legacy` })
-      : createBehavior({ type: 'key', key: keys[0], id: `${id}-click-legacy` })]
+    const keys = action
+      .split('+')
+      .map(key => key.trim())
+      .filter(Boolean)
+    map[id].click = [
+      keys.length > 1
+        ? createBehavior({ type: 'shortcut', keys, id: `${id}-click-legacy` })
+        : createBehavior({ type: 'key', key: keys[0], id: `${id}-click-legacy` }),
+    ]
   }
   return map
 }
@@ -311,22 +365,24 @@ function behaviorContainer(value: unknown) {
 
 function hasBehaviorMapShape(value: unknown) {
   if (!isRecord(value)) return false
-  const knownButtons = inputIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
+  const knownButtons = inputIds.filter(buttonId => Object.prototype.hasOwnProperty.call(value, buttonId))
   if (knownButtons.length === 0) return false
-  return knownButtons.every((buttonId) => {
+  return knownButtons.every(buttonId => {
     const rawButton = value[buttonId]
     if (!isRecord(rawButton)) return false
-    return triggerTypes.every((trigger) => {
+    return triggerTypes.every(trigger => {
       const rawList = rawButton[trigger]
-      return rawList === undefined || (Array.isArray(rawList) && rawList.every((entry) => normalizeBehavior(entry) !== null))
+      return (
+        rawList === undefined || (Array.isArray(rawList) && rawList.every(entry => normalizeBehavior(entry) !== null))
+      )
     })
   })
 }
 
 function hasLegacyMappingShape(value: unknown) {
   if (!isRecord(value)) return false
-  const knownButtons = inputIds.filter((buttonId) => Object.prototype.hasOwnProperty.call(value, buttonId))
-  return knownButtons.length > 0 && knownButtons.every((buttonId) => typeof value[buttonId] === 'string')
+  const knownButtons = inputIds.filter(buttonId => Object.prototype.hasOwnProperty.call(value, buttonId))
+  return knownButtons.length > 0 && knownButtons.every(buttonId => typeof value[buttonId] === 'string')
 }
 
 /**
@@ -347,7 +403,7 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   const fallback = createDefaultBehaviorMap()
   if (!isRecord(parsed)) return fallback
 
-  const directLegacy = inputIds.some((buttonId) => typeof parsed[buttonId] === 'string')
+  const directLegacy = inputIds.some(buttonId => typeof parsed[buttonId] === 'string')
   const legacy = isRecord(parsed.mappings)
     ? legacyMappingsToBehaviorMap(parsed.mappings)
     : directLegacy
@@ -372,7 +428,13 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
 }
 
 /** Build the stable, versioned JSON shape used for mapping file transfers. */
-export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, exportedAt = new Date().toISOString(), profileName?: string, deviceId: DeviceId = 'rc003'): MappingTransfer {
+export function createMappingExport(
+  behaviors: BehaviorMap,
+  enabled: boolean,
+  exportedAt = new Date().toISOString(),
+  profileName?: string,
+  deviceId: DeviceId = 'rc003',
+): MappingTransfer {
   const device = devices.find(device => device.id === deviceId)!
   const cloned = cloneBehaviorMap(behaviors)
   const transfer: MappingTransfer = {
@@ -383,7 +445,13 @@ export function createMappingExport(behaviors: BehaviorMap, enabled: boolean, ex
     enabled,
     behaviors: Object.fromEntries(device.inputIds.map(id => [id, cloned[id]])),
   }
-  const name = typeof profileName === 'string' ? profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) : ''
+  const name =
+    typeof profileName === 'string'
+      ? profileName
+          .trim()
+          .replace(/[\u0000-\u001f\u007f]/g, '')
+          .slice(0, 40)
+      : ''
   if (name) transfer.profileName = name
   return transfer
 }
@@ -396,23 +464,49 @@ function sequenceArgument(value: string) {
 
 /** One command per line; quoted arguments preserve text, whitespace and paths. */
 export function serializeSequence(behaviors: Behavior[]): string {
-  return [sequenceTextHeader, ...behaviors.map((behavior) => {
-    let line: string
-    switch (behavior.type) {
-      case 'key': line = `key ${sequenceArgument(behavior.key)}`; break
-      case 'shortcut': line = `keys ${behavior.keys.map(sequenceArgument).join(' ')}`; break
-      case 'delay': line = `wait ${behavior.ms}ms`; break
-      case 'paste': line = `text ${JSON.stringify(behavior.text)}`; break
-      case 'wheel': line = `wheel ${behavior.direction}`; break
-      case 'mouse': line = `mouse ${behavior.button}`; break
-      case 'cursorMove': line = `move ${behavior.direction} ${behavior.distance}`; break
-      case 'openApp': line = `app ${sequenceArgument(behavior.path)}`; break
-      case 'openWebsite': line = `url ${sequenceArgument(behavior.url)}`; break
-      case 'switchProfile': line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`; break
-      case 'disabled': line = 'disabled'; break
-    }
-    return behavior.enabled ? line : `off ${line}`
-  }), 'end'].join('\n')
+  return [
+    sequenceTextHeader,
+    ...behaviors.map(behavior => {
+      let line: string
+      switch (behavior.type) {
+        case 'key':
+          line = `key ${sequenceArgument(behavior.key)}`
+          break
+        case 'shortcut':
+          line = `keys ${behavior.keys.map(sequenceArgument).join(' ')}`
+          break
+        case 'delay':
+          line = `wait ${behavior.ms}ms`
+          break
+        case 'paste':
+          line = `text ${JSON.stringify(behavior.text)}`
+          break
+        case 'wheel':
+          line = `wheel ${behavior.direction}`
+          break
+        case 'mouse':
+          line = `mouse ${behavior.button}`
+          break
+        case 'cursorMove':
+          line = `move ${behavior.direction} ${behavior.distance}`
+          break
+        case 'openApp':
+          line = `app ${sequenceArgument(behavior.path)}`
+          break
+        case 'openWebsite':
+          line = `url ${sequenceArgument(behavior.url)}`
+          break
+        case 'switchProfile':
+          line = `profile ${behavior.direction} ${behavior.wrap ? 'wrap' : 'stop'}`
+          break
+        case 'disabled':
+          line = 'disabled'
+          break
+      }
+      return behavior.enabled ? line : `off ${line}`
+    }),
+    'end',
+  ].join('\n')
 }
 
 function sequenceTokens(line: string): string[] | null {
@@ -422,7 +516,7 @@ function sequenceTokens(line: string): string[] | null {
     const match = /^(?:"(?:\\.|[^"\\])*"|[^\s"]+)(?=\s|$)/.exec(remaining)
     if (!match) return null
     try {
-      tokens.push(match[0].startsWith('"') ? JSON.parse(match[0]) as string : match[0])
+      tokens.push(match[0].startsWith('"') ? (JSON.parse(match[0]) as string) : match[0])
     } catch {
       return null
     }
@@ -433,8 +527,13 @@ function sequenceTokens(line: string): string[] | null {
 
 function parseSequenceText(text: string): unknown[] | null {
   // Explicit boundaries survive captions, Markdown fences and quote blocks.
-  const lines = text.split(/\r\n?|\n/).map((line) => line.trim().replace(/^(?:>\s*)+/, '').trim())
-  const headers = lines.flatMap((line, index) => /^axonkey\/\S+$/.test(line) ? [index] : [])
+  const lines = text.split(/\r\n?|\n/).map(line =>
+    line
+      .trim()
+      .replace(/^(?:>\s*)+/, '')
+      .trim(),
+  )
+  const headers = lines.flatMap((line, index) => (/^axonkey\/\S+$/.test(line) ? [index] : []))
   if (headers.length !== 1 || lines[headers[0]] !== sequenceTextHeader) return null
   const end = lines.indexOf('end', headers[0] + 1)
   if (end === -1) return null
@@ -447,23 +546,28 @@ function parseSequenceText(text: string): unknown[] | null {
     const [command, ...args] = tokens
     let behavior: Record<string, unknown>
     if (command === 'key' && args.length === 1) behavior = { type: 'key', key: args[0] }
-    else if (command === 'keys' && args.length > 0 && args.every((key) => key.trim())) behavior = { type: 'shortcut', keys: args }
+    else if (command === 'keys' && args.length > 0 && args.every(key => key.trim()))
+      behavior = { type: 'shortcut', keys: args }
     else if (command === 'wait' && args.length === 1 && /^\d+(?:\.\d+)?(?:ms)?$/.test(args[0])) {
       const ms = Number(args[0].replace(/ms$/, ''))
       if (ms > maxDelayMs) return null
       behavior = { type: 'delay', ms }
-    }
-    else if (command === 'text' && args.length === 1) behavior = { type: 'paste', text: args[0] }
+    } else if (command === 'text' && args.length === 1) behavior = { type: 'paste', text: args[0] }
     else if (command === 'wheel' && args.length === 1) behavior = { type: 'wheel', direction: args[0] }
     else if (command === 'mouse' && args.length === 1) behavior = { type: 'mouse', button: args[0] }
     else if (command === 'move' && args.length === 2 && /^\d+$/.test(args[1])) {
       const distance = Number(args[1])
       if (distance < 1 || distance > maxCursorDistance) return null
       behavior = { type: 'cursorMove', direction: args[0], distance }
-    }
-    else if (command === 'app' && args.length === 1) behavior = { type: 'openApp', path: args[0] }
+    } else if (command === 'app' && args.length === 1) behavior = { type: 'openApp', path: args[0] }
     else if (command === 'url' && args.length === 1) behavior = { type: 'openWebsite', url: args[0] }
-    else if (command === 'profile' && args.length === 2 && ['previous', 'next'].includes(args[0]) && ['wrap', 'stop'].includes(args[1])) behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
+    else if (
+      command === 'profile' &&
+      args.length === 2 &&
+      ['previous', 'next'].includes(args[0]) &&
+      ['wrap', 'stop'].includes(args[1])
+    )
+      behavior = { type: 'switchProfile', direction: args[0], wrap: args[1] === 'wrap' }
     else if (command === 'disabled' && args.length === 0) behavior = { type: 'disabled' }
     else return null
     behaviors.push({ ...behavior, enabled })
@@ -506,7 +610,9 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
 
   const source = isVersionedExport
     ? parsed.behaviors
-    : isRecord(parsed.behaviors) ? parsed.behaviors : behaviorContainer(parsed)
+    : isRecord(parsed.behaviors)
+      ? parsed.behaviors
+      : behaviorContainer(parsed)
   const validBehaviorMap = hasBehaviorMapShape(source)
   const validLegacyMappings = hasLegacyMappingShape(parsed.mappings)
   if (isVersionedExport ? !validBehaviorMap : !validBehaviorMap && !validLegacyMappings) {
@@ -514,20 +620,28 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   }
   // Older version-2 mouse exports predate the middle button. Only a wholly
   // absent middle-button group is optional; partial or malformed groups fail.
-  const legacyMouseInputs = device.id === 'mouse' && isRecord(source)
-    && !Object.keys(source).some(id => id.endsWith('.buttonMiddle'))
+  const legacyMouseInputs =
+    device.id === 'mouse' && isRecord(source) && !Object.keys(source).some(id => id.endsWith('.buttonMiddle'))
   // A15 exports from before the expanded layout omit the whole new key group.
-  const legacyA15Inputs = device.id === 'cmiotA15' && isRecord(source)
-    && cmiotA15AdditionalButtonIds.every(id => !Object.prototype.hasOwnProperty.call(source, id))
-  if (isDeviceExport && (!isRecord(source)
-    || Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id)
-      && !(device.id === 'cmiotA15' && id === 'cmiotA15.tv'))
-    || device.inputIds.some(id => {
-      if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
-      if (legacyA15Inputs && (cmiotA15AdditionalButtonIds as readonly string[]).includes(id)) return false
-      const triggers = source[id]
-      return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
-    }))) return null
+  const legacyA15Inputs =
+    device.id === 'cmiotA15' &&
+    isRecord(source) &&
+    cmiotA15AdditionalButtonIds.every(id => !Object.prototype.hasOwnProperty.call(source, id))
+  if (
+    isDeviceExport &&
+    (!isRecord(source) ||
+      Object.keys(source).some(
+        id =>
+          !(device.inputIds as readonly string[]).includes(id) && !(device.id === 'cmiotA15' && id === 'cmiotA15.tv'),
+      ) ||
+      device.inputIds.some(id => {
+        if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
+        if (legacyA15Inputs && (cmiotA15AdditionalButtonIds as readonly string[]).includes(id)) return false
+        const triggers = source[id]
+        return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
+      }))
+  )
+    return null
 
   const parsedBehaviors = parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed)
   const behaviors = createEmptyBehaviorMap()
@@ -535,17 +649,28 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   const imported: ImportedMapping = {
     behaviors,
     // Legacy files store the application-wide switch, not the mouse switch.
-    enabled: (isDeviceExport || targetDeviceId === 'rc003') && typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
+    enabled:
+      (isDeviceExport || targetDeviceId === 'rc003') && typeof parsed.enabled === 'boolean'
+        ? parsed.enabled
+        : undefined,
   }
   if (isVersionedExport && typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
-    imported.profileName = parsed.profileName.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40)
+    imported.profileName = parsed.profileName
+      .trim()
+      .replace(/[\u0000-\u001f\u007f]/g, '')
+      .slice(0, 40)
   }
   return imported
 }
 
 /** Append a behavior without mutating the existing map. */
-export function appendBehavior(map: BehaviorMap, buttonId: InputId, trigger: TriggerType, behavior: Behavior): BehaviorMap {
-  return updateBehaviorList(map, buttonId, trigger, (list) => [...list, cloneBehavior(behavior)])
+export function appendBehavior(
+  map: BehaviorMap,
+  buttonId: InputId,
+  trigger: TriggerType,
+  behavior: Behavior,
+): BehaviorMap {
+  return updateBehaviorList(map, buttonId, trigger, list => [...list, cloneBehavior(behavior)])
 }
 
 /** Replace one ordered list, cloning all values to keep React state immutable. */
@@ -562,9 +687,24 @@ export function updateBehaviorList(
 }
 
 /** Move a behavior in a trigger list; invalid indices return an unchanged clone. */
-export function moveBehavior(map: BehaviorMap, buttonId: InputId, trigger: TriggerType, fromIndex: number, toIndex: number): BehaviorMap {
-  return updateBehaviorList(map, buttonId, trigger, (list) => {
-    if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) || fromIndex < 0 || fromIndex >= list.length || toIndex < 0 || toIndex >= list.length || fromIndex === toIndex) return list
+export function moveBehavior(
+  map: BehaviorMap,
+  buttonId: InputId,
+  trigger: TriggerType,
+  fromIndex: number,
+  toIndex: number,
+): BehaviorMap {
+  return updateBehaviorList(map, buttonId, trigger, list => {
+    if (
+      !Number.isInteger(fromIndex) ||
+      !Number.isInteger(toIndex) ||
+      fromIndex < 0 ||
+      fromIndex >= list.length ||
+      toIndex < 0 ||
+      toIndex >= list.length ||
+      fromIndex === toIndex
+    )
+      return list
     const next = [...list]
     const [item] = next.splice(fromIndex, 1)
     next.splice(toIndex, 0, item)

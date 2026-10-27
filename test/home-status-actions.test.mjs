@@ -2,31 +2,25 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import React from 'react'
 import Renderer from 'react-test-renderer'
-import { HomeDashboard, base, devices, text } from './fixtures/home-dashboard.mjs'
+import { HomeDashboard, base, text } from './fixtures/home-dashboard.mjs'
 
-test('home routes each device, integration, permissions and logs independently', () => {
-  const selected = []
-  let integrations = 0, permissions = 0, logs = 0
+test('home renders the device workspace and routes footer actions independently', () => {
+  const actions = []
   const props = {
-    ...base, onSelectDevice: id => selected.push(id), onIntegrate: () => integrations++,
-    onOpenPermissions: () => permissions++, onOpenLogs: () => logs++,
+    ...base,
+    deviceContent: React.createElement('section', { 'aria-label': '设备工作区' }, '已绑定设备'),
+    onOpenSettings: () => actions.push('settings'),
+    onOpenPermissions: () => actions.push('permissions'),
+    onOpenLogs: () => actions.push('logs'),
+    onOpenAbout: () => actions.push('about'),
   }
   const renderer = Renderer.create(React.createElement(HomeDashboard, props))
   try {
-    const cards = renderer.root.findAllByProps({ className: 'my-devices-card' })
-    assert.equal(cards.length, 2)
-    assert.match(text(cards[0]), /遥控工作/)
-    assert.match(text(cards[0]), /3 份配置文件/)
-    assert.match(text(cards[1]), /鼠标默认/)
-    assert.match(text(cards[1]), /1 份配置文件/)
-    cards.forEach(card => card.props.onClick())
-    assert.deepEqual(selected, ['rc003', 'mouse'])
-    renderer.root.findByProps({ className: 'my-devices-integrate' }).props.onClick()
-    const logButton = renderer.root.findByProps({ 'aria-label': '运行日志' })
-    assert.equal(logButton.props.disabled, false)
-    logButton.props.onClick()
-    renderer.root.findByProps({ 'aria-label': '权限设置' }).props.onClick()
-    assert.deepEqual({ integrations, permissions, logs }, { integrations: 1, permissions: 1, logs: 1 })
+    assert.equal(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), '已绑定设备')
+    for (const label of ['设置', '权限设置', '运行日志', '关于']) {
+      renderer.root.findByProps({ 'aria-label': label }).props.onClick()
+    }
+    assert.deepEqual(actions, ['settings', 'permissions', 'logs', 'about'])
   } finally { renderer.unmount() }
 })
 
@@ -34,7 +28,6 @@ test('browser preview disables native logs while keeping permission settings ava
   let permissions = 0, logs = 0
   const props = {
     ...base, nativeRuntime: false, onOpenPermissions: () => permissions++, onOpenLogs: () => logs++,
-    devices: devices.map(device => ({ ...device, status: { label: '浏览器预览', tone: 'neutral' } })),
   }
   const renderer = Renderer.create(React.createElement(HomeDashboard, props))
   try {
@@ -44,7 +37,6 @@ test('browser preview disables native logs while keeping permission settings ava
     renderer.root.findByProps({ 'aria-label': '权限设置' }).props.onClick()
     assert.equal(permissions, 1)
     assert.equal(logs, 0)
-    assert.deepEqual(devices.map(device => text(renderer.root.findByProps({ id: `my-device-${device.id}-status` }))), ['浏览器预览', '浏览器预览'])
     renderer.update(React.createElement(HomeDashboard, { ...props, nativeRuntime: true }))
     assert.equal(logButton().props.disabled, false)
     logButton().props.onClick()

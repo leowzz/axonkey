@@ -30,8 +30,14 @@ import {
   VolumeX,
   X,
 } from 'lucide-react'
-import type { Behavior, InputId, TriggerType } from '../behaviorModel'
-import { defaultCursorDistance, maxCursorDistance, normalizeApplicationPath, normalizeWebsiteUrl, parseSequenceImport } from '../behaviorModel'
+import type { Behavior, TriggerType } from '../behaviorModel'
+import {
+  defaultCursorDistance,
+  maxCursorDistance,
+  normalizeApplicationPath,
+  normalizeWebsiteUrl,
+  parseSequenceImport,
+} from '../behaviorModel'
 import { readClipboardText } from '../clipboard'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
@@ -91,152 +97,442 @@ type BehaviorActionButtonProps = {
 }
 
 function BehaviorActionButton({ icon, label, detail, onClick }: BehaviorActionButtonProps) {
-  return <button type="button" className="behavior-action-button" onClick={onClick}>
-    <span className="behavior-action-icon">{icon}</span>
-    <span className="behavior-action-copy"><strong>{label}</strong>{detail && <small>{detail}</small>}</span>
-  </button>
+  return (
+    <button type="button" className="behavior-action-button" onClick={onClick}>
+      <span className="behavior-action-icon">{icon}</span>
+      <span className="behavior-action-copy">
+        <strong>{label}</strong>
+        {detail && <small>{detail}</small>}
+      </span>
+    </button>
+  )
 }
 
-export function BehaviorEditor({ editorRef, attention, platform, button, trigger, behaviors, onApplyCommonBehavior, onAddAdvancedBehavior, onRemoveBehavior, onMoveBehavior, onEditBehavior, onReturnToMappings, onCopySequence, onPasteSequence, onClearSequence }: BehaviorEditorProps) {
+export function BehaviorEditor({
+  editorRef,
+  attention,
+  platform,
+  button,
+  trigger,
+  behaviors,
+  onApplyCommonBehavior,
+  onAddAdvancedBehavior,
+  onRemoveBehavior,
+  onMoveBehavior,
+  onEditBehavior,
+  onReturnToMappings,
+  onCopySequence,
+  onPasteSequence,
+  onClearSequence,
+}: BehaviorEditorProps) {
   const [activeTab, setActiveTab] = useState<BehaviorEditorTab>('common')
   const tabId = `behavior-${button.id}-${trigger}`
-  return <section ref={editorRef} className={`behavior-editor ${attention ? 'attention' : ''}`} aria-label={`${button.label}${mappingTriggerLabel(button, trigger)}行为配置`}>
-    {button.id === 'voice' && <details className="voice-button-guidance">
-      <summary>
-        <span>语音键不建议配置双击/长按事件。切换语音输入法麦克风为 <strong>{platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'}</strong></span>
-        <ChevronDown size={16} aria-hidden="true" />
-      </summary>
-      <div className="voice-button-guidance-content">
-      <div>
-        <strong>语音键配置建议</strong>
-        <p>建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。</p>
-        <p><strong>不建议配置双击或长按事件。</strong></p>
-        <p>受遥控器硬件限制，只有长按语音键时才会产生音频流。</p>
-      </div>
-      <div>
-        <strong>切换语音输入法的麦克风</strong>
-        <p>请在语音输入法中将麦克风设为 <strong>{platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'}</strong>，以接收遥控器语音。</p>
-        <p>豆包输入法：设置 → 语音输入 → 麦克风选择。</p>
-      </div>
-      </div>
-    </details>}
-    <div className="behavior-editor-body">
-      <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
-        <div className="behavior-column-heading behavior-sequence-heading">
-          <h3 id={`${tabId}-current-title`}>当前序列</h3>
-          <span>{button.label} · {mappingTriggerLabel(button, trigger)}</span>
-          <div className="behavior-sequence-actions">
-            <button type="button" className="reset-button" onClick={onCopySequence}><Copy size={13} /> 复制序列</button>
-            <button type="button" className="reset-button" onClick={onPasteSequence}><ClipboardPaste size={13} /> 粘贴序列</button>
-            <button type="button" className="reset-button" disabled={behaviors.length === 0} onClick={onClearSequence}><Trash2 size={13} /> 清除序列</button>
-          </div>
-        </div>
-        <div className="behavior-list">
-          {behaviors.length === 0 && <div className="behavior-empty">{(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '尚未设置'}</div>}
-          {behaviors.map((behavior, index) => <BehaviorItem
-            platform={platform}
-            key={behavior.id}
-            behavior={behavior}
-            index={index}
-            total={behaviors.length}
-            onRemove={onRemoveBehavior}
-            onMove={onMoveBehavior}
-            onEdit={onEditBehavior}
-          />)}
-        </div>
-      </section>
-      <section className="behavior-actions" aria-label="选择行为">
-        <div className="behavior-column-heading">
-          <h3>可选行为</h3>
-        </div>
-        <div className="behavior-editor-head">
-          <div className="behavior-editor-head-actions">
-            <div className="behavior-tabs" role="tablist" aria-label="行为分类">
-              {([
-                ['common', '常用'],
-                ['navigation', '导航编辑'],
-                ['media', '媒体控制'],
-                ['advanced', '追加步骤'],
-              ] as const).map(([id, label]) => <button
-                key={id}
-                id={`${tabId}-${id}-tab`}
-                type="button"
-                role="tab"
-                aria-selected={activeTab === id}
-                aria-controls={`${tabId}-${id}-panel`}
-                className={activeTab === id ? 'active' : ''}
-                onClick={() => setActiveTab(id)}
-              >{label}</button>)}
+  return (
+    <section
+      ref={editorRef}
+      className={`behavior-editor ${attention ? 'attention' : ''}`}
+      aria-label={`${button.label}${mappingTriggerLabel(button, trigger)}行为配置`}
+    >
+      {button.id === 'voice' && (
+        <details className="voice-button-guidance">
+          <summary>
+            <span>
+              语音键不建议配置双击/长按事件。切换语音输入法麦克风为{' '}
+              <strong>{platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'}</strong>
+            </span>
+            <ChevronDown size={16} aria-hidden="true" />
+          </summary>
+          <div className="voice-button-guidance-content">
+            <div>
+              <strong>语音键配置建议</strong>
+              <p>
+                建议只配置单击行为，映射到语音输入使用的修饰键。这样长按语音键时，会持续按住单击行为映射的修饰键，无需另设长按行为。
+              </p>
+              <p>
+                <strong>不建议配置双击或长按事件。</strong>
+              </p>
+              <p>受遥控器硬件限制，只有长按语音键时才会产生音频流。</p>
             </div>
-            <button type="button" className="icon-button behavior-return-button" title="返回选中触发项" aria-label="返回选中触发项" onClick={onReturnToMappings}><ArrowUp size={15} /></button>
+            <div>
+              <strong>切换语音输入法的麦克风</strong>
+              <p>
+                请在语音输入法中将麦克风设为{' '}
+                <strong>{platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'}</strong>，以接收遥控器语音。
+              </p>
+              <p>豆包输入法：设置 → 语音输入 → 麦克风选择。</p>
+            </div>
           </div>
-        </div>
-        <div
-          id={`${tabId}-${activeTab}-panel`}
-          role="tabpanel"
-          aria-labelledby={`${tabId}-${activeTab}-tab`}
-          className="behavior-action-grid"
-        >
-          {activeTab === 'common' && <>
-            <BehaviorActionButton icon={<RotateCcw size={17} />} label={(trigger === 'click' || button.inheritDefault) ? (button.originalLabel ?? '保留原按键') : '清除触发方式'} detail={(trigger === 'click' || button.inheritDefault) ? (button.originalDescription ?? '使用遥控器原始输入') : '移除当前触发行为'} onClick={() => onApplyCommonBehavior('original')} />
-            <BehaviorActionButton icon={<Ban size={17} />} label="禁用此触发方式" detail="不发送任何输入" onClick={() => onApplyCommonBehavior('disabled')} />
-            <BehaviorActionButton icon={<kbd>Esc</kbd>} label="返回 / 关闭" onClick={() => onApplyCommonBehavior('escape')} />
-            <BehaviorActionButton icon={<kbd>Enter</kbd>} label="确认 / 回车" onClick={() => onApplyCommonBehavior('enter')} />
-            <BehaviorActionButton icon={<kbd>Space</kbd>} label="空格" onClick={() => onApplyCommonBehavior('space')} />
-            {rightModifierChoices().map(({ preset, key }) => <BehaviorActionButton key={preset} icon={<kbd>{rightModifierGlyph(key, platform)}</kbd>} label={keyDisplayName(key, platform)} onClick={() => onApplyCommonBehavior(preset)} />)}
-            <BehaviorActionButton icon={<ArrowLeft size={17} />} label="上一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`} onClick={() => onApplyCommonBehavior('previousTab')} />
-            <BehaviorActionButton icon={<ArrowRight size={17} />} label="下一标签页" detail={`${keyDisplayName('Ctrl', platform)} + Tab`} onClick={() => onApplyCommonBehavior('nextTab')} />
-            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="输入文本并回车" detail="等待 30 毫秒后回车" onClick={() => onApplyCommonBehavior('textAndEnter')} />
-            <BehaviorActionButton icon={<Trash2 size={17} />} label="删除全部文本" detail={`${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)}+A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)}+X`} onClick={() => onApplyCommonBehavior('deleteAllText')} />
-            <BehaviorActionButton icon={<Keyboard size={17} />} label="其他按键 / 组合键" detail="直接录入目标按键" onClick={() => onApplyCommonBehavior('customKey')} />
-            <BehaviorActionButton icon={<FolderOpen size={17} />} label="打开应用" onClick={() => onApplyCommonBehavior('openApp')} />
-            <BehaviorActionButton icon={<Globe size={17} />} label="打开网站" onClick={() => onApplyCommonBehavior('openWebsite')} />
-          </>}
-          {activeTab === 'navigation' && <>
-            <BehaviorActionButton icon={<kbd>↑</kbd>} label="方向上" onClick={() => onApplyCommonBehavior('arrowUp')} />
-            <BehaviorActionButton icon={<kbd>↓</kbd>} label="方向下" onClick={() => onApplyCommonBehavior('arrowDown')} />
-            <BehaviorActionButton icon={<kbd>←</kbd>} label="方向左" onClick={() => onApplyCommonBehavior('arrowLeft')} />
-            <BehaviorActionButton icon={<kbd>→</kbd>} label="方向右" onClick={() => onApplyCommonBehavior('arrowRight')} />
-            <BehaviorActionButton icon={<kbd>Tab</kbd>} label="切换焦点" onClick={() => onApplyCommonBehavior('tab')} />
-            <BehaviorActionButton icon={<kbd>Back</kbd>} label="向前删除" onClick={() => onApplyCommonBehavior('backspace')} />
-            <BehaviorActionButton icon={<kbd>Del</kbd>} label="向后删除" onClick={() => onApplyCommonBehavior('delete')} />
-            <BehaviorActionButton icon={<kbd>Home</kbd>} label="跳到开头" onClick={() => onApplyCommonBehavior('keyHome')} />
-            <BehaviorActionButton icon={<kbd>End</kbd>} label="跳到结尾" onClick={() => onApplyCommonBehavior('keyEnd')} />
-            <BehaviorActionButton icon={<kbd>PgUp</kbd>} label="向上翻页" onClick={() => onApplyCommonBehavior('pageUp')} />
-            <BehaviorActionButton icon={<kbd>PgDn</kbd>} label="向下翻页" onClick={() => onApplyCommonBehavior('pageDown')} />
-            {(platform === 'windows' || platform === 'macos') && <>
-              <BehaviorActionButton icon={<ArrowUp size={17} />} label="鼠标滚轮向上" onClick={() => onApplyCommonBehavior('wheelUp')} />
-              <BehaviorActionButton icon={<ArrowDown size={17} />} label="鼠标滚轮向下" onClick={() => onApplyCommonBehavior('wheelDown')} />
-              <BehaviorActionButton icon={<ArrowLeft size={17} />} label="鼠标滚轮向左" onClick={() => onApplyCommonBehavior('wheelLeft')} />
-              <BehaviorActionButton icon={<ArrowRight size={17} />} label="鼠标滚轮向右" onClick={() => onApplyCommonBehavior('wheelRight')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标左键" onClick={() => onApplyCommonBehavior('mouseLeft')} />
-              <BehaviorActionButton icon={<MousePointer2 size={17} />} label="鼠标右键" onClick={() => onApplyCommonBehavior('mouseRight')} />
-              <BehaviorActionButton icon={<MoveUp size={17} />} label="光标上移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorUp')} />
-              <BehaviorActionButton icon={<MoveDown size={17} />} label="光标下移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorDown')} />
-              <BehaviorActionButton icon={<MoveLeft size={17} />} label="光标左移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorLeft')} />
-              <BehaviorActionButton icon={<MoveRight size={17} />} label="光标右移" detail={`默认 ${defaultCursorDistance} 像素`} onClick={() => onApplyCommonBehavior('cursorRight')} />
-            </>}
-          </>}
-          {activeTab === 'media' && <>
-            <BehaviorActionButton icon={<Play size={17} />} label="播放 / 暂停" onClick={() => onApplyCommonBehavior('mediaPlayPause')} />
-            <BehaviorActionButton icon={<SkipBack size={17} />} label="上一首" onClick={() => onApplyCommonBehavior('mediaPrevious')} />
-            <BehaviorActionButton icon={<SkipForward size={17} />} label="下一首" onClick={() => onApplyCommonBehavior('mediaNext')} />
-            {platform === 'windows' && <BehaviorActionButton icon={<Square size={17} />} label="停止播放" onClick={() => onApplyCommonBehavior('mediaStop')} />}
-            <BehaviorActionButton icon={<Volume2 size={17} />} label="增大音量" onClick={() => onApplyCommonBehavior('volumeUp')} />
-            <BehaviorActionButton icon={<Volume1 size={17} />} label="减小音量" onClick={() => onApplyCommonBehavior('volumeDown')} />
-            <BehaviorActionButton icon={<VolumeX size={17} />} label="静音" onClick={() => onApplyCommonBehavior('volumeMute')} />
-          </>}
-          {activeTab === 'advanced' && <>
-            <BehaviorActionButton icon={<Keyboard size={17} />} label="按键 / 组合键" onClick={() => onAddAdvancedBehavior('key')} />
-            <BehaviorActionButton icon={<ClipboardPaste size={17} />} label="粘贴文本" onClick={() => onAddAdvancedBehavior('paste')} />
-            <BehaviorActionButton icon={<Clock3 size={17} />} label="等待" onClick={() => onAddAdvancedBehavior('delay')} />
-            <BehaviorActionButton icon={<FolderOpen size={17} />} label="打开应用" onClick={() => onAddAdvancedBehavior('openApp')} />
-            <BehaviorActionButton icon={<Globe size={17} />} label="打开网站" onClick={() => onAddAdvancedBehavior('openWebsite')} />
-          </>}
-        </div>
-      </section>
-    </div>
-  </section>
+        </details>
+      )}
+      <div className="behavior-editor-body">
+        <section className="behavior-current-panel" aria-labelledby={`${tabId}-current-title`}>
+          <div className="behavior-column-heading behavior-sequence-heading">
+            <h3 id={`${tabId}-current-title`}>当前序列</h3>
+            <span>
+              {button.label} · {mappingTriggerLabel(button, trigger)}
+            </span>
+            <div className="behavior-sequence-actions">
+              <button type="button" className="reset-button" onClick={onCopySequence}>
+                <Copy size={13} /> 复制序列
+              </button>
+              <button type="button" className="reset-button" onClick={onPasteSequence}>
+                <ClipboardPaste size={13} /> 粘贴序列
+              </button>
+              <button
+                type="button"
+                className="reset-button"
+                disabled={behaviors.length === 0}
+                onClick={onClearSequence}
+              >
+                <Trash2 size={13} /> 清除序列
+              </button>
+            </div>
+          </div>
+          <div className="behavior-list">
+            {behaviors.length === 0 && (
+              <div className="behavior-empty">
+                {trigger === 'click' || button.inheritDefault ? (button.originalLabel ?? '保留原按键') : '尚未设置'}
+              </div>
+            )}
+            {behaviors.map((behavior, index) => (
+              <BehaviorItem
+                platform={platform}
+                key={behavior.id}
+                behavior={behavior}
+                index={index}
+                total={behaviors.length}
+                onRemove={onRemoveBehavior}
+                onMove={onMoveBehavior}
+                onEdit={onEditBehavior}
+              />
+            ))}
+          </div>
+        </section>
+        <section className="behavior-actions" aria-label="选择行为">
+          <div className="behavior-column-heading">
+            <h3>可选行为</h3>
+          </div>
+          <div className="behavior-editor-head">
+            <div className="behavior-editor-head-actions">
+              <div className="behavior-tabs" role="tablist" aria-label="行为分类">
+                {(
+                  [
+                    ['common', '常用'],
+                    ['navigation', '导航编辑'],
+                    ['media', '媒体控制'],
+                    ['advanced', '追加步骤'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    id={`${tabId}-${id}-tab`}
+                    type="button"
+                    role="tab"
+                    aria-selected={activeTab === id}
+                    aria-controls={`${tabId}-${id}-panel`}
+                    className={activeTab === id ? 'active' : ''}
+                    onClick={() => setActiveTab(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="icon-button behavior-return-button"
+                title="返回选中触发项"
+                aria-label="返回选中触发项"
+                onClick={onReturnToMappings}
+              >
+                <ArrowUp size={15} />
+              </button>
+            </div>
+          </div>
+          <div
+            id={`${tabId}-${activeTab}-panel`}
+            role="tabpanel"
+            aria-labelledby={`${tabId}-${activeTab}-tab`}
+            className="behavior-action-grid"
+          >
+            {activeTab === 'common' && (
+              <>
+                <BehaviorActionButton
+                  icon={<RotateCcw size={17} />}
+                  label={
+                    trigger === 'click' || button.inheritDefault
+                      ? (button.originalLabel ?? '保留原按键')
+                      : '清除触发方式'
+                  }
+                  detail={
+                    trigger === 'click' || button.inheritDefault
+                      ? (button.originalDescription ?? '使用遥控器原始输入')
+                      : '移除当前触发行为'
+                  }
+                  onClick={() => onApplyCommonBehavior('original')}
+                />
+                <BehaviorActionButton
+                  icon={<Ban size={17} />}
+                  label="禁用此触发方式"
+                  detail="不发送任何输入"
+                  onClick={() => onApplyCommonBehavior('disabled')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Esc</kbd>}
+                  label="返回 / 关闭"
+                  onClick={() => onApplyCommonBehavior('escape')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Enter</kbd>}
+                  label="确认 / 回车"
+                  onClick={() => onApplyCommonBehavior('enter')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Space</kbd>}
+                  label="空格"
+                  onClick={() => onApplyCommonBehavior('space')}
+                />
+                {rightModifierChoices().map(({ preset, key }) => (
+                  <BehaviorActionButton
+                    key={preset}
+                    icon={<kbd>{rightModifierGlyph(key, platform)}</kbd>}
+                    label={keyDisplayName(key, platform)}
+                    onClick={() => onApplyCommonBehavior(preset)}
+                  />
+                ))}
+                <BehaviorActionButton
+                  icon={<ArrowLeft size={17} />}
+                  label="上一标签页"
+                  detail={`${keyDisplayName('Ctrl', platform)} + Shift + Tab`}
+                  onClick={() => onApplyCommonBehavior('previousTab')}
+                />
+                <BehaviorActionButton
+                  icon={<ArrowRight size={17} />}
+                  label="下一标签页"
+                  detail={`${keyDisplayName('Ctrl', platform)} + Tab`}
+                  onClick={() => onApplyCommonBehavior('nextTab')}
+                />
+                <BehaviorActionButton
+                  icon={<ClipboardPaste size={17} />}
+                  label="输入文本并回车"
+                  detail="等待 30 毫秒后回车"
+                  onClick={() => onApplyCommonBehavior('textAndEnter')}
+                />
+                <BehaviorActionButton
+                  icon={<Trash2 size={17} />}
+                  label="删除全部文本"
+                  detail={`${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)}+A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)}+X`}
+                  onClick={() => onApplyCommonBehavior('deleteAllText')}
+                />
+                <BehaviorActionButton
+                  icon={<Keyboard size={17} />}
+                  label="其他按键 / 组合键"
+                  detail="直接录入目标按键"
+                  onClick={() => onApplyCommonBehavior('customKey')}
+                />
+                <BehaviorActionButton
+                  icon={<FolderOpen size={17} />}
+                  label="打开应用"
+                  onClick={() => onApplyCommonBehavior('openApp')}
+                />
+                <BehaviorActionButton
+                  icon={<Globe size={17} />}
+                  label="打开网站"
+                  onClick={() => onApplyCommonBehavior('openWebsite')}
+                />
+              </>
+            )}
+            {activeTab === 'navigation' && (
+              <>
+                <BehaviorActionButton
+                  icon={<kbd>↑</kbd>}
+                  label="方向上"
+                  onClick={() => onApplyCommonBehavior('arrowUp')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>↓</kbd>}
+                  label="方向下"
+                  onClick={() => onApplyCommonBehavior('arrowDown')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>←</kbd>}
+                  label="方向左"
+                  onClick={() => onApplyCommonBehavior('arrowLeft')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>→</kbd>}
+                  label="方向右"
+                  onClick={() => onApplyCommonBehavior('arrowRight')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Tab</kbd>}
+                  label="切换焦点"
+                  onClick={() => onApplyCommonBehavior('tab')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Back</kbd>}
+                  label="向前删除"
+                  onClick={() => onApplyCommonBehavior('backspace')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Del</kbd>}
+                  label="向后删除"
+                  onClick={() => onApplyCommonBehavior('delete')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>Home</kbd>}
+                  label="跳到开头"
+                  onClick={() => onApplyCommonBehavior('keyHome')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>End</kbd>}
+                  label="跳到结尾"
+                  onClick={() => onApplyCommonBehavior('keyEnd')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>PgUp</kbd>}
+                  label="向上翻页"
+                  onClick={() => onApplyCommonBehavior('pageUp')}
+                />
+                <BehaviorActionButton
+                  icon={<kbd>PgDn</kbd>}
+                  label="向下翻页"
+                  onClick={() => onApplyCommonBehavior('pageDown')}
+                />
+                {(platform === 'windows' || platform === 'macos') && (
+                  <>
+                    <BehaviorActionButton
+                      icon={<ArrowUp size={17} />}
+                      label="鼠标滚轮向上"
+                      onClick={() => onApplyCommonBehavior('wheelUp')}
+                    />
+                    <BehaviorActionButton
+                      icon={<ArrowDown size={17} />}
+                      label="鼠标滚轮向下"
+                      onClick={() => onApplyCommonBehavior('wheelDown')}
+                    />
+                    <BehaviorActionButton
+                      icon={<ArrowLeft size={17} />}
+                      label="鼠标滚轮向左"
+                      onClick={() => onApplyCommonBehavior('wheelLeft')}
+                    />
+                    <BehaviorActionButton
+                      icon={<ArrowRight size={17} />}
+                      label="鼠标滚轮向右"
+                      onClick={() => onApplyCommonBehavior('wheelRight')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MousePointer2 size={17} />}
+                      label="鼠标左键"
+                      onClick={() => onApplyCommonBehavior('mouseLeft')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MousePointer2 size={17} />}
+                      label="鼠标右键"
+                      onClick={() => onApplyCommonBehavior('mouseRight')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MoveUp size={17} />}
+                      label="光标上移"
+                      detail={`默认 ${defaultCursorDistance} 像素`}
+                      onClick={() => onApplyCommonBehavior('cursorUp')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MoveDown size={17} />}
+                      label="光标下移"
+                      detail={`默认 ${defaultCursorDistance} 像素`}
+                      onClick={() => onApplyCommonBehavior('cursorDown')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MoveLeft size={17} />}
+                      label="光标左移"
+                      detail={`默认 ${defaultCursorDistance} 像素`}
+                      onClick={() => onApplyCommonBehavior('cursorLeft')}
+                    />
+                    <BehaviorActionButton
+                      icon={<MoveRight size={17} />}
+                      label="光标右移"
+                      detail={`默认 ${defaultCursorDistance} 像素`}
+                      onClick={() => onApplyCommonBehavior('cursorRight')}
+                    />
+                  </>
+                )}
+              </>
+            )}
+            {activeTab === 'media' && (
+              <>
+                <BehaviorActionButton
+                  icon={<Play size={17} />}
+                  label="播放 / 暂停"
+                  onClick={() => onApplyCommonBehavior('mediaPlayPause')}
+                />
+                <BehaviorActionButton
+                  icon={<SkipBack size={17} />}
+                  label="上一首"
+                  onClick={() => onApplyCommonBehavior('mediaPrevious')}
+                />
+                <BehaviorActionButton
+                  icon={<SkipForward size={17} />}
+                  label="下一首"
+                  onClick={() => onApplyCommonBehavior('mediaNext')}
+                />
+                {platform === 'windows' && (
+                  <BehaviorActionButton
+                    icon={<Square size={17} />}
+                    label="停止播放"
+                    onClick={() => onApplyCommonBehavior('mediaStop')}
+                  />
+                )}
+                <BehaviorActionButton
+                  icon={<Volume2 size={17} />}
+                  label="增大音量"
+                  onClick={() => onApplyCommonBehavior('volumeUp')}
+                />
+                <BehaviorActionButton
+                  icon={<Volume1 size={17} />}
+                  label="减小音量"
+                  onClick={() => onApplyCommonBehavior('volumeDown')}
+                />
+                <BehaviorActionButton
+                  icon={<VolumeX size={17} />}
+                  label="静音"
+                  onClick={() => onApplyCommonBehavior('volumeMute')}
+                />
+              </>
+            )}
+            {activeTab === 'advanced' && (
+              <>
+                <BehaviorActionButton
+                  icon={<Keyboard size={17} />}
+                  label="按键 / 组合键"
+                  onClick={() => onAddAdvancedBehavior('key')}
+                />
+                <BehaviorActionButton
+                  icon={<ClipboardPaste size={17} />}
+                  label="粘贴文本"
+                  onClick={() => onAddAdvancedBehavior('paste')}
+                />
+                <BehaviorActionButton
+                  icon={<Clock3 size={17} />}
+                  label="等待"
+                  onClick={() => onAddAdvancedBehavior('delay')}
+                />
+                <BehaviorActionButton
+                  icon={<FolderOpen size={17} />}
+                  label="打开应用"
+                  onClick={() => onAddAdvancedBehavior('openApp')}
+                />
+                <BehaviorActionButton
+                  icon={<Globe size={17} />}
+                  label="打开网站"
+                  onClick={() => onAddAdvancedBehavior('openWebsite')}
+                />
+              </>
+            )}
+          </div>
+        </section>
+      </div>
+    </section>
+  )
 }
 
 type BehaviorEditorTab = 'common' | 'navigation' | 'media' | 'advanced'
@@ -253,19 +549,57 @@ type BehaviorItemProps = {
 
 function BehaviorItem({ platform, behavior, index, total, onRemove, onMove, onEdit }: BehaviorItemProps) {
   const editable = behavior.type !== 'disabled'
-  return <div className="behavior-item">
-    <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
-    <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
-      <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
-      <strong>{behaviorSummary(behavior, platform)}</strong>
-    </button>
-    <div className="behavior-item-actions">
-      {editable && <button type="button" className="icon-button" title="编辑" aria-label="编辑行为" onClick={() => onEdit(behavior.id)}><Pencil size={14} /></button>}
-      <button type="button" className="icon-button" title="上移" aria-label="上移行为" disabled={index === 0} onClick={() => onMove(behavior.id, -1)}><ArrowUp size={14} /></button>
-      <button type="button" className="icon-button" title="下移" aria-label="下移行为" disabled={index === total - 1} onClick={() => onMove(behavior.id, 1)}><ArrowDown size={14} /></button>
-      <button type="button" className="icon-button" title="删除" aria-label="删除行为" onClick={() => onRemove(behavior.id)}><Trash2 size={14} /></button>
+  return (
+    <div className="behavior-item">
+      <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
+      <button type="button" className="behavior-item-summary" disabled={!editable} onClick={() => onEdit(behavior.id)}>
+        <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
+        <strong>{behaviorSummary(behavior, platform)}</strong>
+      </button>
+      <div className="behavior-item-actions">
+        {editable && (
+          <button
+            type="button"
+            className="icon-button"
+            title="编辑"
+            aria-label="编辑行为"
+            onClick={() => onEdit(behavior.id)}
+          >
+            <Pencil size={14} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="icon-button"
+          title="上移"
+          aria-label="上移行为"
+          disabled={index === 0}
+          onClick={() => onMove(behavior.id, -1)}
+        >
+          <ArrowUp size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          title="下移"
+          aria-label="下移行为"
+          disabled={index === total - 1}
+          onClick={() => onMove(behavior.id, 1)}
+        >
+          <ArrowDown size={14} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          title="删除"
+          aria-label="删除行为"
+          onClick={() => onRemove(behavior.id)}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
     </div>
-  </div>
+  )
 }
 
 type BehaviorEditDialogProps = {
@@ -290,29 +624,78 @@ type BehaviorEditDialogProps = {
 }
 
 function shortcutModifierFamily(key: string) {
-  return shortcutModifiers.find((modifier) => key === modifier || key === `R${modifier}` || (modifier === 'Alt' && key === 'LAlt'))
+  return shortcutModifiers.find(
+    modifier => key === modifier || key === `R${modifier}` || (modifier === 'Alt' && key === 'LAlt'),
+  )
 }
 
-function ManualKeySelect({ platform, value, onChange, label, includeModifiers = true }: { platform: Platform; value: string; onChange: (value: string) => void; label: string; includeModifiers?: boolean }) {
+function ManualKeySelect({
+  platform,
+  value,
+  onChange,
+  label,
+  includeModifiers = true,
+}: {
+  platform: Platform
+  value: string
+  onChange: (value: string) => void
+  label: string
+  includeModifiers?: boolean
+}) {
   const platformGroups = keyGroupsForPlatform(platform)
-  const groups = includeModifiers ? platformGroups : platformGroups.filter((group) => group.label !== '单独修饰键')
-  const knownValue = groups.some((group) => group.options.some((option) => option.value === value)) ? value : ''
-  return <div className="manual-key-select">
-    <select value={value} aria-label={label} onChange={(event) => onChange(event.target.value)}>
-      {value && !knownValue && <option value={value} disabled>{`当前：${keyDisplayName(value, platform)}`}</option>}
-      <option value="">空</option>
-      {groups.map((group) => <optgroup key={group.label} label={group.label}>
-        {group.options.map((option) => <option key={`${group.label}-${option.value}`} value={option.value}>{option.label}</option>)}
-      </optgroup>)}
-    </select>
-    <span className="manual-key-select-icon" aria-hidden="true"><ChevronDown size={15} /></span>
-  </div>
+  const groups = includeModifiers ? platformGroups : platformGroups.filter(group => group.label !== '单独修饰键')
+  const knownValue = groups.some(group => group.options.some(option => option.value === value)) ? value : ''
+  return (
+    <div className="manual-key-select">
+      <select value={value} aria-label={label} onChange={event => onChange(event.target.value)}>
+        {value && !knownValue && <option value={value} disabled>{`当前：${keyDisplayName(value, platform)}`}</option>}
+        <option value="">空</option>
+        {groups.map(group => (
+          <optgroup key={group.label} label={group.label}>
+            {group.options.map(option => (
+              <option key={`${group.label}-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <span className="manual-key-select-icon" aria-hidden="true">
+        <ChevronDown size={15} />
+      </span>
+    </div>
+  )
 }
 
-export function BehaviorEditDialog({ platform, button, trigger, behavior: savedBehavior, capturing, draft = false, title, delayStep = 10, actionChoices, children, saveLabel = '保存', saveTone, onStartCapture, onCancelCapture, onCaptureKey, onUpdate, onClose, onSave }: BehaviorEditDialogProps) {
+export function BehaviorEditDialog({
+  platform,
+  button,
+  trigger,
+  behavior: savedBehavior,
+  capturing,
+  draft = false,
+  title,
+  delayStep = 10,
+  actionChoices,
+  children,
+  saveLabel = '保存',
+  saveTone,
+  onStartCapture,
+  onCancelCapture,
+  onCaptureKey,
+  onUpdate,
+  onClose,
+  onSave,
+}: BehaviorEditDialogProps) {
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
-  const [launchTarget, setLaunchTarget] = useState(savedBehavior.type === 'openApp' ? savedBehavior.path : savedBehavior.type === 'openWebsite' ? savedBehavior.url : '')
+  const [launchTarget, setLaunchTarget] = useState(
+    savedBehavior.type === 'openApp'
+      ? savedBehavior.path
+      : savedBehavior.type === 'openWebsite'
+        ? savedBehavior.url
+        : '',
+  )
   const [pickerError, setPickerError] = useState('')
   const [picking, setPicking] = useState(false)
   const [applicationDragOver, setApplicationDragOver] = useState(false)
@@ -326,13 +709,21 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
   }, [savedBehavior.id])
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const launchBehavior = savedBehavior.type === 'openApp' || savedBehavior.type === 'openWebsite'
-  const normalizedTarget = savedBehavior.type === 'openApp' ? normalizeApplicationPath(launchTarget) : normalizeWebsiteUrl(launchTarget)
+  const normalizedTarget =
+    savedBehavior.type === 'openApp' ? normalizeApplicationPath(launchTarget) : normalizeWebsiteUrl(launchTarget)
   const updateLaunchTarget = (value: string) => {
     setLaunchTarget(value)
     setPickerError('')
     const target = savedBehavior.type === 'openApp' ? normalizeApplicationPath(value) : normalizeWebsiteUrl(value)
     // Keep incomplete edits local so existing mappings remain usable.
-    if (target || draft) onUpdate((current) => current.type === 'openApp' ? { ...current, path: target ?? '' } : current.type === 'openWebsite' ? { ...current, url: target ?? '' } : current)
+    if (target || draft)
+      onUpdate(current =>
+        current.type === 'openApp'
+          ? { ...current, path: target ?? '' }
+          : current.type === 'openWebsite'
+            ? { ...current, url: target ?? '' }
+            : current,
+      )
   }
   const updateLaunchTargetRef = useRef(updateLaunchTarget)
   updateLaunchTargetRef.current = updateLaunchTarget
@@ -340,35 +731,38 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
     if (!nativeRuntime || savedBehavior.type !== 'openApp') return
     let disposed = false
     let unlisten: (() => void) | undefined
-    void getCurrentWebviewWindow().onDragDropEvent(({ payload }) => {
-      if (disposed) return
-      if (payload.type === 'leave') {
-        setApplicationDragOver(false)
-        return
-      }
-      const rect = dialogRef.current?.getBoundingClientRect()
-      const scale = window.devicePixelRatio || 1
-      const x = payload.position.x / scale
-      const y = payload.position.y / scale
-      const inside = Boolean(rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
-      setApplicationDragOver(payload.type !== 'drop' && inside)
-      if (payload.type !== 'drop' || !inside) return
-      if (payload.paths.length !== 1) {
-        setPickerError('请一次拖入一个应用或快捷方式。')
-        return
-      }
-      const path = normalizeApplicationPath(payload.paths[0])
-      if (!path) {
-        setPickerError('不支持这个文件，请拖入应用程序或快捷方式（.exe、.com、.lnk 或 .app）。')
-        return
-      }
-      updateLaunchTargetRef.current(path)
-    }).then((stop) => {
-      if (disposed) stop()
-      else unlisten = stop
-    }).catch((error) => {
-      if (!disposed) setPickerError(`无法接收文件拖拽：${String(error)}`)
-    })
+    void getCurrentWebviewWindow()
+      .onDragDropEvent(({ payload }) => {
+        if (disposed) return
+        if (payload.type === 'leave') {
+          setApplicationDragOver(false)
+          return
+        }
+        const rect = dialogRef.current?.getBoundingClientRect()
+        const scale = window.devicePixelRatio || 1
+        const x = payload.position.x / scale
+        const y = payload.position.y / scale
+        const inside = Boolean(rect && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom)
+        setApplicationDragOver(payload.type !== 'drop' && inside)
+        if (payload.type !== 'drop' || !inside) return
+        if (payload.paths.length !== 1) {
+          setPickerError('请一次拖入一个应用或快捷方式。')
+          return
+        }
+        const path = normalizeApplicationPath(payload.paths[0])
+        if (!path) {
+          setPickerError('不支持这个文件，请拖入应用程序或快捷方式（.exe、.com、.lnk 或 .app）。')
+          return
+        }
+        updateLaunchTargetRef.current(path)
+      })
+      .then(stop => {
+        if (disposed) stop()
+        else unlisten = stop
+      })
+      .catch(error => {
+        if (!disposed) setPickerError(`无法接收文件拖拽：${String(error)}`)
+      })
     return () => {
       disposed = true
       unlisten?.()
@@ -378,7 +772,12 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
     setPicking(true)
     setPickerError('')
     try {
-      const path = await open({ title: '选择应用', multiple: false, defaultPath: platform === 'macos' ? '/Applications' : undefined, filters: [{ name: '应用', extensions: platform === 'macos' ? ['app'] : ['exe', 'com', 'lnk'] }] })
+      const path = await open({
+        title: '选择应用',
+        multiple: false,
+        defaultPath: platform === 'macos' ? '/Applications' : undefined,
+        filters: [{ name: '应用', extensions: platform === 'macos' ? ['app'] : ['exe', 'com', 'lnk'] }],
+      })
       if (typeof path === 'string') updateLaunchTarget(path)
     } catch (error) {
       setPickerError(`无法选择应用：${String(error)}`)
@@ -389,196 +788,475 @@ export function BehaviorEditDialog({ platform, button, trigger, behavior: savedB
   const behavior: Behavior = emptyShortcut
     ? { id: savedBehavior.id, enabled: savedBehavior.enabled, type: 'shortcut', keys: [] }
     : savedBehavior
-  const captureValue = behavior.type === 'shortcut'
-    ? behavior.keys.map((key) => keyDisplayName(key, platform)).join(' + ')
-    : behavior.type === 'key' ? keyDisplayName(behavior.key, platform) : ''
+  const captureValue =
+    behavior.type === 'shortcut'
+      ? behavior.keys.map(key => keyDisplayName(key, platform)).join(' + ')
+      : behavior.type === 'key'
+        ? keyDisplayName(behavior.key, platform)
+        : ''
   const shortcutKeys = behavior.type === 'shortcut' ? behavior.keys : []
-  const selectedShortcutModifiers = shortcutKeys.filter((key) => shortcutModifierFamily(key))
-  const shortcutBase = behavior.type === 'key'
-    ? behavior.key
-    : shortcutKeys.find((key) => !shortcutModifierFamily(key))
-      ?? ''
+  const selectedShortcutModifiers = shortcutKeys.filter(key => shortcutModifierFamily(key))
+  const shortcutBase =
+    behavior.type === 'key' ? behavior.key : (shortcutKeys.find(key => !shortcutModifierFamily(key)) ?? '')
   const standaloneBase = isStandaloneModifierKey(shortcutBase)
   const setShortcut = (modifiers: string[], base: string) => {
-    const selectedModifiers = isStandaloneModifierKey(base) ? [] : modifiers.filter((modifier) => modifier !== base)
+    const selectedModifiers = isStandaloneModifierKey(base) ? [] : modifiers.filter(modifier => modifier !== base)
     if (!draft && selectedModifiers.length === 0 && !base) {
       setEmptyShortcut(true)
       return
     }
     setEmptyShortcut(false)
-    onUpdate((current) => current.type === 'key' || current.type === 'shortcut'
-      ? selectedModifiers.length > 0 || !base
-        ? { id: current.id, enabled: current.enabled, type: 'shortcut', keys: base ? [...selectedModifiers, base] : selectedModifiers }
-        : { id: current.id, enabled: current.enabled, type: 'key', key: base }
-      : current)
+    onUpdate(current =>
+      current.type === 'key' || current.type === 'shortcut'
+        ? selectedModifiers.length > 0 || !base
+          ? {
+              id: current.id,
+              enabled: current.enabled,
+              type: 'shortcut',
+              keys: base ? [...selectedModifiers, base] : selectedModifiers,
+            }
+          : { id: current.id, enabled: current.enabled, type: 'key', key: base }
+        : current,
+    )
   }
   const setModifier = (modifier: string, keys: string[]) => {
     onCancelCapture()
-    setShortcut(shortcutModifiers.flatMap((family) => family === modifier
-      ? keys
-      : selectedShortcutModifiers.filter((key) => shortcutModifierFamily(key) === family)), shortcutBase)
+    setShortcut(
+      shortcutModifiers.flatMap(family =>
+        family === modifier ? keys : selectedShortcutModifiers.filter(key => shortcutModifierFamily(key) === family),
+      ),
+      shortcutBase,
+    )
   }
-  const canSave = launchBehavior ? Boolean(normalizedTarget) : behavior.type === 'key'
-    ? Boolean(behavior.key)
-    : behavior.type === 'shortcut'
-      ? behavior.keys.length > 0
-      : behavior.type === 'paste'
-        ? Boolean(behavior.text.trim())
-        : true
-  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section
-      ref={dialogRef}
-      className={`behavior-dialog behavior-edit-form${applicationDragOver ? ' application-drag-over' : ''}`}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="behavior-dialog-title"
-      onKeyDown={(event) => { if (capturing) onCaptureKey(behavior, event) }}
+  const canSave = launchBehavior
+    ? Boolean(normalizedTarget)
+    : behavior.type === 'key'
+      ? Boolean(behavior.key)
+      : behavior.type === 'shortcut'
+        ? behavior.keys.length > 0
+        : behavior.type === 'paste'
+          ? Boolean(behavior.text.trim())
+          : true
+  return (
+    <div
+      className="behavior-dialog-backdrop"
+      role="presentation"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
     >
-      <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="behavior-dialog-title">{title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}</h2></div>
-        <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}><X size={17} /></button>
-      </header>
-      <div className="behavior-dialog-body">
-        {actionChoices ? <div className="behavior-dialog-field">
-          <span id="behavior-action-choice-label">{actionChoices.label}</span>
-          <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-action-choice-label">
-            {actionChoices.options.map((option) => <button
-              key={option.label}
-              type="button"
-              className={option.selected ? 'selected' : ''}
-              aria-pressed={option.selected}
-              onClick={() => onUpdate(() => option.behavior)}
-            >{option.label}</button>)}
+      <section
+        ref={dialogRef}
+        className={`behavior-dialog behavior-edit-form${applicationDragOver ? ' application-drag-over' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="behavior-dialog-title"
+        onKeyDown={event => {
+          if (capturing) onCaptureKey(behavior, event)
+        }}
+      >
+        <header className="behavior-dialog-head">
+          <div>
+            <span className="section-kicker">
+              {button.label} · {mappingTriggerLabel(button, trigger)}
+            </span>
+            <h2 id="behavior-dialog-title">
+              {title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}
+            </h2>
           </div>
-        </div> : behavior.type === 'key' || behavior.type === 'shortcut' ? <>
-          <div className="behavior-key-capture-row">
-            <div className="behavior-current-value"><span>当前按键</span><strong>{captureValue || '未设置'}</strong></div>
-            <button type="button" autoFocus={draft && capturing} className={`record-key-button ${capturing ? 'capturing' : ''}`} onClick={capturing ? onCancelCapture : () => { setEmptyShortcut(false); onStartCapture() }}>
-              <Keyboard size={17} />
-              <strong>{capturing ? '按下目标按键…' : '开始录入'}</strong>
-            </button>
-          </div>
-          <div className="behavior-manual-section">
-            <div className={`shortcut-manual-builder ${standaloneBase ? 'standalone' : ''}`}>
-              <div className="behavior-field-title"><strong>修饰键</strong><SettingsHelp id="behavior-shortcut-modifiers-help" label="修饰键">修饰键与主按键组合发送，可同时选择左右侧。主按键留空时，仅发送选中的修饰键；主按键为单独修饰键时，其他修饰键不参与。</SettingsHelp></div>
-              <div className="shortcut-modifiers">
-                {shortcutModifiers.map((modifier) => {
-                  const selected = selectedShortcutModifiers.some((key) => shortcutModifierFamily(key) === modifier)
-                  const rightKey = `R${modifier}`
-                  const hasRight = selectedShortcutModifiers.includes(rightKey)
-                  const hasLeft = selectedShortcutModifiers.some((key) => shortcutModifierFamily(key) === modifier && key !== rightKey)
-                  return <div key={modifier} className="shortcut-modifier-choice">
-                    <button type="button" disabled={standaloneBase} className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => setModifier(modifier, selected ? [] : [modifier])}>{keyDisplayName(modifier, platform)}</button>
-                    <div className="manual-key-select modifier-side-select">
-                      <select
-                        aria-label={`${keyDisplayName(modifier, platform)} 左右侧`}
-                        disabled={standaloneBase || !selected}
-                        value={hasLeft && hasRight ? 'both' : hasRight ? 'right' : 'left'}
-                        onChange={(event) => setModifier(modifier, event.target.value === 'both' ? [modifier, rightKey] : [event.target.value === 'right' ? rightKey : modifier])}
-                      >
-                        <option value="left">左</option><option value="right">右</option><option value="both">左右同时</option>
-                      </select>
-                      <span className="manual-key-select-icon" aria-hidden="true"><ChevronDown size={12} /></span>
-                    </div>
-                  </div>
-                })}
+          <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </header>
+        <div className="behavior-dialog-body">
+          {actionChoices ? (
+            <div className="behavior-dialog-field">
+              <span id="behavior-action-choice-label">{actionChoices.label}</span>
+              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-action-choice-label">
+                {actionChoices.options.map(option => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={option.selected ? 'selected' : ''}
+                    aria-pressed={option.selected}
+                    onClick={() => onUpdate(() => option.behavior)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
-              <span className="behavior-base-key-label">主按键</span>
-              <ManualKeySelect
-                platform={platform}
-                value={shortcutBase}
-                label="选择主按键或单独修饰键"
-                onChange={(base) => { onCancelCapture(); setShortcut(isStandaloneModifierKey(base) ? [] : selectedShortcutModifiers, base) }}
+            </div>
+          ) : behavior.type === 'key' || behavior.type === 'shortcut' ? (
+            <>
+              <div className="behavior-key-capture-row">
+                <div className="behavior-current-value">
+                  <span>当前按键</span>
+                  <strong>{captureValue || '未设置'}</strong>
+                </div>
+                <button
+                  type="button"
+                  autoFocus={draft && capturing}
+                  className={`record-key-button ${capturing ? 'capturing' : ''}`}
+                  onClick={
+                    capturing
+                      ? onCancelCapture
+                      : () => {
+                          setEmptyShortcut(false)
+                          onStartCapture()
+                        }
+                  }
+                >
+                  <Keyboard size={17} />
+                  <strong>{capturing ? '按下目标按键…' : '开始录入'}</strong>
+                </button>
+              </div>
+              <div className="behavior-manual-section">
+                <div className={`shortcut-manual-builder ${standaloneBase ? 'standalone' : ''}`}>
+                  <div className="behavior-field-title">
+                    <strong>修饰键</strong>
+                    <SettingsHelp id="behavior-shortcut-modifiers-help" label="修饰键">
+                      修饰键与主按键组合发送，可同时选择左右侧。主按键留空时，仅发送选中的修饰键；主按键为单独修饰键时，其他修饰键不参与。
+                    </SettingsHelp>
+                  </div>
+                  <div className="shortcut-modifiers">
+                    {shortcutModifiers.map(modifier => {
+                      const selected = selectedShortcutModifiers.some(key => shortcutModifierFamily(key) === modifier)
+                      const rightKey = `R${modifier}`
+                      const hasRight = selectedShortcutModifiers.includes(rightKey)
+                      const hasLeft = selectedShortcutModifiers.some(
+                        key => shortcutModifierFamily(key) === modifier && key !== rightKey,
+                      )
+                      return (
+                        <div key={modifier} className="shortcut-modifier-choice">
+                          <button
+                            type="button"
+                            disabled={standaloneBase}
+                            className={selected ? 'selected' : ''}
+                            aria-pressed={selected}
+                            onClick={() => setModifier(modifier, selected ? [] : [modifier])}
+                          >
+                            {keyDisplayName(modifier, platform)}
+                          </button>
+                          <div className="manual-key-select modifier-side-select">
+                            <select
+                              aria-label={`${keyDisplayName(modifier, platform)} 左右侧`}
+                              disabled={standaloneBase || !selected}
+                              value={hasLeft && hasRight ? 'both' : hasRight ? 'right' : 'left'}
+                              onChange={event =>
+                                setModifier(
+                                  modifier,
+                                  event.target.value === 'both'
+                                    ? [modifier, rightKey]
+                                    : [event.target.value === 'right' ? rightKey : modifier],
+                                )
+                              }
+                            >
+                              <option value="left">左</option>
+                              <option value="right">右</option>
+                              <option value="both">左右同时</option>
+                            </select>
+                            <span className="manual-key-select-icon" aria-hidden="true">
+                              <ChevronDown size={12} />
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <span className="behavior-base-key-label">主按键</span>
+                  <ManualKeySelect
+                    platform={platform}
+                    value={shortcutBase}
+                    label="选择主按键或单独修饰键"
+                    onChange={base => {
+                      onCancelCapture()
+                      setShortcut(isStandaloneModifierKey(base) ? [] : selectedShortcutModifiers, base)
+                    }}
+                  />
+                </div>
+              </div>
+            </>
+          ) : behavior.type === 'wheel' ? (
+            <div className="behavior-dialog-field">
+              <div className="behavior-launch-label">
+                <span id="behavior-wheel-direction-label">滚动方向</span>
+                <SettingsHelp id="behavior-wheel-help" label="滚动方向">
+                  {button.contextLabel
+                    ? '每次触发发送一格滚轮事件。'
+                    : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}
+                </SettingsHelp>
+              </div>
+              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-wheel-direction-label">
+                {(
+                  [
+                    ['up', '向上'],
+                    ['down', '向下'],
+                    ['left', '向左'],
+                    ['right', '向右'],
+                  ] as const
+                ).map(([direction, label]) => (
+                  <button
+                    key={direction}
+                    type="button"
+                    className={behavior.direction === direction ? 'selected' : ''}
+                    aria-pressed={behavior.direction === direction}
+                    onClick={() =>
+                      onUpdate(current => (current.type === 'wheel' ? { ...current, direction } : current))
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : behavior.type === 'cursorMove' ? (
+            <>
+              <div className="settings-form-fields behavior-dialog-form">
+                <div className="settings-form-row">
+                  <span className="settings-form-label" id="behavior-cursor-direction-label">
+                    移动方向：
+                  </span>
+                  <div className="settings-form-control">
+                    <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
+                      {(
+                        [
+                          ['up', '向上'],
+                          ['down', '向下'],
+                          ['left', '向左'],
+                          ['right', '向右'],
+                        ] as const
+                      ).map(([direction, label]) => {
+                        const selected = behavior.direction === direction
+                        return (
+                          <button
+                            key={direction}
+                            type="button"
+                            className={selected ? 'selected' : ''}
+                            aria-pressed={selected}
+                            onClick={() =>
+                              onUpdate(current => (current.type === 'cursorMove' ? { ...current, direction } : current))
+                            }
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">
+                      从当前光标位置相对移动，不会跳到固定坐标。
+                    </SettingsHelp>
+                  </div>
+                </div>
+                <div className="settings-form-row">
+                  <label className="settings-form-label" htmlFor="behavior-cursor-distance">
+                    移动距离：
+                  </label>
+                  <div className="settings-form-control">
+                    <input
+                      id="behavior-cursor-distance"
+                      className="settings-number"
+                      type="number"
+                      min="1"
+                      max={maxCursorDistance}
+                      step="1"
+                      value={behavior.distance}
+                      onChange={event =>
+                        onUpdate(current =>
+                          current.type === 'cursorMove'
+                            ? {
+                                ...current,
+                                distance: Math.max(
+                                  1,
+                                  Math.min(maxCursorDistance, Math.round(Number(event.target.value)) || 1),
+                                ),
+                              }
+                            : current,
+                        )
+                      }
+                    />
+                    <span>像素</span>
+                    <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">
+                      {button.contextLabel
+                        ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
+                        : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}
+                    </SettingsHelp>
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : behavior.type === 'switchProfile' ? (
+            <div className="settings-form-fields behavior-dialog-form">
+              <div className="settings-form-row">
+                <span className="settings-form-label" id="behavior-profile-direction-label">
+                  切换到：
+                </span>
+                <div className="settings-form-control">
+                  <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-profile-direction-label">
+                    {(
+                      [
+                        ['previous', '上一个'],
+                        ['next', '下一个'],
+                      ] as const
+                    ).map(([direction, label]) => (
+                      <button
+                        key={direction}
+                        type="button"
+                        className={behavior.direction === direction ? 'selected' : ''}
+                        aria-pressed={behavior.direction === direction}
+                        onClick={() =>
+                          onUpdate(current => (current.type === 'switchProfile' ? { ...current, direction } : current))
+                        }
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="settings-form-row">
+                <span className="settings-form-label">循环切换：</span>
+                <div className="settings-form-control">
+                  <label className="settings-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={behavior.wrap}
+                      onChange={event =>
+                        onUpdate(current =>
+                          current.type === 'switchProfile' ? { ...current, wrap: event.target.checked } : current,
+                        )
+                      }
+                    />
+                    到边缘自动循环
+                  </label>
+                </div>
+              </div>
+            </div>
+          ) : launchBehavior ? (
+            <div className="behavior-dialog-field">
+              <div className="behavior-launch-label">
+                <label htmlFor="behavior-launch-target">{behavior.type === 'openApp' ? '应用路径' : '网站地址'}</label>
+                <SettingsHelp id="behavior-launch-help" label={behavior.type === 'openApp' ? '应用路径' : '网站地址'}>
+                  {behavior.type === 'openApp'
+                    ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。'
+                    : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}
+                </SettingsHelp>
+              </div>
+              <div className="behavior-launch-row">
+                <input
+                  id="behavior-launch-target"
+                  className="behavior-launch-input"
+                  autoFocus={draft}
+                  value={launchTarget}
+                  placeholder={
+                    behavior.type === 'openApp'
+                      ? platform === 'macos'
+                        ? '/Applications/Safari.app'
+                        : 'C:\\Program Files\\App\\App.exe'
+                      : 'https://example.com'
+                  }
+                  spellCheck={false}
+                  aria-invalid={Boolean(launchTarget && !normalizedTarget)}
+                  aria-describedby={launchTarget && !normalizedTarget ? 'behavior-launch-error' : undefined}
+                  onChange={event => updateLaunchTarget(event.target.value)}
+                />
+                {behavior.type === 'openApp' && (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    title={nativeRuntime ? '选择应用' : '选择应用仅在桌面应用中可用'}
+                    aria-label="选择应用"
+                    disabled={!nativeRuntime || picking}
+                    onClick={() => void chooseApplication()}
+                  >
+                    <FolderOpen size={18} />
+                  </button>
+                )}
+              </div>
+              {launchTarget && !normalizedTarget && (
+                <p id="behavior-launch-error" className="behavior-launch-error" role="alert">
+                  {behavior.type === 'openApp'
+                    ? '请填写应用的完整路径（.exe、.com、.lnk 或 .app）。'
+                    : '请输入有效的 HTTP 或 HTTPS 网站地址。'}
+                </p>
+              )}
+              {pickerError && (
+                <p className="behavior-launch-error" role="alert">
+                  {pickerError}
+                </p>
+              )}
+            </div>
+          ) : behavior.type === 'paste' ? (
+            <div className="behavior-dialog-field">
+              <label htmlFor="behavior-paste-text">粘贴内容</label>
+              <textarea
+                id="behavior-paste-text"
+                className="behavior-paste-input"
+                autoFocus={draft}
+                value={behavior.text}
+                placeholder="输入要粘贴的文本"
+                onChange={event =>
+                  onUpdate(current => (current.type === 'paste' ? { ...current, text: event.target.value } : current))
+                }
               />
             </div>
-          </div>
-        </> : behavior.type === 'wheel' ? <div className="behavior-dialog-field">
-          <div className="behavior-launch-label"><span id="behavior-wheel-direction-label">滚动方向</span><SettingsHelp id="behavior-wheel-help" label="滚动方向">{button.contextLabel ? '每次触发发送一格滚轮事件。' : '每次滚动一格。仅配置一个单击滚轮行为且未配置双击或长按时，按住连续滚动，松开停止。'}</SettingsHelp></div>
-          <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-wheel-direction-label">
-            {([['up', '向上'], ['down', '向下'], ['left', '向左'], ['right', '向右']] as const).map(([direction, label]) => <button
-              key={direction}
-              type="button"
-              className={behavior.direction === direction ? 'selected' : ''}
-              aria-pressed={behavior.direction === direction}
-              onClick={() => onUpdate((current) => current.type === 'wheel' ? { ...current, direction } : current)}
-            >{label}</button>)}
-          </div>
-        </div> : behavior.type === 'cursorMove' ? <>
-          <div className="settings-form-fields behavior-dialog-form">
-            <div className="settings-form-row">
-              <span className="settings-form-label" id="behavior-cursor-direction-label">移动方向：</span>
-              <div className="settings-form-control">
-                <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
-                  {([['up', '向上'], ['down', '向下'], ['left', '向左'], ['right', '向右']] as const).map(([direction, label]) => {
-                    const selected = behavior.direction === direction
-                    return <button key={direction} type="button" className={selected ? 'selected' : ''} aria-pressed={selected} onClick={() => onUpdate((current) => current.type === 'cursorMove' ? { ...current, direction } : current)}>{label}</button>
-                  })}
-                </div>
-                <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">从当前光标位置相对移动，不会跳到固定坐标。</SettingsHelp>
-              </div>
-            </div>
-            <div className="settings-form-row">
-              <label className="settings-form-label" htmlFor="behavior-cursor-distance">移动距离：</label>
-              <div className="settings-form-control">
+          ) : behavior.type === 'delay' ? (
+            <div className="behavior-dialog-field">
+              <label htmlFor="behavior-delay-ms">等待时间</label>
+              <div className="behavior-delay-row">
                 <input
-                  id="behavior-cursor-distance"
-                  className="settings-number"
+                  id="behavior-delay-ms"
+                  className="behavior-delay-input"
+                  autoFocus={draft}
                   type="number"
-                  min="1"
-                  max={maxCursorDistance}
-                  step="1"
-                  value={behavior.distance}
-                  onChange={(event) => onUpdate((current) => current.type === 'cursorMove' ? { ...current, distance: Math.max(1, Math.min(maxCursorDistance, Math.round(Number(event.target.value)) || 1)) } : current)}
+                  min="0"
+                  max="300000"
+                  step={delayStep}
+                  value={behavior.ms}
+                  onChange={event =>
+                    onUpdate(current =>
+                      current.type === 'delay'
+                        ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) }
+                        : current,
+                    )
+                  }
                 />
-                <span>像素</span>
-                <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">{button.contextLabel
-                  ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
-                  : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}</SettingsHelp>
+                <span>毫秒</span>
               </div>
             </div>
-          </div>
-        </> : behavior.type === 'switchProfile' ? <div className="settings-form-fields behavior-dialog-form">
-          <div className="settings-form-row">
-            <span className="settings-form-label" id="behavior-profile-direction-label">切换到：</span>
-            <div className="settings-form-control">
-              <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-profile-direction-label">
-                {([['previous', '上一个'], ['next', '下一个']] as const).map(([direction, label]) => <button key={direction} type="button" className={behavior.direction === direction ? 'selected' : ''} aria-pressed={behavior.direction === direction} onClick={() => onUpdate((current) => current.type === 'switchProfile' ? { ...current, direction } : current)}>{label}</button>)}
-              </div>
+          ) : (
+            <div className="behavior-dialog-field">这个行为不需要编辑。</div>
+          )}
+          {children}
+        </div>
+        <footer className="behavior-dialog-actions">
+          {((launchBehavior && !draft && !normalizedTarget) || emptyShortcut || !draft) && (
+            <span>
+              <Check size={13} />{' '}
+              {launchBehavior && !normalizedTarget
+                ? '地址未完成，关闭保留原配置'
+                : emptyShortcut
+                  ? '请选择至少一个按键，关闭保留原配置'
+                  : '更改会自动保存'}
+            </span>
+          )}
+          {draft ? (
+            <div className="behavior-dialog-buttons">
+              <button type="button" className="dialog-secondary" onClick={onClose}>
+                取消
+              </button>
+              <button type="button" className={`button ${saveTone ?? 'primary'}`} disabled={!canSave} onClick={onSave}>
+                {saveLabel}
+              </button>
             </div>
-          </div>
-          <div className="settings-form-row">
-            <span className="settings-form-label">循环切换：</span>
-            <div className="settings-form-control">
-              <label className="settings-checkbox"><input type="checkbox" checked={behavior.wrap} onChange={(event) => onUpdate((current) => current.type === 'switchProfile' ? { ...current, wrap: event.target.checked } : current)} />到边缘自动循环</label>
-            </div>
-          </div>
-        </div> : launchBehavior ? <div className="behavior-dialog-field">
-          <div className="behavior-launch-label">
-            <label htmlFor="behavior-launch-target">{behavior.type === 'openApp' ? '应用路径' : '网站地址'}</label>
-            <SettingsHelp id="behavior-launch-help" label={behavior.type === 'openApp' ? '应用路径' : '网站地址'}>{behavior.type === 'openApp' ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。' : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}</SettingsHelp>
-          </div>
-          <div className="behavior-launch-row">
-            <input id="behavior-launch-target" className="behavior-launch-input" autoFocus={draft} value={launchTarget} placeholder={behavior.type === 'openApp' ? platform === 'macos' ? '/Applications/Safari.app' : 'C:\\Program Files\\App\\App.exe' : 'https://example.com'} spellCheck={false} aria-invalid={Boolean(launchTarget && !normalizedTarget)} aria-describedby={launchTarget && !normalizedTarget ? 'behavior-launch-error' : undefined} onChange={(event) => updateLaunchTarget(event.target.value)} />
-            {behavior.type === 'openApp' && <button type="button" className="icon-button" title={nativeRuntime ? '选择应用' : '选择应用仅在桌面应用中可用'} aria-label="选择应用" disabled={!nativeRuntime || picking} onClick={() => void chooseApplication()}><FolderOpen size={18} /></button>}
-          </div>
-          {launchTarget && !normalizedTarget && <p id="behavior-launch-error" className="behavior-launch-error" role="alert">{behavior.type === 'openApp' ? '请填写应用的完整路径（.exe、.com、.lnk 或 .app）。' : '请输入有效的 HTTP 或 HTTPS 网站地址。'}</p>}
-          {pickerError && <p className="behavior-launch-error" role="alert">{pickerError}</p>}
-        </div> : behavior.type === 'paste' ? <div className="behavior-dialog-field"><label htmlFor="behavior-paste-text">粘贴内容</label><textarea
-          id="behavior-paste-text"
-          className="behavior-paste-input"
-          autoFocus={draft}
-          value={behavior.text}
-          placeholder="输入要粘贴的文本"
-          onChange={(event) => onUpdate((current) => current.type === 'paste' ? { ...current, text: event.target.value } : current)}
-        /></div> : behavior.type === 'delay' ? <div className="behavior-dialog-field"><label htmlFor="behavior-delay-ms">等待时间</label><div className="behavior-delay-row"><input id="behavior-delay-ms" className="behavior-delay-input" autoFocus={draft} type="number" min="0" max="300000" step={delayStep} value={behavior.ms} onChange={(event) => onUpdate((current) => current.type === 'delay' ? { ...current, ms: Math.max(0, Math.min(300000, Number(event.target.value) || 0)) } : current)} /><span>毫秒</span></div></div> : <div className="behavior-dialog-field">这个行为不需要编辑。</div>}
-        {children}
-      </div>
-      <footer className="behavior-dialog-actions">
-        {(launchBehavior && !draft && !normalizedTarget || emptyShortcut || !draft) && <span><Check size={13} /> {launchBehavior && !normalizedTarget ? '地址未完成，关闭保留原配置' : emptyShortcut ? '请选择至少一个按键，关闭保留原配置' : '更改会自动保存'}</span>}
-        {draft ? <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className={`button ${saveTone ?? 'primary'}`} disabled={!canSave} onClick={onSave}>{saveLabel}</button></div> : <button type="button" className="button primary" onClick={onClose}>关闭</button>}
-      </footer>
-    </section>
-  </div>
+          ) : (
+            <button type="button" className="button primary" onClick={onClose}>
+              关闭
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
+  )
 }
 
 type SequencePasteDialogProps = {
@@ -600,46 +1278,126 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
 
   useEffect(() => {
     let active = true
-    void readClipboardText().then((text) => {
-      if (active && !edited.current && parseSequenceImport(text) !== null) setValue(text)
-    }).catch(() => {
-      if (active && !edited.current) setClipboardError('无法读取剪贴板，请手动粘贴序列。')
-    })
-    return () => { active = false }
+    void readClipboardText()
+      .then(text => {
+        if (active && !edited.current && parseSequenceImport(text) !== null) setValue(text)
+      })
+      .catch(() => {
+        if (active && !edited.current) setClipboardError('无法读取剪贴板，请手动粘贴序列。')
+      })
+    return () => {
+      active = false
+    }
   }, [])
 
-  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }} onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
-    <section className="behavior-dialog sequence-paste-dialog" role="dialog" aria-modal="true" aria-labelledby="sequence-paste-title">
-      <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="sequence-paste-title">粘贴序列</h2></div>
-        <button type="button" className="dialog-close" aria-label="关闭粘贴序列" onClick={onClose}><X size={17} /></button>
-      </header>
-      <div className="behavior-dialog-body">
-        {parsed !== null && <div className="sequence-preview behavior-list" role="region" aria-label="待应用的行为序列">
-          {parsed.length === 0 && <div className="behavior-empty">空序列，应用后将清除当前序列</div>}
-          {parsed.map((behavior, index) => <div className="behavior-item sequence-preview-item" key={behavior.id}>
-            <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
-            <div className="sequence-preview-description">
-              <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
-              {!behavior.enabled && <span className="sequence-step-disabled">已停用</span>}
-              <strong>{behavior.type === 'paste' ? behavior.text || '空文本' : behavior.type === 'openApp' ? behavior.path : behaviorSummary(behavior, platform)}</strong>
-            </div>
-          </div>)}
-        </div>}
-        <details className="sequence-source" open={parsed === null || sourceOpen} onToggle={(event) => { if (parsed !== null) setSourceOpen(event.currentTarget.open) }}>
-          <summary>{parsed === null ? '序列指令' : '查看或编辑指令'}</summary>
-          <div className="behavior-dialog-field">
-            <textarea id="sequence-paste-value" className="behavior-paste-input" aria-label="序列内容" autoFocus value={value} placeholder="粘贴序列指令，也可粘贴包含序列的分享内容" spellCheck={false} aria-invalid={invalid} aria-describedby={errorMessage ? 'sequence-paste-status' : undefined} onChange={(event) => { edited.current = true; setSourceOpen(true); setClipboardError(''); setValue(event.target.value) }} />
-            {errorMessage && <p id="sequence-paste-status" className="behavior-launch-error" role={invalid ? 'alert' : undefined}>{errorMessage}</p>}
+  return (
+    <div
+      className="behavior-dialog-backdrop"
+      role="presentation"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+      onKeyDown={event => {
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          onClose()
+        }
+      }}
+    >
+      <section
+        className="behavior-dialog sequence-paste-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sequence-paste-title"
+      >
+        <header className="behavior-dialog-head">
+          <div>
+            <span className="section-kicker">
+              {button.label} · {mappingTriggerLabel(button, trigger)}
+            </span>
+            <h2 id="sequence-paste-title">粘贴序列</h2>
           </div>
-        </details>
-      </div>
-      <footer className="behavior-dialog-actions">
-        <span>确认后替换当前序列，可撤销</span>
-        <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={parsed === null} onClick={() => { if (parsed !== null) onApply(parsed) }}>应用序列</button></div>
-      </footer>
-    </section>
-  </div>
+          <button type="button" className="dialog-close" aria-label="关闭粘贴序列" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </header>
+        <div className="behavior-dialog-body">
+          {parsed !== null && (
+            <div className="sequence-preview behavior-list" role="region" aria-label="待应用的行为序列">
+              {parsed.length === 0 && <div className="behavior-empty">空序列，应用后将清除当前序列</div>}
+              {parsed.map((behavior, index) => (
+                <div className="behavior-item sequence-preview-item" key={behavior.id}>
+                  <span className="behavior-item-index">{String(index + 1).padStart(2, '0')}</span>
+                  <div className="sequence-preview-description">
+                    <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
+                    {!behavior.enabled && <span className="sequence-step-disabled">已停用</span>}
+                    <strong>
+                      {behavior.type === 'paste'
+                        ? behavior.text || '空文本'
+                        : behavior.type === 'openApp'
+                          ? behavior.path
+                          : behaviorSummary(behavior, platform)}
+                    </strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <details
+            className="sequence-source"
+            open={parsed === null || sourceOpen}
+            onToggle={event => {
+              if (parsed !== null) setSourceOpen(event.currentTarget.open)
+            }}
+          >
+            <summary>{parsed === null ? '序列指令' : '查看或编辑指令'}</summary>
+            <div className="behavior-dialog-field">
+              <textarea
+                id="sequence-paste-value"
+                className="behavior-paste-input"
+                aria-label="序列内容"
+                autoFocus
+                value={value}
+                placeholder="粘贴序列指令，也可粘贴包含序列的分享内容"
+                spellCheck={false}
+                aria-invalid={invalid}
+                aria-describedby={errorMessage ? 'sequence-paste-status' : undefined}
+                onChange={event => {
+                  edited.current = true
+                  setSourceOpen(true)
+                  setClipboardError('')
+                  setValue(event.target.value)
+                }}
+              />
+              {errorMessage && (
+                <p id="sequence-paste-status" className="behavior-launch-error" role={invalid ? 'alert' : undefined}>
+                  {errorMessage}
+                </p>
+              )}
+            </div>
+          </details>
+        </div>
+        <footer className="behavior-dialog-actions">
+          <span>确认后替换当前序列，可撤销</span>
+          <div className="behavior-dialog-buttons">
+            <button type="button" className="dialog-secondary" onClick={onClose}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="button primary"
+              disabled={parsed === null}
+              onClick={() => {
+                if (parsed !== null) onApply(parsed)
+              }}
+            >
+              应用序列
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  )
 }
 
 type TextInputPresetDialogProps = {
@@ -651,26 +1409,73 @@ type TextInputPresetDialogProps = {
   onSave: () => void
 }
 
-export function TextInputPresetDialog({ button, trigger, value, onChange, onClose, onSave }: TextInputPresetDialogProps) {
-  return <div className="behavior-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="behavior-dialog behavior-edit-form text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="text-input-dialog-title">
-      <header className="behavior-dialog-head">
-        <div><span className="section-kicker">{button.label} · {mappingTriggerLabel(button, trigger)}</span><h2 id="text-input-dialog-title">输入文本并回车</h2></div>
-        <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}><X size={17} /></button>
-      </header>
-      <div className="behavior-dialog-body">
-        <div className="text-input-sequence" aria-label="粘贴文本，等待 30 毫秒，然后按下回车">
-          <span>粘贴文本</span><ChevronRight size={14} /><span>等待 30 毫秒</span><ChevronRight size={14} /><span>回车</span>
+export function TextInputPresetDialog({
+  button,
+  trigger,
+  value,
+  onChange,
+  onClose,
+  onSave,
+}: TextInputPresetDialogProps) {
+  return (
+    <div
+      className="behavior-dialog-backdrop"
+      role="presentation"
+      onMouseDown={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <section
+        className="behavior-dialog behavior-edit-form text-input-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="text-input-dialog-title"
+      >
+        <header className="behavior-dialog-head">
+          <div>
+            <span className="section-kicker">
+              {button.label} · {mappingTriggerLabel(button, trigger)}
+            </span>
+            <h2 id="text-input-dialog-title">输入文本并回车</h2>
+          </div>
+          <button type="button" className="dialog-close" aria-label="关闭输入文本" onClick={onClose}>
+            <X size={17} />
+          </button>
+        </header>
+        <div className="behavior-dialog-body">
+          <div className="text-input-sequence" aria-label="粘贴文本，等待 30 毫秒，然后按下回车">
+            <span>粘贴文本</span>
+            <ChevronRight size={14} />
+            <span>等待 30 毫秒</span>
+            <ChevronRight size={14} />
+            <span>回车</span>
+          </div>
+          <div className="behavior-dialog-field text-input-field">
+            <label htmlFor="text-input-preset-value">文本内容</label>
+            <textarea
+              id="text-input-preset-value"
+              className="behavior-paste-input"
+              autoFocus
+              value={value}
+              placeholder="输入要发送的文本"
+              onChange={event => onChange(event.target.value)}
+            />
+          </div>
         </div>
-        <div className="behavior-dialog-field text-input-field">
-          <label htmlFor="text-input-preset-value">文本内容</label>
-          <textarea id="text-input-preset-value" className="behavior-paste-input" autoFocus value={value} placeholder="输入要发送的文本" onChange={(event) => onChange(event.target.value)} />
-        </div>
-      </div>
-      <footer className="behavior-dialog-actions">
-        <span><Check size={13} /> 三个步骤会一起保存</span>
-        <div className="behavior-dialog-buttons"><button type="button" className="dialog-secondary" onClick={onClose}>取消</button><button type="button" className="button primary" disabled={!value.trim()} onClick={onSave}>应用行为</button></div>
-      </footer>
-    </section>
-  </div>
+        <footer className="behavior-dialog-actions">
+          <span>
+            <Check size={13} /> 三个步骤会一起保存
+          </span>
+          <div className="behavior-dialog-buttons">
+            <button type="button" className="dialog-secondary" onClick={onClose}>
+              取消
+            </button>
+            <button type="button" className="button primary" disabled={!value.trim()} onClick={onSave}>
+              应用行为
+            </button>
+          </div>
+        </footer>
+      </section>
+    </div>
+  )
 }

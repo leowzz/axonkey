@@ -23,7 +23,7 @@ import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
-import { Check, Info, X } from 'lucide-react'
+import { Check, Info } from 'lucide-react'
 import { RedoCircle, UndoCircle } from 'reicon-react'
 import {
   createBehavior,
@@ -90,12 +90,9 @@ import type {
 } from '../appTypes'
 import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
-import { AppHeader } from '../components/AppHeader'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
-import type { DeviceOverviewItem } from '../components/MyDevicesPage'
-import { DeviceIntegrationDialog } from '../components/DeviceIntegrationDialog'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../devices/registry'
@@ -103,7 +100,6 @@ import { deviceSettingsPages } from '../devices/pages'
 import type { DeviceId } from '../deviceModel'
 import { mouseInputs } from '../components/MouseMapping'
 import type { DeviceStatus } from '../components/DeviceRail'
-import { MappingOverview } from '../components/MappingOverview'
 import { ProfileManager } from '../components/ProfileManager'
 import { MappingOptions } from '../components/MappingOptions'
 import { ProfileImportDialog } from '../components/ProfileImportDialog'
@@ -149,14 +145,10 @@ function AppController() {
     const firstInput = device.inputIds[0]
     const validInput = device.inputIds.includes(stored.selectedBehavior.buttonId)
     const validActive = device.inputKind === 'button' && device.inputIds.includes(stored.activeId)
-    const validOverview = device.inputKind === 'button' && device.inputIds.includes(stored.overviewSelection.buttonId)
     return {
       ...stored,
       selectedBehavior: validInput ? stored.selectedBehavior : { buttonId: firstInput, trigger: 'click' },
       activeId: validActive ? stored.activeId : device.inputKind === 'button' ? (firstInput as ButtonId) : 'power',
-      overviewSelection: validOverview
-        ? stored.overviewSelection
-        : { buttonId: firstInput as ButtonId, trigger: 'click' },
     }
   })
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
@@ -240,7 +232,6 @@ function AppController() {
   const [draftBehavior, setDraftBehavior] = useState<DraftBehaviorState | null>(null)
   const [textInputDraft, setTextInputDraft] = useState<string | null>(null)
   const [sequencePasteOpen, setSequencePasteOpen] = useState(false)
-  const [deviceIntegrationOpen, setDeviceIntegrationOpen] = useState(false)
   const [pendingProfileSwitch, setPendingProfileSwitch] = useState<{
     inputId: InputId
     trigger: TriggerType
@@ -258,7 +249,7 @@ function AppController() {
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
+  const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
   const navigateToPage = (page: AppPage) => {
     if (page === 'mapping') setMappingStyle('flow')
@@ -267,9 +258,6 @@ function AppController() {
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
-  const [overviewSelection, setOverviewSelection] = useState<{ buttonId: ButtonId; trigger: TriggerType }>(
-    initialUiState.overviewSelection,
-  )
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [setupState, setSetupState] = useState<SetupState>(loadSetupState)
   const [setupOpen, setSetupOpen] = useState(false)
@@ -307,7 +295,6 @@ function AppController() {
     activeId,
     selectedBehavior,
     settingsSection,
-    overviewSelection,
     scrollTop: pageScrollTopRef.current,
   }
 
@@ -317,21 +304,11 @@ function AppController() {
 
   useEffect(() => {
     persistUiState()
-  }, [
-    activePage,
-    sidebarCollapsed,
-    selectedDeviceId,
-    activeId,
-    selectedBehavior,
-    settingsSection,
-    overviewSelection,
-    persistUiState,
-  ])
+  }, [activePage, sidebarCollapsed, selectedDeviceId, activeId, selectedBehavior, settingsSection, persistUiState])
 
   useEffect(() => {
-    const mainElement = mainContentRef.current
-    if (!mainElement) return
-    const mainContent = mainElement.querySelector<HTMLElement>('.my-devices-page') ?? mainElement
+    const mainContent = mainContentRef.current
+    if (!mainContent) return
     const page = activePage
     const restoreFrame = window.requestAnimationFrame(() => {
       mainContent.scrollTop = pageScrollTopRef.current[page] ?? 0
@@ -1800,49 +1777,6 @@ function AppController() {
         },
       }
 
-  const mouseAuthorized =
-    platform === 'windows' ||
-    (platform === 'macos' &&
-      systemProbeState === 'ready' &&
-      macPermissions.inputMonitoring &&
-      macPermissions.accessibility &&
-      !inputAuthorizationStale)
-  const overviewDevices: DeviceOverviewItem[] = devices.map(device => ({
-    id: device.id,
-    name: device.name,
-    power:
-      device.inputKind === 'button'
-        ? {
-            kind: 'battery',
-            level: nativeRuntime && setupState.device.status === 'connected' ? displayedBatteryLevel : null,
-          }
-        : { kind: 'unavailable' },
-    profileName: profiles.find(profile => profile.id === activeProfileIds[device.id])?.name ?? '默认配置',
-    profileCount: profiles.filter(profile => profile.deviceId === device.id).length,
-    enabled: device.inputKind === 'button' ? enabled : mouseEnabled,
-    status: !nativeRuntime
-      ? { label: '浏览器预览', tone: 'neutral' }
-      : device.inputKind === 'button'
-        ? setupState.device.status === 'connected'
-          ? { label: '已连接', tone: 'ready' }
-          : setupState.device.status === 'checking'
-            ? { label: '检测中', tone: 'neutral' }
-            : { label: '未连接', tone: 'neutral' }
-        : mouseAuthorized
-          ? { label: '可用', tone: 'ready' }
-          : {
-              label:
-                systemProbeState === 'loading'
-                  ? '检测中'
-                  : systemProbeState === 'error'
-                    ? '检测失败'
-                    : platform === 'macos'
-                      ? '待设置'
-                      : '暂不支持',
-              tone: 'warning',
-            },
-  }))
-
   if (permissionHelperKind) {
     const permissionsReady = macPermissions.inputMonitoring && macPermissions.accessibility
     const activePermission = !macPermissions.inputMonitoring
@@ -1937,7 +1871,6 @@ function AppController() {
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
       )}
       <div className="app-main">
-        {activePage === 'overview' && <AppHeader context={profileControls} actions={mappingActions} />}
         <main ref={mainContentRef} key={activePage} className="main-content">
           {!enabled && !setupOpen && (
             <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
@@ -1952,23 +1885,7 @@ function AppController() {
             </section>
           )}
 
-          {activePage === 'overview' ? (
-            <MappingOverview
-              buttons={editableButtons}
-              behaviors={behaviors}
-              selection={overviewSelection}
-              onSelect={(buttonId, trigger) => setOverviewSelection({ buttonId, trigger })}
-              platform={platform}
-              enabled={enabled}
-              saveState={autoSaveState}
-              pressedId={pressedId}
-              onEdit={(buttonId, trigger) => {
-                navigateToPage('mapping')
-                selectBehaviorTarget(buttonId, trigger)
-              }}
-              remoteView={selectedDevice.remoteView}
-            />
-          ) : activePage === 'mapping' ? (
+          {activePage === 'mapping' ? (
             <MappingPageComponent
               onBackToDevices={() => navigateToPage('home')}
               onOpenSettings={() => navigateToPage('device-settings')}
@@ -2181,19 +2098,11 @@ function AppController() {
                 />
               }
               nativeRuntime={nativeRuntime}
-              onBrandClick={handleBrandClick}
               onOpenSettings={() => navigateToPage('settings')}
               onOpenPermissions={() => {
                 setSettingsSection('permissions')
                 setActivePage('settings')
               }}
-              devices={overviewDevices}
-              onSelectDevice={deviceId => {
-                const device = devices.find(item => item.id === deviceId)!
-                selectBehaviorTarget(device.inputIds[0], 'click', false)
-                navigateToPage('mapping')
-              }}
-              onIntegrate={() => setDeviceIntegrationOpen(true)}
               onOpenLogs={() => void openLogDirectory()}
               onOpenAbout={() => navigateToPage('about')}
               hasUpdate={releaseUpdate.hasUpdate}
@@ -2206,23 +2115,6 @@ function AppController() {
           <Check size={15} /> {toast}
         </div>
       )}
-      {deviceIntegrationOpen &&
-        createPortal(
-          <DeviceIntegrationDialog
-            platform={platform}
-            nativeRuntime={nativeRuntime}
-            onClose={() => setDeviceIntegrationOpen(false)}
-            onSelect={deviceId => {
-              setDeviceIntegrationOpen(false)
-              setSelectedDeviceId(deviceId)
-              if (deviceId === 'rc003' || deviceId === 'cmiotA15') openSetupStep('deviceConnection')
-              else {
-                navigateToPage('device-settings')
-              }
-            }}
-          />,
-          document.body,
-        )}
       {pendingProfileSwitch &&
         createPortal(
           <ProfileSwitchConfirmDialog

@@ -13,7 +13,7 @@ Axonkey 是本地设备映射工具，使用 React、TypeScript、Tauri 和普�
 
 | 改动 | 入口与职责 |
 | --- | --- |
-| 页面与顶层导航 | `src/components/AppHeader.tsx`、`src/app/AppController.tsx`、`src/appTypes.ts` |
+| 页面与顶层导航 | `src/app/AppController.tsx`、`src/components/HomeDashboard.tsx`、`src/devices/integration/DeviceHub.tsx`、`src/appTypes.ts` |
 | 布局与视觉 | `src/styles.css`；搜索 `.app-shell`、`.main-content` 及目标页面类名 |
 | 设置分类与控件 | `src/components/SettingsPage.tsx`、`AutostartControl.tsx`；搜索 `.settings-layout`、`.settings-form-row` |
 | 问号说明浮层 | `src/components/SettingsHelp.tsx`；搜索 `.settings-help`、`.settings-help-popover` |
@@ -25,7 +25,7 @@ Axonkey 是本地设备映射工具，使用 React、TypeScript、Tauri 和普�
 
 ## 页面结构与滚动
 
-- 顶部 `AppHeader` 与下方 `main.main-content` 是 `.app-shell` 的兄弟节点。导航独占高度，不放入页面滚动容器；页面滚动条只能从导航下方开始。
+- 页面由 `AppController` 的 `main.main-content` 承载，首页设备工作区由 `DeviceHub` 管理，公共入口位于 `HomeDashboard` 页脚。映射与设置页使用各自的工作区导航，不恢复已退役的全局 `AppHeader`。
 - 外壳占满视口，内容区通过 flex/grid 分配剩余空间。可收缩的内容容器设置 `min-height: 0`、`min-width: 0`，明确由哪一层负责滚动。不要让 body 和页面同时出现纵向滚动条。
 - 新的全页工作区默认撑满可用高度，内容少时也保留完整页面区域。用父容器分配高度，避免重复扣减导航高度；不要给每个子区块都设置 `100vh`。
 - 页面内容超出后仍须可达，不用 `overflow: hidden` 掩盖被截断的内容。映射页已有内部滚动区，可沿用；新增嵌套滚动仅用于确实独立的面板。

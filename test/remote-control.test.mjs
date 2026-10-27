@@ -108,20 +108,6 @@ test('physical press feedback stays independent of selection and clears on relea
   act(() => view.unmount())
 })
 
-test('pointer and keyboard focus notify overview highlighting without selecting a key', () => {
-  const highlighted = []
-  const { view, key, selected } = mount({ onHover: id => highlighted.push(id) })
-  act(() => {
-    key('left').props.onPointerEnter()
-    key('left').props.onPointerLeave()
-    key('tv').props.onFocus()
-    key('tv').props.onBlur()
-  })
-  assert.deepEqual(highlighted, ['left', null, 'tv', null])
-  assert.deepEqual(selected, [])
-  act(() => view.unmount())
-})
-
 test('primary pointer feedback clears on release, leaving the key, and cancellation without selecting', () => {
   const { view, key, selected } = mount()
   for (const event of [{ button: 2, isPrimary: true }, { button: 0, isPrimary: false }]) {

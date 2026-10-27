@@ -11,6 +11,7 @@ import { instanceStatusLabel, newInstance, packageFor, rc003BatteryForDevice, su
 import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
+import './DeviceCards.css'
 
 type Props = {
   controller: DeviceController

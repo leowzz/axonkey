@@ -1,0 +1,261 @@
+.my-devices-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 28px;
+}
+.my-devices-heading-main {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 18px;
+}
+.my-devices-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  color: #405b76;
+  background: transparent;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+.my-devices-brand img {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+}
+.my-devices-brand:hover {
+  color: #176fcf;
+}
+.my-devices-brand:focus-visible {
+  outline: 2px solid rgba(20, 120, 232, 0.45);
+  outline-offset: 5px;
+  border-radius: 5px;
+}
+.my-devices-heading h1 {
+  color: #354e69;
+  font-size: 25px;
+  font-weight: 650;
+  line-height: 1.35;
+  letter-spacing: -0.5px;
+}
+.my-devices-integrate {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 35px;
+  padding: 8px 12px;
+  border: 1px solid #cfddeb;
+  border-radius: 5px;
+  color: #54799e;
+  background: #fff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.my-devices-integrate:hover {
+  border-color: #94b8df;
+  background: #f3f8fe;
+  color: #2674c2;
+}
+.my-devices-integrate:focus-visible,
+.my-devices-card:focus-visible {
+  outline: 2px solid #2876c5;
+  outline-offset: 3px;
+}
+.my-devices-section-title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 13px;
+  color: #48627d;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.my-devices-section-title > span {
+  color: #8a9caf;
+  font-size: 10px;
+  font-weight: 400;
+}
+.my-devices-card {
+  appearance: none;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  flex: 0 0 auto;
+  width: min(100%, 360px);
+  min-width: 0;
+  min-height: 250px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #cfd7df;
+  border-radius: 10px;
+  color: #60758b;
+  background: #fff;
+  box-shadow: 0 2px 4px rgb(53 75 99 / 2%);
+  text-align: left;
+  transition:
+    border-color 0.16s,
+    box-shadow 0.16s;
+}
+.my-devices-card:hover {
+  border-color: #89abc9;
+  box-shadow: 0 7px 18px rgb(53 75 99 / 7%);
+}
+.my-devices-card-main {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  padding: 20px;
+}
+.my-devices-artwork {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+.my-devices-artwork img {
+  display: block;
+  width: 100%;
+  max-width: 110px;
+  height: 144px;
+  object-fit: contain;
+  filter: drop-shadow(2px 5px 3px rgb(35 49 64 / 8%));
+}
+.my-devices-identity {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.my-devices-identity > strong {
+  color: #3b5671;
+  font-size: 18px;
+  line-height: 1.45;
+  font-weight: 630;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.my-devices-count {
+  display: block;
+  margin-top: 8px;
+  color: #8b99a8;
+  font-size: 10px;
+  line-height: 1.7;
+}
+/* D2 body with D3's stacked status and battery beside the current profile. */
+.my-devices-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: 14px;
+  min-width: 0;
+  padding: 13px 20px 14px;
+  background: #f1f4f7;
+}
+.my-devices-telemetry {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+.my-devices-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #8393a7;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.my-devices-status-dot {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+.my-devices-power {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #7d8c9c;
+  font-size: 10px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.my-devices-power svg {
+  flex-shrink: 0;
+}
+.my-devices-power .battery-level {
+  color: inherit;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.my-devices-power .battery-level.low,
+.my-devices-power .battery-icon.low {
+  color: #a67632;
+  font-weight: 500;
+}
+.my-devices-power .battery-level.full,
+.my-devices-power .battery-icon.full {
+  color: #39805f;
+  font-weight: 500;
+}
+.my-devices-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  color: #8090a1;
+  font-size: 10px;
+  line-height: 1.7;
+}
+.my-devices-profile > strong {
+  min-width: 0;
+  color: #526f8c;
+  font-size: 11px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.macos-vibrancy .my-devices-card {
+  background: rgb(255 255 255 / 30%);
+  border-color: rgb(70 80 90 / 13%);
+}
+.macos-vibrancy .my-devices-summary {
+  background: rgb(95 110 130 / 6%);
+}
+.macos-vibrancy .my-devices-integrate {
+  background: rgb(255 255 255 / 44%);
+  border-color: rgb(70 80 90 / 13%);
+}
+@media (max-width: 1100px) {
+  .my-devices-heading {
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .my-devices-heading-main {
+    gap: 12px;
+  }
+  .my-devices-heading h1 {
+    font-size: 24px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .my-devices-card {
+    transition: none;
+  }
+}

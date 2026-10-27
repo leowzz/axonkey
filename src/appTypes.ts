@@ -47,7 +47,7 @@ export type MacPermissions = {
 }
 
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
-export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'device-settings' | 'about'
+export type AppPage = 'home' | 'mapping' | 'settings' | 'device-settings' | 'about'
 
 export type SystemProbe = {
   platform: Platform
