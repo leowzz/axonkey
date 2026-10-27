@@ -111,6 +111,8 @@ import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
 import { MacPermissionHelperWindow, SetupDialog } from '../components/SetupDialog'
 import { useAudioControls } from '../hooks/useAudioControls'
+import { useCableDriver } from '../hooks/useCableDriver'
+import { CableDriverDialog } from '../components/CableDriverDialog'
 import { logError, logInfo } from '../runtimeLogging'
 import {
   beginDriverAction,
@@ -206,6 +208,8 @@ function AppController() {
   const [debugMode, setDebugMode] = useState(false)
   const [driverMigrationOpen, setDriverMigrationOpen] = useState(false)
   const [legacyCleanupOpen, setLegacyCleanupOpen] = useState(false)
+  const [cableDriverOpen, setCableDriverOpen] = useState(false)
+  const cableDriver = useCableDriver(nativeRuntime && platform === 'windows')
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
   const [audioTestInstanceGain, setAudioTestInstanceGain] = useState(0)
@@ -2059,6 +2063,10 @@ function AppController() {
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
+              onOpenCableDriver={() => {
+                setCableDriverOpen(true)
+                void cableDriver.probe()
+              }}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2357,6 +2365,14 @@ function AppController() {
       )}
       {driverMigrationOpen && platform === 'windows' && (
         <DriverMigrationFlow onComplete={() => setDriverMigrationOpen(false)} />
+      )}
+      {cableDriverOpen && platform === 'windows' && (
+        <CableDriverDialog
+          controller={cableDriver}
+          nativeRuntime={nativeRuntime}
+          onOpenSound={() => void openSystemSettings('sound')}
+          onClose={() => setCableDriverOpen(false)}
+        />
       )}
       {legacyCleanupOpen && platform === 'windows' && (
         <LegacyCleanupFlow onComplete={() => setLegacyCleanupOpen(false)} />

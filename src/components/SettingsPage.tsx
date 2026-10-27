@@ -21,6 +21,7 @@ type SettingsPageProps = {
   debugMode: boolean
   onOpenDriverMigration: () => void
   onOpenLegacyCleanup: () => void
+  onOpenCableDriver: () => void
   onBack: () => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
@@ -61,6 +62,7 @@ export function SettingsPage({
   debugMode,
   onOpenDriverMigration,
   onOpenLegacyCleanup,
+  onOpenCableDriver,
   onBack,
   section,
   onSectionChange,
@@ -452,8 +454,8 @@ export function SettingsPage({
                           {managedDriverCleanup.status === 'running' ? '正在卸载设备驱动…' : '一键卸载已绑定设备驱动'}
                         </button>
                         <SettingsHelp id="settings-quarbor-cleanup-help" label="卸载 Quarbor 设备驱动">
-                          读取“我的设备”，逐台卸载已绑定的 Quarbor Universal
-                          驱动。成功后解除该设备的物理绑定并清除隐藏提醒标志，保留映射配置；失败的设备保留绑定。
+                          读取“我的设备”中的绑定设备，调用 Quarbor 安装器的 uninstall-all 一次性卸载所有 Quarbor
+                          Universal 驱动。成功后解除这些设备的物理绑定并清除隐藏提醒标志，保留映射配置；失败时保留绑定。
                         </SettingsHelp>
                       </div>
                       {managedDriverCleanup.error && (
@@ -480,47 +482,11 @@ export function SettingsPage({
                   </section>
                   <section className="settings-form-row" aria-labelledby="settings-windows-audio-label">
                     <span id="settings-windows-audio-label" className="settings-form-label">
-                      CABLE Input：
+                      虚拟麦克风：
                     </span>
                     <div className="settings-form-control">
-                      <span
-                        className={`settings-permission-status ${nativeRuntime && audioInstalled && !audioBusy ? 'granted' : ''}`}
-                      >
-                        {audioStatus}
-                      </span>
-                      <button
-                        type="button"
-                        className={`dialog-secondary ${audioInstalled ? 'danger' : ''}`}
-                        disabled={!nativeRuntime || audioBusy}
-                        onClick={() => onAudioAction(audioInstalled ? 'uninstall' : 'install')}
-                      >
-                        {audioInstalled ? '卸载' : '安装驱动'}
-                      </button>
-                      <button
-                        type="button"
-                        className="dialog-secondary"
-                        disabled={!nativeRuntime || !audioInstalled || audioBusy}
-                        aria-busy={audioRestarting}
-                        onClick={onRestartAudio}
-                      >
-                        {audioRestarting ? '重启中…' : '重启驱动'}
-                      </button>
-                      <button
-                        type="button"
-                        className="dialog-secondary"
-                        disabled={!nativeRuntime || audioBusy}
-                        onClick={onProbeAudio}
-                      >
-                        <RotateCcw size={14} />
-                        重新检测
-                      </button>
-                      <button
-                        type="button"
-                        className="dialog-secondary"
-                        disabled={!nativeRuntime || audioBusy}
-                        onClick={onOpenSound}
-                      >
-                        声音设置
+                      <button type="button" className="dialog-secondary" onClick={onOpenCableDriver}>
+                        管理 CABLE 驱动
                         <ExternalLink size={14} />
                       </button>
                     </div>
