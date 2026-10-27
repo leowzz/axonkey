@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { Settings2, SlidersHorizontal, Speaker, X } from 'lucide-react'
+import { ChevronDown, Settings2, SlidersHorizontal, Speaker, X } from 'lucide-react'
 import type { MacPermissions, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -457,16 +457,23 @@ export function InstanceWorkspace({
                         {instance.kind === 'cmiotA15' && platform === 'windows' && (
                           <label className="settings-form-row">
                             <span className="settings-form-label">语音录制：</span>
-                            <select
-                              value={instance.cmiotA15RecordingMode ?? 'hold'}
-                              onChange={event => {
-                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                                update(item => ({ ...item, cmiotA15RecordingMode }))
-                              }}
-                            >
-                              <option value="hold">按住录音，松开停止</option>
-                              <option value="click">点击开始，再次点击停止</option>
-                            </select>
+                            <span className="settings-form-control">
+                              <span className="manual-key-select cmiot-recording-select">
+                                <select
+                                  value={instance.cmiotA15RecordingMode ?? 'hold'}
+                                  onChange={event => {
+                                    const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                    update(item => ({ ...item, cmiotA15RecordingMode }))
+                                  }}
+                                >
+                                  <option value="hold">按住录音，松开停止</option>
+                                  <option value="click">点击开始，再次点击停止</option>
+                                </select>
+                                <span className="manual-key-select-icon" aria-hidden="true">
+                                  <ChevronDown size={14} />
+                                </span>
+                              </span>
+                            </span>
                           </label>
                         )}
                         <label className="settings-form-row">

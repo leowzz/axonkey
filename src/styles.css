@@ -5900,6 +5900,16 @@ body:has(.audio-test-dialog[open]) {
 .xiaomi-output-fields {
   margin-top: 24px;
 }
+.cmiot-recording-select {
+  width: 240px;
+  max-width: 100%;
+  height: 32px;
+  border-radius: 6px;
+}
+.cmiot-recording-select select {
+  padding: 0 32px 0 10px;
+  font-weight: 400;
+}
 .xiaomi-output-select {
   width: 320px;
   max-width: 100%;

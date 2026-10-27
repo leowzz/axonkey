@@ -1,4 +1,4 @@
-import { CircleHelp, Settings2, Speaker } from 'lucide-react'
+import { ChevronDown, CircleHelp, Settings2, Speaker } from 'lucide-react'
 import { useState } from 'react'
 import { VoiceOutput } from '../xiaomi-remote/settings/VoiceOutput'
 import type { DeviceSettingsPageProps } from '../types'
@@ -52,17 +52,24 @@ export function CmiotA15SettingsPage({
             <div className="settings-form-fields">
               <div className="settings-form-row">
                 <label className="settings-form-label" htmlFor="cmiot-a15-recording-mode">
-                  录音模式：
+                  语音录制：
                 </label>
                 <div className="settings-form-control">
-                  <select
-                    id="cmiot-a15-recording-mode"
-                    value={cmiotA15RecordingMode}
-                    onChange={event => onCmiotA15RecordingModeChange(event.target.value === 'click' ? 'click' : 'hold')}
-                  >
-                    <option value="hold">长按录音</option>
-                    <option value="click">点击录音</option>
-                  </select>
+                  <div className="manual-key-select cmiot-recording-select">
+                    <select
+                      id="cmiot-a15-recording-mode"
+                      value={cmiotA15RecordingMode}
+                      onChange={event =>
+                        onCmiotA15RecordingModeChange(event.target.value === 'click' ? 'click' : 'hold')
+                      }
+                    >
+                      <option value="hold">按住录音，松开停止</option>
+                      <option value="click">点击开始，再次点击停止</option>
+                    </select>
+                    <span className="manual-key-select-icon" aria-hidden="true">
+                      <ChevronDown size={14} />
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
