@@ -242,6 +242,15 @@ export function InstanceWorkspace({
   const driverRunning = currentDriverAction?.status === 'running'
   const driverRestartRequired = currentDriverAction?.status === 'restartRequired'
   const driverInstalled = status?.driverInstalled === true
+  const driverCommunicationError =
+    native &&
+    platform === 'windows' &&
+    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
+    instance.binding &&
+    driverInstalled &&
+    !deviceOffline
+      ? status?.error
+      : null
   const driverBusy = driverAction?.status === 'running'
   return (
     <div
@@ -277,6 +286,7 @@ export function InstanceWorkspace({
         />
         {(deviceOffline ||
           driverRestartRequired ||
+          driverCommunicationError ||
           (!instance.hideDriverMissingReminder && (driverMissing || currentDriverAction))) && (
           <div
             ref={driverNoticeRef}
@@ -294,7 +304,10 @@ export function InstanceWorkspace({
                     ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
                     : driverRunning
                       ? '正在安装按键驱动，请完成 Windows 管理员授权…'
-                      : (currentDriverAction?.error ?? '按键驱动未安装，安装后即可使用此设备的按键映射。')}
+                      : (currentDriverAction?.error ??
+                        (driverCommunicationError
+                          ? `驱动错误：${driverCommunicationError}`
+                          : '按键驱动未安装，安装后即可使用此设备的按键映射。'))}
             </span>
             {!deviceOffline && !driverRestartRequired && (
               <button
@@ -313,7 +326,7 @@ export function InstanceWorkspace({
                         : '安装驱动'}
               </button>
             )}
-            {!deviceOffline && !driverRestartRequired && (
+            {!deviceOffline && !driverRestartRequired && !driverCommunicationError && (
               <button
                 type="button"
                 className="managed-driver-notice-close"
@@ -400,7 +413,7 @@ export function InstanceWorkspace({
           )}
         </aside>
         <section className="mapping-main" aria-label="设备映射流程图工作区">
-          {status?.error && (
+          {status?.error && !driverCommunicationError && (
             <p role="alert" className="managed-error">
               {status.error}
             </p>

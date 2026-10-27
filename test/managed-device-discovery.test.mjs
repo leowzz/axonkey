@@ -262,6 +262,38 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
     assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
 
+    const communicationError = 'Quarbor Universal connect (BTHLEDEVICE\\device): 系统找不到指定的文件。(os error 2)'
+    for (const kind of ['rc003', 'cmiotA15']) {
+      act(() => {
+        instances[0] = { ...instances[0], kind, hideDriverMissingReminder: true }
+        snapshot.runtime.one = { state: 'disconnected', driverState: 'connecting', driverInstalled: true, error: communicationError }
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
+      const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
+      assert.ok(text(notice).includes(communicationError))
+      const button = notice.findByType('button')
+      assert.equal(text(button), '重新安装驱动')
+      assert.equal(button.props.disabled, false)
+      assert.equal(views[0].root.findAllByProps({ className: 'managed-error' }).length, 0, 'communication errors are shown once')
+      act(() => button.props.onClick())
+      assert.deepEqual(actions.at(-1), ['install', 'one'])
+      act(() => views[0].update(React.createElement(InstanceWorkspace, {
+        ...props(0), driverAction: { instanceId: 'two', status: 'running' },
+      })))
+      assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).findByType('button').props.disabled, true)
+      act(() => views[0].update(React.createElement(InstanceWorkspace, {
+        ...props(0), driverAction: { instanceId: 'one', status: 'running' },
+      })))
+      const runningNotice = views[0].root.findByProps({ className: 'managed-driver-notice' })
+      assert.ok(text(runningNotice).includes('正在安装'))
+      assert.equal(runningNotice.findByType('button').props.disabled, true)
+      act(() => {
+        snapshot.runtime.one = { state: 'exclusive', driverState: 'connected', driverInstalled: true, error: null }
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
+      assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    }
+
     for (const kind of ['rc003', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind, hideDriverMissingReminder: true }
