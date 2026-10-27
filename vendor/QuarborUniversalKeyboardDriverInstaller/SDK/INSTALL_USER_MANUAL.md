@@ -1,194 +1,157 @@
 # QuarborUniversalKeyboardDriverInstaller 用户手册
 
-## 1. 用途
+## 用途与部署
 
-`QuarborUniversalKeyboardDriverInstaller.exe` 用于在 Windows x64 上为指定 BLE / HID 设备安装、升级和卸载 `QuarborUniversalKeyboardDriver`。
+安装器用于为指定 BLE / HID 设备安装或卸载 `QuarborUniversalKeyboardDriver`，支持 GUI 和 UTF-8 JSON 命令行接口。目标系统为 Windows 10 1803（内部版本 17134）及以上的 x64 系统，包括 Windows 11。
 
-安装器支持两种使用方式：
+将同一次构建生成的以下文件放在同一目录：
 
-- 双击 EXE 使用图形界面；
-- 在 PowerShell、批处理或其他程序中使用命令行，并读取 UTF-8 JSON 结果。
+```text
+QuarborUniversalKeyboardDriverInstaller.exe
+QuarborUniversalKeyboardDriver.inf
+QuarborUniversalKeyboardDriver.dll
+QuarborUniversalKeyboardDriver.cat
+```
 
-支持 Windows 10 1803（内部版本 17134）及以上版本和 Windows 11。安装器只支持 x64。
+也可将三个驱动包文件放进 EXE 旁的 `QuarborUniversalKeyboardDriver` 子目录；该子目录优先。Release 使用静态 C++ 运行库，无需额外安装 VC++ 运行库，也不调用第三方安装器 EXE。
 
+安装前检查包文件、当前系统适用的 INF 安装节及 UMDF 策略；Release 还检查 CAT 签名及 INF/DLL 成员哈希。暂存后逐字节核对 DLL，确保 Windows 使用的文件与当前包一致。最终安装仍受 Windows 签名策略约束。
 
-## 2. 命令行格式
+## 图形界面
+
+无参数启动打开 GUI，支持简体中文、English、繁體中文和日本語。设备列表显示名称、实例 ID、在线/离线状态及是否已绑定本驱动。
+
+| 控件 | 行为 |
+| --- | --- |
+| 安装驱动 / 重新安装驱动 | 仅对在线设备启用；未绑定时安装，已绑定时自动先卸载该设备再安装 |
+| 卸载驱动 | 对已绑定或仍有活动恢复记录的设备启用，支持离线设备 |
+| 全部卸载 | 清理两种 Quarbor 驱动的在线/离线绑定、独立输出设备及驱动包缓存 |
+| 刷新设备 | 重新枚举设备并刷新状态 |
+
+选择已安装本驱动的设备时，按钮自动变成“重新安装驱动”，点击即可先卸载该设备，再安装当前驱动包，无需手动执行两次操作。离线设备也显示对应按钮名称，但不能安装或重装。选择包含多个 HID 集合的父接口时，需要选择具体集合。BLE 安装同时管理配套的独立输出设备；安装失败时分别尝试恢复输入和输出设备的原绑定。
+
+安装和卸载操作按需申请管理员权限；帮助和设备枚举不需要提权。GUI 的“全部卸载”有确认提示。
+
+## 启动参数
 
 ```text
 QuarborUniversalKeyboardDriverInstaller.exe <command> [arguments] [--output <new-json-file>]
 ```
 
-`--output` 指向的文件必须尚不存在。安装器使用 `CREATE_NEW` 创建文件，不会覆盖已有文件。未指定 `--output` 时，JSON 写到标准输出；如果从 PowerShell 启动 GUI 子系统 EXE，建议使用 `Start-Process -Wait -PassThru` 等待进程结束。
-
-`--silent` 是兼容参数，当前不会隐藏 UAC，也不会改变 JSON 输出。以下参数是 `--list` 的兼容别名：`--devices`、`--hid-devices`、`--hid-list`、`--get-devices`、`--get-hid-devices`、`--get-hid-device-list`、`--get-hid-device-table`、`--get-device-list` 和 `--status`。
-
-设备 ID 可以作为命令后的参数传入，也可以使用 `--device`：
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --check-upgrade "HID\VID_1234&PID_5678\7&ABC"
-.\QuarborUniversalKeyboardDriverInstaller.exe --check-upgrade --device "HID\VID_1234&PID_5678\7&ABC"
-```
-
-包含反斜杠、`&` 或空格的实例 ID 应始终放在引号中。
-
-### 3.1 查看帮助
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --help
-```
-
-帮助操作只读，不请求 UAC。
-
-### 3.2 获取版本
-
-获取当前目录驱动包版本和所有设备的已安装版本：
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --version
-```
-
-查询指定设备：
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --version --device "<instance-id>"
-```
-
-结果中的 `packageVersion` 是当前 DLL 的四段版本，例如 `0.9.1.0`；`devices[].driverVersion` 是 Windows 设备属性中的已安装版本。
-
-### 3.3 检查是否有升级
-
-检查所有设备：
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --check-upgrade --output check.json
-```
-
-检查指定设备：
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --check-upgrade --device "<instance-id>"
-```
-
-查询不会修改设备，也不会请求 UAC。判断规则如下：
-
-| `upgradeStatus` | 含义 |
+| 命令 | 用途 |
 | --- | --- |
-| `available` | 设备在线、已绑定本驱动，且已安装版本低于当前包 |
-| `up_to_date` | 版本相同 |
-| `installed_newer` | 设备版本高于当前包，不执行降级 |
-| `offline` | 设备版本较低，但当前离线 |
-| `not_installed` | 设备尚未绑定本驱动 |
-| `version_unknown` | 已安装版本不是有效的四段数字 |
-| `package_unknown` | 仅用于兼容普通列表查询；显式版本查询读取包失败会直接返回错误 |
+| `--help` | 显示帮助，必须单独使用 |
+| `--list` | 枚举支持的在线/离线设备，无需本地驱动包 |
+| `--install "<instance-id>"` | 安装指定在线设备；已绑定本驱动时先卸载该设备，再重新安装 |
+| `--uninstall "<instance-id>"` | 卸载指定设备，支持离线 |
+| `--uninstall-all` | 全部卸载并清理两种驱动的缓存 |
 
-顶层 `upgradeAvailable` 和 `upgradeCount` 是当前查询范围的汇总。只有 `upgradeAvailable=true` 时才建议执行升级。
+每次只能指定一个命令。安装和卸载也支持 `--device "<instance-id>"`，不能与位置参数重复指定设备。实例 ID 从列表的 `instanceId` 字段获取，并始终放在引号中；离线设备可使用之前保存的 ID 或列表中的离线记录。
 
-### 3.4 安装驱动
+`--devices`、`--hid-devices`、`--hid-list`、`--get-devices`、`--get-hid-devices`、`--get-hid-device-list`、`--get-hid-device-table`、`--get-device-list`、`--status` 均为 `--list` 的别名。
+
+`--silent` 是兼容参数，不绕过 UAC，也不改变 JSON 输出。CLI 不弹出 GUI 的全部卸载确认框或重启提示框。
+
+`--output` 指定的文件必须尚不存在，父目录必须已存在；安装器不会覆盖文件。未指定时，JSON 写入标准输出。PowerShell 调用 GUI 子系统 EXE 时建议用 `Start-Process -Wait -PassThru` 等待完成后读取结果。
+
+## 重新安装
+
+继续使用安装命令即可，位置参数和 `--device` 两种形式等价：
 
 ```powershell
 .\QuarborUniversalKeyboardDriverInstaller.exe --install "<instance-id>"
+.\QuarborUniversalKeyboardDriverInstaller.exe --install --device "<instance-id>"
 ```
 
-首次安装会保存原驱动恢复信息，只绑定选择的设备。BLE 设备还会创建或更新 Quarbor 独立键盘、Consumer Control 和鼠标输出设备。
+安装器根据设备是否已绑定本驱动决定是否先卸载，不读取或比较驱动版本。同一驱动包也可以重复安装。重装仅处理所选设备及其配套输出设备，不触发“全部卸载”或全局缓存清理。
 
-如果指定设备已经绑定本驱动且当前包版本更高，`--install` 会自动按升级流程处理；同版本或更高版本不会强制重装。需要明确升级时使用 `--upgrade`。
+重装先校验当前包及暂存 DLL，再调用单设备卸载逻辑。卸载失败时不继续安装；成功后重新读取设备信息并安装，保留可恢复到原驱动的记录。若后续安装失败，会报告安装阶段错误，并尝试回退到卸载后的原驱动状态。
 
-### 3.5 升级指定设备
+如果卸载阶段要求重启，当前操作返回 **3010**，`installationState` 为 **`restart_before_install`**，表示尚未执行新安装。请重启 Windows 后，再对同一设备执行安装命令或点击安装按钮；程序不会自动续装。若安装阶段要求重启，则安装已提交，重启即可完成。
+
+## 卸载范围
+
+普通卸载只处理所选通用键盘设备及配套输出设备。在线设备恢复原驱动；离线设备清理本驱动的过滤器注册并移除离线节点，保留其他厂商的过滤器。设备重新连接后由 Windows 重新枚举并选择驱动。
+
+“全部卸载”和 `--uninstall-all` 共用流程：
+
+1. 卸载通用键盘驱动的在线/离线绑定，清理独立输出设备及 Driver Store 包。
+2. 卸载 `QuarborHIDFilterUserDriver` 的在线/离线绑定，清理其 Driver Store 包。
+
+第一阶段失败时停止后续阶段，以保留恢复原驱动可能需要的包。失败或需要重启时会报告；修复问题或重启后可重试。该流程复用后端代码，不需要另一个安装器 EXE 或旧驱动源文件包。
+
+## JSON 结果和退出码
+
+所有结果包含 `version: 1`（JSON 格式标识）、`action`、`outcome`、`exitCode`、`rebootRequired` 和 `message`。`outcome` 为 `success`、`reboot_required` 或 `failed`。
+
+安装和重装的 `action` 均为 `install`。正常返回时增加 `installationState`：
+
+| 值 | 含义 |
+| --- | --- |
+| `installed` | 已提交首次安装，是否需要重启查看 `rebootRequired` |
+| `reinstalled` | 单设备卸载后已提交重新安装，是否需要重启查看 `rebootRequired` |
+| `restart_before_install` | 卸载需要重启，尚未执行新安装；重启后需再次安装 |
+
+发生错误时返回 `failed` 和非零错误码，详细原因见 `message`，不返回上述成功/待重启状态。
+
+列表查询成功时包含 `devices`；安装和卸载完成后也尽可能附带刷新后的列表。每个设备包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `instanceId`、`name`、`hardwareId` | 实例 ID、名称、硬件 ID |
+| `service`、`inf`、`section` | 当前服务、INF、安装节 |
+| `present` | 设备是否在线 |
+| `bound` | 是否已绑定通用键盘驱动 |
+| `recoverySaved`、`recoveryActive` | 恢复记录是否存在、是否仍待处理 |
+
+| 退出码 | 含义 |
+| --- | --- |
+| `0` | 成功 |
+| `3010` | 需要重启 Windows；安装命令还需检查 `installationState`，判断重启后是否须再次安装 |
+| `87` | 未知命令、参数缺失或组合错误 |
+| `1223` | 用户取消 UAC |
+| `29` | 无法创建或写入输出文件 |
+| 其他非零值 | 操作失败，查看 `message` 的 Windows 错误和诊断 |
+
+脚本应同时检查进程退出码和结果内容，不能仅凭进程启动判断成功。
+
+## PowerShell 示例
+
+获取设备列表：
 
 ```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --upgrade "<instance-id>" --output upgrade.json
+$installer = '.\QuarborUniversalKeyboardDriverInstaller.exe'
+$listPath = Join-Path $env:TEMP (([guid]::NewGuid().ToString()) + '.json')
+$process = Start-Process -FilePath $installer -ArgumentList "--list --output `"$listPath`"" -Wait -PassThru
+if ($process.ExitCode -ne 0) { throw "读取失败：$($process.ExitCode)" }
+$list = Get-Content -Raw -Encoding UTF8 $listPath | ConvertFrom-Json
+$list.devices | Format-Table name, present, bound, instanceId
 ```
 
-升级采用 Windows 的指定设备直接更新流程，保留设备实例，不先卸载回系统驱动。输入设备和 BLE 独立输出设备分别更新；如果其中一步失败，会分别尝试回退。
-
-升级成功后，安装器会检查新 INF 和版本是否已经绑定到设备，再尝试清理不再使用的旧 Quarbor 驱动包。仍被其他在线或离线设备引用、或因重启尚未完成的旧包会保留，并在 JSON 的 `cleanup` 数组中说明原因。清理失败不会撤销已经成功的升级。
-
-### 3.6 卸载指定设备
+安装或重新安装已确认的单个设备：
 
 ```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --uninstall "<instance-id>"
-```
-
-该操作恢复安装前保存的原驱动。单设备卸载不会强制删除仍可能被其他设备使用的驱动包。
-
-### 3.7 全部卸载
-
-```powershell
-.\QuarborUniversalKeyboardDriverInstaller.exe --uninstall-all --output cleanup.json
-```
-
-该操作按以下顺序执行：
-
-1. 恢复 `QuarborUniversalKeyboardDriver` 的在线和离线设备；
-2. 删除其独立输出设备并清理已发布包；
-3. 清理 `QuarborHIDFilterUserDriver` 的在线和离线设备及其 Driver Store 包。
-
-任一阶段失败都会保留必要的恢复记录和错误详情，修复问题或重启后可以重新执行。此命令需要管理员权限。
-
-## 4. JSON 结果
-
-典型查询结果结构如下：
-
-```json
-{
-  "version": 1,
-  "action": "check-upgrade",
-  "outcome": "success",
-  "exitCode": 0,
-  "rebootRequired": false,
-  "packageVersion": "0.9.1.0",
-  "upgradeAvailable": true,
-  "upgradeCount": 1,
-  "devices": [
-    {
-      "instanceId": "HID\\VID_1234&PID_5678\\7&ABC",
-      "name": "Example HID Keyboard",
-      "driverVersion": "0.9.0.0",
-      "upgradeAvailable": true,
-      "upgradeStatus": "available",
-      "present": true,
-      "bound": true,
-      "recoverySaved": true,
-      "recoveryActive": true
-    }
-  ],
-  "cleanup": []
+$deviceId = '<从列表复制的 instanceId>'
+$resultPath = Join-Path $env:TEMP (([guid]::NewGuid().ToString()) + '.json')
+$process = Start-Process -FilePath $installer -ArgumentList "--install `"$deviceId`" --output `"$resultPath`"" -Wait -PassThru
+$result = Get-Content -Raw -Encoding UTF8 $resultPath | ConvertFrom-Json
+$result
+if ($process.ExitCode -notin 0, 3010) { throw "安装失败：$($process.ExitCode)" }
+if ($result.installationState -eq 'restart_before_install') {
+    Write-Host '卸载需要重启，尚未安装。请重启 Windows 后再次运行安装命令。'
+} elseif ($process.ExitCode -eq 3010) {
+    Write-Host '安装已提交，请重启 Windows 完成。'
 }
 ```
 
-升级或安装结果还可能包含 `cleanup`：
+单设备卸载将命令改为 `--uninstall`；全部卸载使用 `--uninstall-all`，不传设备 ID。每次使用新的输出文件名。
 
-| 状态 | 含义 |
-| --- | --- |
-| `removed` | 旧包已删除 |
-| `current` | 当前或更高版本包，保留 |
-| `in_use` | 仍被设备引用，保留 |
-| `restart_required` | 重启完成前保留 |
-| `failed` | 清理失败，查看 `detail` 和 `error` |
+## 常见问题
 
-`outcome` 可能为 `success`、`success_with_warnings`、`reboot_required` 或 `failed`。`message` 包含面向用户的说明；`devices` 和 `cleanup` 适合程序读取。
-
-## 5. 退出码
-
-| 退出码 | 含义 |
-| ---: | --- |
-| `0` | 操作成功；查询成功或升级成功且无需重启 |
-| `29` | 无法创建或写入 `--output` 文件 |
-| `87` | 参数无效 |
-| `3010` | 操作已提交，但 Windows 要求重启 |
-| `1223` | 用户取消 UAC |
-| 其他 Windows 错误码 | 操作失败，详情在 JSON 的 `message` 中 |
-
-查询命令读取不到本地 DLL、INF 或 CAT 时不会返回“没有升级”，而会返回失败结果。升级返回 `3010` 时，必须在重启后再次使用 `--version` 或 `--check-upgrade` 确认设备已加载新版本。
-
-## 6. 故障排查
-
-1. **找不到驱动包**：确认 EXE、INF、DLL、CAT 在同一目录，或三个驱动文件在同名子目录。
-2. **版本读取失败**：确认 DLL 包含有效的四段文件版本，例如 `0.9.1.0`，并且 INF `DriverVer` 与其一致。
-3. **设备不在列表**：检查设备是否已经被 Windows 枚举；BLE 设备需要先确认 HID-over-GATT 服务正常。
-4. **多个 HID 集合**：不要使用父接口 ID，改用列表中具体的 HID 集合实例 ID。
-5. **升级后返回 3010**：重启 Windows，再执行 `--check-upgrade --device "<instance-id>"`。
-6. **旧包显示 `in_use`**：说明仍有其他在线或离线设备引用它；连接设备并卸载/升级，或使用“全部卸载”。
-7. **安装或升级失败**：保留 `message`、`cleanup` 和 `%SystemRoot%\INF\setupapi.dev.log` 中对应时间段的记录，不要手动删除 Driver Store 文件。
-
-安装器不会强制删除仍被设备引用的驱动包，也不会降级到低于设备当前版本的包。
+- **设备未列出**：连接后刷新，并检查系统 HID 传输驱动是否正常启动。
+- **安装或重新安装按钮不可用**：设备必须在线；连接设备后刷新列表。
+- **包检查或签名失败**：确认 INF、DLL、CAT 完整且来自同一次构建，查看详细诊断。
+- **暂存 DLL 不一致**：核对部署文件，必要时全部卸载清理缓存后重试。
+- **设备离线**：支持卸载，安装和重装需要先连接设备。
+- **返回 3010**：重启 Windows；若 `installationState=restart_before_install`，重启后还需再次安装。
+- **操作失败**：保留 `message` 和 `%SystemRoot%\INF\setupapi.dev.log` 中对应时段的记录，不要手动删除 Driver Store 文件。
