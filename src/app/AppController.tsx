@@ -79,6 +79,7 @@ import type {
   CommonBehaviorPreset,
   DraftBehaviorState,
   DriverActionResult,
+  ManagedDriverAction,
   MacPermissionKind,
   MacPermissions,
   Platform,
@@ -117,6 +118,7 @@ import {
   setDriverStatus,
 } from '../systemState'
 import type { DriverActionKind, DriverKind, SystemState } from '../systemState'
+import { managedDriverInstallMessage } from '../systemState'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { save } from '@tauri-apps/plugin-dialog'
@@ -253,11 +255,7 @@ function AppController() {
   const releaseUpdate = useReleaseUpdate(activePage, debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
   const [managedDriverCleanupOpen, setManagedDriverCleanupOpen] = useState(false)
-  const [managedDriverAction, setManagedDriverAction] = useState<{
-    instanceId: string
-    status: 'idle' | 'running' | 'error'
-    error?: string
-  } | null>(null)
+  const [managedDriverAction, setManagedDriverAction] = useState<ManagedDriverAction | null>(null)
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(
     nativeRuntime ? 'loading' : 'ready',
   )
@@ -1250,10 +1248,13 @@ function AppController() {
       await deviceInstances.refresh()
       await new Promise(resolve => window.setTimeout(resolve, 900))
       await deviceInstances.refresh()
-      setManagedDriverAction(null)
-      setToast(
-        result.rebootRequired ? '该设备驱动已安装，重启 Windows 后完成接管' : '该设备的 Quarbor Universal 驱动已安装',
+      const message = managedDriverInstallMessage(result)
+      setManagedDriverAction(
+        result.installationState === 'restart_before_install'
+          ? { instanceId, status: 'restartRequired', message }
+          : null,
       )
+      setToast(message)
       window.setTimeout(() => setToast(''), 3200)
     } catch (error) {
       setManagedDriverAction(current => (current ? { ...current, status: 'error', error: String(error) } : current))

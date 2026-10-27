@@ -943,6 +943,23 @@ fn remember_pairing_ids(
 }
 
 #[cfg(windows)]
+fn driver_connection_state(
+    target: Option<&str>,
+    installed: bool,
+    capture_active: bool,
+) -> &'static str {
+    if target.is_none() {
+        "offline"
+    } else if !installed {
+        "missing"
+    } else if capture_active {
+        "connected"
+    } else {
+        "connecting"
+    }
+}
+
+#[cfg(windows)]
 pub(crate) fn driver_target(
     instance: &Instance,
     instances: &[Instance],
@@ -1099,7 +1116,7 @@ fn run(shared: Arc<Shared>) {
         if scanning {
             next_scan = Instant::now() + Duration::from_secs(2);
             #[cfg(all(windows, not(test)))]
-            let driver_error = match crate::windows_driver_devices::list() {
+            let driver_error = match crate::windows_driver_devices::list_present() {
                 Ok(devices) => {
                     driver_devices = devices;
                     None
@@ -1336,24 +1353,18 @@ fn run(shared: Arc<Shared>) {
                     .as_ref()
                     .and_then(|registry| registry.status(&instance.id));
                 status.driver_installed = installed;
-                status.driver_state = if !installed {
-                    "missing"
-                } else if target.is_none() {
-                    "disconnected"
-                } else if service
+                let capture_active = service
                     .as_ref()
-                    .is_some_and(|service| service.capture_active)
-                {
-                    "connected"
-                } else {
-                    "connecting"
-                }
-                .into();
+                    .is_some_and(|service| service.capture_active);
+                status.driver_state =
+                    driver_connection_state(target.as_deref(), installed, capture_active).into();
                 status.recording = service
                     .as_ref()
                     .is_some_and(|service| service.cmiot_a15_recording);
                 if enabled && instance.enabled && instance.binding.is_some() {
-                    status.state = if !installed {
+                    status.state = if target.is_none() {
+                        "disconnected"
+                    } else if !installed {
                         "driverMissing"
                     } else if service
                         .as_ref()
@@ -1364,7 +1375,9 @@ fn run(shared: Arc<Shared>) {
                         "disconnected"
                     }
                     .into();
-                    status.error = service.and_then(|service| service.error);
+                    if target.is_some() {
+                        status.error = service.and_then(|service| service.error);
+                    }
                 }
                 statuses.insert(instance.id.clone(), status);
                 continue;
@@ -1953,6 +1966,25 @@ mod tests {
         cancel.store(true, Ordering::Release);
         assert!(!actions_current(&manager.shared, &second, &cancel));
     }
+    #[test]
+    #[cfg(windows)]
+    fn driver_connection_checks_presence_before_installation_or_capture() {
+        assert_eq!(driver_connection_state(None, false, false), "offline");
+        assert_eq!(driver_connection_state(None, true, true), "offline");
+        assert_eq!(
+            driver_connection_state(Some("device"), false, false),
+            "missing"
+        );
+        assert_eq!(
+            driver_connection_state(Some("device"), true, false),
+            "connecting"
+        );
+        assert_eq!(
+            driver_connection_state(Some("device"), true, true),
+            "connected"
+        );
+    }
+
     #[test]
     #[cfg(windows)]
     fn a15_discovery_and_driver_resolution_stay_with_each_physical_device() {

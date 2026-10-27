@@ -70,6 +70,7 @@ pub(crate) struct Reply {
     outcome: String,
     pub exit_code: i32,
     pub reboot_required: bool,
+    pub installation_state: Option<crate::DriverInstallationState>,
     message: String,
     #[serde(default)]
     pub devices: Vec<Device>,
@@ -266,7 +267,7 @@ pub(crate) fn run_for_device(
     resource_dir: &Path,
     target: &str,
     log: &Path,
-) -> Result<bool, String> {
+) -> Result<Reply, String> {
     if !matches!(action, "install" | "uninstall") {
         return Err("不支持的 Quarbor 驱动操作。".into());
     }
@@ -274,8 +275,7 @@ pub(crate) fn run_for_device(
         return Err("未找到该设备对应的 Quarbor 设备节点。".into());
     }
     let exe = find(resource_dir)?;
-    let reply = invoke(&exe, action, Some(target), Some(log))?;
-    Ok(reply.reboot_required || reply.exit_code == 3010)
+    invoke(&exe, action, Some(target), Some(log))
 }
 
 #[cfg(test)]
@@ -378,6 +378,38 @@ mod tests {
         )];
         let matched = target_for_bluetooth_address(&devices, "C0:5D:39:C2:CF:83", "rc003");
         assert_eq!(matched.map(|(_, installed)| installed), Some(true));
+    }
+
+    #[test]
+    fn preserves_installation_state_including_restart_before_install() {
+        use crate::DriverInstallationState::*;
+        for (state, expected, code) in [
+            ("installed", Installed, 0),
+            ("reinstalled", Reinstalled, 0),
+            ("installed", Installed, 3010),
+            ("reinstalled", Reinstalled, 3010),
+            ("restart_before_install", RestartBeforeInstall, 3010),
+        ] {
+            let bytes = serde_json::to_vec(&serde_json::json!({
+                "version": 1, "action": "install",
+                "outcome": if code == 3010 { "reboot_required" } else { "success" },
+                "exitCode": code, "rebootRequired": code == 3010,
+                "installationState": state, "message": "done"
+            }))
+            .unwrap();
+            let reply = decode_reply(&bytes, Some(code), "install").unwrap();
+            assert_eq!(reply.installation_state, Some(expected));
+            assert_eq!(reply.reboot_required, code == 3010);
+            let result = crate::DriverActionResult {
+                log_path: "driver.log".into(),
+                reboot_required: reply.reboot_required,
+                installation_state: reply.installation_state,
+            };
+            assert_eq!(
+                serde_json::to_value(result).unwrap()["installationState"],
+                state
+            );
+        }
     }
 
     #[test]

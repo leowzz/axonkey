@@ -1,3 +1,15 @@
+import type { DriverActionResult } from './appTypes'
+
+export function managedDriverInstallMessage(result: DriverActionResult): string {
+  if (result.installationState === 'restart_before_install') {
+    return '卸载需要重启，尚未执行新安装。请重启 Windows 后再次安装此设备的驱动。'
+  }
+  const action = result.installationState === 'reinstalled' ? '重新安装' : '安装'
+  return result.rebootRequired
+    ? `该设备驱动已提交${action}，请重启 Windows 完成。`
+    : `该设备的 Quarbor Universal 驱动已${action}。`
+}
+
 export type DriverKind = 'input' | 'audio'
 
 export type DriverStatus = 'unknown' | 'checking' | 'missing' | 'installed' | 'restartRequired' | 'error'

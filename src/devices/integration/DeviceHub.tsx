@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
-import type { MacPermissions, Platform } from '../../appTypes'
+import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../../deviceModel'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { migrateLegacyProfiles } from './instanceProfiles'
@@ -23,7 +23,7 @@ type Props = {
   onLegacy: (id: DeviceId) => void
   onOpenAudioCalibration: (instanceId: string) => void
   onOpenAudioDriver: () => void
-  driverAction: { instanceId: string; status: 'idle' | 'running' | 'error'; error?: string } | null
+  driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>

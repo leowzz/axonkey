@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal, Speaker, X } from 'lucide-react'
-import type { MacPermissions, MappingInput, Platform } from '../../appTypes'
+import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
@@ -47,7 +47,7 @@ type Props = {
   onRemoveDevice: (instanceId: string) => Promise<void>
   onOpenAudioCalibration: (instanceId: string) => void
   onOpenAudioDriver: () => void
-  driverAction: { instanceId: string; status: 'idle' | 'running' | 'error'; error?: string } | null
+  driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
 }
@@ -227,6 +227,12 @@ export function InstanceWorkspace({
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
   const ready = status?.state === 'exclusive'
+  const deviceOffline =
+    native &&
+    platform === 'windows' &&
+    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
+    !!instance.binding &&
+    status?.driverState === 'offline'
   const driverMissing =
     native &&
     platform === 'windows' &&
@@ -234,6 +240,8 @@ export function InstanceWorkspace({
     (!instance.binding || status?.driverState === 'missing')
   const currentDriverAction = instance.binding && driverAction?.instanceId === instance.id ? driverAction : null
   const driverRunning = currentDriverAction?.status === 'running'
+  const driverRestartRequired = currentDriverAction?.status === 'restartRequired'
+  const driverInstalled = status?.driverInstalled === true
   const driverBusy = driverAction?.status === 'running'
   return (
     <div
@@ -267,7 +275,9 @@ export function InstanceWorkspace({
             />
           }
         />
-        {!instance.hideDriverMissingReminder && (driverMissing || currentDriverAction) && (
+        {(deviceOffline ||
+          driverRestartRequired ||
+          (!instance.hideDriverMissingReminder && (driverMissing || currentDriverAction))) && (
           <div
             ref={driverNoticeRef}
             className="managed-driver-notice"
@@ -276,35 +286,45 @@ export function InstanceWorkspace({
             data-dismissing={dismissingDriverNotice || undefined}
           >
             <span>
-              {!instance.binding
-                ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
-                : driverRunning
-                  ? '正在安装按键驱动，请完成 Windows 管理员授权…'
-                  : (currentDriverAction?.error ?? '按键驱动未安装，安装后即可使用此设备的按键映射。')}
+              {driverRestartRequired
+                ? currentDriverAction.message
+                : deviceOffline
+                  ? '设备不在线'
+                  : !instance.binding
+                    ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
+                    : driverRunning
+                      ? '正在安装按键驱动，请完成 Windows 管理员授权…'
+                      : (currentDriverAction?.error ?? '按键驱动未安装，安装后即可使用此设备的按键映射。')}
             </span>
-            <button
-              type="button"
-              disabled={driverBusy || dismissingDriverNotice}
-              onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
-            >
-              {!instance.binding
-                ? '绑定设备'
-                : driverRunning
-                  ? '正在安装…'
-                  : currentDriverAction?.error
-                    ? '重试安装'
-                    : '安装驱动'}
-            </button>
-            <button
-              type="button"
-              className="managed-driver-notice-close"
-              aria-label="隐藏驱动未安装提醒"
-              title="隐藏驱动未安装提醒"
-              disabled={dismissingDriverNotice}
-              onClick={() => void dismissDriverNotice()}
-            >
-              <X size={16} aria-hidden="true" />
-            </button>
+            {!deviceOffline && !driverRestartRequired && (
+              <button
+                type="button"
+                disabled={driverBusy || dismissingDriverNotice}
+                onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
+              >
+                {!instance.binding
+                  ? '绑定设备'
+                  : driverRunning
+                    ? '正在安装…'
+                    : driverInstalled
+                      ? '重新安装驱动'
+                      : currentDriverAction?.error
+                        ? '重试安装'
+                        : '安装驱动'}
+              </button>
+            )}
+            {!deviceOffline && !driverRestartRequired && (
+              <button
+                type="button"
+                className="managed-driver-notice-close"
+                aria-label="隐藏驱动未安装提醒"
+                title="隐藏驱动未安装提醒"
+                disabled={dismissingDriverNotice}
+                onClick={() => void dismissDriverNotice()}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
         <aside className="mapping-device-rail panel-surface">
@@ -488,23 +508,27 @@ export function InstanceWorkspace({
                             <strong>
                               {!native
                                 ? '预览模式'
-                                : status?.driverState === 'connected'
-                                  ? '已连接'
-                                  : status?.driverState === 'connecting'
-                                    ? '连接中'
-                                    : status?.driverState === 'missing'
-                                      ? '未安装'
-                                      : status?.driverState === 'disconnected'
-                                        ? '等待设备'
-                                        : '检测中'}
+                                : driverRestartRequired
+                                  ? '需重启后安装'
+                                  : deviceOffline
+                                    ? '设备不在线'
+                                    : status?.driverState === 'connected'
+                                      ? '已连接'
+                                      : status?.driverState === 'connecting'
+                                        ? '连接中'
+                                        : status?.driverState === 'missing'
+                                          ? '未安装'
+                                          : status?.driverState === 'disconnected'
+                                            ? '等待设备'
+                                            : '检测中'}
                             </strong>
-                            {native && status?.driverState !== 'connected' && (
+                            {native && !deviceOffline && !driverRestartRequired && (
                               <button
                                 type="button"
                                 disabled={driverBusy || !instance.binding}
                                 onClick={() => onInstallDriver(instance.id)}
                               >
-                                安装或重试
+                                {driverRunning ? '正在安装…' : driverInstalled ? '重新安装驱动' : '安装驱动'}
                               </button>
                             )}
                           </div>

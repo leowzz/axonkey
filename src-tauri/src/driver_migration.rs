@@ -357,7 +357,10 @@ mod windows {
     trait Operations {
         fn checkpoint(&mut self, plan: &Plan) -> Result<(), String>;
         fn uninstall_all(&mut self) -> Result<bool, String>;
-        fn install(&mut self, device: &Device) -> Result<bool, String>;
+        fn install(
+            &mut self,
+            device: &Device,
+        ) -> Result<(bool, Option<crate::DriverInstallationState>), String>;
     }
 
     fn advance(plan: &mut Plan, ops: &mut impl Operations) -> Result<(), String> {
@@ -371,7 +374,12 @@ mod windows {
             if plan.installed.contains(&device.instance_id) {
                 continue;
             }
-            plan.reboot_required |= ops.install(&device)?;
+            let (reboot_required, installation_state) = ops.install(&device)?;
+            plan.reboot_required |= reboot_required;
+            if installation_state == Some(crate::DriverInstallationState::RestartBeforeInstall) {
+                ops.checkpoint(plan)?;
+                return Err("卸载需要重启，尚未执行新安装。请重启 Windows 后重新打开 Axonkey，继续安装；迁移记录已保存。".into());
+            }
             plan.installed.push(device.instance_id);
             ops.checkpoint(plan)?;
         }
@@ -402,7 +410,10 @@ mod windows {
             }
             Ok(reply.reboot_required || reply.exit_code == 3010)
         }
-        fn install(&mut self, device: &Device) -> Result<bool, String> {
+        fn install(
+            &mut self,
+            device: &Device,
+        ) -> Result<(bool, Option<crate::DriverInstallationState>), String> {
             self.state.update(
                 "running",
                 format!("正在安装新版驱动：{}", device.instance_id),
@@ -413,7 +424,10 @@ mod windows {
                 Some(&device.instance_id),
                 Some(&self.log),
             )?;
-            Ok(reply.reboot_required || reply.exit_code == 3010)
+            Ok((
+                reply.reboot_required || reply.exit_code == 3010,
+                reply.installation_state,
+            ))
         }
     }
 
@@ -603,6 +617,7 @@ mod windows {
             journal: PathBuf,
             calls: Vec<String>,
             fail: Option<String>,
+            install_result: (bool, Option<crate::DriverInstallationState>),
         }
         impl TestInstaller {
             fn new() -> Self {
@@ -617,6 +632,7 @@ mod windows {
                     )),
                     calls: vec![],
                     fail: None,
+                    install_result: (false, Some(crate::DriverInstallationState::Installed)),
                 }
             }
         }
@@ -641,13 +657,16 @@ mod windows {
                 }
                 Ok(false)
             }
-            fn install(&mut self, device: &Device) -> Result<bool, String> {
+            fn install(
+                &mut self,
+                device: &Device,
+            ) -> Result<(bool, Option<crate::DriverInstallationState>), String> {
                 assert!(load(&self.journal)?.unwrap().cleanup_done);
                 self.calls.push(device.instance_id.clone());
                 if self.fail.as_ref() == Some(&device.instance_id) {
                     return Err("install failed".into());
                 }
-                Ok(false)
+                Ok(self.install_result)
             }
         }
         fn plan() -> Plan {
@@ -662,6 +681,39 @@ mod windows {
             .unwrap()
             .unwrap()
         }
+        #[test]
+        fn restart_before_install_preserves_pending_target_and_stops_migration() {
+            let mut ops = TestInstaller::new();
+            ops.install_result = (
+                true,
+                Some(crate::DriverInstallationState::RestartBeforeInstall),
+            );
+            let error = advance(&mut plan(), &mut ops).unwrap_err();
+            assert!(error.contains("尚未执行新安装"));
+            let mut resumed = load(&ops.journal).unwrap().unwrap();
+            assert!(resumed.cleanup_done);
+            assert!(resumed.reboot_required);
+            assert!(resumed.installed.is_empty());
+            assert!(!ops.calls.iter().any(|call| call == r"BTHLEDEVICE\two"));
+            ops.calls.clear();
+            ops.install_result = (false, Some(crate::DriverInstallationState::Installed));
+            advance(&mut resumed, &mut ops).unwrap();
+            assert_eq!(resumed.installed.len(), 2);
+            assert!(!ops.calls.iter().any(|call| call == "uninstall-all"));
+            assert!(ops.calls.iter().any(|call| call == r"BTHLEDEVICE\one"));
+        }
+
+        #[test]
+        fn reboot_after_submitted_reinstallation_counts_as_installed() {
+            let mut ops = TestInstaller::new();
+            ops.install_result = (true, Some(crate::DriverInstallationState::Reinstalled));
+            let mut plan = plan();
+            advance(&mut plan, &mut ops).unwrap();
+            let saved = load(&ops.journal).unwrap().unwrap();
+            assert!(saved.reboot_required);
+            assert_eq!(saved.installed.len(), 2);
+        }
+
         #[test]
         fn cannot_uninstall_without_durable_device_list() {
             let mut ops = TestInstaller::new();

@@ -46,6 +46,18 @@ const { DeviceHub } = compile('src/devices/integration/DeviceHub.tsx', {
   './model': model,
 })
 const device = { id: 'paired-one', kind: 'xboxBluetooth', name: 'Controller', transport: 'Bluetooth', identityQuality: 'serial', vendorId: 1118, productId: 736, connected: false, paired: true }
+const { managedDriverInstallMessage } = compile('src/systemState.ts')
+
+test('installation feedback distinguishes submitted installs from reboot before installation', () => {
+  const result = { logPath: 'driver.log', rebootRequired: false, installationState: 'installed' }
+  assert.match(managedDriverInstallMessage(result), /已安装/)
+  assert.match(managedDriverInstallMessage({ ...result, installationState: 'reinstalled' }), /已重新安装/)
+  assert.match(managedDriverInstallMessage({ ...result, rebootRequired: true }), /已提交安装.*重启/)
+  assert.match(managedDriverInstallMessage({ ...result, rebootRequired: true, installationState: 'reinstalled' }), /已提交重新安装.*重启/)
+  const pending = managedDriverInstallMessage({ ...result, rebootRequired: true, installationState: 'restart_before_install' })
+  assert.match(pending, /尚未执行新安装.*重启 Windows 后再次安装/)
+  assert.doesNotMatch(pending, /已安装|已提交/)
+})
 
 test('RC003 readings are scoped to each physical device', () => {
   const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
@@ -249,6 +261,57 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
     assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
+
+    for (const kind of ['rc003', 'cmiotA15']) {
+      act(() => {
+        instances[0] = { ...instances[0], kind, hideDriverMissingReminder: true }
+        snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
+        views[0].update(React.createElement(InstanceWorkspace, {
+          ...props(0), driverAction: { instanceId: 'one', status: 'error', error: '旧的驱动错误' },
+        }))
+      })
+      const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
+      assert.equal(text(notice), '设备不在线')
+      assert.equal(notice.findAllByType('button').length, 0, 'offline devices cannot start driver installation')
+      act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+      const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
+      assert.ok(text(driverRow).includes('设备不在线'))
+      assert.equal(driverRow.findAllByType('button').length, 0)
+      act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    }
+    act(() => {
+      instances[0] = { ...instances[0], hideDriverMissingReminder: false }
+      snapshot.runtime.one = { state: 'driverMissing', driverState: 'missing', driverInstalled: false }
+      views[0].update(React.createElement(InstanceWorkspace, props(0)))
+    })
+    assert.ok(text(views[0].root.findByProps({ className: 'managed-driver-notice' })).includes('安装驱动'))
+    act(() => {
+      snapshot.runtime.one = { state: 'exclusive', driverState: 'connected', driverInstalled: true }
+      views[0].update(React.createElement(InstanceWorkspace, props(0)))
+    })
+    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    const reinstall = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' }).findByType('button')
+    assert.equal(text(reinstall), '重新安装驱动')
+    act(() => reinstall.props.onClick())
+    assert.deepEqual(actions.at(-1), ['install', 'one'], 'reinstallation uses the same device install command')
+    const message = managedDriverInstallMessage({ rebootRequired: true, installationState: 'restart_before_install' })
+    act(() => {
+      instances[0] = { ...instances[0], hideDriverMissingReminder: true }
+      snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
+      views[0].update(React.createElement(InstanceWorkspace, {
+        ...props(0), driverAction: { instanceId: 'one', status: 'restartRequired', message },
+      }))
+    })
+    assert.equal(text(views[0].root.findByProps({ className: 'managed-driver-notice' })), message)
+    assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button').length, 0)
+    assert.equal(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' }).findAllByType('button').length, 0)
+    act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    act(() => {
+      instances[0] = { ...instances[0], hideDriverMissingReminder: false }
+      snapshot.runtime.one = { state: 'driverMissing', driverState: 'missing', driverInstalled: false }
+      views[0].update(React.createElement(InstanceWorkspace, props(0)))
+    })
 
     act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
     assert.equal(views[0].root.findByType(RemoteControl).props.pressedId, null)

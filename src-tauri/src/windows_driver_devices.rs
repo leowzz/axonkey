@@ -25,8 +25,16 @@ impl Drop for DeviceSet {
 }
 
 pub(crate) fn list() -> Result<Vec<Device>, String> {
+    enumerate(DIGCF_ALLCLASSES)
+}
+
+pub(crate) fn list_present() -> Result<Vec<Device>, String> {
+    enumerate(DIGCF_ALLCLASSES | DIGCF_PRESENT)
+}
+
+fn enumerate(flags: SETUP_DI_GET_CLASS_DEVS_FLAGS) -> Result<Vec<Device>, String> {
     let set = DeviceSet(
-        unsafe { SetupDiGetClassDevsW(None, PCWSTR::null(), None, DIGCF_ALLCLASSES) }
+        unsafe { SetupDiGetClassDevsW(None, PCWSTR::null(), None, flags) }
             .map_err(|e| format!("无法枚举 Windows 设备：{e}"))?,
     );
     let recovery =
@@ -225,6 +233,26 @@ fn universal_package(bytes: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "read-only enumeration of live Windows PnP nodes"]
+    fn present_inventory_excludes_historical_nodes() {
+        let expected: HashSet<_> = list()
+            .unwrap()
+            .into_iter()
+            .filter(|device| device.present)
+            .map(|device| device.instance_id)
+            .collect();
+        let actual = list_present().unwrap();
+        assert!(actual.iter().all(|device| device.present));
+        assert_eq!(
+            actual
+                .into_iter()
+                .map(|device| device.instance_id)
+                .collect::<HashSet<_>>(),
+            expected
+        );
+    }
+
     #[test]
     fn recognizes_package_identity_not_generic_umdf_service_or_section() {
         assert!(universal_package(

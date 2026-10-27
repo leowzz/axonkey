@@ -82,6 +82,14 @@ export type ManagedDriverCleanupState = {
 export type DriverActionResult = {
   logPath: string
   rebootRequired: boolean
+  installationState?: 'installed' | 'reinstalled' | 'restart_before_install'
+}
+
+export type ManagedDriverAction = {
+  instanceId: string
+  status: 'idle' | 'running' | 'error' | 'restartRequired'
+  error?: string
+  message?: string
 }
 
 export type AudioProbe = {

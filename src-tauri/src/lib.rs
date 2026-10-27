@@ -366,11 +366,21 @@ fn find_driver_helper(
     Err(format!("Driver helper was not found: {file_name}"))
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DriverInstallationState {
+    Installed,
+    Reinstalled,
+    RestartBeforeInstall,
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DriverActionResult {
     log_path: String,
     reboot_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    installation_state: Option<DriverInstallationState>,
 }
 
 #[derive(serde::Serialize)]
@@ -499,6 +509,7 @@ end run"#;
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: false,
+        installation_state: None,
     })
 }
 
@@ -618,6 +629,7 @@ fn run_driver_action(
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: true,
+        installation_state: None,
     })
 }
 
@@ -696,11 +708,11 @@ fn run_device_driver_action(
         ),
     )
     .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
-    let reboot_required =
-        quarbor_installer::run_for_device(action, resource_dir, target, &log_path)?;
+    let reply = quarbor_installer::run_for_device(action, resource_dir, target, &log_path)?;
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
-        reboot_required,
+        reboot_required: reply.reboot_required || reply.exit_code == 3010,
+        installation_state: reply.installation_state,
     })
 }
 
@@ -723,6 +735,7 @@ fn run_uninstall_all_driver_action(
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: reply.reboot_required || reply.exit_code == 3010,
+        installation_state: None,
     })
 }
 
@@ -1084,7 +1097,7 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
     if instance.binding.is_none() {
         return Err("请先绑定物理设备。".into());
     }
-    let devices = windows_driver_devices::list()?;
+    let devices = windows_driver_devices::list_present()?;
     input_service::managed::driver_target(
         instance,
         &snapshot.store.instances,
