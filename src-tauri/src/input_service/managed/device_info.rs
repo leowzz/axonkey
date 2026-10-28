@@ -426,6 +426,7 @@ mod tests {
             connected: true,
             paired: true,
             pairing_id: None,
+            hid_instance_id: None,
             bluetooth_address: Some(id.into()),
             device_info: DeviceInformation {
                 battery_level: Some(level),
@@ -474,6 +475,7 @@ mod tests {
                 connected: true,
                 paired: true,
                 pairing_id: None,
+                hid_instance_id: None,
                 bluetooth_address: Some(d.address.clone()),
                 device_info: Default::default(),
             };

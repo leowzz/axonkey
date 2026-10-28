@@ -226,29 +226,18 @@ export function InstanceWorkspace({
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
+  const supportsDriver = ['rc003', 'cmiotA15', 'xboxBluetooth'].includes(instance.kind)
   const ready = status?.state === 'exclusive'
   const deviceOffline =
-    native &&
-    platform === 'windows' &&
-    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
-    !!instance.binding &&
-    status?.driverState === 'offline'
+    native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
   const driverMissing =
-    native &&
-    platform === 'windows' &&
-    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
-    (!instance.binding || status?.driverState === 'missing')
+    native && platform === 'windows' && supportsDriver && (!instance.binding || status?.driverState === 'missing')
   const currentDriverAction = instance.binding && driverAction?.instanceId === instance.id ? driverAction : null
   const driverRunning = currentDriverAction?.status === 'running'
   const driverRestartRequired = currentDriverAction?.status === 'restartRequired'
   const driverInstalled = status?.driverInstalled === true
   const driverCommunicationError =
-    native &&
-    platform === 'windows' &&
-    (instance.kind === 'rc003' || instance.kind === 'cmiotA15') &&
-    instance.binding &&
-    driverInstalled &&
-    !deviceOffline
+    native && platform === 'windows' && supportsDriver && instance.binding && driverInstalled && !deviceOffline
       ? status?.error
       : null
   const driverBusy = driverAction?.status === 'running'
@@ -307,7 +296,7 @@ export function InstanceWorkspace({
                       : (currentDriverAction?.error ??
                         (driverCommunicationError
                           ? `驱动错误：${driverCommunicationError}`
-                          : '按键驱动未安装，安装后即可使用此设备的按键映射。'))}
+                          : '按键驱动未安装，请先安装此设备的按键驱动。'))}
             </span>
             {!deviceOffline && !driverRestartRequired && (
               <button
@@ -514,7 +503,7 @@ export function InstanceWorkspace({
                     </div>
                   ) : (
                     <>
-                      {(instance.kind === 'rc003' || instance.kind === 'cmiotA15') && platform === 'windows' && (
+                      {supportsDriver && platform === 'windows' && (
                         <div className="settings-form-row managed-driver-status-row">
                           <span className="settings-form-label">按键驱动：</span>
                           <div className="settings-form-control managed-driver-status-control">
@@ -525,15 +514,17 @@ export function InstanceWorkspace({
                                   ? '需重启后安装'
                                   : deviceOffline
                                     ? '设备不在线'
-                                    : status?.driverState === 'connected'
-                                      ? '已连接'
-                                      : status?.driverState === 'connecting'
-                                        ? '连接中'
-                                        : status?.driverState === 'missing'
-                                          ? '未安装'
-                                          : status?.driverState === 'disconnected'
-                                            ? '等待设备'
-                                            : '检测中'}
+                                    : status?.driverState === 'installed'
+                                      ? '已安装'
+                                      : status?.driverState === 'connected'
+                                        ? '已连接'
+                                        : status?.driverState === 'connecting'
+                                          ? '连接中'
+                                          : status?.driverState === 'missing'
+                                            ? '未安装'
+                                            : status?.driverState === 'disconnected'
+                                              ? '等待设备'
+                                              : '检测中'}
                             </strong>
                             {native && !deviceOffline && !driverRestartRequired && (
                               <button

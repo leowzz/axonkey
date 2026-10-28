@@ -624,7 +624,13 @@ impl Client {
                         .saturating_add(report.queue_cleared),
                     status: 0,
                 };
-                let usages = decode_rc003_report(&report.data);
+                let usages = if crate::devices::xbox::matches_instance(&self.instance_id)
+                    || crate::devices::cmiot_a15::matches_instance(&self.instance_id)
+                {
+                    Err(ERROR_NOT_SUPPORTED)
+                } else {
+                    decode_rc003_report(&report.data)
+                };
                 Ok(Event::Report {
                     metadata,
                     bytes: report.data,

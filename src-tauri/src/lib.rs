@@ -826,7 +826,10 @@ async fn uninstall_bound_device_drivers(
             .instances
             .iter()
             .filter(|instance| {
-                matches!(instance.kind.as_str(), "rc003" | "cmiotA15") && instance.binding.is_some()
+                matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                ) && instance.binding.is_some()
             })
             .map(|instance| instance.id.clone())
             .collect::<Vec<_>>();
@@ -1093,7 +1096,11 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
         .instances
         .iter()
         .find(|instance| {
-            instance.id == instance_id && matches!(instance.kind.as_str(), "rc003" | "cmiotA15")
+            instance.id == instance_id
+                && matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                )
         })
         .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
     if instance.binding.is_none() {
@@ -1124,7 +1131,11 @@ fn resolve_installed_quarbor_target(
         .iter()
         .find(|instance| instance.id == instance_id)
         .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
-    if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") || instance.binding.is_none() {
+    if !matches!(
+        instance.kind.as_str(),
+        "rc003" | "cmiotA15" | "xboxBluetooth"
+    ) || instance.binding.is_none()
+    {
         return Ok(None);
     }
     let devices = windows_driver_devices::list()?;

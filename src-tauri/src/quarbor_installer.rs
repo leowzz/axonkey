@@ -12,6 +12,8 @@ pub(crate) struct Device {
     pub instance_id: String,
     #[serde(default)]
     pub hardware_id: String,
+    #[serde(default)]
+    pub bluetooth_address: Option<String>,
     pub present: bool,
     pub bound: bool,
     pub recovery_active: bool,
@@ -31,6 +33,7 @@ impl Device {
 
     pub fn matches_kind(&self, kind: &str) -> bool {
         match kind {
+            "xboxBluetooth" => crate::devices::xbox::matches_instance(&self.instance_id),
             "rc003" => self.is_rc003(),
             "cmiotA15" => crate::devices::cmiot_a15::matches_instance(&self.instance_id),
             _ => false,
@@ -38,6 +41,9 @@ impl Device {
     }
 
     pub fn bluetooth_address(&self) -> Option<String> {
+        if let Some(address) = &self.bluetooth_address {
+            return Some(address.clone());
+        }
         let id = self.instance_id.to_ascii_uppercase();
         if !id.starts_with("BTHLEDEVICE\\{00001812-0000-1000-8000-00805F9B34FB}_") {
             return None;
@@ -230,7 +236,10 @@ pub(crate) fn target_for_bluetooth_address(
             let hardware = compact_address(&device.hardware_id);
             let reversed = reversed_address(&compact);
             device.matches_kind(kind)
-                && (device.instance_id.to_ascii_uppercase().contains(&compact)
+                && (device
+                    .bluetooth_address()
+                    .is_some_and(|address| compact_address(&address) == compact)
+                    || device.instance_id.to_ascii_uppercase().contains(&compact)
                     || instance.contains(&compact)
                     || hardware.contains(&compact)
                     || device.instance_id.to_ascii_uppercase().contains(&reversed)
@@ -286,6 +295,7 @@ mod tests {
         Device {
             instance_id: id.into(),
             hardware_id: String::new(),
+            bluetooth_address: None,
             present,
             bound,
             recovery_active,

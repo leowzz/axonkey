@@ -98,6 +98,8 @@ pub struct Discovered {
     pub device_info: device_info::DeviceInformation,
     pub pairing_id: Option<String>,
     pub bluetooth_address: Option<String>,
+    #[serde(skip)]
+    pub hid_instance_id: Option<String>,
 }
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -187,6 +189,15 @@ impl QuarborRegistry {
                     pressed: keys.iter().cloned().collect(),
                 });
             });
+            let input_emit = Arc::clone(&self.emit);
+            let input_instance = id.clone();
+            let input = Arc::new(move |values, pressed| {
+                input_emit(InputEvent {
+                    instance_id: input_instance.clone(),
+                    values,
+                    pressed,
+                });
+            });
             channels.insert(
                 id.clone(),
                 (
@@ -198,6 +209,7 @@ impl QuarborRegistry {
                         self.app.clone(),
                         Arc::clone(&self.gate),
                         emit,
+                        input,
                     ),
                 ),
             );
@@ -668,7 +680,10 @@ impl DeviceManager {
             .iter_mut()
             .find(|instance| instance.id == instance_id)
             .ok_or("未找到要更新驱动状态的设备实例")?;
-        if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
+        if !matches!(
+            instance.kind.as_str(),
+            "rc003" | "cmiotA15" | "xboxBluetooth"
+        ) {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
         if instance.quarbor_target.as_deref() != Some(target) {
@@ -979,6 +994,20 @@ pub(crate) fn driver_target(
             device.bound || device.recovery_active,
         ));
     }
+    if instance.kind == "xboxBluetooth" {
+        if let Some(target) = discovered
+            .iter()
+            .find(|d| Some(&d.id) == instance.binding.as_ref() && d.identity_quality != "ambiguous")
+            .and_then(|d| d.hid_instance_id.as_ref())
+        {
+            return devices
+                .iter()
+                .find(|d| {
+                    d.instance_id.eq_ignore_ascii_case(target) && d.matches_kind(&instance.kind)
+                })
+                .map(|d| (d.instance_id.clone(), d.bound || d.recovery_active));
+        }
+    }
     let address = instance.voice_target.as_deref().or_else(|| {
         discovered
             .iter()
@@ -1015,6 +1044,8 @@ fn merge_driver_devices(
     for device in devices {
         let (kind, vendor_id, product_id) = if device.matches_kind("cmiotA15") {
             ("cmiotA15", 0x0416, 0x0300)
+        } else if device.matches_kind("xboxBluetooth") {
+            ("xboxBluetooth", 0x045e, 0x02e0)
         } else if device.is_rc003() {
             ("rc003", 0x2717, 0x32b8)
         } else {
@@ -1055,6 +1086,7 @@ fn merge_driver_devices(
             device_info: Default::default(),
             pairing_id: Some(pairing_id),
             bluetooth_address: Some(address),
+            hid_instance_id: None,
         });
     }
 }
@@ -1201,6 +1233,9 @@ fn run(shared: Arc<Shared>) {
                         device_info: Default::default(),
                         pairing_id,
                         bluetooth_address: address,
+                        hid_instance_id: path.strip_prefix(r"\\?\").and_then(|path| {
+                            path.rsplit_once("#{").map(|(id, _)| id.replace('#', "\\"))
+                        }),
                     });
                 }
                 sessions.retain(|path, _| seen_paths.contains(path));
@@ -1263,7 +1298,10 @@ fn run(shared: Arc<Shared>) {
         if shared.quarbor.is_some() {
             let snapshot = shared.snapshot.lock().unwrap();
             for instance in &configs {
-                if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
+                if !matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                ) {
                     continue;
                 }
                 let matched =
@@ -1283,8 +1321,10 @@ fn run(shared: Arc<Shared>) {
                 let Some((Some(target), true)) = driver_matches.get(&instance.id) else {
                     continue;
                 };
-                if !matches!(instance.kind.as_str(), "rc003" | "cmiotA15")
-                    || instance.binding.is_none()
+                if !matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                ) || instance.binding.is_none()
                     || !instance.enabled
                     || !enabled
                 {
@@ -1343,7 +1383,10 @@ fn run(shared: Arc<Shared>) {
             }
             .into();
             #[cfg(all(windows, not(test)))]
-            if matches!(instance.kind.as_str(), "rc003" | "cmiotA15") {
+            if matches!(
+                instance.kind.as_str(),
+                "rc003" | "cmiotA15" | "xboxBluetooth"
+            ) {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
                     .cloned()
@@ -1993,6 +2036,7 @@ mod tests {
                 r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&010416_PID&0300_REV&0100_{address}\instance"
             ),
             hardware_id: String::new(),
+            bluetooth_address: None,
             name: "CMIOT-A15".into(),
             present: true,
             bound,
@@ -2039,6 +2083,60 @@ mod tests {
         wrong_model.kind = "rc003".into();
         assert_eq!(
             driver_target(&wrong_model, &[wrong_model.clone()], &discovered, &devices),
+            None
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn xbox_driver_resolution_tracks_each_hid_node_and_installed_bluetooth_parent() {
+        let first = crate::quarbor_installer::Device {
+            instance_id: r"HID\{00001124-0000-1000-8000-00805F9B34FB}&VID_045E&PID_02E0&IG_00\C&1B61B8A0&0&0000".into(),
+            hardware_id: String::new(), bluetooth_address: Some("AABBCCDDEE01".into()),
+            present: true, bound: false, recovery_active: false,
+            name: "Xbox".into(), inf: String::new(), section: String::new(),
+        };
+        let mut second = first.clone();
+        second.instance_id = second
+            .instance_id
+            .replace("1B61B8A0", "12345678")
+            .replace("&VID_045E&PID_02E0&IG_00", "_VID&0002045E_PID&02E0");
+        second.bluetooth_address = Some("AABBCCDDEE02".into());
+        second.bound = true;
+        let devices = vec![first, second];
+        let mut discovered = vec![];
+        merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+        assert_eq!(discovered.len(), 2);
+        let instances: Vec<_> = discovered
+            .iter()
+            .enumerate()
+            .map(|(i, d)| instance(&format!("pad-{i}"), &d.id))
+            .collect();
+        for i in 0..2 {
+            assert_eq!(
+                driver_target(&instances[i], &instances, &discovered, &devices),
+                Some((devices[i].instance_id.clone(), i == 1))
+            );
+        }
+        discovered[0].hid_instance_id = Some(devices[0].instance_id.to_lowercase());
+        discovered[0].bluetooth_address = None;
+        assert_eq!(
+            driver_target(&instances[0], &instances, &discovered, &devices),
+            Some((devices[0].instance_id.clone(), false))
+        );
+        assert_eq!(
+            driver_target(&instances[0], &instances, &discovered, &devices[1..]),
+            None
+        );
+        let mut installed = instances[1].clone();
+        installed.quarbor_target = Some(devices[1].instance_id.clone());
+        assert_eq!(
+            driver_target(&installed, &instances, &[], &devices),
+            Some((devices[1].instance_id.clone(), true))
+        );
+        installed.binding = None;
+        assert_eq!(
+            driver_target(&installed, &instances, &discovered, &devices),
             None
         );
     }
@@ -2129,6 +2227,7 @@ mod tests {
             paired: true,
             pairing_id: None,
             bluetooth_address: Some(id.into()),
+            hid_instance_id: None,
             device_info: device_info::DeviceInformation {
                 status: "ready".into(),
                 battery_level: Some(54),
@@ -2167,6 +2266,7 @@ mod tests {
             device_info: Default::default(),
             pairing_id: None,
             bluetooth_address: None,
+            hid_instance_id: None,
         };
         manager.shared.snapshot.lock().unwrap().discovered = vec![discovered.clone()];
         assert!(manager.put(0, instance("one", "a")).is_err());
@@ -2268,6 +2368,7 @@ mod tests {
             device_info: Default::default(),
             pairing_id: Some("pairing-controller".into()),
             bluetooth_address: None,
+            hid_instance_id: None,
         }];
         let saved = manager
             .put(0, instance("desk", "paired-controller"))
@@ -2312,6 +2413,7 @@ mod tests {
             device_info: Default::default(),
             pairing_id: Some(canonical.clone()),
             bluetooth_address: Some("AA:BB:CC:DD:EE:01".into()),
+            hid_instance_id: None,
         }];
         let mut snapshot = manager.shared.snapshot.lock().unwrap();
         let original = snapshot.store.instances[0].clone();

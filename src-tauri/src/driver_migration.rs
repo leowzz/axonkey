@@ -517,6 +517,7 @@ mod windows {
 
         fn device(id: &str, old: bool, bound: bool) -> Device {
             Device {
+                bluetooth_address: None,
                 instance_id: id.into(),
                 hardware_id: String::new(),
                 present: true,

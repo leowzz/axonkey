@@ -143,6 +143,7 @@ pub(super) fn merge(
             device_info: Default::default(),
             pairing_id: Some(pairing_id),
             bluetooth_address: Some(address),
+            hid_instance_id: None,
         });
     }
 }

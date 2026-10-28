@@ -76,6 +76,7 @@ fn enumerate(flags: SETUP_DI_GET_CLASS_DEVS_FLAGS) -> Result<Vec<Device>, String
             name = property(&set, &info, SPDRP_DEVICEDESC)?;
         }
         devices.push(Device {
+            bluetooth_address: bluetooth_parent_address(info.DevInst),
             recovery_active: recovery.contains(&instance_id.to_ascii_uppercase()),
             instance_id,
             hardware_id: property(&set, &info, SPDRP_HARDWAREID)?,
@@ -93,6 +94,42 @@ fn enumerate(flags: SETUP_DI_GET_CLASS_DEVS_FLAGS) -> Result<Vec<Device>, String
             .then_with(|| a.instance_id.cmp(&b.instance_id))
     });
     Ok(devices)
+}
+
+fn bluetooth_parent_address(mut node: u32) -> Option<String> {
+    loop {
+        let mut id = [0u16; 512];
+        if unsafe { CM_Get_Device_IDW(node, &mut id, 0) } != CR_SUCCESS {
+            return None;
+        }
+        let id = String::from_utf16_lossy(&id);
+        if let Some(address) = classic_bluetooth_address(id.trim_end_matches('\0')) {
+            return Some(address);
+        }
+        let mut parent = 0;
+        if unsafe { CM_Get_Parent(&mut parent, node, 0) } != CR_SUCCESS {
+            return None;
+        }
+        node = parent;
+    }
+}
+
+fn classic_bluetooth_address(id: &str) -> Option<String> {
+    let id = id.to_ascii_uppercase();
+    let address = if let Some(rest) = id.strip_prefix(r"BTHENUM\DEV_") {
+        rest.split('\\').next()?
+    } else if id.starts_with(r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_") {
+        id.rsplit('\\')
+            .next()?
+            .rsplit('&')
+            .next()?
+            .split('_')
+            .next()?
+    } else {
+        return None;
+    };
+    (address.len() == 12 && address.bytes().all(|c| c.is_ascii_hexdigit()))
+        .then(|| address.to_string())
 }
 
 fn is_input_node(id: &str, class: GUID) -> bool {
@@ -291,6 +328,57 @@ mod tests {
         ));
         assert!(!is_input_node(r"PCI\unrelated", GUID::zeroed()));
     }
+    #[test]
+    fn reads_classic_bluetooth_address_from_device_and_hid_service_nodes() {
+        for id in [
+            r"BTHENUM\Dev_98B6E7D1E25C\B&6329654&0&BLUETOOTHDEVICE_98B6E7D1E25C",
+            r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002045e_PID&02e0\B&6329654&0&98B6E7D1E25C_C00000000",
+        ] {
+            assert_eq!(
+                classic_bluetooth_address(id).as_deref(),
+                Some("98B6E7D1E25C")
+            );
+        }
+        assert_eq!(
+            classic_bluetooth_address(r"HID\VID_045E&PID_02E0\C&1B61B8A0&0&0000"),
+            None
+        );
+        assert_eq!(
+            classic_bluetooth_address(r"BTHENUM\DEV_invalid\instance"),
+            None
+        );
+    }
+
+    #[test]
+    #[ignore = "read-only inventory of connected Windows Xbox nodes"]
+    fn connected_xbox_inventory() {
+        let devices = list_present().unwrap();
+        for device in &devices {
+            if device.instance_id.to_ascii_uppercase().contains("02E0") {
+                eprintln!("XBOX_NODE={device:?}");
+            }
+        }
+        let api = hidapi::HidApi::new().unwrap();
+        for device in api
+            .device_list()
+            .filter(|d| d.vendor_id() == 0x045e && d.product_id() == 0x02e0)
+        {
+            eprintln!(
+                "XBOX_HID path={:?} serial={:?}",
+                device.path(),
+                device.serial_number()
+            );
+            let node = devices
+                .iter()
+                .find(|d| d.matches_kind("xboxBluetooth") && d.present)
+                .expect("connected Xbox must have a matching driver node");
+            assert!(
+                node.bluetooth_address().is_some(),
+                "Xbox driver node must retain Bluetooth identity"
+            );
+        }
+    }
+
     #[test]
     #[ignore = "read-only comparison with the bundled installer and live Windows PnP"]
     fn native_inventory_matches_installer() {

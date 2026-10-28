@@ -5,41 +5,12 @@ use std::collections::BTreeMap;
 pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>> {
     let mut values = BTreeMap::new();
     if kind == "xboxBluetooth" {
-        if report.first() == Some(&2) && report.len() == 2 {
-            values.insert("xbox.guide".into(), f64::from(report[1] & 1));
-            return Some(values);
-        }
-        if report.len() != 16 || report[0] != 1 {
-            return None;
-        }
-        let word = |offset| u16::from_le_bytes([report[offset], report[offset + 1]]);
-        for (offset, stick) in [(1, "ls"), (5, "rs")] {
-            let x = (f64::from(word(offset)) - 32767.5) / 32767.5;
-            let y = (f64::from(word(offset + 2)) - 32767.5) / 32767.5;
-            for (direction, value) in [("left", -x), ("right", x), ("up", -y), ("down", y)] {
-                values.insert(format!("xbox.{stick}.{direction}"), value.max(0.));
-            }
-        }
-        values.insert("xbox.lt".into(), (f64::from(word(9)) / 1023.).min(1.));
-        values.insert("xbox.rt".into(), (f64::from(word(11)) / 1023.).min(1.));
-        for (direction, hats) in [
-            ("up", [8, 1, 2]),
-            ("right", [2, 3, 4]),
-            ("down", [4, 5, 6]),
-            ("left", [6, 7, 8]),
-        ] {
-            values.insert(
-                format!("xbox.dpad.{direction}"),
-                if hats.contains(&report[13]) { 1. } else { 0. },
-            );
-        }
-        let bits = word(14);
-        for (bit, key) in ["a", "b", "x", "y", "lb", "rb", "view", "menu", "ls", "rs"]
-            .iter()
-            .enumerate()
-        {
-            values.insert(format!("xbox.{key}"), f64::from((bits >> bit) & 1));
-        }
+        return crate::devices::xbox::decode(report).map(|values| {
+            values
+                .into_iter()
+                .map(|(key, value)| (key.to_string(), value))
+                .collect()
+        });
     } else if kind == "rc003" {
         if report.len() != 7 || report[0] != 1 {
             return None;

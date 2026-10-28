@@ -462,6 +462,24 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       views[1].update(React.createElement(InstanceWorkspace, props(1)))
     })
     assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
+    act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    act(() => views[1].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
+    for (const [driverState, driverInstalled, label] of [['missing', false, '未安装'], ['connecting', true, '连接中'], ['connected', true, '已连接'], ['offline', false, '设备不在线']]) {
+      act(() => {
+        snapshot.runtime.two = { state: driverState === 'connected' ? 'exclusive' : 'disconnected', driverState, driverInstalled }
+        views[1].update(React.createElement(InstanceWorkspace, props(1)))
+      })
+      const row = views[1].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
+      assert.ok(text(row).includes(label))
+      const buttons = row.findAllByType('button')
+      assert.equal(buttons.length, driverState === 'offline' ? 0 : 1)
+      if (buttons.length) {
+        assert.equal(text(buttons[0]), driverInstalled ? '重新安装驱动' : '安装驱动')
+        act(() => buttons[0].props.onClick())
+        assert.deepEqual(actions.at(-1), ['install', 'two'])
+      }
+    }
+
     act(() => views[0].update(React.createElement(InstanceWorkspace, {
       ...props(0), platform: 'macos', permissions: { accessibility: true, inputMonitoring: true },
     })))

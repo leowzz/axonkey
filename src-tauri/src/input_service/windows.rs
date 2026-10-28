@@ -26,6 +26,7 @@ struct QuarborContext {
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
     a15_reports: crate::devices::cmiot_a15::ReportState,
+    xbox_reports: crate::devices::xbox::ReportState,
     a15_voice: crate::devices::cmiot_a15_fc::VoiceStream,
     a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15_fc::PcmFrame>,
     a15_voice_errors: u64,
@@ -50,6 +51,7 @@ impl Default for QuarborContext {
             active_usages: std::collections::HashSet::new(),
             device_id: None,
             a15_reports: Default::default(),
+            xbox_reports: Default::default(),
             a15_voice: Default::default(),
             a15_pcm: Default::default(),
             a15_voice_errors: 0,
@@ -252,6 +254,15 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             if context
                 .device_id
                 .as_deref()
+                .is_some_and(crate::devices::xbox::matches_instance)
+            {
+                context.usage_error = None;
+                for (button, pressed) in context.xbox_reports.accept(bytes) {
+                    context.keys.push_back(RemoteKeyEvent { button, pressed });
+                }
+            } else if context
+                .device_id
+                .as_deref()
                 .is_some_and(crate::devices::cmiot_a15::matches_instance)
             {
                 context.usage_error = None;
@@ -368,6 +379,9 @@ fn quarbor_release_active_usages(context: &mut QuarborContext) {
     for (button, pressed) in context.a15_reports.release_all() {
         context.keys.push_back(RemoteKeyEvent { button, pressed });
     }
+    for (button, pressed) in context.xbox_reports.release_all() {
+        context.keys.push_back(RemoteKeyEvent { button, pressed });
+    }
     let active = std::mem::take(&mut context.active_usages);
     for usage in active {
         if let Some(button) = rc003_button_for_usage(usage) {
@@ -458,6 +472,8 @@ type EventApp = tauri::AppHandle;
 #[cfg(test)]
 type EventApp = ();
 
+type ManagedInput = Arc<dyn Fn(std::collections::BTreeMap<String, f64>, Vec<String>) + Send + Sync>;
+
 struct Shared {
     instance_id: Option<String>,
     settings: RwLock<NativeSettings>,
@@ -468,6 +484,7 @@ struct Shared {
     driver_gate: Arc<AtomicBool>,
     driver_paused: AtomicBool,
     managed_event: Option<Arc<dyn Fn(String, bool) + Send + Sync>>,
+    managed_input: Option<ManagedInput>,
     managed_remote_owned: AtomicBool,
 }
 
@@ -489,6 +506,7 @@ impl InputService {
             driver_gate,
             driver_paused: AtomicBool::new(false),
             managed_event: None,
+            managed_input: None,
             managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
@@ -625,6 +643,7 @@ impl ManagedQuarborChannel {
         app: tauri::AppHandle,
         driver_gate: Arc<AtomicBool>,
         emit: Arc<dyn Fn(String, bool) + Send + Sync>,
+        input: ManagedInput,
     ) -> Self {
         let switch_app = app.clone();
         let switch_id = instance_id.clone();
@@ -645,6 +664,7 @@ impl ManagedQuarborChannel {
             driver_gate,
             driver_paused: AtomicBool::new(false),
             managed_event: Some(emit),
+            managed_input: Some(input),
             managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
@@ -752,8 +772,11 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     }
     context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
-        emit_remote_key_event(shared, key.button, key.pressed);
+        if !key.button.starts_with("xbox.") {
+            emit_remote_key_event(shared, key.button, key.pressed);
+        }
     }
+    publish_xbox_input(context, shared);
     shared.status.lock().unwrap().capture_active = false;
 }
 
@@ -811,6 +834,15 @@ fn publish_a15_recording(shared: &Shared, recording: bool) {
 }
 
 #[cfg(windows)]
+fn publish_xbox_input(context: &mut QuarborContext, shared: &Shared) {
+    if let Some((values, pressed)) = context.xbox_reports.take_update() {
+        if let Some(emit) = &shared.managed_input {
+            emit(values, pressed);
+        }
+    }
+}
+
+#[cfg(windows)]
 fn process_remote_actions(
     context: &mut QuarborContext,
     shared: &Shared,
@@ -822,6 +854,7 @@ fn process_remote_actions(
         emit_a15_pcm(shared, frame);
     }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
+    publish_xbox_input(context, shared);
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
@@ -871,7 +904,9 @@ fn process_remote_actions_inner(
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
     while let Some(key) = context.keys.pop_front() {
-        emit_remote_key_event(shared, key.button, key.pressed);
+        if !key.button.starts_with("xbox.") {
+            emit_remote_key_event(shared, key.button, key.pressed);
+        }
         if key.button == "cmiotA15.voice" {
             if let Err(error) = context.a15_recording.edge(key.pressed, |report| {
                 send_a15_recording_report(&mut context.reader, report)
@@ -1895,6 +1930,7 @@ mod tests {
                             driver_gate: Arc::new(AtomicBool::new(false)),
                             driver_paused: AtomicBool::new(false),
                             managed_event: None,
+                            managed_input: None,
                             managed_remote_owned: AtomicBool::new(false),
                         }),
                         worker: Mutex::new(None),
@@ -1922,6 +1958,70 @@ mod tests {
                     self.start + Duration::from_millis(ms),
                 );
             }
+        }
+
+        #[test]
+        fn xbox_quarbor_reports_drive_mapping_analog_feedback_and_disconnect_release() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {"xbox.a": {"click": [{"type": "key", "key": "A"}]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.device_id = Some(r"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002045E_PID&02E0\C&1B61B8A0&0&0000".into());
+            let updates = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&updates);
+            Arc::get_mut(&mut harness.channel.shared)
+                .unwrap()
+                .managed_input = Some(Arc::new(move |values, pressed| {
+                captured.lock().unwrap().push((values, pressed));
+            }));
+            let bytes = vec![1, 0, 128, 0, 128, 0, 128, 0, 128, 0, 2, 0, 0, 0, 1, 0];
+            for (sequence, bytes) in [(1, bytes.clone()), (2, vec![2, 1])] {
+                quarbor_accept_event(
+                    &mut harness.context,
+                    Event::Report {
+                        metadata: Metadata {
+                            sequence,
+                            ..Default::default()
+                        },
+                        bytes,
+                        usages: Err(50),
+                    },
+                );
+                harness.tick(&settings, sequence * 10, &[]);
+            }
+            {
+                let updates = updates.lock().unwrap();
+                let (values, pressed) = updates.last().unwrap();
+                assert_eq!(values["xbox.a"], 1.0);
+                assert!((values["xbox.lt"] - 512.0 / 1023.0).abs() < 0.0001);
+                assert!(pressed.contains(&"xbox.a".to_string()));
+                assert!(pressed.contains(&"xbox.guide".to_string()));
+                assert!(!pressed.contains(&"xbox.lt".to_string()));
+            }
+            assert!(harness.context.usage_error.is_none());
+            assert_eq!(harness.context.keyboard.held.len(), 1);
+            quarbor_release_active_usages(&mut harness.context);
+            harness.tick(&settings, 40, &[]);
+            let updates = updates.lock().unwrap();
+            assert!(updates
+                .last()
+                .unwrap()
+                .0
+                .values()
+                .all(|value| *value == 0.0));
+            assert!(updates.last().unwrap().1.is_empty());
+            assert!(harness.context.keyboard.held.is_empty());
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0x41, 0)], vec![(0x41, 2)]])
+            });
+            assert_eq!(
+                harness.context.events.len(),
+                2,
+                "original reports remain available for diagnostics"
+            );
         }
 
         #[test]
@@ -2183,6 +2283,7 @@ mod tests {
                     driver_gate: Arc::new(AtomicBool::new(false)),
                     driver_paused: AtomicBool::new(false),
                     managed_event: None,
+                    managed_input: None,
                     managed_remote_owned: AtomicBool::new(false),
                 }),
                 worker: Mutex::new(None),
@@ -2954,6 +3055,7 @@ mod tests {
             driver_gate: Arc::new(AtomicBool::new(false)),
             driver_paused: AtomicBool::new(false),
             managed_event: None,
+            managed_input: None,
             managed_remote_owned: AtomicBool::new(false),
         };
         let mut context = QuarborContext::default();
