@@ -247,9 +247,11 @@ function AppController() {
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
   const navigateToPage = (page: AppPage) => {
+    setSelectedInstanceId(null)
     if (page === 'mapping') setMappingStyle('flow')
     setActivePage(page)
   }
@@ -1909,6 +1911,8 @@ function AppController() {
             <HomeDashboard
               deviceContent={
                 <DeviceHub
+                  selectedInstanceId={selectedInstanceId}
+                  onSelectInstance={setSelectedInstanceId}
                   onOpenAudioDriver={openAudioDriver}
                   onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
                   onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
@@ -2123,8 +2127,11 @@ function AppController() {
           cableDriver={cableDriver}
           nativeRuntime={nativeRuntime}
           onOpenSound={() => void openSystemSettings('sound')}
-          onComplete={async () => {
-            if (await userGuide.complete()) navigateToPage('home')
+          onComplete={async instanceId => {
+            if (await userGuide.complete()) {
+              navigateToPage('home')
+              setSelectedInstanceId(instanceId)
+            }
           }}
         />
       )}

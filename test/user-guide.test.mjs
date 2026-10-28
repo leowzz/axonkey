@@ -28,6 +28,7 @@ const { UserGuideDialog } = compile('src/components/UserGuideDialog.tsx', {
 async function mount({ enabled = true, completed = false, save = async () => {} } = {}) {
   const calls = []
   const driverCalls = []
+  const completedTargets = []
   let installed = false, homeVisits = 0, sounds = 0, refreshes = 0
   const { useCableDriver } = compile('src/hooks/useCableDriver.ts', {
     '@tauri-apps/api/core': { invoke: async (command, args) => {
@@ -51,13 +52,13 @@ async function mount({ enabled = true, completed = false, save = async () => {} 
       saving: guide.saving, error: guide.error, cableDriver, nativeRuntime: true,
       deviceDiscovery: { controller: { refresh: async () => refreshes++ } },
       onOpenSound: () => sounds++,
-      onComplete: async () => { if (await guide.complete()) homeVisits++ },
+      onComplete: async instanceId => { if (await guide.complete()) { homeVisits++; completedTargets.push(instanceId) } },
     }) : null
   }
   await act(async () => { view = Renderer.create(React.createElement(App), {
     createNodeMock: node => node.type === 'dialog' ? { showModal() {}, close() {} } : null,
   }) })
-  return { view, calls, driverCalls, get guide() { return guide },
+  return { view, calls, driverCalls, completedTargets, get guide() { return guide },
     get homeVisits() { return homeVisits }, get sounds() { return sounds },
     get refreshes() { return refreshes },
     button: label => view.root.findAllByType('button').find(button => text(button) === label),
@@ -73,7 +74,7 @@ for (const action of ['完成', '跳过指南']) {
       if (action === '完成') {
         await act(async () => h.button('继续').props.onClick())
         await act(async () => h.button('继续').props.onClick())
-        await act(async () => h.button('继续').props.onClick())
+        await act(async () => h.button('跳过').props.onClick())
       }
       let pending
       act(() => { pending = h.button(action).props.onClick() })
@@ -82,6 +83,7 @@ for (const action of ['完成', '跳过指南']) {
       await act(async () => { resolveSave(); await pending })
       assert.equal(h.guide.open, false)
       assert.equal(h.homeVisits, 1)
+      assert.deepEqual(h.completedTargets, [null])
       assert.deepEqual(h.calls, ['get_onboarding_completed', 'complete_onboarding'])
       act(() => h.guide.show())
       assert.equal(h.guide.open, true)
@@ -111,7 +113,7 @@ test('failed saving stays open with a retryable error; Escape cannot bypass comp
     assert.equal(prevented, true)
     await act(async () => h.button('继续').props.onClick())
     await act(async () => h.button('继续').props.onClick())
-    await act(async () => h.button('继续').props.onClick())
+    await act(async () => h.button('跳过').props.onClick())
     await act(async () => h.button('完成').props.onClick())
     assert.equal(h.guide.open, true)
     assert.equal(h.homeVisits, 0)
@@ -139,7 +141,8 @@ test('welcome, optional driver setup and final page share the actual driver cont
     await act(async () => h.button('继续').props.onClick())
     assert.match(text(h.view.toJSON()), /选择一个你想要添加的设备/)
     assert.equal(h.refreshes, 1)
-    await act(async () => h.button('继续').props.onClick())
+    assert.equal(h.button('继续'), undefined)
+    await act(async () => h.button('跳过').props.onClick())
     assert.match(text(h.view.toJSON()), /完成，可以开始了/)
     assert.deepEqual(h.calls, ['get_onboarding_completed'], 'continuing without a driver does not complete the guide')
     act(() => h.button('上一步').props.onClick())
@@ -169,6 +172,37 @@ test('adding a device advances to the fourth page without marking the guide comp
     assert.match(text(h.view.toJSON()), /完成，可以开始了/)
     assert.deepEqual(h.calls, ['get_onboarding_completed'])
     assert.equal(h.homeVisits, 0)
+  } finally { act(() => h.view.unmount()) }
+})
+
+test('completion preserves the integrated device destination across a failed save', async () => {
+  let fail = true
+  const h = await mount({ save: async () => { if (fail) throw new Error('disk full') } })
+  try {
+    await act(async () => h.button('继续').props.onClick())
+    await act(async () => h.button('继续').props.onClick())
+    act(() => h.view.root.findByType('device-discovery').props.onIntegrated('new-remote'))
+    await act(async () => h.button('完成').props.onClick())
+    assert.deepEqual(h.completedTargets, [])
+    assert.equal(h.guide.open, true)
+    fail = false
+    await act(async () => h.button('完成').props.onClick())
+    assert.deepEqual(h.completedTargets, ['new-remote'])
+  } finally { act(() => h.view.unmount()) }
+})
+
+test('returning to device selection and skipping clears the previous integrated destination', async () => {
+  const h = await mount()
+  try {
+    await act(async () => h.button('继续').props.onClick())
+    await act(async () => h.button('继续').props.onClick())
+    act(() => h.view.root.findByType('device-discovery').props.onIntegrated('new-remote'))
+    act(() => h.button('上一步').props.onClick())
+    act(() => h.button('跳过').props.onClick())
+    assert.match(text(h.view.toJSON()), /完成，可以开始了/)
+    assert.deepEqual(h.calls, ['get_onboarding_completed'])
+    await act(async () => h.button('完成').props.onClick())
+    assert.deepEqual(h.completedTargets, [null])
   } finally { act(() => h.view.unmount()) }
 })
 

@@ -16,13 +16,14 @@ export function UserGuideDialog({
 }: {
   saving: boolean
   error: string
-  onComplete: () => void
+  onComplete: (instanceId: string | null) => void
   cableDriver: CableDriverController
   nativeRuntime: boolean
   onOpenSound: () => void
   deviceDiscovery: Omit<DeviceDiscoveryProps, 'guide' | 'onIntegrated'>
 }) {
   const [page, setPage] = useState<'welcome' | 'driver' | 'devices' | 'complete'>('welcome')
+  const [integratedInstanceId, setIntegratedInstanceId] = useState<string | null>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => {
@@ -47,6 +48,7 @@ export function UserGuideDialog({
       setPage('devices')
       void deviceDiscovery.controller.refresh()
     } else {
+      setIntegratedInstanceId(null)
       setPage('complete')
     }
   }
@@ -61,7 +63,7 @@ export function UserGuideDialog({
     >
       <header className="user-guide-header">
         <span>使用指南</span>
-        <button type="button" className="dialog-secondary" disabled={saving} onClick={onComplete}>
+        <button type="button" className="dialog-secondary" disabled={saving} onClick={() => onComplete(null)}>
           跳过指南
         </button>
       </header>
@@ -90,7 +92,14 @@ export function UserGuideDialog({
             <h2 id="user-guide-title" ref={titleRef} tabIndex={-1}>
               选择一个你想要添加的设备
             </h2>
-            <DeviceDiscoverySection {...deviceDiscovery} guide onIntegrated={() => setPage('complete')} />
+            <DeviceDiscoverySection
+              {...deviceDiscovery}
+              guide
+              onIntegrated={id => {
+                setIntegratedInstanceId(id)
+                setPage('complete')
+              }}
+            />
           </>
         ) : (
           <h2 id="user-guide-title" ref={titleRef} tabIndex={-1}>
@@ -118,9 +127,9 @@ export function UserGuideDialog({
           type="button"
           className="button primary"
           disabled={saving}
-          onClick={page === 'complete' ? onComplete : continueGuide}
+          onClick={page === 'complete' ? () => onComplete(integratedInstanceId) : continueGuide}
         >
-          {saving ? '保存中…' : page === 'complete' ? '完成' : '继续'}
+          {saving ? '保存中…' : page === 'complete' ? '完成' : page === 'devices' ? '跳过' : '继续'}
         </button>
       </footer>
     </dialog>

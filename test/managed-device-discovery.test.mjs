@@ -31,11 +31,11 @@ const model = compile('src/devices/integration/model.ts', {
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
-const { DeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
+const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
   '../../components/RemoteControl': { RemoteControl: () => null },
-  './InstanceWorkspace': { InstanceWorkspace: () => null },
+  './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
   './instanceProfiles': { migrateLegacyProfiles: instance => instance },
   './IntegrationControls': controls,
   '../../components/SettingsHelp': { SettingsHelp: () => null },
@@ -45,8 +45,36 @@ const { DeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/D
   '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: {} },
   './model': model,
 })
+function DeviceHub(props) {
+  const [selectedInstanceId, onSelectInstance] = React.useState(null)
+  return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance, ...props })
+}
 const device = { id: 'paired-one', kind: 'xboxBluetooth', name: 'Controller', transport: 'Bluetooth', identityQuality: 'serial', vendorId: 1118, productId: 736, connected: false, paired: true }
 const { managedDriverInstallMessage } = compile('src/systemState.ts')
+
+test('parent selection opens the exact integrated device and back returns to the device list', () => {
+  const first = { ...model.newInstance('rc003', 'one'), id: 'first' }
+  const second = { ...model.newInstance('cmiotA15', 'two'), id: 'second' }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [first, second]
+  let select, view
+  function Host() {
+    const [selectedInstanceId, onSelectInstance] = React.useState(null)
+    select = onSelectInstance
+    return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance,
+      controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {}, legacyProfiles: () => [],
+    })
+  }
+  act(() => { view = Renderer.create(React.createElement(Host)) })
+  try {
+    assert.equal(view.root.findAllByType('instance-workspace').length, 0)
+    act(() => select('second'))
+    assert.equal(view.root.findByType('instance-workspace').props.instance.id, 'second')
+    act(() => view.root.findByType('instance-workspace').props.onBack())
+    assert.equal(view.root.findAllByType('instance-workspace').length, 0)
+    assert.ok(text(view.toJSON()).includes('我的设备'))
+  } finally { act(() => view.unmount()) }
+})
 
 test('installation feedback distinguishes submitted installs from reboot before installation', () => {
   const result = { logPath: 'driver.log', rebootRequired: false, installationState: 'installed' }

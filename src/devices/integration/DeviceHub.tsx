@@ -14,6 +14,8 @@ import './DeviceHub.css'
 import './DeviceCards.css'
 
 type Props = {
+  selectedInstanceId: string | null
+  onSelectInstance: (id: string | null) => void
   controller: DeviceController
   native: boolean
   platform: Platform
@@ -46,7 +48,7 @@ function getDiscoveredDevicesExpanded() {
 export function DeviceHub(props: Props) {
   const { controller, native } = props
   const { snapshot, error, busy } = controller
-  const [selected, setSelected] = useState<string | null>(null)
+  const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const banner = (
