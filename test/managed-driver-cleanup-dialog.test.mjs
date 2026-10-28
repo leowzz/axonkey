@@ -17,8 +17,9 @@ const instances = [
   { id: 'remote-222222', kind: 'cmiotA15', name: '卧室遥控器', binding: 'hid-two', enabled: true },
   { id: 'remote-333333', kind: 'rc003', name: '未绑定遥控器', binding: null },
   { id: 'gamepad-444444', kind: 'xboxBluetooth', name: '手柄', binding: 'hid-gamepad' },
+  { id: 'gamepad-555555', kind: 'xboxBluetooth', name: '未绑定手柄', binding: null },
 ]
-const success = { deviceCount: 2, uninstalledCount: 2, unboundCount: 2, failures: [], rebootRequired: true }
+const success = { deviceCount: 3, uninstalledCount: 3, unboundCount: 3, failures: [], rebootRequired: true }
 
 async function mount(invoke) {
   const module = { exports: {} }
@@ -50,10 +51,11 @@ test('opening only reads the real device list; cancel never uninstalls, and boun
     assert.equal(h.modal.opened, 1)
     assert.deepEqual(calls, ['device_snapshot'])
     const list = h.view.root.findByProps({ 'aria-label': '本次解绑设备' })
-    assert.equal(list.findAllByType('li').length, 2)
+    assert.equal(list.findAllByType('li').length, 3)
     assert.match(text(list), /客厅遥控器RC003 · 111111/)
     assert.match(text(list), /卧室遥控器CMIOT A15 · 222222/)
-    assert.doesNotMatch(text(list), /未绑定遥控器|手柄/)
+    assert.match(text(list), /手柄Xbox 蓝牙手柄 · 444444/)
+    assert.doesNotMatch(text(list), /未绑定遥控器|未绑定手柄/)
     assert.match(text(h.view.toJSON()), /映射配置会保留/)
     assert.equal(h.button('取消').props.autoFocus, true)
     await h.click('取消')
@@ -85,7 +87,7 @@ test('only confirmation uninstalls; progress prevents closing and completion sta
     assert.equal(h.closed, 0)
     await act(async () => resolveUninstall(success))
     assert.equal(h.refreshed, 1)
-    assert.match(text(h.view.toJSON()), /卸载 2 台，解除绑定 2 台/)
+    assert.match(text(h.view.toJSON()), /卸载 3 台，解除绑定 3 台/)
     assert.match(text(h.view.toJSON()), /请重启 Windows/)
     assert.equal(h.button('确认卸载并解绑'), undefined)
     await h.click('关闭')
@@ -111,6 +113,28 @@ test('partial failures show device names and recheck remaining bindings before a
     assert.equal(list.findAllByType('li').length, 1)
     assert.doesNotMatch(text(list), /客厅/)
     assert.equal(h.button('确认卸载并解绑').props.disabled, false)
+  } finally { h.unmount() }
+})
+
+test('a bound gamepad alone enables cleanup and reports its failure by name', async () => {
+  const calls = []
+  const h = await mount(async command => {
+    calls.push(command)
+    if (command === 'device_snapshot') return { store: { instances: [instances[3], instances[4]] } }
+    return {
+      deviceCount: 1, uninstalledCount: 0, unboundCount: 0, rebootRequired: false,
+      failures: [{ instanceId: instances[3].id, error: '手柄驱动卸载失败' }],
+    }
+  })
+  try {
+    const list = h.view.root.findByProps({ 'aria-label': '本次解绑设备' })
+    assert.equal(list.findAllByType('li').length, 1)
+    assert.match(text(list), /Xbox 蓝牙手柄/)
+    assert.equal(h.button('确认卸载并解绑').props.disabled, false)
+    await h.click('确认卸载并解绑')
+    assert.deepEqual(calls, ['device_snapshot', 'uninstall_bound_device_drivers'])
+    assert.match(text(h.view.root.findByProps({ role: 'alert' })), /手柄 · 444444：手柄驱动卸载失败/)
+    assert.equal(h.refreshed, 1)
   } finally { h.unmount() }
 })
 

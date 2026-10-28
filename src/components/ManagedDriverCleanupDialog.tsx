@@ -37,7 +37,9 @@ export function ManagedDriverCleanupDialog({
       const snapshot = await invoke<DeviceSnapshot>('device_snapshot')
       setDevices(
         snapshot.store.instances.filter(
-          device => (device.kind === 'rc003' || device.kind === 'cmiotA15') && device.binding !== null,
+          device =>
+            (device.kind === 'rc003' || device.kind === 'cmiotA15' || device.kind === 'xboxBluetooth') &&
+            device.binding !== null,
         ),
       )
     } catch (error) {
@@ -101,7 +103,8 @@ export function ManagedDriverCleanupDialog({
                 <li key={device.id}>
                   <strong>{device.name}</strong>
                   <span>
-                    {device.kind === 'rc003' ? 'RC003' : 'CMIOT A15'} · {device.id.slice(-6)}
+                    {device.kind === 'rc003' ? 'RC003' : device.kind === 'cmiotA15' ? 'CMIOT A15' : 'Xbox 蓝牙手柄'} ·{' '}
+                    {device.id.slice(-6)}
                   </span>
                 </li>
               ))}
