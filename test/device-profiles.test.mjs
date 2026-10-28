@@ -4,7 +4,7 @@ import { createBehavior, createEmptyBehaviorMap } from '../src/behaviorModel.ts'
 import { devices } from '../src/deviceModel.ts'
 import {
   composeActiveProfileBehaviors, createDefaultDeviceProfiles, extractDeviceBehaviors,
-  mergeDeviceBehaviors, migrateLegacyProfiles, parseStoredDeviceProfiles, snapshotDeviceProfiles,
+  mergeDeviceBehaviors, parseStoredDeviceProfiles, snapshotDeviceProfiles,
 } from '../src/deviceProfiles.ts'
 
 function mapping(remote = 'A', mouse = 'B', a15 = 'V') {
@@ -36,28 +36,20 @@ test('extracting and merging device maps cannot import unrelated inputs or share
   assert.deepEqual(original, before)
 })
 
-test('legacy profiles split deterministically while preserving each device order, names and active choice', () => {
-  const legacy = [{ id: 'work', name: '工作', behaviors: mapping() }, { id: 'play', name: '娱乐', behaviors: mapping('C', 'D') }]
-  const before = structuredClone(legacy)
-  const migrated = migrateLegacyProfiles(legacy, 'play')
-  assert.deepEqual(migrated.activeProfileIds, { rc003: 'rc003:play', cmiotA15: 'cmiotA15:play', mouse: 'mouse:play' })
-  assert.deepEqual(migrated.profiles.map(({ id, name, deviceId }) => ({ id, name, deviceId })), [
-    { id: 'rc003:work', name: '工作', deviceId: 'rc003' }, { id: 'rc003:play', name: '娱乐', deviceId: 'rc003' },
-    { id: 'cmiotA15:work', name: '工作', deviceId: 'cmiotA15' }, { id: 'cmiotA15:play', name: '娱乐', deviceId: 'cmiotA15' },
-    { id: 'mouse:work', name: '工作', deviceId: 'mouse' }, { id: 'mouse:play', name: '娱乐', deviceId: 'mouse' },
-  ])
-  migrated.profiles.forEach(assertOwned)
-  assert.deepEqual(composeActiveProfileBehaviors(migrated.profiles, migrated.activeProfileIds), legacy[1].behaviors)
-  assert.deepEqual(migrateLegacyProfiles(legacy, 'play'), migrated)
-  migrated.profiles[0].behaviors.power.click[0].keys.push('Shift')
-  assert.deepEqual(legacy, before)
-  assert.deepEqual(migrateLegacyProfiles(legacy, 'missing').activeProfileIds, { rc003: 'rc003:work', cmiotA15: 'cmiotA15:work', mouse: 'mouse:work' })
+test('shared and unversioned profile stores are not converted', () => {
+  const fallback = createEmptyBehaviorMap()
+  for (const version of [undefined, 1]) {
+    assert.deepEqual(parseStoredDeviceProfiles({ version, activeProfileId: 'work', profiles: [
+      { id: 'work', name: '工作', behaviors: mapping() },
+    ] }, fallback), createDefaultDeviceProfiles(fallback))
+  }
 })
 
 test('snapshots persist all active live maps and composition independently selects each device profile', () => {
-  const state = migrateLegacyProfiles([
-    { id: 'work', name: '工作', behaviors: mapping() }, { id: 'play', name: '娱乐', behaviors: mapping('C', 'D') },
-  ], 'work')
+  const state = { profiles: devices.flatMap(device => [
+    { id: `${device.id}:work`, name: '工作', deviceId: device.id, behaviors: extractDeviceBehaviors(mapping(), device.id) },
+    { id: `${device.id}:play`, name: '娱乐', deviceId: device.id, behaviors: extractDeviceBehaviors(mapping('C', 'D'), device.id) },
+  ]) }
   const activeProfileIds = { rc003: 'rc003:work', cmiotA15: 'cmiotA15:play', mouse: 'mouse:play' }
   const live = mapping('EDITED REMOTE', 'EDITED MOUSE', 'EDITED A15')
   const before = structuredClone(state)
@@ -73,20 +65,7 @@ test('snapshots persist all active live maps and composition independently selec
   assert.deepEqual(state, before)
 })
 
-test('old local storage repairs missing and duplicate IDs without losing entries or changing on reread', () => {
-  const value = { version: 1, activeProfileId: 'same', profiles: [
-    { id: 'same', name: '  工作\u0000 ', behaviors: mapping() },
-    { id: 'same', name: '娱乐', behaviors: mapping('C', 'D') },
-    { name: '', behaviors: mapping('E', 'F') },
-  ] }
-  const parsed = parseStoredDeviceProfiles(JSON.stringify(value), createEmptyBehaviorMap())
-  assert.equal(parsed.profiles.length, 9)
-  assert.equal(new Set(parsed.profiles.map(profile => profile.id)).size, 9)
-  assert.deepEqual(parsed.activeProfileIds, { rc003: 'rc003:same', cmiotA15: 'cmiotA15:same', mouse: 'mouse:same' })
-  assert.equal(parsed.profiles[0].name, '工作')
-  assert.equal(parsed.profiles[1].behaviors.power.click[0].keys[0], 'C')
-  assert.deepEqual(parseStoredDeviceProfiles(value, createEmptyBehaviorMap()), parsed)
-})
+
 
 test('v2 reload enforces device ownership, repairs the active choice and fills only a missing device', () => {
   const fallback = mapping('FALLBACK REMOTE', 'FALLBACK MOUSE')

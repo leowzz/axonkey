@@ -36,7 +36,6 @@ const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/
   '@tauri-apps/api/event': { listen: async () => () => {} },
   '../../components/RemoteControl': { RemoteControl: () => null },
   './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
-  './instanceProfiles': { migrateLegacyProfiles: instance => instance },
   './IntegrationControls': controls,
   '../../components/SettingsHelp': { SettingsHelp: () => null },
   '../../components/BatteryIndicator': battery,
@@ -62,7 +61,7 @@ test('parent selection opens the exact integrated device and back returns to the
     const [selectedInstanceId, onSelectInstance] = React.useState(null)
     select = onSelectInstance
     return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance,
-      controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {}, legacyProfiles: () => [],
+      controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {},
     })
   }
   act(() => { view = Renderer.create(React.createElement(Host)) })
@@ -93,7 +92,7 @@ test('discovery help opens without toggling the device list and routes Bluetooth
     const modal = { showModal() { opened++ }, close() { closed++ } }
     const props = {
       controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
-      native, platform, permissions: {}, legacyProfiles: () => [],
+      native, platform, permissions: {},
       onOpenBluetoothSettings: () => settingsOpened++,
       onOpenDeviceManager: () => deviceManagerOpened++,
     }
@@ -169,7 +168,7 @@ test('A15 discovery and saved cards show battery updates, low/full states and di
   const remote = { ...device, id: 'a15-one', kind: 'cmiotA15', connected: true, deviceInfo: { status: 'ready', batteryLevel: 56 } }
   const instance = { ...model.newInstance('cmiotA15', remote.id), id: 'saved-a15' }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
-  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'windows', permissions: {}, legacyProfiles: () => [] }
+  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'windows', permissions: {} }
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
   const indicator = () => view.root.findByType(battery.BatteryIndicator)
@@ -190,7 +189,7 @@ test('RC003 discovery and saved cards show live battery values and clear them on
   const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
   const instance = { ...model.newInstance('rc003', remote.id), id: 'saved-remote' }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
-  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {}, legacyProfiles: () => [] }
+  const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {} }
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
   const indicator = () => view.root.findByType(battery.BatteryIndicator)
@@ -211,7 +210,7 @@ test('RC003 discovery and saved cards show live battery values and clear them on
 test('paired offline cards survive refresh, update in place on reconnect, and leave when unpaired', () => {
   const snapshot = { ...model.emptySnapshot(), discovered: [device, { ...device, id: 'paired-two' }] }
   const controller = { snapshot, error: '', busy: false, refresh() {} }
-  const props = { controller, native: true, platform: 'macos', permissions: { inputMonitoring: true, accessibility: true }, legacyProfiles: () => [] }
+  const props = { controller, native: true, platform: 'macos', permissions: { inputMonitoring: true, accessibility: true } }
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
   const cards = () => view.root.findAll(node => node.type === 'button' && node.props.className === 'my-devices-card')
@@ -231,7 +230,7 @@ test('offline paired devices remain selectable for integration without claiming 
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, {
     controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos',
-    permissions: { inputMonitoring: true, accessibility: true }, legacyProfiles: () => [],
+    permissions: { inputMonitoring: true, accessibility: true },
   })) })
   const card = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
   act(() => card.props.onClick())
@@ -247,7 +246,7 @@ test('saved offline instances keep their card and show connection state even whe
   assert.equal(model.instanceStatusLabel(instance, snapshot), '未连接')
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceHub, {
-    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {}, legacyProfiles: () => [],
+    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {},
   })) })
   const card = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
   assert.ok(text(card).includes('Desk controller'))
@@ -268,7 +267,7 @@ test('integration saves devices without an input mode on every platform', async 
       return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-remote' }] } }
     } }
     act(() => { view = Renderer.create(React.createElement(DeviceHub, {
-      controller, native: false, platform, permissions: {}, legacyProfiles: () => [],
+      controller, native: false, platform, permissions: {},
     })) })
     act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
     const dialog = view.root.findByProps({ role: 'dialog' })
@@ -281,6 +280,8 @@ test('integration saves devices without an input mode on every platform', async 
     assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.ok(!('capture' in submitted))
+    assert.equal(submitted.activeProfileId, 'default')
+    assert.deepEqual(structuredClone(submitted.profiles), [{ id: 'default', name: '默认配置', behaviors: {} }])
     act(() => view.unmount())
   }
 })
@@ -312,7 +313,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     './model': model,
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })
-  const instances = ['one', 'two'].map(id => ({ ...model.newInstance('cmiotA15', `physical-${id}`), id, legacyProfilesMigrated: true }))
+  const instances = ['one', 'two'].map(id => ({ ...model.newInstance('cmiotA15', `physical-${id}`), id }))
   const snapshot = model.emptySnapshot()
   snapshot.store.instances = instances
   snapshot.runtime = {
@@ -327,7 +328,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     return snapshot
   } }
   const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
-    legacyProfiles: () => [], driverAction: null, batteryLevel: index === 0 ? 15 : 78,
+    driverAction: null, batteryLevel: index === 0 ? 15 : 78,
     onInstallDriver: id => actions.push(['install', id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
     onOpenAudioCalibration: id => actions.push(['calibrate', id]),
@@ -547,7 +548,7 @@ test('guide discovery filters bound devices, refreshes and only advances after a
     snapshot.store.instances.push({ ...instance, id: 'new-device' })
     return snapshot
   } }
-  const props = { controller, native: true, platform: 'windows', permissions: {}, legacyProfiles: () => [],
+  const props = { controller, native: true, platform: 'windows', permissions: {},
     guide: true, onIntegrated: id => { integrated = id } }
   let view
   act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, props), {

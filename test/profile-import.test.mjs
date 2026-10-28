@@ -49,10 +49,10 @@ test('profile import preview counts and lists only the target device and explain
   }
 })
 
-test('legacy mouse imports without a device switch show no switch application notice', async () => {
+test('imports without an optional device switch show no switch application notice', async () => {
   let view
   await act(async () => { view = Renderer.create(React.createElement(module.exports.ProfileImportDialog, {
-    fileName: 'legacy.json', suggestedName: '旧配置', deviceId: 'mouse', behaviors: createEmptyBehaviorMap(), platform: 'macos',
+    fileName: 'mouse.json', suggestedName: '鼠标配置', deviceId: 'mouse', behaviors: createEmptyBehaviorMap(), platform: 'macos',
     onCancel() {}, onSave() {},
   })) })
   try { assert.ok(!text(view.toJSON()).includes('保存后会一并应用')) }

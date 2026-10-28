@@ -6,7 +6,6 @@
  */
 
 import { cmiotA15ButtonIds, devices, inputIds, remoteButtonIds } from './deviceModel.ts'
-import { cmiotA15AdditionalButtonIds } from './devices/cmiot-a15-remote/buttons.ts'
 import type { DeviceId, InputId, RemoteButtonId } from './deviceModel.ts'
 export type { InputId } from './deviceModel.ts'
 export const buttonIds = [...remoteButtonIds, ...cmiotA15ButtonIds] as const
@@ -334,32 +333,9 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
   return null
 }
 
-/** Convert the legacy single-string mapping format into one-click behaviors. */
-export function legacyMappingsToBehaviorMap(mappings: unknown): BehaviorMap {
-  const map = createEmptyBehaviorMap()
-  if (!isRecord(mappings)) return map
-
-  for (const [id, value] of Object.entries(mappings)) {
-    if (!isButtonId(id) || typeof value !== 'string') continue
-    const action = value.trim()
-    if (!action || action === 'original') continue
-    const keys = action
-      .split('+')
-      .map(key => key.trim())
-      .filter(Boolean)
-    map[id].click = [
-      keys.length > 1
-        ? createBehavior({ type: 'shortcut', keys, id: `${id}-click-legacy` })
-        : createBehavior({ type: 'key', key: keys[0], id: `${id}-click-legacy` }),
-    ]
-  }
-  return map
-}
-
 function behaviorContainer(value: unknown) {
   if (!isRecord(value)) return null
   if (isRecord(value.behaviors)) return value.behaviors
-  if (isRecord(value.actions)) return value.actions
   return value
 }
 
@@ -379,17 +355,6 @@ function hasBehaviorMapShape(value: unknown) {
   })
 }
 
-function hasLegacyMappingShape(value: unknown) {
-  if (!isRecord(value)) return false
-  const knownButtons = inputIds.filter(buttonId => Object.prototype.hasOwnProperty.call(value, buttonId))
-  return knownButtons.length > 0 && knownButtons.every(buttonId => typeof value[buttonId] === 'string')
-}
-
-/**
- * Parse localStorage JSON (or an already parsed value), merging it with defaults.
- * Both the new behavior map and the previous `{ mappings: Record<ButtonId,string> }`
- * settings shape are accepted.
- */
 export function parseStoredBehaviors(value: unknown): BehaviorMap {
   let parsed: unknown = value
   if (typeof value === 'string') {
@@ -403,16 +368,9 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
   const fallback = createDefaultBehaviorMap()
   if (!isRecord(parsed)) return fallback
 
-  const directLegacy = inputIds.some(buttonId => typeof parsed[buttonId] === 'string')
-  const legacy = isRecord(parsed.mappings)
-    ? legacyMappingsToBehaviorMap(parsed.mappings)
-    : directLegacy
-      ? legacyMappingsToBehaviorMap(parsed)
-      : null
   const source = behaviorContainer(parsed)
-  if (!source) return legacy ?? fallback
-
-  const result = legacy ?? fallback
+  if (!source) return fallback
+  const result = fallback
   for (const buttonId of inputIds) {
     const rawButton = source[buttonId]
     if (!isRecord(rawButton)) continue
@@ -589,7 +547,7 @@ export function parseSequenceImport(value: unknown): Behavior[] | null {
   return result
 }
 
-/** Parse a mapping export while retaining compatibility with older settings files. */
+/** Parse a current, device-scoped mapping export. */
 export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'rc003'): ImportedMapping | null {
   let parsed: unknown = value
   if (typeof value === 'string') {
@@ -601,60 +559,27 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   }
   if (!isRecord(parsed)) return null
 
-  const isVersionedExport = parsed.format === mappingTransferFormat
-  if (parsed.format !== undefined && !isVersionedExport) return null
-  if (isVersionedExport && parsed.version !== 1 && parsed.version !== mappingTransferVersion) return null
+  if (parsed.format !== mappingTransferFormat || parsed.version !== mappingTransferVersion) return null
+  if (parsed.deviceId !== targetDeviceId) return null
   const device = devices.find(device => device.id === targetDeviceId)!
-  const isDeviceExport = isVersionedExport && parsed.version === mappingTransferVersion
-  if (isDeviceExport && parsed.deviceId !== targetDeviceId) return null
-
-  const source = isVersionedExport
-    ? parsed.behaviors
-    : isRecord(parsed.behaviors)
-      ? parsed.behaviors
-      : behaviorContainer(parsed)
-  const validBehaviorMap = hasBehaviorMapShape(source)
-  const validLegacyMappings = hasLegacyMappingShape(parsed.mappings)
-  if (isVersionedExport ? !validBehaviorMap : !validBehaviorMap && !validLegacyMappings) {
-    return null
-  }
-  // Older version-2 mouse exports predate the middle button. Only a wholly
-  // absent middle-button group is optional; partial or malformed groups fail.
-  const legacyMouseInputs =
-    device.id === 'mouse' && isRecord(source) && !Object.keys(source).some(id => id.endsWith('.buttonMiddle'))
-  // A15 exports from before the expanded layout omit the whole new key group.
-  const legacyA15Inputs =
-    device.id === 'cmiotA15' &&
-    isRecord(source) &&
-    cmiotA15AdditionalButtonIds.every(id => !Object.prototype.hasOwnProperty.call(source, id))
+  const source = parsed.behaviors
+  if (!hasBehaviorMapShape(source) || !isRecord(source)) return null
   if (
-    isDeviceExport &&
-    (!isRecord(source) ||
-      Object.keys(source).some(
-        id =>
-          !(device.inputIds as readonly string[]).includes(id) && !(device.id === 'cmiotA15' && id === 'cmiotA15.tv'),
-      ) ||
-      device.inputIds.some(id => {
-        if (legacyMouseInputs && id.endsWith('.buttonMiddle')) return false
-        if (legacyA15Inputs && (cmiotA15AdditionalButtonIds as readonly string[]).includes(id)) return false
-        const triggers = source[id]
-        return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
-      }))
+    Object.keys(source).some(id => !(device.inputIds as readonly string[]).includes(id)) ||
+    device.inputIds.some(id => {
+      const triggers = source[id]
+      return !isRecord(triggers) || triggerTypes.some(trigger => !Array.isArray(triggers[trigger]))
+    })
   )
     return null
-
-  const parsedBehaviors = parseStoredBehaviors(isVersionedExport ? { behaviors: source } : parsed)
+  const parsedBehaviors = parseStoredBehaviors(source)
   const behaviors = createEmptyBehaviorMap()
   for (const inputId of device.inputIds) behaviors[inputId] = parsedBehaviors[inputId]
   const imported: ImportedMapping = {
     behaviors,
-    // Legacy files store the application-wide switch, not the mouse switch.
-    enabled:
-      (isDeviceExport || targetDeviceId === 'rc003') && typeof parsed.enabled === 'boolean'
-        ? parsed.enabled
-        : undefined,
+    enabled: typeof parsed.enabled === 'boolean' ? parsed.enabled : undefined,
   }
-  if (isVersionedExport && typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
+  if (typeof parsed.profileName === 'string' && parsed.profileName.trim()) {
     imported.profileName = parsed.profileName
       .trim()
       .replace(/[\u0000-\u001f\u007f]/g, '')

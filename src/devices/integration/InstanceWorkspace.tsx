@@ -22,12 +22,11 @@ import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
 import { xiaomiRemoteView } from '../xiaomi-remote/view'
 import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
 import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
-import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
+import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
   applyInstanceProfileSwitch,
-  migrateLegacyProfiles,
   removeInstanceProfileSwitch,
   updateInstanceSequence,
 } from './instanceProfiles'
@@ -38,9 +37,7 @@ type Props = {
   native: boolean
   platform: Platform
   permissions: MacPermissions
-  legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
   onPermissions: () => void
-  legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
   onBack: () => void
   onBind: () => void
   onUnbindDevice: (instanceId: string) => Promise<void>
@@ -58,8 +55,6 @@ export function InstanceWorkspace({
   platform,
   permissions,
   onPermissions,
-  legacyProfiles,
-  legacyActiveProfileId,
   onBack,
   onBind,
   onUnbindDevice,
@@ -94,7 +89,6 @@ export function InstanceWorkspace({
     sequences: TriggerBehaviors
   } | null>(null)
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
-  const migrationStarted = useRef(false)
   const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
   const status = controller.snapshot.runtime[instance.id]
@@ -178,18 +172,6 @@ export function InstanceWorkspace({
       .catch(() => {})
       .finally(() => setPendingPhysicalAction(null))
   }
-  useEffect(() => {
-    if (instance.legacyProfilesMigrated || migrationStarted.current) return
-    migrationStarted.current = true
-    const first = controller.snapshot.store.instances.find(i => i.kind === instance.kind)?.id === instance.id
-    void controller
-      .update(instance.id, item =>
-        migrateLegacyProfiles(item, first ? legacyProfiles(item.kind) : [], legacyActiveProfileId?.(item.kind)),
-      )
-      .catch(() => {
-        migrationStarted.current = false
-      })
-  }, [instance.id, instance.kind, instance.legacyProfilesMigrated, controller, legacyProfiles, legacyActiveProfileId])
   useEffect(() => {
     if (!native) return
     let alive = true
@@ -573,33 +555,6 @@ export function InstanceWorkspace({
                             }}
                           />
                         </label>
-                        {instance.kind !== 'xboxBluetooth' && (
-                          <div className="settings-form-row">
-                            <span className="settings-form-label">原有配置：</span>
-                            <div className="settings-form-control">
-                              <button
-                                onClick={() =>
-                                  update(item => {
-                                    const copied = structuredClone(legacyProfiles(item.kind)).map(p => ({
-                                      ...p,
-                                      id: crypto.randomUUID(),
-                                      name: `${p.name}（副本）`,
-                                    }))
-                                    return copied.length
-                                      ? {
-                                          ...item,
-                                          profiles: [...item.profiles, ...copied],
-                                          activeProfileId: copied[0].id,
-                                        }
-                                      : item
-                                  })
-                                }
-                              >
-                                复制原配置
-                              </button>
-                            </div>
-                          </div>
-                        )}
                         <div className="settings-form-row">
                           <span className="settings-form-label" id="instance-binding-label">
                             物理设备：

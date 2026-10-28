@@ -62,7 +62,6 @@ export const allRemoteButtons: RemoteButton[] = [...xiaomiRemoteButtons, ...cmio
 
 export const settingsStorageKey = 'axonkey.settings.v1'
 export const profilesStorageKey = 'axonkey.mapping-profiles.v2'
-export const legacyProfilesStorageKey = 'axonkey.mapping-profiles.v1'
 export const uiStateStorageKey = 'axonkey.ui-state.v1'
 export const audioSettingsStorageKey = 'axonkey.audio-settings.v2'
 export const audioGainMin = -30
@@ -242,14 +241,13 @@ function cleanProfileName(value: unknown, fallback = '默认配置') {
   return name || fallback
 }
 
-/** Read device profiles, migrating the previous shared profiles or single map. */
+/** Read the current device-profile store. */
 export function getStoredProfiles(): StoredProfiles {
-  const behaviors = getStoredSettings().behaviors
+  const behaviors = createDefaultBehaviorMap()
   const fallback = createDefaultDeviceProfiles(behaviors)
   if (typeof window === 'undefined') return fallback
   try {
-    const stored =
-      window.localStorage.getItem(profilesStorageKey) ?? window.localStorage.getItem(legacyProfilesStorageKey)
+    const stored = window.localStorage.getItem(profilesStorageKey)
     return parseStoredDeviceProfiles(stored, behaviors)
   } catch {
     return fallback

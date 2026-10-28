@@ -29,11 +29,6 @@ export function useDeviceInstances(native: boolean) {
         const saved = localStorage.getItem(previewKey)
         if (saved) {
           const store: DeviceSnapshot['store'] = JSON.parse(saved)
-          store.instances = store.instances.map(instance => {
-            const { capture: _obsolete, ...current } = instance as DeviceInstance & { capture?: unknown }
-            return current
-          })
-          localStorage.setItem(previewKey, JSON.stringify(store))
           accept({ ...emptySnapshot(), store })
         }
       } catch {

@@ -1660,19 +1660,6 @@ function AppController() {
     />
   )
   const DeviceSettingsComponent = deviceSettingsPages[selectedDevice.id]
-  const legacyInstanceProfiles: DeviceDiscoveryProps['legacyProfiles'] = kind =>
-    profiles
-      .filter(p => p.deviceId === kind)
-      .map(p => ({
-        id: p.id,
-        name: p.name,
-        behaviors: Object.fromEntries(
-          devices
-            .find(d => d.id === kind)!
-            .inputIds.map(id => [id, p.id === activeProfileIds[kind as DeviceId] ? behaviors[id] : p.behaviors[id]]),
-        ),
-      }))
-
   const openAudioDriver = () => {
     if (platform === 'windows') {
       setCableDriverOpen(true)
@@ -1937,8 +1924,6 @@ function AppController() {
                     selectBehaviorTarget(device.inputIds[0], 'click', false)
                     navigateToPage('mapping')
                   }}
-                  legacyActiveProfileId={kind => activeProfileIds[kind as DeviceId]}
-                  legacyProfiles={legacyInstanceProfiles}
                 />
               }
               nativeRuntime={nativeRuntime}
@@ -2121,8 +2106,6 @@ function AppController() {
             },
             onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
             onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
-            legacyProfiles: legacyInstanceProfiles,
-            legacyActiveProfileId: kind => activeProfileIds[kind as DeviceId],
           }}
           cableDriver={cableDriver}
           nativeRuntime={nativeRuntime}

@@ -21,7 +21,6 @@ export type DeviceInstance = {
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
-  legacyProfilesMigrated?: boolean
 }
 export type DeviceInformation = {
   status: 'pending' | 'ready' | 'retrying' | 'error' | 'disconnected'

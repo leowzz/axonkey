@@ -4,11 +4,10 @@ import { ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../../deviceModel'
 import { InstanceWorkspace } from './InstanceWorkspace'
-import { migrateLegacyProfiles } from './instanceProfiles'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { instanceStatusLabel, newInstance, packageFor, batteryForDevice, supportPackages } from './model'
-import type { DeviceInstance, DeviceKind, DiscoveredDevice, InstanceProfile } from './model'
+import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
 import './DeviceCards.css'
@@ -32,8 +31,6 @@ type Props = {
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
-  legacyProfiles: (kind: DeviceKind) => InstanceProfile[]
-  legacyActiveProfileId?: (kind: DeviceKind) => string | undefined
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
@@ -141,10 +138,7 @@ export function DeviceHub(props: Props) {
     </section>
   )
 }
-type IntegrationProps = Pick<
-  Props,
-  'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions' | 'legacyProfiles' | 'legacyActiveProfileId'
->
+type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'>
 export type DeviceDiscoveryProps = IntegrationProps &
   Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
     guide?: boolean
@@ -407,8 +401,6 @@ function IntegrationDialog({
   platform,
   permissions,
   onPermissions,
-  legacyProfiles,
-  legacyActiveProfileId,
   onClose,
   onComplete,
 }: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
@@ -435,14 +427,7 @@ function IntegrationDialog({
   async function integrate() {
     if (!kind) return
     try {
-      const base =
-        initial.instance ??
-        migrateLegacyProfiles(
-          newInstance(kind, null),
-          controller.snapshot.store.instances.some(i => i.kind === kind) ? [] : legacyProfiles(kind),
-          legacyActiveProfileId?.(kind),
-        )
-      const instance = { ...base, name: name.trim(), binding: binding || null }
+      const instance = { ...(initial.instance ?? newInstance(kind, null)), name: name.trim(), binding: binding || null }
       const result = await controller.put(instance)
       const saved = instance.id
         ? result.store.instances.find(i => i.id === instance.id)

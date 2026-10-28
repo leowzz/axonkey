@@ -48,7 +48,7 @@ function load(file) {
 
 const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
-const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState, getStoredProfiles, createMappingProfile, profilesStorageKey, legacyProfilesStorageKey, settingsStorageKey } = load('src/appConfig.tsx')
+const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState, getStoredProfiles, createMappingProfile, profilesStorageKey, settingsStorageKey } = load('src/appConfig.tsx')
 const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
@@ -84,7 +84,7 @@ test('saved pages and home scroll survive reload while old devices and overview 
   } finally { testWindow.localStorage = previousStorage }
 })
 
-test('profile storage migrates legacy data once the new key is absent and prefers later device edits', () => {
+test('profile storage ignores the old key and settings mappings, and reads current profiles', () => {
   const previousStorage = testWindow.localStorage
   const { createEmptyBehaviorMap } = load('src/behaviorModel.ts')
   const behaviors = createEmptyBehaviorMap()
@@ -92,18 +92,19 @@ test('profile storage migrates legacy data once the new key is absent and prefer
   behaviors['mouse.top.up'].click = [{ id: 'mouse', type: 'key', key: 'B', enabled: true }]
   const values = new Map([
     [settingsStorageKey, JSON.stringify({ behaviors })],
-    [legacyProfilesStorageKey, JSON.stringify({ version: 1, activeProfileId: 'work', profiles: [{ id: 'work', name: '工作', behaviors }] })],
+    [JSON.stringify({ version: 1, activeProfileId: 'work', profiles: [{ id: 'work', name: '工作', behaviors }] })],
   ])
   try {
     testWindow.localStorage = { getItem: key => values.get(key) ?? null }
-    const migrated = getStoredProfiles()
-    assert.equal(migrated.activeProfileIds.rc003, 'rc003:work')
-    assert.equal(migrated.activeProfileIds.mouse, 'mouse:work')
-    assert.equal(migrated.profiles[0].behaviors.power.click[0].key, 'A')
-    assert.equal(migrated.profiles[1].behaviors['mouse.top.up'].click[0].key, 'B')
-    migrated.profiles[1].name = '鼠标新配置'
-    values.set(profilesStorageKey, JSON.stringify({ version: 2, ...migrated }))
-    assert.equal(getStoredProfiles().profiles[1].name, '鼠标新配置')
+    const current = getStoredProfiles()
+    assert.equal(current.activeProfileIds.rc003, 'rc003:default')
+    assert.equal(current.activeProfileIds.mouse, 'mouse:default')
+    assert.notEqual(current.profiles[0].behaviors.power.click[0]?.key, 'A')
+    const mouse = current.profiles.find(profile => profile.deviceId === 'mouse')
+    assert.equal(mouse.behaviors['mouse.top.up'].click.length, 0)
+    mouse.name = '鼠标新配置'
+    values.set(profilesStorageKey, JSON.stringify({ version: 2, ...current }))
+    assert.equal(getStoredProfiles().profiles.find(profile => profile.deviceId === 'mouse').name, '鼠标新配置')
     const profile = createMappingProfile('鼠标', behaviors, 'mouse')
     assert.equal(profile.deviceId, 'mouse')
     assert.equal(profile.behaviors.power.click.length, 0)

@@ -63,7 +63,7 @@ test('native backup export proposes a timestamped filename and writes a complete
     assert.equal(app.calls[0].options.defaultPath, 'axonkey-backup-20261022-180203.json')
     assert.equal(app.calls[1].command, 'write_mapping_file')
     assert.equal(app.calls[1].args.path, '/backup.json')
-    assert.equal(model.parseDataBackup(app.calls[1].args.content).profiles.length, 4)
+    assert.equal(model.parseDataBackup(app.calls[1].args.content).profiles.length, 6)
     assert.ok(app.content().includes('已导出 backup.json'))
     assert.ok(app.button('打开文件'))
     assert.ok(app.button('打开目录'))
@@ -134,7 +134,7 @@ test('import previews all profiles and saved behaviors, cancel leaves data untou
     await app.importFile(file)
     await app.click('导入并覆盖')
     assert.equal(app.restores.length, 1)
-    assert.deepEqual(app.restores[0].activeProfileIds, { rc003: 'rc003:play', mouse: 'mouse:work' })
+    assert.deepEqual(app.restores[0].activeProfileIds, { rc003: 'rc003:play', cmiotA15: 'cmiotA15:work', mouse: 'mouse:work' })
     assert.equal(app.button('导入并覆盖').props.disabled, true, 'avoid duplicate imports while the app reloads')
   } finally { await app.unmount() }
 })

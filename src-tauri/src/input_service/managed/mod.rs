@@ -64,8 +64,6 @@ pub struct Instance {
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
-    #[serde(default)]
-    pub legacy_profiles_migrated: bool,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1733,7 +1731,6 @@ mod tests {
                 behaviors: serde_json::json!({}),
             }],
             active_profile_id: "default".into(),
-            legacy_profiles_migrated: false,
         }
     }
     #[test]

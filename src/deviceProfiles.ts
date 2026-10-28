@@ -5,7 +5,6 @@ import type { DeviceId } from './deviceModel.ts'
 import type { MappingProfile, StoredProfiles } from './appTypes.ts'
 
 export const deviceProfilesStorageVersion = 2
-export type LegacyMappingProfile = Omit<MappingProfile, 'deviceId'>
 
 export function isDeviceId(value: unknown): value is DeviceId {
   return devices.some(device => device.id === value)
@@ -35,14 +34,22 @@ export function snapshotDeviceProfiles(
 ): MappingProfile[] {
   return profiles.map(profile => ({
     ...profile,
-    behaviors: extractDeviceBehaviors(profile.id === activeProfileIds[profile.deviceId] ? behaviors : profile.behaviors, profile.deviceId),
+    behaviors: extractDeviceBehaviors(
+      profile.id === activeProfileIds[profile.deviceId] ? behaviors : profile.behaviors,
+      profile.deviceId,
+    ),
   }))
 }
 
-export function composeActiveProfileBehaviors(profiles: readonly MappingProfile[], activeProfileIds: Record<DeviceId, string>): BehaviorMap {
+export function composeActiveProfileBehaviors(
+  profiles: readonly MappingProfile[],
+  activeProfileIds: Record<DeviceId, string>,
+): BehaviorMap {
   let behaviors = createEmptyBehaviorMap()
   for (const device of devices) {
-    const active = profiles.find(profile => profile.deviceId === device.id && profile.id === activeProfileIds[device.id])
+    const active = profiles.find(
+      profile => profile.deviceId === device.id && profile.id === activeProfileIds[device.id],
+    )
     if (active) behaviors = mergeDeviceBehaviors(behaviors, device.id, active.behaviors)
   }
   return behaviors
@@ -50,25 +57,17 @@ export function composeActiveProfileBehaviors(profiles: readonly MappingProfile[
 
 export function createDefaultDeviceProfiles(behaviors: BehaviorMap): StoredProfiles {
   const profiles = devices.map(device => ({
-    id: `${device.id}:default`, name: '默认配置', deviceId: device.id,
+    id: `${device.id}:default`,
+    name: '默认配置',
+    deviceId: device.id,
     behaviors: extractDeviceBehaviors(behaviors, device.id),
   }))
   return {
     profiles,
-    activeProfileIds: Object.fromEntries(profiles.map(profile => [profile.deviceId, profile.id])) as Record<DeviceId, string>,
-  }
-}
-
-/** Stable IDs make old storage and old backups migrate identically on every read. */
-export function migrateLegacyProfiles(profiles: readonly LegacyMappingProfile[], activeProfileId: string): StoredProfiles {
-  if (profiles.length === 0) return createDefaultDeviceProfiles(createEmptyBehaviorMap())
-  const selectedId = profiles.some(profile => profile.id === activeProfileId) ? activeProfileId : profiles[0].id
-  return {
-    profiles: devices.flatMap(device => profiles.map(profile => ({
-      ...profile, id: `${device.id}:${profile.id}`, deviceId: device.id,
-      behaviors: extractDeviceBehaviors(profile.behaviors, device.id),
-    }))),
-    activeProfileIds: Object.fromEntries(devices.map(device => [device.id, `${device.id}:${selectedId}`])) as Record<DeviceId, string>,
+    activeProfileIds: Object.fromEntries(profiles.map(profile => [profile.deviceId, profile.id])) as Record<
+      DeviceId,
+      string
+    >,
   }
 }
 
@@ -77,7 +76,13 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 
 function profileName(value: unknown, index: number): string {
-  const name = typeof value === 'string' ? value.trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 40) : ''
+  const name =
+    typeof value === 'string'
+      ? value
+          .trim()
+          .replace(/[\u0000-\u001f\u007f]/g, '')
+          .slice(0, 40)
+      : ''
   return name || (index === 0 ? '默认配置' : `配置 ${index + 1}`)
 }
 
@@ -95,27 +100,25 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
   const fallback = createDefaultDeviceProfiles(fallbackBehaviors)
   let parsed = value
   if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed) as unknown } catch { return fallback }
+    try {
+      parsed = JSON.parse(parsed) as unknown
+    } catch {
+      return fallback
+    }
   }
   if (!record(parsed) || !Array.isArray(parsed.profiles)) return fallback
-  if (parsed.version !== undefined && parsed.version !== 1 && parsed.version !== deviceProfilesStorageVersion) return fallback
+  if (parsed.version !== deviceProfilesStorageVersion) return fallback
   const ids = new Set<string>()
-  if (parsed.version !== deviceProfilesStorageVersion) {
-    const profiles = parsed.profiles.flatMap((raw, index): LegacyMappingProfile[] => {
-      if (!record(raw)) return []
-      return [{
-        id: uniqueId(raw.id, `profile-${index + 1}`, ids), name: profileName(raw.name, index),
-        behaviors: parseStoredBehaviors(raw.behaviors),
-      }]
-    })
-    return profiles.length ? migrateLegacyProfiles(profiles, typeof parsed.activeProfileId === 'string' ? parsed.activeProfileId : '') : fallback
-  }
   const profiles = parsed.profiles.flatMap((raw, index): MappingProfile[] => {
     if (!record(raw) || !isDeviceId(raw.deviceId)) return []
-    return [{
-      id: uniqueId(raw.id, `${raw.deviceId}:profile-${index + 1}`, ids), name: profileName(raw.name, index), deviceId: raw.deviceId,
-      behaviors: extractDeviceBehaviors(parseStoredBehaviors(raw.behaviors), raw.deviceId),
-    }]
+    return [
+      {
+        id: uniqueId(raw.id, `${raw.deviceId}:profile-${index + 1}`, ids),
+        name: profileName(raw.name, index),
+        deviceId: raw.deviceId,
+        behaviors: extractDeviceBehaviors(parseStoredBehaviors(raw.behaviors), raw.deviceId),
+      },
+    ]
   })
   const requested = record(parsed.activeProfileIds) ? parsed.activeProfileIds : {}
   const activeProfileIds = { ...fallback.activeProfileIds }
@@ -125,7 +128,8 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
       profiles.push({ ...defaults, id: uniqueId(defaults.id, defaults.id, ids) })
     }
     const deviceProfiles = profiles.filter(profile => profile.deviceId === device.id)
-    activeProfileIds[device.id] = deviceProfiles.find(profile => profile.id === requested[device.id])?.id ?? deviceProfiles[0].id
+    activeProfileIds[device.id] =
+      deviceProfiles.find(profile => profile.id === requested[device.id])?.id ?? deviceProfiles[0].id
   }
   return { profiles, activeProfileIds }
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { backupFilename, createDataBackup, parseDataBackup, writeBackupStorage, restoreBackupStorage } from '../src/dataBackup.ts'
-import { sampleData, legacyBackup, legacySampleData } from './fixtures/data-backup.mjs'
+import { sampleData } from './fixtures/data-backup.mjs'
 import { composeActiveProfileBehaviors } from '../src/deviceProfiles.ts'
 
 
@@ -10,20 +10,20 @@ test('backup round-trip preserves ordered profiles, active live edits, saved beh
   const before = structuredClone(original)
   const document = createDataBackup(original, '1.0.14', new Date('2026-10-22T10:02:03Z'))
   assert.equal(document.version, 2)
-  assert.deepEqual(document.profiles.map(profile => profile.deviceId), ['rc003', 'rc003', 'mouse', 'mouse'])
+  assert.deepEqual(document.profiles.map(profile => profile.deviceId), ['rc003', 'rc003', 'cmiotA15', 'cmiotA15', 'mouse', 'mouse'])
   assert.equal(document.profiles[0].keys.power.click[0].key, 'Esc')
-  assert.equal(document.profiles[2].keys['top.up'].click[0].type, 'shortcut')
+  assert.equal(document.profiles[4].keys['top.up'].click[0].type, 'shortcut')
   assert.equal(document.profiles[0].keys['mouse.top.up'], undefined)
-  assert.equal(document.profiles[2].keys.power, undefined)
+  assert.equal(document.profiles[4].keys.power, undefined)
   assert.equal(document.profiles[0].behaviors, undefined)
   assert.equal(document.savedBehaviors[0].behaviors[0].text, '多行\n文本')
   const restored = parseDataBackup(JSON.stringify(document))
-  assert.deepEqual(restored.profiles.map(profile => profile.name), ['工作', '娱乐', '工作', '娱乐'])
-  assert.deepEqual(restored.activeProfileIds, { rc003: 'rc003:play', mouse: 'mouse:work' })
+  assert.deepEqual(restored.profiles.map(profile => profile.name), ['工作', '娱乐', '工作', '娱乐', '工作', '娱乐'])
+  assert.deepEqual(restored.activeProfileIds, { rc003: 'rc003:play', cmiotA15: 'cmiotA15:work', mouse: 'mouse:work' })
   assert.deepEqual(restored.profiles[0].behaviors, original.profiles[0].behaviors)
   assert.deepEqual(restored.profiles[1].behaviors.tv, original.behaviors.tv)
   assert.deepEqual(restored.profiles[1].behaviors['mouse.top.up'].click, [])
-  assert.equal(restored.profiles[2].behaviors['mouse.top.down'].click[0].id, 'live-mouse')
+  assert.equal(restored.profiles[4].behaviors['mouse.top.down'].click[0].id, 'live-mouse')
   assert.deepEqual(composeActiveProfileBehaviors(restored.profiles, restored.activeProfileIds), original.behaviors)
   assert.deepEqual(restored.savedSequences, original.savedSequences)
   assert.deepEqual(restored.settings, original.settings)
@@ -105,32 +105,21 @@ test('restore writes compatible application storage and returns to backup settin
   assert.equal(values.get('setup'), 'local permissions')
 })
 
-test('version 1 backups split every legacy profile by device with deterministic IDs and preserve active mappings', () => {
-  const document = legacyBackup()
-  const data = parseDataBackup(JSON.stringify(document))
-  assert.deepEqual(data.activeProfileIds, { rc003: 'rc003:play', mouse: 'mouse:play' })
-  assert.deepEqual(data.profiles.map(profile => [profile.id, profile.deviceId, profile.name]), [
-    ['rc003:work', 'rc003', '工作'], ['rc003:play', 'rc003', '娱乐'],
-    ['mouse:work', 'mouse', '工作'], ['mouse:play', 'mouse', '娱乐'],
-  ])
-  assert.deepEqual(composeActiveProfileBehaviors(data.profiles, data.activeProfileIds), legacySampleData().behaviors)
-  assert.deepEqual(parseDataBackup(JSON.stringify(document)).profiles, data.profiles)
-  const exported = createDataBackup({ ...data, behaviors: composeActiveProfileBehaviors(data.profiles, data.activeProfileIds) }, '1.0.20')
-  assert.deepEqual(parseDataBackup(JSON.stringify(exported)).profiles, data.profiles)
-  delete document.profiles[0].devices.mouse
-  assert.throws(() => parseDataBackup(JSON.stringify(document)))
+test('backups only accept the current version', () => {
+  for (const version of [undefined, 1, 3]) {
+    const document = createDataBackup(sampleData(), '1.0.20')
+    document.version = version
+    assert.throws(() => parseDataBackup(JSON.stringify(document)), /版本/)
+  }
 })
 
-test('backups without middle-button inputs upgrade with empty mappings while incomplete new groups fail', () => {
+test('backups missing the middle-button group or individual inputs are rejected', () => {
   const backup = createDataBackup(sampleData(), '1.0.20')
   const middleKeys = ['global', 'top', 'left', 'right'].map(scope => `${scope}.buttonMiddle`)
   for (const profile of backup.profiles.filter(profile => profile.deviceId === 'mouse')) {
     for (const key of middleKeys) delete profile.keys[key]
   }
-  const restored = parseDataBackup(JSON.stringify(backup))
-  for (const profile of restored.profiles.filter(profile => profile.deviceId === 'mouse')) {
-    for (const key of middleKeys) assert.deepEqual(profile.behaviors[`mouse.${key}`], {click:[], doubleClick:[], longPress:[]})
-  }
+  assert.throws(() => parseDataBackup(JSON.stringify(backup)), /设备按键列表不完整/)
   const incomplete = createDataBackup(sampleData(), '1.0.20')
   delete incomplete.profiles.find(profile => profile.deviceId === 'mouse').keys['global.buttonMiddle']
   assert.throws(() => parseDataBackup(JSON.stringify(incomplete)), /设备按键列表不完整/)
