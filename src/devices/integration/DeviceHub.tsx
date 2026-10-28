@@ -24,6 +24,7 @@ type Props = {
   onOpenAudioCalibration: (instanceId: string) => void
   onOpenAudioDriver: () => void
   onOpenBluetoothSettings: () => void
+  onOpenDeviceManager: () => void
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
@@ -47,18 +48,7 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const [selected, setSelected] = useState<string | null>(null)
   const [integration, setIntegration] = useState<Integration | null>(null)
-  const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
-  const [discoveredExpanded, setDiscoveredExpanded] = useState(getDiscoveredDevicesExpanded)
   const instance = snapshot.store.instances.find(i => i.id === selected)
-  const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    try {
-      window.localStorage.setItem(discoveredDevicesExpandedKey, discoveredExpanded ? '1' : '0')
-    } catch {
-      /* UI preference is best-effort. */
-    }
-  }, [discoveredExpanded])
   const banner = (
     <>
       {!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
@@ -124,73 +114,10 @@ export function DeviceHub(props: Props) {
                 />
               </div>
             </section>
-            <details
-              className="managed-discovered-section"
-              open={discoveredExpanded}
-              onToggle={event => setDiscoveredExpanded(event.currentTarget.open)}
-            >
-              <summary className="managed-discovered-summary">
-                <span>发现设备</span>
-                <span className="managed-discovered-count">{unboundDevices.length}</span>
-                <button
-                  type="button"
-                  className="managed-discovery-help"
-                  aria-haspopup="dialog"
-                  onClick={event => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    setDiscoveryHelpOpen(true)
-                  }}
-                >
-                  找不到设备？
-                </button>
-              </summary>
-              <div className="managed-discovered-content">
-                <div className="managed-discovered-toolbar">
-                  <button
-                    className="managed-icon"
-                    aria-label="刷新设备"
-                    onClick={() => void controller.refresh()}
-                    disabled={!native}
-                  >
-                    <RefreshCw size={14} />
-                  </button>
-                </div>
-                <div className="managed-device-grid">
-                  {unboundDevices.map(device => (
-                    <DeviceCard
-                      key={device.id}
-                      kind={device.kind}
-                      discovered
-                      title={packageFor(device.kind).name}
-                      subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`}
-                      status={
-                        device.identityQuality === 'ambiguous'
-                          ? '实例标识冲突，无法自动绑定'
-                          : device.connected
-                            ? '点击集成'
-                            : '未连接'
-                      }
-                      batteryLevel={batteryForDevice(device.id, snapshot.discovered)}
-                      onClick={() => setIntegration({ kind: device.kind, device })}
-                    />
-                  ))}
-                </div>
-              </div>
-            </details>
+            <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
           </div>
         </>
       )}
-      {discoveryHelpOpen &&
-        createPortal(
-          <DiscoveryHelpDialog
-            native={native}
-            platform={props.platform}
-            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
-            onClose={() => setDiscoveryHelpOpen(false)}
-          />,
-          document.body,
-        )}
       {integration &&
         createPortal(
           <IntegrationDialog
@@ -212,12 +139,154 @@ export function DeviceHub(props: Props) {
     </section>
   )
 }
+type IntegrationProps = Pick<
+  Props,
+  'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions' | 'legacyProfiles' | 'legacyActiveProfileId'
+>
+export type DeviceDiscoveryProps = IntegrationProps &
+  Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+    guide?: boolean
+    onIntegrated: (id: string) => void
+  }
+
+export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
+  const { controller, native, guide = false } = props
+  const { snapshot, error, busy } = controller
+  const [integration, setIntegration] = useState<Integration | null>(null)
+  const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
+  const [discoveredExpanded, setDiscoveredExpanded] = useState(() => guide || getDiscoveredDevicesExpanded())
+  const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
+  useEffect(() => {
+    if (guide || typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(discoveredDevicesExpandedKey, discoveredExpanded ? '1' : '0')
+    } catch {
+      /* UI preference is best-effort. */
+    }
+  }, [discoveredExpanded, guide])
+
+  return (
+    <>
+      {guide && (
+        <section className="user-guide-supported" aria-labelledby="user-guide-supported-title">
+          <h3 id="user-guide-supported-title">支持的设备</h3>
+          <ul>
+            {supportPackages.map(pkg => (
+              <li key={pkg.kind} className="managed-package">
+                <img src={pkg.artwork} alt="" />
+                <span>
+                  <strong>{pkg.name}</strong>
+                  <small>{pkg.model.split(' · ')[0]}</small>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {guide && !native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
+      {guide && (error || snapshot.error || snapshot.scanError) && (
+        <p className="managed-error" role="alert">
+          {error || snapshot.error || snapshot.scanError}
+        </p>
+      )}
+      <details
+        className="managed-discovered-section"
+        open={discoveredExpanded}
+        onToggle={event => setDiscoveredExpanded(event.currentTarget.open)}
+      >
+        <summary className="managed-discovered-summary">
+          <span>发现设备</span>
+          <span className="managed-discovered-count">{unboundDevices.length}</span>
+          <button
+            type="button"
+            className="managed-discovery-help"
+            aria-haspopup="dialog"
+            onClick={event => {
+              event.preventDefault()
+              event.stopPropagation()
+              setDiscoveryHelpOpen(true)
+            }}
+          >
+            找不到设备？
+          </button>
+        </summary>
+        <div className="managed-discovered-content">
+          <div className="managed-discovered-toolbar">
+            <button
+              className="managed-icon"
+              aria-label="刷新设备"
+              onClick={() => void controller.refresh()}
+              disabled={!native}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+          {guide && unboundDevices.length === 0 && <p className="managed-notice">暂未发现可添加的设备。</p>}
+          <div className="managed-device-grid">
+            {unboundDevices.map(device => (
+              <DeviceCard
+                key={device.id}
+                kind={device.kind}
+                discovered
+                title={packageFor(device.kind).name}
+                subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`}
+                status={
+                  device.identityQuality === 'ambiguous'
+                    ? '实例标识冲突，无法自动绑定'
+                    : device.connected
+                      ? '点击集成'
+                      : '未连接'
+                }
+                batteryLevel={batteryForDevice(device.id, snapshot.discovered)}
+                onClick={() => setIntegration({ kind: device.kind, device })}
+              />
+            ))}
+          </div>
+        </div>
+      </details>
+      {discoveryHelpOpen &&
+        createPortal(
+          <DiscoveryHelpDialog
+            native={native}
+            platform={props.platform}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onOpenDeviceManager={props.onOpenDeviceManager}
+            onClose={() => setDiscoveryHelpOpen(false)}
+          />,
+          document.body,
+        )}
+
+      {integration &&
+        createPortal(
+          <IntegrationDialog
+            {...props}
+            initial={integration}
+            onClose={() => setIntegration(null)}
+            onComplete={id => {
+              setIntegration(null)
+              props.onIntegrated(id)
+            }}
+          />,
+          document.body,
+        )}
+      {guide && busy && (
+        <p className="managed-notice" role="status">
+          正在保存…
+        </p>
+      )}
+    </>
+  )
+}
+
 function DiscoveryHelpDialog({
   native,
   platform,
   onOpenBluetoothSettings,
+  onOpenDeviceManager,
   onClose,
-}: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings'> & { onClose: () => void }) {
+}: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+  onClose: () => void
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const dialog = dialogRef.current
@@ -248,6 +317,11 @@ function DiscoveryHelpDialog({
           <p id="managed-discovery-help-description">蓝牙设备需要先在 {system}中进行蓝牙配对。</p>
         </div>
         <footer className="managed-dialog-footer">
+          {platform === 'windows' && (
+            <button type="button" onClick={onOpenDeviceManager} disabled={!native}>
+              打开设备管理器
+            </button>
+          )}
           <button
             type="button"
             className="managed-primary"
@@ -335,20 +409,18 @@ function IntegrationDialog({
   legacyActiveProfileId,
   onClose,
   onComplete,
-}: Props & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
+}: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
   const [kind, setKind] = useState(initial.kind)
   const [name, setName] = useState(initial.instance?.name ?? (initial.kind ? packageFor(initial.kind).name : ''))
   const [binding, setBinding] = useState(initial.device?.id ?? initial.instance?.binding ?? '')
   const [localError, setError] = useState('')
-  const dialog = useRef<HTMLElement>(null)
+  const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
-    const root = document.getElementById('root')
-    const inert = root?.inert ?? false
+    const modal = dialog.current
     const focus = document.activeElement
-    if (root) root.inert = true
-    dialog.current?.querySelector<HTMLElement>('button')?.focus()
+    modal?.showModal()
     return () => {
-      if (root) root.inert = inert
+      modal?.close()
       if (focus instanceof HTMLElement && focus.isConnected) focus.focus()
     }
   }, [])
@@ -379,40 +451,15 @@ function IntegrationDialog({
     }
   }
   return (
-    <div
-      className="behavior-dialog-backdrop"
-      onKeyDown={event => {
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          if (dialog.current?.querySelector('.settings-help[aria-expanded="true"]')) return
-          event.stopPropagation()
-          onClose()
-        }
-        if (event.key === 'Tab') {
-          const elements = Array.from(
-            dialog.current?.querySelectorAll<HTMLElement>(
-              'button:not(:disabled),input:not(:disabled),select:not(:disabled),[tabindex="0"]',
-            ) ?? [],
-          )
-          const first = elements[0]
-          const last = elements[elements.length - 1]
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault()
-            last?.focus()
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault()
-            first?.focus()
-          }
-        }
-      }}
+    <dialog
+      ref={dialog}
+      className="managed-integration-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="managed-integration-title"
+      onCancel={onClose}
     >
-      <section
-        ref={dialog}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="managed-integration-title"
-        className="behavior-dialog managed-integration-dialog"
-      >
+      <section className="behavior-dialog managed-integration-dialog">
         <header className="behavior-dialog-head">
           <h2 id="managed-integration-title">{initial.instance ? '绑定物理设备' : '集成设备'}</h2>
           <button aria-label="关闭集成" className="dialog-close" onClick={onClose}>
@@ -528,6 +575,6 @@ function IntegrationDialog({
           )}
         </footer>
       </section>
-    </div>
+    </dialog>
   )
 }

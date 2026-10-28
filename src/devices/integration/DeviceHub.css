@@ -83,6 +83,22 @@
 .managed-discovery-help-dialog::backdrop {
   background: rgb(29 33 38 / 42%);
 }
+.managed-integration-modal {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  overflow: hidden;
+}
+.managed-integration-modal::backdrop {
+  background: rgb(29 33 38 / 42%);
+}
+.managed-integration-modal > .behavior-dialog.managed-integration-dialog {
+  width: 100%;
+  max-height: calc(100dvh - 48px);
+}
 .managed-discovery-help-dialog .behavior-dialog-body p {
   margin: 0;
   font-size: 14px;

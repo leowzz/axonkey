@@ -22,6 +22,7 @@ type SettingsPageProps = {
   onOpenDriverMigration: () => void
   onOpenLegacyCleanup: () => void
   onOpenCableDriver: () => void
+  onOpenUserGuide: () => void
   onBack: () => void
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
@@ -61,6 +62,7 @@ export function SettingsPage({
   onOpenDriverMigration,
   onOpenLegacyCleanup,
   onOpenCableDriver,
+  onOpenUserGuide,
   onBack,
   section,
   onSectionChange,
@@ -375,6 +377,16 @@ export function SettingsPage({
             ) : platform === 'windows' ? (
               <>
                 <div className="settings-form-fields settings-device-fields">
+                  <section className="settings-form-row" aria-labelledby="settings-user-guide-label">
+                    <span id="settings-user-guide-label" className="settings-form-label">
+                      使用指南：
+                    </span>
+                    <div className="settings-form-control">
+                      <button type="button" className="dialog-secondary" onClick={onOpenUserGuide}>
+                        打开指南
+                      </button>
+                    </div>
+                  </section>
                   {debugMode && (
                     <section className="settings-form-row" aria-labelledby="settings-driver-migration-label">
                       <span id="settings-driver-migration-label" className="settings-form-label">

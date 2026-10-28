@@ -1,6 +1,6 @@
 import { LegacyCleanupFlow } from '../components/LegacyCleanupDialog'
 import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
-import { DeviceHub } from '../devices/integration/DeviceHub'
+import { DeviceHub, type DeviceDiscoveryProps } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
@@ -107,6 +107,8 @@ import { MappingFlowPage } from '../components/MappingFlowPage'
 import { MacPermissionHelperWindow } from '../components/MacPermissionHelperWindow'
 import { useAudioControls } from '../hooks/useAudioControls'
 import { useCableDriver } from '../hooks/useCableDriver'
+import { useUserGuide } from '../hooks/useUserGuide'
+import { UserGuideDialog } from '../components/UserGuideDialog'
 import { CableDriverDialog } from '../components/CableDriverDialog'
 import { ManagedDriverCleanupDialog } from '../components/ManagedDriverCleanupDialog'
 import { logError, logInfo } from '../runtimeLogging'
@@ -146,6 +148,8 @@ function AppController() {
     }
   })
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
+  const [platformReady, setPlatformReady] = useState(!nativeRuntime)
+  const userGuide = useUserGuide(platformReady && platform === 'windows', nativeRuntime)
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>(initialUiState.selectedDeviceId)
   const selectedDevice = devices.find(device => device.id === selectedDeviceId)!
   const editableButtons = selectedDevice.buttons ? [...selectedDevice.buttons] : []
@@ -572,7 +576,10 @@ function AppController() {
     let active = true
     void invoke<Platform>('get_platform')
       .then(detected => {
-        if (active) setPlatform(detected)
+        if (active) {
+          setPlatform(detected)
+          setPlatformReady(true)
+        }
       })
       .catch(error => logError('Failed to detect platform', error))
     return () => {
@@ -1292,7 +1299,9 @@ function AppController() {
     }
   }
 
-  const openSystemSettings = async (page: 'bluetooth' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility') => {
+  const openSystemSettings = async (
+    page: 'bluetooth' | 'deviceManager' | 'sound' | 'services' | 'inputMonitoring' | 'accessibility',
+  ) => {
     try {
       await invoke('open_system_settings', { page })
       return true
@@ -1649,6 +1658,19 @@ function AppController() {
     />
   )
   const DeviceSettingsComponent = deviceSettingsPages[selectedDevice.id]
+  const legacyInstanceProfiles: DeviceDiscoveryProps['legacyProfiles'] = kind =>
+    profiles
+      .filter(p => p.deviceId === kind)
+      .map(p => ({
+        id: p.id,
+        name: p.name,
+        behaviors: Object.fromEntries(
+          devices
+            .find(d => d.id === kind)!
+            .inputIds.map(id => [id, p.id === activeProfileIds[kind as DeviceId] ? behaviors[id] : p.behaviors[id]]),
+        ),
+      }))
+
   const openAudioDriver = () => {
     if (platform === 'windows') {
       setCableDriverOpen(true)
@@ -1820,6 +1842,7 @@ function AppController() {
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
+              onOpenUserGuide={userGuide.show}
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
@@ -1888,6 +1911,7 @@ function AppController() {
                 <DeviceHub
                   onOpenAudioDriver={openAudioDriver}
                   onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
+                  onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
                   controller={deviceInstances}
                   onBrandClick={handleBrandClick}
                   native={nativeRuntime}
@@ -1910,22 +1934,7 @@ function AppController() {
                     navigateToPage('mapping')
                   }}
                   legacyActiveProfileId={kind => activeProfileIds[kind as DeviceId]}
-                  legacyProfiles={kind =>
-                    profiles
-                      .filter(p => p.deviceId === kind)
-                      .map(p => ({
-                        id: p.id,
-                        name: p.name,
-                        behaviors: Object.fromEntries(
-                          devices
-                            .find(d => d.id === kind)!
-                            .inputIds.map(id => [
-                              id,
-                              p.id === activeProfileIds[kind as DeviceId] ? behaviors[id] : p.behaviors[id],
-                            ]),
-                        ),
-                      }))
-                  }
+                  legacyProfiles={legacyInstanceProfiles}
                 />
               }
               nativeRuntime={nativeRuntime}
@@ -2092,6 +2101,32 @@ function AppController() {
       )}
       {driverMigrationOpen && platform === 'windows' && (
         <DriverMigrationFlow onComplete={() => setDriverMigrationOpen(false)} />
+      )}
+      {userGuide.open && (
+        <UserGuideDialog
+          saving={userGuide.saving}
+          error={userGuide.error}
+          deviceDiscovery={{
+            controller: deviceInstances,
+            native: nativeRuntime,
+            platform,
+            permissions: macPermissions,
+            onPermissions: () => {
+              setSettingsSection('permissions')
+              navigateToPage('settings')
+            },
+            onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
+            onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
+            legacyProfiles: legacyInstanceProfiles,
+            legacyActiveProfileId: kind => activeProfileIds[kind as DeviceId],
+          }}
+          cableDriver={cableDriver}
+          nativeRuntime={nativeRuntime}
+          onOpenSound={() => void openSystemSettings('sound')}
+          onComplete={async () => {
+            if (await userGuide.complete()) navigateToPage('home')
+          }}
+        />
       )}
       {cableDriverOpen && platform === 'windows' && (
         <CableDriverDialog

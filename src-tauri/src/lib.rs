@@ -5,6 +5,7 @@ mod driver_migration;
 mod input_service;
 mod legacy_cleanup;
 mod legacy_driver;
+mod onboarding;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
@@ -899,6 +900,7 @@ async fn uninstall_bound_device_drivers(
 fn open_windows_settings(page: String) -> Result<(), String> {
     let target = match page.as_str() {
         "bluetooth" => "ms-settings:bluetooth",
+        "deviceManager" => "devmgmt.msc",
         "sound" => "ms-settings:sound",
         "services" => "services.msc",
         _ => return Err("Unsupported settings page".into()),
@@ -1724,6 +1726,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            onboarding::get_onboarding_completed,
+            onboarding::complete_onboarding,
             legacy_cleanup::get_legacy_cleanup,
             legacy_cleanup::check_legacy_cleanup,
             legacy_cleanup::run_legacy_cleanup,

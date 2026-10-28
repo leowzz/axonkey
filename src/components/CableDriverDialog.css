@@ -18,10 +18,10 @@ body:has(.cable-driver-dialog[open]),
 .app-shell:has(.cable-driver-dialog[open]) .main-content {
   overflow: hidden;
 }
-.cable-driver-dialog .settings-form-row {
+.cable-driver-panel .settings-form-row {
   grid-template-columns: 94px minmax(0, 1fr);
 }
-.cable-driver-dialog .settings-form-control {
+.cable-driver-panel .settings-form-control {
   flex-wrap: wrap;
 }
 .cable-driver-routing,

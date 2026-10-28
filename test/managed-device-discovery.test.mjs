@@ -8,7 +8,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
-const text = node => typeof node === 'string' ? node : (node?.children ?? []).map(text).join('')
+const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
 function compile(path, imports = {}) {
   const source = ts.transpileModule(readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
@@ -31,7 +31,7 @@ const model = compile('src/devices/integration/model.ts', {
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
-const { DeviceHub } = compile('src/devices/integration/DeviceHub.tsx', {
+const { DeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
   '../../components/RemoteControl': { RemoteControl: () => null },
@@ -61,12 +61,13 @@ test('installation feedback distinguishes submitted installs from reboot before 
 
 test('discovery help opens without toggling the device list and routes Bluetooth settings', () => {
   for (const [platform, native, system] of [['windows', true, 'Windows 设置'], ['macos', true, 'macOS 系统设置'], ['windows', false, 'Windows 设置']]) {
-    let opened = 0, closed = 0, settingsOpened = 0
+    let opened = 0, closed = 0, settingsOpened = 0, deviceManagerOpened = 0
     const modal = { showModal() { opened++ }, close() { closed++ } }
     const props = {
       controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
       native, platform, permissions: {}, legacyProfiles: () => [],
       onOpenBluetoothSettings: () => settingsOpened++,
+      onOpenDeviceManager: () => deviceManagerOpened++,
     }
     let view
     act(() => { view = Renderer.create(React.createElement(DeviceHub, props), { createNodeMock: node => node.type === 'dialog' ? modal : null }) })
@@ -83,15 +84,26 @@ test('discovery help opens without toggling the device list and routes Bluetooth
       const dialog = view.root.findByType('dialog')
       assert.ok(text(dialog).includes(`蓝牙设备需要先在 ${system}中进行蓝牙配对。`))
       const buttons = dialog.findAllByType('button')
-      assert.deepEqual(buttons.map(text), ['打开系统蓝牙设置', '关闭'])
-      assert.equal(buttons[0].props.disabled, !native)
+      assert.deepEqual(
+        buttons.map(text),
+        platform === 'windows' ? ['打开设备管理器', '打开系统蓝牙设置', '关闭'] : ['打开系统蓝牙设置', '关闭'],
+      )
+      const bluetoothButtonIndex = platform === 'windows' ? 1 : 0
+      if (platform === 'windows') {
+        assert.equal(buttons[0].props.disabled, !native)
+        if (native) {
+          act(() => buttons[0].props.onClick())
+          assert.equal(deviceManagerOpened, 1)
+        }
+      }
+      assert.equal(buttons[bluetoothButtonIndex].props.disabled, !native)
       assert.equal(settingsOpened, 0, 'opening help does not open system settings')
       if (native) {
-        act(() => buttons[0].props.onClick())
+        act(() => buttons[bluetoothButtonIndex].props.onClick())
         assert.equal(settingsOpened, 1)
         assert.equal(view.root.findAllByType('dialog').length, 1)
       }
-      act(() => buttons[1].props.onClick())
+      act(() => buttons[buttons.length - 1].props.onClick())
       assert.equal(view.root.findAllByType('dialog').length, 0)
       assert.equal(closed, 1)
       clickHelp()
@@ -476,4 +488,42 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     }
     assert.deepEqual(actions.at(-1), ['calibrate', 'one'])
   } finally { act(() => views.forEach(view => view.unmount())) }
+})
+
+
+test('guide discovery filters bound devices, refreshes and only advances after a successful save', async () => {
+  const snapshot = { ...model.emptySnapshot(), discovered: [device, { ...device, id: 'already-bound' }] }
+  snapshot.store.instances = [{ ...model.newInstance('xboxBluetooth', 'already-bound'), id: 'existing' }]
+  let refreshes = 0, integrated = '', fail = true, submitted, opened = 0, closed = 0
+  const controller = { snapshot, error: '', busy: false, refresh: async () => refreshes++, put: async instance => {
+    submitted = instance
+    if (fail) throw new Error('cannot save device')
+    snapshot.store.instances.push({ ...instance, id: 'new-device' })
+    return snapshot
+  } }
+  const props = { controller, native: true, platform: 'windows', permissions: {}, legacyProfiles: () => [],
+    guide: true, onIntegrated: id => { integrated = id } }
+  let view
+  act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, props), {
+    createNodeMock: node => node.type === 'dialog' ? { showModal() { opened++ }, close() { closed++ } } : null,
+  }) })
+  try {
+    assert.equal(view.root.findByType('details').props.open, true)
+    const cards = () => view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])
+    assert.equal(cards().length, 1)
+    await act(async () => view.root.findByProps({ 'aria-label': '刷新设备' }).props.onClick())
+    assert.equal(refreshes, 1)
+    act(() => cards()[0].props.onClick())
+    assert.equal(opened, 1, 'integration uses a native modal above the guide')
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+    assert.equal(integrated, '')
+    assert.match(text(view.root.findByProps({ role: 'alert' })), /cannot save device/)
+    fail = false
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+    assert.equal(submitted.binding, device.id)
+    assert.equal(integrated, 'new-device')
+    assert.equal(closed, 1)
+    assert.equal(cards().length, 0)
+    assert.match(text(view.toJSON()), /暂未发现可添加的设备/)
+  } finally { act(() => view.unmount()) }
 })
