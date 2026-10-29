@@ -134,9 +134,11 @@ type PendingProfileImport = ImportedMapping & {
 
 function AppController({
   initialBindingId = null,
+  skipUserGuide = false,
   onOpenConfigMigration,
 }: {
   initialBindingId?: string | null
+  skipUserGuide?: boolean
   onOpenConfigMigration: () => void
 }) {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -155,7 +157,12 @@ function AppController({
   })
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
   const [platformReady, setPlatformReady] = useState(!nativeRuntime)
-  const userGuide = useUserGuide(platformReady && platform === 'windows', nativeRuntime, !initialBindingId)
+  const userGuide = useUserGuide(
+    platformReady && platform === 'windows',
+    nativeRuntime,
+    !initialBindingId,
+    skipUserGuide,
+  )
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>(initialUiState.selectedDeviceId)
   const selectedDevice = devices.find(device => device.id === selectedDeviceId)!
   const editableButtons = selectedDevice.buttons ? [...selectedDevice.buttons] : []

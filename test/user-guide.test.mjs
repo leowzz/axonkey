@@ -25,7 +25,7 @@ const { UserGuideDialog } = compile('src/components/UserGuideDialog.tsx', {
   '../devices/integration/DeviceHub': { DeviceDiscoverySection: props => React.createElement('device-discovery', props) },
 })
 
-async function mount({ enabled = true, completed = false, save = async () => {} } = {}) {
+async function mount({ enabled = true, completed = false, autoOpen = true, skip = false, save = async () => {} } = {}) {
   const calls = []
   const driverCalls = []
   const completedTargets = []
@@ -46,7 +46,7 @@ async function mount({ enabled = true, completed = false, save = async () => {} 
   })
   let guide, view
   function App() {
-    guide = useUserGuide(enabled, true)
+    guide = useUserGuide(enabled, true, autoOpen, skip)
     const cableDriver = useCableDriver(true)
     return guide.open ? React.createElement(UserGuideDialog, {
       saving: guide.saving, error: guide.error, cableDriver, nativeRuntime: true,
@@ -102,6 +102,36 @@ test('completed users do not auto-open; disabled platforms do not read config', 
       assert.equal(h.guide.open, enabled)
     } finally { act(() => h.view.unmount()) }
   }
+})
+
+test('migration skips and persists onboarding even when remote binding suppresses auto-open', async () => {
+  for (const autoOpen of [true, false]) {
+    let completed = false
+    const h = await mount({ skip: true, autoOpen, save: async () => { completed = true } })
+    try {
+      assert.equal(h.guide.open, false)
+      assert.equal(completed, true)
+      assert.deepEqual(h.calls, ['complete_onboarding'])
+      act(() => h.guide.show())
+      assert.equal(h.guide.open, true, 'manual guide remains available')
+    } finally { act(() => h.view.unmount()) }
+    const restarted = await mount({ completed })
+    try { assert.equal(restarted.guide.open, false) }
+    finally { act(() => restarted.view.unmount()) }
+  }
+})
+
+test('migration keeps onboarding closed while saving or if saving fails', async () => {
+  let rejectSave
+  const h = await mount({ skip: true, save: () => new Promise((_, reject) => { rejectSave = reject }) })
+  try {
+    assert.equal(h.guide.open, false)
+    assert.equal(h.guide.saving, true)
+    await act(async () => { rejectSave(new Error('disk full')); await Promise.resolve() })
+    assert.equal(h.guide.open, false)
+    assert.equal(h.guide.saving, false)
+    assert.match(h.guide.error, /disk full/)
+  } finally { act(() => h.view.unmount()) }
 })
 
 test('failed saving stays open with a retryable error; Escape cannot bypass completion', async () => {

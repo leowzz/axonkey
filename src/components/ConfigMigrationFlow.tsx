@@ -101,6 +101,7 @@ export function ConfigMigrationFlow() {
       {!open && (
         <AppController
           initialBindingId={bindingId}
+          skipUserGuide={plan.found}
           onOpenConfigMigration={() => {
             setBindingId(null)
             setPlan(inspectConfigMigration(window.localStorage))

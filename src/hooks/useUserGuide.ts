@@ -3,15 +3,19 @@ import { invoke } from '@tauri-apps/api/core'
 
 const previewStorageKey = 'axonkey.onboarding-completed.v1'
 
-export function useUserGuide(enabled: boolean, nativeRuntime: boolean, autoOpen = true) {
+export function useUserGuide(enabled: boolean, nativeRuntime: boolean, autoOpen = true, skip = false) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!enabled || !autoOpen) return
+    if (!enabled || (!autoOpen && !skip)) return
     let active = true
     const load = async () => {
+      if (skip) {
+        await complete()
+        return
+      }
       try {
         const completed = nativeRuntime
           ? await invoke<boolean>('get_onboarding_completed')
@@ -28,7 +32,7 @@ export function useUserGuide(enabled: boolean, nativeRuntime: boolean, autoOpen 
     return () => {
       active = false
     }
-  }, [enabled, nativeRuntime, autoOpen])
+  }, [enabled, nativeRuntime, autoOpen, skip])
 
   const complete = async () => {
     setSaving(true)

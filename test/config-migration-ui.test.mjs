@@ -103,6 +103,7 @@ test('startup holds the app until save completes, then requests binding of the n
   assert.ok(storage.getItem(migration.legacyProfilesKey))
   await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
   const app = view.root.findByType('app')
+  assert.equal(app.props.skipUserGuide, true)
   const saved = JSON.parse(storage.getItem(migration.previewInstancesKey))
   assert.equal(saved.instances.length, 1)
   assert.equal(saved.instances[0].id, app.props.initialBindingId)
@@ -117,12 +118,24 @@ test('startup holds the app until save completes, then requests binding of the n
 
 test('manual entry with no old data shows the result and closes back to the app', async () => {
   const { view } = await flow()
+  assert.equal(view.root.findByType('app').props.skipUserGuide, false)
   await act(async () => view.root.findByType('app').props.onOpenConfigMigration())
   assert.equal(view.root.findAllByType('app').length, 0)
   assert.equal(view.root.findByType('migration').props.plan.found, false)
   await act(async () => view.root.findByType('migration').props.onClose())
   assert.equal(view.root.findAllByType('app').length, 1)
+  assert.equal(view.root.findByType('app').props.skipUserGuide, false)
   await act(async () => view.unmount())
+})
+
+test('detecting old mouse or remote data skips onboarding without requiring migration to succeed', async () => {
+  for (const behaviors of [{ 'mouse.top.up': 'B' }, { power: 'A' }]) {
+    const { view, storage } = await flow({ ...old, profiles: [{ ...old.profiles[0], behaviors }] })
+    await act(async () => view.root.findByType('migration').props.onClose())
+    assert.equal(view.root.findByType('app').props.skipUserGuide, true)
+    assert.ok(storage.getItem(migration.legacyProfilesKey), 'detection does not change the old data')
+    await act(async () => view.unmount())
+  }
 })
 
 test('export writes a complete file to Downloads before deleting old source, without creating a device', async () => {
@@ -155,6 +168,7 @@ test('export writes a complete file to Downloads before deleting old source, wit
     assert.equal(props().completed, true)
     await act(async () => props().onClose())
     assert.equal(view.root.findByType('app').props.initialBindingId, null)
+    assert.equal(view.root.findByType('app').props.skipUserGuide, true)
   } finally {
     await act(async () => view.unmount())
     if (exported) rmSync(exported.path, { force: true })
