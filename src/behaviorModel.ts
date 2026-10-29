@@ -5,10 +5,9 @@
  * run a sequence such as shortcut -> delay -> paste.
  */
 
-import { cmiotA15ButtonIds, devices, inputIds, remoteButtonIds } from './deviceModel.ts'
+import { cmiotA15ButtonIds, devices, inputIds } from './deviceModel.ts'
 import type { DeviceId, InputId, RemoteButtonId } from './deviceModel.ts'
 export type { InputId } from './deviceModel.ts'
-export const buttonIds = [...remoteButtonIds, ...cmiotA15ButtonIds] as const
 export type ButtonId = RemoteButtonId
 
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
@@ -586,16 +585,6 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
       .slice(0, 40)
   }
   return imported
-}
-
-/** Append a behavior without mutating the existing map. */
-export function appendBehavior(
-  map: BehaviorMap,
-  buttonId: InputId,
-  trigger: TriggerType,
-  behavior: Behavior,
-): BehaviorMap {
-  return updateBehaviorList(map, buttonId, trigger, list => [...list, cloneBehavior(behavior)])
 }
 
 /** Replace one ordered list, cloning all values to keep React state immutable. */

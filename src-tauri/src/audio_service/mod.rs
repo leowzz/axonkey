@@ -227,12 +227,6 @@ impl AudioServiceManager {
         }
     }
 
-    pub fn set_output_device(&self, instance_id: Option<&str>, device: Option<String>) {
-        if let Some(service) = self.service(instance_id) {
-            service.set_output_device(device);
-        }
-    }
-
     pub fn set_gain_db(&self, instance_id: Option<&str>, gain: i16) -> Result<(), String> {
         self.service(instance_id)
             .ok_or_else(|| "设备音频服务尚未启动".to_string())?

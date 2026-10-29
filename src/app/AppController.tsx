@@ -1,6 +1,6 @@
 import { LegacyCleanupFlow } from '../components/LegacyCleanupDialog'
 import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
-import { DeviceHub, type DeviceDiscoveryProps } from '../devices/integration/DeviceHub'
+import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'

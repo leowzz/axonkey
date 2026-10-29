@@ -1,4 +1,4 @@
-import { error as writeError, info as writeInfo, warn as writeWarn } from '@tauri-apps/plugin-log'
+import { error as writeError, info as writeInfo } from '@tauri-apps/plugin-log'
 
 type LogWriter = (message: string) => Promise<void>
 
@@ -25,10 +25,6 @@ function write(writer: LogWriter, message: string) {
 
 export function logInfo(message: string) {
   write(writeInfo, message)
-}
-
-export function logWarn(message: string) {
-  write(writeWarn, message)
 }
 
 export function logError(message: string, details?: unknown) {

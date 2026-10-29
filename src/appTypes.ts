@@ -167,15 +167,6 @@ export type DraftBehaviorState = {
 
 export type ManualKeyOption = { value: string; label: string }
 
-export type Connector = {
-  id: ButtonId
-  side: 'left' | 'right'
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-}
-
 export type CmiotA15RecordingMode = 'hold' | 'click'
 
 export type StoredSettings = {

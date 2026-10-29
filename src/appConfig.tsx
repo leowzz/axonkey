@@ -54,10 +54,6 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, mes
 
 /** RC003 is kept as the historical export used by integrations and tests. */
 export const buttons: RemoteButton[] = xiaomiRemoteButtons
-export const remoteButtonsByDevice: Record<'rc003' | 'cmiotA15', RemoteButton[]> = {
-  rc003: xiaomiRemoteButtons,
-  cmiotA15: cmiotA15RemoteButtons,
-}
 export const allRemoteButtons: RemoteButton[] = [...xiaomiRemoteButtons, ...cmiotA15RemoteButtons]
 
 export const settingsStorageKey = 'axonkey.settings.v1'
@@ -538,12 +534,6 @@ export function textAndEnterValue(list: Behavior[]) {
   )
     return null
   return paste.text
-}
-
-export function cloneBehaviorList(list: Behavior[]) {
-  return list.map(behavior =>
-    behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior },
-  )
 }
 
 export function triggerSummary(list: Behavior[], trigger: TriggerType, platform: Platform) {
