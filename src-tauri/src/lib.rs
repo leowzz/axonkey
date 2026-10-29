@@ -1729,10 +1729,6 @@ pub fn run() {
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
-                if window.try_state::<driver_migration::MigrationState>().is_some_and(|s| s.blocks_close())
-                    || window.try_state::<legacy_cleanup::CleanupState>().is_some_and(|s| s.blocks_close()) {
-                    return;
-                }
                 let _ = window.hide();
                 log::debug!(target: "axonkey::runtime", "Main window hidden after close request");
 

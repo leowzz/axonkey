@@ -26,10 +26,6 @@ impl Default for MigrationState {
 }
 
 impl MigrationState {
-    pub fn blocks_close(&self) -> bool {
-        !matches!(self.0.lock().unwrap().status.as_str(), "ready")
-    }
-
     fn update(&self, status: &str, message: impl Into<String>) {
         let mut snapshot = self.0.lock().unwrap();
         snapshot.status = status.into();

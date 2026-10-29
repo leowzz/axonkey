@@ -31,7 +31,7 @@ test('migration never offers dismissal, including errors, and traps keyboard foc
       h.document.activeElement = h.action
       handler({ key: 'Tab', shiftKey: false, preventDefault() {}, stopPropagation() {} })
       assert.equal(h.document.activeElement, h.summary)
-      assert.match(text(view.toJSON()), /升级完成前无法关闭此窗口/)
+      assert.match(text(view.toJSON()), /升级完成前无法关闭此弹窗/)
     }
     assert.equal(retries, 2)
   } finally { act(() => view.unmount()) }

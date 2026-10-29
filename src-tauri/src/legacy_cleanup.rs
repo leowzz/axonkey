@@ -28,10 +28,6 @@ impl Default for CleanupState {
 }
 
 impl CleanupState {
-    pub fn blocks_close(&self) -> bool {
-        self.snapshot.lock().unwrap().status != "ready"
-    }
-
     fn update(&self, status: &str, message: impl Into<String>) {
         let mut snapshot = self.snapshot.lock().unwrap();
         snapshot.status = status.into();

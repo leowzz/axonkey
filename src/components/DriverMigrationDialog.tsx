@@ -127,8 +127,8 @@ export function DriverMigrationDialog({
             {state.status === 'ready'
               ? '驱动检查已完成'
               : legacy
-                ? '清理并重启前无法关闭此窗口'
-                : '升级完成前无法关闭此窗口'}
+                ? '清理并重启前无法关闭此弹窗'
+                : '升级完成前无法关闭此弹窗'}
           </span>
           {(state.status === 'required' || state.status === 'failed') && (
             <button type="button" className="button primary" onClick={onRetry}>
