@@ -16,7 +16,7 @@ npm run tauri dev
 
 Windows PowerShell 使用 `Copy-Item .env.example .env` 创建本地版本文件，其余命令相同。
 
-`.env` 是本机版本来源并被 Git 忽略，只允许包含一行 `version=vX.Y.Z`（可附加 `-alpha.N`、`-beta.N` 或 `-rc.N`，N 为正整数）。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本。
+`.env` 是本机版本来源并被 Git 忽略，必须包含且仅包含一个 `version=X.Y.Z` 版本项（可附加 `-alpha.N`、`-beta.N` 或 `-rc.N`，N 为正整数），可以同时配置 `TENCENT_RUM_ID` 等环境变量。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本，保留其他环境变量。Git 发布标签仍使用 `vX.Y.Z` 格式。
 
 检查前端生产构建和 Rust 测试：
 

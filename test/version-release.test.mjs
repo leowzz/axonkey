@@ -41,8 +41,8 @@ function seedRepository(t) {
   mkdirSync(join(root, 'scripts'))
   mkdirSync(join(root, 'src-tauri'))
 
-  writeFileSync(join(root, '.env'), 'version=v0.1.5\n')
-  writeFileSync(join(root, '.env.example'), 'version=v0.1.5\n')
+  writeFileSync(join(root, '.env'), 'version=0.1.5\n')
+  writeFileSync(join(root, '.env.example'), 'version=0.1.5\n')
   writeFileSync(join(root, '.gitignore'), '.env\n')
   writeFileSync(join(root, 'package.json'), `${JSON.stringify({ name: 'axonkey-ui', version: '0.1.5' }, null, 2)}\n`)
   writeFileSync(join(root, 'package-lock.json'), `${JSON.stringify({
@@ -112,6 +112,20 @@ test('version updater changes only repository-owned version fields', (t) => {
   assert.equal(JSON.parse(readFileSync(join(root, 'package-lock.json'))).packages['node_modules/dependency'].version, '0.1.5')
 })
 
+test('version updater preserves RUM configuration, comments and line endings', (t) => {
+  const root = seedRepository(t)
+  const localEnv = '# Local settings\r\nTENCENT_RUM_ID=test-rum-id\r\nversion=0.1.5\r\n'
+  const exampleEnv = 'version=0.1.5\n\nTENCENT_RUM_ID=\n'
+  writeFileSync(join(root, '.env'), localEnv)
+  writeFileSync(join(root, '.env.example'), exampleEnv)
+
+  updateVersions('v2.0.1', root)
+
+  assert.equal(checkVersions('v2.0.1', root), 'v2.0.1')
+  assert.equal(readFileSync(join(root, '.env'), 'utf8'), localEnv.replace('0.1.5', '2.0.1'))
+  assert.equal(readFileSync(join(root, '.env.example'), 'utf8'), exampleEnv.replace('0.1.5', '2.0.1'))
+})
+
 test('invalid repository metadata is rejected before any version file changes', (t) => {
   const root = seedRepository(t)
   writeFileSync(join(root, 'src-tauri', 'tauri.conf.json'), '{"version": 123}\n')
@@ -132,7 +146,7 @@ test('default release bumps patch, commits tracked versions, then creates an ann
   assert.notEqual(head, before)
   assert.equal(git(root, 'rev-parse', 'v0.1.6^{}').stdout.trim(), head)
   assert.equal(git(root, 'cat-file', '-t', 'v0.1.6').stdout.trim(), 'tag')
-  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=v0.1.6\n')
+  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=0.1.6\n')
   const committed = git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').stdout.trim().split('\n').sort()
   assert.deepEqual(committed, [...versionFiles].sort())
 })
@@ -173,7 +187,7 @@ for (const dirtyKind of ['staged', 'unstaged', 'untracked']) {
   test(`release rejects a ${dirtyKind} worktree without mutation`, (t) => {
     const root = seedRepository(t)
     if (dirtyKind === 'unstaged') {
-      writeFileSync(join(root, '.env.example'), 'version=v9.9.9\n')
+      writeFileSync(join(root, '.env.example'), 'version=9.9.9\n')
     } else {
       writeFileSync(join(root, 'dirty.txt'), 'dirty\n')
       if (dirtyKind === 'staged') git(root, 'add', 'dirty.txt')
@@ -203,14 +217,14 @@ test('release rejects an existing tag before changing files', (t) => {
 
 test('release rejects invalid local version state before changing files', (t) => {
   const root = seedRepository(t)
-  writeFileSync(join(root, '.env'), 'version=0.1.5\n')
+  writeFileSync(join(root, '.env'), 'version=v0.1.5\n')
   const before = snapshotVersionFiles(root)
   const head = git(root, 'rev-parse', 'HEAD').stdout.trim()
 
   const result = runRelease(root)
 
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /Expected vMAJOR\.MINOR\.PATCH/)
+  assert.match(result.stderr, /Expected MAJOR\.MINOR\.PATCH/)
   assert.deepEqual(snapshotVersionFiles(root), before)
   assert.equal(git(root, 'rev-parse', 'HEAD').stdout.trim(), head)
   assert.equal(git(root, 'tag', '--list').stdout.trim(), '')
@@ -227,7 +241,7 @@ test('a failing commit hook prevents tag creation and leaves changes visible', (
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /commit hook failed/)
   assert.equal(git(root, 'tag', '--list', 'v0.1.6').stdout.trim(), '')
-  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=v0.1.6\n')
+  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=0.1.6\n')
 })
 
 test('a tag failure leaves the release commit visible for diagnosis', (t) => {
@@ -249,7 +263,7 @@ test('a tag failure leaves the release commit visible for diagnosis', (t) => {
   assert.notEqual(git(root, 'rev-parse', 'HEAD').stdout.trim(), originalHead)
   assert.equal(git(root, 'log', '-1', '--format=%s').stdout.trim(), 'chore: release v0.1.6')
   assert.equal(git(root, 'tag', '--list', 'v0.1.6').stdout.trim(), '')
-  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=v0.1.6\n')
+  assert.equal(readFileSync(join(root, '.env'), 'utf8'), 'version=0.1.6\n')
 })
 
 
