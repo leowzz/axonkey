@@ -494,7 +494,14 @@ mod windows {
                 std::fs::remove_file(journal_path(app)?)
                     .map_err(|e| format!("无法清除已完成的迁移记录：{e}"))?;
                 finish(app)?;
-                state.update("ready", "新版驱动已安装，设备服务已恢复。");
+                let message = match remove_legacy_driver_directory(&resources) {
+                    Ok(()) => "新版驱动已安装，设备服务已恢复。".to_owned(),
+                    Err(error) => {
+                        log::warn!(target: "axonkey::driver_migration", "{error}");
+                        format!("新版驱动已安装，设备服务已恢复；{error}")
+                    }
+                };
+                state.update("ready", message);
                 return Ok(());
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
@@ -507,9 +514,44 @@ mod windows {
         .into())
     }
 
+    fn remove_legacy_driver_directory(resources: &Path) -> Result<(), String> {
+        let directory = resources.join("vendor").join("QuarborHIDFilterUserDriver");
+        match std::fs::remove_dir_all(&directory) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!(
+                "旧驱动目录清理失败（{}）：{error}",
+                directory.display()
+            )),
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn removes_only_legacy_driver_resources_and_allows_missing_directory() {
+            let root = TestInstaller::new().journal.with_extension("resources");
+            let old = root.join("vendor").join("QuarborHIDFilterUserDriver");
+            let current = root
+                .join("vendor")
+                .join("QuarborUniversalKeyboardDriverInstaller");
+            std::fs::create_dir_all(old.join("nested")).unwrap();
+            std::fs::create_dir_all(&current).unwrap();
+            std::fs::write(old.join("nested").join("driver.dll"), b"old").unwrap();
+            std::fs::write(current.join("driver.dll"), b"current").unwrap();
+
+            remove_legacy_driver_directory(&root).unwrap();
+
+            assert!(!old.exists());
+            assert_eq!(
+                std::fs::read(current.join("driver.dll")).unwrap(),
+                b"current"
+            );
+            remove_legacy_driver_directory(&root).unwrap();
+            std::fs::remove_dir_all(&root).unwrap();
+        }
 
         fn device(id: &str, old: bool, bound: bool) -> Device {
             Device {
