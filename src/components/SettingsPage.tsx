@@ -25,6 +25,7 @@ type SettingsPageProps = {
   onOpenLegacyCleanup: () => void
   onOpenCableDriver: () => void
   onOpenUserGuide: () => void
+  onOpenDevtools: () => void
   onBack: () => void
   aboutContent: ReactNode
   section: SettingsSection
@@ -67,6 +68,7 @@ export function SettingsPage({
   onOpenLegacyCleanup,
   onOpenCableDriver,
   onOpenUserGuide,
+  onOpenDevtools,
   onBack,
   aboutContent,
   section,
@@ -192,16 +194,18 @@ export function SettingsPage({
           >
             <h3 className="settings-section-title">数据备份</h3>
             <DataBackupSettings {...backup} nativeRuntime={nativeRuntime} />
-            <div className="settings-form-fields">
-              <div className="settings-form-row">
-                <span className="settings-form-label">旧版配置：</span>
-                <div className="settings-form-control">
-                  <button className="dialog-secondary" onClick={onOpenConfigMigration}>
-                    数据迁移
-                  </button>
+            {debugMode && (
+              <div className="settings-form-fields">
+                <div className="settings-form-row">
+                  <span className="settings-form-label">旧版配置：</span>
+                  <div className="settings-form-control">
+                    <button type="button" className="dialog-secondary" onClick={onOpenConfigMigration}>
+                      数据迁移
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </section>
           <section
             id="settings-panel-startup"
@@ -531,6 +535,23 @@ export function SettingsPage({
                   </SettingsHelp>
                 </div>
               </div>
+              {debugMode && (
+                <div className="settings-form-row" aria-labelledby="settings-devtools-label">
+                  <span id="settings-devtools-label" className="settings-form-label">
+                    开发者工具：
+                  </span>
+                  <div className="settings-form-control">
+                    <button
+                      type="button"
+                      className="dialog-secondary"
+                      disabled={!nativeRuntime}
+                      onClick={onOpenDevtools}
+                    >
+                      打开 Web 开发者工具
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </div>

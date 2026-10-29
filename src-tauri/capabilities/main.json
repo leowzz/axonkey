@@ -20,6 +20,7 @@
     "autostart:allow-disable",
     "updater:default",
     "process:allow-restart",
+    "core:webview:allow-internal-toggle-devtools",
     "core:window:allow-start-dragging"
   ]
 }

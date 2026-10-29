@@ -788,6 +788,15 @@ function AppController({
     })
   }
 
+  const openDevtools = () => {
+    if (!nativeRuntime || !debugMode) return
+    void invoke('plugin:webview|internal_toggle_devtools').catch(error => {
+      logError('Failed to toggle web developer tools', error)
+      setToast('打开开发者工具失败')
+      window.setTimeout(() => setToast(''), 2200)
+    })
+  }
+
   const revealBehaviorEditor = () => {
     window.requestAnimationFrame(() => {
       const editor = behaviorEditorRef.current
@@ -1849,6 +1858,7 @@ function AppController({
               aboutContent={<AboutPage update={releaseUpdate} />}
               onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}
+              onOpenDevtools={openDevtools}
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}

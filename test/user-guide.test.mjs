@@ -259,3 +259,34 @@ test('only Windows settings exposes the guide entry and opens it', () => {
     } finally { act(() => view.unmount()) }
   }
 })
+
+test('debug-only settings actions stay hidden until debug mode is enabled', () => {
+  const { SettingsPage } = compile('src/components/SettingsPage.tsx', {
+    './SettingsHelp': { SettingsHelp: () => null },
+    './DataBackupSettings': { DataBackupSettings: () => null },
+    './AutostartControl': { AutostartControl: () => null },
+  })
+  const props = {
+    platform: 'windows', nativeRuntime: true, permissions: {}, inputDriver: {},
+    audioDriver: { status: 'installed', action: { status: 'idle' } }, backup: {},
+    onOpenConfigMigration: () => {},
+  }
+  let opened = 0
+  props.onOpenDevtools = () => opened++
+  for (const debugMode of [false, true]) {
+    let view
+    act(() => { view = Renderer.create(React.createElement(SettingsPage, { ...props, debugMode, section: 'backup' })) })
+    try {
+      const migrationButtons = view.root.findAllByType('button').filter(button => text(button) === '数据迁移')
+      assert.equal(migrationButtons.length, debugMode ? 1 : 0)
+      const remote = Renderer.create(React.createElement(SettingsPage, { ...props, debugMode, section: 'remote' }))
+      try {
+        assert.equal(remote.root.findAllByProps({ 'aria-labelledby': 'settings-devtools-label' }).length, debugMode ? 1 : 0)
+        if (debugMode) {
+          act(() => remote.root.findByProps({ 'aria-labelledby': 'settings-devtools-label' }).findByType('button').props.onClick())
+          assert.equal(opened, 1)
+        }
+      } finally { remote.unmount() }
+    } finally { view.unmount() }
+  }
+})
