@@ -11,18 +11,25 @@ import {
   previewInstancesKey,
 } from '../configMigration'
 import type { DeviceInstance, DeviceSnapshot } from '../devices/integration/model'
+import { migrateBackupImport } from '../backupImport'
+import type { LegacyBackupImport } from '../backupImport'
 
 export function ConfigMigrationFlow() {
   const [plan, setPlan] = useState(() => inspectConfigMigration(window.localStorage))
   const [open, setOpen] = useState(plan.found)
+  const [imported, setImported] = useState<{ data: LegacyBackupImport; fileName: string } | null>(null)
+  const [appRevision, setAppRevision] = useState(0)
+  const [skipUserGuide, setSkipUserGuide] = useState(plan.found)
   const [bindingId, setBindingId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState('')
   const [completed, setCompleted] = useState(false)
   const [exportedPath, setExportedPath] = useState('')
+  const [exportOnly, setExportOnly] = useState(false)
   const [remotes, setRemotes] = useState<DeviceInstance[]>([])
   const [remoteTargetId, setRemoteTargetId] = useState('')
+  const [migrateMouse, setMigrateMouse] = useState(true)
   const [loadingRemotes, setLoadingRemotes] = useState(!!plan.remote)
   const [remoteLoadError, setRemoteLoadError] = useState('')
   const [remoteLoadAttempt, setRemoteLoadAttempt] = useState(0)
@@ -38,8 +45,14 @@ export function ConfigMigrationFlow() {
         const matching = store.instances.filter(instance => instance.kind === plan.remote!.kind)
         const previousId = plan.remoteTargetId ?? plan.remote!.id
         setRemotes(matching)
-        setRemoteTargetId(
-          matching.some(instance => instance.id === previousId) ? previousId : matching.length ? '' : 'new',
+        setRemoteTargetId(selected =>
+          selected === 'skip'
+            ? 'skip'
+            : matching.some(instance => instance.id === previousId)
+              ? previousId
+              : matching.length
+                ? ''
+                : 'new',
         )
       })
       .catch(error => {
@@ -56,41 +69,43 @@ export function ConfigMigrationFlow() {
   const finish = (id: string | null = null) => {
     setBindingId(id)
     setOpen(false)
-  }
-  const run = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      const target = remotes.find(instance => instance.id === remoteTargetId) ?? null
-      const id = await migrateConfig(window.localStorage, plan, saveRemote, setStatus, target)
-      if (id) finish(id)
-      else setCompleted(true)
-    } catch (error) {
-      setError(`迁移未完成，旧数据已保留。${String(error)}`)
-    } finally {
-      setBusy(false)
+    if (imported) {
+      setImported(null)
+      setPlan(inspectConfigMigration(window.localStorage))
+      setAppRevision(revision => revision + 1)
     }
   }
-  const exportAndDelete = async () => {
+  const run = async (skipMigration = false) => {
     setBusy(true)
     setError('')
-    setStatus('正在导出旧配置…')
     let savedPath = ''
     try {
-      if (!('__TAURI_INTERNALS__' in window)) throw new Error('请在桌面应用中导出并删除旧配置。')
-      const { filename, content } = createLegacyConfigExport(window.localStorage)
-      const path = await join(await downloadDir(), filename)
-      await invoke('write_mapping_file', { path, content })
-      savedPath = path
-      setStatus('正在删除已导出的旧配置…')
-      discardLegacyConfig(window.localStorage, plan)
-      setExportedPath(path)
-      setCompleted(true)
+      if (!imported) {
+        setStatus('正在导出旧配置…')
+        savedPath = await exportLegacyToDownloads()
+        setExportedPath(savedPath)
+      }
+      let id: string | null = null
+      if (skipMigration) {
+        setStatus('正在删除已导出的旧配置…')
+        discardLegacyConfig(window.localStorage, plan)
+      } else {
+        const target = remotes.find(instance => instance.id === remoteTargetId) ?? null
+        const selection = { mouse: migrateMouse, remote: remoteTargetId !== 'skip' }
+        id = imported
+          ? await migrateBackupImport(window.localStorage, imported.data, saveRemote, setStatus, target, selection)
+          : await migrateConfig(window.localStorage, plan, saveRemote, setStatus, target, true, selection)
+      }
+      setSkipUserGuide(true)
+      setExportOnly(skipMigration)
+      if (imported && id) finish(id)
+      else {
+        setBindingId(id)
+        setCompleted(true)
+      }
     } catch (error) {
       setError(
-        savedPath
-          ? `旧配置已导出到 ${savedPath}，但删除失败：${String(error)}`
-          : `导出失败，未删除旧配置：${String(error)}`,
+        `${imported ? '导入未完成。' : !savedPath ? '导出失败，未迁移或删除旧配置。' : skipMigration ? `旧配置已导出到 ${savedPath}，但删除失败：` : `旧配置已导出到 ${savedPath}，但迁移未完成，旧数据已保留。`}${String(error)}`,
       )
     } finally {
       setBusy(false)
@@ -98,13 +113,30 @@ export function ConfigMigrationFlow() {
   }
   return (
     <>
-      {!open && (
+      {(!open || imported) && (
         <AppController
+          key={appRevision}
           initialBindingId={bindingId}
-          skipUserGuide={plan.found}
+          skipUserGuide={skipUserGuide}
+          onImportLegacyConfig={(data, fileName) => {
+            setImported({ data, fileName })
+            setPlan(data.plan)
+            setMigrateMouse(true)
+            setRemoteTargetId('')
+            setError('')
+            setStatus('')
+            setCompleted(false)
+            setExportedPath('')
+            setRemoteLoadError('')
+            setOpen(true)
+          }}
           onOpenConfigMigration={() => {
             setBindingId(null)
-            setPlan(inspectConfigMigration(window.localStorage))
+            const nextPlan = inspectConfigMigration(window.localStorage)
+            setPlan(nextPlan)
+            setMigrateMouse(true)
+            setRemoteTargetId('')
+            if (nextPlan.found) setSkipUserGuide(true)
             setError('')
             setCompleted(false)
             setExportedPath('')
@@ -120,6 +152,11 @@ export function ConfigMigrationFlow() {
           status={status}
           completed={completed}
           exportedPath={exportedPath}
+          exportOnly={exportOnly}
+          importFileName={imported?.fileName}
+          restoreSettings={!!imported?.data.backup}
+          migrateMouse={migrateMouse}
+          onSelectMouse={setMigrateMouse}
           remotes={remotes}
           remoteTargetId={remoteTargetId}
           loadingRemotes={loadingRemotes}
@@ -127,15 +164,29 @@ export function ConfigMigrationFlow() {
           onSelectRemote={setRemoteTargetId}
           onReloadRemotes={() => setRemoteLoadAttempt(attempt => attempt + 1)}
           onStart={() => void run()}
-          onExportAndDelete={() => void exportAndDelete()}
+          onExportAndDelete={() => void run(true)}
           onClose={() => {
-            if (completed) finish()
-            else setOpen(false)
+            if (completed) finish(bindingId)
+            else {
+              setOpen(false)
+              if (imported) {
+                setImported(null)
+                setPlan(inspectConfigMigration(window.localStorage))
+              }
+            }
           }}
         />
       )}
     </>
   )
+}
+
+async function exportLegacyToDownloads() {
+  if (!('__TAURI_INTERNALS__' in window)) throw new Error('请在桌面应用中导出并删除旧配置。')
+  const { filename, content } = createLegacyConfigExport(window.localStorage)
+  const path = await join(await downloadDir(), filename)
+  await invoke('write_mapping_file', { path, content })
+  return path
 }
 
 async function saveRemote(instance: DeviceInstance) {

@@ -19,6 +19,33 @@ const shared = (behaviors = { power: 'Ctrl+C', 'mouse.top.up': 'PageUp' }) => ({
   ],
 })
 
+test('skipped mouse profiles stay current while completed migration clears the old source', async () => {
+  const current = { version: 2, migrationReviewed: true, ...createDefaultDeviceProfiles(createEmptyBehaviorMap()) }
+  const data = storage({ [legacyProfilesKey]: shared(), [currentKey]: current })
+  const before = JSON.parse(data.getItem(currentKey))
+  const plan = inspectConfigMigration(data)
+  let saved
+  await migrateConfig(data, plan, async remote => { saved = remote }, () => {}, null, true, { mouse: false, remote: true })
+  assert.equal(saved.id, plan.remote.id)
+  const after = JSON.parse(data.getItem(currentKey))
+  assert.deepEqual(after.profiles, before.profiles)
+  assert.deepEqual(after.activeProfileIds, before.activeProfileIds)
+  const remaining = inspectConfigMigration(data)
+  assert.equal(remaining.found, false)
+})
+
+test('partial transitional v2 migration clears the old source without another startup prompt', async () => {
+  for (const selection of [{ mouse: true, remote: false }, { mouse: false, remote: true }]) {
+    const profiles = createDefaultDeviceProfiles(createEmptyBehaviorMap())
+    const data = storage({ [currentKey]: { version: 2, ...profiles } })
+    const plan = inspectConfigMigration(data)
+    await migrateConfig(data, plan, async () => {}, () => {}, null, true, selection)
+    const remaining = inspectConfigMigration(data)
+    assert.equal(remaining.error, '')
+    assert.equal(remaining.found, false)
+  }
+})
+
 test('empty and current-only storage need no migration; inspection never writes', () => {
   for (const entries of [{}, { [currentKey]: { version: 2, migrationReviewed: true, ...createDefaultDeviceProfiles(createEmptyBehaviorMap()) },
     [settingsKey]: { behaviors: createEmptyBehaviorMap() } }]) {

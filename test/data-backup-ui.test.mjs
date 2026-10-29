@@ -7,12 +7,13 @@ import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as model from '../src/dataBackup.ts'
+import * as backupImport from '../src/backupImport.ts'
 import { devices } from '../src/deviceModel.ts'
-import { sampleData } from './fixtures/data-backup.mjs'
+import { sampleData, legacyBackup } from './fixtures/data-backup.mjs'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
-const backup = () => model.createDataBackup(sampleData(), '1.0.14', new Date(2026, 9, 22, 18, 2, 3))
+const backup = () => model.createDataBackup(sampleData(), '1.0.20', new Date(2026, 9, 22, 18, 2, 3))
 
 async function setup({ saveResult = '/backup.json', exportError, restoreError, openError } = {}) {
   const source = ts.transpileModule(readFileSync('src/components/DataBackupSettings.tsx', 'utf8'), {
@@ -20,11 +21,13 @@ async function setup({ saveResult = '/backup.json', exportError, restoreError, o
   }).outputText
   const calls = []
   const restores = []
+  const legacyImports = []
   const module = { exports: {} }
   vm.runInNewContext(source, {
     module, exports: module.exports, Date, Error,
     require(name) {
       if (name === '../dataBackup') return model
+      if (name === '../backupImport') return backupImport
       if (name === '../deviceModel') return { devices }
       if (name === './SettingsHelp') return { SettingsHelp: props => React.createElement('help', props) }
       if (name === '../runtimeLogging') return { logError() {} }
@@ -41,10 +44,11 @@ async function setup({ saveResult = '/backup.json', exportError, restoreError, o
   await act(async () => { view = Renderer.create(React.createElement(module.exports.DataBackupSettings, {
     nativeRuntime: true, onCreateBackup: backup,
     onRestoreBackup: data => { if (restoreError) throw new Error(restoreError); restores.push(data) },
+    onImportLegacyConfig: (data, fileName) => legacyImports.push({ data, fileName }),
   })) })
   const button = label => view.root.findAllByType('button').find(node => text(node) === label)
   return {
-    view, calls, restores, button,
+    view, calls, restores, legacyImports, button,
     content: () => text(view.toJSON()),
     click: async label => { await act(async () => button(label).props.onClick()) },
     async importFile(content, name = 'axonkey-backup-20261022-180203.json') {
@@ -162,4 +166,28 @@ test('late file reads cannot restore or reopen a preview after leaving settings'
   await app.unmount()
   await act(async () => resolve(JSON.stringify(backup())))
   assert.equal(app.restores.length, 0)
+})
+
+test('an old backup opens migration without restoring or invoking native writes', async () => {
+  const app = await setup()
+  try {
+    await app.importFile(JSON.stringify(legacyBackup()), '旧备份.json')
+    assert.equal(app.legacyImports.length, 1)
+    assert.equal(app.legacyImports[0].fileName, '旧备份.json')
+    assert.equal(app.legacyImports[0].data.plan.mouse.length, 2)
+    assert.ok(app.legacyImports[0].data.plan.remote)
+    assert.equal(app.restores.length, 0)
+    assert.equal(app.calls.length, 0)
+    assert.equal(app.button('导入并覆盖'), undefined)
+    assert.equal(app.button('导入备份').props.disabled, false)
+  } finally { await app.unmount() }
+})
+
+test('a late old backup read after leaving settings cannot open migration', async () => {
+  let resolve
+  const app = await setup()
+  await app.importFile(() => new Promise(done => { resolve = done }))
+  await app.unmount()
+  await act(async () => resolve(JSON.stringify(legacyBackup())))
+  assert.equal(app.legacyImports.length, 0)
 })

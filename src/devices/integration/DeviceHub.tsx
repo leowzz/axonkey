@@ -415,7 +415,10 @@ function IntegrationDialog({
 }: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
   const [kind, setKind] = useState(initial.kind)
   const [name, setName] = useState(initial.instance?.name ?? (initial.kind ? packageFor(initial.kind).name : ''))
-  const [binding, setBinding] = useState(initial.device?.id ?? initial.instance?.binding ?? '')
+  // null follows discovery defaults; an empty string is the user's explicit “bind later” choice.
+  const [bindingChoice, setBindingChoice] = useState<string | null>(
+    initial.device?.id ?? initial.instance?.binding ?? null,
+  )
   const [localError, setError] = useState('')
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
@@ -432,6 +435,7 @@ function IntegrationDialog({
       d.kind === kind &&
       !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
   )
+  const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
   const device = candidates.find(d => d.id === binding)
   async function integrate() {
     if (!kind) return
@@ -507,7 +511,7 @@ function IntegrationDialog({
                     labelledBy="integration-binding-label"
                     value={binding}
                     devices={candidates}
-                    onChange={setBinding}
+                    onChange={setBindingChoice}
                   />
                 </div>
               </div>

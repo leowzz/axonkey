@@ -9,7 +9,7 @@ import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
-function compile(path, imports = {}) {
+function compile(path, imports = {}, globals = {}) {
   const source = ts.transpileModule(readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
   }).outputText
@@ -19,6 +19,7 @@ function compile(path, imports = {}) {
     setTimeout: (...args) => globalThis.setTimeout(...args), clearTimeout: (...args) => globalThis.clearTimeout(...args),
     setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
     document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
+    ...globals,
     require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
   })
   return module.exports
@@ -50,6 +51,50 @@ function DeviceHub(props) {
 }
 const device = { id: 'paired-one', kind: 'xboxBluetooth', name: 'Controller', transport: 'Bluetooth', identityQuality: 'serial', vendorId: 1118, productId: 736, connected: false, paired: true }
 const { managedDriverInstallMessage } = compile('src/systemState.ts')
+
+test('binding dropdown stays inside its modal dialog and still works outside a dialog', () => {
+  for (const inDialog of [true, false]) {
+    const body = {}, dialog = {}, portals = [], selected = []
+    const { DeviceBindingPicker } = compile('src/devices/integration/IntegrationControls.tsx', {
+      'react-dom': { createPortal: (node, target) => { portals.push(target); return node } },
+    }, {
+      document: { body, addEventListener() {}, removeEventListener() {} },
+      window: { innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    })
+    function Host() {
+      const [value, setValue] = React.useState('')
+      return React.createElement(DeviceBindingPicker, {
+        labelledBy: 'binding-label', value, devices: [device],
+        onChange: id => { selected.push(id); setValue(id) },
+      })
+    }
+    let view
+    act(() => { view = Renderer.create(React.createElement(Host), { createNodeMock: node =>
+      node.type === 'button' ? {
+        closest: selector => { assert.equal(selector, 'dialog'); return inDialog ? dialog : null },
+        getBoundingClientRect: () => ({ left: 20, top: 100, bottom: 160, width: 320 }),
+      } : { children: [] },
+    }) })
+    try {
+      const trigger = () => view.root.findByProps({ role: 'combobox' })
+      act(() => trigger().props.onClick())
+      assert.ok(portals.length > 0)
+      assert.ok(portals.every(target => target === (inDialog ? dialog : body)))
+      const options = view.root.findAllByProps({ role: 'option' })
+      assert.equal(options.length, 2)
+      act(() => options[0].props.onClick())
+      assert.deepEqual(selected, [device.id])
+      assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
+      assert.match(text(trigger()), /Controller/)
+      act(() => trigger().props.onClick())
+      let prevented = false, stopped = false
+      act(() => trigger().props.onKeyDown({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+      assert.equal(prevented, true)
+      assert.equal(stopped, true)
+      assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
+    } finally { act(() => view.unmount()) }
+  }
+})
 
 test('parent selection opens the exact integrated device and back returns to the device list', () => {
   const first = { ...model.newInstance('rc003', 'one'), id: 'first' }
@@ -575,6 +620,66 @@ test('guide discovery filters bound devices, refreshes and only advances after a
   } finally { act(() => view.unmount()) }
 })
 
+
+test('binding dialog defaults to the first free device and only saves on confirmation', async () => {
+  const instance = { ...model.newInstance('rc003', null), id: 'migrated' }
+  const occupied = { ...model.newInstance('rc003', 'occupied'), id: 'existing' }
+  const available = { ...device, id: 'free', kind: 'rc003' }
+  const snapshot = { ...model.emptySnapshot(), discovered: [device,
+    { ...available, id: 'occupied' }, { ...available, id: 'conflict', identityQuality: 'ambiguous' },
+    available, { ...available, id: 'second' }],
+    store: { version: 1, revision: 1, instances: [instance, occupied] } }
+  const saved = []
+  const controller = { snapshot, busy: false, error: '', async put(value) {
+    saved.push(value)
+    return { ...snapshot, store: { ...snapshot.store, instances: [value, occupied] } }
+  } }
+  let view
+  act(() => { view = Renderer.create(React.createElement(ControlledDeviceHub, {
+    controller, native: false, platform: 'windows', permissions: {},
+    selectedInstanceId: instance.id, onSelectInstance() {}, bindInstanceId: instance.id,
+  })) })
+  try {
+    assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, available.id)
+    assert.equal(saved.length, 0)
+    assert.equal(view.root.findByProps({ className: 'managed-primary' }).props.disabled, false)
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+    assert.equal(saved.length, 1)
+    assert.equal(saved[0].binding, available.id)
+  } finally { act(() => view.unmount()) }
+})
+
+test('binding dialog handles delayed discovery and keeps manual choices and existing bindings', () => {
+  for (const existingBinding of [null, 'already-bound']) {
+    const instance = { ...model.newInstance('rc003', existingBinding), id: 'migrated' }
+    const available = { ...device, id: 'first', kind: 'rc003' }
+    let snapshot = { ...model.emptySnapshot(),
+      store: { version: 1, revision: 1, instances: [instance] } }
+    const props = { native: false, platform: 'windows', permissions: {},
+      selectedInstanceId: instance.id, onSelectInstance() {} }
+    let view
+    const render = bindInstanceId => React.createElement(ControlledDeviceHub, { ...props,
+      bindInstanceId, controller: { snapshot, busy: false, error: '' } })
+    act(() => { view = Renderer.create(render(instance.id)) })
+    const picker = () => view.root.findByType(controls.DeviceBindingPicker)
+    try {
+      assert.equal(picker().props.value, existingBinding ?? '')
+      if (!existingBinding) assert.match(text(view.root.findByProps({ role: 'combobox' })), /稍后绑定/)
+      snapshot = { ...snapshot, discovered: [available, { ...available, id: 'second' }] }
+      act(() => view.update(render(null)))
+      assert.equal(picker().props.value, existingBinding ?? 'first')
+      act(() => picker().props.onChange('second'))
+      snapshot = { ...snapshot, discovered: [...snapshot.discovered].reverse() }
+      act(() => view.update(render(null)))
+      assert.equal(picker().props.value, 'second')
+      act(() => picker().props.onChange(''))
+      snapshot = { ...snapshot, discovered: [...snapshot.discovered, { ...available, id: 'third' }] }
+      act(() => view.update(render(null)))
+      assert.equal(picker().props.value, '')
+      assert.match(text(view.root.findByProps({ role: 'combobox' })), /稍后绑定/)
+    } finally { act(() => view.unmount()) }
+  }
+})
 
 test('migration binding request waits for the saved instance then opens its physical-device dialog once', () => {
   const instance = { ...model.newInstance('rc003', null), id: 'migrated' }

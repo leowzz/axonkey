@@ -113,6 +113,10 @@ export function parseDataBackup(text: string): ParsedBackup {
   } catch {
     return invalid('不是有效的 JSON')
   }
+  return parseDataBackupDocument(decoded)
+}
+
+export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
   const root = record(decoded)
   if (root.format !== 'axonkey-backup' || root.version !== 2) return invalid('不是支持的 Axonkey 数据备份版本')
   const exportedAt = string(root.exportedAt, '备份时间')

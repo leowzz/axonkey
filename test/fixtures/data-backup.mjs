@@ -39,3 +39,18 @@ export function sampleData() {
   const { activeProfileId: _, ...rest } = data
   return { ...rest, profiles, activeProfileIds, behaviors }
 }
+
+export function legacyBackup() {
+  const data = profileData()
+  const triggers = key => ({ click: [createBehavior({ id: key, type: 'key', key })], doubleClick: [], longPress: [] })
+  return {
+    format: 'axonkey-backup', version: 1, exportedAt: '2026-10-20T10:00:00Z', appVersion: '1.0.10',
+    activeProfileId: 'play',
+    profiles: ['work', 'play'].map(id => ({ id, name: id === 'work' ? '工作' : '娱乐', devices: {
+      rc003: { keys: { power: triggers(id === 'work' ? 'A' : 'B') } },
+      mouse: { keys: { 'top.up': triggers(id === 'work' ? 'PageUp' : 'PageDown') } },
+    } })),
+    savedBehaviors: [{ id: 'saved', name: '粘贴并确认', behaviors: [createBehavior({ id: 'paste', type: 'paste', text: '旧备份文本' })] }],
+    settings: data.settings, audio: data.audio, preferences: data.preferences,
+  }
+}

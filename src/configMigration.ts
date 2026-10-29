@@ -27,6 +27,7 @@ export type MigrationPlan = {
   fromDeviceProfiles?: boolean
   checkpoint?: string
 }
+export type MigrationSelection = { mouse: boolean; remote: boolean }
 
 /** This is the only entry point that reads legacy mapping formats. */
 export function inspectConfigMigration(storage: Pick<Storage, 'getItem'>): MigrationPlan {
@@ -137,15 +138,18 @@ export async function migrateConfig(
   saveRemote: (instance: DeviceInstance) => Promise<void>,
   onProgress: (message: string) => void,
   remoteTarget: DeviceInstance | null = null,
+  cleanup = true,
+  selection: MigrationSelection = { mouse: true, remote: true },
 ): Promise<string | null> {
   if (plan.error) throw new Error(plan.error)
-  const remote = plan.remote && {
-    ...(remoteTarget ?? plan.remote),
-    profiles: plan.remote.profiles,
-    activeProfileId: plan.remote.activeProfileId,
-  }
+  const remote = selection.remote &&
+    plan.remote && {
+      ...(remoteTarget ?? plan.remote),
+      profiles: plan.remote.profiles,
+      activeProfileId: plan.remote.activeProfileId,
+    }
   // Keep settings-only sources discoverable after a partial write, and reuse the same remote on retry.
-  if (plan.checkpoint)
+  if (cleanup && plan.checkpoint)
     storage.setItem(
       legacyProfilesKey,
       JSON.stringify({
@@ -154,7 +158,7 @@ export async function migrateConfig(
         migrationRemoteTargetId: remoteTarget?.id,
       }),
     )
-  if (plan.mouse.length) {
+  if (selection.mouse && plan.mouse.length) {
     onProgress('正在迁移鼠标配置…')
     const current = parseStoredDeviceProfiles(storage.getItem(profilesKey), createDefaultBehaviorMap())
     const profiles = [...current.profiles.filter(profile => profile.deviceId !== 'mouse'), ...plan.mouse]
@@ -172,8 +176,10 @@ export async function migrateConfig(
     onProgress(remoteTarget ? '正在覆盖小米遥控器配置…' : '正在创建小米遥控器并保存配置…')
     await saveRemote(remote)
   }
-  onProgress('正在清理旧配置…')
-  discardLegacyConfig(storage, plan, true)
+  if (cleanup) {
+    onProgress('正在清理旧配置…')
+    discardLegacyConfig(storage, plan, true)
+  }
   return remote && !remote.binding ? remote.id : null
 }
 

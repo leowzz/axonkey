@@ -7,6 +7,7 @@ import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDi
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
 import type { ParsedBackup } from '../dataBackup'
+import type { LegacyBackupImport } from '../backupImport'
 import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
 import appPackage from '../../package.json'
 import {
@@ -136,10 +137,12 @@ function AppController({
   initialBindingId = null,
   skipUserGuide = false,
   onOpenConfigMigration,
+  onImportLegacyConfig,
 }: {
   initialBindingId?: string | null
   skipUserGuide?: boolean
   onOpenConfigMigration: () => void
+  onImportLegacyConfig: (backup: LegacyBackupImport, fileName: string) => void
 }) {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const deviceInstances = useDeviceInstances(nativeRuntime)
@@ -1879,6 +1882,7 @@ function AppController({
                     appPackage.version,
                   ),
                 onRestoreBackup: restoreDataBackup,
+                onImportLegacyConfig,
               }}
               onOpenSignalMonitor={() => void openSignalMonitor()}
               signalMonitorOpening={signalMonitorOpening}

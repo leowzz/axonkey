@@ -9,6 +9,7 @@ import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as migration from '../src/configMigration.ts'
+import * as backupImport from '../src/backupImport.ts'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
@@ -33,6 +34,7 @@ async function dialog(plan, overrides = {}) {
     plan, busy: false, status: '', error: '', completed: false, exportedPath: '',
     remotes: [], remoteTargetId: 'new', loadingRemotes: false, remoteLoadError: '',
     onSelectRemote: id => calls.push(['select', id]), onReloadRemotes: () => calls.push('reload'),
+    onSelectMouse: migrate => calls.push(['mouse', migrate]),
     onStart: () => calls.push('start'), onExportAndDelete: () => calls.push('export'), onClose: () => calls.push('close'), ...overrides,
   }), { createNodeMock: () => ({ showModal() {}, close() {} }) }) })
   return { view, calls, button: label => view.root.findAllByType('button').find(node => text(node) === label),
@@ -51,7 +53,7 @@ test('no old data shows only a close action', async () => {
 
 test('export-and-delete and Escape require confirmation; returning preserves data', async () => {
   const ui = await dialog(found)
-  assert.match(text(ui.view.toJSON()), /将覆盖当前鼠标配置/)
+  assert.match(text(ui.view.toJSON()), /覆盖当前鼠标配置/)
   await ui.click('导出并删除')
   assert.match(text(ui.view.toJSON()), /保存成功后删除应用中的旧配置/)
   assert.deepEqual(ui.calls, [])
@@ -71,9 +73,58 @@ test('start is explicit and busy state prevents closing or another action', asyn
   await ui.close()
   const busy = await dialog(found, { busy: true, status: '正在保存…' })
   assert.ok(busy.view.root.findAllByType('button').every(button => button.props.disabled))
+  assert.ok(busy.view.root.findAllByType('select').every(select => select.props.disabled))
   await act(async () => busy.view.root.findByType('dialog').props.onCancel({ preventDefault() {} }))
   assert.deepEqual(busy.calls, [])
   await busy.close()
+})
+
+test('import migration offers cancel and Escape without export/delete; busy import cannot cancel', async () => {
+  const ui = await dialog(found, { importFileName: '旧配置.json' })
+  assert.equal(ui.button('导出并删除'), undefined)
+  assert.ok(ui.button('取消'))
+  assert.match(text(ui.view.toJSON()), /旧配置.json/)
+  await ui.click('取消')
+  await act(async () => ui.view.root.findByType('dialog').props.onCancel({ preventDefault() {} }))
+  assert.deepEqual(ui.calls, ['close', 'close'])
+  await ui.close()
+  const busy = await dialog(found, { importFileName: '旧配置.json', busy: true })
+  assert.equal(busy.button('取消').props.disabled, true)
+  await act(async () => busy.view.root.findByType('dialog').props.onCancel({ preventDefault() {} }))
+  assert.deepEqual(busy.calls, [])
+  await busy.close()
+})
+
+test('mouse and remote dropdowns allow skipping independently, including when no remote exists', async () => {
+  const ui = await dialog(found)
+  const mouse = ui.view.root.findByProps({ id: 'config-migration-mouse' })
+  const remote = ui.view.root.findByProps({ id: 'config-migration-remote' })
+  assert.deepEqual(mouse.findAllByType('option').map(option => option.props.value), ['replace', 'skip'])
+  assert.deepEqual(remote.findAllByType('option').map(option => option.props.value), ['', 'skip', 'new'])
+  await act(async () => mouse.props.onChange({ target: { value: 'skip' } }))
+  await act(async () => remote.props.onChange({ target: { value: 'skip' } }))
+  assert.deepEqual(ui.calls, [['mouse', false], ['select', 'skip']])
+  await ui.close()
+  const skipped = await dialog(found, { migrateMouse: false, remoteTargetId: 'skip' })
+  assert.equal(skipped.button('导出并删除').props.disabled, false)
+  await skipped.click('导出并删除')
+  assert.deepEqual(skipped.calls, [])
+  await skipped.click('导出并删除')
+  assert.deepEqual(skipped.calls, ['export'])
+  await skipped.close()
+  const imported = await dialog(found, { migrateMouse: false, remoteTargetId: 'skip', importFileName: '旧配置.json' })
+  await imported.click('取消导入')
+  assert.deepEqual(imported.calls, ['close'])
+  await imported.close()
+})
+
+test('skipping remote allows mouse migration while discovery is loading or failed', async () => {
+  for (const overrides of [{ loadingRemotes: true }, { remoteLoadError: '设备读取失败' }]) {
+    const ui = await dialog(found, { ...overrides, remoteTargetId: 'skip' })
+    assert.equal(ui.button('开始迁移').props.disabled, false)
+    assert.equal(ui.view.root.findByProps({ id: 'config-migration-remote' }).props.disabled, false)
+    await ui.close()
+  }
 })
 
 async function flow(old, instances = [], invoke, { downloads = '/Users/test/Downloads', pathError } = {}) {
@@ -85,6 +136,7 @@ async function flow(old, instances = [], invoke, { downloads = '/Users/test/Down
     '../app/index': { default: props => React.createElement('app', props) },
     './ConfigMigrationDialog': { ConfigMigrationDialog: props => React.createElement('migration', props) },
     '../configMigration': migration,
+    '../backupImport': backupImport,
     '@tauri-apps/api/core': { invoke: invoke ?? (() => assert.fail('browser preview must not call native')) },
     '@tauri-apps/api/path': { downloadDir: async () => {
       if (pathError) throw new Error(pathError)
@@ -97,17 +149,147 @@ async function flow(old, instances = [], invoke, { downloads = '/Users/test/Down
 }
 const old = { version: 1, activeProfileId: 'one', profiles: [{ id: 'one', name: '工作', behaviors: { power: 'A', 'mouse.top.up': 'B' } }] }
 
-test('startup holds the app until save completes, then requests binding of the newly saved remote', async () => {
-  const { view, storage } = await flow(old)
+async function nativeFlow(source, instances = []) {
+  const writes = [], exports = [], commands = []
+  const ui = await flow(source, [], async (command, args) => {
+    commands.push(command)
+    if (command === 'device_snapshot') return { error: null, store: { version: 1, revision: 7, instances } }
+    if (command === 'write_mapping_file') exports.push(args)
+    else if (command === 'put_device_instance') writes.push(args)
+    else assert.fail(command)
+  })
+  return { ...ui, writes, exports, commands }
+}
+
+test('canceling imported migration preserves storage, the mounted app and onboarding state', async () => {
+  const { view, values } = await flow()
+  const app = view.root.findByType('app')
+  const before = new Map(values)
+  const imported = backupImport.parseBackupImport(JSON.stringify(old))
+  await act(async () => app.props.onImportLegacyConfig(imported, '旧配置.json'))
+  assert.equal(view.root.findByType('app'), app)
+  assert.equal(app.props.skipUserGuide, false)
+  assert.equal(view.root.findByType('migration').props.importFileName, '旧配置.json')
+  assert.deepEqual(values, before)
+  await act(async () => view.root.findByType('migration').props.onClose())
+  assert.equal(view.root.findAllByType('migration').length, 0)
+  assert.equal(view.root.findByType('app'), app)
+  assert.equal(app.props.skipUserGuide, false)
+  assert.deepEqual(values, before)
+  await act(async () => app.props.onOpenConfigMigration())
+  assert.equal(view.root.findByType('migration').props.plan.found, false, 'cancel does not stage legacy source for later startup')
+  await act(async () => view.unmount())
+})
+
+test('confirming an imported remote creates it and opens binding without writing a local legacy source', async () => {
+  const { view, storage } = await flow()
+  const imported = backupImport.parseBackupImport(JSON.stringify(old))
+  await act(async () => view.root.findByType('app').props.onImportLegacyConfig(imported, '旧配置.json'))
+  assert.equal(storage.getItem(migration.previewInstancesKey), null)
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.equal(view.root.findAllByType('migration').length, 0)
+  const saved = JSON.parse(storage.getItem(migration.previewInstancesKey)).instances[0]
+  assert.equal(view.root.findByType('app').props.initialBindingId, saved.id)
+  assert.equal(view.root.findByType('app').props.skipUserGuide, true)
+  assert.equal(storage.getItem(migration.legacyProfilesKey), null)
+  await act(async () => view.unmount())
+})
+
+test('mouse-only migration exports original source before writing and clears skipped remote data', async () => {
+  let resolveWrite, exported
+  const writing = new Promise(resolve => { resolveWrite = resolve })
+  const { view, storage, values } = await flow(old, [], async (command, args) => {
+    if (command === 'device_snapshot') return { error: null, store: { version: 1, revision: 0, instances: [] } }
+    assert.equal(command, 'write_mapping_file')
+    exported = args
+    await writing
+  })
+  const before = new Map(values)
+  await act(async () => view.root.findByType('migration').props.onSelectRemote('skip'))
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.deepEqual(values, before, 'export must finish before any migration write')
+  assert.deepEqual(JSON.parse(exported.content).storage[migration.legacyProfilesKey], storage.getItem(migration.legacyProfilesKey))
+  await act(async () => { resolveWrite(); await Promise.resolve() })
+  assert.equal(view.root.findByType('migration').props.completed, true)
+  assert.equal(view.root.findByType('migration').props.exportOnly, false)
+  assert.equal(view.root.findByType('migration').props.exportedPath, exported.path)
+  assert.equal(storage.getItem(migration.previewInstancesKey), null)
+  assert.equal(migration.inspectConfigMigration(storage).found, false)
+  assert.equal(JSON.parse(storage.getItem('axonkey.mapping-profiles.v2')).profiles.find(profile => profile.deviceId === 'mouse').behaviors['mouse.top.up'].click[0].key, 'B')
+  await act(async () => view.root.findByType('migration').props.onClose())
+  await act(async () => view.root.findByType('app').props.onOpenConfigMigration())
+  assert.equal(view.root.findByType('migration').props.plan.found, false)
+  await act(async () => view.unmount())
+})
+
+test('a full migration export failure leaves all data untouched and allows retry', async () => {
+  let fail = true
+  const { view, values } = await flow(old, [], async command => {
+    if (command === 'device_snapshot') return { error: null, store: { version: 1, revision: 0, instances: [] } }
+    if (command === 'write_mapping_file') {
+      if (fail) throw new Error('磁盘已满')
+    } else assert.equal(command, 'put_device_instance')
+  })
+  const before = new Map(values)
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.deepEqual(values, before)
+  assert.match(view.root.findByType('migration').props.error, /导出失败，未迁移或删除旧配置/)
+  assert.equal(view.root.findByType('migration').props.completed, false)
+  fail = false
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.equal(view.root.findByType('migration').props.completed, true)
+  await act(async () => view.unmount())
+})
+
+test('skipping mouse exports first, shows completion and opens the new remote binding after closing', async () => {
+  const commands = []
+  let saved
+  const { view, storage } = await flow(old, [], async (command, args) => {
+    commands.push(command)
+    if (command === 'device_snapshot') return { error: null, store: { version: 1, revision: 0, instances: [] } }
+    if (command === 'put_device_instance') saved = args.instance
+    else assert.equal(command, 'write_mapping_file')
+  })
+  await act(async () => view.root.findByType('migration').props.onSelectMouse(false))
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.ok(commands.indexOf('write_mapping_file') < commands.indexOf('put_device_instance'))
+  assert.equal(view.root.findByType('migration').props.completed, true)
+  assert.ok(view.root.findByType('migration').props.exportedPath)
+  assert.equal(storage.getItem(migration.legacyProfilesKey), null)
+  await act(async () => view.root.findByType('migration').props.onClose())
+  assert.equal(view.root.findByType('app').props.initialBindingId, saved.id)
+  await act(async () => view.unmount())
+})
+
+test('importing only remote leaves current mouse profiles unchanged and opens physical binding', async () => {
+  const { view, storage } = await flow()
+  const current = { version: 2, migrationReviewed: true, profiles: [{ id: 'current', name: '当前鼠标', deviceId: 'mouse', behaviors: {} }], activeProfileIds: { mouse: 'current' } }
+  storage.setItem('axonkey.mapping-profiles.v2', JSON.stringify(current))
+  await act(async () => view.root.findByType('app').props.onImportLegacyConfig(backupImport.parseBackupImport(JSON.stringify(old)), '旧配置.json'))
+  await act(async () => view.root.findByType('migration').props.onSelectMouse(false))
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.deepEqual(JSON.parse(storage.getItem('axonkey.mapping-profiles.v2')), current)
+  const remote = JSON.parse(storage.getItem(migration.previewInstancesKey)).instances[0]
+  assert.equal(view.root.findByType('app').props.initialBindingId, remote.id)
+  assert.equal(storage.getItem(migration.legacyProfilesKey), null)
+  await act(async () => view.unmount())
+})
+
+test('full startup migration exports original data before writes, shows its path, then requests binding', async () => {
+  const { view, storage, writes, exports, commands } = await nativeFlow(old)
   assert.equal(view.root.findAllByType('app').length, 0)
   assert.ok(storage.getItem(migration.legacyProfilesKey))
   await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.equal(view.root.findByType('migration').props.completed, true)
+  assert.equal(view.root.findByType('migration').props.exportedPath, exports[0].path)
+  assert.deepEqual(JSON.parse(JSON.parse(exports[0].content).storage[migration.legacyProfilesKey]), old)
+  assert.ok(commands.indexOf('write_mapping_file') < commands.indexOf('put_device_instance'))
+  await act(async () => view.root.findByType('migration').props.onClose())
   const app = view.root.findByType('app')
   assert.equal(app.props.skipUserGuide, true)
-  const saved = JSON.parse(storage.getItem(migration.previewInstancesKey))
-  assert.equal(saved.instances.length, 1)
-  assert.equal(saved.instances[0].id, app.props.initialBindingId)
-  assert.equal(saved.instances[0].profiles[0].behaviors.power.click[0].key, 'A')
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].instance.id, app.props.initialBindingId)
+  assert.equal(writes[0].instance.profiles[0].behaviors.power.click[0].key, 'A')
   assert.equal(storage.getItem(migration.legacyProfilesKey), null)
   await act(async () => app.props.onOpenConfigMigration())
   assert.equal(view.root.findByType('migration').props.plan.found, false)
@@ -188,7 +370,7 @@ test('download directory and write failures retain all old data and allow retry'
     const props = () => view.root.findByType('migration').props
     await act(async () => { props().onExportAndDelete(); await Promise.resolve() })
     assert.deepEqual(values, before)
-    assert.match(props().error, /导出失败，未删除旧配置/)
+    assert.match(props().error, /导出失败，未迁移或删除旧配置/)
     assert.equal(props().busy, false)
     assert.equal(props().completed, false)
     if (failure === 'write') {
@@ -231,8 +413,8 @@ const existing = (id, kind = 'rc003', binding = 'physical-' + id) => ({
 test('existing remotes require a destination and disclose overwrite before starting', async () => {
   const ui = await dialog(found, { remotes: [existing('living'), existing('study')], remoteTargetId: '' })
   assert.equal(ui.button('开始迁移').props.disabled, true)
-  const select = ui.view.root.findByType('select')
-  assert.deepEqual(select.findAllByType('option').map(option => option.props.value), ['', 'living', 'study', 'new'])
+  const select = ui.view.root.findByProps({ id: 'config-migration-remote' })
+  assert.deepEqual(select.findAllByType('option').map(option => option.props.value), ['', 'skip', 'living', 'study', 'new'])
   await act(async () => select.props.onChange({ target: { value: 'study' } }))
   assert.deepEqual(ui.calls, [['select', 'study']])
   await ui.close()
@@ -256,17 +438,15 @@ test('loading or failed device inspection blocks migration and offers a read ret
 
 test('only matching remotes are offered and overwrite updates exactly the selected bound instance', async () => {
   const instances = [existing('living'), existing('other', 'cmiotA15'), existing('study')]
-  const { view, storage } = await flow(old, instances)
+  const { view, storage, writes } = await nativeFlow(old, instances)
   const props = () => view.root.findByType('migration').props
   assert.deepEqual(Array.from(props().remotes, remote => remote.id), ['living', 'study'])
   assert.equal(props().remoteTargetId, '')
   await act(async () => props().onSelectRemote('study'))
   await act(async () => { props().onStart(); await Promise.resolve() })
-  const saved = JSON.parse(storage.getItem(migration.previewInstancesKey))
-  assert.equal(saved.revision, 8)
-  assert.equal(saved.instances.length, 3)
-  assert.deepEqual(saved.instances.slice(0, 2), instances.slice(0, 2))
-  assert.deepEqual(saved.instances[2], { ...instances[2], profiles: props().plan.remote.profiles,
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].revision, 7)
+  assert.deepEqual(writes[0].instance, { ...instances[2], profiles: props().plan.remote.profiles,
     activeProfileId: props().plan.remote.activeProfileId })
   assert.equal(props().completed, true)
   await act(async () => props().onClose())
@@ -274,25 +454,63 @@ test('only matching remotes are offered and overwrite updates exactly the select
   await act(async () => view.unmount())
 })
 
+test('import overwrite updates only the selected remote and closes without opening physical binding', async () => {
+  const instances = [existing('living'), existing('study')]
+  const { view, storage } = await flow(undefined, instances)
+  await act(async () => view.root.findByType('app').props.onImportLegacyConfig(backupImport.parseBackupImport(JSON.stringify(old)), '旧配置.json'))
+  const props = () => view.root.findByType('migration').props
+  assert.equal(props().remoteTargetId, '')
+  await act(async () => props().onSelectRemote('study'))
+  await act(async () => { props().onStart(); await Promise.resolve() })
+  assert.equal(props().completed, true)
+  const saved = JSON.parse(storage.getItem(migration.previewInstancesKey)).instances
+  assert.equal(saved.length, 2)
+  assert.deepEqual(saved[0], instances[0])
+  assert.equal(saved[1].binding, instances[1].binding)
+  assert.equal(saved[1].profiles[0].behaviors.power.click[0].key, 'A')
+  await act(async () => props().onClose())
+  assert.equal(view.root.findByType('app').props.initialBindingId, null)
+  assert.equal(storage.getItem(migration.legacyProfilesKey), null)
+  await act(async () => view.unmount())
+})
+
+test('cancel after failed native import leaves storage and onboarding untouched', async () => {
+  const { view, values } = await flow(undefined, [], async command => {
+    if (command === 'device_snapshot') return { error: null, store: { version: 1, revision: 0, instances: [] } }
+    assert.equal(command, 'put_device_instance')
+    throw new Error('设备保存失败')
+  })
+  const before = new Map(values)
+  await act(async () => view.root.findByType('app').props.onImportLegacyConfig(backupImport.parseBackupImport(JSON.stringify(old)), '旧配置.json'))
+  await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
+  assert.match(view.root.findByType('migration').props.error, /设备保存失败/)
+  assert.deepEqual(values, before)
+  await act(async () => view.root.findByType('migration').props.onClose())
+  assert.deepEqual(values, before)
+  assert.equal(view.root.findByType('app').props.skipUserGuide, false)
+  await act(async () => view.unmount())
+})
+
 test('new remote remains an explicit option when matching devices exist', async () => {
   const instances = [existing('living')]
-  const { view, storage } = await flow(old, instances)
+  const { view, storage, writes } = await nativeFlow(old, instances)
   await act(async () => view.root.findByType('migration').props.onSelectRemote('new'))
   await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
-  const saved = JSON.parse(storage.getItem(migration.previewInstancesKey))
-  assert.equal(saved.instances.length, 2)
-  assert.deepEqual(saved.instances[0], instances[0])
-  assert.notEqual(saved.instances[1].id, instances[0].id)
-  assert.equal(view.root.findByType('app').props.initialBindingId, saved.instances[1].id)
+  assert.equal(writes.length, 1)
+  assert.notEqual(writes[0].instance.id, instances[0].id)
+  await act(async () => view.root.findByType('migration').props.onClose())
+  assert.equal(view.root.findByType('app').props.initialBindingId, writes[0].instance.id)
   await act(async () => view.unmount())
 })
 
 test('a resumed overwrite preselects its existing unbound target and opens binding after saving', async () => {
-  const { view, storage } = await flow({ ...old, migrationRemoteTargetId: 'study', migrationRemoteId: 'new-remote' },
+  const { view, storage, writes } = await nativeFlow({ ...old, migrationRemoteTargetId: 'study', migrationRemoteId: 'new-remote' },
     [existing('study', 'rc003', null)])
   assert.equal(view.root.findByType('migration').props.remoteTargetId, 'study')
   await act(async () => { view.root.findByType('migration').props.onStart(); await Promise.resolve() })
-  assert.equal(JSON.parse(storage.getItem(migration.previewInstancesKey)).instances.length, 1)
+  assert.equal(writes.length, 1)
+  assert.equal(writes[0].instance.id, 'study')
+  await act(async () => view.root.findByType('migration').props.onClose())
   assert.equal(view.root.findByType('app').props.initialBindingId, 'study')
   await act(async () => view.unmount())
 })
@@ -306,6 +524,7 @@ test('native device read failure keeps old data, retry lists targets and saves w
       if (++reads === 1) throw new Error('设备服务读取失败')
       return { error: null, store: { version: 1, revision: 12, instances: [target] } }
     }
+    if (command === 'write_mapping_file') return
     assert.equal(command, 'put_device_instance')
     writes.push(args)
   })
