@@ -28,12 +28,15 @@ const TRAY_QUIT_ID: &str = "tray-quit";
 const AUTOSTART_ARG: &str = "--autostart";
 const LEGACY_AUTOSTART_MARKER: &str = "autostart-initialized";
 const BACKGROUND_AUTOSTART_MARKER: &str = "autostart-background-initialized";
+#[allow(dead_code)]
 const PERMISSION_HELPER_WIDTH: f64 = 430.0;
+#[allow(dead_code)]
 const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
 const RUNTIME_LOG_FILE_BASENAME: &str = "axonkey";
 const RUNTIME_LOG_MAX_BYTES: u128 = 5_000_000;
 const RUNTIME_LOG_KEEP_FILES: usize = 5;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct WindowGeometry {
     position: PhysicalPosition<i32>,
@@ -42,6 +45,7 @@ struct WindowGeometry {
     always_on_top: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct PermissionHelperWindowState(std::sync::Mutex<Option<WindowGeometry>>);
 
@@ -84,6 +88,7 @@ fn launched_from_autostart() -> bool {
     args_request_autostart(std::env::args())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
@@ -1327,7 +1332,7 @@ async fn restart_audio_service(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, instance_id);
         Err("手动重启虚拟麦克风仅支持 macOS".into())
     }
 }
@@ -1381,7 +1386,7 @@ async fn get_signal_monitor_state(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, after, clear);
+        let _ = (app, instance_id, after, clear);
         Err("语音链路监测目前仅支持 macOS".into())
     }
 }
@@ -1439,7 +1444,7 @@ fn set_audio_stretch_compensation(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (enabled, audio_service);
+        let _ = (enabled, instance_id, audio_service);
         Err("拉伸补偿实验仅支持 macOS".into())
     }
 }
@@ -1591,6 +1596,7 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
     input_connected || bluetooth_connected
 }
@@ -1787,8 +1793,6 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
         .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = &event {
-            }
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(service) = app.try_state::<DeviceManager>() { service.shutdown(); }
                 if let Some(service) = app.try_state::<MouseService>() { service.shutdown(); }

@@ -23,6 +23,7 @@ pub struct InputServiceStatus {
     pub accessibility_granted: Option<bool>,
     pub capture_active: bool,
     #[serde(skip)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) input_monitoring_open_denied: bool,
 }
 

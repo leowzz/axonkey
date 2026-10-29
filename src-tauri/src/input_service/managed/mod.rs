@@ -457,6 +457,7 @@ impl DeviceManager {
     fn start_with_emitter(path: PathBuf, emit: Box<dyn Fn(InputEvent) + Send + Sync>) -> Self {
         Self::start_with_callbacks(path, emit, Box::new(|_| true))
     }
+    #[cfg_attr(all(windows, not(test)), allow(dead_code))]
     fn start_with_callbacks(
         path: PathBuf,
         emit: Box<dyn Fn(InputEvent) + Send + Sync>,

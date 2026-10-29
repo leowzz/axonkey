@@ -358,15 +358,18 @@ impl AudioService {
         }
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn pause(&self) {
         self.shared.audio_refresh.store(true, Ordering::Release);
         self.shared.ble_refresh.store(true, Ordering::Release);
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn resume(&self) {
         self.refresh();
     }
 
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn restart(&self) -> Result<(), String> {
         self.pause();
         self.resume();

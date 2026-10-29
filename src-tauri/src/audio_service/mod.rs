@@ -115,6 +115,7 @@ pub struct AudioServiceManager {
     legacy: Arc<PlatformAudioService>,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl AudioServiceManager {
     pub fn start() -> Self {
         Self {

@@ -79,6 +79,7 @@ pub(crate) struct Reply {
     pub installation_state: Option<crate::DriverInstallationState>,
     message: String,
     #[serde(default)]
+    #[allow(dead_code)]
     pub devices: Vec<Device>,
 }
 

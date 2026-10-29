@@ -98,6 +98,7 @@ impl ReportState {
 
 /// One exclusive HID connection. Recording and key mapping consume the same
 /// voice edge independently, including when click-to-record stays active.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 #[derive(Default)]
 pub(crate) struct HidSession {
     reports: ReportState,
@@ -105,6 +106,7 @@ pub(crate) struct HidSession {
     voice: super::cmiot_a15_fc::VoiceStream,
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl HidSession {
     pub fn start(&mut self, mode: super::cmiot_a15_recording::RecordingMode) {
         self.recording
