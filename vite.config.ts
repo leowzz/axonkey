@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  envPrefix: ['VITE_', 'TENCENT_RUM_ID'],
   clearScreen: false,
   build: {
     outDir: 'web-dist',
