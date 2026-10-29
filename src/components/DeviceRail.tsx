@@ -10,8 +10,16 @@ export type DeviceStatus = {
   recording?: boolean
 }
 
-export function DeviceRecordingStatus({ recording }: { recording: boolean }) {
-  return (
+export function DeviceRecordingStatus({
+  recording,
+  onToggle,
+  disabled = false,
+}: {
+  recording: boolean
+  onToggle?: () => void
+  disabled?: boolean
+}) {
+  const content = (
     <span
       className={`device-recording-status${recording ? ' is-recording' : ''}`}
       role="status"
@@ -21,6 +29,21 @@ export function DeviceRecordingStatus({ recording }: { recording: boolean }) {
       <Mic size={18} aria-hidden="true" />
       <span>{recording ? '正在录音' : '未录音'}</span>
     </span>
+  )
+  return onToggle ? (
+    <button
+      type="button"
+      className="device-recording-control"
+      aria-label={recording ? '停止录音' : '开始录音'}
+      aria-pressed={recording}
+      title={recording ? '点击停止录音' : '点击开始录音'}
+      disabled={disabled}
+      onClick={onToggle}
+    >
+      {content}
+    </button>
+  ) : (
+    content
   )
 }
 

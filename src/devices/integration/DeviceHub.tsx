@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Plus, RefreshCw, X } from 'lucide-react'
+import { ChevronRight, Link2Off, Plus, RefreshCw, X } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../../deviceModel'
 import { InstanceWorkspace } from './InstanceWorkspace'
@@ -107,6 +107,7 @@ export function DeviceHub(props: Props) {
                     title={item.name}
                     subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
                     status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
+                    unbound={!item.binding}
                     batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
                     profile={item.profiles.find(p => p.id === item.activeProfileId)?.name}
                     onClick={() => setSelected(item.id)}
@@ -347,6 +348,7 @@ function DiscoveryHelpDialog({
 function DeviceCard({
   kind,
   discovered = false,
+  unbound = false,
   title,
   subtitle,
   status,
@@ -356,6 +358,7 @@ function DeviceCard({
 }: {
   kind: DeviceKind | 'mouse'
   discovered?: boolean
+  unbound?: boolean
   title: string
   subtitle: string
   status: string
@@ -367,6 +370,7 @@ function DeviceCard({
     <button
       className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`}
       data-discovered={discovered || undefined}
+      data-unbound={unbound || undefined}
       onClick={onClick}
     >
       <div className="my-devices-card-main">
@@ -380,11 +384,18 @@ function DeviceCard({
       </div>
       <span className="my-devices-summary">
         <span className="my-devices-telemetry">
-          <span className="my-devices-status">
-            <i className="my-devices-status-dot" />
-            {status}
-          </span>
-          {(kind === 'rc003' || kind === 'cmiotA15') && (
+          {unbound ? (
+            <span className="my-devices-unbound-badge">
+              <Link2Off size={14} aria-hidden="true" />
+              未绑定
+            </span>
+          ) : (
+            <span className="my-devices-status">
+              <i className="my-devices-status-dot" />
+              {status}
+            </span>
+          )}
+          {!unbound && (kind === 'rc003' || kind === 'cmiotA15') && (
             <span className="my-devices-power">
               <BatteryIndicator level={batteryLevel} />
             </span>

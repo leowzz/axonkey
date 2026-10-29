@@ -242,6 +242,34 @@
   background: rgb(255 255 255 / 44%);
   border-color: rgb(70 80 90 / 13%);
 }
+.my-devices-card[data-unbound] {
+  border-color: #d9bc8a;
+}
+.my-devices-card[data-unbound]:hover {
+  border-color: #b98b42;
+  box-shadow: 0 7px 18px rgb(146 103 37 / 10%);
+}
+.my-devices-card[data-unbound] .my-devices-summary {
+  align-items: center;
+  background: rgb(234 192 121 / 14%);
+}
+.my-devices-unbound-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid rgb(172 117 34 / 20%);
+  border-radius: 6px;
+  color: #8b5c18;
+  background: #fff0d5;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.my-devices-unbound-badge svg {
+  flex-shrink: 0;
+}
 @media (max-width: 1100px) {
   .my-devices-heading {
     gap: 12px;

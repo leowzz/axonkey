@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum RecordingMode {
-    #[default]
     Hold,
+    #[default]
     Click,
 }
 
@@ -71,6 +71,16 @@ impl RecordingControl {
         Ok(())
     }
 
+    pub(crate) fn toggle<E>(
+        &mut self,
+        mut send: impl FnMut([u8; 2]) -> Result<(), E>,
+    ) -> Result<bool, E> {
+        let next = !self.recording;
+        send([0xfb, u8::from(next)])?;
+        self.recording = next;
+        Ok(next)
+    }
+
     pub(crate) fn reset(&mut self) {
         *self = Self::default();
     }
@@ -79,6 +89,37 @@ impl RecordingControl {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_toggle_sends_reports_in_both_modes_and_preserves_state_on_failure() {
+        for mode in [RecordingMode::Hold, RecordingMode::Click] {
+            let mut control = RecordingControl::default();
+            control
+                .synchronize(mode, true, |_| Ok::<_, ()>(()))
+                .unwrap();
+            let mut reports = Vec::new();
+            assert!(control
+                .toggle(|report| {
+                    reports.push(report);
+                    Ok::<_, ()>(())
+                })
+                .unwrap());
+            assert!(control.toggle(|_| Err(())).is_err());
+            assert!(control.is_recording());
+            assert!(!control
+                .toggle(|report| {
+                    reports.push(report);
+                    Ok::<_, ()>(())
+                })
+                .unwrap());
+            assert_eq!(reports, [[0xfb, 1], [0xfb, 0]]);
+            control.edge(true, |_| Ok::<_, ()>(())).unwrap();
+            assert!(
+                control.is_recording(),
+                "manual control must not synthesize physical key edges"
+            );
+        }
+    }
 
     #[test]
     fn hold_and_click_send_exact_reports_without_repeat_toggling() {

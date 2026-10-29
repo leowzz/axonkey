@@ -4932,7 +4932,26 @@ html.macos-vibrancy,
   color: #991b1b;
   box-shadow: inset 0 0 0 1px #f0a2a2;
 }
-.mapping-device-rail > .device-recording-status {
+.device-recording-control {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+}
+.device-recording-control:not(:disabled):hover .device-recording-status {
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+.device-recording-control:focus-visible {
+  outline: 2px solid #2876c5;
+  outline-offset: 3px;
+}
+.device-recording-control:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.mapping-device-rail > .device-recording-status,
+.mapping-device-rail > .device-recording-control {
   flex-basis: auto;
   position: sticky;
   top: 0;

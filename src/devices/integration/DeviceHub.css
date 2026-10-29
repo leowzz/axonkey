@@ -420,81 +420,68 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-driver-notice > button:disabled {
   opacity: 0.6;
 }
-.managed-driver-notice > .managed-driver-notice-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 0;
+.managed-driver-notice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(24 32 48 / 38%);
 }
-.managed-driver-notice > .managed-driver-notice-close:hover {
-  background: #f8deda;
+.managed-driver-notice-backdrop > .managed-driver-notice {
+  display: block;
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 28px 30px 24px;
+  border: 1px solid #e7d2d0;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 20px 70px rgb(15 23 42 / 22%);
+  color: #73332f;
 }
-.managed-driver-notice[data-dismissing] {
-  position: relative;
-  z-index: 5;
+.managed-driver-notice-backdrop > .managed-driver-notice[data-dismissing] {
   pointer-events: none;
   transform-origin: center;
 }
-.managed-instance-workspace[data-driver-settings-hint] .device-workspace-settings {
-  color: #a33732;
-  background: #fff0ef;
-  animation: managed-settings-receive 750ms ease-out;
+.managed-driver-notice-backdrop h2 {
+  margin: 0;
+  color: #4b2522;
+  font-size: 20px;
+  line-height: 1.4;
 }
-.managed-instance-workspace .device-workspace-settings-hint {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 16px;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: #fff0ef;
-  color: #a33732;
-  box-shadow: 0 3px 12px rgb(87 36 32 / 12%);
-  font-size: 12px;
-  line-height: 1.5;
-  pointer-events: none;
-  animation: managed-settings-hint 2800ms ease both;
+.managed-driver-notice-backdrop p {
+  margin: 10px 0 0;
+  color: #73332f;
+  line-height: 1.65;
 }
-.managed-instance-workspace .device-workspace-settings-hint::before {
-  content: '';
-  position: absolute;
-  top: -4px;
-  right: 10px;
-  width: 8px;
-  height: 8px;
-  background: #fff0ef;
-  transform: rotate(45deg);
+.managed-driver-notice-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 24px;
 }
-@keyframes managed-settings-receive {
-  0% {
-    box-shadow: 0 0 0 0 rgb(190 79 71 / 35%);
-    transform: scale(1);
-  }
-  35% {
-    transform: scale(1.14);
-  }
-  100% {
-    box-shadow: 0 0 0 12px rgb(190 79 71 / 0%);
-    transform: scale(1);
-  }
+.managed-driver-notice-actions > button {
+  min-width: 76px;
+  padding: 7px 12px;
+  border: 1px solid #d7aaa6;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
 }
-@keyframes managed-settings-hint {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  12%,
-  85% {
-    opacity: 1;
-  }
+.managed-driver-notice-actions > .managed-driver-notice-install {
+  border-color: #a33732;
+  color: #fff;
+  background: #a33732;
 }
-@media (prefers-reduced-motion: reduce) {
-  .managed-instance-workspace[data-driver-settings-hint] .device-workspace-settings,
-  .managed-instance-workspace .device-workspace-settings-hint {
-    animation: none;
-  }
+.managed-driver-notice-actions > button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+.managed-driver-notice-actions > button:disabled {
+  opacity: 0.6;
 }
 .managed-instance-workspace .mapping-main > .managed-error,
 .managed-instance-workspace .mapping-main > .managed-notice {

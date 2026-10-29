@@ -62,6 +62,20 @@ impl A15Reader {
         self.session.recording()
     }
 
+    pub(super) fn toggle_recording(&mut self) -> Result<bool, String> {
+        let recording = self
+            .session
+            .toggle_recording(|report| send(&self.device, report))?;
+        if let Some(app) = &self.app {
+            app.state::<AudioServiceManager>().set_a15_input_state(
+                Some(&self.instance_id),
+                true,
+                recording,
+            );
+        }
+        Ok(recording)
+    }
+
     pub(super) fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         if !(self.is_current)() {
             return Ok(0);

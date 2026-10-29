@@ -6,7 +6,6 @@ type DeviceWorkspaceHeaderProps = {
   profileControls: ReactNode
   onBackToDevices: () => void
   onOpenSettings?: () => void
-  settingsHint?: string
 }
 
 export function DeviceWorkspaceHeader({
@@ -14,7 +13,6 @@ export function DeviceWorkspaceHeader({
   profileControls,
   onBackToDevices,
   onOpenSettings,
-  settingsHint,
 }: DeviceWorkspaceHeaderProps) {
   return (
     <header className="device-workspace-header">
@@ -38,11 +36,6 @@ export function DeviceWorkspaceHeader({
         </button>
       ) : (
         <span aria-hidden="true" />
-      )}
-      {settingsHint && (
-        <span className="device-workspace-settings-hint" role="status">
-          {settingsHint}
-        </span>
       )}
     </header>
   )

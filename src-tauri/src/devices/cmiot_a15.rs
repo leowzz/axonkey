@@ -118,6 +118,15 @@ impl HidSession {
         self.recording.is_recording()
     }
 
+    pub fn toggle_recording(
+        &mut self,
+        send: impl FnMut([u8; 2]) -> Result<(), String>,
+    ) -> Result<bool, String> {
+        let recording = self.recording.toggle(send)?;
+        self.voice.synchronize(recording);
+        Ok(recording)
+    }
+
     pub fn accept(
         &mut self,
         report: &[u8],
@@ -158,6 +167,32 @@ impl HidSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_recording_toggles_the_hid_session_without_key_events() {
+        let mut session = HidSession::default();
+        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        let mut reports = Vec::new();
+        assert!(session
+            .toggle_recording(|report| {
+                reports.push(report);
+                Ok(())
+            })
+            .unwrap());
+        assert!(session.recording());
+        assert!(session
+            .toggle_recording(|_| Err("write failed".into()))
+            .is_err());
+        assert!(session.recording());
+        assert!(!session
+            .toggle_recording(|report| {
+                reports.push(report);
+                Ok(())
+            })
+            .unwrap());
+        assert!(!session.recording());
+        assert_eq!(reports, [[0xfb, 1], [0xfb, 0]]);
+    }
 
     #[test]
     fn hid_session_keeps_voice_key_edges_independent_of_click_recording() {

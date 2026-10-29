@@ -61,6 +61,24 @@ export function useDeviceInstances(native: boolean) {
     },
     [native, accept],
   )
+  const toggleRecording = useCallback(
+    async (instanceId: string) => {
+      if (!native) return
+      try {
+        const recording = await invoke<boolean>('toggle_device_recording', { instanceId })
+        const latest = current.current
+        accept({
+          ...latest,
+          runtime: { ...latest.runtime, [instanceId]: { ...latest.runtime[instanceId], recording } },
+        })
+        setError('')
+      } catch (error) {
+        setError(String(error))
+        throw error
+      }
+    },
+    [native, accept],
+  )
   const transact = useCallback(
     (operation: (latest: DeviceSnapshot) => Promise<DeviceSnapshot>) => {
       setBusy(true)
@@ -133,6 +151,6 @@ export function useDeviceInstances(native: boolean) {
       }),
     [native, transact],
   )
-  return { snapshot, error, busy, refresh, refreshInformation, put, update, remove }
+  return { snapshot, error, busy, refresh, refreshInformation, toggleRecording, put, update, remove }
 }
 export type DeviceController = ReturnType<typeof useDeviceInstances>

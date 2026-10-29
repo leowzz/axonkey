@@ -55,15 +55,15 @@ test('device status card announces recording transitions and omits the badge for
   act(() => view.unmount())
 })
 
-test('A15 recording mode restores the saved choice and defaults legacy or invalid settings to hold', () => {
+test('A15 recording mode restores the saved choice and defaults legacy or invalid settings to click', () => {
   const { getStoredSettings } = load('src/appConfig.tsx')
   const previousStorage = testWindow.localStorage
   try {
     for (const [stored, expected] of [
-      [null, 'hold'], ['{}', 'hold'], ['invalid', 'hold'],
+      [null, 'click'], ['{}', 'click'], ['invalid', 'click'],
       [JSON.stringify({ cmiotA15RecordingMode: 'hold' }), 'hold'],
       [JSON.stringify({ cmiotA15RecordingMode: 'click' }), 'click'],
-      [JSON.stringify({ cmiotA15RecordingMode: 'unknown' }), 'hold'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'unknown' }), 'click'],
     ]) {
       testWindow.localStorage = { getItem: () => stored }
       assert.equal(getStoredSettings().cmiotA15RecordingMode, expected)

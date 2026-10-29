@@ -1467,6 +1467,18 @@ fn refresh_device_information(
 }
 
 #[tauri::command]
+async fn toggle_device_recording(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DeviceManager>().toggle_recording(&instance_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
@@ -1490,7 +1502,7 @@ fn put_device_instance(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
-    if instance.id.is_empty() && instance.voice_output_device.is_none() {
+    if instance.voice_output_device.is_none() {
         instance.voice_output_device = default_voice_output_device();
     }
     let snapshot = manager.put(revision, instance)?;
@@ -1781,6 +1793,7 @@ pub fn run() {
             update_input_settings,
             device_snapshot,
             refresh_device_information,
+            toggle_device_recording,
             put_device_instance,
             remove_device_instance,
             write_mapping_file,

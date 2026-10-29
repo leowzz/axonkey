@@ -137,7 +137,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     binding,
     voiceOutputDevice: null,
     audioGainDb: 0,
-    cmiotA15RecordingMode: 'hold',
+    cmiotA15RecordingMode: 'click',
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

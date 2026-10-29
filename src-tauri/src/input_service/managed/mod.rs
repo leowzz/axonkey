@@ -227,6 +227,7 @@ struct Shared {
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
     information_requests: Mutex<HashSet<String>>,
+    recording_requests: Mutex<Vec<(String, SyncSender<Result<bool, String>>)>>,
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
@@ -494,6 +495,7 @@ impl DeviceManager {
             #[cfg(target_os = "macos")]
             app: Mutex::new(None),
             information_requests: Mutex::new(HashSet::new()),
+            recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -525,6 +527,7 @@ impl DeviceManager {
             #[cfg(target_os = "macos")]
             app: Mutex::new(None),
             information_requests: Mutex::new(HashSet::new()),
+            recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
                 store,
                 discovered: vec![],
@@ -565,6 +568,43 @@ impl DeviceManager {
     }
     pub fn refresh_information(&self, binding: &str) -> Result<Snapshot, String> {
         device_info::request(&self.shared, binding)
+    }
+
+    pub fn toggle_recording(&self, instance_id: &str) -> Result<bool, String> {
+        self.validate_recording_target(instance_id)?;
+        let (reply, result) = sync_channel(1);
+        self.shared
+            .recording_requests
+            .lock()
+            .unwrap()
+            .push((instance_id.into(), reply));
+        result
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|_| "录音控制未响应，请检查设备连接".to_string())?
+    }
+
+    fn validate_recording_target(&self, instance_id: &str) -> Result<(), String> {
+        let snapshot = self.shared.snapshot.lock().unwrap();
+        let instance = snapshot
+            .store
+            .instances
+            .iter()
+            .find(|item| item.id == instance_id)
+            .ok_or("设备已被移除")?;
+        if instance.kind != "cmiotA15" {
+            return Err("仅 CMIOT A15 支持手动控制录音".into());
+        }
+        if !self.shared.enabled.load(Ordering::Acquire)
+            || !instance.enabled
+            || instance.binding.is_none()
+            || !snapshot
+                .runtime
+                .get(instance_id)
+                .is_some_and(|status| status.state == "exclusive")
+        {
+            return Err("请先连接并启用 CMIOT A15 设备".into());
+        }
+        Ok(())
     }
 
     #[cfg(windows)]
@@ -1620,6 +1660,39 @@ fn run(shared: Arc<Shared>) {
             }
             statuses.insert(instance.id.clone(), status);
         }
+        for (id, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
+            #[cfg(all(windows, not(test)))]
+            {
+                let channels = shared
+                    .quarbor
+                    .as_ref()
+                    .map(|registry| registry.channels.lock().unwrap());
+                if let Some((_, channel)) = channels.as_ref().and_then(|channels| channels.get(&id))
+                {
+                    channel.toggle_recording(reply);
+                } else {
+                    let _ = reply.send(Err("设备录音通道未连接".into()));
+                }
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let result = match readers.get_mut(&id).map(|reader| &mut reader.device) {
+                    Some(InputReader::A15(device)) => device.toggle_recording(),
+                    _ => Err("设备录音通道未连接".into()),
+                };
+                if let Ok(recording) = &result {
+                    if let Some(status) = statuses.get_mut(&id) {
+                        status.recording = *recording;
+                    }
+                }
+                let _ = reply.send(result);
+            }
+            #[cfg(not(any(all(windows, not(test)), target_os = "macos")))]
+            {
+                let _ = id;
+                let _ = reply.send(Err("当前平台不支持手动控制录音".into()));
+            }
+        }
         {
             let mut snapshot = shared.snapshot.lock().unwrap();
             for (id, status) in &statuses {
@@ -1972,6 +2045,7 @@ mod tests {
                 #[cfg(target_os = "macos")]
                 app: Mutex::new(None),
                 information_requests: Mutex::new(HashSet::new()),
+                recording_requests: Mutex::new(Vec::new()),
                 snapshot: Mutex::new(Snapshot {
                     store: Store {
                         instances,
@@ -2147,7 +2221,7 @@ mod tests {
         let mut second = instance("sofa", "a15-two");
         second.kind = "cmiotA15".into();
         let manager = offline_manager(vec![first.clone(), second]);
-        first.cmiot_a15_recording_mode = crate::devices::cmiot_a15_recording::RecordingMode::Click;
+        first.cmiot_a15_recording_mode = crate::devices::cmiot_a15_recording::RecordingMode::Hold;
         manager.put(0, first).unwrap();
         manager
             .remember_quarbor_target("desk", "first-target")
@@ -2158,11 +2232,11 @@ mod tests {
         let saved = load(&manager.shared.path).unwrap();
         assert_eq!(
             saved.instances[0].cmiot_a15_recording_mode,
-            crate::devices::cmiot_a15_recording::RecordingMode::Click
+            crate::devices::cmiot_a15_recording::RecordingMode::Hold
         );
         assert_eq!(
             saved.instances[1].cmiot_a15_recording_mode,
-            crate::devices::cmiot_a15_recording::RecordingMode::Hold
+            crate::devices::cmiot_a15_recording::RecordingMode::Click
         );
         let unbound = manager.unbind("desk").unwrap();
         assert!(unbound.store.instances[0].binding.is_none());
@@ -2176,6 +2250,37 @@ mod tests {
         );
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn manual_a15_recording_requires_an_enabled_bound_a15_channel() {
+        let mut a15 = instance("a15", "physical-a15");
+        a15.kind = "cmiotA15".into();
+        let manager = offline_manager(vec![a15, instance("controller", "physical-controller")]);
+        assert!(manager
+            .toggle_recording("missing")
+            .unwrap_err()
+            .contains("已被移除"));
+        assert!(manager
+            .toggle_recording("controller")
+            .unwrap_err()
+            .contains("仅 CMIOT A15"));
+        assert!(manager.toggle_recording("a15").is_err());
+        manager.set_enabled(true);
+        manager.shared.snapshot.lock().unwrap().runtime.insert(
+            "a15".into(),
+            RuntimeStatus {
+                state: "exclusive".into(),
+                ..Default::default()
+            },
+        );
+        assert!(manager.validate_recording_target("a15").is_ok());
+        manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = false;
+        assert!(manager.toggle_recording("a15").is_err());
+        manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = true;
+        manager.shared.snapshot.lock().unwrap().store.instances[0].binding = None;
+        assert!(manager.toggle_recording("a15").is_err());
+        assert!(manager.shared.recording_requests.lock().unwrap().is_empty());
     }
 
     #[test]

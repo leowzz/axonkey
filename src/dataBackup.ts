@@ -199,7 +199,7 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
     settings: {
       enabled: boolean(settings.enabled, '映射总开关'),
       mouseEnabled: boolean(settings.mouseEnabled, '鼠标映射开关'),
-      cmiotA15RecordingMode: settings.cmiotA15RecordingMode === 'click' ? 'click' : 'hold',
+      cmiotA15RecordingMode: settings.cmiotA15RecordingMode === 'hold' ? 'hold' : 'click',
       showRemoteKeyGrid: boolean(settings.showRemoteKeyGrid, '遥控器按键列表'),
       showMouseKeyGrid: boolean(settings.showMouseKeyGrid, '鼠标按键列表'),
       mouseIgnoreScrollAcceleration: boolean(settings.mouseIgnoreScrollAcceleration, '滚动加速设置'),

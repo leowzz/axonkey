@@ -173,7 +173,7 @@ export function saveStoredUiState(state: StoredUiState) {
 
 export function getStoredSettings(): StoredSettings {
   const fallback: StoredSettings = {
-    cmiotA15RecordingMode: 'hold',
+    cmiotA15RecordingMode: 'click',
     mouseEdgeWidth: 8,
     showRemoteKeyGrid: true,
     showMouseKeyGrid: false,
@@ -196,7 +196,7 @@ export function getStoredSettings(): StoredSettings {
         typeof parsed.mouseEdgeWidth === 'number' && Number.isFinite(parsed.mouseEdgeWidth)
           ? Math.max(1, Math.min(100, Math.round(parsed.mouseEdgeWidth)))
           : 8,
-      cmiotA15RecordingMode: parsed.cmiotA15RecordingMode === 'click' ? 'click' : 'hold',
+      cmiotA15RecordingMode: parsed.cmiotA15RecordingMode === 'hold' ? 'hold' : 'click',
       showRemoteKeyGrid: parsed.showRemoteKeyGrid !== false,
       showMouseKeyGrid: parsed.showMouseKeyGrid === true,
       behaviors: parseStoredBehaviors(parsed),

@@ -475,6 +475,7 @@ type EventApp = ();
 type ManagedInput = Arc<dyn Fn(std::collections::BTreeMap<String, f64>, Vec<String>) + Send + Sync>;
 
 struct Shared {
+    recording_requests: Mutex<Vec<std::sync::mpsc::SyncSender<Result<bool, String>>>>,
     instance_id: Option<String>,
     settings: RwLock<NativeSettings>,
     settings_revision: AtomicU64,
@@ -497,6 +498,7 @@ impl InputService {
     pub fn start(driver_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
+            recording_requests: Mutex::new(Vec::new()),
             instance_id: None,
             settings: RwLock::new(NativeSettings::default()),
             settings_revision: AtomicU64::new(0),
@@ -655,6 +657,7 @@ impl ManagedQuarborChannel {
         });
         let event_app = Some(app);
         let shared = Arc::new(Shared {
+            recording_requests: Mutex::new(Vec::new()),
             instance_id: Some(instance_id.clone()),
             settings: RwLock::new(settings),
             settings_revision: AtomicU64::new(0),
@@ -696,6 +699,13 @@ impl ManagedQuarborChannel {
                     .fetch_add(1, Ordering::Relaxed);
             }
         }
+    }
+
+    pub(super) fn toggle_recording(
+        &self,
+        reply: std::sync::mpsc::SyncSender<Result<bool, String>>,
+    ) {
+        self.shared.recording_requests.lock().unwrap().push(reply);
     }
 
     pub(super) fn status(&self) -> InputServiceStatus {
@@ -854,6 +864,23 @@ fn process_remote_actions(
         emit_a15_pcm(shared, frame);
     }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
+    for reply in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
+        let result = if shared.status.lock().unwrap().capture_active
+            && shared.settings.read().unwrap().enabled
+        {
+            context
+                .a15_recording
+                .toggle(|report| send_a15_recording_report(&mut context.reader, report))
+                .map_err(|error| format!("A15 录音控制失败：{error}"))
+        } else {
+            Err("设备录音通道未连接".into())
+        };
+        context
+            .a15_voice
+            .synchronize(context.a15_recording.is_recording());
+        publish_a15_recording(shared, context.a15_recording.is_recording());
+        let _ = reply.send(result);
+    }
     publish_xbox_input(context, shared);
     context
         .a15_voice
@@ -1921,6 +1948,7 @@ mod tests {
                 Self {
                     channel: ManagedQuarborChannel {
                         shared: Arc::new(Shared {
+                            recording_requests: Mutex::new(Vec::new()),
                             instance_id: Some("test-device".into()),
                             settings: RwLock::new(settings),
                             settings_revision: AtomicU64::new(0),
@@ -1958,6 +1986,35 @@ mod tests {
                     self.start + Duration::from_millis(ms),
                 );
             }
+        }
+
+        #[test]
+        fn manual_a15_recording_is_scoped_to_its_channel_and_rejects_disconnection() {
+            let settings = NativeSettings {
+                enabled: true,
+                ..Default::default()
+            };
+            let mut first = Harness::new(settings.clone());
+            let second = Harness::new(settings.clone());
+            first.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+            first.channel.shared.status.lock().unwrap().capture_active = true;
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            for (ms, expected) in [(1, true), (2, false)] {
+                let (reply, result) = std::sync::mpsc::sync_channel(1);
+                first.channel.toggle_recording(reply);
+                first.tick(&settings, ms, &[]);
+                assert_eq!(result.try_recv().unwrap().unwrap(), expected);
+                assert_eq!(first.channel.status().cmiot_a15_recording, expected);
+                assert!(!second.channel.status().cmiot_a15_recording);
+            }
+            A15_RECORDING_REPORTS
+                .with(|reports| assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]));
+            first.channel.shared.status.lock().unwrap().capture_active = false;
+            let (reply, result) = std::sync::mpsc::sync_channel(1);
+            first.channel.toggle_recording(reply);
+            first.tick(&settings, 3, &[]);
+            assert!(result.try_recv().unwrap().is_err());
+            assert!(!first.channel.status().cmiot_a15_recording);
         }
 
         #[test]
@@ -2274,6 +2331,7 @@ mod tests {
             .unwrap();
             let service = InputService {
                 shared: Arc::new(Shared {
+                    recording_requests: Mutex::new(Vec::new()),
                     instance_id: None,
                     settings: RwLock::new(settings.clone()),
                     settings_revision: AtomicU64::new(1),
@@ -3046,6 +3104,7 @@ mod tests {
     #[cfg(windows)]
     fn recording_snapshot_follows_control_and_clears_after_disconnect() {
         let shared = Shared {
+            recording_requests: Mutex::new(Vec::new()),
             instance_id: None,
             settings: RwLock::new(NativeSettings::default()),
             settings_revision: AtomicU64::new(0),

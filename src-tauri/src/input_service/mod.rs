@@ -352,15 +352,15 @@ mod settings_tests {
     use super::NativeSettings;
 
     #[test]
-    fn recording_mode_defaults_to_hold_and_invalidates_only_remote_settings() {
+    fn recording_mode_defaults_to_click_and_invalidates_only_remote_settings() {
         use crate::devices::cmiot_a15_recording::RecordingMode;
         let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
-        assert_eq!(legacy.cmiot_a15_recording_mode, RecordingMode::Hold);
-        let click: NativeSettings =
-            serde_json::from_str(r#"{"cmiotA15RecordingMode":"click"}"#).unwrap();
-        assert_eq!(click.cmiot_a15_recording_mode, RecordingMode::Click);
-        assert!(legacy.remote_settings_changed(&click));
-        assert!(!legacy.mouse_settings_changed(&click));
+        assert_eq!(legacy.cmiot_a15_recording_mode, RecordingMode::Click);
+        let hold: NativeSettings =
+            serde_json::from_str(r#"{"cmiotA15RecordingMode":"hold"}"#).unwrap();
+        assert_eq!(hold.cmiot_a15_recording_mode, RecordingMode::Hold);
+        assert!(legacy.remote_settings_changed(&hold));
+        assert!(!legacy.mouse_settings_changed(&hold));
         assert!(
             serde_json::from_str::<NativeSettings>(r#"{"cmiotA15RecordingMode":"invalid"}"#)
                 .is_err()
