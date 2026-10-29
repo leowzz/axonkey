@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import {
   ArrowLeft,
   DatabaseBackup,
@@ -15,7 +16,7 @@ import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, DriverState } from '../systemState'
 
-export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
+export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'about'
 
 type SettingsPageProps = {
   onOpenConfigMigration: () => void
@@ -25,6 +26,7 @@ type SettingsPageProps = {
   onOpenCableDriver: () => void
   onOpenUserGuide: () => void
   onBack: () => void
+  aboutContent: ReactNode
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   enabled: boolean
@@ -66,6 +68,7 @@ export function SettingsPage({
   onOpenCableDriver,
   onOpenUserGuide,
   onBack,
+  aboutContent,
   section,
   onSectionChange,
   enabled,
@@ -104,6 +107,7 @@ export function SettingsPage({
     { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
     { id: 'remote' as const, label: '页面布局', icon: <LayoutDashboard size={16} /> },
     { id: 'backup' as const, label: '数据备份', icon: <DatabaseBackup size={16} /> },
+    { id: 'about' as const, label: '关于', icon: <Info size={16} /> },
   ]
   const loading = systemProbeState === 'loading'
   const failed = systemProbeState === 'error'
@@ -178,6 +182,9 @@ export function SettingsPage({
           </label>
         </nav>
         <div className="settings-panels">
+          <section id="settings-panel-about" aria-labelledby="settings-nav-about" hidden={currentSection !== 'about'}>
+            {aboutContent}
+          </section>
           <section
             id="settings-panel-backup"
             aria-labelledby="settings-nav-backup"

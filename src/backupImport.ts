@@ -174,6 +174,7 @@ function isLegacyDeviceBackup(root: Record<string, unknown>): boolean {
     version &&
     (Number(version[1]) < 1 || (Number(version[1]) === 1 && Number(version[2]) === 0 && Number(version[3]) < 20))
   return (
+    root.appVersion === 'legacy' ||
     !!legacyAppVersion ||
     !root.profiles.some(value => record(value).deviceId === 'cmiotA15') ||
     root.profiles.some(value => {

@@ -275,7 +275,7 @@ function AppController({
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
-  const releaseUpdate = useReleaseUpdate(activePage, debugMode)
+  const releaseUpdate = useReleaseUpdate(activePage === 'settings' && settingsSection === 'about', debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
   const [managedDriverCleanupOpen, setManagedDriverCleanupOpen] = useState(false)
   const [managedDriverAction, setManagedDriverAction] = useState<ManagedDriverAction | null>(null)
@@ -1823,8 +1823,6 @@ function AppController({
               }}
               remoteView={selectedDevice.remoteView}
             />
-          ) : activePage === 'about' ? (
-            <AboutPage update={releaseUpdate} onBack={() => navigateToPage('home')} />
           ) : activePage === 'device-settings' ? (
             <DeviceSettingsComponent
               onOpenAudioDriver={openAudioDriver}
@@ -1848,6 +1846,7 @@ function AppController({
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
+              aboutContent={<AboutPage update={releaseUpdate} />}
               onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}
               debugMode={debugMode}
@@ -1950,7 +1949,10 @@ function AppController({
               nativeRuntime={nativeRuntime}
               onOpenSettings={() => navigateToPage('settings')}
               onOpenLogs={() => void openLogDirectory()}
-              onOpenAbout={() => navigateToPage('about')}
+              onOpenAbout={() => {
+                setSettingsSection('about')
+                navigateToPage('settings')
+              }}
               hasUpdate={releaseUpdate.hasUpdate}
             />
           )}

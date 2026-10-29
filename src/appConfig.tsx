@@ -70,12 +70,12 @@ export type StoredUiState = {
   selectedDeviceId: DeviceId
   activeId: ButtonId
   selectedBehavior: { buttonId: InputId; trigger: TriggerType }
-  settingsSection: 'startup' | 'permissions' | 'remote' | 'backup'
+  settingsSection: 'startup' | 'permissions' | 'remote' | 'backup' | 'about'
   scrollTop: Partial<Record<AppPage, number>>
 }
 
-const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'device-settings', 'about']
-const settingsSections = ['startup', 'permissions', 'remote', 'backup'] as const
+const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'device-settings']
+const settingsSections = ['startup', 'permissions', 'remote', 'backup', 'about'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'cmiotA15', 'mouse']
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -133,13 +133,15 @@ export function getStoredUiState(): StoredUiState {
       sidebarCollapsed:
         typeof parsed.sidebarCollapsed === 'boolean' ? parsed.sidebarCollapsed : fallback.sidebarCollapsed,
       activePage:
-        parsed.activePage === 'mappingFlow'
-          ? 'mapping'
-          : parsed.activePage === 'overview' || parsed.activePage === 'devices'
-            ? 'home'
-            : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage)
-              ? (parsed.activePage as AppPage)
-              : defaultUiState.activePage,
+        parsed.activePage === 'about'
+          ? 'settings'
+          : parsed.activePage === 'mappingFlow'
+            ? 'mapping'
+            : parsed.activePage === 'overview' || parsed.activePage === 'devices'
+              ? 'home'
+              : typeof parsed.activePage === 'string' && appPages.includes(parsed.activePage as AppPage)
+                ? (parsed.activePage as AppPage)
+                : defaultUiState.activePage,
       selectedDeviceId:
         typeof parsed.selectedDeviceId === 'string' && deviceIds.includes(parsed.selectedDeviceId as DeviceId)
           ? (parsed.selectedDeviceId as DeviceId)
@@ -147,10 +149,12 @@ export function getStoredUiState(): StoredUiState {
       activeId: isKnownRemoteButton(parsed.activeId) ? parsed.activeId : defaultUiState.activeId,
       selectedBehavior,
       settingsSection:
-        typeof parsed.settingsSection === 'string' &&
-        settingsSections.includes(parsed.settingsSection as StoredUiState['settingsSection'])
-          ? (parsed.settingsSection as StoredUiState['settingsSection'])
-          : defaultUiState.settingsSection,
+        parsed.activePage === 'about'
+          ? 'about'
+          : typeof parsed.settingsSection === 'string' &&
+              settingsSections.includes(parsed.settingsSection as StoredUiState['settingsSection'])
+            ? (parsed.settingsSection as StoredUiState['settingsSection'])
+            : defaultUiState.settingsSection,
       scrollTop,
     }
   } catch {

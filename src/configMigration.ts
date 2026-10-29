@@ -3,12 +3,14 @@ import {
   createEmptyBehaviorMap,
   createDefaultBehaviorMap,
   normalizeBehavior,
+  parseSequenceImport,
   triggerTypes,
 } from './behaviorModel.ts'
 import type { TriggerBehaviors } from './behaviorModel.ts'
 import { devices } from './deviceModel.ts'
 import { parseStoredDeviceProfiles } from './deviceProfiles.ts'
 import { backupFilename } from './dataBackup.ts'
+import { parseSavedSequences, savedSequencesStorageKey } from './savedSequences.ts'
 import type { MappingProfile } from './appTypes.ts'
 import type { DeviceInstance } from './devices/integration/model.ts'
 
@@ -184,22 +186,98 @@ export async function migrateConfig(
 }
 
 export function createLegacyConfigExport(storage: Pick<Storage, 'getItem'>, date = new Date()) {
-  // Preserve raw strings so unreadable legacy data can also be exported without loss.
-  const entries = [legacyProfilesKey, profilesKey, settingsKey]
+  const entries = [
+    legacyProfilesKey,
+    profilesKey,
+    settingsKey,
+    savedSequencesStorageKey,
+    'axonkey.audio-settings.v2',
+    'axonkey.ui-state.v1',
+  ]
     .map(key => [key, storage.getItem(key)] as const)
     .filter((entry): entry is readonly [string, string] => entry[1] !== null)
+  const snapshot = {
+    format: 'axonkey-legacy-config',
+    version: 1,
+    exportedAt: date.toISOString(),
+    storage: Object.fromEntries(entries),
+  }
+  const plan = inspectConfigMigration(storage)
+  let document: object = snapshot
+  // Damaged data still needs a lossless recovery file before export-and-delete.
+  if (!plan.error && plan.checkpoint) {
+    document = {
+      ...createLegacyBackupDocument(storage, JSON.parse(plan.checkpoint)),
+      exportedAt: snapshot.exportedAt,
+      storage: snapshot.storage,
+    }
+  }
   return {
     filename: backupFilename(date).replace('axonkey-backup-', 'axonkey-legacy-config-'),
-    content: JSON.stringify(
-      {
-        format: 'axonkey-legacy-config',
-        version: 1,
-        exportedAt: date.toISOString(),
-        storage: Object.fromEntries(entries),
-      },
-      null,
-      2,
-    ),
+    content: JSON.stringify(document, null, 2),
+  }
+}
+
+function createLegacyBackupDocument(storage: Pick<Storage, 'getItem'>, source: Record<string, unknown>) {
+  const settings = object(JSON.parse(storage.getItem(settingsKey) ?? '{}'))
+  const audio = object(JSON.parse(storage.getItem('axonkey.audio-settings.v2') ?? '{}'))
+  const ui = object(JSON.parse(storage.getItem('axonkey.ui-state.v1') ?? '{}'))
+  const perDevice = source.version === 2
+  const profiles = (source.profiles as Record<string, unknown>[]).map((profile, index) => {
+    const behaviors = object(profile.behaviors ?? profile.actions ?? profile.mappings)
+    const groups = Object.fromEntries(
+      devices
+        .filter(device => (perDevice ? device.id === profile.deviceId : device.id === 'rc003' || device.id === 'mouse'))
+        .map(device => {
+          // v1 predates middle-button support; emitting even empty new keys breaks its importer.
+          const inputs = device.inputIds.filter(id => perDevice || !id.endsWith('.buttonMiddle'))
+          const keys = Object.fromEntries(
+            inputs.map(id => [
+              device.id === 'mouse' ? id.replace(/^mouse\./, '') : id,
+              readTriggers(behaviors[id] ?? {}, `backup-${index}-${id}`),
+            ]),
+          )
+          return [device.id, { keys }]
+        }),
+    )
+    const identity = { id: profile.id ?? `profile-${index}`, name: profile.name ?? `配置 ${index + 1}` }
+    return perDevice
+      ? { ...identity, deviceId: profile.deviceId, keys: groups[String(profile.deviceId)].keys }
+      : { ...identity, devices: groups }
+  })
+  return {
+    format: 'axonkey-backup',
+    version: perDevice ? 2 : 1,
+    // Old local storage has no application version; do not label it as the current release.
+    appVersion: 'legacy',
+    ...(perDevice
+      ? { activeProfileIds: source.activeProfileIds }
+      : {
+          activeProfileId: profiles.some(profile => profile.id === source.activeProfileId)
+            ? source.activeProfileId
+            : profiles[0]?.id,
+        }),
+    profiles,
+    savedBehaviors: parseSavedSequences(storage.getItem(savedSequencesStorageKey)).map(saved => ({
+      id: saved.id,
+      name: saved.name,
+      behaviors: parseSequenceImport(saved.sequence),
+    })),
+    settings: {
+      enabled: settings.enabled ?? true,
+      mouseEnabled: settings.mouseEnabled ?? true,
+      showRemoteKeyGrid: settings.showRemoteKeyGrid ?? true,
+      showMouseKeyGrid: settings.showMouseKeyGrid ?? false,
+      mouseIgnoreScrollAcceleration: settings.mouseIgnoreScrollAcceleration ?? true,
+      mouseScrollSensitivity: settings.mouseScrollSensitivity ?? 100,
+      mouseVerticalScrollIntervalMs: settings.mouseVerticalScrollIntervalMs ?? 50,
+      mouseHorizontalScrollIntervalMs: settings.mouseHorizontalScrollIntervalMs ?? 50,
+      mouseKeyHoldMs: settings.mouseKeyHoldMs ?? 10,
+      mouseEdgeWidth: settings.mouseEdgeWidth ?? 8,
+      cmiotA15RecordingMode: settings.cmiotA15RecordingMode ?? 'hold',
+    },
+    audio: { gain: audio.gain ?? 0, stretchCompensation: audio.stretchCompensation ?? false },
+    preferences: { sidebarCollapsed: ui.sidebarCollapsed ?? false },
   }
 }
 

@@ -3,6 +3,8 @@ import test from 'node:test'
 import { inspectConfigMigration, migrateConfig, discardLegacyConfig, createLegacyConfigExport, legacyProfilesKey } from '../src/configMigration.ts'
 import { createEmptyBehaviorMap, createBehavior } from '../src/behaviorModel.ts'
 import { createDefaultDeviceProfiles } from '../src/deviceProfiles.ts'
+import { parseBackupImport } from '../src/backupImport.ts'
+import { sampleData } from './fixtures/data-backup.mjs'
 
 const currentKey = 'axonkey.mapping-profiles.v2'
 const settingsKey = 'axonkey.settings.v1'
@@ -58,13 +60,17 @@ test('empty and current-only storage need no migration; inspection never writes'
 
 test('legacy export preserves original shared, transitional and settings payloads, including malformed JSON', () => {
   for (const source of [legacyProfilesKey, currentKey, settingsKey]) {
-    const data = storage({ [source]: shared(), unrelated: { excluded: true } })
+    const original = source === currentKey ? { version: 2, ...createDefaultDeviceProfiles(createEmptyBehaviorMap()) }
+      : source === settingsKey ? { behaviors: { power: 'A' } } : shared()
+    const data = storage({ [source]: original, unrelated: { excluded: true } })
     const before = new Map(data.values)
     const date = new Date(2026, 9, 29, 12, 34, 56)
     const exported = createLegacyConfigExport(data, date)
     const document = JSON.parse(exported.content)
     assert.equal(exported.filename, 'axonkey-legacy-config-20261029-123456.json')
-    assert.equal(document.format, 'axonkey-legacy-config')
+    assert.equal(document.format, 'axonkey-backup')
+    assert.equal(document.version, source === currentKey ? 2 : 1)
+    assert.equal(parseBackupImport(exported.content).kind, 'legacy')
     assert.equal(document.exportedAt, date.toISOString())
     assert.deepEqual(document.storage, { [source]: data.getItem(source) })
     assert.deepEqual(data.values, before)
@@ -74,6 +80,46 @@ test('legacy export preserves original shared, transitional and settings payload
   damaged.values.set(currentKey, ' { broken v2 ')
   damaged.values.set(settingsKey, ' { broken settings ')
   assert.deepEqual(JSON.parse(createLegacyConfigExport(damaged).content).storage, Object.fromEntries(damaged.values))
+})
+
+test('migration backup preserves shared profile identities, active selection, sequences and portable settings in v1 format', () => {
+  const sample = sampleData()
+  const source = shared({
+    power: { click: [createBehavior({ id: 'pause', type: 'delay', ms: 45, enabled: false })], doubleClick: [], longPress: [] },
+    'mouse.top.up': 'Ctrl+C',
+  })
+  const data = storage({
+    [legacyProfilesKey]: source,
+    [settingsKey]: sample.settings,
+    'axonkey.saved-sequences.v1': sample.savedSequences,
+    'axonkey.audio-settings.v2': sample.audio,
+    'axonkey.ui-state.v1': sample.preferences,
+  })
+  const before = new Map(data.values)
+  const exported = createLegacyConfigExport(data)
+  const document = JSON.parse(exported.content)
+  assert.equal(document.version, 1)
+  assert.equal(document.activeProfileId, source.activeProfileId)
+  assert.deepEqual(document.profiles.map(p => [p.id, p.name]), source.profiles.map(p => [p.id, p.name]))
+  assert.deepEqual(Object.keys(document.profiles[0].devices), ['rc003', 'mouse'])
+  assert.equal(Object.keys(document.profiles[0].devices.mouse.keys).some(key => key.endsWith('.buttonMiddle')), false)
+  assert.deepEqual(document.profiles[0].devices.rc003.keys.power, source.profiles[0].behaviors.power)
+  const restored = parseBackupImport(exported.content).backup
+  assert.deepEqual(restored.savedSequences, sample.savedSequences)
+  assert.deepEqual(restored.settings, sample.settings)
+  assert.deepEqual(restored.audio, sample.audio)
+  assert.deepEqual(restored.preferences, sample.preferences)
+  assert.deepEqual(restored.profiles.find(p => p.id === 'rc003:work').behaviors.power, source.profiles[0].behaviors.power)
+  assert.deepEqual(data.values, before)
+})
+
+test('migration retry exports the original checkpoint instead of partially migrated profiles', async () => {
+  const data = storage({ [legacyProfilesKey]: shared() })
+  const original = JSON.parse(createLegacyConfigExport(data).content)
+  await assert.rejects(migrateConfig(data, inspectConfigMigration(data), async () => { throw new Error('save failed') }, () => {}))
+  const retried = JSON.parse(createLegacyConfigExport(data).content)
+  assert.deepEqual(retried.profiles, original.profiles)
+  assert.equal(retried.activeProfileId, original.activeProfileId)
 })
 
 test('shared mappings split by actual device keys and preserve profile order and active selection', () => {

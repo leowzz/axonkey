@@ -73,7 +73,8 @@ test('saved pages and home scroll survive reload while old devices and overview 
       let stored = JSON.stringify({ activePage, scrollTop: { home: 500, overview: 200, devices: 80, mapping: 40 } })
       testWindow.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value } }
       const state = getStoredUiState()
-      assert.equal(state.activePage, ['overview', 'devices'].includes(activePage) ? 'home' : activePage)
+      assert.equal(state.activePage, activePage === 'about' ? 'settings' : ['overview', 'devices'].includes(activePage) ? 'home' : activePage)
+      if (activePage === 'about') assert.equal(state.settingsSection, 'about')
       assert.equal(state.scrollTop.home, 500)
       assert.equal(state.scrollTop.overview, undefined)
       assert.equal(state.scrollTop.devices, undefined)
@@ -130,12 +131,14 @@ test('saved mapping entries restore the unified mapping page and retain the sele
   }
 })
 
-test('the backup settings category survives a reload after import', () => {
+test('backup and about settings categories survive a reload', () => {
   const previousStorage = testWindow.localStorage
   try {
-    testWindow.localStorage = { getItem: () => JSON.stringify({ activePage: 'settings', settingsSection: 'backup' }) }
-    assert.equal(getStoredUiState().activePage, 'settings')
-    assert.equal(getStoredUiState().settingsSection, 'backup')
+    for (const settingsSection of ['backup', 'about']) {
+      testWindow.localStorage = { getItem: () => JSON.stringify({ activePage: 'settings', settingsSection }) }
+      assert.equal(getStoredUiState().activePage, 'settings')
+      assert.equal(getStoredUiState().settingsSection, settingsSection)
+    }
   } finally { testWindow.localStorage = previousStorage }
 })
 

@@ -6,11 +6,15 @@ import { Update } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 import appPackage from '../../package.json'
 
-export function useReleaseUpdate(activePage: string, debugMode = false) {
+export function useReleaseUpdate(aboutVisible: boolean, debugMode = false) {
   const native = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const [state, setState] = useState(initialUpdateState)
-  const checker = useRef<ReturnType<typeof createReleaseChecker> | ReturnType<typeof createNativeReleaseChecker> | null>(null)
-  const check = useCallback((force = false) => { void checker.current?.check(force) }, [])
+  const checker = useRef<
+    ReturnType<typeof createReleaseChecker> | ReturnType<typeof createNativeReleaseChecker> | null
+  >(null)
+  const check = useCallback((force = false) => {
+    void checker.current?.check(force)
+  }, [])
   const install = useCallback(() => {
     if (!debugMode && checker.current && 'install' in checker.current) void checker.current.install()
   }, [debugMode])
@@ -18,17 +22,21 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
   useEffect(() => {
     const service = native
       ? createNativeReleaseChecker(setState, {
-        currentVersion: appPackage.version,
-        checkUpdate: async () => {
-          const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>('check_release_update')
-          return metadata ? new Update(metadata) : null
-        },
-        relaunch,
-      })
-      : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }), { currentVersion: appPackage.version })
+          currentVersion: appPackage.version,
+          checkUpdate: async () => {
+            const metadata = await invoke<ConstructorParameters<typeof Update>[0] | null>('check_release_update')
+            return metadata ? new Update(metadata) : null
+          },
+          relaunch,
+        })
+      : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }), {
+          currentVersion: appPackage.version,
+        })
     checker.current = service
     const onWake = () => check()
-    const onVisible = () => { if (document.visibilityState === 'visible') check() }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') check()
+    }
     window.addEventListener('focus', onWake)
     window.addEventListener('online', onWake)
     document.addEventListener('visibilitychange', onVisible)
@@ -42,7 +50,9 @@ export function useReleaseUpdate(activePage: string, debugMode = false) {
     }
   }, [check, native])
 
-  useEffect(() => { if (activePage === 'about') check() }, [activePage, check])
+  useEffect(() => {
+    if (aboutVisible) check()
+  }, [aboutVisible, check])
   const hasUpdate = Boolean(state.latestVersion && isNewerRelease(state.latestVersion, appPackage.version))
   if (debugMode) {
     const [major, minor, patch] = appPackage.version.split('.').map(Number)

@@ -127,9 +127,6 @@ button {
   background: #f1f2f3;
 }
 /* The page surface extends through the gutters; content keeps its own spacing. */
-.main-content:has(> .about-page) {
-  background: #f8f8f7;
-}
 .main-content:has(> .mapping-page) {
   background: #fff;
 }
@@ -3231,35 +3228,8 @@ body:has(.audio-test-dialog[open]) {
 }
 
 .about-page {
-  width: min(1000px, calc(100% - 48px));
-  margin: 20px auto 24px;
-}
-.about-page-header {
-  display: flex;
-  align-items: center;
-  min-height: 34px;
-  margin-bottom: 10px;
-}
-.about-back-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 32px;
-  padding: 6px 10px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  color: #6b7d8e;
-  background: transparent;
-  font-size: 13px;
-}
-.about-back-button:hover {
-  border-color: #d3e0eb;
-  color: #246da9;
-  background: #eef5fa;
-}
-.about-back-button:focus-visible {
-  outline: 2px solid #2876c5;
-  outline-offset: 2px;
+  width: min(1000px, 100%);
+  margin: 0 auto;
 }
 .about-intro {
   display: flex;
