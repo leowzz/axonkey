@@ -132,7 +132,13 @@ type PendingProfileImport = ImportedMapping & {
   suggestedName: string
 }
 
-function AppController() {
+function AppController({
+  initialBindingId = null,
+  onOpenConfigMigration,
+}: {
+  initialBindingId?: string | null
+  onOpenConfigMigration: () => void
+}) {
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
   const deviceInstances = useDeviceInstances(nativeRuntime)
   const [initialUiState] = useState<StoredUiState>(() => {
@@ -149,7 +155,7 @@ function AppController() {
   })
   const [platform, setPlatform] = useState<Platform>(detectBrowserPlatform)
   const [platformReady, setPlatformReady] = useState(!nativeRuntime)
-  const userGuide = useUserGuide(platformReady && platform === 'windows', nativeRuntime)
+  const userGuide = useUserGuide(platformReady && platform === 'windows', nativeRuntime, !initialBindingId)
   const [selectedDeviceId, setSelectedDeviceId] = useState<DeviceId>(initialUiState.selectedDeviceId)
   const selectedDevice = devices.find(device => device.id === selectedDeviceId)!
   const editableButtons = selectedDevice.buttons ? [...selectedDevice.buttons] : []
@@ -246,8 +252,9 @@ function AppController() {
     if (!debugMode) setPreviewBatteryLevel(null)
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
-  const [activePage, setActivePage] = useState<AppPage>(initialUiState.activePage)
-  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null)
+  const [activePage, setActivePage] = useState<AppPage>(initialBindingId ? 'home' : initialUiState.activePage)
+  const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(initialBindingId)
+  const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
   const navigateToPage = (page: AppPage) => {
@@ -664,7 +671,7 @@ function AppController() {
     try {
       window.localStorage.setItem(
         profilesStorageKey,
-        JSON.stringify({ version: 2, activeProfileIds, profiles: persistedProfiles }),
+        JSON.stringify({ version: 2, migrationReviewed: true, activeProfileIds, profiles: persistedProfiles }),
       )
     } catch (error) {
       logError('Failed to save mapping profiles', error)
@@ -1831,6 +1838,7 @@ function AppController() {
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
+              onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
@@ -1899,6 +1907,8 @@ function AppController() {
               deviceContent={
                 <DeviceHub
                   selectedInstanceId={selectedInstanceId}
+                  bindInstanceId={pendingBindingId}
+                  onBindingOpened={() => setPendingBindingId(null)}
                   onSelectInstance={setSelectedInstanceId}
                   onOpenAudioDriver={openAudioDriver}
                   onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}

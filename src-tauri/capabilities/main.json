@@ -8,6 +8,8 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:path:allow-resolve-directory",
+    "core:path:allow-join",
     "dialog:allow-save",
     "dialog:allow-open",
     "clipboard-manager:allow-read-text",

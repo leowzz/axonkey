@@ -574,3 +574,23 @@ test('guide discovery filters bound devices, refreshes and only advances after a
     assert.match(text(view.toJSON()), /暂未发现可添加的设备/)
   } finally { act(() => view.unmount()) }
 })
+
+
+test('migration binding request waits for the saved instance then opens its physical-device dialog once', () => {
+  const instance = { ...model.newInstance('rc003', null), id: 'migrated' }
+  let consumed = 0, view
+  const props = { controller: { snapshot: model.emptySnapshot(), busy: false, error: '' }, native: false,
+    platform: 'windows', permissions: {}, selectedInstanceId: instance.id, onSelectInstance() {},
+    bindInstanceId: instance.id, onBindingOpened() { consumed++ } }
+  act(() => { view = Renderer.create(React.createElement(ControlledDeviceHub, props)) })
+  assert.equal(consumed, 0)
+  const snapshot = { ...model.emptySnapshot(), store: { version: 1, revision: 1, instances: [instance] } }
+  act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, controller: { ...props.controller, snapshot } })))
+  assert.equal(consumed, 1)
+  assert.match(text(view.root.findByProps({ role: 'dialog' })), /绑定物理设备/)
+  act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, bindInstanceId: null, controller: { ...props.controller, snapshot } })))
+  act(() => view.root.findByProps({ 'aria-label': '关闭集成' }).props.onClick())
+  assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
+  assert.equal(consumed, 1)
+  act(() => view.unmount())
+})

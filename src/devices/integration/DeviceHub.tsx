@@ -13,6 +13,8 @@ import './DeviceHub.css'
 import './DeviceCards.css'
 
 type Props = {
+  bindInstanceId?: string | null
+  onBindingOpened?: () => void
   selectedInstanceId: string | null
   onSelectInstance: (id: string | null) => void
   controller: DeviceController
@@ -47,6 +49,13 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  useEffect(() => {
+    if (!props.bindInstanceId) return
+    const target = snapshot.store.instances.find(item => item.id === props.bindInstanceId)
+    if (!target) return
+    setIntegration({ kind: target.kind, instance: target })
+    props.onBindingOpened?.()
+  }, [props.bindInstanceId, props.onBindingOpened, snapshot.store.instances])
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const banner = (
     <>

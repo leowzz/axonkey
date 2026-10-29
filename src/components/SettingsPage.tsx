@@ -18,6 +18,7 @@ import type { DriverActionKind, DriverState } from '../systemState'
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup'
 
 type SettingsPageProps = {
+  onOpenConfigMigration: () => void
   debugMode: boolean
   onOpenDriverMigration: () => void
   onOpenLegacyCleanup: () => void
@@ -58,6 +59,7 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  onOpenConfigMigration,
   debugMode,
   onOpenDriverMigration,
   onOpenLegacyCleanup,
@@ -183,6 +185,16 @@ export function SettingsPage({
           >
             <h3 className="settings-section-title">数据备份</h3>
             <DataBackupSettings {...backup} nativeRuntime={nativeRuntime} />
+            <div className="settings-form-fields">
+              <div className="settings-form-row">
+                <span className="settings-form-label">旧版配置：</span>
+                <div className="settings-form-control">
+                  <button className="dialog-secondary" onClick={onOpenConfigMigration}>
+                    数据迁移
+                  </button>
+                </div>
+              </div>
+            </div>
           </section>
           <section
             id="settings-panel-startup"

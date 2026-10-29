@@ -242,6 +242,7 @@ export function restoreBackupStorage(
   writeBackupStorage(storage, {
     [keys.profiles]: JSON.stringify({
       version: 2,
+      migrationReviewed: true,
       activeProfileIds: backup.activeProfileIds,
       profiles: backup.profiles,
     }),

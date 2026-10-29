@@ -1,0 +1,160 @@
+.config-migration-dialog {
+  width: min(460px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  box-sizing: border-box;
+  padding: 28px;
+  overflow-y: auto;
+  border: 1px solid #dce5ed;
+  border-radius: 18px;
+  background: #fbfdff;
+  color: #29445b;
+  box-shadow: 0 24px 80px #18334e30;
+}
+.config-migration-dialog::backdrop {
+  background: #152a4059;
+}
+.config-migration-eyebrow {
+  color: #73889a;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+.config-migration-dialog h2 {
+  margin: 8px 0 22px;
+  font-size: 23px;
+  font-weight: 600;
+}
+.config-migration-content {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.config-migration-content > p {
+  margin: 0 0 12px;
+}
+.config-migration-devices {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.config-migration-devices li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #f0f5fa;
+  padding: 17px 16px;
+  border-radius: 10px;
+}
+.config-migration-devices li > svg {
+  flex-shrink: 0;
+  color: #5481a5;
+}
+.config-migration-devices li > div {
+  flex: 1;
+  min-width: 0;
+}
+.config-migration-devices strong,
+.config-migration-devices span {
+  display: block;
+}
+.config-migration-devices strong {
+  font-weight: 600;
+}
+.config-migration-devices span {
+  font-size: 12px;
+  color: #627b90;
+  margin-top: 4px;
+}
+.config-migration-target {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.config-migration-target select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid #cbd9e5;
+  border-radius: 6px;
+  background: #fbfdff;
+  color: inherit;
+  font: inherit;
+}
+.config-migration-target select:focus-visible {
+  outline: 2px solid #3784ce;
+  outline-offset: 2px;
+}
+.config-migration-target select:disabled {
+  opacity: 0.5;
+}
+.config-migration-dialog footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.config-migration-dialog button {
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.config-migration-dialog button:focus-visible {
+  outline: 2px solid #3784ce;
+  outline-offset: 3px;
+}
+.config-migration-dialog button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.config-migration-delete {
+  border: 1px solid #b44039;
+  background: #b44039;
+  color: white;
+}
+.config-migration-error {
+  color: #a43c35;
+  overflow-wrap: anywhere;
+}
+.config-migration-error {
+  margin-top: 14px;
+}
+.config-migration-result {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-height: 72px;
+}
+.config-migration-result svg {
+  color: #36846c;
+  flex-shrink: 0;
+}
+.config-migration-result p {
+  margin: 0;
+}
+.config-migration-export-path {
+  margin-top: 8px !important;
+  font-size: 12px;
+  color: #627b90;
+  overflow-wrap: anywhere;
+}
+.config-migration-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px !important;
+}
+.config-migration-progress svg {
+  animation: config-migration-spin 1s linear infinite;
+}
+@keyframes config-migration-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .config-migration-progress svg {
+    animation: none;
+  }
+}

@@ -97,7 +97,7 @@ test('restore writes compatible application storage and returns to backup settin
   const keys = { profiles: 'profiles', settings: 'settings', savedSequences: 'saved', audio: 'audio', uiState: 'ui' }
   restoreBackupStorage(storage, data, keys, { activePage: 'mapping', settingsSection: 'mouse', selectedDeviceId: 'mouse', sidebarCollapsed: false })
   const read = key => JSON.parse(values.get(key))
-  assert.deepEqual(read('profiles'), { version: 2, profiles: data.profiles, activeProfileIds: data.activeProfileIds })
+  assert.deepEqual(read('profiles'), { version: 2, migrationReviewed: true, profiles: data.profiles, activeProfileIds: data.activeProfileIds })
   assert.deepEqual(read('settings'), { ...data.settings, behaviors: composeActiveProfileBehaviors(data.profiles, data.activeProfileIds) })
   assert.deepEqual(read('saved'), data.savedSequences)
   assert.deepEqual(read('audio'), data.audio)
