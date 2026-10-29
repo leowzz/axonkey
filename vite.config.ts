@@ -8,7 +8,8 @@ export default defineConfig({
     outDir: 'web-dist',
   },
   server: {
-    port: 1420,
+    // 1420 is currently in a Windows excluded TCP range on some developer machines.
+    port: 3001,
     strictPort: true,
   },
 })
