@@ -45,10 +45,9 @@ impl Device {
             return Some(address.clone());
         }
         let id = self.instance_id.to_ascii_uppercase();
-        if !id.starts_with("BTHLEDEVICE\\{00001812-0000-1000-8000-00805F9B34FB}_") {
-            return None;
-        }
-        let segment = id.split('\\').nth(1)?;
+        let segment = crate::devices::bluetooth_hid_service(&id)?
+            .split('\\')
+            .next()?;
         let address = segment.rsplit('_').next()?;
         (address.len() == 12 && address.bytes().all(|b| b.is_ascii_hexdigit()))
             .then(|| address.to_string())

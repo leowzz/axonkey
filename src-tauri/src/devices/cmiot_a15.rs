@@ -4,10 +4,10 @@ use std::collections::{HashMap, HashSet};
 pub(crate) fn matches_instance(id: &str) -> bool {
     let id = id.to_ascii_uppercase();
     let tokens: Vec<_> = id.split(['&', '_', '\\', ' ']).collect();
-    id.starts_with("BTHLEDEVICE\\{00001812-0000-1000-8000-00805F9B34FB}_")
+    super::bluetooth_hid_service(&id).is_some()
         && tokens
             .windows(2)
-            .any(|p| p[0] == "VID" && matches!(p[1], "0416" | "010416"))
+            .any(|p| p[0] == "VID" && matches!(p[1], "0416" | "010416" | "050416"))
         && tokens.windows(2).any(|p| p[0] == "PID" && p[1] == "0300")
 }
 
@@ -351,9 +351,22 @@ mod tests {
     #[test]
     fn identity_is_scoped_to_a15_hid_service() {
         let id = r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_0CF3F093935F\8&1EF99D83&2&0008";
-        assert!(matches_instance(id));
-        assert!(!matches_instance(&id.replace("0300", "03000")));
-        assert!(!matches_instance(&id.replace("00001812", "0000180F")));
-        assert!(!matches_instance(&id.replace("010416", "012717")));
+        for vendor in ["0416", "010416", "050416"] {
+            for prefix in ["BTHLEDEVICE\\", "BTHLEDEVICE"] {
+                let id = id
+                    .replace("010416", vendor)
+                    .replace("BTHLEDEVICE\\", prefix);
+                assert!(matches_instance(&id), "{id}");
+                assert!(matches_instance(&id.to_ascii_lowercase()));
+                assert!(!matches_instance(&id.replace("0300", "03000")));
+                assert!(!matches_instance(&id.replace("00001812", "0000180F")));
+                assert!(!matches_instance(&id.replace(vendor, "012717")));
+                assert!(!matches_instance(&id.replace(vendor, "0504160")));
+                assert!(!matches_instance(&id.replace("BTHLEDEVICE", "USB")));
+            }
+        }
+        assert!(matches_instance(
+            r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025"
+        ));
     }
 }

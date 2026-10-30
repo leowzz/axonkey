@@ -2214,7 +2214,9 @@ mod tests {
                 )
             };
             first.context.device_id = Some(node("AABBCCDDEE01"));
-            second.context.device_id = Some(node("AABBCCDDEE02"));
+            second.context.device_id = Some(
+                r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025".into(),
+            );
             let report = |context: &mut QuarborContext, sequence, down| {
                 quarbor_accept_event(
                     context,

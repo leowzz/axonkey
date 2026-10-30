@@ -138,7 +138,7 @@ fn is_input_node(id: &str, class: GUID) -> bool {
         && !id.starts_with("QUARBOR\\")
         && (matches!(class, HID_CLASS | KEYBOARD_CLASS | MOUSE_CLASS)
             || id.starts_with("HID\\")
-            || id.starts_with("BTHLEDEVICE\\{00001812-0000-1000-8000-00805F9B34FB}"))
+            || crate::devices::bluetooth_hid_service(&id).is_some())
 }
 
 fn instance_id(set: &DeviceSet, info: &SP_DEVINFO_DATA) -> Result<String, String> {
@@ -320,6 +320,10 @@ mod tests {
         ));
         assert!(is_input_node(
             r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8\parent",
+            GUID::zeroed()
+        ));
+        assert!(is_input_node(
+            r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025",
             GUID::zeroed()
         ));
         assert!(!is_input_node(

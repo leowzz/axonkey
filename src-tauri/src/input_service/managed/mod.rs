@@ -2185,6 +2185,59 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn rc313_pairing_resolves_to_its_live_a15_driver_node() {
+        let devices = vec![crate::quarbor_installer::Device {
+            instance_id: r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025".into(),
+            hardware_id: String::new(),
+            bluetooth_address: None,
+            name: "YYYKQ".into(),
+            present: true,
+            bound: false,
+            recovery_active: false,
+            inf: String::new(),
+            section: String::new(),
+        }];
+        let mut discovered = vec![];
+        paired::merge(
+            &mut discovered,
+            &[paired::Device {
+                address: "0cf3ce7f241e".into(),
+                name: "YYYKQ".into(),
+                vendor_id: 0x0416,
+                product_id: 0x0300,
+            }],
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        let mut remote = instance("rc313", &discovered[0].id);
+        remote.kind = "cmiotA15".into();
+        remote.binding_pairing_id = discovered[0].pairing_id.clone();
+        remote.voice_target = discovered[0].bluetooth_address.clone();
+        assert!(!discovered[0].connected);
+
+        merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0].connected && discovered[0].paired);
+        assert_eq!(Some(&discovered[0].id), remote.binding.as_ref());
+        let (target, installed) =
+            driver_target(&remote, &[remote.clone()], &discovered, &devices).unwrap();
+        assert_eq!(target, devices[0].instance_id);
+        assert_eq!(
+            driver_connection_state(Some(&target), installed, false),
+            "missing"
+        );
+
+        let mut installed_devices = devices.clone();
+        installed_devices[0].bound = true;
+        assert_eq!(
+            driver_target(&remote, &[remote.clone()], &[], &installed_devices),
+            Some((target, true))
+        );
+        assert!(driver_target(&remote, &[remote.clone()], &discovered, &[]).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn xbox_driver_resolution_tracks_each_hid_node_and_installed_bluetooth_parent() {
         let first = crate::quarbor_installer::Device {
             instance_id: r"HID\{00001124-0000-1000-8000-00805F9B34FB}&VID_045E&PID_02E0&IG_00\C&1B61B8A0&0&0000".into(),
