@@ -1544,7 +1544,12 @@ fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
     (1..=255)
         .filter(|virtual_key| !matches!(virtual_key, 0x10..=0x12))
         .find(|virtual_key| hid_key_for_virtual_key(*virtual_key) == Some(key))
-        .or_else(|| (key.page == 7 && key.usage == 0xf1).then_some(0x08))
+        .or(match (key.page, key.usage) {
+            (7, 0xf1) => Some(0x08),
+            // A15 reports Confirm as Consumer Menu Pick, rather than keyboard Enter.
+            (0x0c, 0x41) => Some(0x0d),
+            _ => None,
+        })
 }
 
 #[cfg(windows)]
@@ -2935,6 +2940,37 @@ mod tests {
             )
             .unwrap();
         assert_eq!(virtual_emitted, [(0x41, true), (0x41, false)]);
+        assert!(keyboard.held.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a15_confirm_falls_back_to_enter_and_releases_on_cancel() {
+        let key = original_key_for_button("cmiotA15.confirm").unwrap();
+        let mut keyboard = RemoteKeyboard::default();
+        let mut virtual_events = Vec::new();
+        for down in [true, true, false, true] {
+            keyboard
+                .edge_with(
+                    key,
+                    down,
+                    false,
+                    |_, _| panic!("Unsupported usage must not reach the driver"),
+                    |key, down| {
+                        virtual_events.push((key, down));
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        keyboard.reset(
+            |_, _| panic!("Fallback key must be released through SendInput"),
+            |key, down| virtual_events.push((key, down)),
+        );
+        assert_eq!(
+            virtual_events,
+            [(0x0d, true), (0x0d, false), (0x0d, true), (0x0d, false)]
+        );
         assert!(keyboard.held.is_empty());
     }
 

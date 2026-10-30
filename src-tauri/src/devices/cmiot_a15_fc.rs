@@ -81,6 +81,7 @@ pub(crate) struct EncodedFrame {
 
 #[derive(Default)]
 pub(crate) struct Reassembler {
+    synchronized: bool,
     group: Option<u16>,
     count: usize,
     reports: [[u8; 21]; 3],
@@ -89,6 +90,7 @@ pub(crate) struct Reassembler {
 
 impl Reassembler {
     pub(crate) fn reset(&mut self) {
+        self.synchronized = false;
         self.group = None;
         self.count = 0;
         self.reports.fill([0; 21]);
@@ -121,7 +123,11 @@ impl Reassembler {
         }
         if fragment == 0 {
             self.reset();
+            self.synchronized = true;
             self.group = Some(group);
+        } else if !self.synchronized {
+            // Capture can start mid-group; wait for the first complete frame boundary.
+            return Ok(None);
         } else if self.group != Some(group) || fragment != self.count {
             self.reset();
             return Err("FC group is incomplete or out of order; waiting for fragment zero");
@@ -145,6 +151,7 @@ impl Reassembler {
             headers,
         };
         self.reset();
+        self.synchronized = true;
         self.last_report = Some(report.try_into().unwrap());
         Ok(Some(frame))
     }
@@ -249,7 +256,8 @@ mod tests {
         stream.feed(&packets[0]).unwrap();
         stream.synchronize(false);
         stream.synchronize(true);
-        assert!(stream.feed(&packets[1]).is_err());
+        assert!(stream.feed(&packets[1]).unwrap().is_none());
+        assert!(stream.feed(&packets[2]).unwrap().is_none());
         for p in &packets[..2] {
             stream.feed(p).unwrap();
         }
@@ -283,7 +291,7 @@ mod tests {
         assert!(assembler.feed(&packet(0, 0)).unwrap().is_none());
     }
     #[test]
-    fn rejects_missing_cross_group_malformed_and_previous_session_fragments() {
+    fn rejects_missing_cross_group_and_malformed_fragments() {
         let mut assembler = Reassembler::default();
         assembler.feed(&packet(1, 0)).unwrap();
         assert!(assembler.feed(&packet(1, 2)).is_err());
@@ -291,9 +299,26 @@ mod tests {
         assert!(assembler.feed(&packet(2, 1)).is_err());
         assembler.feed(&packet(2, 0)).unwrap();
         assembler.reset();
-        assert!(assembler.feed(&packet(2, 1)).is_err());
+        assert!(assembler.feed(&packet(2, 1)).unwrap().is_none());
         assert!(assembler.feed(&[0xfc; 20]).is_err());
         assert!(assembler.feed(&packet(2, 3)).is_err());
+    }
+    #[test]
+    fn waits_for_initial_boundary_and_recovers_after_packet_loss() {
+        let mut assembler = Reassembler::default();
+        for part in [1, 2] {
+            assert!(assembler.feed(&packet(1, part)).unwrap().is_none());
+        }
+        for part in [0, 1] {
+            assert!(assembler.feed(&packet(2, part)).unwrap().is_none());
+        }
+        assert_eq!(assembler.feed(&packet(2, 2)).unwrap().unwrap().group, 2);
+        // Once synchronized, a missing fragment zero is still a real packet loss.
+        assert!(assembler.feed(&packet(3, 1)).is_err());
+        assert!(assembler.feed(&packet(3, 2)).unwrap().is_none());
+        assembler.feed(&packet(4, 0)).unwrap();
+        assembler.feed(&packet(4, 1)).unwrap();
+        assert_eq!(assembler.feed(&packet(4, 2)).unwrap().unwrap().group, 4);
     }
     #[test]
     fn unscramble_matches_python_word_rotation_and_endianness() {
