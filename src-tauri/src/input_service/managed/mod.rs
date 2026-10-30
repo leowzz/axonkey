@@ -222,12 +222,17 @@ impl QuarborRegistry {
     }
 }
 
+enum RecordingRequest {
+    Toggle,
+    Stop,
+}
+
 struct Shared {
     #[cfg(target_os = "macos")]
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
     information_requests: Mutex<HashSet<String>>,
-    recording_requests: Mutex<Vec<(String, SyncSender<Result<bool, String>>)>>,
+    recording_requests: Mutex<Vec<(String, RecordingRequest, SyncSender<Result<bool, String>>)>>,
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
@@ -571,36 +576,28 @@ impl DeviceManager {
     }
 
     pub fn toggle_recording(&self, instance_id: &str) -> Result<bool, String> {
+        self.request_recording(instance_id, RecordingRequest::Toggle)
+    }
+
+    pub(crate) fn stop_recording(&self, instance_id: &str) -> Result<bool, String> {
+        self.request_recording(instance_id, RecordingRequest::Stop)
+    }
+
+    fn request_recording(
+        &self,
+        instance_id: &str,
+        request: RecordingRequest,
+    ) -> Result<bool, String> {
         self.validate_recording_target(instance_id)?;
         let (reply, result) = sync_channel(1);
         self.shared
             .recording_requests
             .lock()
             .unwrap()
-            .push((instance_id.into(), reply));
+            .push((instance_id.into(), request, reply));
         result
             .recv_timeout(Duration::from_secs(3))
             .map_err(|_| "录音控制未响应，请检查设备连接".to_string())?
-    }
-
-    #[cfg(windows)]
-    pub(crate) fn stop_recording(&self, instance_id: &str) -> Result<bool, String> {
-        self.validate_recording_target(instance_id)?;
-        #[cfg(not(test))]
-        {
-            let (reply, result) = sync_channel(1);
-            {
-                let registry = self.shared.quarbor.as_ref().ok_or("设备录音通道未连接")?;
-                let channels = registry.channels.lock().unwrap();
-                let (_, channel) = channels.get(instance_id).ok_or("设备录音通道未连接")?;
-                channel.stop_recording(reply);
-            }
-            result
-                .recv_timeout(Duration::from_secs(3))
-                .map_err(|_| "停止录音未响应，请检查设备连接".to_string())?
-        }
-        #[cfg(test)]
-        Err("设备录音通道未连接".into())
     }
 
     fn validate_recording_target(&self, instance_id: &str) -> Result<(), String> {
@@ -1680,7 +1677,8 @@ fn run(shared: Arc<Shared>) {
             }
             statuses.insert(instance.id.clone(), status);
         }
-        for (id, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
+        for (id, request, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap())
+        {
             #[cfg(all(windows, not(test)))]
             {
                 let channels = shared
@@ -1689,7 +1687,10 @@ fn run(shared: Arc<Shared>) {
                     .map(|registry| registry.channels.lock().unwrap());
                 if let Some((_, channel)) = channels.as_ref().and_then(|channels| channels.get(&id))
                 {
-                    channel.toggle_recording(reply);
+                    match request {
+                        RecordingRequest::Toggle => channel.toggle_recording(reply),
+                        RecordingRequest::Stop => channel.stop_recording(reply),
+                    }
                 } else {
                     let _ = reply.send(Err("设备录音通道未连接".into()));
                 }
@@ -1697,7 +1698,10 @@ fn run(shared: Arc<Shared>) {
             #[cfg(target_os = "macos")]
             {
                 let result = match readers.get_mut(&id).map(|reader| &mut reader.device) {
-                    Some(InputReader::A15(device)) => device.toggle_recording(),
+                    Some(InputReader::A15(device)) => match request {
+                        RecordingRequest::Toggle => device.toggle_recording(),
+                        RecordingRequest::Stop => device.stop_recording(),
+                    },
                     _ => Err("设备录音通道未连接".into()),
                 };
                 if let Ok(recording) = &result {
@@ -1709,7 +1713,7 @@ fn run(shared: Arc<Shared>) {
             }
             #[cfg(not(any(all(windows, not(test)), target_os = "macos")))]
             {
-                let _ = id;
+                let _ = (id, request);
                 let _ = reply.send(Err("当前平台不支持手动控制录音".into()));
             }
         }

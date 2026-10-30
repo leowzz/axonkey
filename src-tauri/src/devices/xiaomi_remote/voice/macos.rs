@@ -63,6 +63,7 @@ extern "C" {
 }
 
 struct Shared {
+    recording_indicator: crate::recording_overlay::RecordingSource,
     a15: bool,
     a15_connected: AtomicBool,
     a15_recording: AtomicBool,
@@ -130,6 +131,7 @@ impl AudioService {
     fn create(a15: bool) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
+            recording_indicator: Default::default(),
             a15,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
@@ -306,6 +308,7 @@ impl AudioService {
         self.shared
             .a15_connected
             .store(connected, Ordering::Release);
+        self.shared.recording_indicator.set(recording);
         if self.shared.a15_recording.swap(recording, Ordering::AcqRel) != recording {
             self.shared.a15_received.store(false, Ordering::Release);
             self.shared.event_version.fetch_add(1, Ordering::AcqRel);
@@ -345,6 +348,7 @@ impl Drop for AudioService {
                 axonkey_macos_audio_destroy(bridge);
             }
         }
+        self.shared.recording_indicator.set(false);
         unsafe { drop(Arc::from_raw(self.callback_context)) };
     }
 }
@@ -422,6 +426,9 @@ unsafe extern "C" fn native_event_callback(
             }
         }
         EVENT_CONNECTION_RESET => {
+            if !shared.a15 {
+                shared.recording_indicator.set(false);
+            }
             if let Ok(mut monitor) = shared.signal_monitor.lock() {
                 monitor.disconnected();
             }
@@ -435,6 +442,10 @@ unsafe extern "C" fn native_event_callback(
             }
         }
         EVENT_SESSION_START | EVENT_SESSION_STOP => {
+            // A15 recording follows HID control even without a selected audio output.
+            if !shared.a15 {
+                shared.recording_indicator.set(event == EVENT_SESSION_START);
+            }
             if let Ok(mut decoder) = shared.decoder.lock() {
                 shared
                     .diagnostics
@@ -483,9 +494,83 @@ unsafe extern "C" fn native_event_callback(
 mod tests {
     use super::*;
 
+    fn indicator_service(a15: bool) -> AudioService {
+        let shared = Arc::new(Shared {
+            recording_indicator: Default::default(),
+            a15,
+            a15_connected: AtomicBool::new(false),
+            a15_recording: AtomicBool::new(false),
+            a15_received: AtomicBool::new(false),
+            event_version: AtomicU64::new(0),
+            diagnostics: AudioDiagnostics::default(),
+            bridge: AtomicPtr::new(std::ptr::null_mut()),
+            output_enabled: AtomicBool::new(false),
+            decoder: Mutex::new(AtvvDecoder::default()),
+            signal_monitor: Mutex::new(SignalMonitor::default()),
+        });
+        AudioService {
+            callback_context: Arc::into_raw(shared.clone()),
+            shared,
+        }
+    }
+
+    #[test]
+    fn rc003_indicator_follows_sessions_disconnect_and_service_drop() {
+        let service = indicator_service(false);
+        let shared = service.shared.clone();
+        for (event, expected) in [
+            (EVENT_SESSION_START, true),
+            (EVENT_SESSION_STOP, false),
+            (EVENT_SESSION_START, true),
+            (EVENT_CONNECTION_RESET, false),
+            (EVENT_SESSION_START, true),
+        ] {
+            unsafe {
+                native_event_callback(
+                    service.callback_context.cast_mut().cast(),
+                    event,
+                    std::ptr::null(),
+                    0,
+                    0,
+                    0,
+                );
+            }
+            assert_eq!(shared.recording_indicator.is_active(), expected);
+        }
+        drop(service);
+        assert!(!shared.recording_indicator.is_active());
+    }
+
+    #[test]
+    fn a15_indicator_tracks_hid_even_without_audio_output() {
+        let service = indicator_service(true);
+        service.set_a15_input_state(true, true);
+        assert!(service.shared.recording_indicator.is_active());
+        for event in [EVENT_SESSION_STOP, EVENT_CONNECTION_RESET] {
+            unsafe {
+                native_event_callback(
+                    service.callback_context.cast_mut().cast(),
+                    event,
+                    std::ptr::null(),
+                    0,
+                    0,
+                    0,
+                );
+            }
+            assert!(service.shared.recording_indicator.is_active());
+        }
+        service.set_a15_input_state(false, false);
+        assert!(!service.shared.recording_indicator.is_active());
+        service.set_a15_input_state(true, true);
+        let shared = service.shared.clone();
+        drop(service);
+        assert!(!shared.recording_indicator.is_active());
+    }
+
     #[test]
     fn native_packets_record_decode_and_enqueue_failure_separately() {
         let shared = Shared {
+            recording_indicator: Default::default(),
             a15: false,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
@@ -524,6 +609,7 @@ mod tests {
     #[test]
     fn partial_decoder_frames_are_accounted_on_sync_and_stop() {
         let shared = Shared {
+            recording_indicator: Default::default(),
             a15: false,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
@@ -576,6 +662,7 @@ mod tests {
     #[test]
     fn native_telemetry_does_not_take_the_decoder_lock() {
         let shared = Shared {
+            recording_indicator: Default::default(),
             a15: false,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),

@@ -25,6 +25,7 @@ fn main() {
             .file("native/macos_device_information.m")
             .file("native/devices/xiaomi_remote/macos_audio.m")
             .file("native/macos_overlay.m")
+            .file("native/macos_recording_overlay.m")
             .flag("-fobjc-arc")
             .compile("axonkey_macos_native");
         println!("cargo:rustc-link-lib=framework=AppKit");
@@ -43,6 +44,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos_device_identity.m");
         println!("cargo:rerun-if-changed=native/macos_device_information.m");
         println!("cargo:rerun-if-changed=native/macos_overlay.m");
+        println!("cargo:rerun-if-changed=native/macos_recording_overlay.m");
     }
     tauri_build::build()
 }

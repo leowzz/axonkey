@@ -155,6 +155,15 @@ impl HidSession {
         Ok((edges, pcm))
     }
 
+    pub fn stop_recording(
+        &mut self,
+        send: impl FnMut([u8; 2]) -> Result<(), String>,
+    ) -> Result<bool, String> {
+        self.recording.stop(send)?;
+        self.voice.synchronize(false);
+        Ok(false)
+    }
+
     pub fn stop(&mut self, send: impl FnMut([u8; 2]) -> Result<(), String>) -> Result<(), String> {
         let result = self.recording.stop(send);
         self.recording.reset();
@@ -167,6 +176,63 @@ impl HidSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_stop_is_idempotent_preserves_held_keys_and_can_retry() {
+        use super::super::cmiot_a15_recording::RecordingMode;
+        for mode in [RecordingMode::Hold, RecordingMode::Click] {
+            let mut session = HidSession::default();
+            session.start(mode);
+            let mut voice = [0; 21];
+            voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+            let mut reports = Vec::new();
+            let (edges, _) = session
+                .accept(&voice, |r| {
+                    reports.push(r);
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(edges, [("cmiotA15.voice", true)]);
+            assert!(session
+                .stop_recording(|_| Err("write failed".into()))
+                .is_err());
+            assert!(session.recording());
+            for _ in 0..2 {
+                assert!(!session
+                    .stop_recording(|r| {
+                        reports.push(r);
+                        Ok(())
+                    })
+                    .unwrap());
+            }
+            let (edges, _) = session
+                .accept(&voice, |r| {
+                    reports.push(r);
+                    Ok(())
+                })
+                .unwrap();
+            assert!(edges.is_empty());
+            assert!(
+                !session.recording(),
+                "a held voice key cannot restart recording after a stop"
+            );
+            voice[3] = 0;
+            let (edges, _) = session
+                .accept(&voice, |r| {
+                    reports.push(r);
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(edges, [("cmiotA15.voice", false)]);
+            assert_eq!(reports, [[0xfb, 1], [0xfb, 0]]);
+            voice[3] = 1;
+            session.accept(&voice, |_| Ok(())).unwrap();
+            assert!(
+                session.recording(),
+                "a new press still starts the next recording"
+            );
+        }
+    }
 
     #[test]
     fn manual_recording_toggles_the_hid_session_without_key_events() {

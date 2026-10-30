@@ -118,6 +118,20 @@ impl A15Reader {
         }
         Ok(len)
     }
+
+    pub(super) fn stop_recording(&mut self) -> Result<bool, String> {
+        let recording = self
+            .session
+            .stop_recording(|report| send(&self.device, report))?;
+        if let Some(app) = &self.app {
+            app.state::<AudioServiceManager>().set_a15_input_state(
+                Some(&self.instance_id),
+                true,
+                recording,
+            );
+        }
+        Ok(recording)
+    }
 }
 
 impl Drop for A15Reader {
