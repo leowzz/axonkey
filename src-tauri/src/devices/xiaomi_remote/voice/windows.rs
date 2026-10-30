@@ -66,6 +66,7 @@ impl VoiceProtocolState {
 }
 
 struct Shared {
+    recording_indicator: crate::recording_overlay::RecordingSource,
     diagnostics: AudioDiagnostics,
     status: Mutex<AudioServiceStatus>,
     protocol: Mutex<VoiceProtocolState>,
@@ -90,6 +91,7 @@ impl Shared {
         let mut protocol = VoiceProtocolState::default();
         protocol.reset_connection();
         Self {
+            recording_indicator: Default::default(),
             diagnostics: AudioDiagnostics::default(),
             status: Mutex::new(AudioServiceStatus {
                 state: "driverMissing".into(),
@@ -115,6 +117,8 @@ impl Shared {
     fn update_status(&self, update: impl FnOnce(&mut AudioServiceStatus)) {
         if let Ok(mut status) = self.status.lock() {
             update(&mut status);
+            self.recording_indicator
+                .set(status.forwarding || self.a15_active.load(Ordering::Acquire));
         }
     }
 
@@ -125,6 +129,7 @@ impl Shared {
                 self.output_epoch.fetch_add(1, Ordering::AcqRel);
                 self.a15_received.store(false, Ordering::Release);
                 self.diagnostics.control(if active { 0x04 } else { 0x00 });
+                self.recording_indicator.set(active);
             }
         }
     }
@@ -439,6 +444,7 @@ impl Drop for AudioService {
                 let _ = worker.join();
             }
         }
+        self.shared.recording_indicator.set(false);
     }
 }
 
@@ -1237,6 +1243,38 @@ fn wait_or_stop(shared: &Shared, duration: Duration, refresh: &AtomicBool) {
 #[cfg(test)]
 mod tests {
     use super::{pcm_to_f32, AudioService, Ordering, MAX_QUEUED_SAMPLES};
+    #[test]
+    fn recording_indicator_tracks_a15_control_and_rc003_forwarding() {
+        let shared = Shared::new(None);
+        assert!(!shared.recording_indicator.is_active());
+        shared.set_a15_recording(true);
+        assert!(shared.recording_indicator.is_active());
+        shared.update_status(|status| status.forwarding = false);
+        assert!(
+            shared.recording_indicator.is_active(),
+            "A15 recording does not wait for PCM or output readiness"
+        );
+        shared.set_a15_recording(false);
+        assert!(!shared.recording_indicator.is_active());
+        shared.update_status(|status| status.forwarding = true);
+        assert!(shared.recording_indicator.is_active());
+        shared.reset_voice_session();
+        assert!(!shared.recording_indicator.is_active());
+    }
+
+    #[test]
+    fn dropping_audio_service_clears_its_recording_indicator() {
+        let shared = std::sync::Arc::new(Shared::new(None));
+        let audio = AudioService {
+            shared: shared.clone(),
+            audio_worker: std::sync::Mutex::new(None),
+            ble_worker: std::sync::Mutex::new(None),
+        };
+        shared.set_a15_recording(true);
+        drop(audio);
+        assert!(!shared.recording_indicator.is_active());
+    }
+
     #[test]
     fn a15_status_does_not_depend_on_xiaomi_bluetooth_discovery() {
         let audio = AudioService {

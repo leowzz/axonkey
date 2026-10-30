@@ -583,6 +583,26 @@ impl DeviceManager {
             .map_err(|_| "录音控制未响应，请检查设备连接".to_string())?
     }
 
+    #[cfg(windows)]
+    pub(crate) fn stop_recording(&self, instance_id: &str) -> Result<bool, String> {
+        self.validate_recording_target(instance_id)?;
+        #[cfg(not(test))]
+        {
+            let (reply, result) = sync_channel(1);
+            {
+                let registry = self.shared.quarbor.as_ref().ok_or("设备录音通道未连接")?;
+                let channels = registry.channels.lock().unwrap();
+                let (_, channel) = channels.get(instance_id).ok_or("设备录音通道未连接")?;
+                channel.stop_recording(reply);
+            }
+            result
+                .recv_timeout(Duration::from_secs(3))
+                .map_err(|_| "停止录音未响应，请检查设备连接".to_string())?
+        }
+        #[cfg(test)]
+        Err("设备录音通道未连接".into())
+    }
+
     fn validate_recording_target(&self, instance_id: &str) -> Result<(), String> {
         let snapshot = self.shared.snapshot.lock().unwrap();
         let instance = snapshot

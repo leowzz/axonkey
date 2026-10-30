@@ -9,6 +9,8 @@ mod onboarding;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
+#[cfg(target_os = "windows")]
+mod recording_overlay;
 mod release_update;
 #[cfg(target_os = "windows")]
 mod windows_driver_devices;
@@ -1712,6 +1714,8 @@ pub fn run() {
             start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
+            #[cfg(target_os = "windows")]
+            recording_overlay::initialize(app.handle().clone());
             app.manage(legacy_driver::LegacyProbeState::default());
             if let Err(error) = install_tray(app) {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");

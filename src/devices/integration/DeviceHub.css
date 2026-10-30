@@ -458,6 +458,32 @@ body:has(.managed-discovery-help-dialog[open]),
   color: #73332f;
   line-height: 1.65;
 }
+.managed-driver-notice-details {
+  margin-top: 16px;
+  border-top: 1px solid #eadbd9;
+  color: #73332f;
+}
+.managed-driver-notice-details summary {
+  cursor: pointer;
+  padding: 12px 0 8px;
+  color: #8b4a45;
+  font-size: 13px;
+}
+.managed-driver-notice-details code {
+  display: block;
+  overflow-x: auto;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #faf4f3;
+  color: #63322f;
+  font:
+    12px/1.55 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .managed-driver-notice-actions {
   display: flex;
   justify-content: flex-end;

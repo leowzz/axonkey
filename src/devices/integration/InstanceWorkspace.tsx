@@ -240,19 +240,24 @@ export function InstanceWorkspace({
       ? status?.error
       : null
   const driverBusy = driverAction?.status === 'running'
-  const showDriverNotice = !instance.hideDriverMissingReminder && !driverNoticeDismissed && driverMissing
-  const driverNoticeMessage = driverRestartRequired
-    ? (currentDriverAction?.message ?? '需要重启 Windows 后继续安装驱动。')
-    : deviceOffline
-      ? '设备不在线'
-      : !instance.binding
-        ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
-        : driverRunning
-          ? '正在安装按键驱动，请完成 Windows 管理员授权…'
-          : (currentDriverAction?.error ??
-            (driverCommunicationError
-              ? `驱动错误：${driverCommunicationError}`
-              : '按键驱动未安装，请先安装此设备的按键驱动。'))
+  const driverErrorDetail = !deviceOffline
+    ? currentDriverAction?.status === 'error'
+      ? currentDriverAction.error
+      : driverCommunicationError
+    : null
+  const showDriverNotice =
+    !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
+  const driverNoticeMessage = driverErrorDetail
+    ? '驱动错误，请重新安装。'
+    : driverRestartRequired
+      ? (currentDriverAction?.message ?? '需要重启 Windows 后继续安装驱动。')
+      : deviceOffline
+        ? '设备不在线'
+        : !instance.binding
+          ? '尚未绑定物理设备，请先绑定设备，再安装按键驱动。'
+          : driverRunning
+            ? '正在安装按键驱动，请完成 Windows 管理员授权…'
+            : '按键驱动未安装，请先安装此设备的按键驱动。'
   return (
     <div
       ref={workspaceRef}
@@ -287,8 +292,14 @@ export function InstanceWorkspace({
                 aria-describedby="managed-driver-notice-description"
                 data-dismissing={dismissingDriverNotice || undefined}
               >
-                <h2 id="managed-driver-notice-title">设备按键驱动提示</h2>
+                <h2 id="managed-driver-notice-title">{driverErrorDetail ? '驱动错误' : '设备按键驱动提示'}</h2>
                 <p id="managed-driver-notice-description">{driverNoticeMessage}</p>
+                {driverErrorDetail && (
+                  <details className="managed-driver-notice-details">
+                    <summary>查看错误详情</summary>
+                    <code>{driverErrorDetail}</code>
+                  </details>
+                )}
                 <div className="managed-driver-notice-actions">
                   {!deviceOffline && !driverRestartRequired && (
                     <button

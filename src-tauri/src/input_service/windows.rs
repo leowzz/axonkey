@@ -475,7 +475,7 @@ type EventApp = ();
 type ManagedInput = Arc<dyn Fn(std::collections::BTreeMap<String, f64>, Vec<String>) + Send + Sync>;
 
 struct Shared {
-    recording_requests: Mutex<Vec<std::sync::mpsc::SyncSender<Result<bool, String>>>>,
+    recording_requests: Mutex<Vec<(bool, std::sync::mpsc::SyncSender<Result<bool, String>>)>>,
     instance_id: Option<String>,
     settings: RwLock<NativeSettings>,
     settings_revision: AtomicU64,
@@ -705,7 +705,19 @@ impl ManagedQuarborChannel {
         &self,
         reply: std::sync::mpsc::SyncSender<Result<bool, String>>,
     ) {
-        self.shared.recording_requests.lock().unwrap().push(reply);
+        self.shared
+            .recording_requests
+            .lock()
+            .unwrap()
+            .push((false, reply));
+    }
+
+    pub(super) fn stop_recording(&self, reply: std::sync::mpsc::SyncSender<Result<bool, String>>) {
+        self.shared
+            .recording_requests
+            .lock()
+            .unwrap()
+            .push((true, reply));
     }
 
     pub(super) fn status(&self) -> InputServiceStatus {
@@ -864,14 +876,22 @@ fn process_remote_actions(
         emit_a15_pcm(shared, frame);
     }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
-    for reply in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
+    for (stop, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
         let result = if shared.status.lock().unwrap().capture_active
             && shared.settings.read().unwrap().enabled
         {
-            context
-                .a15_recording
-                .toggle(|report| send_a15_recording_report(&mut context.reader, report))
-                .map_err(|error| format!("A15 录音控制失败：{error}"))
+            if stop {
+                context
+                    .a15_recording
+                    .stop(|report| send_a15_recording_report(&mut context.reader, report))
+                    .map(|()| false)
+                    .map_err(|error| format!("A15 录音控制失败：{error}"))
+            } else {
+                context
+                    .a15_recording
+                    .toggle(|report| send_a15_recording_report(&mut context.reader, report))
+                    .map_err(|error| format!("A15 录音控制失败：{error}"))
+            }
         } else {
             Err("设备录音通道未连接".into())
         };
@@ -1986,6 +2006,30 @@ mod tests {
                     self.start + Duration::from_millis(ms),
                 );
             }
+        }
+
+        #[test]
+        fn stopping_a15_from_overlay_never_restarts_recording_on_repeated_clicks() {
+            let settings = NativeSettings {
+                enabled: true,
+                ..Default::default()
+            };
+            let mut harness = Harness::new(settings.clone());
+            harness.channel.shared.status.lock().unwrap().capture_active = true;
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            let (reply, result) = std::sync::mpsc::sync_channel(1);
+            harness.channel.toggle_recording(reply);
+            harness.tick(&settings, 1, &[]);
+            assert!(result.try_recv().unwrap().unwrap());
+            for ms in [2, 3] {
+                let (reply, result) = std::sync::mpsc::sync_channel(1);
+                harness.channel.stop_recording(reply);
+                harness.tick(&settings, ms, &[]);
+                assert!(!result.try_recv().unwrap().unwrap());
+                assert!(!harness.channel.status().cmiot_a15_recording);
+            }
+            A15_RECORDING_REPORTS
+                .with(|reports| assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]));
         }
 
         #[test]
