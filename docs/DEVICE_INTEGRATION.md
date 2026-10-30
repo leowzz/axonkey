@@ -27,8 +27,13 @@
 
 系统鼠标仍是现有的系统级输入源，当前不按物理鼠标区分。RC003 语音由
 `AudioServiceManager` 按实例维护，实例配置保存自己的输出设备和增益；旧设置页和
-Windows A15 录音保留兼容服务。Windows GATT 会话按绑定蓝牙地址筛选，macOS 的
-CoreBluetooth 设备身份仍需实机验证多只同型号同时连接时的绑定准确性。
+Windows A15 录音保留兼容服务。Windows 和 macOS 的实例语音连接均按绑定蓝牙地址筛选。
+macOS 在已连接外设列表、扫描发现和断线重连中使用同一地址检查，不按名称或列表顺序代替实物身份；
+实例缺少有效地址时要求重新绑定。CoreBluetooth 的公开 UUID 不等于蓝牙地址，当前通过运行时检查的
+`retrieveAddressForPeripheral:` 查询实际地址（未公开接口，[Bleak 的 `use_bdaddr`](https://github.com/hbldh/bleak/blob/develop/bleak/backends/corebluetooth/scanner.py) 也采用此方式）；
+接口不可用或地址不可读时报告错误，不回退连接其他遥控器。旧版无实例的全局语音入口保留自动发现行为。
+macOS 原生测试覆盖多设备筛选与重连，接口兼容性和两只 RC003 同时连接仍需 Mac 实机验证。
+在 Mac 上运行 `node --test test/macos-audio-binding.test.mjs` 验证原生连接筛选。
 
 ## 身份与同型号多实例
 

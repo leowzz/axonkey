@@ -2,7 +2,7 @@ use super::atvv::AtvvDecoder;
 use crate::audio_service::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
 use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
 use std::{
-    ffi::{c_char, c_void},
+    ffi::{c_char, c_void, CString},
     sync::{
         atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         Arc, Mutex,
@@ -37,6 +37,7 @@ extern "C" {
     fn axonkey_macos_audio_create(
         callbacks: *const NativeCallbacks,
         external_input: bool,
+        target_address: *const c_char,
     ) -> *mut c_void;
     fn axonkey_macos_audio_set_recording(bridge: *mut c_void, recording: bool);
     fn axonkey_macos_audio_start(bridge: *mut c_void);
@@ -117,18 +118,20 @@ impl AudioService {
     }
 
     pub fn start() -> Self {
-        Self::start_for(None)
+        Self::create(false, None)
     }
 
-    pub fn start_for(_target_identity: Option<String>) -> Self {
-        Self::create(false)
+    pub fn start_for(target_identity: Option<String>) -> Self {
+        // An instance without an address must not fall back to an arbitrary RC003.
+        let target = CString::new(target_identity.unwrap_or_default()).unwrap_or_default();
+        Self::create(false, Some(target))
     }
 
     pub fn start_a15() -> Self {
-        Self::create(true)
+        Self::create(true, None)
     }
 
-    fn create(a15: bool) -> Self {
+    fn create(a15: bool, target_address: Option<CString>) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
             recording_indicator: Default::default(),
@@ -148,7 +151,15 @@ impl AudioService {
             context: callback_context.cast_mut().cast(),
             on_event: native_event_callback,
         };
-        let bridge = unsafe { axonkey_macos_audio_create(&callbacks, a15) };
+        let bridge = unsafe {
+            axonkey_macos_audio_create(
+                &callbacks,
+                a15,
+                target_address
+                    .as_ref()
+                    .map_or(std::ptr::null(), |address| address.as_ptr()),
+            )
+        };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
             log::info!(target: "axonkey::audio", "macOS audio bridge created; waiting for an output device");

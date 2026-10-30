@@ -193,8 +193,32 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     return AKPCMQueueRender(&storage->queue, output, count);
 }
 
+// CoreBluetooth's public identifier is a UUID, not the device's Bluetooth address.
+// This optional macOS selector is also used by Bleak's use_bdaddr backend.
+@interface CBCentralManager (AKPeripheralAddress)
+- (NSData *)retrieveAddressForPeripheral:(CBPeripheral *)peripheral;
+@end
+
+static NSData *AKParseBluetoothAddress(NSString *address) {
+    NSString *compact = [[[address stringByReplacingOccurrencesOfString:@":" withString:@""]
+        stringByReplacingOccurrencesOfString:@"-" withString:@""] uppercaseString];
+    if (compact.length != 12) return nil;
+    uint8_t bytes[6] = {0};
+    for (NSUInteger i = 0; i < 12; i++) {
+        unichar c = [compact characterAtIndex:i];
+        unsigned int digit;
+        if (c >= '0' && c <= '9') digit = c - '0';
+        else if (c >= 'A' && c <= 'F') digit = c - 'A' + 10;
+        else return nil;
+        bytes[i / 2] = (bytes[i / 2] << 4) | digit;
+    }
+    return [NSData dataWithBytes:bytes length:sizeof(bytes)];
+}
+
 @interface AKMacAudioBridge : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 - (instancetype)initWithCallbacks:(const AKAudioCallbacks *)callbacks;
+- (void)configureTargetAddress:(NSString *)address;
+- (BOOL)matchesTargetPeripheral:(CBPeripheral *)peripheral;
 @property(nonatomic) BOOL externalInput;
 - (void)setExternalRecording:(BOOL)recording;
 - (void)start;
@@ -215,6 +239,8 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 @implementation AKMacAudioBridge {
     AKAudioCallbacks _callbacks;
     CBCentralManager *_central;
+    BOOL _requiresTargetAddress;
+    NSData *_targetAddress;
     NSTimeInterval _lastRSSIRequest;
     BOOL _rssiPending;
     uint64_t _monitorPackets, _monitorUnderruns, _monitorEmptied;
@@ -296,6 +322,11 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
             interleaved:NO];
     }
     return self;
+}
+
+- (void)configureTargetAddress:(NSString *)address {
+    _requiresTargetAddress = address != nil;
+    _targetAddress = AKParseBluetoothAddress(address);
 }
 
 - (void)setState:(int)state error:(NSString *)error {
@@ -573,14 +604,21 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     if (!_shouldRun || _central.state != CBManagerStatePoweredOn || _peripheral != nil) {
         return;
     }
-    NSArray<CBPeripheral *> *connected =
-        [_central retrieveConnectedPeripheralsWithServices:@[_serviceUUID]];
-    CBPeripheral *candidate = [connected firstObject];
-    if (candidate != nil) {
-        [self connectPeripheral:candidate];
+    if (_requiresTargetAddress && _targetAddress == nil) {
+        [self setState:AKAudioStateError error:@"RC003 实例缺少有效的蓝牙地址，请重新绑定遥控器"];
+        return;
+    }
+    if (_requiresTargetAddress && ![_central respondsToSelector:@selector(retrieveAddressForPeripheral:)]) {
+        [self setState:AKAudioStateError error:@"当前 macOS 无法读取外设蓝牙地址，不能精确连接已绑定的 RC003"];
         return;
     }
     [self setState:AKAudioStateScanning error:nil];
+    NSArray<CBPeripheral *> *connected =
+        [_central retrieveConnectedPeripheralsWithServices:@[_serviceUUID]];
+    for (CBPeripheral *candidate in connected) {
+        [self connectPeripheral:candidate];
+        if (_peripheral != nil) return;
+    }
     [_central scanForPeripheralsWithServices:nil
                                     options:@{CBCentralManagerScanOptionAllowDuplicatesKey: @NO}];
 }
@@ -589,6 +627,7 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
     if (!_shouldRun || _peripheral != nil) {
         return;
     }
+    if (![self matchesTargetPeripheral:peripheral]) return;
     [_central stopScan];
     _peripheral = peripheral;
     _peripheral.delegate = self;
@@ -608,6 +647,16 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
             }
         }
     );
+}
+
+- (BOOL)matchesTargetPeripheral:(CBPeripheral *)peripheral {
+    if (!_requiresTargetAddress) return YES;
+    NSData *address = [_central retrieveAddressForPeripheral:peripheral];
+    if (![address isKindOfClass:NSData.class] || address.length != 6) {
+        [self setState:AKAudioStateError error:@"无法确认 RC003 的蓝牙地址，等待已绑定的遥控器"];
+        return NO;
+    }
+    return [_targetAddress isEqualToData:address];
 }
 
 - (void)scheduleReconnect {
@@ -1388,11 +1437,14 @@ static size_t AKRenderAudio(AKAudioPCMStorage *storage, float *output, size_t co
 
 @end
 
-void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externalInput) {
+void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externalInput,
+                               const char *targetAddress) {
     __block AKMacAudioBridge *bridge = nil;
     AKOnMainSync(^{
         bridge = [[AKMacAudioBridge alloc] initWithCallbacks:callbacks];
         bridge.externalInput = externalInput;
+        [bridge configureTargetAddress:targetAddress == NULL ? nil :
+            ([NSString stringWithUTF8String:targetAddress] ?: @"")];
     });
     return (__bridge_retained void *)bridge;
 }
