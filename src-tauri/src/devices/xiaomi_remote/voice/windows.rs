@@ -891,6 +891,7 @@ mod tests {
                 ..Default::default()
             }),
             error: None,
+            ..Default::default()
         }
     }
 

@@ -24,12 +24,44 @@
   border-top: 1px solid #e1e8ef;
   background: #f1f5f9;
 }
+.home-microphone-warning {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 28px;
+  color: #795a23;
+  background: #fff8e9;
+  font-size: 13px;
+  line-height: 1.6;
+}
 .home-utilities {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.home-microphone-warning-close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: transparent;
+}
+.home-microphone-warning-close:hover {
+  background: rgb(121 90 35 / 10%);
+}
+.home-microphone-warning-close:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 .home-utility-button {
   display: inline-flex;

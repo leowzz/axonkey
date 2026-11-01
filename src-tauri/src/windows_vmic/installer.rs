@@ -58,11 +58,13 @@ impl Reply {
 
 pub(crate) fn probe(resource_dir: &Path) -> Result<bool, String> {
     let reply = invoke(&find(resource_dir)?, "status", None)?;
-    reply.installed().ok_or_else(|| {
+    let installed = reply.installed().ok_or_else(|| {
         reply
             .warning()
             .unwrap_or_else(|| "无法确认 Quarbor 虚拟麦克风驱动状态。".into())
-    })
+    })?;
+    super::record_installation(installed);
+    Ok(installed)
 }
 
 pub(crate) fn run(
@@ -74,6 +76,9 @@ pub(crate) fn run(
         std::fs::write(log_path, format!("Quarbor virtual microphone: {action}\n"))
             .map_err(|error| format!("无法初始化驱动操作日志：{error}"))?;
         let reply = invoke(&find(resource_dir)?, action, Some(log_path))?;
+        if let Some(installed) = reply.installed() {
+            super::record_installation(installed);
+        }
         Ok(crate::DriverActionResult {
             log_path: log_path.to_string_lossy().into_owned(),
             reboot_required: reply.reboot_required || reply.exit_code == 3010,

@@ -18,6 +18,8 @@ const IDLE_POLL: Duration = Duration::from_millis(100);
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DriverSnapshot {
     pub installed: bool,
+    pub microphone_driver_abnormal: bool,
+    pub microphone_driver_warning_suppressed: bool,
     pub connected: bool,
     pub status: Option<DriverStatus>,
     pub error: Option<String>,
@@ -26,6 +28,18 @@ pub(crate) struct DriverSnapshot {
 impl DriverSnapshot {
     pub(crate) fn ready(&self) -> bool {
         self.connected && self.status.is_some_and(DriverStatus::is_running)
+    }
+
+    fn record_control_open(&mut self, opened: bool) {
+        self.microphone_driver_abnormal = !opened;
+        if opened {
+            self.microphone_driver_warning_suppressed = false;
+        }
+    }
+
+    fn dismiss_warning(&mut self) -> bool {
+        self.microphone_driver_warning_suppressed = self.microphone_driver_abnormal;
+        self.microphone_driver_warning_suppressed
     }
 }
 
@@ -52,6 +66,14 @@ pub(crate) fn start() {
 
 pub(crate) fn snapshot() -> DriverSnapshot {
     global().snapshot.lock().unwrap().clone()
+}
+
+pub(crate) fn dismiss_microphone_driver_warning() -> bool {
+    global().snapshot.lock().unwrap().dismiss_warning()
+}
+
+pub(crate) fn record_installation(installed: bool) {
+    global().record_installation(installed);
 }
 
 pub(crate) fn source() -> AudioSource {
@@ -82,11 +104,11 @@ impl DriverService {
 
     fn connect(&self) -> Result<device::Device, String> {
         let installed = device::is_installed()?;
-        self.snapshot.lock().unwrap().installed = installed;
+        self.record_installation(installed);
         if !installed {
             return Err("Quarbor virtual microphone driver is not installed".into());
         }
-        let device = device::Device::open()?;
+        let device = self.open_control()?;
         let status = device.status()?;
         self.mixer.lock().unwrap().clear();
         self.update_status(status);
@@ -100,6 +122,24 @@ impl DriverService {
         }
         log::info!(target: "axonkey::audio", "Connected to Quarbor virtual microphone");
         Ok(device)
+    }
+
+    fn record_installation(&self, installed: bool) {
+        let mut snapshot = self.snapshot.lock().unwrap();
+        snapshot.installed = installed;
+        if !installed {
+            snapshot.microphone_driver_abnormal = true;
+        }
+    }
+
+    fn open_control(&self) -> Result<device::Device, String> {
+        let result = device::Device::open();
+        // Only installation and control-open failures affect the home warning.
+        self.snapshot
+            .lock()
+            .unwrap()
+            .record_control_open(result.is_ok());
+        result
     }
 
     fn forward(&self, device: &device::Device) -> Result<(), String> {
@@ -304,6 +344,7 @@ mod tests {
             connected: true,
             status: Some(DriverStatus::default()),
             error: None,
+            ..Default::default()
         };
         assert!(!snapshot.ready());
         let status = snapshot.status.as_mut().unwrap();
@@ -312,5 +353,56 @@ mod tests {
         assert!(snapshot.ready());
         snapshot.connected = false;
         assert!(!snapshot.ready());
+    }
+
+    #[test]
+    fn missing_driver_sets_warning_until_control_is_opened() {
+        let service = DriverService::default();
+        assert!(!service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        service.record_installation(false);
+        assert!(service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        service.record_installation(true);
+        assert!(service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        let result = service.open_control();
+        assert_eq!(
+            service.snapshot.lock().unwrap().microphone_driver_abnormal,
+            result.is_err()
+        );
+    }
+
+    #[test]
+    fn write_status_and_idle_capture_do_not_mark_driver_abnormal() {
+        let service = DriverService::default();
+        service.record_installation(true);
+        service.update_status(DriverStatus::default());
+        assert!(!service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        service.disconnect("Cannot write Quarbor virtual microphone PCM".into());
+        assert!(!service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        service.disconnect("Cannot query Quarbor virtual microphone status".into());
+        assert!(!service.snapshot.lock().unwrap().microphone_driver_abnormal);
+        service.record_installation(false);
+        service.disconnect("Cannot write Quarbor virtual microphone PCM".into());
+        assert!(service.snapshot.lock().unwrap().microphone_driver_abnormal);
+    }
+
+    #[test]
+    fn dismissed_warning_stays_suppressed_until_control_recovers() {
+        let service = DriverService::default();
+        service.record_installation(false);
+        assert!(service.snapshot.lock().unwrap().dismiss_warning());
+        service.record_installation(false);
+        service.disconnect("Cannot write Quarbor virtual microphone PCM".into());
+        let mut snapshot = service.snapshot.lock().unwrap();
+        assert!(snapshot.microphone_driver_warning_suppressed);
+        snapshot.record_control_open(false);
+        assert!(snapshot.microphone_driver_abnormal);
+        assert!(snapshot.microphone_driver_warning_suppressed);
+        snapshot.record_control_open(true);
+        assert!(!snapshot.microphone_driver_abnormal);
+        assert!(!snapshot.microphone_driver_warning_suppressed);
+        assert!(!snapshot.dismiss_warning());
+        snapshot.record_control_open(false);
+        assert!(snapshot.microphone_driver_abnormal);
+        assert!(!snapshot.microphone_driver_warning_suppressed);
     }
 }

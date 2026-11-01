@@ -1073,6 +1073,8 @@ fn open_external_page(page: String) -> Result<(), String> {
 #[derive(serde::Serialize)]
 struct SystemProbe {
     platform: &'static str,
+    microphone_driver_abnormal: bool,
+    microphone_driver_warning_suppressed: bool,
     rc003_connected: bool,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
@@ -1471,8 +1473,12 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
+        let microphone_driver = windows_vmic::snapshot();
         Ok(SystemProbe {
             platform: "windows",
+            microphone_driver_abnormal: microphone_driver.microphone_driver_abnormal,
+            microphone_driver_warning_suppressed: microphone_driver
+                .microphone_driver_warning_suppressed,
             rc003_connected: input_status.device_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
@@ -1491,6 +1497,8 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
         let audio_status = audio_service.status(None);
         Ok(SystemProbe {
             platform: "macos",
+            microphone_driver_abnormal: false,
+            microphone_driver_warning_suppressed: false,
             rc003_connected: rc003_connected(
                 input_status.device_connected,
                 audio_status.bluetooth_connected,
@@ -1509,6 +1517,8 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     {
         Ok(SystemProbe {
             platform: "unsupported",
+            microphone_driver_abnormal: false,
+            microphone_driver_warning_suppressed: false,
             rc003_connected: false,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
@@ -1518,6 +1528,18 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
             accessibility_granted: None,
             capture_active: false,
         })
+    }
+}
+
+#[tauri::command]
+fn dismiss_microphone_driver_warning() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_vmic::dismiss_microphone_driver_warning()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
     }
 }
 
@@ -1696,6 +1718,7 @@ pub fn run() {
             open_external_page,
             request_macos_permission,
             probe_system_state,
+            dismiss_microphone_driver_warning,
             probe_audio_available,
             probe_audio_state,
             probe_windows_audio_driver,

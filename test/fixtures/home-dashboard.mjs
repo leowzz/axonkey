@@ -20,6 +20,10 @@ function loadComponent(name) {
 export const { HomeDashboard } = loadComponent('HomeDashboard')
 export const base = {
   nativeRuntime: true,
+  microphoneDriverAbnormal: false,
+  microphoneDriverWarningSuppressed: false,
+  onDismissMicrophoneDriverWarning() {},
+  onOpenAudioDriver() {},
   deviceContent: null, hasUpdate: false,
   onOpenSettings() {}, onOpenLogs() {}, onOpenAbout() {},
 }

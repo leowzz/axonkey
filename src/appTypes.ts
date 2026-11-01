@@ -51,6 +51,8 @@ export type AppPage = 'home' | 'mapping' | 'settings' | 'device-settings'
 
 export type SystemProbe = {
   platform: Platform
+  microphone_driver_abnormal: boolean
+  microphone_driver_warning_suppressed: boolean
   rc003_connected: boolean
   input_backend_ready: boolean
   input_backend_error?: string | null

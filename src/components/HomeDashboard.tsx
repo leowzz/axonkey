@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ExternalLink, FileText, Github, Info, Settings2, Star } from 'lucide-react'
+import { ExternalLink, FileText, Github, Info, Settings2, Star, X } from 'lucide-react'
 import appPackage from '../../package.json'
 import { openGitHub } from '../openGitHub'
 import './HomeDashboard.css'
@@ -7,6 +7,10 @@ import './HomeDashboard.css'
 type HomeDashboardProps = {
   deviceContent: ReactNode
   nativeRuntime: boolean
+  microphoneDriverAbnormal: boolean
+  microphoneDriverWarningSuppressed: boolean
+  onDismissMicrophoneDriverWarning: () => void
+  onOpenAudioDriver: () => void
   onOpenSettings: () => void
   onOpenLogs: () => void
   onOpenAbout: () => void
@@ -16,6 +20,10 @@ type HomeDashboardProps = {
 export function HomeDashboard({
   deviceContent,
   nativeRuntime,
+  microphoneDriverAbnormal,
+  microphoneDriverWarningSuppressed,
+  onDismissMicrophoneDriverWarning,
+  onOpenAudioDriver,
   onOpenSettings,
   onOpenLogs,
   onOpenAbout,
@@ -23,6 +31,23 @@ export function HomeDashboard({
 }: HomeDashboardProps) {
   return (
     <div className="home-page">
+      {nativeRuntime && microphoneDriverAbnormal && !microphoneDriverWarningSuppressed && (
+        <div className="home-microphone-warning" role="alert">
+          <span>虚拟麦克风驱动异常，这会导致遥控器无语音功能。</span>
+          <button type="button" className="home-utility-button" onClick={onOpenAudioDriver}>
+            Quarbor 虚拟麦克风驱动
+          </button>
+          <button
+            type="button"
+            className="home-microphone-warning-close"
+            aria-label="关闭麦克风驱动异常提醒"
+            title="关闭本次提醒"
+            onClick={onDismissMicrophoneDriverWarning}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {deviceContent}
       <footer className="home-footer">
         <nav className="home-utilities" aria-label="常用入口">

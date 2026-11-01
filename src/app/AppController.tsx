@@ -277,6 +277,8 @@ function AppController({
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
   const releaseUpdate = useReleaseUpdate(activePage === 'settings' && settingsSection === 'about', debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
+  const [microphoneDriverAbnormal, setMicrophoneDriverAbnormal] = useState(false)
+  const [microphoneDriverWarningSuppressed, setMicrophoneDriverWarningSuppressed] = useState(false)
   const [managedDriverCleanupOpen, setManagedDriverCleanupOpen] = useState(false)
   const [managedDriverAction, setManagedDriverAction] = useState<ManagedDriverAction | null>(null)
   const [systemProbeState, setSystemProbeState] = useState<'loading' | 'ready' | 'error'>(
@@ -1427,6 +1429,8 @@ function AppController({
     try {
       const probe = await invoke<SystemProbe>('probe_system_state')
       setPlatform(probe.platform)
+      setMicrophoneDriverAbnormal(probe.platform === 'windows' && probe.microphone_driver_abnormal)
+      setMicrophoneDriverWarningSuppressed(probe.platform === 'windows' && probe.microphone_driver_warning_suppressed)
 
       setInputAuthorizationStale(probe.platform === 'macos' && probe.input_authorization_stale === true)
       const mappingRecovering =
@@ -1558,6 +1562,16 @@ function AppController({
       )
     } finally {
       audioProbeRunningRef.current = false
+    }
+  }
+
+  const dismissMicrophoneDriverWarning = async () => {
+    try {
+      setMicrophoneDriverWarningSuppressed(await invoke<boolean>('dismiss_microphone_driver_warning'))
+    } catch (error) {
+      logError('Failed to dismiss microphone driver warning', error)
+      setToast(`无法关闭提醒：${String(error)}`)
+      window.setTimeout(() => setToast(''), 2400)
     }
   }
 
@@ -1927,6 +1941,10 @@ function AppController({
             />
           ) : (
             <HomeDashboard
+              microphoneDriverAbnormal={microphoneDriverAbnormal}
+              microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
+              onDismissMicrophoneDriverWarning={() => void dismissMicrophoneDriverWarning()}
+              onOpenAudioDriver={openAudioDriver}
               deviceContent={
                 <DeviceHub
                   selectedInstanceId={selectedInstanceId}
