@@ -37,16 +37,16 @@ pub(crate) fn uninstall(
 }
 
 fn invoke(resources: &Path, action: &str, log_path: Option<&Path>) -> Result<Reply, String> {
-    let relative = Path::new("scripts/legacy-audio-cleanup.ps1");
+    let relative = Path::new("scripts/uninstall-old-driver.exe");
     let bundled = resources.join(relative);
-    let script = if bundled.is_file() {
+    let executable = if bundled.is_file() {
         bundled
     } else if cfg!(debug_assertions) {
         Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join(relative)
     } else {
-        return Err("缺少旧版虚拟声卡清理脚本，请重新安装 Axonkey。".into());
+        return Err("缺少旧版驱动清理工具，请重新安装 Axonkey。".into());
     };
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -56,32 +56,29 @@ fn invoke(resources: &Path, action: &str, log_path: Option<&Path>) -> Result<Rep
         "axonkey-legacy-audio-{}-{nonce}.json",
         std::process::id()
     ));
-    let system_root = std::env::var_os("SystemRoot").ok_or("无法定位 Windows 系统目录。")?;
-    let mut command = Command::new(
-        Path::new(&system_root).join("System32/WindowsPowerShell/v1.0/powershell.exe"),
-    );
+    let mut command = Command::new(executable);
     command
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-        ])
-        .arg(script)
-        .args(["-Action", action, "-OutputPath"])
+        .arg(if action == "status" {
+            "--vbcable-status"
+        } else {
+            "--uninstall-vbcable"
+        })
+        .arg("--result-path")
         .arg(&output)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .creation_flags(0x08000000);
     if let Some(log_path) = log_path {
-        command.arg("-LogPath").arg(log_path);
+        command.arg("--confirmed").arg("--log-path").arg(log_path);
     }
     let result = (|| {
         let status = command
             .status()
             .map_err(|error| format!("无法运行旧版虚拟声卡检查：{error}"))?;
+        if status.code() == Some(1223) {
+            return Err("已取消管理员授权，未卸载 VB-CABLE。".into());
+        }
         let json = std::fs::read_to_string(&output)
             .map_err(|error| format!("无法读取旧版虚拟声卡处理结果（{status}）：{error}"))?;
         let reply: Reply = serde_json::from_str(json.trim_start_matches('\u{feff}'))

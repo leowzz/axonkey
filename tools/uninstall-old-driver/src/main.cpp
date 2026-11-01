@@ -4,6 +4,7 @@
 #include <tlhelp32.h>
 #include <winsvc.h>
 #include <winreg.h>
+#include "vbcable.h"
 
 #include <algorithm>
 #include <atomic>
@@ -38,7 +39,11 @@ struct Options {
     bool status = false;
     bool headless = false;
     bool autoClose = false;
+    bool vbCableStatus = false;
+    bool uninstallVbCable = false;
+    bool dryRun = false;
     std::wstring logPath;
+    std::wstring resultPath;
     bool autoStart() const { return confirmed || headless || !logPath.empty(); }
 };
 
@@ -70,7 +75,8 @@ fs::path baseDir() {
 
 fs::path logPath(const Options& options) {
     if (!options.logPath.empty()) return fs::path(options.logPath);
-    return fs::path(env(L"LOCALAPPDATA")) / L"com.axonkey.app" / L"logs" / L"old-driver-uninstall.log";
+    return fs::path(env(L"LOCALAPPDATA")) / L"com.axonkey.app" / L"logs" /
+        (options.uninstallVbCable ? L"vbcable-uninstall.log" : L"old-driver-uninstall.log");
 }
 
 std::string utf8(const std::wstring& value) {
@@ -91,16 +97,23 @@ void output(const std::string& value, DWORD handleKind) {
 void printOut(const std::wstring& value) { output(utf8(value), STD_OUTPUT_HANDLE); }
 void printErr(const std::wstring& value) { output(utf8(value), STD_ERROR_HANDLE); }
 
-std::wstring jsonString(const fs::path& value) {
-    std::wstring escaped = value.wstring();
+std::wstring jsonText(const std::wstring& value) {
     std::wstring result = L"\"";
-    for (wchar_t c : escaped) {
+    for (wchar_t c : value) {
+        if (c < 0x20) {
+            wchar_t escape[7]{};
+            swprintf_s(escape, L"\\u%04x", static_cast<unsigned>(c));
+            result += escape;
+            continue;
+        }
         if (c == L'\\' || c == L'\"') result.push_back(L'\\');
         result.push_back(c);
     }
     result += L"\"";
     return result;
 }
+
+std::wstring jsonString(const fs::path& value) { return jsonText(value.wstring()); }
 
 bool isAdministrator() {
     BOOL elevated = FALSE;
@@ -126,7 +139,9 @@ int elevate(const Options& options) {
     if (options.confirmed) parameters += L" --confirmed";
     if (options.headless) parameters += L" --headless";
     if (options.autoClose) parameters += L" --auto-close";
+    if (options.uninstallVbCable) parameters += L" --uninstall-vbcable";
     if (!options.logPath.empty()) parameters += L" --log-path " + quote(options.logPath);
+    if (!options.resultPath.empty()) parameters += L" --result-path " + quote(options.resultPath);
     SHELLEXECUTEINFOW info{sizeof(info)};
     info.fMask = SEE_MASK_NOCLOSEPROCESS;
     info.lpVerb = L"runas";
@@ -159,8 +174,10 @@ public:
     void line(const std::wstring& message) {
         SYSTEMTIME now{};
         GetLocalTime(&now);
-        file_ << L"[" << now.wYear << L"-" << now.wMonth << L"-" << now.wDay << L" "
+        std::wostringstream line;
+        line << L"[" << now.wYear << L"-" << now.wMonth << L"-" << now.wDay << L" "
               << now.wHour << L":" << now.wMinute << L":" << now.wSecond << L"] " << message << L"\n";
+        file_ << utf8(line.str());
         file_.flush();
         if (progress_) progress_(localize(message));
     }
@@ -175,7 +192,7 @@ private:
         if (message.starts_with(L"Old driver cleanup completed")) return L"卸载完成，请重启 Windows 使更改生效。";
         return L"正在处理：" + message;
     }
-    std::wofstream file_;
+    std::ofstream file_;
     Progress progress_;
 };
 
@@ -385,9 +402,22 @@ bool parseOptions(int argc, wchar_t** argv, Options& options) {
         else if (arg == L"--headless") options.headless = true;
         else if (arg == L"--auto-close") options.autoClose = true;
         else if (arg == L"--status") options.status = true;
+        else if (arg == L"--vbcable-status") options.vbCableStatus = true;
+        else if (arg == L"--uninstall-vbcable") options.uninstallVbCable = true;
+        else if (arg == L"--dry-run") options.dryRun = true;
         else if (arg == L"--log-path" && i + 1 < argc) options.logPath = argv[++i];
-        else if (arg == L"--help" || arg == L"-h") { printErr(L"Usage: uninstall-old-driver.exe [--confirmed] [--auto-close] [--headless] [--status] [--log-path PATH]\n"); return false; }
+        else if (arg == L"--result-path" && i + 1 < argc) options.resultPath = argv[++i];
+        else if (arg == L"--help" || arg == L"-h") { printErr(L"Usage: uninstall-old-driver.exe [--confirmed] [--auto-close] [--headless] [--status] [--log-path PATH]\nVB-CABLE: --vbcable-status | --uninstall-vbcable [--dry-run | --confirmed] [--log-path PATH] [--result-path PATH]\n"); return false; }
         else { printErr(L"Unknown argument: " + arg + L"\n"); return false; }
+    }
+    if ((options.vbCableStatus && options.uninstallVbCable) ||
+        (options.status && (options.vbCableStatus || options.uninstallVbCable)) ||
+        (options.dryRun && !options.uninstallVbCable) ||
+        (!options.resultPath.empty() && !options.vbCableStatus && !options.uninstallVbCable)) {
+        printErr(L"Conflicting command options.\n"); return false;
+    }
+    if (options.uninstallVbCable && !options.dryRun && !options.confirmed) {
+        printErr(L"VB-CABLE removal requires --confirmed. Use --dry-run to inspect without changes.\n"); return false;
     }
     return true;
 }
@@ -550,6 +580,62 @@ int runHeadless(const Options& options) {
     return 0;
 }
 
+std::wstring jsonPaths(const auto& paths) {
+    std::wstring json = L"[";
+    for (const auto& path : paths) {
+        if (json.size() > 1) json += L",";
+        json += jsonString(fs::path(path));
+    }
+    return json + L"]";
+}
+
+int runVbCable(const Options& options) {
+    vbcable::Result result;
+    vbcable::Plan plan;
+    try {
+        if (options.vbCableStatus) plan.devices = vbcable::findDevices();
+        else plan = vbcable::inspect(baseDir());
+        if (options.uninstallVbCable && !options.dryRun) {
+            Logger log(logPath(options), {});
+            if (!log.good()) throw std::runtime_error("Cannot open VB-CABLE cleanup log");
+            result = vbcable::uninstall(plan, [&log](const auto& message) { log.line(message); });
+            if (result.rebootRequired) log.line(L"Restart Windows to finish VB-CABLE removal.");
+        }
+    } catch (const std::exception& error) {
+        const std::string message = error.what();
+        const int length = MultiByteToWideChar(CP_UTF8, 0, message.data(), static_cast<int>(message.size()), nullptr, 0);
+        std::wstring text(length, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, message.data(), static_cast<int>(message.size()), text.data(), length);
+        result.errors.push_back(text);
+    }
+    std::wstring errors;
+    for (const auto& error : result.errors) {
+        if (!errors.empty()) errors += L"\n";
+        errors += error;
+    }
+    const auto action = options.vbCableStatus ? L"status" : options.dryRun ? L"dry-run" : L"uninstall";
+    const std::wstring json = L"{\"action\":" + jsonText(action) +
+        L",\"success\":" + (errors.empty() ? L"true" : L"false") +
+        L",\"installed\":" + (options.vbCableStatus ? (plan.devices.empty() ? L"false" : L"true") : L"null") +
+        L",\"rebootRequired\":" + (result.rebootRequired ? L"true" : L"false") +
+        L",\"devices\":" + jsonPaths(plan.devices) + L",\"packages\":" + jsonPaths(plan.packages) +
+        L",\"files\":" + jsonPaths(plan.files) +
+        L",\"directories\":" + jsonPaths(plan.directories) +
+        L",\"devicesRemoved\":" + std::to_wstring(result.devicesRemoved) +
+        L",\"packagesRemoved\":" + std::to_wstring(result.packagesRemoved) +
+        L",\"logPath\":" + (options.uninstallVbCable && !options.dryRun ? jsonString(logPath(options)) : L"null") +
+        L",\"error\":" + (errors.empty() ? L"null" : jsonText(errors)) + L"}\n";
+    printOut(json);
+    if (!options.resultPath.empty()) {
+        std::ofstream file(fs::path(options.resultPath), std::ios::binary | std::ios::trunc);
+        file << utf8(json);
+        file.close();
+        if (!file) { printErr(L"Cannot write VB-CABLE result file.\n"); return 1; }
+    }
+    if (result.rebootRequired) printErr(L"Restart Windows to finish VB-CABLE removal.\n");
+    return !errors.empty() ? 1 : result.rebootRequired ? 3010 : 0;
+}
+
 } // namespace
 
 int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
@@ -559,6 +645,11 @@ int APIENTRY wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
     bool parsed = argv && parseOptions(argc, argv, options);
     if (argv) LocalFree(argv);
     if (!parsed) return 2;
+
+    if (options.vbCableStatus || options.uninstallVbCable) {
+        if (options.uninstallVbCable && !options.dryRun && !isAdministrator()) return elevate(options);
+        return runVbCable(options);
+    }
 
     if (options.status) {
         Components components = detectComponents();

@@ -60,7 +60,7 @@ $rc003Id = 'RC003 的完整设备实例 ID'
 
 启动时同时发现旧配置和标准版 VB-CABLE 设备，会先显示“虚拟声卡升级”，确认完成或二次确认跳过后才进入配置迁移。两个升级选项都会先查询 Quarbor 驱动状态，已安装则跳过安装，未安装才调用上述安装器；查询失败时停止操作并允许重试。“只安装新版”保留旧驱动；“卸载VB-CABLE并安装新版”确认新版已安装后再请求管理员权限清理旧驱动。新版安装失败或状态不明时不会卸载旧驱动。升级窗口分别显示 Quarbor 安装与 VB-CABLE 卸载的重启要求；Quarbor 的安装命令及重启判断与设置中的驱动管理窗口相同。
 
-旧驱动清理由 `scripts/legacy-audio-cleanup.ps1` 完成：仅匹配服务 `VBAudioVACMME`、硬件 ID `VBAudioVACWDM` 的设备，读取实际绑定的 OEM INF 并核对包内标识，再调用 `pnputil /delete-driver <oemN.inf> /uninstall /force`。不匹配 Cable A/B、VoiceMeeter 等其他产品，不附带旧版安装器。PnPUtil 返回 3010 时显示重启提醒；不传 `/reboot`，不会自动重启。安装和卸载日志位于应用日志目录。命令及返回码见 [PnPUtil 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax)和[返回值说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-return-values)。
+旧驱动清理由 `tools/uninstall-old-driver` 的 C++ 原生实现完成，应用通过独立命令 `scripts/uninstall-old-driver.exe --uninstall-vbcable --confirmed` 调用，已替代 PowerShell 脚本。只匹配标准版 VB-CABLE，移除设备及隐藏子端点、所有匹配的历史 OEM 驱动包、服务、已知系统文件、标准安装目录和注册表残留，并删除应用目录内旧的 `vendor\vbcable` 目录；不匹配 Cable A/B、VoiceMeeter 或 Quarbor，不附带旧版安装器。需要重启时返回 3010 并显示重启提醒，不自动重启，不添加卸载后复查。安装和卸载日志位于应用日志目录。该命令不接入卸载工具原有 GUI 或默认输入驱动清理流程，应用升级窗口保持不变。完整命令和清理边界见 [卸载工具说明](../tools/uninstall-old-driver/README.md#vb-cable-独立命令)。
 
 ## 卸载输入驱动
 
