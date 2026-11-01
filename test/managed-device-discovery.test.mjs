@@ -415,6 +415,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })
   const instances = ['one', 'two'].map(id => ({ ...model.newInstance('cmiotA15', `physical-${id}`), id }))
+  instances[0].cmiotA15RecordingModeEditable = true
+  instances[0].cmiotA15RecordingMode = 'click'
   const snapshot = model.emptySnapshot()
   snapshot.store.instances = instances
   snapshot.runtime = {
@@ -599,7 +601,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByType('select').props.value, 'click')
     await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'hold' } }))
     assert.equal(instances[0].cmiotA15RecordingMode, 'hold')
-    assert.equal(instances[1].cmiotA15RecordingMode, 'click')
+    assert.equal(instances[1].cmiotA15RecordingMode, 'hold')
+    act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    assert.equal(views[1].root.findAllByType('select').length, 0, 'ordinary firmware has no recording mode editor')
+    act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     await act(async () => views[0].root.findByProps({ className: 'managed-bound-device' }).findByType('button').props.onClick())
     assert.deepEqual(actions.at(-1), ['unbind', 'one'])
     act(() => {

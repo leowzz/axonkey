@@ -15,6 +15,7 @@ export type DeviceInstance = {
   bindingPairingId?: string | null
   audioGainDb?: number
   cmiotA15RecordingMode?: 'hold' | 'click'
+  cmiotA15RecordingModeEditable?: boolean
   quarborTarget?: string | null
   hideDriverMissingReminder?: boolean
   enabled: boolean
@@ -135,7 +136,8 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     name: packageFor(kind).name,
     binding,
     audioGainDb: 0,
-    cmiotA15RecordingMode: 'click',
+    cmiotA15RecordingMode: 'hold',
+    cmiotA15RecordingModeEditable: false,
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

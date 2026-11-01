@@ -144,26 +144,42 @@ pub(super) fn start(shared: Arc<Shared>) {
                             .unwrap_or_default()
                             .as_secs(),
                     );
-                    if let Some(device) = shared
-                        .snapshot
-                        .lock()
-                        .unwrap()
-                        .discovered
-                        .iter_mut()
-                        .find(|d| {
-                            d.id == target.id
-                                && d.bluetooth_address == target.bluetooth_address
-                                && d.connected
-                                && d.identity_quality != "ambiguous"
-                        })
-                    {
-                        device.device_info = info;
-                    }
+                    apply_information(&shared, target, info);
                 }
             }
             thread::sleep(Duration::from_millis(250));
         }
     });
+}
+
+pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: DeviceInformation) {
+    let mut snapshot = shared.snapshot.lock().unwrap();
+    let Some(device) = snapshot.discovered.iter_mut().find(|d| {
+        d.id == target.id
+            && d.bluetooth_address == target.bluetooth_address
+            && d.connected
+            && d.identity_quality != "ambiguous"
+    }) else {
+        return;
+    };
+    device.device_info = info.clone();
+    let Some(firmware) = info.firmware_revision.as_deref() else {
+        return;
+    };
+    let mut next = snapshot.store.clone();
+    for instance in &mut next.instances {
+        if instance.kind == "cmiotA15" && instance.binding.as_ref() == Some(&target.id) {
+            instance.apply_recording_firmware(firmware);
+        }
+    }
+    if next.instances == snapshot.store.instances || snapshot.error.is_some() {
+        return;
+    }
+    next.revision += 1;
+    match super::save(&shared.path, &next) {
+        Ok(()) => snapshot.store = next,
+        Err(error) => snapshot.error = Some(error),
+    }
 }
 
 pub(super) fn retain_readings(discovered: &mut [Discovered], previous: &[Discovered]) {

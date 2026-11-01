@@ -556,28 +556,30 @@ export function InstanceWorkspace({
                             </div>
                           </div>
                         )}
-                        {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
-                          <label className="settings-form-row">
-                            <span className="settings-form-label">语音录制：</span>
-                            <span className="settings-form-control">
-                              <span className="manual-key-select cmiot-recording-select">
-                                <select
-                                  value={instance.cmiotA15RecordingMode ?? 'click'}
-                                  onChange={event => {
-                                    const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                                    update(item => ({ ...item, cmiotA15RecordingMode }))
-                                  }}
-                                >
-                                  <option value="hold">按住录音，松开停止</option>
-                                  <option value="click">点击开始，再次点击停止</option>
-                                </select>
-                                <span className="manual-key-select-icon" aria-hidden="true">
-                                  <ChevronDown size={14} />
+                        {instance.kind === 'cmiotA15' &&
+                          instance.cmiotA15RecordingModeEditable &&
+                          (platform === 'windows' || platform === 'macos') && (
+                            <label className="settings-form-row">
+                              <span className="settings-form-label">语音录制：</span>
+                              <span className="settings-form-control">
+                                <span className="manual-key-select cmiot-recording-select">
+                                  <select
+                                    value={instance.cmiotA15RecordingMode ?? 'hold'}
+                                    onChange={event => {
+                                      const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                      update(item => ({ ...item, cmiotA15RecordingMode }))
+                                    }}
+                                  >
+                                    <option value="hold">按住录音，松开停止</option>
+                                    <option value="click">点击开始，再次点击停止</option>
+                                  </select>
+                                  <span className="manual-key-select-icon" aria-hidden="true">
+                                    <ChevronDown size={14} />
+                                  </span>
                                 </span>
                               </span>
-                            </span>
-                          </label>
-                        )}
+                            </label>
+                          )}
                         <label className="settings-form-row">
                           <span className="settings-form-label">设备名称：</span>
                           <input
