@@ -414,6 +414,7 @@ mod tests {
                 log_path: "driver.log".into(),
                 reboot_required: reply.reboot_required,
                 installation_state: reply.installation_state,
+                ..Default::default()
             };
             assert_eq!(
                 serde_json::to_value(result).unwrap()["installationState"],

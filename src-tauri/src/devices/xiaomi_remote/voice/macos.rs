@@ -162,7 +162,7 @@ impl AudioService {
         };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
-            log::info!(target: "axonkey::audio", "macOS audio bridge created; waiting for an output device");
+            log::info!(target: "axonkey::audio", "macOS audio bridge created; output is fixed to MiRemoteV 2ch");
         } else {
             log::error!(target: "axonkey::audio", "Cannot create the macOS audio bridge");
         }
@@ -184,11 +184,7 @@ impl AudioService {
         }
     }
 
-    pub fn set_output_device(&self, device: Option<String>) {
-        let enabled = device
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|name| name == "MiRemoteV" || name == "MiRemoteV 2ch");
+    pub fn set_enabled(&self, enabled: bool) {
         let was_enabled = self.shared.output_enabled.swap(enabled, Ordering::AcqRel);
         if was_enabled == enabled {
             return;
@@ -211,7 +207,7 @@ impl AudioService {
 
     pub fn restart(&self) -> Result<(), String> {
         if !self.shared.output_enabled.load(Ordering::Acquire) {
-            return Err("未选择语音输出设备".into());
+            return Err("设备语音服务未启用".into());
         }
         let bridge = self.shared.bridge.load(Ordering::Acquire);
         if bridge.is_null() {

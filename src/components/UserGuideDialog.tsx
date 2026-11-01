@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import appIconUrl from '../../src-tauri/icons/128x128@2x.png'
-import { CableDriverContent } from './CableDriverDialog'
-import type { CableDriverController } from '../hooks/useCableDriver'
+import { WindowsAudioDriverContent } from './WindowsAudioDriverDialog'
+import type { WindowsAudioDriverController } from '../hooks/useWindowsAudioDriver'
 import { DeviceDiscoverySection, type DeviceDiscoveryProps } from '../devices/integration/DeviceHub'
 import './UserGuideDialog.css'
 
@@ -9,7 +9,7 @@ export function UserGuideDialog({
   saving,
   error,
   onComplete,
-  cableDriver,
+  windowsAudioDriver,
   nativeRuntime,
   onOpenSound,
   deviceDiscovery,
@@ -17,7 +17,7 @@ export function UserGuideDialog({
   saving: boolean
   error: string
   onComplete: (instanceId: string | null) => void
-  cableDriver: CableDriverController
+  windowsAudioDriver: WindowsAudioDriverController
   nativeRuntime: boolean
   onOpenSound: () => void
   deviceDiscovery: Omit<DeviceDiscoveryProps, 'guide' | 'onIntegrated'>
@@ -43,7 +43,7 @@ export function UserGuideDialog({
   const continueGuide = () => {
     if (page === 'welcome') {
       setPage('driver')
-      void cableDriver.probe()
+      void windowsAudioDriver.probe()
     } else if (page === 'driver') {
       setPage('devices')
       void deviceDiscovery.controller.refresh()
@@ -79,13 +79,16 @@ export function UserGuideDialog({
         ) : page === 'driver' ? (
           <>
             <h2 id="user-guide-title" ref={titleRef} tabIndex={-1}>
-              推荐安装虚拟声卡驱动
+              安装虚拟麦克风驱动
             </h2>
             <p className="user-guide-intro">
-              使用无线麦克风功能时，推荐安装 VB-CABLE Virtual Audio
-              Device，将遥控器语音提供给录音或语音输入软件。你也可以暂不安装，或使用其他虚拟麦克风软件。
+              使用无线麦克风功能需要安装 Quarbor Virtual Microphone 驱动。暂不使用语音时可以跳过。
             </p>
-            <CableDriverContent controller={cableDriver} nativeRuntime={nativeRuntime} onOpenSound={onOpenSound} />
+            <WindowsAudioDriverContent
+              controller={windowsAudioDriver}
+              nativeRuntime={nativeRuntime}
+              onOpenSound={onOpenSound}
+            />
           </>
         ) : page === 'devices' ? (
           <>

@@ -13,7 +13,6 @@ export type DeviceInstance = {
   binding: string | null
   bindingQuality?: string | null
   bindingPairingId?: string | null
-  voiceOutputDevice?: string | null
   audioGainDb?: number
   cmiotA15RecordingMode?: 'hold' | 'click'
   quarborTarget?: string | null
@@ -135,7 +134,6 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     kind,
     name: packageFor(kind).name,
     binding,
-    voiceOutputDevice: null,
     audioGainDb: 0,
     cmiotA15RecordingMode: 'click',
     enabled: true,

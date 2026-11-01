@@ -262,7 +262,7 @@ test('overwriting a remote replaces all profiles and active selection while pres
   const data = storage({ [legacyProfilesKey]: shared() })
   const plan = inspectConfigMigration(data)
   const target = { ...plan.remote, id: 'existing', name: '客厅遥控器', binding: 'physical-remote', enabled: false,
-    bindingQuality: 'serial', bindingPairingId: 'pairing', voiceOutputDevice: 'speakers', audioGainDb: 4,
+    bindingQuality: 'serial', bindingPairingId: 'pairing', audioGainDb: 4,
     profiles: [{ id: 'old-profile', name: '被覆盖', behaviors: {} }], activeProfileId: 'old-profile' }
   const original = structuredClone(target)
   let saved

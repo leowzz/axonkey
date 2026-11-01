@@ -16,8 +16,8 @@ Windows
   RC003 ATVV voice service
     -> Windows Bluetooth GATT control and audio notifications
     -> Rust frame accumulator and 16 kHz IMA ADPCM decoder
-    -> CPAL output to CABLE Input
-    -> CABLE Output selected by the consuming application
+    -> PCM mixing/resampling and IOCTL injection into Quarbor Virtual Microphone
+    -> Quarbor Virtual Microphone selected by the consuming application
 
 macOS
   RC003 HID interfaces
@@ -87,9 +87,10 @@ driver is a pinned BlackHole derivative built and packaged by Axonkey as
 It owns one `AudioService` per RC003 instance, keyed by `instanceId`; each
 service owns its Bluetooth session, frame accumulation, ADPCM decoder, gain,
 PCM queue and diagnostics. Rust owns frame accumulation, ADPCM decoding, gain,
-and audio diagnostics. On Windows, each service uses Windows Bluetooth GATT
-APIs and CPAL to forward voice to its configured output; when available, the
-GATT selector is filtered by the bound Bluetooth address. On macOS, each
+and audio diagnostics. On Windows, each RC003 service uses Windows Bluetooth GATT
+APIs with the selector filtered by its bound Bluetooth address. RC003 and A15
+PCM sources feed the shared mixer and resampler, which writes directly to the
+fixed Quarbor Virtual Microphone through IOCTLs. On macOS, each
 service owns an Objective-C adapter that hides CoreBluetooth,
 ATVV session control, AVAudioEngine device binding, reconnect timeouts and
 sleep-safe audio-engine lifetime. The macOS service prepares Core Audio output
@@ -111,10 +112,12 @@ The experimental background queue and post-stop packet handling are not part of
 the current implementation and must not be described as confirmed fixes.
 
 The first-run guide does not install or probe the Windows input driver. After an RC003 instance is added, its workspace resolves the matching Quarbor node and invokes `--install <instanceId>` for that device only. Runtime status is read from that same node and is shown in the instance settings panel; a missing driver opens the per-device install dialog. The installer owns package staging and restoration, while the UI uses its `rebootRequired` result and accepts exit code 3010 as success requiring a reboot.
-The upstream Pack45 ZIP is bundled without modification, and Axonkey verifies
-the archive hash, extracted x64 installer hash, and Authenticode publisher
-signature before requesting elevation. Driver readiness is detected from the
-`VBAudioVACMME` Windows service rather than from unrelated sound devices.
+The Windows audio package bundles the original Quarbor Virtual Microphone installer,
+INF, SYS, catalog and license. Driver management invokes `--status`, `--install`
+and `--uninstall`, reading the `--output` JSON file for the operation result,
+device presence, warnings and reboot requirement. The installer requests elevation
+when needed. Device presence includes hidden devices and does not imply readiness;
+the running audio service separately checks its control connection and capture state.
 Platform resources remain split between `tauri.windows.conf.json` and
 `tauri.macos.conf.json`. macOS builds generate signed install/uninstall PKGs
 from the pinned source before Tauri embeds them; the app invokes the macOS

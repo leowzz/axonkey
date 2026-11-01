@@ -68,7 +68,7 @@ impl AudioService {
 
     pub fn resume(&self) {}
 
-    pub fn set_output_device(&self, _device: Option<String>) {}
+    pub fn set_enabled(&self, _enabled: bool) {}
 
     pub fn start_for(_target_identity: Option<String>) -> Self {
         Self::start()
@@ -99,7 +99,6 @@ pub struct AudioTarget {
     pub instance_id: String,
     pub kind: String,
     pub voice_target: Option<String>,
-    pub output_device: Option<String>,
     pub gain_db: i16,
     pub enabled: bool,
 }
@@ -184,12 +183,7 @@ impl AudioServiceManager {
             } else {
                 continue;
             };
-            let output = if target.enabled {
-                target.output_device.clone()
-            } else {
-                None
-            };
-            service.set_output_device(output);
+            service.set_enabled(target.enabled);
             let _ = service.set_gain_db(target.gain_db);
         }
     }
@@ -352,6 +346,29 @@ mod tests {
         assert!(second.status().bluetooth_connected);
         manager.push_a15_pcm(Some("removed"), &[16000; 320]);
         assert_eq!(legacy.level().peak, 0.0);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_instances_route_audio_without_a_playback_selection_and_honor_disable() {
+        let manager = super::AudioServiceManager::start();
+        let mut target = super::AudioTarget {
+            instance_id: "a15".into(),
+            kind: "cmiotA15".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        manager.sync_instances(&[target.clone()]);
+        manager.set_a15_input_state(Some("a15"), true, true);
+        manager.push_a15_pcm(Some("a15"), &[4000; 320]);
+        assert!(manager.status(Some("a15")).received_data);
+
+        target.enabled = false;
+        manager.sync_instances(&[target]);
+        manager.push_a15_pcm(Some("a15"), &[4000; 320]);
+        let status = manager.status(Some("a15"));
+        assert_eq!(status.state, "stopped");
+        assert!(!status.forwarding && !status.received_data);
     }
 
     #[test]

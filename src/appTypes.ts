@@ -83,6 +83,8 @@ export type DriverActionResult = {
   logPath: string
   rebootRequired: boolean
   installationState?: 'installed' | 'reinstalled' | 'restart_before_install'
+  driverInstalled?: boolean
+  warning?: string
 }
 
 export type ManagedDriverAction = {

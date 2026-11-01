@@ -21,7 +21,7 @@ function compile(path, imports = {}) {
 }
 const { UserGuideDialog } = compile('src/components/UserGuideDialog.tsx', {
   '../../src-tauri/icons/128x128@2x.png': { default: 'axonkey-icon.png' },
-  './CableDriverDialog': compile('src/components/CableDriverDialog.tsx'),
+  './WindowsAudioDriverDialog': compile('src/components/WindowsAudioDriverDialog.tsx'),
   '../devices/integration/DeviceHub': { DeviceDiscoverySection: props => React.createElement('device-discovery', props) },
 })
 
@@ -30,12 +30,12 @@ async function mount({ enabled = true, completed = false, autoOpen = true, skip 
   const driverCalls = []
   const completedTargets = []
   let installed = false, homeVisits = 0, sounds = 0, refreshes = 0
-  const { useCableDriver } = compile('src/hooks/useCableDriver.ts', {
+  const { useWindowsAudioDriver } = compile('src/hooks/useWindowsAudioDriver.ts', {
     '@tauri-apps/api/core': { invoke: async (command, args) => {
       driverCalls.push([command, args])
-      if (command === 'probe_cable_driver') return installed
+      if (command === 'probe_windows_audio_driver') return installed
       installed = args.action === 'install'
-      return { rebootRequired: true, logPath: 'C:/logs/cable.log' }
+      return { rebootRequired: true, logPath: 'C:/logs/quarbor-vmic.log', driverInstalled: installed }
     } },
   })
   const { useUserGuide } = compile('src/hooks/useUserGuide.ts', {
@@ -47,9 +47,9 @@ async function mount({ enabled = true, completed = false, autoOpen = true, skip 
   let guide, view
   function App() {
     guide = useUserGuide(enabled, true, autoOpen, skip)
-    const cableDriver = useCableDriver(true)
+    const windowsAudioDriver = useWindowsAudioDriver(true)
     return guide.open ? React.createElement(UserGuideDialog, {
-      saving: guide.saving, error: guide.error, cableDriver, nativeRuntime: true,
+      saving: guide.saving, error: guide.error, windowsAudioDriver, nativeRuntime: true,
       deviceDiscovery: { controller: { refresh: async () => refreshes++ } },
       onOpenSound: () => sounds++,
       onComplete: async instanceId => { if (await guide.complete()) { homeVisits++; completedTargets.push(instanceId) } },
@@ -164,10 +164,10 @@ test('welcome, optional driver setup and final page share the actual driver cont
     assert.equal(h.button('完成'), undefined)
     assert.equal(h.driverCalls.length, 0)
     await act(async () => h.button('继续').props.onClick())
-    assert.match(text(h.view.toJSON()), /推荐安装虚拟声卡驱动/)
-    assert.match(text(h.view.toJSON()), /VB-CABLE Virtual Audio Device/)
+    assert.match(text(h.view.toJSON()), /安装虚拟麦克风驱动/)
+    assert.match(text(h.view.toJSON()), /Quarbor Virtual Microphone/)
     assert.match(text(h.view.toJSON()), /未安装/)
-    assert.equal(h.driverCalls[0][0], 'probe_cable_driver')
+    assert.equal(h.driverCalls[0][0], 'probe_windows_audio_driver')
     await act(async () => h.button('继续').props.onClick())
     assert.match(text(h.view.toJSON()), /选择一个你想要添加的设备/)
     assert.equal(h.refreshes, 1)
@@ -180,7 +180,7 @@ test('welcome, optional driver setup and final page share the actual driver cont
     act(() => h.button('上一步').props.onClick())
     await act(async () => h.button('安装驱动').props.onClick())
     assert.match(text(h.view.toJSON()), /请重启 Windows/)
-    assert.match(text(h.view.toJSON()), /cable\.log/)
+    assert.match(text(h.view.toJSON()), /quarbor-vmic\.log/)
     act(() => h.button('声音设置').props.onClick())
     assert.equal(h.sounds, 1)
     await act(async () => h.button('重新检测').props.onClick())

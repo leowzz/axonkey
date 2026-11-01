@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import ts from 'typescript'
@@ -16,17 +16,17 @@ function compile(path, imports = {}) {
   }).outputText, { module, exports: module.exports, document: { activeElement: null }, HTMLElement: class {}, require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)) })
   return module.exports
 }
-const { CableDriverDialog } = compile('src/components/CableDriverDialog.tsx')
+const { WindowsAudioDriverDialog } = compile('src/components/WindowsAudioDriverDialog.tsx')
 
 function mount(nativeRuntime, invoke) {
-  const { useCableDriver } = compile('src/hooks/useCableDriver.ts', { '@tauri-apps/api/core': { invoke } })
+  const { useWindowsAudioDriver } = compile('src/hooks/useWindowsAudioDriver.ts', { '@tauri-apps/api/core': { invoke } })
   let controller
   let closed = 0
   let sounds = 0
   const modal = { opened: 0, closed: 0, showModal() { this.opened++ }, close() { this.closed++ } }
   function App({ open = true }) {
-    controller = useCableDriver(nativeRuntime)
-    return open ? React.createElement(CableDriverDialog, { controller, nativeRuntime, onClose: () => closed++, onOpenSound: () => sounds++ }) : null
+    controller = useWindowsAudioDriver(nativeRuntime)
+    return open ? React.createElement(WindowsAudioDriverDialog, { controller, nativeRuntime, onClose: () => closed++, onOpenSound: () => sounds++ }) : null
   }
   let view
   act(() => { view = Renderer.create(React.createElement(App), { createNodeMock: node => node.type === 'dialog' ? modal : null }) })
@@ -36,14 +36,14 @@ function mount(nativeRuntime, invoke) {
   }
 }
 
-test('CABLE panel uses actual driver checks and preserves installer results across closing', async () => {
+test('Quarbor panel uses reported driver state and preserves installer results across closing', async () => {
   const calls = []
   let installed = false
   const h = mount(true, async (command, args) => {
     calls.push([command, args])
-    if (command === 'probe_cable_driver') return installed
+    if (command === 'probe_windows_audio_driver') return installed
     installed = args.action === 'install'
-    return { rebootRequired: true, logPath: 'C:/logs/cable.log' }
+    return { rebootRequired: true, logPath: 'C:/logs/quarbor-vmic.log', driverInstalled: installed }
   })
   try {
     assert.equal(h.modal.opened, 1)
@@ -53,7 +53,7 @@ test('CABLE panel uses actual driver checks and preserves installer results acro
     await act(async () => { h.button('安装驱动').props.onClick() })
     assert.equal(h.controller.installed, true)
     assert.match(text(h.view.toJSON()), /请重启 Windows/)
-    assert.match(text(h.view.toJSON()), /cable\.log/)
+    assert.match(text(h.view.toJSON()), /quarbor-vmic\.log/)
     assert.equal(h.button('卸载驱动').props.disabled, false)
     h.show(false)
     h.show(true)
@@ -77,7 +77,7 @@ test('busy actions block duplicates, failures are visible and retryable, and pre
   const calls = []
   const h = mount(true, (command, args) => {
     calls.push([command, args])
-    if (command === 'probe_cable_driver') return Promise.resolve(false)
+    if (command === 'probe_windows_audio_driver') return Promise.resolve(false)
     return new Promise((_, reject) => { rejectInstall = reject })
   })
   try {
@@ -103,7 +103,7 @@ test('busy actions block duplicates, failures are visible and retryable, and pre
   } finally { act(() => preview.view.unmount()) }
 })
 
-test('Windows permissions settings exposes only the CABLE panel entry', () => {
+test('Windows permissions settings exposes the Quarbor audio panel entry', () => {
   const { SettingsPage } = compile('src/components/SettingsPage.tsx', {
     './SettingsHelp': { SettingsHelp: () => null },
     './DataBackupSettings': { DataBackupSettings: () => null },
@@ -114,12 +114,12 @@ test('Windows permissions settings exposes only the CABLE panel entry', () => {
   act(() => { view = Renderer.create(React.createElement(SettingsPage, {
     platform: 'windows', nativeRuntime: true, section: 'permissions', permissions: {},
     inputDriver: {}, audioDriver: { status: 'installed', action: { status: 'idle' } },
-    backup: {}, onOpenCableDriver: () => opened++, onOpenManagedDriverCleanup: () => cleanupOpened++,
+    backup: {}, onOpenWindowsAudioDriver: () => opened++, onOpenManagedDriverCleanup: () => cleanupOpened++,
   })) })
   try {
     const row = view.root.findByProps({ 'aria-labelledby': 'settings-windows-audio-label' })
     assert.equal(row.findAllByType('button').length, 1)
-    assert.equal(text(row.findByType('button')), '管理 CABLE 驱动')
+    assert.equal(text(row.findByType('button')), '管理 Quarbor 驱动')
     act(() => row.findByType('button').props.onClick())
     assert.equal(opened, 1)
     const cleanup = view.root.findByProps({ 'aria-labelledby': 'settings-quarbor-cleanup-label' })
@@ -128,4 +128,71 @@ test('Windows permissions settings exposes only the CABLE panel entry', () => {
     assert.equal(cleanupOpened, 1)
     assert.equal(opened, 1)
   } finally { act(() => view.unmount()) }
+})
+
+test('driver actions preserve reboot and unknown states instead of inferring them from the requested action', async () => {
+  let result = { rebootRequired: false, logPath: 'vmic-install.log', driverInstalled: true }
+  const h = mount(true, async command => command === 'probe_windows_audio_driver' ? false : result)
+  try {
+    await act(async () => { await h.controller.probe(); await h.controller.run('install') })
+    assert.equal(h.controller.installed, true)
+    assert.equal(h.controller.rebootRequired, false)
+    assert.match(text(h.view.toJSON()), /安装已完成/)
+    assert.doesNotMatch(text(h.view.toJSON()), /请重启 Windows/)
+
+    result = { rebootRequired: true, logPath: 'vmic-remove.log', driverInstalled: true }
+    await act(async () => h.controller.run('uninstall'))
+    assert.equal(h.controller.installed, true, 'a pending removal may still report the device')
+    assert.match(text(h.view.toJSON()), /卸载已提交/)
+    assert.match(text(h.view.toJSON()), /请重启 Windows/)
+
+    result = { rebootRequired: false, logPath: 'vmic-install.log', warning: '无法确认驱动状态：设备枚举失败' }
+    await act(async () => h.controller.run('install'))
+    assert.equal(h.controller.installed, null)
+    assert.match(text(h.view.toJSON()), /安装已完成/)
+    assert.match(text(h.view.root.findByProps({ role: 'alert' })), /设备枚举失败/)
+    assert.equal(h.button('安装驱动').props.disabled, true)
+    await act(async () => h.controller.probe())
+    assert.equal(h.controller.warning, '')
+    assert.equal(h.controller.installed, false)
+    assert.equal(h.button('安装驱动').props.disabled, false)
+  } finally { act(() => h.view.unmount()) }
+})
+
+test('failed or incomplete operations recheck actual state and failed checks keep actions disabled', async () => {
+  let installed = true, statusFails = false
+  const h = mount(true, async command => {
+    if (command === 'probe_windows_audio_driver') {
+      if (statusFails) throw new Error('无法枚举设备')
+      return installed
+    }
+    installed = false
+    throw new Error('操作未完成（299）：驱动包尚未移除。日志：vmic-remove.log')
+  })
+  try {
+    await act(async () => h.controller.probe())
+    await act(async () => h.controller.run('uninstall'))
+    assert.equal(h.controller.installed, false, 'a partial removal can remove the device before failing')
+    assert.match(text(h.view.root.findByProps({ role: 'alert' })), /299.*驱动包尚未移除/)
+    statusFails = true
+    await act(async () => h.controller.probe())
+    assert.equal(h.controller.installed, null)
+    assert.equal(h.button('安装驱动').props.disabled, true)
+    assert.match(text(h.view.toJSON()), /状态未知/)
+  } finally { act(() => h.view.unmount()) }
+})
+
+test('Windows bundle ships the complete Quarbor microphone package in one directory', () => {
+  const config = JSON.parse(readFileSync('src-tauri/tauri.windows.conf.json', 'utf8'))
+  const directory = 'vendor/QuarborVirtualMicrophoneDriverInstaller'
+  const names = [
+    'QuarborVirtualMicrophoneDriverInstaller.exe', 'QuarborVirtualMicrophoneDriver.inf',
+    'QuarborVirtualMicrophoneDriver.sys', 'QuarborVirtualMicrophoneDriver.cat', 'License',
+  ]
+  const resources = config.bundle.resources
+  for (const name of names) {
+    assert.equal(resources[`../${directory}/${name}`], `${directory}/${name}`)
+    assert.equal(existsSync(`${directory}/${name}`), true, `missing bundled resource: ${name}`)
+  }
+  assert.equal(Object.keys(resources).some(path => /vbcable|vb-cable/i.test(path)), false)
 })

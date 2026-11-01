@@ -107,10 +107,10 @@ import { MappingPage } from '../components/MappingPage'
 import { MappingFlowPage } from '../components/MappingFlowPage'
 import { MacPermissionHelperWindow } from '../components/MacPermissionHelperWindow'
 import { useAudioControls } from '../hooks/useAudioControls'
-import { useCableDriver } from '../hooks/useCableDriver'
+import { useWindowsAudioDriver } from '../hooks/useWindowsAudioDriver'
 import { useUserGuide } from '../hooks/useUserGuide'
 import { UserGuideDialog } from '../components/UserGuideDialog'
-import { CableDriverDialog } from '../components/CableDriverDialog'
+import { WindowsAudioDriverDialog } from '../components/WindowsAudioDriverDialog'
 import { ManagedDriverCleanupDialog } from '../components/ManagedDriverCleanupDialog'
 import { logError, logInfo } from '../runtimeLogging'
 import {
@@ -214,8 +214,8 @@ function AppController({
   const [debugMode, setDebugMode] = useState(false)
   const [driverMigrationOpen, setDriverMigrationOpen] = useState(false)
   const [legacyCleanupOpen, setLegacyCleanupOpen] = useState(false)
-  const [cableDriverOpen, setCableDriverOpen] = useState(false)
-  const cableDriver = useCableDriver(nativeRuntime && platform === 'windows')
+  const [windowsAudioDriverOpen, setWindowsAudioDriverOpen] = useState(false)
+  const windowsAudioDriver = useWindowsAudioDriver(nativeRuntime && platform === 'windows')
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
   const [audioTestInstanceGain, setAudioTestInstanceGain] = useState(0)
@@ -1244,7 +1244,8 @@ function AppController({
     try {
       logInfo(`Starting driver action: ${driver}/${action}`)
       const result = await invoke<DriverActionResult>('launch_driver_action', { driver, action })
-      const driverName = driver === 'audio' ? (platform === 'macos' ? 'MiRemoteV 2ch' : 'VB-CABLE') : '按键驱动'
+      const driverName =
+        driver === 'audio' ? (platform === 'macos' ? 'MiRemoteV 2ch' : 'Quarbor Virtual Microphone') : '按键驱动'
       const restartRequired = result.rebootRequired
       const reportedStatus = action === 'install' ? (restartRequired ? 'restartRequired' : 'installed') : 'missing'
       setSystemState(current =>
@@ -1519,16 +1520,18 @@ function AppController({
         ? current
         : setDriverStatus(current, 'audio', 'checking', {
             message:
-              platform === 'macos' ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…' : '正在检查 VB-CABLE 虚拟麦克风…',
+              platform === 'macos'
+                ? '正在检查 MiRemoteV 2ch 与 RC003 语音通道…'
+                : '正在检查 Quarbor Virtual Microphone 虚拟麦克风…',
           }),
     )
     try {
       const probe = await withTimeout(invoke<AudioProbe>('probe_audio_state'), 5_000, '检测超时，请点击“重新检测”再试')
-      const outputName = platform === 'macos' ? 'MiRemoteV 2ch' : '所选语音输出设备'
+      const outputName = platform === 'macos' ? 'MiRemoteV 2ch' : 'Quarbor Virtual Microphone'
       const stateMessage = probe.forwarding
         ? `正在把 RC003 麦克风音频转发到 ${outputName}。`
         : probe.state === 'stopped' && !probe.outputReady
-          ? '尚未选择语音输出设备，当前不会输出声音。'
+          ? '设备语音服务未启用，当前不会输出声音。'
           : probe.state === 'ready'
             ? `${outputName} 已就绪，RC003 语音通道已连接。`
             : probe.state === 'connecting' || probe.state === 'scanning'
@@ -1542,7 +1545,7 @@ function AppController({
             ? stateMessage
             : platform === 'macos'
               ? '未检测到 MiRemoteV 2ch 虚拟麦克风驱动。'
-              : '未检测到所选语音输出设备。',
+              : '未检测到 Quarbor Virtual Microphone 虚拟麦克风驱动。',
         }),
       )
     } catch (error) {
@@ -1688,8 +1691,8 @@ function AppController({
   const DeviceSettingsComponent = deviceSettingsPages[selectedDevice.id]
   const openAudioDriver = () => {
     if (platform === 'windows') {
-      setCableDriverOpen(true)
-      void cableDriver.probe()
+      setWindowsAudioDriverOpen(true)
+      void windowsAudioDriver.probe()
     } else {
       setSettingsSection('permissions')
       navigateToPage('settings')
@@ -1862,7 +1865,7 @@ function AppController({
               debugMode={debugMode}
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
-              onOpenCableDriver={openAudioDriver}
+              onOpenWindowsAudioDriver={openAudioDriver}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2140,7 +2143,7 @@ function AppController({
             onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
             onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
           }}
-          cableDriver={cableDriver}
+          windowsAudioDriver={windowsAudioDriver}
           nativeRuntime={nativeRuntime}
           onOpenSound={() => void openSystemSettings('sound')}
           onComplete={async instanceId => {
@@ -2151,12 +2154,12 @@ function AppController({
           }}
         />
       )}
-      {cableDriverOpen && platform === 'windows' && (
-        <CableDriverDialog
-          controller={cableDriver}
+      {windowsAudioDriverOpen && platform === 'windows' && (
+        <WindowsAudioDriverDialog
+          controller={windowsAudioDriver}
           nativeRuntime={nativeRuntime}
           onOpenSound={() => void openSystemSettings('sound')}
-          onClose={() => setCableDriverOpen(false)}
+          onClose={() => setWindowsAudioDriverOpen(false)}
         />
       )}
       {managedDriverCleanupOpen && platform === 'windows' && (

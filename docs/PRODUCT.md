@@ -24,10 +24,10 @@ local utility rather than a general keyboard automation platform.
   main window is closed.
 - Import and export mappings as JSON, restore defaults, and undo or redo edits.
 - Store all settings and diagnostics locally.
-- Guide Windows users through Quarbor Universal per-device setup and optional VB-CABLE setup, and
+- Guide Windows users through Quarbor Universal per-device setup and optional Quarbor Virtual Microphone setup, and
   macOS users through Input Monitoring, Accessibility, and optional MiRemoteV
   2ch virtual-microphone setup.
-- Forward RC003 voice to VB-CABLE on Windows and MiRemoteV 2ch on macOS.
+- Forward RC003 voice to Quarbor Virtual Microphone on Windows and MiRemoteV 2ch on macOS.
   Voice transport and decoding run inside Axonkey.
 - Adjust voice gain from -30 dB to +30 dB and inspect live audio levels.
 - Show device connection, battery, permissions, and driver status, with setup

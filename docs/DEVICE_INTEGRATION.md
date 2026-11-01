@@ -26,7 +26,8 @@
 | 后台会话 | 打开句柄、协议状态、手势状态、动作队列、取消信号 | 不能由页面组件拥有 |
 
 系统鼠标仍是现有的系统级输入源，当前不按物理鼠标区分。RC003 语音由
-`AudioServiceManager` 按实例维护，实例配置保存自己的输出设备和增益；旧设置页和
+`AudioServiceManager` 按实例维护，实例配置保存自己的增益和启用状态；Windows 固定输出到
+Quarbor Virtual Microphone，macOS 固定输出到 MiRemoteV 2ch，不提供输出设备选择。旧设置页和
 Windows A15 录音保留兼容服务。Windows 和 macOS 的实例语音连接均按绑定蓝牙地址筛选。
 macOS 在已连接外设列表、扫描发现和断线重连中使用同一地址检查，不按名称或列表顺序代替实物身份；
 实例缺少有效地址时要求重新绑定。CoreBluetooth 的公开 UUID 不等于蓝牙地址，当前通过运行时检查的

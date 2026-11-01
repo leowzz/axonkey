@@ -408,7 +408,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: () => null },
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     './IntegrationControls': controls,
-    '../xiaomi-remote/settings/VoiceOutput': { VoiceOutput: () => null },
     '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
     '../xiaomi-remote/view': { xiaomiRemoteView: {} },
     '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: {} },
@@ -423,6 +422,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     two: { state: 'exclusive', driverState: 'connected', driverInstalled: true, recording: true },
   }
   const actions = []
+  const audioDriverRequests = []
   const informationRefreshes = []
   const recordingRequests = []
   let finishRecording
@@ -439,6 +439,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     onInstallDriver: id => actions.push(['install', id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
     onOpenAudioCalibration: id => actions.push(['calibrate', id]),
+    onOpenAudioDriver: () => audioDriverRequests.push('open'),
   })
   const views = []
   const settingsButton = { getBoundingClientRect: () => ({ x: 420, y: 18, width: 30, height: 30 }) }
@@ -546,6 +547,12 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(notice.findAllByType('button').length, 0, 'offline devices cannot start driver installation')
       act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
+      const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav managed-instance-settings-nav' })
+      assert.deepEqual(settingsNavigation.findAllByType('button').map(text), ['设备设置', '设备信息'])
+      const manageAudioDriver = views[0].root.findAllByType('button').find(button => text(button) === '管理驱动')
+      act(() => manageAudioDriver.props.onClick())
+      assert.equal(audioDriverRequests.at(-1), 'open')
+      assert.equal(views[0].root.findAllByType('select').some(select => select.props.id?.endsWith('voice-output')), false)
       assert.ok(text(driverRow).includes('设备不在线'))
       assert.equal(driverRow.findAllByType('button').length, 0)
       act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())

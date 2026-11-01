@@ -24,8 +24,7 @@ entry point uses mode 1 (two sample-rate bits and a four-bit checksum), which
 rejects or conceals real A15 frames. The bundled codec exposes separate G.722.1
 encode/decode entry points while preserving the original Siren7 API.
 
-The native `axonkey-device-pcm` diagnostic event carries `{ instanceId, frame }`.
-The frame contains:
+Decoded PCM frames contain:
 
 - `group`: source little-endian group ID.
 - `sample_rate`: 16000.
@@ -34,13 +33,16 @@ The frame contains:
 - `tail`: eight auxiliary payload bytes; their meaning remains unknown.
 
 Windows forwards decoded PCM directly to that instance's `AudioService` through
-`AudioServiceManager`. A15 reuses the Windows playback implementation without
-starting the RC003 BLE voice worker. Output endpoint, gain, resampling, prebuffer,
-PCM queue and level diagnostics belong to the individual instance. Two A15s and
-an RC003 can run concurrently; stopping one does not clear another's queue.
-Selecting the same Windows playback endpoint still allows Windows to mix their
-outputs. Playback does not depend on a frontend event listener. No audio file is
-written and no speech recognition is performed.
+`AudioServiceManager`, without starting the RC003 BLE voice worker. Every A15 and
+RC003 has its own gain, PCM queue and streaming resampler. One global Windows
+worker mixes these sources by addition, limits clipping, encodes the current
+driver PCM16/PCM24 mono/stereo format and sends it directly through
+`IOCTL_VMIC_WRITE_PCM` to `\\.\QuarborVirtualMicrophone`. The old Windows playback
+endpoint path is no longer used, and no output selection is required. Stopping
+one source clears only its own queue. Data is discarded while the driver is
+disconnected or its capture stream is not running, so opening a recording app
+does not replay old speech. Forwarding does not depend on a frontend event
+listener. No audio file is written and no speech recognition is performed.
 
 Recording status is part of each instance's runtime snapshot; Windows transitions also
 emit `axonkey-device-recording` with `{ instanceId, recording }`. Audio connection
@@ -48,11 +50,22 @@ status follows that instance's driver channel and remains connected between
 recordings, allowing gain calibration to finish after recording stops.
 
 The Windows native pending queue is capped at 32 frames, dropping the oldest on overflow;
-each instance's audio queue retains the existing two-second sample limit. Original HID
-reports remain in the existing report event path. Decode errors are rate-limited
-in the audio log.
+each instance's audio queue retains the existing two-second sample limit. Decode
+errors are rate-limited in the audio log.
+
+The Windows sender refills toward 20 ms of driver FIFO using whole 10 ms blocks,
+rounding the deficit up and limiting writes by available FIFO space. A fractional
+FIFO remainder must not suppress the next block: rounding down can strand decoded
+audio in the application while the driver repeatedly runs short. When enough
+source data is available, the resulting FIFO duration is at least 20 ms and below
+30 ms, independently of source packet boundaries.
 
 Start/stop, disconnect, transport loss and mode changes reset session state.
+On Windows, a missing HID report releases mapped keys and resynchronizes audio.
+Click recording remains active across report gaps and retains the physical voice
+button state, so a repeated pressed report cannot become a second click. Hold
+recording stops on a gap because its release may have been lost. Actual pipe/read
+errors, disabling, shutdown and mode changes continue to stop recording.
 Partial/cross-group/malformed fragments are discarded, duplicate reports ignored.
 The DSP history is reset after reported fragment errors; no time
 stretching or missing-frame insertion is performed. Upstream libsiren may conceal
@@ -93,10 +106,10 @@ A single captured 20 ms group is retained as a regression test, including the
 four identical reports per fragment observed from the driver. No FFmpeg is used
 in the implementation or tests.
 
-The patched Windows app was also verified live through the configured VB-CABLE
-endpoint: an independent WinMM recording of `CABLE Output` captured nonzero PCM
-(peak 17459 at 16 kHz PCM16), with no new A15 decode errors. The Rust library suite
-passed 179 tests, with five existing hardware-dependent tests ignored.
+Before the direct driver integration, a Windows hardware test through VB-CABLE
+captured nonzero A15 PCM (peak 17459 at 16 kHz PCM16) with no new decode errors.
+That historical result validates the decoder; it does not validate the new
+`QuarborVirtualMicrophone` transport, which requires a separate hardware capture.
 
 Instance regression tests cover two physical identities, separate HID edges and
 mappings, profile switch routing, recording settings, unbinding and PCM delivery.

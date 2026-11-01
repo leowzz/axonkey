@@ -4331,9 +4331,6 @@ body:has(.audio-test-dialog[open]) {
 .device-settings-empty span {
   font-size: 13px;
 }
-.xiaomi-output-fields {
-  margin-top: 24px;
-}
 .cmiot-recording-select {
   width: 240px;
   max-width: 100%;
@@ -4343,22 +4340,6 @@ body:has(.audio-test-dialog[open]) {
 .cmiot-recording-select select {
   padding: 0 32px 0 10px;
   font-weight: 400;
-}
-.xiaomi-output-select {
-  width: 320px;
-  max-width: 100%;
-  min-width: 0;
-  min-height: 32px;
-  padding: 5px 8px;
-  border: 1px solid #c7c9cd;
-  border-radius: 4px;
-  color: #303338;
-  background: #fff;
-  font-size: 14px;
-}
-.xiaomi-output-select:focus-visible {
-  outline: 2px solid #2876c5;
-  outline-offset: 2px;
 }
 @media (max-width: 640px) {
   .device-settings-layout {

@@ -1,15 +1,15 @@
 import { useEffect, useRef } from 'react'
 import { ExternalLink, RotateCcw, X } from 'lucide-react'
-import type { CableDriverController } from '../hooks/useCableDriver'
-import './CableDriverDialog.css'
+import type { WindowsAudioDriverController } from '../hooks/useWindowsAudioDriver'
+import './WindowsAudioDriverDialog.css'
 
-export function CableDriverDialog({
+export function WindowsAudioDriverDialog({
   controller,
   nativeRuntime,
   onOpenSound,
   onClose,
 }: {
-  controller: CableDriverController
+  controller: WindowsAudioDriverController
   nativeRuntime: boolean
   onOpenSound: () => void
   onClose: () => void
@@ -28,38 +28,38 @@ export function CableDriverDialog({
   return (
     <dialog
       ref={dialogRef}
-      className="cable-driver-dialog"
-      aria-labelledby="cable-driver-title"
+      className="windows-audio-driver-dialog"
+      aria-labelledby="windows-audio-driver-title"
       onCancel={onClose}
       onClick={event => {
         if (event.target === event.currentTarget) onClose()
       }}
     >
-      <div className="cable-driver-content">
+      <div className="windows-audio-driver-content">
         <header className="behavior-dialog-head">
-          <h2 id="cable-driver-title">CABLE 虚拟麦克风驱动</h2>
+          <h2 id="windows-audio-driver-title">Quarbor 虚拟麦克风驱动</h2>
           <button type="button" className="dialog-close" aria-label="关闭虚拟麦克风管理" onClick={onClose} autoFocus>
             <X size={18} aria-hidden="true" />
           </button>
         </header>
         <div className="behavior-dialog-body">
-          <CableDriverContent controller={controller} nativeRuntime={nativeRuntime} onOpenSound={onOpenSound} />
+          <WindowsAudioDriverContent controller={controller} nativeRuntime={nativeRuntime} onOpenSound={onOpenSound} />
         </div>
       </div>
     </dialog>
   )
 }
 
-export function CableDriverContent({
+export function WindowsAudioDriverContent({
   controller,
   nativeRuntime,
   onOpenSound,
 }: {
-  controller: CableDriverController
+  controller: WindowsAudioDriverController
   nativeRuntime: boolean
   onOpenSound: () => void
 }) {
-  const { installed, busy, error, message, rebootRequired } = controller
+  const { installed, busy, error, message, warning, rebootRequired } = controller
   const status = !nativeRuntime
     ? '未检测'
     : busy === 'checking'
@@ -69,21 +69,25 @@ export function CableDriverContent({
         : busy === 'uninstall'
           ? '正在卸载…'
           : installed === null
-            ? '未检测'
+            ? error || warning
+              ? '状态未知'
+              : '未检测'
             : installed
               ? '已安装'
               : '未安装'
 
   return (
-    <div className="cable-driver-panel">
+    <div className="windows-audio-driver-panel">
       {!nativeRuntime && (
-        <p className="cable-driver-message">浏览器预览无法检测或管理系统驱动，请使用 Windows 桌面版。</p>
+        <p className="windows-audio-driver-message">浏览器预览无法检测或管理系统驱动，请使用 Windows 桌面版。</p>
       )}
       <div className="settings-form-fields">
         <div className="settings-form-row">
           <span className="settings-form-label">驱动状态：</span>
           <div className="settings-form-control" role="status" aria-live="polite">
-            <strong className={`settings-permission-status ${nativeRuntime && installed && !busy ? 'granted' : ''}`}>
+            <strong
+              className={`settings-permission-status ${nativeRuntime && installed && !busy && !rebootRequired ? 'granted' : ''}`}
+            >
               {status}
             </strong>
             <button
@@ -120,26 +124,31 @@ export function CableDriverContent({
           </div>
         </div>
       </div>
-      <p className="cable-driver-routing">
-        设备语音输出选择 <strong>CABLE Input</strong>，录音或语音输入软件的麦克风选择 <strong>CABLE Output</strong>。
+      <p className="windows-audio-driver-routing">
+        录音或语音输入软件的麦克风选择 <strong>Quarbor Virtual Microphone</strong>。
       </p>
       {(busy === 'install' || busy === 'uninstall') && (
-        <p className="cable-driver-message" role="status">
-          请完成 Windows 管理员授权及安装器操作。
+        <p className="windows-audio-driver-message" role="status">
+          请完成 Windows 管理员授权，等待驱动操作结束。
         </p>
       )}
       {rebootRequired && (
-        <p className="cable-driver-message" role="status">
+        <p className="windows-audio-driver-message" role="status">
           请重启 Windows 完成驱动变更。
         </p>
       )}
       {error && (
-        <p className="settings-form-error cable-driver-message" role="alert">
+        <p className="settings-form-error windows-audio-driver-message" role="alert">
           {error}
         </p>
       )}
+      {warning && (
+        <p className="settings-form-error windows-audio-driver-message" role="alert">
+          {warning}
+        </p>
+      )}
       {message && (
-        <p className="cable-driver-message" role="status">
+        <p className="windows-audio-driver-message" role="status">
           {message}
         </p>
       )}

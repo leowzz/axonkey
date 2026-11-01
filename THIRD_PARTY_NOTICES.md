@@ -104,33 +104,26 @@ for commercial distribution or integration into a commercial software product,
 and restricts modification and resale. The full vendor license controls these
 permissions; Axonkey does not relicense the driver or SDK.
 
-## VB-Audio VB-CABLE Pack45
+## QuarborVirtualMicrophoneDriver
 
-Copyright (C) 2010-2024 V. Burel / VB-Audio Software. All rights reserved.
+- Project: `QuarborVirtualMicrophoneDriver`
+- Vendor: 通化奇桦科技有限公司 / Quarbor Logic Technologies Inc.
+- Bundled INF driver version: `0.2.0.2` (`DriverVer = 11/01/2026,0.2.0.2`)
+- Copyright (c) 2026 通化奇桦科技有限公司 Quarbor Logic Technologies Inc.
 
-Product page: [VB-Audio VB-CABLE](https://vb-audio.com/Cable/)
+Axonkey's Windows bundle includes the original installer EXE, INF, SYS, catalog
+and license under `vendor/QuarborVirtualMicrophoneDriverInstaller`. The driver
+exposes the fixed Quarbor Virtual Microphone capture endpoint; Axonkey sends
+decoded remote PCM directly through its control interface.
 
-Licensing and distribution terms: [VB-Audio licensing](https://vb-audio.com/Services/licensing.htm)
+Installation and removal use the vendor installer, which requests administrator
+permission when needed and reports whether Windows must restart. Its command-line
+contract is documented in the [installer manual](vendor/QuarborVirtualMicrophoneDriverInstaller/SDK/INSTALL_USER_MANUAL.md).
 
-Axonkey's Windows bundle includes the official `VBCABLE_Driver_Pack45.zip` package without
-modification and launches its x64 setup program only after an explicit user
-action. VB-CABLE is Donationware. Users who find it useful or use it
-professionally are invited to donate or purchase a license from VB-Audio.
-
-Installing or removing VB-CABLE requires administrator permission and a Windows
-reboot. Axonkey verifies the package SHA-256, the extracted installer SHA-256,
-and the installer's Authenticode publisher signature before launching it.
-
-Reviewed binary hashes (SHA-256):
-
-- `VBCABLE_Driver_Pack45.zip`: `B950E39F01AF1D04EA623C8F6D8EB9B6EA5C477C637295FABF20631C85116BFB`
-- Packaged `VBCABLE_Setup_x64.exe`: `734C35DFA6D98F48782A451633CEB471166EC70D60482FD89A1123D0EE3C4F41`
-
-The upstream package contains its complete end-user license in `readme.txt`.
-That license allows redistribution of the unmodified package and requires the
-author's agreement to integrate it into another software installation procedure.
-Donationware does not mean that the driver is open source.
-Additional provenance is recorded in [vendor/vbcable/SOURCE.md](vendor/vbcable/SOURCE.md).
+This is proprietary software governed by the vendor's
+[Free Use / No Resale License](vendor/QuarborVirtualMicrophoneDriverInstaller/License).
+The original software and copyright notices are retained. Axonkey does not
+relicense the driver or SDK; the full vendor license controls use and distribution.
 
 ## hidapi
 
@@ -209,7 +202,7 @@ entries are enabled by the Windows target section of `src-tauri/Cargo.toml`.
 | [semver](https://github.com/dtolnay/semver) | 1.0.28 | MIT OR Apache-2.0 | Release version comparison |
 | [log](https://github.com/rust-lang/log) | 0.4.34 | MIT OR Apache-2.0 | Runtime logging |
 | [sha2](https://github.com/RustCrypto/hashes) | 0.10.9 | MIT OR Apache-2.0 | SHA-256 hashing |
-| [CPAL](https://github.com/RustAudio/cpal) (`cpal`) | 0.18.2 | Apache-2.0 | Windows audio device access and PCM playback |
+| [Rubato](https://github.com/HEnquist/rubato) (`rubato`) | 0.16.2 | MIT | Windows PCM resampling for Quarbor Virtual Microphone |
 | [Prost](https://github.com/tokio-rs/prost) (`prost`) | 0.14.4 | Apache-2.0 | Windows Quarbor protocol encoding and decoding |
 | [Tokio](https://github.com/tokio-rs/tokio) (`tokio`) | 1.53.1 | MIT | Windows asynchronous named-pipe I/O |
 | [windows-rs](https://github.com/microsoft/windows-rs) (`windows`, `windows-collections`) | 0.61.3 / 0.2.0 | MIT OR Apache-2.0 | Windows and WinRT API bindings |

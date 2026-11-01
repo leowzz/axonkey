@@ -20,7 +20,7 @@
 
 1. 安装并打开 Axonkey。
 2. 使用遥控器时，先在系统蓝牙设置中配对 RC003，并按任意键唤醒它。
-3. 添加 RC003 后，在它的设备工作区安装 Quarbor 输入驱动；需要语音时，再安装 VB-CABLE。
+3. 添加 RC003 后，在它的设备工作区安装 Quarbor 输入驱动；需要语音时，再安装 Quarbor Virtual Microphone。
 4. 按页面提示重新连接设备或重启 Windows。
 5. 在“映射”中选择设备、按键和触发方式，设置目标行为，确认对应功能开关已开启。
 
@@ -91,12 +91,12 @@ macOS 返回键默认是 Delete（退格），音量键保持系统音量调节�
 
 | 系统 | 麦克风 |
 | --- | --- |
-| Windows | `CABLE Output (VB-Audio Virtual Cable)` |
+| Windows | `Quarbor Virtual Microphone` |
 | macOS | `MiRemoteV 2ch` |
 
 按住 RC003 语音键说话；可在 Axonkey 调节语音增益（−30 dB 至 +30 dB）。
 
-Windows 的扬声器输出请保留真实耳机或扬声器，不要改成 `CABLE Input`。VB-CABLE 安装后需要重启 Windows，其使用条款见 [第三方说明](../THIRD_PARTY_NOTICES.md#vb-audio-vb-cable-pack45)。
+Windows 的扬声器输出请保留真实耳机或扬声器；Axonkey 直接写入 Quarbor 虚拟麦克风，无需更改播放设备。安装或卸载后按安装器返回结果决定是否重启 Windows，使用条款见 [第三方说明](../THIRD_PARTY_NOTICES.md#quarborvirtualmicrophonedriver)。
 
 **长时间连续说话仍可能延迟或丢失尾句，macOS 上已观察到此问题。** 详见 [语音问题排查](TROUBLESHOOTING.md#长时间说话时音频延迟)。
 
@@ -145,4 +145,4 @@ Windows 的扬声器输出请保留真实耳机或扬声器，不要改成 `CABL
 
 不同版本共用应用及配置目录，手动安装会覆盖已有应用；需要备份时先导出配置。更新机制与发布规则见 [自动更新](AUTO_UPDATE.md)。
 
-Windows 卸载应用时会尝试移除 Quarbor 驱动绑定；驱动卸载失败或取消授权也不会阻止应用卸载。只想卸载输入驱动时，可使用应用内“卸载驱动”；手动操作见 [Windows 驱动卸载](WINDOWS_INPUT.md#卸载输入驱动)。
+Windows 卸载应用时会尝试移除 Quarbor 输入驱动绑定和虚拟麦克风驱动；驱动卸载失败或取消授权也不会阻止应用卸载。单独卸载音频驱动可在“虚拟麦克风”的“管理 Quarbor 驱动”中操作；输入驱动手动卸载见 [Windows 驱动卸载](WINDOWS_INPUT.md#卸载输入驱动)。

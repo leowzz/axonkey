@@ -23,7 +23,7 @@ type SettingsPageProps = {
   debugMode: boolean
   onOpenDriverMigration: () => void
   onOpenLegacyCleanup: () => void
-  onOpenCableDriver: () => void
+  onOpenWindowsAudioDriver: () => void
   onOpenUserGuide: () => void
   onOpenDevtools: () => void
   onBack: () => void
@@ -66,7 +66,7 @@ export function SettingsPage({
   debugMode,
   onOpenDriverMigration,
   onOpenLegacyCleanup,
-  onOpenCableDriver,
+  onOpenWindowsAudioDriver,
   onOpenUserGuide,
   onOpenDevtools,
   onBack,
@@ -465,8 +465,8 @@ export function SettingsPage({
                       虚拟麦克风：
                     </span>
                     <div className="settings-form-control">
-                      <button type="button" className="dialog-secondary" onClick={onOpenCableDriver}>
-                        管理 CABLE 驱动
+                      <button type="button" className="dialog-secondary" onClick={onOpenWindowsAudioDriver}>
+                        管理 Quarbor 驱动
                         <ExternalLink size={14} />
                       </button>
                     </div>

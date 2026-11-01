@@ -38,7 +38,7 @@ test('legacy cleanup is provided by the standalone C++ Windows executable', () =
   assert.match(source, /SetBkMode\([^\n]+TRANSPARENT/)
   assert.doesNotMatch(source, /CreateFont|WM_SETFONT/)
   assert.match(source, /--headless/)
-  const legacyLaunch = tauriSource.slice(tauriSource.indexOf('let mut command = if driver == "legacy"'), tauriSource.indexOf('command.creation_flags(CREATE_NO_WINDOW)', tauriSource.indexOf('let mut command = if driver == "legacy"')))
+  const legacyLaunch = tauriSource.slice(tauriSource.indexOf('fn run_driver_action('), tauriSource.indexOf('command.creation_flags(CREATE_NO_WINDOW)', tauriSource.indexOf('fn run_driver_action(')))
   assert.match(legacyLaunch, /\.arg\("--confirmed"\)/)
   assert.match(legacyLaunch, /\.arg\("--headless"\)/)
   assert.doesNotMatch(legacyLaunch, /--auto-close/)

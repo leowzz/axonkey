@@ -14,6 +14,8 @@ mod recording_overlay;
 mod release_update;
 #[cfg(target_os = "windows")]
 mod windows_driver_devices;
+#[cfg(target_os = "windows")]
+mod windows_vmic;
 
 use audio_service::{AudioServiceManager, AudioServiceStatus, AudioTarget};
 use input_service::managed::{
@@ -344,7 +346,6 @@ fn find_driver_helper(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("legacy", "cleanup" | "status") => "uninstall-old-driver.exe",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -382,13 +383,17 @@ enum DriverInstallationState {
     RestartBeforeInstall,
 }
 
-#[derive(serde::Serialize)]
+#[derive(Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DriverActionResult {
     log_path: String,
     reboot_required: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     installation_state: Option<DriverInstallationState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    driver_installed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -421,7 +426,7 @@ fn driver_log_path(
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
     let file_name = if driver == "audio" {
-        format!("vbcable-{action}.log")
+        format!("quarbor-vmic-{action}.log")
     } else if driver == "legacy" {
         "old-driver-uninstall.log".to_string()
     } else {
@@ -518,6 +523,7 @@ end run"#;
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: false,
         installation_state: None,
+        ..Default::default()
     })
 }
 
@@ -551,31 +557,12 @@ fn run_driver_action(
             use std::io::Write;
             writeln!(file, "Helper: {}", helper.display())
         });
-    let mut command = if driver == "legacy" {
-        let mut command = std::process::Command::new(&helper);
-        command
-            .arg("--confirmed")
-            .arg("--headless")
-            .arg("--log-path")
-            .arg(&log_path);
-        command
-    } else {
-        let mut command = std::process::Command::new("powershell.exe");
-        command
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-WindowStyle")
-            .arg("Hidden")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(&helper)
-            .arg("-Action")
-            .arg(action)
-            .arg("-LogPath")
-            .arg(&log_path);
-        command
-    };
+    let mut command = std::process::Command::new(&helper);
+    command
+        .arg("--confirmed")
+        .arg("--headless")
+        .arg("--log-path")
+        .arg(&log_path);
     command.creation_flags(CREATE_NO_WINDOW);
     let output = command
         .stdin(Stdio::null())
@@ -638,6 +625,7 @@ fn run_driver_action(
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: true,
         installation_state: None,
+        ..Default::default()
     })
 }
 
@@ -664,7 +652,8 @@ async fn launch_driver_action(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         tauri::async_runtime::spawn_blocking(move || {
-            run_driver_action(&_app, &driver, &action, &resource_dir)
+            let log_path = driver_log_path(&_app, "audio", &action)?;
+            windows_vmic::installer::run(&resource_dir, &action, &log_path)
         })
         .await
         .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
@@ -721,6 +710,7 @@ fn run_device_driver_action(
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: reply.reboot_required || reply.exit_code == 3010,
         installation_state: reply.installation_state,
+        ..Default::default()
     })
 }
 
@@ -744,6 +734,7 @@ fn run_uninstall_all_driver_action(
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: reply.reboot_required || reply.exit_code == 3010,
         installation_state: None,
+        ..Default::default()
     })
 }
 
@@ -1041,7 +1032,6 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 #[tauri::command]
 fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
-        "vbcable" => "https://vb-audio.com/Cable/",
         "github" => "https://github.com/leowzz/axonkey",
         "releases" => "https://github.com/leowzz/axonkey/releases",
         _ => return Err("Unsupported external page".into()),
@@ -1184,22 +1174,22 @@ fn probe_audio_available(
 }
 
 #[tauri::command]
-fn probe_cable_driver() -> Result<bool, String> {
+async fn probe_windows_audio_driver(app: tauri::AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        use winreg::{enums::HKEY_LOCAL_MACHINE, RegKey};
-        // Match the service checked by vbcable-driver.ps1, independently of
-        // remote connections and the user's selected playback endpoint.
-        match RegKey::predef(HKEY_LOCAL_MACHINE)
-            .open_subkey(r"SYSTEM\CurrentControlSet\Services\VBAudioVACMME")
-        {
-            Ok(_) => Ok(true),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-            Err(error) => Err(format!("无法读取 CABLE 驱动状态：{error}")),
-        }
+        let resources = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || windows_vmic::installer::probe(&resources))
+            .await
+            .map_err(|error| format!("虚拟麦克风检测任务失败：{error}"))?
     }
     #[cfg(not(target_os = "windows"))]
-    Err("CABLE 驱动管理仅支持 Windows".into())
+    {
+        let _ = app;
+        Err("Quarbor 虚拟麦克风驱动管理仅支持 Windows".into())
+    }
 }
 
 #[tauri::command]
@@ -1209,45 +1199,6 @@ fn probe_audio_state(
 ) -> AudioServiceStatus {
     audio_service.refresh(instance_id.as_deref());
     audio_service.status(instance_id.as_deref())
-}
-
-fn default_voice_output_device() -> Option<String> {
-    #[cfg(target_os = "windows")]
-    {
-        use cpal::traits::{DeviceTrait, HostTrait};
-        let host = cpal::default_host();
-        let devices: Vec<String> = host
-            .output_devices()
-            .map(|devices| {
-                devices
-                    .filter_map(|device| {
-                        device
-                            .description()
-                            .ok()
-                            .map(|description| description.name().to_string())
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let preferred = devices.iter().find(|name| {
-            let normalized = name.trim().to_ascii_lowercase();
-            normalized.starts_with("cable input") && !normalized.contains("16ch")
-        });
-        return preferred
-            .cloned()
-            .or_else(|| {
-                host.default_output_device()
-                    .and_then(|device| device.description().ok())
-                    .map(|description| description.name().to_string())
-            })
-            .or_else(|| devices.first().cloned());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        return Some("MiRemoteV 2ch".to_string());
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    None
 }
 
 fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
@@ -1273,48 +1224,11 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
                 instance_id: instance.id.clone(),
                 kind: instance.kind.clone(),
                 voice_target,
-                output_device: instance
-                    .voice_output_device
-                    .clone()
-                    .map(|device| device.trim().to_string())
-                    .filter(|device| !device.is_empty()),
                 gain_db: instance.audio_gain_db,
                 enabled: instance.enabled && instance.binding.is_some(),
             }
         })
         .collect()
-}
-
-#[tauri::command]
-async fn list_voice_output_devices() -> Result<Vec<String>, String> {
-    tauri::async_runtime::spawn_blocking(|| {
-        #[cfg(target_os = "windows")]
-        {
-            use cpal::traits::{DeviceTrait, HostTrait};
-            let host = cpal::default_host();
-            let devices = host
-                .output_devices()
-                .map_err(|error| format!("无法获取音频输出设备：{error}"))?;
-            devices
-                .map(|device| {
-                    device
-                        .description()
-                        .map(|description| description.name().to_string())
-                        .map_err(|error| format!("无法读取音频输出设备名称：{error}"))
-                })
-                .collect()
-        }
-        #[cfg(target_os = "macos")]
-        {
-            Ok(vec!["MiRemoteV 2ch".to_string()])
-        }
-        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-        {
-            Err("当前系统暂不支持语音输出设备列表".to_string())
-        }
-    })
-    .await
-    .map_err(|error| format!("获取音频输出设备失败：{error}"))?
 }
 
 #[tauri::command]
@@ -1500,13 +1414,10 @@ fn device_snapshot(
 #[tauri::command]
 fn put_device_instance(
     revision: u64,
-    mut instance: DeviceInstance,
+    instance: DeviceInstance,
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
-    if instance.voice_output_device.is_none() {
-        instance.voice_output_device = default_voice_output_device();
-    }
     let snapshot = manager.put(revision, instance)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
     Ok(snapshot)
@@ -1731,6 +1642,8 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             legacy_cleanup::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
+            #[cfg(target_os = "windows")]
+            windows_vmic::start();
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1785,8 +1698,7 @@ pub fn run() {
             probe_system_state,
             probe_audio_available,
             probe_audio_state,
-            probe_cable_driver,
-            list_voice_output_devices,
+            probe_windows_audio_driver,
             restart_audio_service,
             get_audio_test_state,
             set_audio_gain,

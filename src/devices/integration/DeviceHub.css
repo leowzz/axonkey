@@ -622,17 +622,6 @@ body:has(.managed-discovery-help-dialog[open]),
   font-size: 13px;
   font-weight: 600;
 }
-.managed-instance-output-panel {
-  max-width: 720px;
-  margin-top: 24px;
-  padding: 4px 18px 18px;
-  border: 1px solid #dce6ee;
-  border-radius: 10px;
-  background: rgb(255 255 255 / 55%);
-}
-.managed-instance-output-panel .xiaomi-output-fields {
-  margin-top: 12px;
-}
 .managed-instance-settings button {
   padding: 7px 10px;
   color: #547a9c;

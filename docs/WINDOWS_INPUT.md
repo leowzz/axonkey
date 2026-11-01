@@ -20,7 +20,7 @@ Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28
 
 设备工作区直接运行随包提供的 `QuarborUniversalKeyboardDriverInstaller.exe`：`--list` 以普通权限查询设备，安装使用当前实例对应的 `--install <instanceId>`，由安装器自行请求 UAC。由于安装器是 GUI 子系统程序，应用按 SDK 约定通过唯一临时 JSON 文件读取结果，不依赖 stdout。实例运行时只连接自己匹配的 Quarbor 节点；状态查询使用 JSON 的 `bound` / `recoveryActive` 字段，操作按退出码和 `rebootRequired` 提示重启，取消 UAC 单独显示。接口见 [Quarbor 安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
-RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 VB-CABLE；Axonkey 解码音频并输出到 `CABLE Input`，录音应用选择 `CABLE Output`。
+RC003 语音由独立 Bluetooth GATT 链路处理。需要语音时安装 Quarbor Virtual Microphone；Axonkey 解码音频后通过 IOCTL 直接写入驱动，录音应用选择 `Quarbor Virtual Microphone`。CMIOT-A15 解码后的语音也通过同一虚拟麦克风输出。
 
 ## 从旧版迁移
 
@@ -50,13 +50,13 @@ $rc003Id = 'RC003 的完整设备实例 ID'
 
 查询不请求管理员权限；安装器在安装、卸载时自行申请 UAC，并管理驱动包和设备恢复记录。应用安装只对当前 RC003 实例对应的设备节点执行操作。退出码 `3010` 表示需要重启，`1223` 表示取消授权。完整说明见 [安装器 CLI 文档](../vendor/QuarborUniversalKeyboardDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
-在仓库根目录也可以手动启动经过校验的 VB-CABLE 安装流程：
+在仓库根目录也可以手动启动 Quarbor 虚拟麦克风安装器：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\vbcable-driver.ps1 -Action install
+& .\vendor\QuarborVirtualMicrophoneDriverInstaller\QuarborVirtualMicrophoneDriverInstaller.exe --install
 ```
 
-该脚本校验未修改的官方 Pack45 ZIP、x64 安装器哈希和发布者签名，随后申请管理员权限并打开 VB-Audio 官方安装窗口。安装完成后需要重启 Windows，录音设备列表中会出现 `CABLE Output (VB-Audio Virtual Cable)`。
+安装器自行申请管理员权限，只有结果提示需要重启时才需重启 Windows。应用通过 `--status` 查询设备是否存在，通过 `--install` / `--uninstall` 管理驱动，并读取 `--output` JSON 文件中的结果、设备状态和重启要求。设备存在（包括隐藏设备）不代表麦克风当前可用，实际音频连接状态由运行时单独报告。取消授权、未完成项和状态查询失败会在页面显示。完整说明见 [虚拟麦克风安装器手册](../vendor/QuarborVirtualMicrophoneDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
 ## 卸载输入驱动
 

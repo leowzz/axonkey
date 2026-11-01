@@ -13,10 +13,12 @@
       "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.dll": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.dll",
       "../vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.cat": "vendor/QuarborUniversalKeyboardDriverInstaller/QuarborUniversalKeyboardDriver.cat",
       "../vendor/QuarborUniversalKeyboardDriverInstaller/License": "vendor/QuarborUniversalKeyboardDriverInstaller/License",
-      "../scripts/vbcable-driver.ps1": "scripts/vbcable-driver.ps1",
+      "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriverInstaller.exe": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriverInstaller.exe",
+      "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.inf": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.inf",
+      "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.sys": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.sys",
+      "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat",
+      "../vendor/QuarborVirtualMicrophoneDriverInstaller/License": "vendor/QuarborVirtualMicrophoneDriverInstaller/License",
       "../scripts/uninstall-old-driver.exe": "scripts/uninstall-old-driver.exe",
-      "../vendor/vbcable/VBCABLE_Driver_Pack45.zip": "vendor/vbcable/VBCABLE_Driver_Pack45.zip",
-      "../vendor/vbcable/SOURCE.md": "vendor/vbcable/SOURCE.md",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "windows": {

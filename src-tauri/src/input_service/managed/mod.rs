@@ -50,8 +50,6 @@ pub struct Instance {
     #[serde(default)]
     pub binding_pairing_id: Option<String>,
     #[serde(default)]
-    pub voice_output_device: Option<String>,
-    #[serde(default)]
     pub audio_gain_db: i16,
     #[serde(default)]
     pub cmiot_a15_recording_mode: crate::devices::cmiot_a15_recording::RecordingMode,
@@ -1808,6 +1806,19 @@ fn switch_profile(shared: &Shared, id: &str, direction: ProfileDirection, wrap: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_output_selection_is_ignored_and_removed_on_save() {
+        let original = instance("remote", "physical-remote");
+        let mut legacy = serde_json::to_value(&original).unwrap();
+        legacy["voiceOutputDevice"] = serde_json::json!("speakers");
+        let loaded: Instance = serde_json::from_value(legacy).unwrap();
+        assert!(loaded == original);
+        assert!(serde_json::to_value(loaded)
+            .unwrap()
+            .get("voiceOutputDevice")
+            .is_none());
+    }
+
     fn instance(id: &str, binding: &str) -> Instance {
         Instance {
             id: id.into(),
@@ -1816,7 +1827,6 @@ mod tests {
             binding: Some(binding.into()),
             binding_quality: Some("serial".into()),
             binding_pairing_id: None,
-            voice_output_device: None,
             audio_gain_db: 0,
             cmiot_a15_recording_mode: Default::default(),
             voice_target: None,

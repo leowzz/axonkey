@@ -94,6 +94,19 @@ impl ReportState {
             .flat_map(|(_, keys)| keys.into_iter().map(|id| (id, false)))
             .collect()
     }
+
+    // Keep physical F8 state so repeated down reports cannot become a new click.
+    pub(crate) fn release_non_voice(&mut self) -> Vec<(&'static str, bool)> {
+        let mut released = Vec::new();
+        self.active.retain(|&report, keys| {
+            if report == 0xf8 {
+                return true;
+            }
+            released.extend(keys.iter().map(|&id| (id, false)));
+            false
+        });
+        released
+    }
 }
 
 /// One exclusive HID connection. Recording and key mapping consume the same
@@ -346,6 +359,28 @@ mod tests {
         assert_eq!(state.accept(&[3, 0, 0]), vec![("cmiotA15.volumeUp", false)]);
         assert_eq!(state.release_all().len(), 2);
         assert!(state.release_all().is_empty());
+    }
+
+    #[test]
+    fn report_gap_releases_other_keys_without_synthesizing_voice_edges() {
+        let mut state = ReportState::default();
+        let mut voice = [0; 21];
+        voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+        state.accept(&voice);
+        state.accept(&[1, 0, 0, 0x52, 0, 0, 0, 0, 0]);
+        state.accept(&[3, 0xe9, 0]);
+        let mut released = state.release_non_voice();
+        released.sort_unstable();
+        assert_eq!(
+            released,
+            [("cmiotA15.up", false), ("cmiotA15.volumeUp", false)]
+        );
+        assert!(state.accept(&voice).is_empty());
+        voice[3] = 0;
+        assert_eq!(state.accept(&voice), [("cmiotA15.voice", false)]);
+        voice[3] = 1;
+        assert_eq!(state.accept(&voice), [("cmiotA15.voice", true)]);
+        assert_eq!(state.release_all(), [("cmiotA15.voice", false)]);
     }
 
     #[test]

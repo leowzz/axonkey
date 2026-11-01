@@ -33,7 +33,6 @@ const ERROR_NOT_SUPPORTED: u32 = 50;
 #[derive(Clone, Debug, Default)]
 pub(super) struct Metadata {
     pub sequence: u64,
-    pub timestamp: u64,
     pub dropped: u64,
     pub status: u32,
 }
@@ -618,7 +617,6 @@ impl Client {
                 }
                 let metadata = Metadata {
                     sequence: report.sequence,
-                    timestamp: report.timestamp_filetime,
                     dropped: report
                         .queue_overwritten
                         .saturating_add(report.queue_cleared),
@@ -647,7 +645,6 @@ impl Client {
                 self.take_pending(message.request_id)?;
                 Ok(Event::Status(Metadata {
                     sequence: 0,
-                    timestamp: 0,
                     dropped: u64::from(status.queued_reports),
                     status: status.last_read_status,
                 }))

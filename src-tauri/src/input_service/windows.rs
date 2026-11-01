@@ -205,7 +205,7 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
             Err(error) => {
                 quarbor_read_error(context, format!("Quarbor Universal receive: {error}"));
                 context.reader = None;
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::PipeError);
                 break;
             }
         }
@@ -247,7 +247,7 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 || metadata.dropped > context.dropped
             {
                 log::warn!(target: "axonkey::input", "Quarbor HID report gap: previous={:?}, current={}, dropped={}", context.last_sequence, metadata.sequence, metadata.dropped);
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::ReportGap);
             }
             context.last_sequence = Some(metadata.sequence);
             context.dropped = metadata.dropped;
@@ -312,12 +312,12 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Status(metadata) => {
-            if metadata.dropped > context.dropped {
-                quarbor_release_active_usages(context);
+            if metadata.status == 0 && metadata.dropped > context.dropped {
+                quarbor_release_active_usages(context, ReleaseReason::StatusDropped);
             }
             context.dropped = metadata.dropped;
             if metadata.status != 0 {
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::StatusError);
                 quarbor_read_error(
                     context,
                     format!("Quarbor HID read NTSTATUS=0x{:08X}", metadata.status),
@@ -353,17 +353,39 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
 }
 
 #[cfg(windows)]
-fn quarbor_release_active_usages(context: &mut QuarborContext) {
-    // Never replay a queued start after a gap/disconnect has reset recording.
-    context.keys.retain(|key| key.button != "cmiotA15.voice");
-    if let Err(error) = context
-        .a15_recording
-        .stop(|report| send_a15_recording_report(&mut context.reader, report))
-    {
-        quarbor_read_error(context, format!("A15 recording stop: {error}"));
+#[derive(Clone, Copy, Debug)]
+enum ReleaseReason {
+    ReportGap,
+    StatusDropped,
+    StatusError,
+    PipeError,
+    OutputError,
+    Shutdown,
+    #[cfg(test)]
+    Test,
+}
+
+#[cfg(windows)]
+fn quarbor_release_active_usages(context: &mut QuarborContext, reason: ReleaseReason) {
+    let preserve_recording = matches!(
+        reason,
+        ReleaseReason::ReportGap | ReleaseReason::StatusDropped
+    ) && context.a15_recording.preserves_recording_on_gap();
+    if !preserve_recording {
+        // Never replay a queued start after recording has been reset.
+        context.keys.retain(|key| key.button != "cmiotA15.voice");
+        if let Err(error) = context
+            .a15_recording
+            .stop(|report| send_a15_recording_report(&mut context.reader, report))
+        {
+            quarbor_read_error(context, format!("A15 recording stop: {error}"));
+        }
+        context.a15_recording.reset();
     }
-    context.a15_recording.reset();
     context.a15_voice.reset();
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
     context.a15_pcm.clear();
     context.keyboard.reset(
         |key, down| {
@@ -376,7 +398,12 @@ fn quarbor_release_active_usages(context: &mut QuarborContext) {
         },
     );
     context.state_epoch = context.state_epoch.wrapping_add(1);
-    for (button, pressed) in context.a15_reports.release_all() {
+    let released = if preserve_recording {
+        context.a15_reports.release_non_voice()
+    } else {
+        context.a15_reports.release_all()
+    };
+    for (button, pressed) in released {
         context.keys.push_back(RemoteKeyEvent { button, pressed });
     }
     for (button, pressed) in context.xbox_reports.release_all() {
@@ -464,7 +491,7 @@ fn quarbor_output_error(context: &mut QuarborContext, error: std::io::Error) {
         context,
         format!("Quarbor Universal keyboard output: {error}"),
     );
-    quarbor_release_active_usages(context);
+    quarbor_release_active_usages(context, ReleaseReason::OutputError);
 }
 
 #[cfg(not(test))]
@@ -778,7 +805,7 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             Instant::now(),
         );
     }
-    quarbor_release_active_usages(context);
+    quarbor_release_active_usages(context, ReleaseReason::Shutdown);
     if context
         .device_id
         .as_deref()
@@ -873,7 +900,7 @@ fn process_remote_actions(
     now: Instant,
 ) {
     while let Some(frame) = context.a15_pcm.pop_front() {
-        emit_a15_pcm(shared, frame);
+        forward_a15_pcm(shared, frame);
     }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
     for (stop, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
@@ -1138,17 +1165,7 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
             Event::Capabilities(caps) => {
                 log::info!(target: "axonkey::input", "Quarbor Universal capture ready: report_bytes={}, queue_capacity={}, flags=0x{:X}, report_ids={:02X?}", caps.input_report_bytes, caps.queue_capacity, caps.flags, caps.report_ids);
             }
-            Event::Report {
-                metadata, bytes, ..
-            } => {
-                emit_raw_hid_event(
-                    shared,
-                    context.device_id.as_deref().unwrap_or_default(),
-                    metadata,
-                    bytes,
-                );
-            }
-            Event::Status(_) | Event::CommandAccepted(_) => {}
+            Event::Report { .. } | Event::Status(_) | Event::CommandAccepted(_) => {}
         }
     }
     let mut status = shared.status.lock().unwrap();
@@ -1157,50 +1174,6 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
     status.capture_active = context.reader.as_ref().is_some_and(|reader| reader.ready());
     status.device_connected = context.reader.is_some();
     status.error = context.error.clone();
-}
-
-#[cfg(all(windows, not(test)))]
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawHidEvent {
-    instance_id: String,
-    report_sequence: String,
-    timestamp_filetime: String,
-    dropped: String,
-    ntstatus: u32,
-    bytes: Vec<u8>,
-}
-
-#[cfg(all(windows, not(test)))]
-fn emit_raw_hid_event(
-    shared: &Shared,
-    instance_id: &str,
-    metadata: super::windows_quarbor::Metadata,
-    bytes: Vec<u8>,
-) {
-    let app = shared.event_app.read().ok().and_then(|app| app.clone());
-    if let Some(app) = app {
-        let _ = app.emit(
-            "axonkey-raw-hid",
-            RawHidEvent {
-                instance_id: instance_id.into(),
-                report_sequence: metadata.sequence.to_string(),
-                timestamp_filetime: metadata.timestamp.to_string(),
-                dropped: metadata.dropped.to_string(),
-                ntstatus: metadata.status,
-                bytes,
-            },
-        );
-    }
-}
-
-#[cfg(all(windows, test))]
-fn emit_raw_hid_event(
-    _shared: &Shared,
-    _instance_id: &str,
-    _metadata: super::windows_quarbor::Metadata,
-    _bytes: Vec<u8>,
-) {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -1226,23 +1199,18 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
     }
 }
 
-// Feed the existing native audio channel directly; the event remains diagnostic.
 #[cfg(not(test))]
-fn emit_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) {
+fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) {
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
         if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
             audio.push_a15_pcm(shared.instance_id.as_deref(), &frame.samples);
         }
-        let _ = app.emit(
-            "axonkey-device-pcm",
-            serde_json::json!({"instanceId": shared.instance_id, "frame": frame}),
-        );
     }
 }
 
 #[cfg(test)]
-fn emit_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15_fc::PcmFrame) {}
+fn forward_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15_fc::PcmFrame) {}
 
 fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {
@@ -2013,6 +1981,200 @@ mod tests {
             }
         }
 
+        fn a15_report(context: &mut QuarborContext, sequence: u64, bytes: Vec<u8>) {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            quarbor_accept_event(
+                context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence,
+                        dropped: context.dropped,
+                        ..Default::default()
+                    },
+                    bytes,
+                    usages: Err(50),
+                },
+            );
+        }
+
+        #[test]
+        fn a15_click_report_gaps_preserve_real_voice_edges_and_release_right_alt() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            for status_drop in [false, true] {
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true,
+                    "cmiotA15RecordingMode": "click",
+                    "behaviors": {"cmiotA15.voice": {"click": [{"type": "key", "key": "RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let mut voice = vec![0; 21];
+                voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+                a15_report(&mut harness.context, 1, voice.clone());
+                harness.tick(&settings, 0, &[]);
+                assert_eq!(harness.context.keyboard.held.len(), 1);
+
+                if status_drop {
+                    quarbor_accept_event(
+                        &mut harness.context,
+                        Event::Status(Metadata {
+                            dropped: 1,
+                            ..Default::default()
+                        }),
+                    );
+                } else {
+                    a15_report(&mut harness.context, 3, voice.clone());
+                }
+                assert!(
+                    harness.context.keys.is_empty(),
+                    "no synthetic voice release"
+                );
+                harness.tick(&settings, 10, &[]);
+                assert!(harness.context.a15_recording.is_recording());
+                assert!(harness.channel.status().cmiot_a15_recording);
+                assert!(harness.context.keyboard.held.is_empty());
+                MOUSE_KEY_BATCHES.with(|events| {
+                    assert_eq!(*events.borrow(), [vec![(0xa5, 1)], vec![(0xa5, 3)]]);
+                });
+                let mut sequence = harness.context.last_sequence.unwrap();
+                for _ in 0..4 {
+                    sequence += 1;
+                    a15_report(&mut harness.context, sequence, voice.clone());
+                }
+                harness.tick(&settings, 20, &[]);
+                assert!(harness.context.keyboard.held.is_empty());
+                assert!(harness.context.a15_recording.is_recording());
+
+                voice[3] = 0;
+                sequence += 1;
+                a15_report(&mut harness.context, sequence, voice.clone());
+                harness.tick(&settings, 30, &[]);
+                assert!(harness.context.a15_recording.is_recording());
+                voice[3] = 1;
+                sequence += 1;
+                a15_report(&mut harness.context, sequence, voice.clone());
+                harness.tick(&settings, 40, &[]);
+                assert!(!harness.context.a15_recording.is_recording());
+                // A gap after the stop must not turn repeated held F8 into a new press.
+                a15_report(&mut harness.context, sequence + 2, voice);
+                harness.tick(&settings, 50, &[]);
+                assert!(!harness.context.a15_recording.is_recording());
+                assert!(harness.context.keyboard.held.is_empty());
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]);
+                });
+            }
+        }
+
+        #[test]
+        fn a15_click_report_gap_discards_pcm_and_resynchronizes_at_next_fc_group() {
+            use crate::devices::cmiot_a15_recording::RecordingMode;
+            let mut context = QuarborContext::default();
+            context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+            context
+                .a15_recording
+                .synchronize(RecordingMode::Click, true, |_| Ok::<_, ()>(()))
+                .unwrap();
+            context
+                .a15_recording
+                .edge(true, |_| Ok::<_, ()>(()))
+                .unwrap();
+            context.a15_voice.synchronize(true);
+            let reports = [
+                vec![
+                    0xfc, 0x4b, 0x5f, 0, 0, 0x48, 0xbc, 0x92, 0xd4, 0xde, 0xeb, 0x0e, 0xc1, 0x9e,
+                    0x2d, 0x5f, 0xb0, 0x56, 0xe6, 0x9a, 0x06,
+                ],
+                vec![
+                    0xfc, 0x4b, 0x5f, 1, 0, 1, 0xef, 0x2e, 0xb0, 0x4d, 0x0c, 0x71, 0xec, 0x7c,
+                    0xbc, 0x18, 0x30, 0x8c, 0x31, 0xbb, 0xad,
+                ],
+                vec![
+                    0xfc, 0x4b, 0x5f, 2, 0, 0xf2, 2, 0xb2, 0x92, 0x95, 6, 0x21, 0x91, 4, 0, 0x1d,
+                    0, 0, 0, 0, 0,
+                ],
+            ];
+            for (index, report) in reports.iter().enumerate() {
+                a15_report(&mut context, index as u64 + 1, report.clone());
+            }
+            assert_eq!(context.a15_pcm.len(), 1);
+            a15_report(&mut context, 4, reports[0].clone());
+            a15_report(&mut context, 6, reports[1].clone());
+            a15_report(&mut context, 7, reports[2].clone());
+            assert!(context.a15_recording.is_recording());
+            assert!(context.a15_pcm.is_empty());
+            for (index, report) in reports.iter().enumerate() {
+                a15_report(&mut context, index as u64 + 8, report.clone());
+            }
+            let frame = context.a15_pcm.pop_front().unwrap();
+            assert_eq!(frame.group, 0x5f4b);
+            assert_eq!(frame.samples.len(), 320);
+            assert!(context.a15_pcm.is_empty());
+        }
+
+        #[test]
+        fn a15_hold_gaps_and_click_connection_errors_still_stop_recording() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            for (mode, reason) in [
+                ("hold", ReleaseReason::ReportGap),
+                ("hold", ReleaseReason::StatusDropped),
+                ("click", ReleaseReason::StatusError),
+                ("click", ReleaseReason::PipeError),
+                ("click", ReleaseReason::OutputError),
+                ("click", ReleaseReason::Shutdown),
+            ] {
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true, "cmiotA15RecordingMode": mode
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let mut voice = vec![0; 21];
+                voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+                a15_report(&mut harness.context, 1, voice);
+                harness.tick(&settings, 0, &[]);
+                match reason {
+                    ReleaseReason::ReportGap => a15_report(&mut harness.context, 3, vec![0xfc; 21]),
+                    ReleaseReason::StatusDropped | ReleaseReason::StatusError => {
+                        quarbor_accept_event(
+                            &mut harness.context,
+                            Event::Status(Metadata {
+                                dropped: 1,
+                                status: if matches!(reason, ReleaseReason::StatusError) {
+                                    0xc0000001
+                                } else {
+                                    0
+                                },
+                                ..Default::default()
+                            }),
+                        );
+                    }
+                    ReleaseReason::OutputError => quarbor_output_error(
+                        &mut harness.context,
+                        std::io::Error::other("test output failure"),
+                    ),
+                    _ => quarbor_release_active_usages(&mut harness.context, reason),
+                }
+                harness.tick(&settings, 10, &[]);
+                assert!(
+                    !harness.context.a15_recording.is_recording(),
+                    "{mode}: {reason:?}"
+                );
+                assert!(!harness.channel.status().cmiot_a15_recording);
+                assert!(harness.context.a15_pcm.is_empty());
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(
+                        *reports.borrow(),
+                        [[0xfb, 1], [0xfb, 0]],
+                        "{mode}: {reason:?}"
+                    );
+                });
+            }
+        }
+
         #[test]
         fn stopping_a15_from_overlay_never_restarts_recording_on_repeated_clicks() {
             let settings = NativeSettings {
@@ -2109,7 +2271,7 @@ mod tests {
             }
             assert!(harness.context.usage_error.is_none());
             assert_eq!(harness.context.keyboard.held.len(), 1);
-            quarbor_release_active_usages(&mut harness.context);
+            quarbor_release_active_usages(&mut harness.context, ReleaseReason::Test);
             harness.tick(&settings, 40, &[]);
             let updates = updates.lock().unwrap();
             assert!(updates
@@ -2126,7 +2288,7 @@ mod tests {
             assert_eq!(
                 harness.context.events.len(),
                 2,
-                "original reports remain available for diagnostics"
+                "original reports remain available until the batch is drained"
             );
         }
 
@@ -2638,7 +2800,6 @@ mod tests {
         use super::super::windows_quarbor::{Event, Metadata};
         let metadata = |sequence, dropped, status| Metadata {
             sequence,
-            timestamp: 0,
             dropped,
             status,
         };
@@ -2681,7 +2842,6 @@ mod tests {
             Event::Report {
                 metadata: Metadata {
                     sequence: 1,
-                    timestamp: u64::MAX,
                     dropped: 0,
                     status: 0,
                 },
@@ -2700,9 +2860,9 @@ mod tests {
             context.keys.is_empty(),
             "decoder failure must not invent key events"
         );
-        quarbor_release_active_usages(&mut context);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
         assert!(!context.keys.pop_front().unwrap().pressed);
-        quarbor_release_active_usages(&mut context);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
         assert!(context.keys.is_empty());
     }
 
@@ -3220,7 +3380,7 @@ mod tests {
             .unwrap();
         publish_a15_recording(&shared, context.a15_recording.is_recording());
         assert!(shared.status.lock().unwrap().cmiot_a15_recording);
-        quarbor_release_active_usages(&mut context);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
         publish_a15_recording(&shared, context.a15_recording.is_recording());
         assert!(!shared.status.lock().unwrap().cmiot_a15_recording);
     }

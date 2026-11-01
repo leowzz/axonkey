@@ -810,6 +810,8 @@ Section Uninstall
   ClearErrors
   ExecWait '"$INSTDIR\vendor\QuarborUniversalKeyboardDriverInstaller\QuarborUniversalKeyboardDriverInstaller.exe" --uninstall-all' $0
   ClearErrors
+  ExecWait '"$INSTDIR\vendor\QuarborVirtualMicrophoneDriverInstaller\QuarborVirtualMicrophoneDriverInstaller.exe" --uninstall' $0
+  ClearErrors
 
   ; Delete the app directory and its content from disk
   ; Copy main executable

@@ -105,7 +105,7 @@ export function AudioTestDialog({
           : !status.bluetoothConnected
             ? '请连接并唤醒遥控器。'
             : '')
-  const deviceName = platform === 'windows' ? 'CABLE Output' : 'MiRemoteV 2ch'
+  const deviceName = platform === 'windows' ? 'Quarbor Virtual Microphone' : 'MiRemoteV 2ch'
   const adjustedPeak = gainAdjustedLevel(level.peak, audioGain)
   const adjustedMaximum = gainAdjustedLevel(maximum, audioGain)
   const tone = gainLevelTone(adjustedPeak)

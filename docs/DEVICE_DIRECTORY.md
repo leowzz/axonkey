@@ -17,7 +17,6 @@ src/devices/
     buttons.ts              按键定义
     geometry.ts             区域定义
     XiaomiRemoteSettingsPage.tsx
-    settings/VoiceOutput.tsx 输出列表获取及展示
   cmiot-a15-remote/
     definition.ts
     view.ts
@@ -55,7 +54,8 @@ src-tauri/native/devices/xiaomi_remote/
 
 `audio_service` 保留统一入口、公共状态、增益约束、诊断和监测；
 `AudioServiceManager` 按 `instanceId` 管理 RC003 的独立语音服务，每个服务
-拥有自己的蓝牙会话、解码器、PCM 队列、增益和输出设备。`native/macos_pcm_queue.h`
+拥有自己的蓝牙会话、解码器、PCM 队列和增益。输出固定为 Windows 的 Quarbor Virtual Microphone
+或 macOS 的 MiRemoteV 2ch，不保留每设备输出选择。`native/macos_pcm_queue.h`
 是每个 macOS 音频实例使用的 PCM 缓冲实现。
 `input_service` 和 `native/macos_input.m` 仍承载共享输入捕获与映射执行，不能
 整块移入某个型号目录；后续应先明确协议解析与平台输入基础设施的接口。

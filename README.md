@@ -70,7 +70,7 @@
 
 仅使用鼠标快捷操作时，可跳过遥控器蓝牙配对，直接在“映射”中选择鼠标并配置操作。
 
-需要语音输入时，在输入法或录音应用中选择麦克风：macOS 选 `MiRemoteV 2ch`，Windows 选 `CABLE Output`。
+需要语音输入时，在输入法或录音应用中选择麦克风：macOS 选 `MiRemoteV 2ch`，Windows 选 `Quarbor Virtual Microphone`。
 
 详细步骤见 [使用指南](docs/USAGE.md)；无法打开应用、授权失败或按键无响应时，见 [常见问题](docs/TROUBLESHOOTING.md)。
 

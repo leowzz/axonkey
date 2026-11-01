@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal, Speaker } from 'lucide-react'
+import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -17,7 +17,6 @@ import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
-import { VoiceOutput } from '../xiaomi-remote/settings/VoiceOutput'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
 import { xiaomiRemoteView } from '../xiaomi-remote/view'
 import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
@@ -76,7 +75,7 @@ export function InstanceWorkspace({
   useEffect(() => {
     if (!instance.hideDriverMissingReminder) setDriverNoticeDismissed(false)
   }, [instance.hideDriverMissingReminder])
-  const [settingsSection, setSettingsSection] = useState<'overview' | 'output' | 'information'>('overview')
+  const [settingsSection, setSettingsSection] = useState<'overview' | 'information'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
   const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
@@ -463,14 +462,6 @@ export function InstanceWorkspace({
                     <Settings2 size={16} />
                     <span>设备设置</span>
                   </button>
-                  <button
-                    type="button"
-                    aria-current={settingsSection === 'output' ? 'page' : undefined}
-                    onClick={() => setSettingsSection('output')}
-                  >
-                    <Speaker size={16} />
-                    <span>输出选择</span>
-                  </button>
                   {instance.kind !== 'xboxBluetooth' && (
                     <button
                       type="button"
@@ -486,19 +477,9 @@ export function InstanceWorkspace({
                   <div className="managed-instance-settings-heading">
                     <div>
                       <h2 id="managed-instance-settings-title">
-                        {settingsSection === 'information'
-                          ? '设备信息'
-                          : settingsSection === 'overview'
-                            ? '设备设置'
-                            : '输出选择'}
+                        {settingsSection === 'information' ? '设备信息' : '设备设置'}
                       </h2>
-                      {settingsSection !== 'information' && (
-                        <p>
-                          {settingsSection === 'output'
-                            ? '选择语音输出设备，当前仅展示可用设备。'
-                            : '管理设备名称、物理绑定和已有配置。'}
-                        </p>
-                      )}
+                      {settingsSection !== 'information' && <p>管理设备名称、物理绑定和已有配置。</p>}
                     </div>
                     {settingsSection === 'information' && (
                       <button
@@ -527,15 +508,6 @@ export function InstanceWorkspace({
                   </div>
                   {settingsSection === 'information' ? (
                     <DeviceInformationPanel binding={instance.binding} device={boundDevice} native={native} />
-                  ) : settingsSection === 'output' ? (
-                    <div className="managed-instance-output-panel">
-                      <VoiceOutput
-                        onOpenAudioDriver={onOpenAudioDriver}
-                        idPrefix={`instance-${instance.id}`}
-                        value={instance.voiceOutputDevice ?? ''}
-                        onChange={voiceOutputDevice => update(item => ({ ...item, voiceOutputDevice }))}
-                      />
-                    </div>
                   ) : (
                     <>
                       {supportsDriver && platform === 'windows' && (
@@ -574,6 +546,16 @@ export function InstanceWorkspace({
                         </div>
                       )}
                       <div className="settings-form-fields">
+                        {instance.kind !== 'xboxBluetooth' && (platform === 'windows' || platform === 'macos') && (
+                          <div className="settings-form-row">
+                            <span className="settings-form-label">虚拟麦克风：</span>
+                            <div className="settings-form-control">
+                              <button type="button" className="dialog-secondary" onClick={onOpenAudioDriver}>
+                                管理驱动
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
                           <label className="settings-form-row">
                             <span className="settings-form-label">语音录制：</span>

@@ -22,6 +22,10 @@ impl RecordingControl {
     pub(crate) fn is_recording(&self) -> bool {
         self.recording
     }
+
+    pub(crate) fn preserves_recording_on_gap(&self) -> bool {
+        self.enabled && self.mode == RecordingMode::Click
+    }
     pub(crate) fn synchronize<E>(
         &mut self,
         mode: RecordingMode,
