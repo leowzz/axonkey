@@ -3,7 +3,7 @@
 This document records Axonkey's third-party source references, bundled drivers
 and codecs, and direct application dependencies. Package versions below are
 resolved versions from [package-lock.json](package-lock.json) and
-[src-tauri/Cargo.lock](src-tauri/Cargo.lock), checked for Axonkey 2.0.1 on
+[src-tauri/Cargo.lock](src-tauri/Cargo.lock), checked for Axonkey 1.7.10 on
 2026-10-29. Platform-specific components are identified in their entries.
 
 Each component retains its own license. This overview does not enumerate the
