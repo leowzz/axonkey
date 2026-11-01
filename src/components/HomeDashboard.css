@@ -56,6 +56,12 @@
   color: inherit;
   background: transparent;
 }
+.home-microphone-warning[data-closing] {
+  position: relative;
+  z-index: 20;
+  transform-origin: top left;
+  pointer-events: none;
+}
 .home-microphone-warning-close:hover {
   background: rgb(121 90 35 / 10%);
 }

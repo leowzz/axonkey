@@ -1943,7 +1943,7 @@ function AppController({
             <HomeDashboard
               microphoneDriverAbnormal={microphoneDriverAbnormal}
               microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
-              onDismissMicrophoneDriverWarning={() => void dismissMicrophoneDriverWarning()}
+              onDismissMicrophoneDriverWarning={dismissMicrophoneDriverWarning}
               onOpenAudioDriver={openAudioDriver}
               deviceContent={
                 <DeviceHub
