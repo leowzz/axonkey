@@ -24,6 +24,7 @@ type SettingsPageProps = {
   onOpenDriverMigration: () => void
   onOpenLegacyCleanup: () => void
   onOpenWindowsAudioDriver: () => void
+  onOpenVirtualAudioUpgrade: () => void
   onOpenUserGuide: () => void
   onOpenDevtools: () => void
   onBack: () => void
@@ -67,6 +68,7 @@ export function SettingsPage({
   onOpenDriverMigration,
   onOpenLegacyCleanup,
   onOpenWindowsAudioDriver,
+  onOpenVirtualAudioUpgrade,
   onOpenUserGuide,
   onOpenDevtools,
   onBack,
@@ -471,6 +473,23 @@ export function SettingsPage({
                       </button>
                     </div>
                   </section>
+                  {debugMode && (
+                    <section className="settings-form-row" aria-labelledby="settings-virtual-audio-upgrade-label">
+                      <span id="settings-virtual-audio-upgrade-label" className="settings-form-label">
+                        虚拟声卡升级：
+                      </span>
+                      <div className="settings-form-control">
+                        <button
+                          type="button"
+                          className="dialog-secondary"
+                          disabled={!nativeRuntime}
+                          onClick={onOpenVirtualAudioUpgrade}
+                        >
+                          打开升级窗口
+                        </button>
+                      </div>
+                    </section>
+                  )}
                 </div>
               </>
             ) : (

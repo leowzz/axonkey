@@ -19,6 +19,7 @@
       "../vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat": "vendor/QuarborVirtualMicrophoneDriverInstaller/QuarborVirtualMicrophoneDriver.cat",
       "../vendor/QuarborVirtualMicrophoneDriverInstaller/License": "vendor/QuarborVirtualMicrophoneDriverInstaller/License",
       "../scripts/uninstall-old-driver.exe": "scripts/uninstall-old-driver.exe",
+      "../scripts/legacy-audio-cleanup.ps1": "scripts/legacy-audio-cleanup.ps1",
       "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md"
     },
     "windows": {

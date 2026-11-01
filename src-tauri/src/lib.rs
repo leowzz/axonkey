@@ -405,6 +405,14 @@ struct ManagedDriverUninstallFailure {
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LegacyAudioRemovalResult {
+    log_path: String,
+    reboot_required: bool,
+    error: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ManagedDriverUninstallResult {
     device_count: usize,
     uninstalled_count: usize,
@@ -429,6 +437,8 @@ fn driver_log_path(
         format!("quarbor-vmic-{action}.log")
     } else if driver == "legacy" {
         "old-driver-uninstall.log".to_string()
+    } else if driver == "legacy-audio" {
+        "legacy-audio-uninstall.log".to_string()
     } else {
         format!("quarbor-{action}.log")
     };
@@ -627,6 +637,43 @@ fn run_driver_action(
         installation_state: None,
         ..Default::default()
     })
+}
+
+#[tauri::command]
+async fn probe_legacy_audio_driver(_app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resources = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || windows_vmic::legacy::probe(&resources))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok(false)
+}
+
+#[tauri::command]
+async fn uninstall_legacy_audio_driver(
+    _app: tauri::AppHandle,
+) -> Result<LegacyAudioRemovalResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resources = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            let log_path = driver_log_path(&_app, "legacy-audio", "uninstall")?;
+            windows_vmic::legacy::uninstall(&resources, &log_path)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    Err("旧版虚拟声卡清理仅支持 Windows。".into())
 }
 
 #[tauri::command]
@@ -1708,6 +1755,8 @@ pub fn run() {
             get_log_info,
             open_log_directory,
             launch_driver_action,
+            probe_legacy_audio_driver,
+            uninstall_legacy_audio_driver,
             install_device_driver,
             unbind_device_instance,
             uninstall_bound_device_drivers,

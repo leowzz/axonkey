@@ -130,6 +130,34 @@ test('Windows permissions settings exposes the Quarbor audio panel entry', () =>
   } finally { act(() => view.unmount()) }
 })
 
+test('virtual audio upgrade settings entry is Windows debug-only and previews cannot start it', () => {
+  const { SettingsPage } = compile('src/components/SettingsPage.tsx', {
+    './SettingsHelp': { SettingsHelp: () => null },
+    './DataBackupSettings': { DataBackupSettings: () => null },
+    './AutostartControl': { AutostartControl: () => null },
+  })
+  let opened = 0, view
+  const render = (debugMode, nativeRuntime = true, platform = 'windows') => {
+    const element = React.createElement(SettingsPage, {
+      platform, nativeRuntime, debugMode, section: 'permissions', permissions: {},
+      inputDriver: {}, audioDriver: { status: 'installed', action: { status: 'idle' } }, backup: {},
+      onOpenVirtualAudioUpgrade: () => opened++,
+    })
+    act(() => { if (view) view.update(element); else view = Renderer.create(element) })
+    return view.root.findAllByProps({ 'aria-labelledby': 'settings-virtual-audio-upgrade-label' })
+  }
+  try {
+    assert.equal(render(false).length, 0)
+    const [row] = render(true)
+    assert.equal(row.findByType('button').props.disabled, false)
+    act(() => row.findByType('button').props.onClick())
+    assert.equal(opened, 1)
+    assert.equal(render(false).length, 0)
+    assert.equal(render(true, false)[0].findByType('button').props.disabled, true)
+    assert.equal(render(true, true, 'macos').length, 0)
+  } finally { act(() => view.unmount()) }
+})
+
 test('driver actions preserve reboot and unknown states instead of inferring them from the requested action', async () => {
   let result = { rebootRequired: false, logPath: 'vmic-install.log', driverInstalled: true }
   const h = mount(true, async command => command === 'probe_windows_audio_driver' ? false : result)

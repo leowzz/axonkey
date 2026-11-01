@@ -58,6 +58,10 @@ $rc003Id = 'RC003 的完整设备实例 ID'
 
 安装器自行申请管理员权限，只有结果提示需要重启时才需重启 Windows。应用通过 `--status` 查询设备是否存在，通过 `--install` / `--uninstall` 管理驱动，并读取 `--output` JSON 文件中的结果、设备状态和重启要求。设备存在（包括隐藏设备）不代表麦克风当前可用，实际音频连接状态由运行时单独报告。取消授权、未完成项和状态查询失败会在页面显示。完整说明见 [虚拟麦克风安装器手册](../vendor/QuarborVirtualMicrophoneDriverInstaller/SDK/INSTALL_USER_MANUAL.md)。
 
+启动时同时发现旧配置和标准版 VB-CABLE 设备，会先显示“虚拟声卡升级”，确认完成或二次确认跳过后才进入配置迁移。两个升级选项都会先查询 Quarbor 驱动状态，已安装则跳过安装，未安装才调用上述安装器；查询失败时停止操作并允许重试。“只安装新版”保留旧驱动；“卸载VB-CABLE并安装新版”确认新版已安装后再请求管理员权限清理旧驱动。新版安装失败或状态不明时不会卸载旧驱动。升级窗口分别显示 Quarbor 安装与 VB-CABLE 卸载的重启要求；Quarbor 的安装命令及重启判断与设置中的驱动管理窗口相同。
+
+旧驱动清理由 `scripts/legacy-audio-cleanup.ps1` 完成：仅匹配服务 `VBAudioVACMME`、硬件 ID `VBAudioVACWDM` 的设备，读取实际绑定的 OEM INF 并核对包内标识，再调用 `pnputil /delete-driver <oemN.inf> /uninstall /force`。不匹配 Cable A/B、VoiceMeeter 等其他产品，不附带旧版安装器。PnPUtil 返回 3010 时显示重启提醒；不传 `/reboot`，不会自动重启。安装和卸载日志位于应用日志目录。命令及返回码见 [PnPUtil 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax)和[返回值说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-return-values)。
+
 ## 卸载输入驱动
 
 先退出 Axonkey 和其他使用 Quarbor 驱动的工具，再在包含 `vendor` 的目录中运行：

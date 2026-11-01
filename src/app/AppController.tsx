@@ -1,5 +1,6 @@
 import { LegacyCleanupFlow } from '../components/LegacyCleanupDialog'
 import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
+import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
 import { createPortal } from 'react-dom'
@@ -215,6 +216,7 @@ function AppController({
   const [driverMigrationOpen, setDriverMigrationOpen] = useState(false)
   const [legacyCleanupOpen, setLegacyCleanupOpen] = useState(false)
   const [windowsAudioDriverOpen, setWindowsAudioDriverOpen] = useState(false)
+  const [virtualAudioUpgradeOpen, setVirtualAudioUpgradeOpen] = useState(false)
   const windowsAudioDriver = useWindowsAudioDriver(nativeRuntime && platform === 'windows')
   const [audioTestOpen, setAudioTestOpen] = useState(false)
   const [audioTestInstanceId, setAudioTestInstanceId] = useState<string | null>(null)
@@ -1880,6 +1882,7 @@ function AppController({
               onOpenDriverMigration={() => setDriverMigrationOpen(true)}
               onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
               onOpenWindowsAudioDriver={openAudioDriver}
+              onOpenVirtualAudioUpgrade={() => setVirtualAudioUpgradeOpen(true)}
               onBack={() => navigateToPage('home')}
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
@@ -2144,6 +2147,9 @@ function AppController({
       )}
       {driverMigrationOpen && platform === 'windows' && (
         <DriverMigrationFlow onComplete={() => setDriverMigrationOpen(false)} />
+      )}
+      {virtualAudioUpgradeOpen && platform === 'windows' && (
+        <VirtualAudioUpgradeDialog manual onContinue={() => setVirtualAudioUpgradeOpen(false)} />
       )}
       {userGuide.open && (
         <UserGuideDialog

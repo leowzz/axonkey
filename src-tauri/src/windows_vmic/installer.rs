@@ -168,10 +168,15 @@ fn decode_reply(bytes: &[u8], code: Option<i32>, action: &str) -> Result<Reply, 
         || !matches!(reply.outcome.as_str(), "success" | "reboot_required")
     {
         return Err(format!(
-            "Quarbor 虚拟麦克风操作失败（{}）：{} {}",
+            "Quarbor 虚拟麦克风操作失败（{}）：{} {} {}",
             reply.exit_code,
             reply.message,
             reply.warning().unwrap_or_default(),
+            if reply.reboot_required {
+                "需要重启电脑才能完成驱动更改。"
+            } else {
+                ""
+            },
         ));
     }
     Ok(reply)
@@ -224,6 +229,10 @@ mod tests {
         let error =
             decode_reply(&serde_json::to_vec(&value).unwrap(), Some(299), "uninstall").unwrap_err();
         assert!(error.contains("299") && error.contains("驱动包尚未移除"));
+        value["rebootRequired"] = true.into();
+        let error =
+            decode_reply(&serde_json::to_vec(&value).unwrap(), Some(299), "uninstall").unwrap_err();
+        assert!(error.contains("需要重启电脑"));
         let mut value = reply("install", 0, "success", "unknown");
         value["stateError"] = "设备枚举失败".into();
         let decoded =

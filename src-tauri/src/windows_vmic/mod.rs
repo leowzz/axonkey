@@ -1,5 +1,6 @@
 mod device;
 pub(crate) mod installer;
+pub(crate) mod legacy;
 mod pcm;
 
 pub(crate) use device::DriverStatus;
