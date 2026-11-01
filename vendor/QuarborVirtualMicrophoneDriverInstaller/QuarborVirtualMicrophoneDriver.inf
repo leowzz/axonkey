@@ -1,0 +1,125 @@
+[Version]
+Signature   = "$Windows NT$"
+Class       = MEDIA
+Provider    = %ProviderName%
+ClassGUID   = {4d36e96c-e325-11ce-bfc1-08002be10318}
+DriverVer = 11/01/2026,0.2.0.2
+CatalogFile = QuarborVirtualMicrophoneDriver.cat
+PnpLockDown = 1
+
+[SourceDisksNames]
+1 = %DiskName%,,,
+
+[SourceDisksFiles]
+QuarborVirtualMicrophoneDriver.sys = 1
+
+[Manufacturer]
+%MfgName% = QuarborVirtualMicrophone,NTamd64.10.0...17763
+
+[QuarborVirtualMicrophone.NTamd64.10.0...17763]
+%DeviceDesc% = QuarborVirtualMicrophone,ROOT\QUARBORVIRTUALMICROPHONE
+
+[DestinationDirs]
+QuarborVirtualMicrophone.CopyList = 13
+
+[QuarborVirtualMicrophone.CopyList]
+QuarborVirtualMicrophoneDriver.sys
+
+[QuarborVirtualMicrophone.AddReg]
+HKR,,AssociatedFilters,,"wdmaud,swmidi,redbook"
+HKR,,Driver,,QuarborVirtualMicrophoneDriver.sys
+HKR,,FriendlyName,,%DeviceDesc%
+HKR,Branding,icon,,"%13%\QuarborVirtualMicrophoneDriver.sys,101"
+HKR,%MediaCategories%\%MicPinName%,Name,,%DeviceDesc%
+HKR,Drivers,SubClasses,,"wave,midi,mixer"
+HKR,Drivers\wave\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\midi\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\mixer\wdmaud.drv,Driver,,wdmaud.drv
+HKR,Drivers\wave\wdmaud.drv,Description,,%DeviceDesc%
+HKR,Drivers\mixer\wdmaud.drv,Description,,%DeviceDesc%
+
+
+[QuarborVirtualMicrophone.HW.AddReg]
+HKR,,DeviceType,0x10001,0x0000001D
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)(A;;GRGWGX;;;WD)(A;;GRGWGX;;;RC)"
+
+[QuarborVirtualMicrophone.NT]
+Include = ks.inf,wdmaudio.inf
+Needs = KS.Registration,WDMAUDIO.Registration
+CopyFiles = QuarborVirtualMicrophone.CopyList
+AddReg = QuarborVirtualMicrophone.AddReg
+AddProperty = QuarborVirtualMicrophone.DeviceIcon
+
+[QuarborVirtualMicrophone.DeviceIcon]
+DeviceIcon,,,"%13%\QuarborVirtualMicrophoneDriver.sys,-101"
+
+[QuarborVirtualMicrophone.NT.HW]
+AddReg = QuarborVirtualMicrophone.HW.AddReg
+
+[QuarborVirtualMicrophone.NT.Interfaces]
+AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_WaveMicArray1%,QuarborVirtualMicrophone.I.Wave
+AddInterface = %KSCATEGORY_REALTIME%,%KSNAME_WaveMicArray1%,QuarborVirtualMicrophone.I.Wave
+AddInterface = %KSCATEGORY_CAPTURE%,%KSNAME_WaveMicArray1%,QuarborVirtualMicrophone.I.Wave
+AddInterface = %KSCATEGORY_AUDIO%,%KSNAME_TopologyMicArray1%,QuarborVirtualMicrophone.I.Topology
+AddInterface = %KSCATEGORY_TOPOLOGY%,%KSNAME_TopologyMicArray1%,QuarborVirtualMicrophone.I.Topology
+
+[QuarborVirtualMicrophone.I.Wave]
+AddReg = QuarborVirtualMicrophone.I.Wave.AddReg
+
+[QuarborVirtualMicrophone.I.Wave.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%WaveName%
+
+[QuarborVirtualMicrophone.I.Topology]
+AddReg = QuarborVirtualMicrophone.I.Topology.AddReg
+
+[QuarborVirtualMicrophone.I.Topology.AddReg]
+HKR,,CLSID,,%Proxy.CLSID%
+HKR,,FriendlyName,,%TopologyName%
+HKR,EP\0,%PKEY_AudioEndpoint_Association%,,%KSNODETYPE_ANY%
+HKR,EP\0,%PKEY_AudioEndpoint_Supports_EventDriven_Mode%,0x00010001,0x1
+HKR,EP\0,%PKEY_AudioEndpointLogo_IconPath%,,"%13%\QuarborVirtualMicrophoneDriver.sys,-101"
+HKR,EP\0,%PKEY_DeviceClass_IconPath%,,"%13%\QuarborVirtualMicrophoneDriver.sys,-101"
+HKR,EP\0,%PKEY_AudioEngine_OEMFormat%,%REG_BINARY%,41,00,00,00,28,00,00,00,FE,FF,02,00,80,BB,00,00,00,EE,02,00,04,00,10,00,16,00,10,00,03,00,00,00,01,00,00,00,00,00,10,00,80,00,00,AA,00,38,9B,71
+
+[QuarborVirtualMicrophone.NT.Services]
+AddService = QuarborVirtualMicrophoneDriver,0x00000002,QuarborVirtualMicrophone.Service
+
+[QuarborVirtualMicrophone.Service]
+DisplayName = %ServiceDesc%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %13%\QuarborVirtualMicrophoneDriver.sys
+
+[QuarborVirtualMicrophone.NT.Wdf]
+KmdfService = QuarborVirtualMicrophoneDriver,QuarborVirtualMicrophone.Wdf
+
+[QuarborVirtualMicrophone.Wdf]
+KmdfLibraryVersion = 1.27
+
+[Strings]
+ProviderName = "Quarbor Logic Technologies Inc."
+MfgName = "Quarbor Logic Technologies Inc."
+DiskName = "Quarbor Virtual Microphone Driver"
+DeviceDesc = "Quarbor Virtual Microphone"
+ServiceDesc = "Quarbor Virtual Microphone WaveRT Driver"
+WaveName = "Quarbor Virtual Microphone"
+TopologyName = "Quarbor Virtual Microphone"
+Proxy.CLSID = "{17CCA71B-ECD7-11D0-B908-00A0C9223196}"
+KSCATEGORY_AUDIO = "{6994AD04-93EF-11D0-A3CC-00A0C9223196}"
+KSCATEGORY_CAPTURE = "{65E8773D-8F56-11D0-A3B9-00A0C9223196}"
+KSCATEGORY_REALTIME = "{EB115FFC-10C8-4964-831D-6DCB02E6F23F}"
+KSCATEGORY_TOPOLOGY = "{DDA54A40-1E4C-11D1-A050-405705C10000}"
+KSNODETYPE_ANY = "{00000000-0000-0000-0000-000000000000}"
+KSNAME_WaveMicArray1 = "WaveMicArray1"
+KSNAME_TopologyMicArray1 = "TopologyMicArray1"
+MicPinName = "{6AE81FF4-203E-4FE1-88AA-F2D57775CD4A}"
+MediaCategories = "MediaCategories"
+PKEY_AudioEndpoint_Association = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},2"
+PKEY_AudioEndpoint_Supports_EventDriven_Mode = "{1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E},7"
+PKEY_AudioEndpointLogo_IconPath = "{F1AB780D-2010-4ED3-A3A6-8B87F0F0C476},1"
+PKEY_DeviceClass_IconPath = "{259ABFFC-50A7-47CE-AF08-68C9A7D73366},12"
+PKEY_AudioEngine_OEMFormat = "{E4870E26-3CC5-4CD2-BA46-CA0A9A70ED04},3"
+REG_BINARY = 0x00000001
+
