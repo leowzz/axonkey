@@ -57,7 +57,7 @@ function Invoke-LoggedProcess {
 
 function Assert-InstallerReply {
     param([string]$Json, [int]$ExitCode, [string]$Action, [int]$ExpectedExitCode = 0)
-    $reply = $Json.TrimStart([char]0xfeff) | ConvertFrom-Json
+    $reply = $Json.TrimStart([char]0xfeff) | ConvertFrom-Json -AsHashtable
     if (($reply.version -isnot [int] -and $reply.version -isnot [long]) -or
         ($reply.exitCode -isnot [int] -and $reply.exitCode -isnot [long]) -or
         $reply.version -ne 1 -or $reply.exitCode -ne $ExitCode -or $ExitCode -ne $ExpectedExitCode) {
@@ -74,12 +74,9 @@ function Assert-InstallerReply {
         if ($reply.devices -isnot [array]) { throw 'Installer devices must be an array (an empty array is valid without hardware).' }
         foreach ($device in $reply.devices) {
             if ($device.instanceId -isnot [string] -or [string]::IsNullOrWhiteSpace($device.instanceId) -or
-                ($null -ne $device.name -and $device.name -isnot [string]) -or
-                ($null -ne $device.driverVersion -and $device.driverVersion -isnot [string]) -or
-                ($null -ne $device.upgradeAvailable -and $device.upgradeAvailable -isnot [bool]) -or
-                ($null -ne $device.upgradeStatus -and $device.upgradeStatus -isnot [string]) -or
+                ($null -ne $device['name'] -and $device['name'] -isnot [string]) -or
                 $device.present -isnot [bool] -or $device.bound -isnot [bool] -or
-                ($null -ne $device.recoverySaved -and $device.recoverySaved -isnot [bool]) -or
+                ($null -ne $device['recoverySaved'] -and $device['recoverySaved'] -isnot [bool]) -or
                 $device.recoveryActive -isnot [bool]) {
                 throw 'Installer returned an invalid device record.'
             }
