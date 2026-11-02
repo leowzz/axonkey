@@ -13,6 +13,7 @@ const project = join(root, 'tools', 'uninstall-old-driver')
 const solution = join(project, 'uninstall-old-driver.sln')
 const source = join(project, 'uninstall-old-driver.vcxproj')
 const resource = join(root, 'scripts', 'uninstall-old-driver.exe')
+const testMode = process.argv.includes('--test')
 
 function findMsbuild() {
   const candidates = [
@@ -42,11 +43,17 @@ if (!msbuild) {
 }
 
 console.log(`Building uninstall-old-driver with ${msbuild}`)
-const build = spawnSync(msbuild, [solution, '/t:Rebuild', '/m', '/p:Configuration=Release', '/p:Platform=x64'], {
+const build = spawnSync(msbuild, [solution, '/t:Rebuild', '/m', '/p:Configuration=Release', '/p:Platform=x64', ...(testMode ? ['/p:VbCableTests=true'] : [])], {
   cwd: root, env: process.env, stdio: 'inherit', windowsHide: true,
 })
 if (build.error) throw build.error
 if (build.status !== 0) process.exit(build.status || 1)
+
+if (testMode) {
+  const result = spawnSync(join(project, 'bin', 'Tests', 'vbcable-test.exe'), [], { stdio: 'inherit', windowsHide: true })
+  if (result.error) throw result.error
+  process.exit(result.status ?? 1)
+}
 
 const output = join(project, 'bin', 'Release', 'uninstall-old-driver.exe')
 if (!existsSync(output)) {

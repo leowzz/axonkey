@@ -1,6 +1,6 @@
 #import <Foundation/Foundation.h>
 #include <sys/stat.h>
-#import "../src-tauri/native/macos_audio_trace.h"
+#import "../src-tauri/native/devices/xiaomi_remote/macos_audio_trace.h"
 
 int main(void) {
     @autoreleasepool {

@@ -13,7 +13,7 @@ const WAVEFORM_BIN_MS: u64 = 20;
 const MAX_WAVEFORM_POINTS: usize = 30_100;
 const WAVEFORM_ATTACK_SAMPLES: usize = 3_200; // 200 ms at 16 kHz; visualization only.
 
-pub(super) fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
@@ -23,7 +23,7 @@ pub(super) fn now_ms() -> u64 {
 // Must match AKMonitorSnapshot. Counters survive native queue resets.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub(super) struct NativeMonitorSnapshot {
+pub(crate) struct NativeMonitorSnapshot {
     pub uptime_ms: u64,
     pub packets: u64,
     pub session: u64,
@@ -78,7 +78,7 @@ struct WaveformSample {
     count: u64,
 }
 #[derive(Default)]
-pub(super) struct SignalMonitor {
+pub(crate) struct SignalMonitor {
     pub generation: u64,
     last_poll: Option<u64>,
     started_at: u64,

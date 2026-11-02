@@ -1,7 +1,8 @@
 import type { Behavior, BehaviorMap, ButtonId, InputId } from './behaviorModel'
+import type { DeviceId } from './devices/index.ts'
 
-export type MappingInput = {
-  id: InputId
+export type MappingInput<Id extends string = InputId> = {
+  id: Id
   label: string
   icon: RemoteButton['icon']
   triggerLabel?: string
@@ -18,7 +19,23 @@ export type RemoteButton = {
   side: 'left' | 'right'
   x: number
   y: number
-  icon: 'power' | 'mic' | 'up' | 'left' | 'center' | 'right' | 'down' | 'back' | 'volumeUp' | 'volumeDown' | 'home' | 'menu' | 'tv'
+  icon:
+    | 'power'
+    | 'mic'
+    | 'up'
+    | 'left'
+    | 'center'
+    | 'right'
+    | 'down'
+    | 'back'
+    | 'volumeUp'
+    | 'volumeDown'
+    | 'home'
+    | 'menu'
+    | 'tv'
+    | 'mute'
+    | 'settings'
+    | 'm'
 }
 
 export type Platform = 'windows' | 'macos' | 'unsupported'
@@ -30,16 +47,12 @@ export type MacPermissions = {
 }
 
 export type MacPermissionKind = 'inputMonitoring' | 'accessibility'
-export type AppPage = 'home' | 'overview' | 'mapping' | 'settings' | 'about'
-
-export type LegacyDriverProbe = {
-  interception: boolean
-  interceptionFix: boolean
-}
+export type AppPage = 'home' | 'mapping' | 'settings' | 'device-settings'
 
 export type SystemProbe = {
   platform: Platform
-  input_driver_installed: boolean
+  microphone_driver_abnormal: boolean
+  microphone_driver_warning_suppressed: boolean
   rc003_connected: boolean
   input_backend_ready: boolean
   input_backend_error?: string | null
@@ -55,14 +68,47 @@ export type RemoteKeyEvent = {
   pressed: boolean
 }
 
+export type ManagedDriverUninstallResult = {
+  deviceCount: number
+  uninstalledCount: number
+  unboundCount: number
+  rebootRequired: boolean
+  failures: Array<{ instanceId: string; error: string }>
+}
+export type ManagedDriverCleanupState = {
+  status: 'idle' | 'running' | 'done'
+  result?: ManagedDriverUninstallResult
+  error?: string
+}
+
 export type DriverActionResult = {
   logPath: string
   rebootRequired: boolean
+  installationState?: 'installed' | 'reinstalled' | 'restart_before_install'
+  driverInstalled?: boolean
+  warning?: string
+}
+
+export type ManagedDriverAction = {
+  instanceId: string
+  status: 'idle' | 'running' | 'error' | 'restartRequired'
+  error?: string
+  message?: string
 }
 
 export type AudioProbe = {
   driverInstalled: boolean
-  state: 'stopped' | 'driverMissing' | 'bluetoothUnavailable' | 'scanning' | 'connecting' | 'ready' | 'forwarding' | 'error' | 'unknown' | 'unsupported'
+  state:
+    | 'stopped'
+    | 'driverMissing'
+    | 'bluetoothUnavailable'
+    | 'scanning'
+    | 'connecting'
+    | 'ready'
+    | 'forwarding'
+    | 'error'
+    | 'unknown'
+    | 'unsupported'
   bluetoothConnected: boolean
   forwarding: boolean
   receivedData?: boolean
@@ -125,16 +171,10 @@ export type DraftBehaviorState = {
 
 export type ManualKeyOption = { value: string; label: string }
 
-export type Connector = {
-  id: ButtonId
-  side: 'left' | 'right'
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-}
+export type CmiotA15RecordingMode = 'hold' | 'click'
 
 export type StoredSettings = {
+  cmiotA15RecordingMode: CmiotA15RecordingMode
   mouseEdgeWidth: number
   showRemoteKeyGrid: boolean
   showMouseKeyGrid: boolean
@@ -148,14 +188,15 @@ export type StoredSettings = {
   mouseIgnoreScrollAcceleration: boolean
 }
 
-/** A named set of remote-key and mouse input behaviors. */
+/** A named set of input behaviors owned by one device. */
 export type MappingProfile = {
   id: string
   name: string
+  deviceId: DeviceId
   behaviors: BehaviorMap
 }
 
 export type StoredProfiles = {
-  activeProfileId: string
+  activeProfileIds: Record<DeviceId, string>
   profiles: MappingProfile[]
 }

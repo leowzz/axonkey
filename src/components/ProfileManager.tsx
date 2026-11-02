@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MappingProfile } from '../appTypes'
 
 type ProfileManagerProps = {
-  profiles: MappingProfile[]
+  profiles: Pick<MappingProfile, 'id' | 'name'>[]
   activeProfileId: string
   onSwitch: (id: string) => void
   onCreate: () => void

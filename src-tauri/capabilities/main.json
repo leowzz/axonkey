@@ -8,6 +8,8 @@
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
+    "core:path:allow-resolve-directory",
+    "core:path:allow-join",
     "dialog:allow-save",
     "dialog:allow-open",
     "clipboard-manager:allow-read-text",
@@ -18,6 +20,7 @@
     "autostart:allow-disable",
     "updater:default",
     "process:allow-restart",
+    "core:webview:allow-internal-toggle-devtools",
     "core:window:allow-start-dragging"
   ]
 }

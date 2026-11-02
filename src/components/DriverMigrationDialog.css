@@ -1,0 +1,110 @@
+.driver-migration-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(24 32 48 / 38%);
+}
+
+.driver-migration-dialog {
+  width: min(620px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 28px;
+  border: 1px solid #dbe2ed;
+  border-radius: 16px;
+  background: #fff;
+  color: #263247;
+  box-shadow: 0 20px 70px rgb(15 23 42 / 22%);
+}
+.driver-migration-dialog:focus {
+  outline: none;
+}
+.driver-migration-icon {
+  color: #3976cf;
+}
+.driver-migration-dialog h2 {
+  margin: 12px 0 8px;
+  font-size: 21px;
+}
+.driver-migration-dialog p {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.driver-migration-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  font-size: 12px;
+  color: #66758c;
+}
+.driver-migration-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 9px;
+  background: #f1f5fb;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.driver-migration-status[role='alert'] {
+  color: #ad3434;
+  background: #fff1f1;
+}
+.driver-migration-status svg {
+  flex-shrink: 0;
+}
+.driver-migration-dialog details {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.driver-migration-dialog summary {
+  cursor: pointer;
+}
+.driver-migration-dialog ul {
+  padding-left: 20px;
+  max-height: 150px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.driver-migration-dialog li + li {
+  margin-top: 8px;
+}
+.driver-migration-log {
+  overflow-wrap: anywhere;
+  color: #6c788a;
+}
+.driver-migration-warning {
+  color: #a65c13;
+}
+.driver-migration-dialog footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+}
+.driver-migration-dialog footer > span {
+  font-size: 12px;
+  color: #6c788a;
+}
+.driver-migration-spinner {
+  animation: driver-migration-spin 1s linear infinite;
+}
+@keyframes driver-migration-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .driver-migration-spinner {
+    animation: none;
+  }
+}

@@ -1,91 +1,79 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import vm from 'node:vm'
-import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import * as setupModel from '../src/setupModel.ts'
+import { harness, text } from './helpers/driver-dialog-harness.mjs'
 
-const require = createRequire(import.meta.url)
-const module = { exports: {} }
-vm.runInNewContext(ts.transpileModule(readFileSync('src/components/SetupDialog.tsx', 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-}).outputText, {
-  module, exports: module.exports,
-  require: name => name === '../setupModel' ? setupModel : require(name),
-})
-const { SetupDialog } = module.exports
-const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
-
-test('repair service alone shows migration, supports recheck, and blocks cleanup while checking', () => {
-  let rechecks = 0
-  let cleanups = 0
-  let state = setupModel.setLegacyCleanupProbe(
-    setupModel.skipSetup(setupModel.createDefaultSetupState()),
-    { frida: false, interception: false, interceptionFix: true, namedPipeServer: false },
-  )
-  const props = {
-    platform: 'windows', macPermissions: {}, onProbeLegacyCleanup: () => rechecks++, onCleanupLegacy: () => cleanups++,
-  }
-  let view
-  const button = label => view.root.findAllByType('button').find(node => text(node).includes(label))
-  const render = () => act(() => {
-    const element = React.createElement(SetupDialog, { ...props, state })
-    if (view) view.update(element)
-    else view = Renderer.create(element)
+test('standalone cleanup blocks startup, retries failure, and requires a real Windows restart', async () => {
+  let state = { status: 'required', message: '检测到 Interception', logPath: null }
+  const commands = []
+  let attempts = 0
+  const h = harness(async command => {
+    commands.push(command)
+    if (command === 'get_legacy_cleanup') return state
+    if (command === 'run_legacy_cleanup') {
+      attempts++
+      state = attempts === 1
+        ? { status: 'failed', message: '管理员授权取消，请重试', logPath: 'cleanup.log' }
+        : { status: 'rebootRequired', message: '请重启电脑后再打开 Axonkey', logPath: 'cleanup.log' }
+    }
   })
+  let mounted = 0
+  function Child() { React.useEffect(() => { mounted++ }, []); return React.createElement('main', null, '后续启动流程') }
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(h.LegacyCleanupFlow, null, React.createElement(Child)), { createNodeMock: h.nodeMock }) })
+  const click = async () => act(async () => { await view.root.findByType('button').props.onClick() })
   try {
-    render()
-    assert.equal(view.root.findByType('h2').children.join(''), '先卸载旧驱动')
-    const residuals = view.root.findAll(node => node.type === 'section' && node.props.className === 'legacy-cleanup-item present')
-    assert.equal(residuals.length, 1)
-    assert.match(text(residuals[0]), /AxonkeyInterceptionFix/)
-    assert.equal(button('一键卸载旧组件').props.disabled, false)
-    act(() => button('重新检测').props.onClick())
-    assert.equal(rechecks, 1)
-    act(() => button('一键卸载旧组件').props.onClick())
-    assert.equal(cleanups, 1)
-
-    state = setupModel.setLegacyCleanupProbe(state, state.legacyCleanup.components, { checking: true })
-    render()
-    assert.equal(button('一键卸载旧组件').props.disabled, true)
-    assert.equal(button('检测中').props.disabled, true)
-
-    state = setupModel.setLegacyCleanupProbe(state, state.legacyCleanup.components, { error: '工具不可用' })
-    render()
-    assert.match(text(view.toJSON()), /旧驱动检测失败/)
-    assert.match(text(view.toJSON()), /工具不可用/)
-    assert.equal(button('继续连接').props.disabled, true)
-    assert.equal(button('重新检测').props.disabled, false)
-  } finally {
-    act(() => view?.unmount())
-  }
+    assert.equal(mounted, 0)
+    assert.match(text(view.toJSON()), /先卸载旧驱动/)
+    assert.match(text(view.toJSON()), /uninstall-old-driver\.exe/)
+    assert.doesNotMatch(text(view.toJSON()), /QuarborUniversal/)
+    await click(); await h.tick()
+    assert.match(text(view.toJSON()), /管理员授权取消/)
+    await click(); await h.tick()
+    assert.match(text(view.toJSON()), /请重启电脑/)
+    assert.equal(mounted, 0)
+    assert.equal(h.timers.size, 0)
+    assert.equal(view.root.findAllByType('button').length, 1)
+    assert.match(text(view.root.findByType('button')), /重新检测重启状态/)
+    let prevented = false
+    view.root.findByProps({ role: 'presentation' }).props.onKeyDown({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() {} })
+    assert.equal(prevented, true)
+    assert.equal(h.root.inert, true)
+    await click()
+    assert.equal(mounted, 0)
+    assert.match(text(view.toJSON()), /请重启电脑/)
+    state = { status: 'ready', message: '旧驱动已清理', logPath: null }
+    await click()
+    assert.equal(mounted, 1)
+    assert.equal(commands.filter(c => c === 'run_legacy_cleanup').length, 2)
+    assert.equal(commands.filter(c => c === 'check_legacy_cleanup').length, 2)
+  } finally { act(() => view.unmount()) }
 })
 
-test('completed cleanup disables the action until reboot', () => {
-  let state = setupModel.setLegacyCleanupProbe(
-    setupModel.skipSetup(setupModel.createDefaultSetupState()),
-    { frida: false, interception: false, interceptionFix: true, namedPipeServer: false },
-  )
-  state = setupModel.finishLegacyCleanup(state, { success: true, logPath: 'cleanup.log' })
-  const props = {
-    platform: 'windows', macPermissions: {}, state, onProbeLegacyCleanup: () => {}, onCleanupLegacy: () => {},
-  }
+test('startup after uninstall still blocks when the backend reports no Windows restart', async () => {
+  const h = harness(async () => ({ status: 'rebootRequired', message: 'Windows 尚未重启', logPath: null }))
   let view
-  const render = () => act(() => {
-    const element = React.createElement(SetupDialog, props)
-    if (view) view.update(element)
-    else view = Renderer.create(element)
-  })
+  await act(async () => { view = Renderer.create(React.createElement(h.LegacyCleanupFlow, null, React.createElement('main')), { createNodeMock: h.nodeMock }) })
   try {
-    render()
-    const button = view.root.findAllByType('button').find(node => text(node).includes('等待重启'))
-    assert.ok(button)
-    assert.equal(button.props.disabled, true)
-    assert.match(text(view.toJSON()), /卸载已完成，请重启/)
-  } finally {
-    act(() => view?.unmount())
-  }
+    assert.equal(view.root.findAllByType('main').length, 0)
+    assert.match(text(view.toJSON()), /Windows 尚未重启/)
+    assert.doesNotMatch(text(view.root.findByType('button')), /卸载|继续|关闭/)
+  } finally { act(() => view.unmount()) }
+})
+
+test('manual settings entry uses the real checker and returns only when clear', async () => {
+  const commands = []
+  const h = harness(async command => {
+    commands.push(command)
+    if (command === 'get_legacy_cleanup') return { status: 'ready', message: '未检测到旧驱动', logPath: null }
+  })
+  let done = 0, view
+  await act(async () => { view = Renderer.create(React.createElement(h.LegacyCleanupFlow, { onComplete: () => done++ }), { createNodeMock: h.nodeMock }) })
+  try {
+    assert.deepEqual(commands, ['check_legacy_cleanup', 'get_legacy_cleanup'])
+    assert.match(text(view.toJSON()), /未检测到旧驱动/)
+    act(() => view.root.findByType('button').props.onClick())
+    assert.equal(done, 1)
+  } finally { act(() => view.unmount()) }
 })

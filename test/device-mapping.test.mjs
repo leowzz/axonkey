@@ -1,29 +1,67 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { devices, deviceForInput, mouseInputIds, mouseInputId, mouseScopesForControl, remoteButtonIds } from '../src/deviceModel.ts'
+import { devices, deviceForInput, mouseInputIds, mouseInputId, mouseScopesForControl, xiaomiRemoteButtonIds } from '../src/devices/index.ts'
 import { createBehavior, createDefaultBehaviorMap, createMappingExport, parseMappingImport, parseStoredBehaviors, updateBehaviorList } from '../src/behaviorModel.ts'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../src/behaviorHistory.ts'
+import { extractDeviceBehaviors } from '../src/deviceProfiles.ts'
 
-test('legacy remote settings gain empty mouse mappings without losing remote behavior', () => {
-  const parsed = parseStoredBehaviors({ mappings: { voice: 'Ctrl+Space', power: 'original' } })
-  assert.deepEqual(parsed.voice.click[0].keys, ['Ctrl', 'Space'])
-  assert.deepEqual(parsed.power.click, [])
-  for (const id of mouseInputIds) assert.deepEqual(parsed[id], { click: [], doubleClick: [], longPress: [] })
+test('A15 extra keys preserve mappings across storage and transfer, rejecting incomplete exports', () => {
+  const extraIds = ['cmiotA15.mute', 'cmiotA15.settings', 'cmiotA15.channelUp', 'cmiotA15.channelDown', 'cmiotA15.m']
+  const map = createDefaultBehaviorMap()
+  for (const id of extraIds) {
+    assert.equal(deviceForInput(id).id, 'cmiotA15')
+    assert.deepEqual(map[id], { click: [], doubleClick: [], longPress: [] })
+    for (const trigger of ['click', 'doubleClick', 'longPress']) {
+      map[id][trigger] = [createBehavior({ type: 'key', key: 'A' })]
+    }
+  }
+  assert.deepEqual(parseStoredBehaviors({ behaviors: map }), map)
+  const exported = createMappingExport(map, true, undefined, undefined, 'cmiotA15')
+  const imported = parseMappingImport(exported, 'cmiotA15')
+  for (const id of extraIds) assert.deepEqual(imported.behaviors[id], map[id])
+  for (const id of extraIds) delete exported.behaviors[id]
+  assert.equal(parseMappingImport(exported, 'cmiotA15'), null)
+  exported.behaviors[extraIds[0]] = map[extraIds[0]]
+  assert.equal(parseMappingImport(exported, 'cmiotA15'), null)
 })
 
-test('each mouse direction round trips independently alongside all remote mappings', () => {
+test('A15 rejects the unsupported TV input in exports', () => {
+  const map = createDefaultBehaviorMap()
+  assert.equal(map['cmiotA15.tv'], undefined)
+  const exported = createMappingExport(map, true, undefined, undefined, 'cmiotA15')
+  exported.behaviors['cmiotA15.tv'] = { click: [createBehavior({ type: 'key', key: 'A' })], doubleClick: [], longPress: [] }
+  const imported = parseMappingImport(exported, 'cmiotA15')
+  assert.equal(imported, null)
+})
+
+test('old string mappings and actions containers are not converted', () => {
+  for (const value of [{ mappings: { voice: 'Ctrl+Space' } }, { voice: 'Ctrl+Space' },
+    { actions: { power: { click: [createBehavior({ type: 'key', key: 'A' })] } } }]) {
+    assert.deepEqual(parseStoredBehaviors(value), createDefaultBehaviorMap())
+  }
+})
+
+test('each device transfer round trips its owned inputs without exporting another device', () => {
   let map = createDefaultBehaviorMap()
   mouseInputIds.forEach((id, index) => {
     map = updateBehaviorList(map, id, 'click', () => [createBehavior({ type: 'key', key: ['Up', 'Down', 'Left', 'Right'][index % 4] })])
   })
-  const imported = parseMappingImport(JSON.stringify(createMappingExport(map, true)))
-  assert.deepEqual(imported.behaviors, map)
+  const transfer = createMappingExport(map, true, undefined, undefined, 'mouse')
+  const imported = parseMappingImport(JSON.stringify(transfer), 'mouse')
+  assert.equal(transfer.version, 2)
+  assert.equal(transfer.deviceId, 'mouse')
+  assert.deepEqual(Object.keys(transfer.behaviors), mouseInputIds)
+  assert.deepEqual(imported.behaviors, extractDeviceBehaviors(map, 'mouse'))
   assert.equal(imported.enabled, true)
-  assert.equal(imported.behaviors.voice.click[0].key, 'RAlt')
-  assert.equal(imported.behaviors.power.click[0].key, 'Esc')
-  const malformed = createMappingExport(map, true)
+  const remote = createMappingExport(map, true)
+  assert.deepEqual(Object.keys(remote.behaviors), xiaomiRemoteButtonIds)
+  assert.equal(parseMappingImport(remote).behaviors.power.click[0].key, 'Esc')
+  assert.deepEqual(imported.behaviors.voice.click, [])
+  assert.equal(parseMappingImport(transfer, 'rc003'), null)
+  assert.equal(parseMappingImport(remote, 'mouse'), null)
+  const malformed = createMappingExport(map, true, undefined, undefined, 'mouse')
   malformed.behaviors['mouse.top.up'].click = [{ type: 'wheel', direction: 'invalid' }]
-  assert.equal(parseMappingImport(malformed), null)
+  assert.equal(parseMappingImport(malformed, 'mouse'), null)
 })
 
 test('mapping transfers retain an optional profile name', () => {
@@ -37,7 +75,7 @@ test('mapping transfers retain an optional profile name', () => {
 test('device ownership is unique and mouse edits support undo without changing remote input', () => {
   const all = devices.flatMap(device => device.inputIds)
   assert.equal(new Set(all).size, all.length)
-  for (const id of remoteButtonIds) assert.equal(deviceForInput(id).id, 'rc003')
+  for (const id of xiaomiRemoteButtonIds) assert.equal(deviceForInput(id).id, 'rc003')
   for (const id of mouseInputIds) assert.equal(deviceForInput(id).id, 'mouse')
   const initial = createDefaultBehaviorMap()
   let history = createBehaviorHistory(initial)
@@ -62,7 +100,7 @@ test('legacy edge rules stay in their original scopes while new inputs start emp
   assert.deepEqual(parsed['mouse.global.buttonBack'], { click: [], doubleClick: [], longPress: [] })
   let map = updateBehaviorList(parsed, 'mouse.top.buttonLeft', 'doubleClick', () => [createBehavior({type:'key',key:'B'})])
   map = updateBehaviorList(map, 'mouse.right.buttonLeft', 'longPress', () => [createBehavior({type:'key',key:'C'})])
-  assert.deepEqual(parseMappingImport(createMappingExport(map, true)).behaviors, map)
+  assert.deepEqual(parseMappingImport(createMappingExport(map, true, undefined, undefined, 'mouse'), 'mouse').behaviors, extractDeviceBehaviors(map, 'mouse'))
 })
 
 
@@ -80,7 +118,7 @@ test('global mouse button rules cannot be created, restored, imported or exporte
   }])) }
   legacy['mouse.global.buttonForward'].click = [createBehavior({type:'key',key:'F'})]
   legacy['mouse.left.buttonRight'].click = [createBehavior({type:'key',key:'R'})]
-  for (const result of [parseStoredBehaviors({behaviors:legacy}), parseMappingImport({behaviors:legacy}).behaviors, createMappingExport(legacy,true).behaviors]) {
+  for (const result of [parseStoredBehaviors({behaviors:legacy}), createMappingExport(legacy,true,undefined,undefined,'mouse').behaviors]) {
     for (const id of forbidden) assert.equal(result[id], undefined)
     assert.equal(result['mouse.global.buttonForward'].click[0].key, 'F')
     assert.equal(result['mouse.left.buttonRight'].click[0].key, 'R')
@@ -95,4 +133,54 @@ test('global mouse button rules cannot be created, restored, imported or exporte
     assert.deepEqual(mouseScopesForControl(control).map(scope => scope.id), ['global','top','left','right'])
     assert.equal(mouseInputId('global', control), `mouse.global.${control}`)
   }
+})
+
+test('mapping imports reject old versions and unversioned formats', () => {
+  const map = createDefaultBehaviorMap()
+  for (const document of [
+    { format: 'axonkey-mapping', version: 1, enabled: false, behaviors: map },
+    { behaviors: map }, { actions: map }, { mappings: { power: 'Ctrl+A' } }, map,
+  ]) {
+    for (const device of devices) assert.equal(parseMappingImport(document, device.id), null)
+  }
+})
+
+test('device transfer validation rejects mixed ownership and missing inputs, and exports do not share mutable maps', () => {
+  const map = createDefaultBehaviorMap()
+  const transfer = createMappingExport(map, true)
+  transfer.behaviors.power.click[0].key = 'A'
+  assert.equal(map.power.click[0].key, 'Esc')
+  transfer.behaviors['mouse.top.up'] = { click: [], doubleClick: [], longPress: [] }
+  assert.equal(parseMappingImport(transfer), null)
+  const incomplete = createMappingExport(map, true)
+  delete incomplete.behaviors.power
+  assert.equal(parseMappingImport(incomplete), null)
+  const missingTrigger = createMappingExport(map, true)
+  delete missingTrigger.behaviors.voice.click
+  assert.equal(parseMappingImport(missingTrigger), null)
+})
+
+test('middle button mappings retain all triggers and reject exports missing the middle-button group', () => {
+  const scopes = ['global', 'top', 'left', 'right']
+  const middleIds = scopes.map(scope => `mouse.${scope}.buttonMiddle`)
+  assert.deepEqual(mouseScopesForControl('buttonMiddle').map(scope => scope.id), scopes)
+  let map = createDefaultBehaviorMap()
+  for (const id of middleIds) {
+    assert.deepEqual(map[id], {click:[], doubleClick:[], longPress:[]})
+    for (const [trigger, key] of [['click','M'], ['doubleClick','D'], ['longPress','L']]) {
+      map = updateBehaviorList(map, id, trigger, () => [createBehavior({type:'key',key})])
+    }
+  }
+  const transfer = createMappingExport(map, true, undefined, undefined, 'mouse')
+  const restored = parseMappingImport(transfer, 'mouse').behaviors
+  for (const id of middleIds) assert.deepEqual(restored[id], map[id])
+  const legacy = structuredClone(transfer)
+  for (const id of middleIds) delete legacy.behaviors[id]
+  legacy.behaviors['mouse.top.buttonLeft'].click = [createBehavior({type:'key',key:'A'})]
+  assert.equal(parseMappingImport(legacy, 'mouse'), null)
+  const incomplete = structuredClone(transfer)
+  delete incomplete.behaviors['mouse.global.buttonMiddle']
+  assert.equal(parseMappingImport(incomplete, 'mouse'), null)
+  delete legacy.behaviors['mouse.top.buttonLeft']
+  assert.equal(parseMappingImport(legacy, 'mouse'), null)
 })

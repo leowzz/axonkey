@@ -1,0 +1,36 @@
+.windows-audio-driver-dialog {
+  width: min(580px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 0;
+  overflow-y: auto;
+  border: 1px solid #dbe4ed;
+  border-radius: 10px;
+  color: #344d61;
+  background: #f7f9fb;
+  box-shadow: 0 18px 56px rgb(30 50 70 / 18%);
+  overscroll-behavior: contain;
+}
+.windows-audio-driver-dialog::backdrop {
+  background: rgb(29 33 38 / 42%);
+}
+:root:has(.windows-audio-driver-dialog[open]),
+body:has(.windows-audio-driver-dialog[open]),
+.app-shell:has(.windows-audio-driver-dialog[open]) .main-content {
+  overflow: hidden;
+}
+.windows-audio-driver-panel .settings-form-row {
+  grid-template-columns: 94px minmax(0, 1fr);
+}
+.windows-audio-driver-panel .settings-form-control {
+  flex-wrap: wrap;
+}
+.windows-audio-driver-routing,
+.windows-audio-driver-message {
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.windows-audio-driver-routing {
+  color: #657c8e;
+}

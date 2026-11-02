@@ -1,0 +1,111 @@
+.user-guide-dialog {
+  width: min(640px, calc(100vw - 48px));
+  max-height: calc(100dvh - 48px);
+  padding: 24px;
+  overflow-y: auto;
+  border: 1px solid #dbe4ed;
+  border-radius: 10px;
+  color: #344d61;
+  background: #f7f9fb;
+  box-shadow: 0 18px 56px rgb(30 50 70 / 18%);
+  overscroll-behavior: contain;
+}
+.user-guide-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.user-guide-device-dialog {
+  width: min(760px, calc(100vw - 48px));
+}
+.user-guide-dialog::backdrop {
+  background: rgb(29 33 38 / 42%);
+}
+:root:has(.user-guide-dialog[open]),
+body:has(.user-guide-dialog[open]),
+.app-shell:has(.user-guide-dialog[open]) .main-content {
+  overflow: hidden;
+}
+.user-guide-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #657c8e;
+}
+.user-guide-body h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #344d61;
+}
+.user-guide-body h2:focus {
+  outline: none;
+}
+.user-guide-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 0;
+}
+.user-guide-welcome,
+.user-guide-complete {
+  min-height: min(300px, 42dvh);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  text-align: center;
+}
+.user-guide-welcome p,
+.user-guide-intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.8;
+  color: #657c8e;
+}
+.user-guide-devices h2 {
+  margin-bottom: 24px;
+}
+.user-guide-supported {
+  margin-bottom: 24px;
+}
+.user-guide-supported h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+.user-guide-supported ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.user-guide-supported .managed-package {
+  margin: 0;
+  padding: 12px;
+  gap: 12px;
+  font-size: 13px;
+}
+.user-guide-supported .managed-package img {
+  width: 52px;
+}
+.user-guide-welcome p {
+  max-width: 440px;
+}
+.user-guide-intro {
+  margin: 16px 0 24px;
+}
+.user-guide-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.user-guide-error {
+  color: #b42318;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

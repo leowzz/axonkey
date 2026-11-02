@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Xbox 手柄映射 · Axonkey 设计预览</title>
+  <link rel="stylesheet" href="xbox-controller/prototype.css">
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M19 12H5m6-6-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 9h1m3 0h1m3 0h2M7 12h1m3 0h1m3 0h2M8 15h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16M9 4v6m6 4v6" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 11v6m0-10v1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-test" viewBox="0 0 24 24"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13M10 10v7m4-7v7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</defs></svg>
+<div class="app">
+  <div class="titlebar"><div class="brand"><img src="../../src-tauri/icons/128x128@2x.png" alt="">axonkey</div><span class="prototype-label">Xbox 设备设计 · 原型不执行映射</span></div>
+  <header class="workspace-header">
+    <div class="workspace-controls"><button id="device-entry" class="text-button"><svg><use href="#i-arrow"/></svg>我的设备</button><select id="profile" class="profile-select" aria-label="当前配置文件"><option value="daily">日常控制</option><option value="blank">空白配置</option></select></div>
+    <h1>Xbox 无线手柄</h1>
+    <div class="header-end"><span id="save-state" class="save-state" aria-live="polite">示例配置</span><button class="icon-button" id="settings-button" aria-label="手柄设置"><svg><use href="#i-settings"/></svg></button></div>
+  </header>
+  <main class="workspace">
+    <section class="device-panel" aria-labelledby="diagram-heading">
+      <div class="device-top"><div><h2 id="diagram-heading">在手柄上选择输入</h2><p id="model-name">Xbox 标准布局 · 不含扩展背键</p></div><button class="subtle-button" id="test-input" aria-pressed="false"><svg><use href="#i-test"/></svg>测试输入</button></div>
+      <div class="controller-stage">
+        <svg id="controller" class="controller" viewBox="0 0 680 520" xmlns="http://www.w3.org/2000/svg" role="group" aria-label="Xbox 手柄输入示意图">
+          <defs>
+            <linearGradient id="body-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fafcfd"/><stop offset=".5" stop-color="#edf1f4"/><stop offset="1" stop-color="#d4dce3"/></linearGradient>
+            <linearGradient id="grip-fill" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#e2e8ed"/><stop offset="1" stop-color="#c1cbd4"/></linearGradient>
+            <linearGradient id="stick-fill" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#515e6c"/><stop offset="1" stop-color="#2c3743"/></linearGradient>
+            <filter id="body-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#455b70" flood-opacity=".14"/></filter>
+          </defs>
+          <text class="callout" x="340" y="37" text-anchor="middle">顶部 · 肩键与扳机</text>
+          <path d="M205 103Q244 73 286 78h108q42-5 81 25" fill="none" stroke="#dce3e9" stroke-width="24"/>
+          <g class="key" data-key="lt" role="button" tabindex="0" aria-label="LT 左扳机"><path class="halo" d="M157 52Q200 38 247 53L239 107H149Z"/><path class="hit" d="M161 56Q201 43 243 57L236 103H153Z"/><text x="198" y="78">LT</text><circle class="mapped-dot" cx="232" cy="57" r="5"/></g>
+          <g class="key" data-key="rt" role="button" tabindex="0" aria-label="RT 右扳机"><path class="halo" d="M433 53Q480 38 523 52L531 107H441Z"/><path class="hit" d="M437 57Q479 43 519 56L527 103H444Z"/><text x="482" y="78">RT</text><circle class="mapped-dot" cx="517" cy="57" r="5"/></g>
+          <g class="key" data-key="lb" role="button" tabindex="0" aria-label="LB 左肩键"><path class="halo" d="M148 111Q190 99 247 110L245 140H143Z"/><path class="hit" d="M151 115Q194 104 243 114L241 136H147Z"/><text x="196" y="124">LB</text><circle class="mapped-dot" cx="232" cy="113" r="5"/></g>
+          <g class="key" data-key="rb" role="button" tabindex="0" aria-label="RB 右肩键"><path class="halo" d="M433 110Q490 99 532 111L537 140H435Z"/><path class="hit" d="M437 114Q486 104 529 115L533 136H439Z"/><text x="484" y="124">RB</text><circle class="mapped-dot" cx="520" cy="113" r="5"/></g>
+          <rect x="324" y="92" width="32" height="7" rx="3.5" fill="#abb8c4"/>
+          <path d="M181 155C213 151 234 162 263 166H417C446 162 467 151 499 155C546 162 559 205 574 261L610 416C617 452 605 474 580 474C556 474 536 452 518 424L475 359C439 352 419 365 395 365H285C261 365 241 352 205 359L162 424C144 452 124 474 100 474C75 474 63 452 70 416L106 261C121 205 134 162 181 155Z" fill="url(#body-fill)" stroke="#a8b6c2" stroke-width="1.7" filter="url(#body-shadow)"/>
+          <path d="M121 257C108 298 90 370 82 423C77 446 84 461 100 462C120 462 140 439 156 412L196 350C159 338 143 309 121 257Z" fill="url(#grip-fill)" opacity=".75"/>
+          <path d="M559 257C572 298 590 370 598 423C603 446 596 461 580 462C560 462 540 439 524 412L484 350C521 338 537 309 559 257Z" fill="url(#grip-fill)" opacity=".75"/>
+          <path d="M180 165C213 160 236 173 266 175H414C444 173 467 160 500 165" fill="none" stroke="#fff" stroke-width="2"/>
+          <path d="M287 176L300 235Q340 253 380 235L393 176" fill="#e4eaf0" stroke="#d6dee6" stroke-width="1"/>
+          <g class="key unverified" data-key="guide" role="button" tabindex="0" aria-label="主键，待验证"><circle class="halo" cx="340" cy="201" r="24"/><circle class="hit" cx="340" cy="201" r="20"/><path d="m330 200 10-9 10 9m-17-3v14h5v-7h4v7h5v-14" stroke="#edf3f7" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle class="mapped-dot" cx="358" cy="184" r="5"/></g>
+          <g class="key" data-key="view" role="button" tabindex="0" aria-label="View 视图键"><circle class="halo" cx="296" cy="263" r="19"/><circle class="hit" cx="296" cy="263" r="15"/><path d="M289 257h10v8h-10zM293 261h10v8h-10z" fill="none" stroke="#d9e3ec" stroke-width="1.3"/><circle class="mapped-dot" cx="310" cy="250" r="4.5"/></g>
+          <g class="key" data-key="menu" role="button" tabindex="0" aria-label="Menu 菜单键"><circle class="halo" cx="384" cy="263" r="19"/><circle class="hit" cx="384" cy="263" r="15"/><path d="M378 258h12m-12 5h12m-12 5h12" stroke="#d9e3ec" stroke-width="1.5" stroke-linecap="round"/><circle class="mapped-dot" cx="398" cy="250" r="4.5"/></g>
+          <g id="share-key" class="key unverified" data-key="share" role="button" tabindex="0" aria-label="Share 分享键，设备可选" hidden><rect class="halo" x="321" y="290" width="38" height="27" rx="11"/><rect class="hit" x="325" y="294" width="30" height="19" rx="8"/><path d="M334 304v5h12v-5m-6 1v-9m-3 3 3-3 3 3" fill="none" stroke="#d9e3ec" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></g>
+          <g id="left-stick" transform="translate(198 252)">
+            <circle r="65" fill="#dce4eb" stroke="#c5d1db"/>
+            <g class="key direction" data-key="ls.up" role="button" tabindex="0" aria-label="左摇杆向上"><path class="hit" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z"/><path class="chevron" d="m-5-47 5-5 5 5"/></g>
+            <g class="key direction" data-key="ls.right" role="button" tabindex="0" aria-label="左摇杆向右"><path class="hit" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z"/><path class="chevron" d="m47-5 5 5-5 5"/></g>
+            <g class="key direction" data-key="ls.down" role="button" tabindex="0" aria-label="左摇杆向下"><path class="hit" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z"/><path class="chevron" d="m-5 47 5 5 5-5"/></g>
+            <g class="key direction" data-key="ls.left" role="button" tabindex="0" aria-label="左摇杆向左"><path class="hit" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z"/><path class="chevron" d="m-47-5-5 5 5 5"/></g>
+            <g class="key" data-key="ls" role="button" tabindex="0" aria-label="LS 左摇杆按下"><circle class="halo" r="36"/><circle class="hit" r="32"/><circle r="25" fill="none" stroke="#62707e" stroke-width="1.1"/><text y="1" style="font-size:12px">LS</text><circle class="mapped-dot" cx="26" cy="-24" r="5"/></g>
+          </g>
+          <g transform="translate(424 346)">
+            <circle r="65" fill="#dce4eb" stroke="#c5d1db"/>
+            <g class="key direction" data-key="rs.up" role="button" tabindex="0" aria-label="右摇杆向上"><path class="hit" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z"/><path class="chevron" d="m-5-47 5-5 5 5"/></g>
+            <g class="key direction" data-key="rs.right" role="button" tabindex="0" aria-label="右摇杆向右"><path class="hit" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z"/><path class="chevron" d="m47-5 5 5-5 5"/></g>
+            <g class="key direction" data-key="rs.down" role="button" tabindex="0" aria-label="右摇杆向下"><path class="hit" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z"/><path class="chevron" d="m-5 47 5 5 5-5"/></g>
+            <g class="key direction" data-key="rs.left" role="button" tabindex="0" aria-label="右摇杆向左"><path class="hit" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z"/><path class="chevron" d="m-47-5-5 5 5 5"/></g>
+            <g class="key" data-key="rs" role="button" tabindex="0" aria-label="RS 右摇杆按下"><circle class="halo" r="36"/><circle class="hit" r="32"/><circle r="25" fill="none" stroke="#62707e" stroke-width="1.1"/><text y="1" style="font-size:12px">RS</text><circle class="mapped-dot" cx="26" cy="-24" r="5"/></g>
+          </g>
+          <g transform="translate(265 352)">
+            <circle r="55" fill="#dce4eb" stroke="#cad5de"/>
+            <g class="key" data-key="dpad.up" role="button" tabindex="0" aria-label="方向键向上"><path class="halo" d="M-20-48H20V-16L0 1-20-16Z"/><path class="hit" d="M-16-44H16V-17L0-3-16-17Z"/><path d="m-5-29 5-5 5 5" fill="none" stroke="#a7b4c0" stroke-width="2"/><circle class="mapped-dot" cx="12" cy="-41" r="4"/></g>
+            <g class="key" data-key="dpad.right" role="button" tabindex="0" aria-label="方向键向右"><path class="halo" d="M48-20V20H16L-1 0 16-20Z"/><path class="hit" d="M44-16V16H17L3 0 17-16Z"/><path d="m29-5 5 5-5 5" fill="none" stroke="#a7b4c0" stroke-width="2"/><circle class="mapped-dot" cx="41" cy="12" r="4"/></g>
+            <g class="key" data-key="dpad.down" role="button" tabindex="0" aria-label="方向键向下"><path class="halo" d="M20 48H-20V16L0-1 20 16Z"/><path class="hit" d="M16 44H-16V17L0 3 16 17Z"/><path d="m-5 29 5 5 5-5" fill="none" stroke="#a7b4c0" stroke-width="2"/><circle class="mapped-dot" cx="12" cy="41" r="4"/></g>
+            <g class="key" data-key="dpad.left" role="button" tabindex="0" aria-label="方向键向左"><path class="halo" d="M-48 20V-20H-16L1 0-16 20Z"/><path class="hit" d="M-44 16V-16H-17L-3 0-17 16Z"/><path d="m-29-5-5 5 5 5" fill="none" stroke="#a7b4c0" stroke-width="2"/><circle class="mapped-dot" cx="-41" cy="12" r="4"/></g>
+            <circle r="7" fill="#333e49"/>
+          </g>
+          <g class="key" data-key="y" role="button" tabindex="0" aria-label="Y 键"><circle class="halo" cx="500" cy="212" r="24"/><circle class="hit" cx="500" cy="212" r="20"/><text x="500" y="212">Y</text><circle class="mapped-dot" cx="518" cy="194" r="5"/></g>
+          <g class="key" data-key="x" role="button" tabindex="0" aria-label="X 键"><circle class="halo" cx="460" cy="252" r="24"/><circle class="hit" cx="460" cy="252" r="20"/><text x="460" y="252">X</text><circle class="mapped-dot" cx="478" cy="234" r="5"/></g>
+          <g class="key" data-key="b" role="button" tabindex="0" aria-label="B 键"><circle class="halo" cx="540" cy="252" r="24"/><circle class="hit" cx="540" cy="252" r="20"/><text x="540" y="252">B</text><circle class="mapped-dot" cx="558" cy="234" r="5"/></g>
+          <g class="key" data-key="a" role="button" tabindex="0" aria-label="A 键"><circle class="halo" cx="500" cy="292" r="24"/><circle class="hit" cx="500" cy="292" r="20"/><text x="500" y="292">A</text><circle class="mapped-dot" cx="518" cy="274" r="5"/></g>
+          <path class="callout-line" d="M135 240H76l-20-18"/><text class="callout" x="27" y="211">左摇杆</text>
+          <path class="callout-line" d="M485 348h75l22-18"/><text class="callout" x="578" y="320">右摇杆</text>
+          <text class="callout" x="265" y="426" text-anchor="middle">十字方向键</text>
+          <text class="callout" x="296" y="293" text-anchor="middle" style="font-size:9px">View</text><text class="callout" x="384" y="293" text-anchor="middle" style="font-size:9px">Menu</text>
+          <circle class="port" cx="340" cy="374" r="4"/>
+        </svg>
+      </div>
+      <div class="device-bottom"><div class="legend"><span><i class="selected-mark"></i>正在编辑</span><span><i class="mapped-mark"></i>已配置</span><span><i class="pressed-mark"></i>实际输入</span></div><p class="diagram-hint">点击按键开始配置。摇杆中心是按下，外圈箭头是方向。</p>
+        <div class="panel-foot"><span class="input-state"><i id="input-dot" class="state-dot"></i><span id="input-status">输入测试未开启</span></span><strong id="mapped-count">0 个输入已配置</strong></div>
+        <div id="live-panel" class="live-panel" hidden><div class="live-head"><span id="live-status" class="live-status">按一下手柄，让浏览器识别它。</span><label><input id="follow-input" type="checkbox">按手柄选键</label></div><div class="telemetry"><span>左摇杆 <output id="left-value">—</output></span><span>右摇杆 <output id="right-value">—</output></span><span>LT <output id="lt-value">—</output></span><span>RT <output id="rt-value">—</output></span></div></div>
+      </div>
+    </section>
+    <section id="editor" class="editor" aria-label="所选输入的动作编辑"></section>
+  </main>
+  <footer class="status-footer"><span>设计预览 · 配置仅保存在此浏览器，不会发送按键</span><div class="footer-right"><button id="design-notes-button" class="text-button">设计说明</button><button id="tweaks-button" class="text-button tweaks-launcher">Tweaks<svg><use href="#i-settings"/></svg></button></div></footer>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+<dialog id="action-dialog"><form id="action-form"><header class="dialog-head"><h2 id="action-dialog-title">添加动作</h2><button type="button" class="icon-button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></header><label class="form-field">动作类型<select id="action-type"><option value="keyboard">键盘快捷键</option><option value="text">输入文字</option><option value="media">媒体控制</option><option value="delay">等待</option></select></label><div id="action-fields"></div><footer class="dialog-actions"><button type="button" class="secondary-button" data-close>取消</button><button type="submit" class="primary-button">保存到原型</button></footer></form></dialog>
+<dialog id="settings-dialog"><header class="dialog-head"><h2>手柄设置</h2><button class="icon-button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></header><p class="dialog-description">调整模拟输入的触发方式。以下设置用于设计预览，正式接入时按设备保存。</p><label class="form-field">摇杆回中范围 <span><input id="deadzone" type="range" min="5" max="35" step="1" value="15"><output id="deadzone-output">15%</output></span></label><p class="model-description">方向触发后，回到此范围才允许再次触发，减少边缘抖动。</p><label class="form-checkbox"><input id="show-share" type="checkbox">预览带 Share 键的 Xbox Series 布局</label><p class="model-description">当前手柄未检测到独立 Share 输入。正式界面按设备能力显示。</p><footer class="dialog-actions"><button class="primary-button" data-close>完成</button></footer></dialog>
+<dialog id="device-dialog"><header class="dialog-head"><h2>设备入口预览</h2><button class="icon-button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></header><p class="dialog-description">Xbox 作为独立设备出现在“我的设备”，拥有自己的配置文件。点击卡片进入编辑。</p><button id="xbox-card" class="preview-card"><span class="preview-card-main"><img id="mini-controller" class="mini-controller" alt="Xbox 手柄示意图"><span><strong>Xbox 无线手柄</strong><small>2 份示例配置文件</small></span></span><span class="preview-card-bottom"><span class="card-status"><span>设备状态按连接检测显示</span><span>未提供电量</span></span><span class="card-profile"><span>当前配置</span><strong id="card-profile">日常控制</strong></span></span></button></dialog>
+<dialog id="notes-dialog"><header class="dialog-head"><h2>这套设计的边界</h2><button class="icon-button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></header><div class="design-note"><p><strong>只从图上选输入。</strong>正面与顶部一同呈现；不提供按键列表或列表切换。蓝色外圈代表正在编辑，蓝点代表已有映射，绿色代表实际输入。</p><p><strong>普通按键与模拟输入分别处理。</strong>ABXY、LB/RB、View/Menu、十字键、摇杆按下复用单击／双击／长按；扳机配置触发深度，摇杆方向配置偏移阈值与回中范围。</p><p><strong>能力决定可用项。</strong>主键仍待实测；Share 仅对具有该键的设备展示，输入未验证时不给出可用承诺。配对键与扩展背键不作为普通 Xbox 映射项。</p><p><strong>输入监听与原始输入拦截分开。</strong>当前只验证了读取 HID。正式接入前须单独验证系统快捷行为、游戏收到的原始输入，以及不同平台的处理方式。</p><p><strong>原型不会执行动作。</strong>输入测试只用于读取浏览器提供的手柄状态。动作配置保存在独立的预览存储中，不修改 Axonkey 的现有配置。</p></div></dialog>
+<dialog id="tweaks-dialog"><header class="dialog-head"><h2>Tweaks</h2><button class="icon-button" data-close aria-label="关闭"><svg><use href="#i-close"/></svg></button></header><label class="form-checkbox"><input id="compact-diagram" type="checkbox">紧凑示意图</label><label class="form-checkbox"><input id="show-annotations" type="checkbox" checked>显示部位说明</label><p class="model-description">只调整设计预览的密度与标注，不影响配置。</p></dialog>
+<script src="xbox-controller/prototype.js"></script>
+</body></html>

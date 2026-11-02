@@ -2,20 +2,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 mod launch;
+pub mod managed;
 pub mod mouse;
 mod profile_switch;
 
 #[cfg(windows)]
-mod windows_quarbor;
+pub(super) mod windows_quarbor;
 
-#[cfg(windows)]
-mod windows_hid;
-
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_os = "macos", test))]
 mod remote_actions;
 
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct InputServiceStatus {
+    pub cmiot_a15_recording: bool,
     pub backend_ready: bool,
     pub device_connected: bool,
     pub hardware_id: Option<String>,
@@ -24,11 +23,14 @@ pub struct InputServiceStatus {
     pub accessibility_granted: Option<bool>,
     pub capture_active: bool,
     #[serde(skip)]
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub(crate) input_monitoring_open_denied: bool,
 }
 
 #[derive(Clone, Default, Deserialize)]
 pub struct NativeSettings {
+    #[serde(rename = "cmiotA15RecordingMode", default)]
+    pub(super) cmiot_a15_recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     #[serde(rename = "mouseEdgeWidth", default = "default_mouse_edge_width")]
     pub(super) mouse_edge_width: u16,
     #[serde(default)]
@@ -61,6 +63,40 @@ pub struct NativeSettings {
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
 
+impl NativeSettings {
+    pub(super) fn remote_settings_changed(&self, next: &Self) -> bool {
+        self.enabled != next.enabled
+            || self.cmiot_a15_recording_mode != next.cmiot_a15_recording_mode
+            || self.device_behaviors_changed(next, false)
+    }
+
+    pub(super) fn mouse_settings_changed(&self, next: &Self) -> bool {
+        self.enabled != next.enabled
+            || self.mouse_enabled != next.mouse_enabled
+            || self.mouse_edge_width != next.mouse_edge_width
+            || self.mouse_key_hold_ms != next.mouse_key_hold_ms
+            || self.mouse_horizontal_scroll_interval_ms != next.mouse_horizontal_scroll_interval_ms
+            || self.mouse_vertical_scroll_interval_ms != next.mouse_vertical_scroll_interval_ms
+            || self.mouse_scroll_sensitivity != next.mouse_scroll_sensitivity
+            || self.mouse_ignore_scroll_acceleration != next.mouse_ignore_scroll_acceleration
+            || self.device_behaviors_changed(next, true)
+    }
+
+    fn device_behaviors_changed(&self, next: &Self, mouse: bool) -> bool {
+        let empty = TriggerBehaviors::default();
+        // Both services receive the full runtime map. Only their own input
+        // namespace can invalidate held gestures or queued actions.
+        self.behaviors
+            .keys()
+            .chain(next.behaviors.keys())
+            .filter(|input| input.starts_with("mouse.") == mouse)
+            .any(|input| {
+                self.behaviors.get(input).unwrap_or(&empty)
+                    != next.behaviors.get(input).unwrap_or(&empty)
+            })
+    }
+}
+
 fn default_mouse_key_hold_ms() -> u64 {
     10
 }
@@ -81,7 +117,7 @@ fn mouse_enabled_by_default() -> bool {
     true
 }
 
-#[derive(Clone, Default, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct TriggerBehaviors {
     #[serde(default)]
@@ -101,7 +137,7 @@ impl TriggerBehaviors {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(super) enum NativeBehavior {
     Wheel {
@@ -266,6 +302,7 @@ impl NativeBehavior {
 pub(super) enum MouseButton {
     Left,
     Right,
+    Middle,
     Back,
     Forward,
 }
@@ -274,7 +311,7 @@ pub(super) enum MouseButton {
 mod macos;
 #[cfg(any(target_os = "windows", test))]
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-mod windows;
+pub(super) mod windows;
 
 #[cfg(target_os = "macos")]
 pub use macos::InputService;
@@ -313,6 +350,22 @@ pub use unsupported::InputService;
 #[cfg(test)]
 mod settings_tests {
     use super::NativeSettings;
+
+    #[test]
+    fn recording_mode_defaults_to_click_and_invalidates_only_remote_settings() {
+        use crate::devices::cmiot_a15::recording::RecordingMode;
+        let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.cmiot_a15_recording_mode, RecordingMode::Click);
+        let hold: NativeSettings =
+            serde_json::from_str(r#"{"cmiotA15RecordingMode":"hold"}"#).unwrap();
+        assert_eq!(hold.cmiot_a15_recording_mode, RecordingMode::Hold);
+        assert!(legacy.remote_settings_changed(&hold));
+        assert!(!legacy.mouse_settings_changed(&hold));
+        assert!(
+            serde_json::from_str::<NativeSettings>(r#"{"cmiotA15RecordingMode":"invalid"}"#)
+                .is_err()
+        );
+    }
 
     #[test]
     fn mouse_settings_defaults_and_saved_values() {

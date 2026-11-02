@@ -1,12 +1,19 @@
 {
   "name": "axonkey-ui",
   "private": true,
-  "version": "1.0.20",
+  "version": "1.7.10",
   "type": "module",
   "engines": {
     "node": "^22.23.4 || ^24.22.1 || ^26.12.1"
   },
   "scripts": {
+    "prepare": "husky",
+    "format": "prettier --write \"src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}\"",
+    "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+    "format:all": "npm run format && npm run format:rust",
+    "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}\" && cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "format:rust:check": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
+    "format:staged": "lint-staged",
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "dev": "vite",
     "dev:tauri": "vite",
@@ -14,18 +21,23 @@
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
     "build:uninstall-old-driver": "node scripts/build-uninstall-old-driver.mjs",
     "check:uninstall-old-driver-git": "node scripts/check-uninstall-old-driver-git.mjs",
-    "test:release": "node --test test/remote-control.test.mjs test/mapping-options.test.mjs test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-audio-battery.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/sidebar-tooltip.test.mjs test/behavior-history.test.mjs test/workflow-step-editing.test.mjs test/workflow-selection.test.mjs test/workflow-trash.test.mjs test/workflow-viewport.test.mjs test/workflow-behavior-bridge.test.mjs test/workflow-persistence.test.mjs test/workflow-toolbox.test.mjs test/sequence-transfer.test.mjs test/saved-sequences.test.mjs test/profile-switch.test.mjs test/data-backup.test.mjs test/data-backup-ui.test.mjs test/profile-switch-deletion-dialog.test.mjs test/profile-switch-overlay.test.mjs test/macos-profile-switch-overlay.test.mjs test/common-right-modifiers.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/setup-model.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/uninstall-old-driver-git.test.mjs",
+    "test:release": "node --test test/config-migration.test.mjs test/config-migration-ui.test.mjs test/virtual-audio-upgrade-ui.test.mjs test/legacy-audio-cleanup.test.mjs test/home-status-actions.test.mjs test/remote-control.test.mjs test/mapping-options.test.mjs test/release-notes.test.mjs test/version-release.test.mjs test/macos-audio-package.test.mjs test/macos-device-information.test.mjs test/macos-audio-tail-drain.test.mjs test/macos-audio-binding.test.mjs test/macos-input-system-event.test.mjs test/macos-input-reconnect.test.mjs test/tauri-event-capability.test.mjs test/tauri-manifest-stability.test.mjs test/behavior-editor-layout.test.mjs test/behavior-history.test.mjs test/workflow-step-editing.test.mjs test/workflow-selection.test.mjs test/workflow-trash.test.mjs test/workflow-viewport.test.mjs test/workflow-behavior-bridge.test.mjs test/workflow-persistence.test.mjs test/workflow-toolbox.test.mjs test/sequence-transfer.test.mjs test/saved-sequences.test.mjs test/profile-switch.test.mjs test/data-backup.test.mjs test/data-backup-ui.test.mjs test/profile-switch-deletion-dialog.test.mjs test/profile-switch-overlay.test.mjs test/macos-profile-switch-overlay.test.mjs test/macos-recording-overlay.test.mjs test/common-right-modifiers.test.mjs test/audio-gain.test.mjs test/release-update.test.mjs test/native-release-update.test.mjs test/publish-updater-manifest.test.mjs test/legacy-cleanup-script.test.mjs test/legacy-cleanup-ui.test.mjs test/driver-upgrade-ui.test.mjs test/managed-driver-cleanup-dialog.test.mjs test/uninstall-old-driver-git.test.mjs test/device-profiles.test.mjs test/device-mapping.test.mjs test/mouse-mapping-ui.test.mjs test/profile-import.test.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },
+  "lint-staged": {
+    "src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}": "prettier --write",
+    "src-tauri/**/*.rs": "rustfmt --edition 2021"
+  },
   "dependencies": {
-    "@tauri-apps/api": "^2.8.0",
-    "@tauri-apps/plugin-autostart": "^2.5.1",
+    "@tauri-apps/api": "^2.12.4",
+    "@tauri-apps/plugin-autostart": "^2.7.0",
     "@tauri-apps/plugin-clipboard-manager": "~2.3.3",
-    "@tauri-apps/plugin-dialog": "^2.7.3",
-    "@tauri-apps/plugin-log": "^2.9.1",
-    "@tauri-apps/plugin-process": "^2.3.1",
-    "@tauri-apps/plugin-updater": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.8.4",
+    "@tauri-apps/plugin-log": "^2.10.1",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
+    "aegis-web-sdk": "^1.41.17",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -33,10 +45,13 @@
     "sequential-workflow-designer": "^0.40.4"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.8.0",
+    "@tauri-apps/cli": "^2.12.4",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "husky": "9.1.7",
+    "lint-staged": "17.6.0",
+    "prettier": "3.9.10",
     "react-test-renderer": "18.3.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"

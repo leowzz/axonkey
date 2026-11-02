@@ -134,8 +134,10 @@ test('saving targets an explicit input and preserves every other remote and mous
   assert.equal(updateWorkflowInput(second, 'power', structuredClone(remote)), second, 'save echoes do not add history')
 })
 
-test('legacy stored mappings and flow edits stay compatible with the existing JSON transfer format', () => {
-  const old = parseStoredBehaviors({ power: 'Ctrl+V' })
+test('current stored mappings and flow edits round-trip through JSON transfers', () => {
+  const current = createEmptyBehaviorMap()
+  current.power.click = [createBehavior({ type: 'shortcut', keys: ['Ctrl', 'V'] })]
+  const old = parseStoredBehaviors({ behaviors: current })
   const sequences = workflowToBehaviors(behaviorsToWorkflow(old.power, label))
   assert.deepEqual(sequences, old.power)
   const map = updateWorkflowInput(old, 'tv', { ...empty(), longPress: allBehaviors })

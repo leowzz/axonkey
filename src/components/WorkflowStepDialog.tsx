@@ -16,7 +16,7 @@ export type WorkflowStepEdit = {
 export function WorkflowStepDialog({ edit, platform, button, onClose, children, title, saveLabel, saveTone }: {
   edit: WorkflowStepEdit
   platform: Platform
-  button: MappingInput
+  button: MappingInput<string>
   onClose: () => void
   children?: ReactNode
   title?: string

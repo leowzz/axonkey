@@ -1,0 +1,115 @@
+syntax = "proto3";
+package quarbor.keyboard.v1;
+// Frames: uint32 little-endian payload length followed by protobuf (max 66048).
+// Server sends Hello (request_id=0). Client queries with strictly increasing IDs.
+message QueryBasicInfo {}
+message ClientMessage {
+  reserved 11; // Removed temporary diagnostic request.
+  uint64 request_id = 1;
+  oneof body {
+    QueryBasicInfo query_basic_info = 10;
+    KeySend keysend = 12;
+    MouseMove mouse_move = 13;
+    ResetInput reset_input = 14;
+    QueryInputStatus query_input_status = 15;
+    PhysicalWrite physical_write = 16;
+  }
+}
+// HID Usage semantics, NOT Windows virtual keys or scan codes.
+message Key {
+  uint32 usage_page = 1;
+  uint32 usage = 2;
+  optional uint32 report_id = 3; // Absent: infer from the advertised descriptor.
+}
+message KeySend {
+  enum Action { ACTION_UNSPECIFIED = 0; DOWN = 1; UP = 2; TAP = 3; }
+  repeated Key keys = 1; // 1..32, one atomic chord; duplicate keys rejected.
+  Action action = 2; // TAP requires all listed keys to be up before the command.
+}
+message MouseMove {
+  sint32 x = 1; // Each relative value must be -127..127; no silent truncation.
+  sint32 y = 2;
+  sint32 wheel = 3; // Positive = up.
+  sint32 pan = 4; // Positive = right.
+}
+message ResetInput {} // Discard queued input and prioritize neutral reports.
+message InputResult { fixed32 ntstatus = 1; } // Acceptance, NOT Windows delivery.
+message QueryInputStatus {}
+// Host-to-physical-device reports, never synthetic Windows input.
+message PhysicalWrite {
+  enum Operation { OPERATION_UNSPECIFIED = 0; WRITE_OUTPUT = 1; SET_OUTPUT = 2; SET_FEATURE = 3; }
+  Operation operation = 1;
+  // Complete HID client buffer: byte 0 is Report ID (0 for unnumbered).
+  // 2..4096 bytes including that slot. No automatic padding or retry.
+  bytes data = 2;
+}
+message PhysicalWriteResult {
+  fixed32 ntstatus = 1;
+  // Lower driver's completion Information; SET operations may report zero.
+  uint64 bytes_transferred = 2;
+}
+// Snapshot of the upper HID read path, not application-level acknowledgement.
+message InputStatus {
+  bool active = 1;
+  uint32 queued_reports = 2;
+  uint32 pending_reads = 3;
+  uint64 received_reads = 4;
+  uint64 completed_reads = 5;
+  uint64 failed_reads = 6;
+  fixed32 last_read_status = 7;
+  uint32 last_report_id = 8;
+  uint32 last_report_bytes = 9;
+  uint32 last_buffer_bytes = 10;
+  uint64 hid_descriptor_requests = 11;
+  uint64 report_descriptor_requests = 12;
+  uint64 attributes_requests = 13;
+  uint32 pending_release_mask = 14;
+  reserved 15 to 22; // Temporary queue/lifecycle tracing in diagnostic builds.
+}
+message Hello { uint32 protocol_version = 1; uint32 max_payload_bytes = 2; }
+message BasicInfo {
+  string driver_name = 1;
+  string driver_version = 2;
+  string device_instance_id = 3;
+  uint32 physical_queue_capacity = 4;
+  uint32 physical_report_max_bytes = 5;
+  uint32 keyboard_report_id = 6;
+  uint32 keyboard_report_bytes = 7;
+  uint32 media_report_id = 8;
+  uint32 media_report_bytes = 9;
+  reserved 10; // Removed temporary diagnostic capability.
+  uint32 mouse_report_id = 11; // Zero when not advertised by older drivers.
+  uint32 mouse_report_bytes = 12;
+  uint32 input_queue_capacity = 13; // Zero on older drivers without injection.
+  bool supports_keysend = 14;
+  bool supports_mouse_move = 15;
+  bool supports_reset_input = 16;
+  bool supports_input_status = 17;
+  bool supports_physical_write = 18; // API available, not a device command guarantee.
+  uint32 physical_write_max_bytes = 19;
+  // Collection HIDP_CAPS lengths including Report ID slot; zero for BLE transport.
+  uint32 physical_output_report_bytes = 20;
+  uint32 physical_feature_report_bytes = 21;
+}
+// Raw input-source bytes, NOT the synthetic keyboard/media/mouse report layout.
+// Counters are cumulative for this device object. request_id=0 for reports.
+message PhysicalReport {
+  uint64 sequence = 1;
+  fixed64 timestamp_filetime = 2;
+  bytes data = 3;
+  uint64 queue_overwritten = 4;
+  uint64 queue_cleared = 5;
+  uint64 send_failures = 6;
+}
+message ServerMessage {
+  reserved 23; // Removed temporary diagnostic response.
+  uint64 request_id = 1;
+  oneof body {
+    Hello hello = 20;
+    BasicInfo basic_info = 21;
+    PhysicalReport physical_report = 22;
+    InputResult input_result = 24;
+    InputStatus input_status = 25;
+    PhysicalWriteResult physical_write_result = 26;
+  }
+}

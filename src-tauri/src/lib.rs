@@ -1,13 +1,26 @@
 mod audio_service;
 mod backup_files;
+mod devices;
+mod driver_migration;
 mod input_service;
-mod profile_switch_overlay;
-mod release_update;
+mod legacy_cleanup;
 mod legacy_driver;
+mod onboarding;
+mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
 mod quarbor_installer;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+mod recording_overlay;
+mod release_update;
+#[cfg(target_os = "windows")]
+mod windows_driver_devices;
+#[cfg(target_os = "windows")]
+mod windows_vmic;
 
-use audio_service::{AudioService, AudioServiceStatus};
+use audio_service::{AudioServiceManager, AudioServiceStatus, AudioTarget};
+use input_service::managed::{
+    DeviceManager, Instance as DeviceInstance, Snapshot as DeviceSnapshot,
+};
 use input_service::mouse::MouseService;
 use input_service::{InputService, NativeSettings};
 use tauri::{Manager, PhysicalPosition, PhysicalSize};
@@ -19,12 +32,15 @@ const TRAY_QUIT_ID: &str = "tray-quit";
 const AUTOSTART_ARG: &str = "--autostart";
 const LEGACY_AUTOSTART_MARKER: &str = "autostart-initialized";
 const BACKGROUND_AUTOSTART_MARKER: &str = "autostart-background-initialized";
+#[allow(dead_code)]
 const PERMISSION_HELPER_WIDTH: f64 = 430.0;
+#[allow(dead_code)]
 const PERMISSION_HELPER_HEIGHT: f64 = 560.0;
 const RUNTIME_LOG_FILE_BASENAME: &str = "axonkey";
 const RUNTIME_LOG_MAX_BYTES: u128 = 5_000_000;
 const RUNTIME_LOG_KEEP_FILES: usize = 5;
 
+#[allow(dead_code)]
 #[derive(Clone, Copy)]
 struct WindowGeometry {
     position: PhysicalPosition<i32>,
@@ -33,6 +49,7 @@ struct WindowGeometry {
     always_on_top: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 struct PermissionHelperWindowState(std::sync::Mutex<Option<WindowGeometry>>);
 
@@ -75,6 +92,7 @@ fn launched_from_autostart() -> bool {
     args_request_autostart(std::env::args())
 }
 
+#[cfg(any(target_os = "macos", test))]
 fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
@@ -328,7 +346,6 @@ fn find_driver_helper(
     resource_dir: &std::path::Path,
 ) -> Result<std::path::PathBuf, String> {
     let file_name = match (driver, action) {
-        ("audio", "install" | "uninstall") => "vbcable-driver.ps1",
         ("legacy", "cleanup" | "status") => "uninstall-old-driver.exe",
         ("input" | "audio", _) => return Err("Unsupported driver action".into()),
         _ => return Err("Unsupported driver kind".into()),
@@ -358,26 +375,70 @@ fn find_driver_helper(
     Err(format!("Driver helper was not found: {file_name}"))
 }
 
-#[derive(serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum DriverInstallationState {
+    Installed,
+    Reinstalled,
+    RestartBeforeInstall,
+}
+
+#[derive(Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DriverActionResult {
     log_path: String,
     reboot_required: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    installation_state: Option<DriverInstallationState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    driver_installed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    warning: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedDriverUninstallFailure {
+    instance_id: String,
+    error: String,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LegacyAudioRemovalResult {
+    log_path: String,
+    reboot_required: bool,
+    error: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ManagedDriverUninstallResult {
+    device_count: usize,
+    uninstalled_count: usize,
+    unbound_count: usize,
+    reboot_required: bool,
+    failures: Vec<ManagedDriverUninstallFailure>,
 }
 
 #[cfg(target_os = "windows")]
-fn driver_log_path(driver: &str, action: &str) -> Result<std::path::PathBuf, String> {
-    let local_app_data = std::env::var_os("LOCALAPPDATA")
-        .ok_or_else(|| "Cannot locate the Windows local application data directory".to_string())?;
-    let directory = std::path::PathBuf::from(local_app_data)
-        .join("Axonkey")
-        .join("logs");
+fn driver_log_path(
+    app: &tauri::AppHandle,
+    driver: &str,
+    action: &str,
+) -> Result<std::path::PathBuf, String> {
+    let directory = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&directory)
         .map_err(|error| format!("Cannot create the driver log directory: {error}"))?;
     let file_name = if driver == "audio" {
-        format!("vbcable-{action}.log")
+        format!("quarbor-vmic-{action}.log")
     } else if driver == "legacy" {
         "old-driver-uninstall.log".to_string()
+    } else if driver == "legacy-audio" {
+        "legacy-audio-uninstall.log".to_string()
     } else {
         format!("quarbor-{action}.log")
     };
@@ -471,11 +532,14 @@ end run"#;
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
         reboot_required: false,
+        installation_state: None,
+        ..Default::default()
     })
 }
 
 #[cfg(target_os = "windows")]
 fn run_driver_action(
+    app: &tauri::AppHandle,
     driver: &str,
     action: &str,
     resource_dir: &std::path::Path,
@@ -484,21 +548,13 @@ fn run_driver_action(
     use std::process::Stdio;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let log_path = driver_log_path(driver, action)?;
+    let log_path = driver_log_path(app, driver, action)?;
     let started = format!(
         "Axonkey {driver} driver {action} requested: {:?}\r\n",
         std::time::SystemTime::now()
     );
     std::fs::write(&log_path, started)
         .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
-
-    if driver == "input" {
-        let reboot_required = quarbor_installer::run(action, resource_dir, &log_path)?;
-        return Ok(DriverActionResult {
-            log_path: log_path.to_string_lossy().into_owned(),
-            reboot_required,
-        });
-    }
 
     let helper = find_driver_helper(driver, action, resource_dir).map_err(|error| {
         let _ = std::fs::write(&log_path, format!("ERROR: {error}\r\n"));
@@ -511,32 +567,13 @@ fn run_driver_action(
             use std::io::Write;
             writeln!(file, "Helper: {}", helper.display())
         });
-    let mut command = if driver == "legacy" {
-        let mut command = std::process::Command::new(&helper);
-        command
-            .arg("--confirmed")
-            .arg("--auto-close")
-            .arg("--log-path")
-            .arg(&log_path);
-        command
-    } else {
-        let mut command = std::process::Command::new("powershell.exe");
-        command
-            .arg("-NoProfile")
-            .arg("-NonInteractive")
-            .arg("-WindowStyle")
-            .arg("Hidden")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-File")
-            .arg(&helper)
-            .arg("-Action")
-            .arg(action);
-        command
-    };
-    if driver != "legacy" {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
+    let mut command = std::process::Command::new(&helper);
+    command
+        .arg("--confirmed")
+        .arg("--headless")
+        .arg("--log-path")
+        .arg(&log_path);
+    command.creation_flags(CREATE_NO_WINDOW);
     let output = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -596,8 +633,47 @@ fn run_driver_action(
 
     Ok(DriverActionResult {
         log_path: log_path.to_string_lossy().into_owned(),
-        reboot_required: driver != "legacy",
+        reboot_required: true,
+        installation_state: None,
+        ..Default::default()
     })
+}
+
+#[tauri::command]
+async fn probe_legacy_audio_driver(_app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resources = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || windows_vmic::legacy::probe(&resources))
+            .await
+            .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    Ok(false)
+}
+
+#[tauri::command]
+async fn uninstall_legacy_audio_driver(
+    _app: tauri::AppHandle,
+) -> Result<LegacyAudioRemovalResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resources = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || {
+            let log_path = driver_log_path(&_app, "legacy-audio", "uninstall")?;
+            windows_vmic::legacy::uninstall(&resources, &log_path)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(target_os = "windows"))]
+    Err("旧版虚拟声卡清理仅支持 Windows。".into())
 }
 
 #[tauri::command]
@@ -606,12 +682,10 @@ async fn launch_driver_action(
     driver: String,
     action: String,
 ) -> Result<DriverActionResult, String> {
-    if !matches!(driver.as_str(), "input" | "audio" | "legacy") {
+    if driver != "audio" {
         return Err("Unsupported driver kind".into());
     }
-    if !matches!(action.as_str(), "install" | "uninstall")
-        && !(driver == "legacy" && action == "cleanup")
-    {
+    if !matches!(action.as_str(), "install" | "uninstall") {
         return Err("Unsupported driver action".into());
     }
     log::info!(target: "axonkey::runtime", "Driver action requested: {driver}/{action}");
@@ -625,7 +699,8 @@ async fn launch_driver_action(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         tauri::async_runtime::spawn_blocking(move || {
-            run_driver_action(&driver, &action, &resource_dir)
+            let log_path = driver_log_path(&_app, "audio", &action)?;
+            windows_vmic::installer::run(&resource_dir, &action, &log_path)
         })
         .await
         .map_err(|error| format!("Driver task failed unexpectedly: {error}"))?
@@ -641,12 +716,12 @@ async fn launch_driver_action(
             .resource_dir()
             .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
         let action_for_task = action.clone();
-        _app.state::<AudioService>().pause();
+        _app.state::<AudioServiceManager>().pause(None);
         let task_result = tauri::async_runtime::spawn_blocking(move || {
             run_macos_driver_action(&action_for_task, &resource_dir)
         })
         .await;
-        _app.state::<AudioService>().resume();
+        _app.state::<AudioServiceManager>().resume(None);
         let result =
             task_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
         Ok(result)
@@ -661,10 +736,219 @@ async fn launch_driver_action(
     }
 }
 
+#[cfg(target_os = "windows")]
+fn run_device_driver_action(
+    app: &tauri::AppHandle,
+    action: &str,
+    resource_dir: &std::path::Path,
+    target: &str,
+) -> Result<DriverActionResult, String> {
+    let log_path = driver_log_path(app, "input", action)?;
+    std::fs::write(
+        &log_path,
+        format!(
+            "Axonkey device driver {action} requested for {target:?}: {:?}\r\n",
+            std::time::SystemTime::now()
+        ),
+    )
+    .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
+    let reply = quarbor_installer::run_for_device(action, resource_dir, target, &log_path)?;
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: reply.reboot_required || reply.exit_code == 3010,
+        installation_state: reply.installation_state,
+        ..Default::default()
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn run_uninstall_all_driver_action(
+    app: &tauri::AppHandle,
+    resource_dir: &std::path::Path,
+) -> Result<DriverActionResult, String> {
+    let log_path = driver_log_path(app, "input", "uninstall-all")?;
+    std::fs::write(
+        &log_path,
+        format!(
+            "Axonkey device driver uninstall-all requested: {:?}\r\n",
+            std::time::SystemTime::now()
+        ),
+    )
+    .map_err(|error| format!("Cannot initialize the driver log: {error}"))?;
+    let exe = quarbor_installer::find(resource_dir)?;
+    let reply = quarbor_installer::invoke(&exe, "uninstall-all", None, Some(&log_path))?;
+    Ok(DriverActionResult {
+        log_path: log_path.to_string_lossy().into_owned(),
+        reboot_required: reply.reboot_required || reply.exit_code == 3010,
+        installation_state: None,
+        ..Default::default()
+    })
+}
+
+#[tauri::command]
+async fn install_device_driver(
+    _app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<DriverActionResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        let target = resolve_quarbor_target(&_app, &instance_id)?;
+        let resource_dir = _app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        let target_for_store = target.clone();
+        let app_for_task = _app.clone();
+        let result = tauri::async_runtime::spawn_blocking(move || {
+            run_device_driver_action(&app_for_task, "install", &resource_dir, &target)
+        })
+        .await
+        .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+        _app.state::<DeviceManager>()
+            .remember_quarbor_target(&instance_id, &target_for_store)?;
+        Ok(result)
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (_app, instance_id);
+        Err("设备驱动安装仅支持 Windows".into())
+    }
+}
+
+#[tauri::command]
+async fn unbind_device_instance(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<DeviceSnapshot, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        if let Some(target) = resolve_installed_quarbor_target(&app, &instance_id)? {
+            let resource_dir = app
+                .path()
+                .resource_dir()
+                .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+            let app_for_task = app.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                run_device_driver_action(&app_for_task, "uninstall", &resource_dir, &target)
+            })
+            .await
+            .map_err(|error| format!("Driver task failed unexpectedly: {error}"))??;
+        }
+
+        let manager = app.state::<DeviceManager>();
+        let snapshot = manager.unbind(&instance_id)?;
+        app.state::<AudioServiceManager>()
+            .sync_instances(&audio_targets(&snapshot));
+        return Ok(snapshot);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri::Manager;
+        let manager = app.state::<DeviceManager>();
+        let snapshot = manager.unbind(&instance_id)?;
+        app.state::<AudioServiceManager>()
+            .sync_instances(&audio_targets(&snapshot));
+        Ok(snapshot)
+    }
+}
+
+#[tauri::command]
+async fn uninstall_bound_device_drivers(
+    app: tauri::AppHandle,
+) -> Result<ManagedDriverUninstallResult, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+
+        let instance_ids = app
+            .state::<DeviceManager>()
+            .snapshot()
+            .store
+            .instances
+            .iter()
+            .filter(|instance| {
+                matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                ) && instance.binding.is_some()
+            })
+            .map(|instance| instance.id.clone())
+            .collect::<Vec<_>>();
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("Cannot resolve bundled resources: {error}"))?;
+        let manager = app.state::<DeviceManager>();
+        let mut result = ManagedDriverUninstallResult {
+            device_count: 0,
+            uninstalled_count: 0,
+            unbound_count: 0,
+            reboot_required: false,
+            failures: Vec::new(),
+        };
+        result.device_count = instance_ids.len();
+        if instance_ids.is_empty() {
+            return Ok(result);
+        }
+
+        // The global action must release every per-device pipe before the
+        // installer removes all bindings in one transaction.
+        manager.pause_for_driver_migration();
+        let app_for_task = app.clone();
+        let action_result = tauri::async_runtime::spawn_blocking(move || {
+            run_uninstall_all_driver_action(&app_for_task, &resource_dir)
+        })
+        .await;
+        manager.resume_after_driver_migration();
+        let action =
+            action_result.map_err(|error| format!("Driver task failed unexpectedly: {error}"))?;
+
+        match action {
+            Ok(action) => {
+                result.uninstalled_count = result.device_count;
+                result.reboot_required = action.reboot_required;
+                for instance_id in instance_ids {
+                    match manager.unbind(&instance_id) {
+                        Ok(_) => result.unbound_count += 1,
+                        Err(error) => result
+                            .failures
+                            .push(ManagedDriverUninstallFailure { instance_id, error }),
+                    }
+                }
+            }
+            Err(error) => {
+                result.failures = instance_ids
+                    .into_iter()
+                    .map(|instance_id| ManagedDriverUninstallFailure {
+                        instance_id,
+                        error: error.clone(),
+                    })
+                    .collect();
+            }
+        }
+        if result.unbound_count > 0 {
+            let snapshot = manager.snapshot();
+            app.state::<AudioServiceManager>()
+                .sync_instances(&audio_targets(&snapshot));
+        }
+        return Ok(result);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("设备驱动卸载仅支持 Windows".into())
+    }
+}
+
 #[tauri::command]
 fn open_windows_settings(page: String) -> Result<(), String> {
     let target = match page.as_str() {
         "bluetooth" => "ms-settings:bluetooth",
+        "deviceManager" => "devmgmt.msc",
         "sound" => "ms-settings:sound",
         "services" => "services.msc",
         _ => return Err("Unsupported settings page".into()),
@@ -795,7 +1079,6 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 #[tauri::command]
 fn open_external_page(page: String) -> Result<(), String> {
     let url = match page.as_str() {
-        "vbcable" => "https://vb-audio.com/Cable/",
         "github" => "https://github.com/leowzz/axonkey",
         "releases" => "https://github.com/leowzz/axonkey/releases",
         _ => return Err("Unsupported external page".into()),
@@ -837,7 +1120,8 @@ fn open_external_page(page: String) -> Result<(), String> {
 #[derive(serde::Serialize)]
 struct SystemProbe {
     platform: &'static str,
-    input_driver_installed: bool,
+    microphone_driver_abnormal: bool,
+    microphone_driver_warning_suppressed: bool,
     rc003_connected: bool,
     input_backend_ready: bool,
     input_backend_error: Option<String>,
@@ -849,168 +1133,86 @@ struct SystemProbe {
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_output(expression: &str) -> Option<String> {
-    use std::os::windows::process::CommandExt;
+fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
+    use tauri::Manager;
 
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = std::process::Command::new("powershell.exe");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .arg("-NoProfile")
-        .arg("-NonInteractive")
-        .arg("-Command")
-        .arg(expression);
-    command
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| {
-            let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            (!value.is_empty()).then_some(value)
+    let snapshot = app.state::<DeviceManager>().snapshot();
+    let instance = snapshot
+        .store
+        .instances
+        .iter()
+        .find(|instance| {
+            instance.id == instance_id
+                && matches!(
+                    instance.kind.as_str(),
+                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                )
         })
+        .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
+    if instance.binding.is_none() {
+        return Err("请先绑定物理设备。".into());
+    }
+    let devices = windows_driver_devices::list_present()?;
+    input_service::managed::driver_target(
+        instance,
+        &snapshot.store.instances,
+        &snapshot.discovered,
+        &devices,
+    )
+    .map(|(target, _)| target)
+    .ok_or_else(|| "未找到该设备对应的 Quarbor 设备节点，请先连接并唤醒设备。".into())
 }
 
 #[cfg(target_os = "windows")]
-fn powershell_probe(expression: &str) -> bool {
-    powershell_output(expression).as_deref() == Some("1")
+fn resolve_installed_quarbor_target(
+    app: &tauri::AppHandle,
+    instance_id: &str,
+) -> Result<Option<String>, String> {
+    use tauri::Manager;
+
+    let snapshot = app.state::<DeviceManager>().snapshot();
+    let instance = snapshot
+        .store
+        .instances
+        .iter()
+        .find(|instance| instance.id == instance_id)
+        .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
+    if !matches!(
+        instance.kind.as_str(),
+        "rc003" | "cmiotA15" | "xboxBluetooth"
+    ) || instance.binding.is_none()
+    {
+        return Ok(None);
+    }
+    let devices = windows_driver_devices::list()?;
+    Ok(input_service::managed::driver_target(
+        instance,
+        &snapshot.store.instances,
+        &snapshot.discovered,
+        &devices,
+    )
+    .filter(|(_, installed)| *installed)
+    .map(|(target, _)| target))
 }
 
 #[tauri::command]
-async fn probe_legacy_components(
-    app: tauri::AppHandle,
-    refresh: bool,
-) -> Result<legacy_driver::LegacyComponents, String> {
+fn probe_audio_available(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<bool, String> {
     #[cfg(target_os = "windows")]
     {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|error| error.to_string())?;
-        tauri::async_runtime::spawn_blocking(move || {
-            app.state::<legacy_driver::LegacyProbeState>()
-                .check(refresh, || legacy_driver::probe(&resource_dir))
-        })
-        .await
-        .map_err(|error| format!("Legacy driver status task failed: {error}"))?
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (app, refresh);
-        Err("Legacy driver status is only supported on Windows".into())
-    }
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn parse_battery_level(value: &str) -> Option<u8> {
-    value
-        .trim()
-        .parse::<u8>()
-        .ok()
-        .filter(|level| *level <= 100)
-}
-
-#[cfg(target_os = "windows")]
-fn rc003_battery_level() -> Option<u8> {
-    const SCRIPT: &str = r#"
-$ErrorActionPreference = 'Stop'
-try {
-    $target = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-        Where-Object { $_.InstanceId -match '^HID\\.*(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' } |
-        Select-Object -First 1
-
-    if (-not $target) {
-        $target = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
-            Where-Object { $_.InstanceId -match 'BTHLEDEVICE\\\{0000180F-0000-1000-8000-00805F9B34FB\}_DEV_.*(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' } |
-            Select-Object -First 1
-    }
-    if (-not $target) { return }
-
-    $addressMatch = [regex]::Match($target.InstanceId, '_([0-9A-F]{12})\\', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
-    if (-not $addressMatch.Success) { return }
-
-    Add-Type -AssemblyName System.Runtime.WindowsRuntime
-    [void][Windows.Devices.Bluetooth.BluetoothLEDevice, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.BluetoothCacheMode, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceServicesResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattCharacteristicsResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Devices.Bluetooth.GenericAttributeProfile.GattReadResult, Windows.Devices.Bluetooth, ContentType=WindowsRuntime]
-    [void][Windows.Storage.Streams.IBuffer, Windows.Storage.Streams, ContentType=WindowsRuntime]
-
-    function Await-Result($operation, [Type]$resultType) {
-        $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() |
-            Where-Object { $_.Name -eq 'AsTask' -and $_.IsGenericMethod -and $_.GetParameters().Count -eq 1 } |
-            Select-Object -First 1
-        $task = $asTask.MakeGenericMethod($resultType).Invoke($null, @($operation))
-        $task.Wait()
-        $task.Result
-    }
-
-    $address = [Convert]::ToUInt64($addressMatch.Groups[1].Value, 16)
-    $device = Await-Result ([Windows.Devices.Bluetooth.BluetoothLEDevice]::FromBluetoothAddressAsync($address)) ([Windows.Devices.Bluetooth.BluetoothLEDevice])
-    if (-not $device) { return }
-
-    $services = Await-Result ($device.GetGattServicesForUuidAsync([Guid]'0000180f-0000-1000-8000-00805f9b34fb', [Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattDeviceServicesResult])
-    if ($services.Status.ToString() -ne 'Success') { return }
-    $service = $services.Services | Select-Object -First 1
-    if (-not $service) { return }
-
-    $characteristics = Await-Result ($service.GetCharacteristicsForUuidAsync([Guid]'00002a19-0000-1000-8000-00805f9b34fb', [Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattCharacteristicsResult])
-    if ($characteristics.Status.ToString() -ne 'Success') { return }
-    $characteristic = $characteristics.Characteristics | Select-Object -First 1
-    if (-not $characteristic) { return }
-
-    $read = Await-Result ($characteristic.ReadValueAsync([Windows.Devices.Bluetooth.BluetoothCacheMode]::Cached)) ([Windows.Devices.Bluetooth.GenericAttributeProfile.GattReadResult])
-    if ($read.Status.ToString() -ne 'Success' -or $read.Value.Length -lt 1) { return }
-
-    $toArray = [System.Runtime.InteropServices.WindowsRuntime.WindowsRuntimeBufferExtensions].GetMethods() |
-        Where-Object { $_.Name -eq 'ToArray' -and $_.GetParameters().Count -eq 1 } |
-        Select-Object -First 1
-    $bytes = $toArray.Invoke($null, @($read.Value))
-    if ($bytes.Count -gt 0) { [int]$bytes[0] }
-    $device.Dispose()
-} catch {
-    return
-}
-"#;
-
-    powershell_output(SCRIPT).and_then(|value| parse_battery_level(&value))
-}
-
-#[tauri::command]
-async fn probe_rc003_battery_level(app: tauri::AppHandle) -> Option<u8> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = app;
-        tauri::async_runtime::spawn_blocking(rc003_battery_level)
-            .await
-            .unwrap_or_default()
+        audio_service.refresh(instance_id.as_deref());
+        Ok(audio_service
+            .status(instance_id.as_deref())
+            .driver_installed)
     }
 
     #[cfg(target_os = "macos")]
     {
-        use tauri::Manager;
-
-        app.state::<AudioService>().status().battery_level
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        let _ = app;
-        None
-    }
-}
-
-#[tauri::command]
-fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Result<bool, String> {
-    #[cfg(target_os = "windows")]
-    {
-        audio_service.refresh();
-        Ok(audio_service.status().driver_installed)
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        Ok(audio_service.status().driver_installed)
+        Ok(audio_service
+            .status(instance_id.as_deref())
+            .driver_installed)
     }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos")))]
@@ -1021,23 +1223,81 @@ fn probe_audio_available(audio_service: tauri::State<'_, AudioService>) -> Resul
 }
 
 #[tauri::command]
-fn probe_audio_state(audio_service: tauri::State<'_, AudioService>) -> AudioServiceStatus {
-    audio_service.refresh();
-    audio_service.status()
+async fn probe_windows_audio_driver(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let resources = app
+            .path()
+            .resource_dir()
+            .map_err(|error| error.to_string())?;
+        tauri::async_runtime::spawn_blocking(move || windows_vmic::installer::probe(&resources))
+            .await
+            .map_err(|error| format!("虚拟麦克风检测任务失败：{error}"))?
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        Err("Quarbor 虚拟麦克风驱动管理仅支持 Windows".into())
+    }
 }
 
 #[tauri::command]
-async fn restart_audio_service(app: tauri::AppHandle) -> Result<(), String> {
+fn probe_audio_state(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> AudioServiceStatus {
+    audio_service.refresh(instance_id.as_deref());
+    audio_service.status(instance_id.as_deref())
+}
+
+fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
+    snapshot
+        .store
+        .instances
+        .iter()
+        .filter(|instance| {
+            instance.kind == "rc003"
+                || (cfg!(any(windows, target_os = "macos")) && instance.kind == "cmiotA15")
+        })
+        .map(|instance| {
+            let voice_target = instance.voice_target.clone().or_else(|| {
+                instance.binding.as_ref().and_then(|binding| {
+                    snapshot
+                        .discovered
+                        .iter()
+                        .find(|device| &device.id == binding)
+                        .and_then(|device| device.bluetooth_address.clone())
+                })
+            });
+            AudioTarget {
+                instance_id: instance.id.clone(),
+                kind: instance.kind.clone(),
+                voice_target,
+                gain_db: instance.audio_gain_db,
+                enabled: instance.enabled && instance.binding.is_some(),
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+async fn restart_audio_service(
+    app: tauri::AppHandle,
+    instance_id: Option<String>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        tauri::async_runtime::spawn_blocking(move || app.state::<AudioService>().restart())
-            .await
-            .map_err(|error| format!("音频重启失败：{error}"))?
+        tauri::async_runtime::spawn_blocking(move || {
+            app.state::<AudioServiceManager>()
+                .restart(instance_id.as_deref())
+        })
+        .await
+        .map_err(|error| format!("音频重启失败：{error}"))?
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = app;
+        let _ = (app, instance_id);
         Err("手动重启虚拟麦克风仅支持 macOS".into())
     }
 }
@@ -1073,20 +1333,25 @@ async fn open_signal_monitor(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn get_signal_monitor_state(
     app: tauri::AppHandle,
+    instance_id: Option<String>,
     after: Option<u64>,
     clear: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "macos")]
     {
         tauri::async_runtime::spawn_blocking(move || {
-            app.state::<AudioService>().signal_snapshot(after, clear.unwrap_or(false))
+            app.state::<AudioServiceManager>().signal_snapshot(
+                instance_id.as_deref(),
+                after,
+                clear.unwrap_or(false),
+            )
         })
-            .await
-            .map_err(|e| format!("无法读取监测数据：{e}"))
+        .await
+        .map_err(|e| format!("无法读取监测数据：{e}"))
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (app, after, clear);
+        let _ = (app, instance_id, after, clear);
         Err("语音链路监测目前仅支持 macOS".into())
     }
 }
@@ -1123,65 +1388,100 @@ async fn export_signal_monitor(
 
 #[tauri::command]
 fn get_audio_test_state(
-    audio_service: tauri::State<'_, AudioService>,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> (AudioServiceStatus, audio_service::AudioLevel) {
-    (audio_service.status(), audio_service.level())
+    (
+        audio_service.status(instance_id.as_deref()),
+        audio_service.level(instance_id.as_deref()),
+    )
 }
 
 #[tauri::command]
 fn set_audio_stretch_compensation(
     enabled: bool,
-    audio_service: tauri::State<'_, AudioService>,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        audio_service.set_stretch_compensation(enabled)
+        audio_service.set_stretch_compensation(instance_id.as_deref(), enabled)
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (enabled, audio_service);
+        let _ = (enabled, instance_id, audio_service);
         Err("拉伸补偿实验仅支持 macOS".into())
     }
 }
 
 #[tauri::command]
-fn set_audio_gain(gain: i16, audio_service: tauri::State<'_, AudioService>) -> Result<(), String> {
-    audio_service.set_gain_db(gain)
+fn set_audio_gain(
+    gain: i16,
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<(), String> {
+    audio_service.set_gain_db(instance_id.as_deref(), gain)
 }
 
 #[tauri::command]
-async fn probe_rc003_connected(app: tauri::AppHandle) -> Result<bool, String> {
-    use tauri::Manager;
+fn refresh_device_information(
+    binding: String,
+    manager: tauri::State<'_, DeviceManager>,
+) -> Result<DeviceSnapshot, String> {
+    manager.refresh_information(&binding)
+}
 
-    if app.state::<InputService>().status().device_connected {
-        return Ok(true);
-    }
+#[tauri::command]
+async fn toggle_device_recording(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<DeviceManager>().toggle_recording(&instance_id)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
 
-    #[cfg(target_os = "macos")]
-    {
-        let audio_service = app.state::<AudioService>();
-        audio_service.refresh();
-        return Ok(rc003_connected(
-            false,
-            audio_service.status().bluetooth_connected,
-        ));
+#[tauri::command]
+fn device_snapshot(
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> DeviceSnapshot {
+    let mut snapshot = manager.snapshot();
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    for instance in &snapshot.store.instances {
+        if instance.kind == "rc003" {
+            if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
+                status.recording = audio_service.status(Some(&instance.id)).forwarding;
+            }
+        }
     }
+    snapshot
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        tauri::async_runtime::spawn_blocking(|| {
-            powershell_probe(
-                r#"if (@(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.Status -eq 'OK' -and $_.InstanceId -match '(?:VID_2717|VID&012717).*(?:PID_32B8|PID&32B8)' }).Count -gt 0) { '1' } else { '0' }"#,
-            )
-        })
-        .await
-        .map_err(|error| format!("Device probe task failed unexpectedly: {error}"))
-    }
+#[tauri::command]
+fn put_device_instance(
+    revision: u64,
+    instance: DeviceInstance,
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<DeviceSnapshot, String> {
+    let snapshot = manager.put(revision, instance)?;
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    Ok(snapshot)
+}
 
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        Ok(false)
-    }
+#[tauri::command]
+fn remove_device_instance(
+    revision: u64,
+    id: String,
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<DeviceSnapshot, String> {
+    let snapshot = manager.remove(revision, &id)?;
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -1189,8 +1489,10 @@ fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
     mouse_service: tauri::State<'_, MouseService>,
+    manager: tauri::State<'_, DeviceManager>,
 ) -> Result<(), String> {
     log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
+    manager.set_enabled(settings.enabled);
     input_service.update_settings(settings.clone())?;
     mouse_service.update_settings(&settings)
 }
@@ -1218,18 +1520,12 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "windows")]
     {
-        let resource_dir = app
-            .path()
-            .resource_dir()
-            .map_err(|error| error.to_string())?;
-        let devices =
-            tauri::async_runtime::spawn_blocking(move || quarbor_installer::list(&resource_dir))
-                .await
-                .map_err(|error| format!("Quarbor 查询任务失败：{error}"))??;
-        let input_driver_installed = devices.iter().any(|device| device.needs_uninstall());
+        let microphone_driver = windows_vmic::snapshot();
         Ok(SystemProbe {
             platform: "windows",
-            input_driver_installed,
+            microphone_driver_abnormal: microphone_driver.microphone_driver_abnormal,
+            microphone_driver_warning_suppressed: microphone_driver
+                .microphone_driver_warning_suppressed,
             rc003_connected: input_status.device_connected,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
@@ -1243,12 +1539,13 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
 
     #[cfg(target_os = "macos")]
     {
-        let audio_service = app.state::<AudioService>();
-        audio_service.refresh();
-        let audio_status = audio_service.status();
+        let audio_service = app.state::<AudioServiceManager>();
+        audio_service.refresh(None);
+        let audio_status = audio_service.status(None);
         Ok(SystemProbe {
             platform: "macos",
-            input_driver_installed: true,
+            microphone_driver_abnormal: false,
+            microphone_driver_warning_suppressed: false,
             rc003_connected: rc003_connected(
                 input_status.device_connected,
                 audio_status.bluetooth_connected,
@@ -1267,7 +1564,8 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     {
         Ok(SystemProbe {
             platform: "unsupported",
-            input_driver_installed: false,
+            microphone_driver_abnormal: false,
+            microphone_driver_warning_suppressed: false,
             rc003_connected: false,
             input_backend_ready: input_status.backend_ready,
             input_backend_error: input_status.error,
@@ -1280,8 +1578,45 @@ async fn probe_system_state(app: tauri::AppHandle) -> Result<SystemProbe, String
     }
 }
 
+#[tauri::command]
+fn dismiss_microphone_driver_warning() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        windows_vmic::dismiss_microphone_driver_warning()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        false
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
 fn rc003_connected(input_connected: bool, bluetooth_connected: bool) -> bool {
     input_connected || bluetooth_connected
+}
+
+fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
+    let device_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("device-instances.json");
+    app.manage(AudioServiceManager::start());
+    #[cfg(target_os = "windows")]
+    let input_service = InputService::start(std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(false),
+    ));
+    #[cfg(not(target_os = "windows"))]
+    let input_service = InputService::start();
+    app.manage(input_service);
+    app.manage(MouseService::start());
+    let device_manager = DeviceManager::start(app.clone(), device_path);
+    let initial_snapshot = device_manager.snapshot();
+    app.manage(device_manager);
+    app.state::<AudioServiceManager>()
+        .sync_instances(&audio_targets(&initial_snapshot));
+    app.state::<InputService>().set_event_app(app.clone());
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1351,14 +1686,17 @@ pub fn run() {
             if let Err(error) = initialize_autostart(app.handle()) {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
-            app.manage(AudioService::start());
-            app.manage(InputService::start());
-            app.manage(MouseService::start());
+            #[cfg(target_os = "windows")]
+            app.manage(driver_migration::MigrationState::default());
+            #[cfg(target_os = "windows")]
+            app.manage(legacy_cleanup::CleanupState::default());
+            #[cfg(any(target_os = "windows", target_os = "macos"))]
+            recording_overlay::initialize(app.handle().clone());
+            #[cfg(not(target_os = "windows"))]
+            start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
             app.manage(legacy_driver::LegacyProbeState::default());
-            app.state::<InputService>()
-                .set_event_app(app.handle().clone());
             if let Err(error) = install_tray(app) {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");
                 return Err(error.into());
@@ -1370,13 +1708,19 @@ pub fn run() {
             } else {
                 show_main_window(app.handle());
             }
+            #[cfg(target_os = "windows")]
+            legacy_cleanup::initialize(app.handle().clone());
             log::info!(target: "axonkey::runtime", "Axonkey startup completed");
+            #[cfg(target_os = "windows")]
+            windows_vmic::start();
             Ok(())
         })
         .on_window_event(|window, event| {
             #[cfg(target_os = "macos")]
             if window.label() == "signal-monitor" && matches!(event, tauri::WindowEvent::Destroyed) {
-                window.state::<AudioService>().stop_signal_monitor();
+                window
+                    .state::<AudioServiceManager>()
+                    .stop_signal_monitor(None);
             }
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
@@ -1393,6 +1737,14 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            onboarding::get_onboarding_completed,
+            onboarding::complete_onboarding,
+            legacy_cleanup::get_legacy_cleanup,
+            legacy_cleanup::check_legacy_cleanup,
+            legacy_cleanup::run_legacy_cleanup,
+            driver_migration::get_driver_migration,
+            driver_migration::check_driver_migration,
+            driver_migration::run_driver_migration,
             release_update::check_release_update,
             profile_switch_overlay::show_profile_switch_overlay,
             profile_switch_overlay::get_profile_switch_overlay,
@@ -1403,6 +1755,11 @@ pub fn run() {
             get_log_info,
             open_log_directory,
             launch_driver_action,
+            probe_legacy_audio_driver,
+            uninstall_legacy_audio_driver,
+            install_device_driver,
+            unbind_device_instance,
+            uninstall_bound_device_drivers,
             open_windows_settings,
             open_system_settings,
             set_permission_helper_mode,
@@ -1410,9 +1767,10 @@ pub fn run() {
             open_external_page,
             request_macos_permission,
             probe_system_state,
-            probe_legacy_components,
+            dismiss_microphone_driver_warning,
             probe_audio_available,
             probe_audio_state,
+            probe_windows_audio_driver,
             restart_audio_service,
             get_audio_test_state,
             set_audio_gain,
@@ -1420,9 +1778,12 @@ pub fn run() {
             open_signal_monitor,
             get_signal_monitor_state,
             export_signal_monitor,
-            probe_rc003_connected,
-            probe_rc003_battery_level,
             update_input_settings,
+            device_snapshot,
+            refresh_device_information,
+            toggle_device_recording,
+            put_device_instance,
+            remove_device_instance,
             write_mapping_file,
             backup_files::open_backup_location,
         ])
@@ -1430,11 +1791,12 @@ pub fn run() {
         .expect("error while building Axonkey")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<MouseService>().shutdown();
+                if let Some(service) = app.try_state::<DeviceManager>() { service.shutdown(); }
+                if let Some(service) = app.try_state::<MouseService>() { service.shutdown(); }
             }
             #[cfg(windows)]
             if matches!(event, tauri::RunEvent::Exit) {
-                app.state::<InputService>().shutdown();
+                if let Some(service) = app.try_state::<InputService>() { service.shutdown(); }
             }
             #[cfg(not(windows))]
             let _ = (app, event);
@@ -1443,9 +1805,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        app_bundle_for_executable, args_request_autostart, parse_battery_level, rc003_connected,
-    };
+    use super::{app_bundle_for_executable, args_request_autostart, rc003_connected};
 
     #[test]
     fn recognizes_only_the_autostart_launch_argument() {
@@ -1464,15 +1824,6 @@ mod tests {
         assert!(rc003_connected(false, true));
         assert!(rc003_connected(true, false));
         assert!(!rc003_connected(false, false));
-    }
-
-    #[test]
-    fn parses_valid_battery_percentages_only() {
-        assert_eq!(parse_battery_level("91\r\n"), Some(91));
-        assert_eq!(parse_battery_level("0"), Some(0));
-        assert_eq!(parse_battery_level("100"), Some(100));
-        assert_eq!(parse_battery_level("101"), None);
-        assert_eq!(parse_battery_level("unknown"), None);
     }
 
     #[test]

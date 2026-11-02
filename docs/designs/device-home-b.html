@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Axonkey · 方案 B · 设备与权限分栏</title>
+  <style>
+    :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#40566e;background:#f5f7fa;font-synthesis:none;--blue:#2678d5;--muted:#7c8da2;--line:#dfe6ee}
+    *{box-sizing:border-box}body{margin:0}button,a,input{font:inherit}button{cursor:pointer}button,a{-webkit-tap-highlight-color:transparent}button{color:inherit}button:focus-visible,a:focus-visible{outline:2px solid #2876c5;outline-offset:3px}h1,h2,h3,p{margin:0}button{border:0}svg{display:block;flex:none}.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.65;stroke-linecap:round;stroke-linejoin:round}.app{display:flex;width:100%;height:100vh;height:100dvh;min-height:0;overflow:hidden}
+    .sidebar{display:flex;flex:none;flex-direction:column;width:160px;min-height:0;padding:26px 12px 18px;background:#f0f3f7}.brand{display:flex;align-items:center;gap:9px;padding:0 8px;color:#2c3540;font-size:18px;font-weight:720;letter-spacing:-.5px}.brand img{width:26px;height:26px;object-fit:contain}.nav{display:flex;flex-direction:column;gap:7px;margin-top:30px}.nav button{display:flex;align-items:center;gap:12px;width:100%;padding:12px 13px;border-radius:7px;background:transparent;text-align:left;font-size:13px;font-weight:550;color:#7a899c}.nav button:hover{background:#e8edf4}.nav button[aria-current=page]{background:#e1ecfc;color:#2475d7}.sidebar-bottom{display:flex;flex-direction:column;gap:21px;margin-top:auto;padding:20px 4px 0}.prototype-label{color:#8d9bad;font-size:10px;line-height:1.7}.software-control{display:flex;align-items:center;justify-content:space-between;gap:8px;color:#728298;font-size:11px}.switch{position:relative;width:34px;height:21px;flex:none;padding:3px;border-radius:15px;background:#c9d2dd;transition:background .15s}.switch[aria-checked=true]{background:#247ae0}.switch::after{content:"";display:block;width:15px;height:15px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #18365220;transition:transform .15s}.switch[aria-checked=true]::after{transform:translateX(13px)}
+    .workspace{flex:1;min-width:0;min-height:0;overflow:auto;overscroll-behavior:contain;background:#f8fafc}.page{width:min(1180px,100%);min-height:100%;margin:auto;padding:32px 30px 22px;display:flex;flex-direction:column}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:24px;margin-bottom:28px}.page-heading h1{color:#354e69;font-size:25px;line-height:1.35;font-weight:650;letter-spacing:-.5px}.page-heading p{margin-top:7px;color:#7c8fa5;font-size:12px;line-height:1.6}.outline-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:35px;padding:8px 12px;border:1px solid #cfddeb;border-radius:6px;background:#fff;color:#54799e;font-size:12px;white-space:nowrap}.outline-button:hover{border-color:#94b8df;background:#f3f8fe;color:#2674c2}.outline-button .icon{width:14px;height:14px}.columns{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px;align-items:start}.devices{min-width:0}.section-heading{display:flex;align-items:center;gap:8px;min-height:24px;margin-bottom:13px}.section-heading h2{font-size:14px;line-height:1.5;color:#48627d;font-weight:600}.device-count{font-size:10px;color:#8a9caf}.device-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:stretch}.device-card{display:flex;flex-direction:column;gap:14px;width:100%;min-width:0;min-height:310px;padding:20px;border:1px solid #dfe7ef;border-radius:6px;background:#fff;text-align:left;box-shadow:0 3px 9px #476b9403;transition:border-color .15s,box-shadow .15s}.device-card:hover{border-color:#93b9e4;box-shadow:0 5px 16px #557dad0b}.device-art{display:flex;flex:0 0 100px;align-items:center;justify-content:center;min-height:100px}.remote-art{display:block;width:auto;height:100px;max-width:70px;object-fit:contain}.mouse-art{width:64px;height:86px}.device-copy{display:flex;flex:1;flex-direction:column;min-width:0}.device-title-row{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}.device-name{font-size:16px;line-height:1.5;font-weight:600;color:#3b5673}.device-badge{display:inline-flex;align-items:center;gap:5px;flex:none;color:#8796a8;font-size:10px;white-space:nowrap}.device-badge::before{content:"";width:5px;height:5px;border-radius:50%;background:#a8b4c3}.device-model{margin-top:4px;color:#8393a7;font-size:11px;line-height:1.6}.device-description{margin-top:5px;color:#788ba1;font-size:11px;line-height:1.65}.device-profile{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:15px;padding:9px 10px;border-radius:5px;background:#f4f7fa;font-size:11px}.device-profile>span{display:inline-flex;align-items:center;gap:6px;flex:none;color:#8797aa}.device-profile .icon{width:12px;height:12px}.device-profile strong{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#607c9a;font-size:11px;font-weight:550}.device-card-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:auto;padding-top:12px;color:#9aa7b7;font-size:10px}.edit-label{display:inline-flex;align-items:center;gap:5px;color:#497cac;font-size:11px;font-weight:550}.edit-label .icon{width:13px;height:13px}.devices-note{display:flex;align-items:flex-start;gap:7px;margin:17px 2px 0;color:#91a0b2;font-size:10px;line-height:1.8}.devices-note .icon{width:13px;height:13px;margin-top:2px}
+    .permissions{min-width:0;margin-top:37px;padding:19px 18px 17px;border:1px solid #e1e7ee;border-radius:6px;background:#fff;box-shadow:0 3px 9px #476b9403}.permissions-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.permissions-heading h2{font-size:14px;color:#4c6680;font-weight:600}.permissions-heading .icon{width:16px;height:16px;color:#92a5bb}.permissions-intro{margin-top:7px;font-size:11px;line-height:1.7;color:#92a0b1}.permission-list{display:flex;flex-direction:column;gap:22px;margin-top:24px}.permission-item{display:grid;grid-template-columns:25px minmax(0,1fr);gap:9px;min-width:0}.permission-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:6px;background:#f0f4f9;color:#7f9bb9}.permission-icon .icon{width:15px;height:15px}.permission-title{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:5px 7px;min-height:25px}.permission-title h3{font-size:12px;font-weight:550;color:#57718d}.permission-status{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font-size:10px;color:#728d7c}.permission-status::before{content:"";width:4px;height:4px;border-radius:50%;background:currentColor}.permission-status.warning{color:#aa823f}.permission-item p{margin-top:6px;font-size:11px;line-height:1.8;color:#91a0b2}.permissions-manage{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:34px;margin-top:24px;padding:8px 10px;border:1px solid #dce6f1;border-radius:6px;background:#f7f9fc;color:#6583a3;font-size:11px;text-align:left}.permissions-manage:hover{background:#eef5ff;border-color:#b1ccea;color:#3876b5}.permissions-manage .icon{width:13px;height:13px}.permissions-note{margin-top:13px;color:#9da9b8;font-size:10px;line-height:1.8}.page-footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-top:auto;padding-top:35px;color:#9aa8b9;font-size:10px;line-height:1.7}.page-footer>span:first-child{display:inline-flex;align-items:center;gap:5px}.page-footer .icon{width:12px;height:12px}.demo-state{color:#aa823f}.demo-state:empty{display:none}
+    dialog{width:min(520px,calc(100vw - 48px));max-height:calc(100dvh - 48px);margin:auto;padding:0;border:1px solid #dce5ee;border-radius:11px;color:#536d88;background:#f9fbfd;box-shadow:0 18px 60px #1e35502a;overflow:hidden}dialog::backdrop{background:#263d5636}.dialog-content{display:flex;flex-direction:column;max-height:calc(100dvh - 50px)}.dialog-head{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:22px 24px 10px}.dialog-head h2{color:#3c5671;font-size:18px;line-height:1.5;font-weight:600}.dialog-close{display:grid;place-items:center;flex:none;width:29px;height:29px;border-radius:5px;background:transparent;color:#8495a7}.dialog-close:hover{background:#e8eef5;color:#466b92}.dialog-close .icon{width:17px;height:17px}.dialog-body{overflow:auto;min-height:0;padding:6px 24px 24px}.dialog-description{font-size:12px;line-height:1.85;color:#7b8fa4}.dialog-options{display:flex;flex-direction:column;gap:11px;margin-top:19px}.dialog-option{display:grid;grid-template-columns:27px minmax(0,1fr) 15px;align-items:center;gap:12px;padding:16px;border:1px solid #dce6ef;border-radius:7px;background:#fff;text-align:left}.dialog-option:hover{border-color:#a2c2e5;background:#f5f9ff}.dialog-option>.icon{color:#7897b9}.dialog-option strong{display:block;color:#4d6986;font-size:13px;font-weight:550}.dialog-option small{display:block;margin-top:5px;color:#8a9aaf;font-size:11px;line-height:1.7}.demo-permission-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:15px;padding:16px;border:1px solid #e0e7ef;border-radius:7px;background:#fff}.demo-permission-row strong{display:block;font-size:13px;font-weight:550}.demo-permission-row small{display:block;margin-top:5px;font-size:11px;color:#90a0b3}.dialog-info{margin-top:18px;padding:16px;border-radius:7px;background:#eef3f8}.dialog-info strong{display:block;font-size:13px;font-weight:550;color:#56728f}.dialog-info p{margin-top:7px;font-size:12px;line-height:1.8;color:#7a8ea4}.dialog-footnote{margin-top:16px;font-size:10px;line-height:1.8;color:#9aa8b9}.dialog-footer{display:flex;justify-content:flex-end;padding:0 24px 22px}.dialog-done{min-height:34px;padding:7px 15px;border:1px solid #cddceb;border-radius:6px;background:#fff;color:#557b9f;font-size:12px}
+    @media(max-width:1050px){.page{padding:26px 24px 20px}.page-heading{margin-bottom:24px}.columns{grid-template-columns:minmax(0,1fr) 245px;gap:18px}.device-card{min-height:292px;gap:12px;padding:16px}.device-name{font-size:15px}.device-profile{margin-top:13px}.device-card-footer{gap:8px}.device-description{font-size:10px}.permissions{padding:18px 15px 16px}.permission-list{gap:19px}.permissions-note{font-size:9px}}
+    @media(max-height:720px){.page{padding-top:24px;padding-bottom:18px}.page-heading{margin-bottom:22px}.device-card{min-height:292px}.device-list{gap:14px}.page-footer{padding-top:22px}}
+    @media(max-width:790px){.sidebar{width:136px;padding-inline:9px}.brand{font-size:16px}.page{padding-inline:18px}.columns{grid-template-columns:minmax(0,1fr)}.permissions{margin-top:0}.permission-list{display:grid;grid-template-columns:1fr 1fr;gap:18px}.page-heading{align-items:flex-start}.page-heading h1{font-size:22px}.permissions-manage{max-width:260px}}
+    @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute;overflow:hidden" aria-hidden="true"><defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h6m4 0h6M4 17h10m4 0h2"/><circle cx="12" cy="7" r="2"/><circle cx="16" cy="17" r="2"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v.01"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Zm-9 9 9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M10 9h.01M14 9h.01M17 9h.01M7 12h.01M10 12h.01M14 12h.01M17 12h.01M7 15h10"/></symbol>
+    <symbol id="i-command" viewBox="0 0 24 24"><path d="M9 9H6a3 3 0 1 1 3-3v12a3 3 0 1 1-3-3h12a3 3 0 1 1-3 3V6a3 3 0 1 1 3 3H9Z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-bluetooth" viewBox="0 0 24 24"><path d="m7 7 10 10-5 4V3l5 4L7 17"/></symbol>
+    <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="7"/><path d="M12 2v7"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+  </defs></svg>
+  <div class="app">
+    <aside class="sidebar" aria-label="主导航">
+      <div class="brand"><img src="../../src-tauri/icons/128x128@2x.png" alt=""><span>axonkey</span></div>
+      <nav class="nav">
+        <button type="button" aria-current="page"><svg class="icon"><use href="#i-home"/></svg>首页</button>
+        <button type="button" data-open="settings"><svg class="icon"><use href="#i-settings"/></svg>设置</button>
+        <button type="button" data-open="about"><svg class="icon"><use href="#i-info"/></svg>关于</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <span class="prototype-label">方案 B<br>设备与权限分栏</span>
+        <div class="software-control"><span>软件总开关</span><button id="software-switch" class="switch" type="button" role="switch" aria-checked="true" aria-label="软件总开关示例"></button></div>
+      </div>
+    </aside>
+    <main class="workspace">
+      <div class="page">
+        <header class="page-heading">
+          <div><h1>设备与权限</h1><p>集中管理设备映射与系统权限。</p></div>
+          <button type="button" class="outline-button" data-open="integrate"><svg class="icon"><use href="#i-plus"/></svg>集成设备</button>
+        </header>
+        <div class="columns">
+          <section class="devices" aria-labelledby="devices-title">
+            <div class="section-heading"><h2 id="devices-title">我的设备</h2><span class="device-count">2</span></div>
+            <div class="device-list">
+              <button type="button" class="device-card" data-device="rc003" aria-label="编辑小米遥控器的映射">
+                <span class="device-art" aria-hidden="true"><img class="remote-art" src="../../public/rc003-remote-keymap.svg" alt=""></span>
+                <span class="device-copy">
+                  <span class="device-title-row"><strong class="device-name">小米遥控器</strong><span class="device-badge">连接未检测</span></span>
+                  <span class="device-model">RC003 · 蓝牙遥控器</span>
+                  <span class="device-description">配置按键的单击、双击与长按行为。</span>
+                  <span class="device-profile"><span><svg class="icon"><use href="#i-layers"/></svg>当前配置</span><strong>默认配置</strong></span>
+                  <span class="device-card-footer"><span>配置示例</span><strong class="edit-label">编辑映射<svg class="icon"><use href="#i-chevron"/></svg></strong></span>
+                </span>
+              </button>
+              <button type="button" class="device-card" data-device="mouse" aria-label="编辑系统鼠标的映射">
+                <span class="device-art" aria-hidden="true"><svg class="mouse-art" viewBox="0 0 100 132" fill="none"><path d="M50 8C28 8 14 23 14 46v39c0 24 13 39 36 39s36-15 36-39V46C86 23 72 8 50 8Z" fill="#e9edf1" stroke="#a3afbd" stroke-width="1.6"/><path d="M50 9v45M15 54h70" stroke="#b2bdca" stroke-width="1.4"/><rect x="45" y="26" width="10" height="20" rx="5" fill="#8d9db0"/><path d="M21 62v12m0 7v12" stroke="#899bb0" stroke-width="3" stroke-linecap="round"/></svg></span>
+                <span class="device-copy">
+                  <span class="device-title-row"><strong class="device-name">系统鼠标</strong><span class="device-badge">系统输入</span></span>
+                  <span class="device-model">全部鼠标共用输入</span>
+                  <span class="device-description">统一配置鼠标按键、滚轮与屏幕区域。</span>
+                  <span class="device-profile"><span><svg class="icon"><use href="#i-layers"/></svg>当前配置</span><strong>默认配置</strong></span>
+                  <span class="device-card-footer"><span>配置示例</span><strong class="edit-label">编辑映射<svg class="icon"><use href="#i-chevron"/></svg></strong></span>
+                </span>
+              </button>
+            </div>
+            <p class="devices-note"><svg class="icon"><use href="#i-layers"/></svg><span>每类设备保留自己的配置，进入后继续使用现有映射编辑器。</span></p>
+          </section>
+          <aside class="permissions" aria-labelledby="permissions-title">
+            <div class="permissions-heading"><h2 id="permissions-title">系统权限</h2><svg class="icon" aria-hidden="true"><use href="#i-shield"/></svg></div>
+            <p class="permissions-intro">用于读取输入并执行映射。</p>
+            <div class="permission-list">
+              <div class="permission-item"><span class="permission-icon"><svg class="icon" aria-hidden="true"><use href="#i-keyboard"/></svg></span><div><div class="permission-title"><h3>输入监控</h3><span class="permission-status" data-status="inputMonitoring">已授权</span></div><p>允许读取设备输入。</p></div></div>
+              <div class="permission-item"><span class="permission-icon"><svg class="icon" aria-hidden="true"><use href="#i-command"/></svg></span><div><div class="permission-title"><h3>辅助功能</h3><span class="permission-status" data-status="accessibility">已授权</span></div><p>允许发送按键与文本。</p></div></div>
+            </div>
+            <button type="button" class="permissions-manage" data-open="permissions"><span>管理系统权限</span><svg class="icon"><use href="#i-chevron"/></svg></button>
+            <p class="permissions-note">权限状态为演示示例。浏览器无法检测或修改系统授权。</p>
+          </aside>
+        </div>
+        <footer class="page-footer"><span><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>静态交互示例 · 不连接设备</span><span id="software-note" class="demo-state" role="status"></span><span>Axonkey · 方案 B</span></footer>
+      </div>
+    </main>
+  </div>
+  <dialog id="demo-dialog" aria-labelledby="dialog-title"><div class="dialog-content"><header class="dialog-head"><h2 id="dialog-title"></h2><button type="button" class="dialog-close" data-close aria-label="关闭弹窗"><svg class="icon"><use href="#i-close"/></svg></button></header><div id="dialog-body" class="dialog-body"></div><footer class="dialog-footer"><button type="button" class="dialog-done" data-close>完成</button></footer></div></dialog>
+  <script>
+    const state={inputMonitoring:true,accessibility:new URLSearchParams(location.search).get('permissions')!=='warning',enabled:true};
+    const dialog=document.getElementById('demo-dialog');
+    const title=document.getElementById('dialog-title');
+    const body=document.getElementById('dialog-body');
+    let previousFocus=null,previousOverflow='';
+    const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+    function updatePermissions(){
+      document.querySelectorAll('[data-status]').forEach(el=>{const granted=state[el.dataset.status];el.textContent=granted?'已授权':'未授权';el.classList.toggle('warning',!granted)});
+      document.querySelectorAll('[data-permission]').forEach(el=>{el.setAttribute('aria-checked',String(state[el.dataset.permission]));el.closest('.demo-permission-row').querySelector('small').textContent=state[el.dataset.permission]?'示例状态：已授权':'示例状态：未授权'});
+    }
+    function showDialog(heading,content){
+      title.textContent=heading;body.innerHTML=content;
+      if(!dialog.open){previousFocus=document.activeElement;previousOverflow=document.body.style.overflow;document.body.style.overflow='hidden';dialog.showModal()}
+      body.scrollTop=0;dialog.querySelector('[data-close]').focus();
+    }
+    function showPermissions(){
+      showDialog('系统权限 · 状态示例',`<p class="dialog-description">切换下列开关，预览已授权与待授权状态。这里只改变本页显示，不读取或修改系统权限。</p>${[['inputMonitoring','输入监控'],['accessibility','辅助功能']].map(([key,label])=>`<div class="demo-permission-row"><div><strong>${label}</strong><small>示例状态</small></div><button type="button" class="switch" role="switch" aria-label="切换${label}示例" aria-checked="${state[key]}" data-permission="${key}"></button></div>`).join('')}<p class="dialog-footnote">正式应用将继续使用现有的系统授权与重新检测流程。</p>`);updatePermissions();
+    }
+    function showIntegration(){
+      showDialog('集成设备 · 入口示例',`<p class="dialog-description">当前支持以下两类输入。正式应用中会打开对应的连接或权限设置。</p><div class="dialog-options"><button type="button" class="dialog-option" data-integrate="rc003">${icon('bluetooth')}<span><strong>小米遥控器 RC003</strong><small>蓝牙配对与现有驱动、权限引导。</small></span>${icon('chevron')}</button><button type="button" class="dialog-option" data-integrate="mouse">${icon('mouse')}<span><strong>系统鼠标</strong><small>全部物理鼠标共用同一套系统输入。</small></span>${icon('chevron')}</button></div><p class="dialog-footnote">本示例不会扫描、连接设备或安装驱动。</p>`);
+    }
+    function showDevice(device){
+      const remote=device==='rc003';
+      showDialog(`${remote?'小米遥控器':'系统鼠标'} · 编辑入口`, `<p class="dialog-description">从这里进入这类设备现有的映射编辑页，保留当前按键选择、动作泳道与行为库。</p><div class="dialog-info"><strong>当前配置：默认配置（示例）</strong><p>${remote?'继续编辑 RC003 按键的单击、双击和长按行为。':'继续编辑系统鼠标的按键、滚轮及屏幕区域映射；所有物理鼠标共用。'}</p></div><p class="dialog-footnote">此页只演示入口，不创建或改动映射配置。</p>`);
+    }
+    document.addEventListener('click',event=>{
+      const target=event.target.closest('button');if(!target)return;
+      if(target.hasAttribute('data-close')){dialog.close();return}
+      if(target.dataset.permission){state[target.dataset.permission]=!state[target.dataset.permission];updatePermissions();return}
+      if(target.dataset.device){showDevice(target.dataset.device);return}
+      if(target.dataset.integrate){const remote=target.dataset.integrate==='rc003';showDialog(remote?'连接小米遥控器':'准备系统鼠标',`<p class="dialog-description">${remote?'正式应用会打开已有的设备连接引导：先在系统蓝牙设置中配对并唤醒 RC003，再按系统需要处理驱动或权限。':'正式应用会打开现有系统设置，检查输入监控、辅助功能等所需权限。'}</p><div class="dialog-info"><strong>浏览器中的入口演示</strong><p>此处不会请求系统授权或执行设备操作。</p></div>`);return}
+      if(target.dataset.open==='permissions'){showPermissions();return}
+      if(target.dataset.open==='integrate'){showIntegration();return}
+      if(target.dataset.open==='settings'){showDialog('设置 · 入口示例','<p class="dialog-description">正式应用保留现有设置页面，用于管理启动偏好、系统权限、鼠标行为与数据备份。</p><p class="dialog-footnote">本页演示合并后的首页布局。</p>');return}
+      if(target.dataset.open==='about'){showDialog('关于此方案','<p class="dialog-description">方案 B 将设备以近方形卡片并排展示在主区域，系统权限置于右侧辅助栏。设备映射是主要入口，权限信息保持低调且随时可处理。</p><p class="dialog-footnote">这是独立静态原型，没有访问本机设备或原生应用接口。</p>');return}
+      if(target.id==='software-switch'){state.enabled=!state.enabled;target.setAttribute('aria-checked',String(state.enabled));document.getElementById('software-note').textContent=state.enabled?'':'示例：软件功能已暂停，仍可编辑配置。'}
+    });
+    dialog.addEventListener('click',event=>{if(event.target!==dialog)return;const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close()});
+    dialog.addEventListener('close',()=>{document.body.style.overflow=previousOverflow;if(previousFocus?.isConnected)previousFocus.focus()});
+    updatePermissions();
+  </script>
+</body>
+</html>

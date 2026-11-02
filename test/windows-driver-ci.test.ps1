@@ -13,6 +13,23 @@ $list = '{"version":1,"action":"list","outcome":"success","exitCode":0,"rebootRe
 $reply = Assert-InstallerReply -Json $list -ExitCode 0 -Action list
 if ($reply.devices.Count -ne 0) { throw 'Hardware-free list should accept an empty device array.' }
 $null = Assert-InstallerReply -Json ([string][char]0xfeff + $list) -ExitCode 0 -Action list
+$deviceList = $list.Replace('"devices":[]', '"devices":[{"instanceId":"HID\\test","name":"Test device","hardwareId":"HID\\VID_045E&PID_02E0","service":"HidBth","inf":"input.inf","section":"HID_Inst.NT","present":true,"bound":false,"recoverySaved":false,"recoveryActive":false}]')
+$reply = Assert-InstallerReply -Json $deviceList -ExitCode 0 -Action list
+if ($reply.devices.Count -ne 1 -or $reply.devices[0].instanceId -ne 'HID\test') { throw 'Current installer device record was lost.' }
+$null = Assert-InstallerReply -Json ($deviceList.Replace('"present":true,"bound":false', '"present":false,"bound":true')) -ExitCode 0 -Action list
+$null = Assert-InstallerReply -Json ($deviceList.Replace('"name":"Test device",', '').Replace('"recoverySaved":false,', '')) -ExitCode 0 -Action list
+$null = Assert-InstallerReply -Json ($deviceList.Replace('"name":"Test device"', '"name":null').Replace('"recoverySaved":false', '"recoverySaved":null')) -ExitCode 0 -Action list
+Assert-Rejected { Assert-InstallerReply -Json ($deviceList.Replace('"instanceId":"HID\\test"', '"instanceId":" "')) -ExitCode 0 -Action list }
+Assert-Rejected { Assert-InstallerReply -Json ($deviceList.Replace('"name":"Test device"', '"name":42')) -ExitCode 0 -Action list }
+foreach ($field in @('present', 'bound', 'recoverySaved', 'recoveryActive')) {
+    $value = if ($field -eq 'present') { 'true' } else { 'false' }
+    Assert-Rejected { Assert-InstallerReply -Json ($deviceList.Replace(('"{0}":{1}' -f $field, $value), ('"{0}":"{1}"' -f $field, $value))) -ExitCode 0 -Action list }
+}
+foreach ($field in @('instanceId', 'present', 'bound', 'recoveryActive')) {
+    $missingField = $deviceList | ConvertFrom-Json
+    $missingField.devices[0].PSObject.Properties.Remove($field)
+    Assert-Rejected { Assert-InstallerReply -Json ($missingField | ConvertTo-Json -Depth 4) -ExitCode 0 -Action list }
+}
 Assert-Rejected { Assert-InstallerReply -Json $list -ExitCode 259 -Action list }
 Assert-Rejected { Assert-InstallerReply -Json $list -ExitCode 0 -Action install }
 Assert-Rejected { Assert-InstallerReply -Json ($list.Replace('"version":1', '"version":"1"')) -ExitCode 0 -Action list }
@@ -27,11 +44,11 @@ $null = Assert-InstallerReply -Json $invalid -ExitCode 87 -ExpectedExitCode 87
 Assert-Rejected { Assert-InstallerReply -Json $invalid -ExitCode 0 -ExpectedExitCode 87 }
 
 # Cleanup must preserve pre-existing Quarbor packages and unrelated/new vendor packages.
-$before = @([pscustomobject]@{ Driver = 'oem1.inf'; OriginalFileName = '/store/QuarborHIDFilterUserDriver.inf' })
+$before = @([pscustomobject]@{ Driver = 'oem1.inf'; OriginalFileName = '/store/QuarborUniversalKeyboardDriver.inf' })
 $after = $before + @(
-    [pscustomobject]@{ Driver = 'oem2.inf'; OriginalFileName = '/store/quarborhidfilteruserdriver.inf' },
+    [pscustomobject]@{ Driver = 'oem2.inf'; OriginalFileName = '/store/quarboruniversalkeyboarddriver.inf' },
     [pscustomobject]@{ Driver = 'oem3.inf'; OriginalFileName = '/store/another-driver.inf' },
-    [pscustomobject]@{ Driver = 'keyboard.inf'; OriginalFileName = '/store/QuarborHIDFilterUserDriver.inf' }
+    [pscustomobject]@{ Driver = 'keyboard.inf'; OriginalFileName = '/store/QuarborUniversalKeyboardDriver.inf' }
 )
 $new = @(Get-NewQuarborPackages -Before $before -After $after)
 if ($new.Count -ne 1 -or $new[0].Driver -ne 'oem2.inf') { throw 'Cleanup selected packages outside this staging operation.' }

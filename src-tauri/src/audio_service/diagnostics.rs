@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+#[cfg(any(target_os = "macos", test))]
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering::Relaxed};
 use std::time::{Duration, Instant};
 
@@ -22,9 +23,26 @@ impl Default for TestLevel {
     }
 }
 
-pub(super) struct AudioDiagnostics {
+pub(crate) struct AudioDiagnostics {
     level: std::sync::Mutex<TestLevel>,
     epoch: Instant,
+    #[cfg(any(target_os = "macos", test))]
+    statistics: Statistics,
+}
+
+impl Default for AudioDiagnostics {
+    fn default() -> Self {
+        Self {
+            level: std::sync::Mutex::new(TestLevel::default()),
+            epoch: Instant::now(),
+            #[cfg(any(target_os = "macos", test))]
+            statistics: Statistics::default(),
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+struct Statistics {
     activity: AtomicBool,
     packets: AtomicU64,
     bytes: AtomicU64,
@@ -50,11 +68,10 @@ pub(super) struct AudioDiagnostics {
     decoder_discarded_bytes: AtomicU64,
 }
 
-impl Default for AudioDiagnostics {
+#[cfg(any(target_os = "macos", test))]
+impl Default for Statistics {
     fn default() -> Self {
         Self {
-            level: std::sync::Mutex::new(TestLevel::default()),
-            epoch: Instant::now(),
             activity: AtomicBool::new(false),
             packets: AtomicU64::new(0),
             bytes: AtomicU64::new(0),
@@ -83,25 +100,32 @@ impl Default for AudioDiagnostics {
 }
 
 impl AudioDiagnostics {
-    pub(super) fn received(&self, bytes: usize) {
-        self.activity.store(true, Relaxed);
-        self.packets.fetch_add(1, Relaxed);
-        self.bytes.fetch_add(bytes as u64, Relaxed);
-        self.last_packet_ms
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn received(&self, bytes: usize) {
+        self.statistics.activity.store(true, Relaxed);
+        self.statistics.packets.fetch_add(1, Relaxed);
+        self.statistics.bytes.fetch_add(bytes as u64, Relaxed);
+        self.statistics
+            .last_packet_ms
             .store(self.epoch.elapsed().as_millis() as u64, Relaxed);
     }
 
-    pub(super) fn decoded(&self, samples: &[i16]) {
-        let mut energy = 0;
-        let mut peak = 0;
-        for sample in samples {
-            let magnitude = i64::from(*sample).unsigned_abs();
-            energy += magnitude * magnitude;
-            peak = peak.max(magnitude);
+    pub(crate) fn decoded(&self, samples: &[i16]) {
+        #[cfg(any(target_os = "macos", test))]
+        {
+            let mut energy = 0;
+            let mut peak = 0;
+            for sample in samples {
+                let magnitude = i64::from(*sample).unsigned_abs();
+                energy += magnitude * magnitude;
+                peak = peak.max(magnitude);
+            }
+            self.statistics
+                .decoded
+                .fetch_add(samples.len() as u64, Relaxed);
+            self.statistics.energy.fetch_add(energy, Relaxed);
+            self.statistics.peak.fetch_max(peak, Relaxed);
         }
-        self.decoded.fetch_add(samples.len() as u64, Relaxed);
-        self.energy.fetch_add(energy, Relaxed);
-        self.peak.fetch_max(peak, Relaxed);
         if let Ok(mut level) = self.level.lock() {
             let skipped = level.remaining.min(samples.len());
             level.remaining -= skipped;
@@ -138,7 +162,7 @@ impl AudioDiagnostics {
         }
     }
 
-    pub(super) fn level(&self) -> super::AudioLevel {
+    pub(crate) fn level(&self) -> super::AudioLevel {
         let Ok(level) = self.level.lock() else {
             return super::AudioLevel::default();
         };
@@ -155,115 +179,134 @@ impl AudioDiagnostics {
         }
     }
 
-    pub(super) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
-        self.callbacks.fetch_add(1, Relaxed);
-        self.consumed.fetch_add(consumed as u64, Relaxed);
-        self.silent_frames.fetch_add(silent_frames as u64, Relaxed);
-        self.queue_busy.fetch_add(u64::from(queue_busy), Relaxed);
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn output(&self, consumed: usize, silent_frames: usize, queue_busy: bool) {
+        self.statistics.callbacks.fetch_add(1, Relaxed);
+        self.statistics.consumed.fetch_add(consumed as u64, Relaxed);
+        self.statistics
+            .silent_frames
+            .fetch_add(silent_frames as u64, Relaxed);
+        self.statistics
+            .queue_busy
+            .fetch_add(u64::from(queue_busy), Relaxed);
     }
 
-    #[cfg(any(target_os = "windows", test))]
-    pub(super) fn overflow(&self, samples: usize) {
-        self.overflow.fetch_add(samples as u64, Relaxed);
+    #[cfg(test)]
+    pub(crate) fn overflow(&self, samples: usize) {
+        self.statistics.overflow.fetch_add(samples as u64, Relaxed);
     }
 
-    pub(super) fn rejected(&self) {
-        self.activity.store(true, Relaxed);
-        self.rejected_packets.fetch_add(1, Relaxed);
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn rejected(&self) {
+        self.statistics.activity.store(true, Relaxed);
+        self.statistics.rejected_packets.fetch_add(1, Relaxed);
     }
 
-    pub(super) fn read_error(&self) {
-        self.activity.store(true, Relaxed);
-        self.read_errors.fetch_add(1, Relaxed);
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn read_error(&self) {
+        self.statistics.activity.store(true, Relaxed);
+        self.statistics.read_errors.fetch_add(1, Relaxed);
     }
 
-    pub(super) fn control(&self, opcode: u8) {
-        self.activity.store(true, Relaxed);
-        match opcode {
-            0x04 => {
-                self.starts.fetch_add(1, Relaxed);
-                if let Ok(mut level) = self.level.lock() {
-                    *level = TestLevel::default();
+    pub(crate) fn control(&self, opcode: u8) {
+        #[cfg(any(target_os = "macos", test))]
+        {
+            self.statistics.activity.store(true, Relaxed);
+            match opcode {
+                0x04 => {
+                    self.statistics.starts.fetch_add(1, Relaxed);
                 }
+                0x00 => {
+                    self.statistics.stops.fetch_add(1, Relaxed);
+                }
+                0x0a => {
+                    self.statistics.syncs.fetch_add(1, Relaxed);
+                }
+                _ => {}
             }
-            0x00 => {
-                self.stops.fetch_add(1, Relaxed);
+        }
+        if opcode == 0x04 {
+            if let Ok(mut level) = self.level.lock() {
+                *level = TestLevel::default();
             }
-            0x0a => {
-                self.syncs.fetch_add(1, Relaxed);
-            }
-            _ => {}
         }
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn scheduled(&self, samples: usize, success: bool) {
-        self.activity.store(true, Relaxed);
+    pub(crate) fn scheduled(&self, samples: usize, success: bool) {
+        self.statistics.activity.store(true, Relaxed);
         if success {
-            self.scheduled.fetch_add(samples as u64, Relaxed);
+            self.statistics.scheduled.fetch_add(samples as u64, Relaxed);
         } else {
-            self.enqueue_failures.fetch_add(1, Relaxed);
-            self.enqueue_failed_samples
+            self.statistics.enqueue_failures.fetch_add(1, Relaxed);
+            self.statistics
+                .enqueue_failed_samples
                 .fetch_add(samples as u64, Relaxed);
         }
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn discarded_buffers(&self, count: usize) {
+    pub(crate) fn discarded_buffers(&self, count: usize) {
         if count > 0 {
-            self.activity.store(true, Relaxed);
-            self.discarded_buffers.fetch_add(count as u64, Relaxed);
+            self.statistics.activity.store(true, Relaxed);
+            self.statistics
+                .discarded_buffers
+                .fetch_add(count as u64, Relaxed);
         }
     }
 
-    #[cfg(any(target_os = "windows", test))]
-    pub(super) fn report(&self, active: bool, window: Duration) -> Option<String> {
+    #[cfg(test)]
+    pub(crate) fn report(&self, active: bool, window: Duration) -> Option<String> {
         self.report_platform(active, window, false)
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn decoder_pending(&self, pending: usize, discarded: usize) {
-        self.decoder_pending_bytes.store(pending as u64, Relaxed);
+    pub(crate) fn decoder_pending(&self, pending: usize, discarded: usize) {
+        self.statistics
+            .decoder_pending_bytes
+            .store(pending as u64, Relaxed);
         if discarded > 0 {
-            self.activity.store(true, Relaxed);
-            self.decoder_discarded_bytes
+            self.statistics.activity.store(true, Relaxed);
+            self.statistics
+                .decoder_discarded_bytes
                 .fetch_add(discarded as u64, Relaxed);
         }
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn note_native_activity(&self) {
-        self.activity.store(true, Relaxed);
+    pub(crate) fn note_native_activity(&self) {
+        self.statistics.activity.store(true, Relaxed);
     }
 
     #[cfg(any(target_os = "macos", test))]
-    pub(super) fn report_macos(&self, active: bool, window: Duration) -> Option<String> {
+    pub(crate) fn report_macos(&self, active: bool, window: Duration) -> Option<String> {
         self.report_platform(active, window, true)
     }
 
+    #[cfg(any(target_os = "macos", test))]
     fn report_platform(&self, active: bool, window: Duration, macos: bool) -> Option<String> {
-        let activity = self.activity.swap(false, Relaxed);
-        let packets = self.packets.swap(0, Relaxed);
-        let bytes = self.bytes.swap(0, Relaxed);
-        let decoded = self.decoded.swap(0, Relaxed);
-        let energy = self.energy.swap(0, Relaxed);
-        let peak = self.peak.swap(0, Relaxed);
-        let callbacks = self.callbacks.swap(0, Relaxed);
-        let consumed = self.consumed.swap(0, Relaxed);
-        let silent_frames = self.silent_frames.swap(0, Relaxed);
-        let queue_busy = self.queue_busy.swap(0, Relaxed);
-        let overflow = self.overflow.swap(0, Relaxed);
-        let rejected = self.rejected_packets.swap(0, Relaxed);
-        let read_errors = self.read_errors.swap(0, Relaxed);
-        let starts = self.starts.swap(0, Relaxed);
-        let stops = self.stops.swap(0, Relaxed);
-        let syncs = self.syncs.swap(0, Relaxed);
-        let scheduled = self.scheduled.swap(0, Relaxed);
-        let enqueue_failures = self.enqueue_failures.swap(0, Relaxed);
-        let failed_samples = self.enqueue_failed_samples.swap(0, Relaxed);
-        let discarded_buffers = self.discarded_buffers.swap(0, Relaxed);
-        let decoder_pending = self.decoder_pending_bytes.load(Relaxed);
-        let decoder_discarded = self.decoder_discarded_bytes.swap(0, Relaxed);
+        let activity = self.statistics.activity.swap(false, Relaxed);
+        let packets = self.statistics.packets.swap(0, Relaxed);
+        let bytes = self.statistics.bytes.swap(0, Relaxed);
+        let decoded = self.statistics.decoded.swap(0, Relaxed);
+        let energy = self.statistics.energy.swap(0, Relaxed);
+        let peak = self.statistics.peak.swap(0, Relaxed);
+        let callbacks = self.statistics.callbacks.swap(0, Relaxed);
+        let consumed = self.statistics.consumed.swap(0, Relaxed);
+        let silent_frames = self.statistics.silent_frames.swap(0, Relaxed);
+        let queue_busy = self.statistics.queue_busy.swap(0, Relaxed);
+        let overflow = self.statistics.overflow.swap(0, Relaxed);
+        let rejected = self.statistics.rejected_packets.swap(0, Relaxed);
+        let read_errors = self.statistics.read_errors.swap(0, Relaxed);
+        let starts = self.statistics.starts.swap(0, Relaxed);
+        let stops = self.statistics.stops.swap(0, Relaxed);
+        let syncs = self.statistics.syncs.swap(0, Relaxed);
+        let scheduled = self.statistics.scheduled.swap(0, Relaxed);
+        let enqueue_failures = self.statistics.enqueue_failures.swap(0, Relaxed);
+        let failed_samples = self.statistics.enqueue_failed_samples.swap(0, Relaxed);
+        let discarded_buffers = self.statistics.discarded_buffers.swap(0, Relaxed);
+        let decoder_pending = self.statistics.decoder_pending_bytes.load(Relaxed);
+        let decoder_discarded = self.statistics.decoder_discarded_bytes.swap(0, Relaxed);
         if !active
             && !activity
             && packets == 0
@@ -279,7 +322,7 @@ impl AudioDiagnostics {
         {
             return None;
         }
-        let last_packet = self.last_packet_ms.load(Relaxed);
+        let last_packet = self.statistics.last_packet_ms.load(Relaxed);
         let last_rx_ms = if last_packet == u64::MAX {
             "never".into()
         } else {

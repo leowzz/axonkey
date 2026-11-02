@@ -48,13 +48,70 @@ function load(file) {
 
 const { BehaviorEditor, BehaviorEditDialog, SequencePasteDialog } = load('src/components/BehaviorEditor.tsx')
 const { normalizeBehavior } = load('src/behaviorModel.ts')
-const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState } = load('src/appConfig.tsx')
+const { keyDisplayName, rightModifierChoices, isRightModifierPreset, rightModifierKeys, getStoredUiState, saveStoredUiState, getStoredProfiles, createMappingProfile, profilesStorageKey, settingsStorageKey } = load('src/appConfig.tsx')
 const { readClipboardText, writeClipboardText } = load('src/clipboard.ts')
 
 const button = { id: 'menu', label: '菜单', icon: 'menu' }
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
 const sequenceText = 'axonkey/1\nkey A\nend'
+
+test('first launch and invalid saved pages open Home', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const stored of [null, '{}', 'invalid', 'null', JSON.stringify({activePage:'unknown'})]) {
+      testWindow.localStorage = { getItem: () => stored }
+      assert.equal(getStoredUiState().activePage, 'home')
+    }
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('saved pages and home scroll survive reload while old devices and overview entries open merged home', () => {
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const activePage of ['home', 'devices', 'mapping', 'settings', 'about', 'overview']) {
+      let stored = JSON.stringify({ activePage, scrollTop: { home: 500, overview: 200, devices: 80, mapping: 40 } })
+      testWindow.localStorage = { getItem: () => stored, setItem: (_key, value) => { stored = value } }
+      const state = getStoredUiState()
+      assert.equal(state.activePage, activePage === 'about' ? 'settings' : ['overview', 'devices'].includes(activePage) ? 'home' : activePage)
+      if (activePage === 'about') assert.equal(state.settingsSection, 'about')
+      assert.equal(state.scrollTop.home, 500)
+      assert.equal(state.scrollTop.overview, undefined)
+      assert.equal(state.scrollTop.devices, undefined)
+      assert.equal(state.scrollTop.mapping, 40)
+      saveStoredUiState(state)
+      assert.deepEqual(getStoredUiState(), state)
+    }
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('profile storage ignores the old key and settings mappings, and reads current profiles', () => {
+  const previousStorage = testWindow.localStorage
+  const { createEmptyBehaviorMap } = load('src/behaviorModel.ts')
+  const behaviors = createEmptyBehaviorMap()
+  behaviors.power.click = [{ id: 'remote', type: 'key', key: 'A', enabled: true }]
+  behaviors['mouse.top.up'].click = [{ id: 'mouse', type: 'key', key: 'B', enabled: true }]
+  const values = new Map([
+    [settingsStorageKey, JSON.stringify({ behaviors })],
+    [JSON.stringify({ version: 1, activeProfileId: 'work', profiles: [{ id: 'work', name: '工作', behaviors }] })],
+  ])
+  try {
+    testWindow.localStorage = { getItem: key => values.get(key) ?? null }
+    const current = getStoredProfiles()
+    assert.equal(current.activeProfileIds.rc003, 'rc003:default')
+    assert.equal(current.activeProfileIds.mouse, 'mouse:default')
+    assert.notEqual(current.profiles[0].behaviors.power.click[0]?.key, 'A')
+    const mouse = current.profiles.find(profile => profile.deviceId === 'mouse')
+    assert.equal(mouse.behaviors['mouse.top.up'].click.length, 0)
+    mouse.name = '鼠标新配置'
+    values.set(profilesStorageKey, JSON.stringify({ version: 2, ...current }))
+    assert.equal(getStoredProfiles().profiles.find(profile => profile.deviceId === 'mouse').name, '鼠标新配置')
+    const profile = createMappingProfile('鼠标', behaviors, 'mouse')
+    assert.equal(profile.deviceId, 'mouse')
+    assert.equal(profile.behaviors.power.click.length, 0)
+    assert.equal(profile.behaviors['mouse.top.up'].click[0].key, 'B')
+  } finally { testWindow.localStorage = previousStorage }
+})
 
 test('saved mapping entries restore the unified mapping page and retain the selected input', () => {
   const previousStorage = testWindow.localStorage
@@ -74,12 +131,14 @@ test('saved mapping entries restore the unified mapping page and retain the sele
   }
 })
 
-test('the backup settings category survives a reload after import', () => {
+test('backup and about settings categories survive a reload', () => {
   const previousStorage = testWindow.localStorage
   try {
-    testWindow.localStorage = { getItem: () => JSON.stringify({ activePage: 'settings', settingsSection: 'backup' }) }
-    assert.equal(getStoredUiState().activePage, 'settings')
-    assert.equal(getStoredUiState().settingsSection, 'backup')
+    for (const settingsSection of ['backup', 'about']) {
+      testWindow.localStorage = { getItem: () => JSON.stringify({ activePage: 'settings', settingsSection }) }
+      assert.equal(getStoredUiState().activePage, 'settings')
+      assert.equal(getStoredUiState().settingsSection, settingsSection)
+    }
   } finally { testWindow.localStorage = previousStorage }
 })
 

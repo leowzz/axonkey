@@ -17,3 +17,11 @@ test('main window can subscribe to native remote-key events', () => {
   assert.ok(capability.permissions.includes('core:event:allow-unlisten'))
   assert.ok(capability.permissions.includes('log:default'))
 })
+
+test('main window can resolve the Downloads directory and join the legacy export filename', () => {
+  const capability = JSON.parse(readFileSync(
+    join(projectRoot, 'src-tauri', 'capabilities', 'main.json'), 'utf8',
+  ))
+  assert.ok(capability.permissions.includes('core:path:allow-resolve-directory'))
+  assert.ok(capability.permissions.includes('core:path:allow-join'))
+})

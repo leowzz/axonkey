@@ -4,7 +4,7 @@ import { behaviorSummary, triggerLabels } from '../appConfig'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 
 export function ProfileSwitchConfirmDialog({ button, trigger, behavior, targets, activeProfileId, platform, onCancel, onConfirm }: {
-  button: MappingInput
+  button: MappingInput<string>
   trigger: TriggerType
   behavior: SwitchProfileBehavior
   targets: { id: string; name: string; behaviors: Behavior[] }[]

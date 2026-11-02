@@ -78,7 +78,7 @@ function load(file) {
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
     if (name === './WorkflowTriggerRoot') {
       const original = load('src/components/WorkflowTriggerRoot.ts')
-      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction, triggers) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction, triggers), clear: onClear, action: onAction }) }
+      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction, triggers) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction, triggers), clear: onClear, action: onAction, visibleTriggers: () => typeof triggers === 'function' ? triggers() : triggers }) }
     }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
@@ -104,11 +104,11 @@ const delay = ms => ({ id: 'wait', type: 'delay', enabled: true, ms })
 const palette = type => ({ id: `new-${type}`, type, componentType: 'task', name: type, properties: { preset: type } })
 const branches = instance => instance.definition.sequence[0].branches
 const clearLane = (instance, trigger) => instance.configuration.extensions.find(extension => extension.rootComponent).rootComponent.clear(trigger)
-const render = async (sequences = empty()) => {
+const render = async (sequences = empty(), options = {}) => {
   let view
   const writes = []
   const requests = []
-  let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]) }
+  let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]), ...options }
   await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => {
     const handlers = new Map()
     return { handlers, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
@@ -172,6 +172,56 @@ test('switching mouse edges flushes pending edits to the original edge and resto
     assert.equal(currentMap['mouse.left.up'].click[0].key, 'Enter')
     assert.equal(currentMap['mouse.right.up'].click[0].ms, 900)
   } finally { await act(async () => view.unmount()) }
+})
+
+test('single-lane trigger switching keeps the designer and preserves hidden sequences through edits and clearing', async () => {
+  const initial = { click: [{ ...delay(100), id: 'click-wait' }], doubleClick: [{ ...delay(200), id: 'double-wait' }], longPress: [{ ...delay(300), id: 'long-wait' }] }
+  const app = await render(initial, { activeTrigger: 'click', button: { id: 'xbox.a', label: 'A 键' } })
+  const original = app.current()
+  const root = original.configuration.extensions.find(extension => extension.rootComponent).rootComponent
+  try {
+    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
+    await app.update({ activeTrigger: 'doubleClick' })
+    assert.equal(app.current(), original, 'switching a trigger must not discard the live designer')
+    assert.equal(original.destroyed, false)
+    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['doubleClick'])
+    assert.equal(app.writes.length, 0, 'changing visibility alone does not save a new configuration')
+
+    const node = palette('space')
+    branches(original).doubleClick.push(node)
+    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+    const saved = app.writes.at(-1)[1]
+    assert.equal(app.writes.at(-1)[0], 'xbox.a')
+    assert.deepEqual(saved.click, initial.click)
+    assert.deepEqual(saved.longPress, initial.longPress)
+    assert.equal(saved.doubleClick[1].key, 'Space')
+    await app.update({ sequences: saved, activeTrigger: 'longPress' })
+    await act(async () => clearLane(original, 'longPress'))
+    const cleared = app.writes.at(-1)[1]
+    assert.deepEqual(cleared.longPress, [])
+    assert.deepEqual(cleared.click, initial.click)
+    assert.deepEqual(cleared.doubleClick, saved.doubleClick)
+    await app.update({ sequences: cleared, activeTrigger: 'click' })
+    assert.equal(app.current(), original)
+    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
+  } finally { await app.unmount() }
+})
+
+test('a pending drop stays on its original trigger when the visible lane switches before delivery', async () => {
+  const app = await render(empty(), { activeTrigger: 'click' })
+  try {
+    const original = app.current()
+    const node = palette('enter')
+    branches(original).click.push(node)
+    // Switch first, then deliver the designer's batched drop notification.
+    await app.update({ activeTrigger: 'doubleClick' })
+    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+    assert.equal(app.current(), original)
+    assert.equal(app.writes.at(-1)[1].click[0].key, 'Enter')
+    assert.deepEqual(app.writes.at(-1)[1].doubleClick, [])
+    await app.update({ sequences: app.writes.at(-1)[1], activeTrigger: 'click' })
+    assert.equal(branches(original).click[0].properties.key, 'Enter')
+  } finally { await app.unmount() }
 })
 
 test('workflow changes autosave once, and the save echo retains the designer and viewport', async () => {

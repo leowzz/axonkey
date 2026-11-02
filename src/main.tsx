@@ -5,6 +5,17 @@ import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { ProfileSwitchOverlay } from './components/ProfileSwitchOverlay'
 import './styles.css'
 import { installRuntimeLogging, logInfo } from './runtimeLogging'
+import Aegis from 'aegis-web-sdk'
+
+const tencentRumId = import.meta.env.TENCENT_RUM_ID?.trim()
+if (tencentRumId) {
+  new Aegis({
+    id: tencentRumId,
+    reportApiSpeed: true,
+    reportAssetSpeed: true,
+    spa: true,
+  })
+}
 
 // The remote voice button sends F5; cancel refresh without blocking key handlers.
 const preventF5Refresh = (event: KeyboardEvent) => {
@@ -12,14 +23,18 @@ const preventF5Refresh = (event: KeyboardEvent) => {
 }
 window.addEventListener('keydown', preventF5Refresh, true)
 
-window.addEventListener('contextmenu', (event) => {
+window.addEventListener('contextmenu', event => {
   const target = event.target
   if (!(target instanceof Element)) return
   const field = target.closest('input, textarea, [contenteditable], a[href]')
-  if (field instanceof HTMLTextAreaElement
-    || (field instanceof HTMLInputElement && ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(field.type))
-    || (field instanceof HTMLElement && field.isContentEditable)
-    || field instanceof HTMLAnchorElement) return
+  if (
+    field instanceof HTMLTextAreaElement ||
+    (field instanceof HTMLInputElement &&
+      ['text', 'search', 'url', 'tel', 'email', 'password', 'number'].includes(field.type)) ||
+    (field instanceof HTMLElement && field.isContentEditable) ||
+    field instanceof HTMLAnchorElement
+  )
+    return
   event.preventDefault()
 })
 

@@ -6,7 +6,7 @@ export const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)))
 const versionSource = String.raw`(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(alpha|beta|rc)\.([1-9]\d*))?`
 const versionPattern = new RegExp(`^${versionSource}$`)
 const tagVersionPattern = new RegExp(`^v${versionSource}$`)
-const envVersionPattern = new RegExp(`^version=(v${versionSource})$`)
+const envVersionPattern = new RegExp(`^version=(${versionSource})$`)
 export const versionFiles = [
   '.env.example',
   'package.json',
@@ -175,14 +175,14 @@ export function readEnvVersion(rootOrPath, envFile) {
     })
   }
   const normalized = source.replace(/\r\n/g, '\n').replace(/\n$/, '')
-  const lines = normalized.split('\n')
+  const lines = normalized.split('\n').filter((line) => /^\s*version\s*=/.test(line))
   const match = lines.length === 1 ? lines[0].match(envVersionPattern) : null
   if (!match) {
     throw new Error(
-      `${resolved.envFile} must contain exactly one version=vX.Y.Z line (Expected vMAJOR.MINOR.PATCH with optional -alpha.N, -beta.N or -rc.N (N >= 1), for example v0.2.6-beta.1.)`,
+      `${resolved.envFile} must contain exactly one version=X.Y.Z line (Expected MAJOR.MINOR.PATCH with optional -alpha.N, -beta.N or -rc.N (N >= 1), for example 0.2.6-beta.1.)`,
     )
   }
-  return match[1]
+  return `v${match[1]}`
 }
 
 export function readVersions(root = repositoryRoot) {
@@ -274,8 +274,8 @@ export function updateVersions(requestedVersion, rootOrEnvFile) {
   const cargoToml = readFileSync(absolutePath(root, cargoTomlPath), 'utf8')
   const cargoLock = readFileSync(absolutePath(root, cargoLockPath), 'utf8')
   const contents = new Map([
-    [envFile, `version=${tag}\n`],
-    ['.env.example', `version=${tag}\n`],
+    [envFile, readFileSync(absolutePath(root, envFile), 'utf8').replace(/^version=[^\r\n]*/m, `version=${version}`)],
+    ['.env.example', readFileSync(absolutePath(root, '.env.example'), 'utf8').replace(/^version=[^\r\n]*/m, `version=${version}`)],
     ['package.json', jsonContent(packageJson)],
     ['package-lock.json', jsonContent(packageLock)],
     [cargoTomlPath, updatedTomlSection(cargoToml, '[package]', version, cargoTomlPath)],

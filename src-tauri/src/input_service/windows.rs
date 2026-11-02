@@ -14,20 +14,23 @@ use std::{
 use tauri::Emitter;
 
 const WAIT_TIMEOUT_MS: u32 = 50;
-const DEVICE_DISCONNECT_GRACE: Duration = Duration::from_secs(8);
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
-const DEVICE_STABLE_DURATION: Duration = Duration::from_secs(3);
-const CR_SUCCESS: u32 = 0;
-const CM_GETIDLIST_FILTER_PRESENT: u32 = 0x0000_0100;
 
 #[cfg(windows)]
 struct QuarborContext {
     reader: Option<super::windows_quarbor::Client>,
+    switch_profile: Option<Arc<dyn Fn(super::ProfileDirection, bool) + Send + Sync>>,
     keyboard: RemoteKeyboard,
     events: std::collections::VecDeque<super::windows_quarbor::Event>,
     keys: std::collections::VecDeque<RemoteKeyEvent>,
     active_usages: std::collections::HashSet<u16>,
     device_id: Option<String>,
+    a15_reports: crate::devices::cmiot_a15::ReportState,
+    xbox_reports: crate::devices::xbox::ReportState,
+    a15_voice: crate::devices::cmiot_a15::voice::VoiceStream,
+    a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15::voice::PcmFrame>,
+    a15_voice_errors: u64,
+    a15_recording: crate::devices::cmiot_a15::recording::RecordingControl,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
     dropped: u64,
@@ -41,11 +44,18 @@ impl Default for QuarborContext {
     fn default() -> Self {
         Self {
             reader: None,
+            switch_profile: None,
             keyboard: RemoteKeyboard::default(),
             events: std::collections::VecDeque::new(),
             keys: std::collections::VecDeque::new(),
             active_usages: std::collections::HashSet::new(),
             device_id: None,
+            a15_reports: Default::default(),
+            xbox_reports: Default::default(),
+            a15_voice: Default::default(),
+            a15_pcm: Default::default(),
+            a15_voice_errors: 0,
+            a15_recording: Default::default(),
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
             last_sequence: None,
             dropped: 0,
@@ -66,166 +76,84 @@ enum KeyBackend {
 #[cfg(windows)]
 #[derive(Default)]
 struct RemoteKeyboard {
-    // Remember the backend selected on key down; key up must use the same one,
-    // even after disconnect or a descriptor/capability change.
     held: Vec<(super::remote_actions::HidKey, KeyBackend)>,
-    virtual_keys: std::collections::HashSet<super::remote_actions::HidKey>,
-    repeats: std::collections::HashMap<super::remote_actions::HidKey, Instant>,
 }
 
 #[cfg(windows)]
 impl RemoteKeyboard {
-    fn prepare(
-        &mut self,
-        settings: &NativeSettings,
-        supports: impl Fn(super::remote_actions::HidKey) -> bool,
-    ) {
-        if !settings.enabled {
-            self.virtual_keys.clear();
-            return;
-        }
-        let chords: Vec<_> = settings
-            .behaviors
-            .values()
-            .flat_map(super::TriggerBehaviors::iter)
-            .filter(|action| action.enabled())
-            .filter_map(behavior_hid_chord)
-            .collect();
-        self.virtual_keys = chords
-            .iter()
-            .flatten()
-            .copied()
-            .filter(|key| is_virtual_media_key(*key) || !supports(*key))
-            .collect();
-        // A chord cannot mix asynchronous driver writes and immediate SendInput
-        // events. Shared keys also need one backend for the scheduler's refcounts.
-        loop {
-            let previous = self.virtual_keys.len();
-            for chord in &chords {
-                if chord.iter().any(|key| self.virtual_keys.contains(key)) {
-                    self.virtual_keys.extend(chord.iter().copied());
-                }
-            }
-            if self.virtual_keys.len() == previous {
-                break;
-            }
-        }
-    }
-
     fn edge_with(
         &mut self,
         key: super::remote_actions::HidKey,
         down: bool,
         supported: bool,
-        now: Instant,
-        mut emit: impl FnMut(KeyBackend, bool) -> std::io::Result<()>,
+        mut emit_driver: impl FnMut(super::remote_actions::HidKey, bool) -> std::io::Result<()>,
+        mut emit_virtual: impl FnMut(u16, bool) -> std::io::Result<()>,
     ) -> std::io::Result<()> {
         let held = self.held.iter().position(|(held, _)| *held == key);
         if !down {
             if let Some(index) = held {
-                emit(self.held[index].1, false)?;
+                match self.held[index].1 {
+                    KeyBackend::Driver(driver_key) => {
+                        if let Err(error) = emit_driver(driver_key, false) {
+                            log::warn!(
+                                target: "axonkey::input",
+                                "Universal driver key release failed; trying SendInput fallback: {error}"
+                            );
+                            let virtual_key = virtual_key_for_hid(driver_key).ok_or(error)?;
+                            emit_virtual(virtual_key, false)?;
+                        }
+                    }
+                    KeyBackend::Virtual(virtual_key) => emit_virtual(virtual_key, false)?,
+                }
                 self.held.remove(index);
-                self.repeats.remove(&key);
             }
             return Ok(());
         }
         if held.is_some() {
             return Ok(());
         }
-        // Media/volume keys use virtual control even if the keyboard
-        // descriptor advertises the corresponding non-typing usages.
-        let backend = if is_virtual_media_key(key) || !supported || self.virtual_keys.contains(&key)
-        {
-            KeyBackend::Virtual(virtual_key_for_hid(key).ok_or_else(|| {
+        let backend = if supported {
+            match emit_driver(key, true) {
+                Ok(()) => KeyBackend::Driver(key),
+                Err(error) => {
+                    log::warn!(
+                        target: "axonkey::input",
+                        "Universal driver key output failed; trying SendInput fallback: {error}"
+                    );
+                    let virtual_key = virtual_key_for_hid(key).ok_or(error)?;
+                    emit_virtual(virtual_key, true)?;
+                    KeyBackend::Virtual(virtual_key)
+                }
+            }
+        } else {
+            let virtual_key = virtual_key_for_hid(key).ok_or_else(|| {
                 std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     format!(
-                        "No virtual key for HID {:#06X}/{:#06X}",
+                        "No SendInput mapping for HID {:#06X}/{:#06X}",
                         key.page, key.usage
                     ),
                 )
-            })?)
-        } else {
-            KeyBackend::Driver(key)
+            })?;
+            emit_virtual(virtual_key, true)?;
+            KeyBackend::Virtual(virtual_key)
         };
-        emit(backend, true)?;
         self.held.push((key, backend));
-        if let KeyBackend::Virtual(vk) = backend {
-            log::info!(target: "axonkey::input", "Mapped virtual keyboard output: HID={:#06X}/{:#06X}, VK={vk:#04X}", key.page, key.usage);
-            if matches!(vk, 0xae | 0xaf) || !matches!(vk, 0xa0..=0xa5 | 0x5b..=0x5c | 0xad..=0xb3) {
-                self.repeats.insert(key, now + Duration::from_millis(400));
-            }
-        }
         Ok(())
     }
 
-    fn reset(&mut self) {
-        self.repeats.clear();
-        for index in (0..self.held.len()).rev() {
-            let KeyBackend::Virtual(key) = self.held[index].1 else {
-                continue;
-            };
-            // Retry a failed release once; keep it for the next cleanup attempt.
-            if send_remote_virtual_key(key, false)
-                .or_else(|_| send_remote_virtual_key(key, false))
-                .is_ok()
-            {
-                self.held.remove(index);
+    fn reset(
+        &mut self,
+        mut emit_driver: impl FnMut(super::remote_actions::HidKey, bool),
+        mut emit_virtual: impl FnMut(u16, bool),
+    ) {
+        for (_, backend) in self.held.drain(..).rev() {
+            match backend {
+                KeyBackend::Driver(key) => emit_driver(key, false),
+                KeyBackend::Virtual(key) => emit_virtual(key, false),
             }
         }
     }
-
-    fn repeat(&mut self, now: Instant) -> std::io::Result<()> {
-        for (key, backend) in &self.held {
-            let Some(due) = self.repeats.get_mut(key) else {
-                continue;
-            };
-            if now < *due {
-                continue;
-            }
-            if let KeyBackend::Virtual(vk) = backend {
-                send_remote_virtual_key(*vk, true)?;
-            }
-            *due = now + Duration::from_millis(80);
-        }
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-impl Drop for RemoteKeyboard {
-    fn drop(&mut self) {
-        self.reset();
-    }
-}
-
-fn is_virtual_media_key(key: super::remote_actions::HidKey) -> bool {
-    key.page == 0x0c || (key.page == 7 && matches!(key.usage, 0x7f..=0x81))
-}
-
-fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
-    // The same conversion table serves both directions. Choose explicit left
-    // modifier VKs so left/right identity is preserved by SendInput.
-    (1..=255)
-        .filter(|vk| !matches!(vk, 0x10..=0x12))
-        .find(|vk| hid_key_for_virtual_key(*vk) == Some(key))
-        .or_else(|| (key.page == 7 && key.usage == 0xf1).then_some(0x08))
-}
-
-fn send_remote_virtual_key(key: u16, down: bool) -> std::io::Result<()> {
-    let mut input = virtual_key_input(key);
-    if !down {
-        unsafe {
-            input.value.keyboard.flags |= 2;
-        }
-    }
-    if send_keyboard_inputs(&[input]) == 1 {
-        return Ok(());
-    }
-    Err(std::io::Error::other(format!(
-        "SendInput virtual key {key:#04X} {} failed",
-        if down { "down" } else { "up" }
-    )))
 }
 
 #[cfg(windows)]
@@ -245,9 +173,12 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
                 context.last_sequence = None;
                 context.usage_error = None;
                 context.error = None;
-                log::info!(target: "axonkey::input", "Quarbor v3 duplex pipe connected: {device_id}");
+                log::info!(target: "axonkey::input", "Quarbor Universal duplex pipe connected: {device_id}");
             }
-            Err(error) => quarbor_read_error(context, format!("Quarbor v3 connect: {error}")),
+            Err(error) => quarbor_read_error(
+                context,
+                format!("Quarbor Universal connect ({device_id}): {error}"),
+            ),
         }
     }
     // Bound both work and waiting; a busy device must not starve shutdown/status.
@@ -272,9 +203,9 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
                 );
             }
             Err(error) => {
-                quarbor_read_error(context, format!("Quarbor v3 receive: {error}"));
+                quarbor_read_error(context, format!("Quarbor Universal receive: {error}"));
                 context.reader = None;
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::PipeError);
                 break;
             }
         }
@@ -306,7 +237,9 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Report {
-            metadata, usages, ..
+            metadata,
+            bytes,
+            usages,
         } => {
             if context
                 .last_sequence
@@ -314,33 +247,77 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 || metadata.dropped > context.dropped
             {
                 log::warn!(target: "axonkey::input", "Quarbor HID report gap: previous={:?}, current={}, dropped={}", context.last_sequence, metadata.sequence, metadata.dropped);
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::ReportGap);
             }
             context.last_sequence = Some(metadata.sequence);
             context.dropped = metadata.dropped;
-            match usages {
-                Ok(usages) => {
-                    context.usage_error = None;
-                    quarbor_decode_usages(context, usages.iter().copied());
+            if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::xbox::matches_instance)
+            {
+                context.usage_error = None;
+                for (button, pressed) in context.xbox_reports.accept(bytes) {
+                    context.keys.push_back(RemoteKeyEvent { button, pressed });
                 }
-                Err(status) => {
-                    // Preserve observed UI state, but never keep moving from
-                    // stale state when the next release cannot be decoded.
-                    context.state_epoch = context.state_epoch.wrapping_add(1);
-                    if context.usage_error != Some(*status) {
-                        log::warn!(target: "axonkey::input", "Quarbor raw HID is available; keyboard usage decoding failed: 0x{status:08X}");
-                        context.usage_error = Some(*status);
+            } else if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                context.usage_error = None;
+                if bytes.first() == Some(&0xfc) {
+                    match context.a15_voice.feed(bytes) {
+                        Ok(Some(frame)) => {
+                            if context.a15_pcm.len() == 32 {
+                                context.a15_pcm.pop_front();
+                            }
+                            context.a15_pcm.push_back(frame);
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            context.a15_voice_errors += 1;
+                            if context.a15_voice_errors == 1 || context.a15_voice_errors % 128 == 0
+                            {
+                                log::warn!(target: "axonkey::audio", "A15 FC decode: {error}; errors={}", context.a15_voice_errors);
+                            }
+                        }
+                    }
+                }
+                for (button, pressed) in context.a15_reports.accept(bytes) {
+                    context.keys.push_back(RemoteKeyEvent { button, pressed });
+                }
+            } else {
+                match usages {
+                    Ok(usages) => {
+                        context.usage_error = None;
+                        quarbor_decode_usages(context, usages.iter().copied());
+                    }
+                    Err(status) => {
+                        // Preserve observed UI state, but never keep moving from
+                        // stale state when the next release cannot be decoded.
+                        context.state_epoch = context.state_epoch.wrapping_add(1);
+                        if context.usage_error != Some(*status) {
+                            let preview = bytes
+                                .iter()
+                                .take(16)
+                                .map(|byte| format!("{byte:02X}"))
+                                .collect::<Vec<_>>()
+                                .join(" ");
+                            log::warn!(target: "axonkey::input", "Quarbor RC003 report decode failed: status=0x{status:08X}, bytes={}, preview={preview}", bytes.len());
+                            context.usage_error = Some(*status);
+                        }
                     }
                 }
             }
         }
         Event::Status(metadata) => {
-            if metadata.dropped > context.dropped {
-                quarbor_release_active_usages(context);
+            if metadata.status == 0 && metadata.dropped > context.dropped {
+                quarbor_release_active_usages(context, ReleaseReason::StatusDropped);
             }
             context.dropped = metadata.dropped;
             if metadata.status != 0 {
-                quarbor_release_active_usages(context);
+                quarbor_release_active_usages(context, ReleaseReason::StatusError);
                 quarbor_read_error(
                     context,
                     format!("Quarbor HID read NTSTATUS=0x{:08X}", metadata.status),
@@ -350,6 +327,17 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
         }
         Event::Capabilities(_) => {
+            // Pipe readiness does not mean the BLE peripheral is awake. Reset
+            // local state without writing FB 00 to an idle physical device.
+            if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                context.a15_recording.reset();
+                context.a15_voice.reset();
+                context.a15_pcm.clear();
+            }
             // Each connection starts with a neutral output state.
             if let Some(client) = context.reader.as_mut() {
                 if let Err(error) = client.reset_input() {
@@ -365,9 +353,62 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
 }
 
 #[cfg(windows)]
-fn quarbor_release_active_usages(context: &mut QuarborContext) {
-    context.keyboard.reset();
+#[derive(Clone, Copy, Debug)]
+enum ReleaseReason {
+    ReportGap,
+    StatusDropped,
+    StatusError,
+    PipeError,
+    OutputError,
+    Shutdown,
+    #[cfg(test)]
+    Test,
+}
+
+#[cfg(windows)]
+fn quarbor_release_active_usages(context: &mut QuarborContext, reason: ReleaseReason) {
+    let preserve_recording = matches!(
+        reason,
+        ReleaseReason::ReportGap | ReleaseReason::StatusDropped
+    ) && context.a15_recording.preserves_recording_on_gap();
+    if !preserve_recording {
+        // Never replay a queued start after recording has been reset.
+        context.keys.retain(|key| key.button != "cmiotA15.voice");
+        if let Err(error) = context
+            .a15_recording
+            .stop(|report| send_a15_recording_report(&mut context.reader, report))
+        {
+            quarbor_read_error(context, format!("A15 recording stop: {error}"));
+        }
+        context.a15_recording.reset();
+    }
+    context.a15_voice.reset();
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
+    context.a15_pcm.clear();
+    context.keyboard.reset(
+        |key, down| {
+            if let Some(client) = context.reader.as_mut() {
+                let _ = client.send_key(key.page, key.usage, down);
+            }
+        },
+        |key, down| {
+            let _ = send_remote_virtual_key(key, down);
+        },
+    );
     context.state_epoch = context.state_epoch.wrapping_add(1);
+    let released = if preserve_recording {
+        context.a15_reports.release_non_voice()
+    } else {
+        context.a15_reports.release_all()
+    };
+    for (button, pressed) in released {
+        context.keys.push_back(RemoteKeyEvent { button, pressed });
+    }
+    for (button, pressed) in context.xbox_reports.release_all() {
+        context.keys.push_back(RemoteKeyEvent { button, pressed });
+    }
     let active = std::mem::take(&mut context.active_usages);
     for usage in active {
         if let Some(button) = rc003_button_for_usage(usage) {
@@ -426,6 +467,15 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
         .find_map(|&(button, value)| (value == usage).then_some(button))
 }
 
+pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_actions::HidKey> {
+    if button.starts_with("cmiotA15.") {
+        crate::devices::cmiot_a15::original_usage(button)
+            .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
+    } else {
+        rc003_usage_for_button(button).map(|usage| super::remote_actions::HidKey { page: 7, usage })
+    }
+}
+
 pub(super) fn rc003_usage_for_button(button: &str) -> Option<u16> {
     RC003_BUTTON_USAGES
         .iter()
@@ -437,8 +487,11 @@ fn quarbor_output_error(context: &mut QuarborContext, error: std::io::Error) {
     // Closing the writer makes the driver clear its queue and submit neutral
     // reports, including keys whose release was rejected or only partly sent.
     context.reader = None;
-    quarbor_read_error(context, format!("Quarbor v3 keyboard output: {error}"));
-    quarbor_release_active_usages(context);
+    quarbor_read_error(
+        context,
+        format!("Quarbor Universal keyboard output: {error}"),
+    );
+    quarbor_release_active_usages(context, ReleaseReason::OutputError);
 }
 
 #[cfg(not(test))]
@@ -446,12 +499,21 @@ type EventApp = tauri::AppHandle;
 #[cfg(test)]
 type EventApp = ();
 
+type ManagedInput = Arc<dyn Fn(std::collections::BTreeMap<String, f64>, Vec<String>) + Send + Sync>;
+
 struct Shared {
+    recording_requests: Mutex<Vec<(bool, std::sync::mpsc::SyncSender<Result<bool, String>>)>>,
+    instance_id: Option<String>,
     settings: RwLock<NativeSettings>,
     settings_revision: AtomicU64,
     status: Mutex<InputServiceStatus>,
     event_app: RwLock<Option<EventApp>>,
     stop: AtomicBool,
+    driver_gate: Arc<AtomicBool>,
+    driver_paused: AtomicBool,
+    managed_event: Option<Arc<dyn Fn(String, bool) + Send + Sync>>,
+    managed_input: Option<ManagedInput>,
+    managed_remote_owned: AtomicBool,
 }
 
 pub struct InputService {
@@ -460,18 +522,31 @@ pub struct InputService {
 }
 
 impl InputService {
-    pub fn start() -> Self {
+    pub fn start(driver_gate: Arc<AtomicBool>) -> Self {
         log::info!(target: "axonkey::input", "Starting Windows input service");
         let shared = Arc::new(Shared {
+            recording_requests: Mutex::new(Vec::new()),
+            instance_id: None,
             settings: RwLock::new(NativeSettings::default()),
             settings_revision: AtomicU64::new(0),
             status: Mutex::new(InputServiceStatus::default()),
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
+            driver_gate,
+            driver_paused: AtomicBool::new(false),
+            managed_event: None,
+            managed_input: None,
+            managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
+        #[cfg(windows)]
         let worker = thread::Builder::new()
-            .name("Axonkey Quarbor HID input".into())
+            .name("Axonkey Quarbor Universal input".into())
+            .spawn(move || worker_loop(worker_shared))
+            .ok();
+        #[cfg(not(windows))]
+        let worker = thread::Builder::new()
+            .name("Axonkey Quarbor Universal input".into())
             .spawn(move || worker_loop(worker_shared))
             .ok();
         if worker.is_none() {
@@ -503,11 +578,37 @@ impl InputService {
             .settings
             .write()
             .map_err(|_| "Input settings lock is unavailable")?;
+        let changed = current.remote_settings_changed(&settings);
         *current = settings;
-        self.shared
-            .settings_revision
-            .fetch_add(1, Ordering::Relaxed);
+        if changed {
+            self.shared
+                .settings_revision
+                .fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
+    }
+
+    pub fn wait_for_driver_pause(&self) -> Result<(), String> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !self.shared.driver_paused.load(Ordering::Acquire) {
+            if !self.shared.driver_gate.load(Ordering::Acquire) {
+                return Err("驱动升级尚未暂停输入服务。".into());
+            }
+            if Instant::now() >= deadline {
+                return Err("等待输入服务释放驱动连接超时，请再次尝试升级。".into());
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+        Ok(())
+    }
+
+    pub fn pause_for_driver_migration(&self) -> Result<(), String> {
+        self.shared.driver_gate.store(true, Ordering::Release);
+        self.wait_for_driver_pause()
+    }
+
+    pub fn resume_after_driver_migration(&self) {
+        self.shared.driver_gate.store(false, Ordering::Release);
     }
 
     pub fn shutdown(&self) {
@@ -539,6 +640,13 @@ impl InputService {
                 ..InputServiceStatus::default()
             })
     }
+
+    pub fn set_managed_remote_owned(&self, owned: bool) -> bool {
+        self.shared
+            .managed_remote_owned
+            .store(owned, Ordering::Release);
+        true
+    }
 }
 
 impl Drop for InputService {
@@ -547,67 +655,145 @@ impl Drop for InputService {
     }
 }
 
-fn worker_loop(shared: Arc<Shared>) {
-    log::info!(target: "axonkey::input", "Quarbor v3 duplex backend loaded");
-    shared.status.lock().unwrap().backend_ready = true;
-    let mut last_target_seen_at = None;
-    while !shared.stop.load(Ordering::Relaxed) {
-        if !wait_for_stable_target(&shared, &mut last_target_seen_at) {
-            break;
-        }
-        #[cfg(windows)]
-        run_context(
-            &mut QuarborContext::default(),
-            &shared,
-            &mut last_target_seen_at,
-        );
-    }
-    shared.status.lock().unwrap().capture_active = false;
-}
-
-fn wait_for_stable_target(shared: &Shared, last_target_seen_at: &mut Option<Instant>) -> bool {
-    let mut stable_since = None;
-    while !shared.stop.load(Ordering::Relaxed) {
-        let now = Instant::now();
-        let hardware_id = rc003_keyboard_device_id();
-        let target_present = hardware_id.is_some();
-        update_device_status(shared, hardware_id, last_target_seen_at, now);
-
-        // v3 capture is independent of mappings. Keep observing even when
-        // mappings are disabled; forward original keys through the driver.
-        if target_present {
-            let first_stable = *stable_since.get_or_insert(now);
-            if now.saturating_duration_since(first_stable) >= DEVICE_STABLE_DURATION {
-                return true;
-            }
-        } else {
-            stable_since = None;
-        }
-
-        thread::sleep(DEVICE_POLL_INTERVAL);
-    }
-    false
+/// Each RC003/A15 instance owns one Quarbor pipe and one action state machine.
+#[cfg(windows)]
+pub(super) struct ManagedQuarborChannel {
+    shared: Arc<Shared>,
+    worker: Mutex<Option<JoinHandle<()>>>,
 }
 
 #[cfg(windows)]
-fn run_context(
-    context: &mut QuarborContext,
-    shared: &Shared,
-    last_target_seen_at: &mut Option<Instant>,
-) {
-    context.device_id = rc003_keyboard_device_id();
-    let mut next_probe = Instant::now();
+impl ManagedQuarborChannel {
+    #[cfg(not(test))]
+    pub(super) fn start(
+        instance_id: String,
+        target: String,
+        settings: NativeSettings,
+        app: tauri::AppHandle,
+        driver_gate: Arc<AtomicBool>,
+        emit: Arc<dyn Fn(String, bool) + Send + Sync>,
+        input: ManagedInput,
+    ) -> Self {
+        let switch_app = app.clone();
+        let switch_id = instance_id.clone();
+        let switch_profile = Arc::new(move |direction, wrap| {
+            use tauri::Manager;
+            switch_app
+                .state::<crate::DeviceManager>()
+                .switch_instance_profile(&switch_id, direction, wrap);
+        });
+        let event_app = Some(app);
+        let shared = Arc::new(Shared {
+            recording_requests: Mutex::new(Vec::new()),
+            instance_id: Some(instance_id.clone()),
+            settings: RwLock::new(settings),
+            settings_revision: AtomicU64::new(0),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(event_app),
+            stop: AtomicBool::new(false),
+            driver_gate,
+            driver_paused: AtomicBool::new(false),
+            managed_event: Some(emit),
+            managed_input: Some(input),
+            managed_remote_owned: AtomicBool::new(false),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let worker = thread::Builder::new()
+            .name(format!("Axonkey Quarbor {instance_id}"))
+            .spawn(move || {
+                let mut context = QuarborContext {
+                    switch_profile: Some(switch_profile),
+                    ..Default::default()
+                };
+                run_context(&mut context, &worker_shared, target);
+            })
+            .ok();
+        Self {
+            shared,
+            worker: Mutex::new(worker),
+        }
+    }
+
+    pub(super) fn update_settings(&self, settings: NativeSettings) {
+        if let Ok(mut current) = self.shared.settings.write() {
+            let changed = current.remote_settings_changed(&settings);
+            *current = settings;
+            // The device manager syncs every read cycle; unchanged settings must
+            // preserve the physical press and any actions waiting on a delay.
+            if changed {
+                self.shared
+                    .settings_revision
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub(super) fn toggle_recording(
+        &self,
+        reply: std::sync::mpsc::SyncSender<Result<bool, String>>,
+    ) {
+        self.shared
+            .recording_requests
+            .lock()
+            .unwrap()
+            .push((false, reply));
+    }
+
+    pub(super) fn stop_recording(&self, reply: std::sync::mpsc::SyncSender<Result<bool, String>>) {
+        self.shared
+            .recording_requests
+            .lock()
+            .unwrap()
+            .push((true, reply));
+    }
+
+    pub(super) fn status(&self) -> InputServiceStatus {
+        self.shared
+            .status
+            .lock()
+            .map(|status| status.clone())
+            .unwrap_or_else(|_| InputServiceStatus {
+                error: Some("Managed Quarbor status lock is unavailable".into()),
+                ..InputServiceStatus::default()
+            })
+    }
+
+    pub(super) fn stop(&self) {
+        self.shared.stop.store(true, Ordering::Release);
+        if let Ok(mut worker) = self.worker.lock() {
+            if let Some(worker) = worker.take() {
+                let _ = worker.join();
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ManagedQuarborChannel {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn worker_loop(shared: Arc<Shared>) {
+    // Global settings remain available, but physical devices are owned by the registry.
+    while !shared.stop.load(Ordering::Relaxed) {
+        shared.driver_paused.store(
+            shared.driver_gate.load(Ordering::Acquire),
+            Ordering::Release,
+        );
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[cfg(windows)]
+fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
+    context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
     while !shared.stop.load(Ordering::Relaxed) {
-        let now = Instant::now();
-        if now >= next_probe {
-            let device_id = rc003_keyboard_device_id();
-            update_device_status(shared, device_id.clone(), last_target_seen_at, now);
-            if device_id.as_deref() != context.device_id.as_deref() {
-                break;
-            }
-            next_probe = now + Duration::from_secs(1);
+        if shared.driver_gate.load(Ordering::Acquire) {
+            break;
         }
         quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS);
         quarbor_publish_events(context, shared);
@@ -619,16 +805,144 @@ fn run_context(
             Instant::now(),
         );
     }
-    quarbor_release_active_usages(context);
+    quarbor_release_active_usages(context, ReleaseReason::Shutdown);
+    if context
+        .device_id
+        .as_deref()
+        .is_some_and(crate::devices::cmiot_a15::matches_instance)
+    {
+        shared.status.lock().unwrap().capture_active = false;
+        publish_a15_recording(shared, false);
+        if let Some(client) = context.reader.as_mut() {
+            if let Err(error) = client.finish_pending(Duration::from_millis(300)) {
+                quarbor_read_error(context, format!("A15 shutdown stop not confirmed: {error}"));
+            }
+        }
+    }
     context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
-        emit_remote_key_event(shared, key.button, key.pressed);
+        if !key.button.starts_with("xbox.") {
+            emit_remote_key_event(shared, key.button, key.pressed);
+        }
     }
+    publish_xbox_input(context, shared);
     shared.status.lock().unwrap().capture_active = false;
+}
+
+#[cfg(all(windows, not(test)))]
+fn send_a15_recording_report(
+    reader: &mut Option<super::windows_quarbor::Client>,
+    report: [u8; 2],
+) -> std::io::Result<()> {
+    let client = reader.as_mut().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotConnected,
+            "A15 recording control disconnected",
+        )
+    })?;
+    client.write_physical_output(&report).map(|_| ())
+}
+
+#[cfg(all(windows, test))]
+fn send_a15_recording_report(
+    _reader: &mut Option<super::windows_quarbor::Client>,
+    report: [u8; 2],
+) -> std::io::Result<()> {
+    A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().push(report));
+    Ok(())
+}
+
+#[cfg(windows)]
+fn publish_a15_recording(shared: &Shared, recording: bool) {
+    #[cfg(not(test))]
+    if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
+        use tauri::Manager;
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
+            let connected = shared.status.lock().unwrap().capture_active;
+            audio.set_a15_input_state(shared.instance_id.as_deref(), connected, recording);
+        }
+    }
+    let changed = if let Ok(mut status) = shared.status.lock() {
+        let changed = status.cmiot_a15_recording != recording;
+        status.cmiot_a15_recording = recording;
+        changed
+    } else {
+        false
+    };
+    if changed {
+        #[cfg(not(test))]
+        if let Ok(app) = shared.event_app.read() {
+            if let Some(app) = app.as_ref() {
+                let _ = app.emit(
+                    "axonkey-device-recording",
+                    serde_json::json!({"instanceId": shared.instance_id, "recording": recording}),
+                );
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn publish_xbox_input(context: &mut QuarborContext, shared: &Shared) {
+    if let Some((values, pressed)) = context.xbox_reports.take_update() {
+        if let Some(emit) = &shared.managed_input {
+            emit(values, pressed);
+        }
+    }
 }
 
 #[cfg(windows)]
 fn process_remote_actions(
+    context: &mut QuarborContext,
+    shared: &Shared,
+    actions: &mut super::remote_actions::RemoteActions,
+    state_epoch: &mut u64,
+    now: Instant,
+) {
+    while let Some(frame) = context.a15_pcm.pop_front() {
+        forward_a15_pcm(shared, frame);
+    }
+    process_remote_actions_inner(context, shared, actions, state_epoch, now);
+    for (stop, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
+        let result = if shared.status.lock().unwrap().capture_active
+            && shared.settings.read().unwrap().enabled
+        {
+            if stop {
+                context
+                    .a15_recording
+                    .stop(|report| send_a15_recording_report(&mut context.reader, report))
+                    .map(|()| false)
+                    .map_err(|error| format!("A15 录音控制失败：{error}"))
+            } else {
+                context
+                    .a15_recording
+                    .toggle(|report| send_a15_recording_report(&mut context.reader, report))
+                    .map_err(|error| format!("A15 录音控制失败：{error}"))
+            }
+        } else {
+            Err("设备录音通道未连接".into())
+        };
+        context
+            .a15_voice
+            .synchronize(context.a15_recording.is_recording());
+        publish_a15_recording(shared, context.a15_recording.is_recording());
+        let _ = reply.send(result);
+    }
+    publish_xbox_input(context, shared);
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
+    if context
+        .device_id
+        .as_deref()
+        .is_some_and(crate::devices::cmiot_a15::matches_instance)
+    {
+        publish_a15_recording(shared, context.a15_recording.is_recording());
+    }
+}
+
+#[cfg(windows)]
+fn process_remote_actions_inner(
     context: &mut QuarborContext,
     shared: &Shared,
     actions: &mut super::remote_actions::RemoteActions,
@@ -651,14 +965,35 @@ fn process_remote_actions(
         shared.settings_revision.load(Ordering::Relaxed),
         settings.enabled,
     );
-    context.keyboard.prepare(&settings, |key| {
-        context
-            .reader
-            .as_ref()
-            .is_some_and(|client| client.supports_key(key.page, key.usage))
-    });
+    if let Err(error) = context.a15_recording.synchronize(
+        settings.cmiot_a15_recording_mode,
+        settings.enabled,
+        |report| send_a15_recording_report(&mut context.reader, report),
+    ) {
+        quarbor_output_error(context, error);
+        actions.cancel();
+        return;
+    }
+    context
+        .a15_voice
+        .synchronize(context.a15_recording.is_recording());
     while let Some(key) = context.keys.pop_front() {
-        emit_remote_key_event(shared, key.button, key.pressed);
+        if !key.button.starts_with("xbox.") {
+            emit_remote_key_event(shared, key.button, key.pressed);
+        }
+        if key.button == "cmiotA15.voice" {
+            if let Err(error) = context.a15_recording.edge(key.pressed, |report| {
+                send_a15_recording_report(&mut context.reader, report)
+            }) {
+                quarbor_output_error(context, error);
+                actions.cancel();
+                return;
+            }
+            publish_a15_recording(shared, context.a15_recording.is_recording());
+            context
+                .a15_voice
+                .synchronize(context.a15_recording.is_recording());
+        }
         actions.edge(key.button, key.pressed, &settings, now);
     }
     let mut output_error = None;
@@ -666,11 +1001,8 @@ fn process_remote_actions(
         if output_error.is_some() {
             return;
         }
-        output_error = emit_remote_output(context, output, now).err();
+        output_error = emit_remote_output(context, output).err();
     });
-    if output_error.is_none() {
-        output_error = context.keyboard.repeat(now).err();
-    }
     if let Some(error) = output_error {
         quarbor_output_error(context, error);
         actions.cancel();
@@ -681,19 +1013,99 @@ fn process_remote_actions(
 fn emit_remote_output(
     context: &mut QuarborContext,
     output: super::remote_actions::Output,
-    now: Instant,
 ) -> std::io::Result<()> {
     use super::remote_actions::Output;
     match output {
         Output::CursorMove(direction, distance) => {
             let (dx, dy) = cursor_delta(direction, distance);
-            send_mouse_move(dx, dy);
+            let driver_supported = context
+                .reader
+                .as_ref()
+                .is_some_and(|client| client.supports_mouse_move());
+            let mut sent_by_driver = false;
+            if driver_supported {
+                if let Some(client) = context.reader.as_mut() {
+                    if let Err(error) = send_driver_mouse_move(client, dx, dy, 0, 0) {
+                        log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver cursor movement failed; trying SendInput fallback: {error}"
+                        );
+                    } else {
+                        sent_by_driver = true;
+                    }
+                }
+            }
+            if !sent_by_driver {
+                send_mouse_move(dx, dy);
+            }
         }
-        Output::MouseClick(button) => send_mouse_click(button),
+        Output::MouseClick(button) => {
+            let driver_supported = mouse_button_usage(button).is_some()
+                && context.reader.as_ref().is_some_and(|client| {
+                    mouse_button_usage(button).is_some_and(|usage| client.supports_key(0x09, usage))
+                });
+            let mut sent_by_driver = false;
+            if driver_supported {
+                let usage = mouse_button_usage(button).expect("driver mouse button usage");
+                if let Some(client) = context.reader.as_mut() {
+                    match client
+                        .send_key(0x09, usage, true)
+                        .and_then(|_| client.send_key(0x09, usage, false))
+                    {
+                        Ok(_) => sent_by_driver = true,
+                        Err(error) => log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver mouse button failed; trying SendInput fallback: {error}"
+                        ),
+                    }
+                }
+            }
+            if !sent_by_driver {
+                send_mouse_click(button);
+            }
+        }
         Output::Wheel(direction) => {
-            send_wheel_with_axis(wheel_delta(direction), wheel_horizontal(direction));
+            let (wheel, pan) = driver_wheel_delta(direction);
+            let driver_supported = context
+                .reader
+                .as_ref()
+                .is_some_and(|client| client.supports_mouse_move());
+            let mut sent_by_driver = false;
+            if driver_supported {
+                if let Some(client) = context.reader.as_mut() {
+                    if let Err(error) = send_driver_mouse_move(client, 0, 0, wheel, pan) {
+                        log::warn!(
+                            target: "axonkey::input",
+                            "Universal driver wheel failed; trying SendInput fallback: {error}"
+                        );
+                    } else {
+                        sent_by_driver = true;
+                    }
+                }
+            }
+            if !sent_by_driver {
+                send_wheel_with_axis(wheel_delta(direction), wheel_horizontal(direction));
+            }
         }
-        Output::SwitchProfile(direction, wrap) => super::profile_switch::execute(direction, wrap),
+        Output::SwitchProfile(direction, wrap) => {
+            if let Some(switch) = &context.switch_profile {
+                switch(direction, wrap);
+                return Ok(());
+            }
+            let device = if context
+                .device_id
+                .as_deref()
+                .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                super::profile_switch::DeviceId::CmiotA15
+            } else {
+                super::profile_switch::DeviceId::Rc003
+            };
+            super::profile_switch::execute(device, direction, wrap)
+        }
+        // The Universal protocol has no Unicode/text command. Keep paste as a
+        // text injection operation; keyboard, media and mouse outputs above
+        // remain source-aware.
         Output::Paste(text) => send_unicode_text(&text),
         Output::OpenApp(path) => super::launch::execute(&NativeBehavior::OpenApp {
             enabled: true,
@@ -707,20 +1119,37 @@ fn emit_remote_output(
                 .reader
                 .as_ref()
                 .is_some_and(|client| client.supports_key(key.page, key.usage));
+            // Some A15 consumer usages have no Windows/driver output equivalent.
+            // They remain configurable inputs; do not reconnect the capture pipe
+            // merely because their unconfigured original action cannot be emitted.
+            if !supported
+                && virtual_key_for_hid(key).is_none()
+                && context
+                    .device_id
+                    .as_deref()
+                    .is_some_and(crate::devices::cmiot_a15::matches_instance)
+            {
+                if down {
+                    log::warn!(target: "axonkey::input", "A15 original usage has no output mapping: {:04X}/{:04X}", key.page, key.usage);
+                }
+                return Ok(());
+            }
             context.keyboard.edge_with(
                 key,
                 down,
                 supported,
-                now,
-                |backend, down| match backend {
-                    KeyBackend::Virtual(key) => send_remote_virtual_key(key, down),
-                    KeyBackend::Driver(key) => {
-                        if let Some(client) = context.reader.as_mut() {
-                            client.send_key(key.page, key.usage, down)?;
-                        }
-                        Ok(())
-                    }
+                |driver_key, driver_down| {
+                    let client = context.reader.as_mut().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::NotConnected,
+                            "Quarbor driver unavailable for key output",
+                        )
+                    })?;
+                    client
+                        .send_key(driver_key.page, driver_key.usage, driver_down)
+                        .map(|_| ())
                 },
+                send_remote_virtual_key,
             )?;
         }
     }
@@ -734,149 +1163,17 @@ fn quarbor_publish_events(context: &mut QuarborContext, shared: &Shared) {
         match event {
             Event::Hello(_) => {}
             Event::Capabilities(caps) => {
-                log::info!(target: "axonkey::input", "Quarbor v3 capture ready: report_bytes={}, queue_capacity={}, flags=0x{:X}, report_ids={:02X?}", caps.input_report_bytes, caps.queue_capacity, caps.flags, caps.report_ids);
+                log::info!(target: "axonkey::input", "Quarbor Universal capture ready: report_bytes={}, queue_capacity={}, flags=0x{:X}, report_ids={:02X?}", caps.input_report_bytes, caps.queue_capacity, caps.flags, caps.report_ids);
             }
-            Event::Report {
-                metadata, bytes, ..
-            } => {
-                emit_raw_hid_event(
-                    shared,
-                    context.device_id.as_deref().unwrap_or_default(),
-                    metadata,
-                    bytes,
-                );
-            }
-            Event::Status(_) | Event::CommandAccepted(_) => {}
+            Event::Report { .. } | Event::Status(_) | Event::CommandAccepted(_) => {}
         }
     }
     let mut status = shared.status.lock().unwrap();
-    status.capture_active = context.reader.as_ref().is_some_and(|reader| reader.ready());
-    status.error = context.error.clone();
-}
-
-#[cfg(windows)]
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct RawHidEvent {
-    instance_id: String,
-    report_sequence: String,
-    timestamp_filetime: String,
-    dropped: String,
-    ntstatus: u32,
-    bytes: Vec<u8>,
-}
-
-#[cfg(all(windows, not(test)))]
-fn emit_raw_hid_event(
-    shared: &Shared,
-    instance_id: &str,
-    metadata: super::windows_quarbor::Metadata,
-    bytes: Vec<u8>,
-) {
-    let app = shared.event_app.read().ok().and_then(|app| app.clone());
-    if let Some(app) = app {
-        let _ = app.emit(
-            "axonkey-raw-hid",
-            RawHidEvent {
-                instance_id: instance_id.into(),
-                report_sequence: metadata.sequence.to_string(),
-                timestamp_filetime: metadata.timestamp.to_string(),
-                dropped: metadata.dropped.to_string(),
-                ntstatus: metadata.status,
-                bytes,
-            },
-        );
-    }
-}
-
-#[cfg(all(windows, test))]
-fn emit_raw_hid_event(
-    _shared: &Shared,
-    _instance_id: &str,
-    _metadata: super::windows_quarbor::Metadata,
-    _bytes: Vec<u8>,
-) {
-}
-
-fn device_connection_visible(found: bool, last_seen_at: Option<Instant>, now: Instant) -> bool {
-    found
-        || last_seen_at.is_some_and(|last_seen| {
-            now.saturating_duration_since(last_seen) < DEVICE_DISCONNECT_GRACE
-        })
-}
-
-fn update_device_status(
-    shared: &Shared,
-    hardware_id: Option<String>,
-    last_target_seen_at: &mut Option<Instant>,
-    now: Instant,
-) {
-    let found = hardware_id.is_some();
-    if found {
-        *last_target_seen_at = Some(now);
-    }
-    let connected = device_connection_visible(found, *last_target_seen_at, now);
-    let mut status = shared.status.lock().unwrap();
-    let previous_connected = status.device_connected;
     status.backend_ready = true;
-    status.device_connected = connected;
-    if found || !connected {
-        status.hardware_id = hardware_id;
-    }
-    status.error = None;
-    if previous_connected != connected {
-        log::info!(target: "axonkey::input", "RC003 connection changed: connected={connected}");
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn rc003_keyboard_device_id() -> Option<String> {
-    for _ in 0..3 {
-        let mut length = 0;
-        if unsafe {
-            cm_get_device_id_list_size(&mut length, std::ptr::null(), CM_GETIDLIST_FILTER_PRESENT)
-        } != CR_SUCCESS
-            || !(2..=1_000_000).contains(&length)
-        {
-            return None;
-        }
-
-        let mut buffer = vec![0u16; length as usize];
-        if unsafe {
-            cm_get_device_id_list(
-                std::ptr::null(),
-                buffer.as_mut_ptr(),
-                length,
-                CM_GETIDLIST_FILTER_PRESENT,
-            )
-        } == CR_SUCCESS
-        {
-            return rc003_keyboard_id_from_multisz(&buffer);
-        }
-    }
-    None
-}
-
-#[cfg(not(target_os = "windows"))]
-fn rc003_keyboard_device_id() -> Option<String> {
-    None
-}
-
-fn rc003_keyboard_id_from_multisz(buffer: &[u16]) -> Option<String> {
-    buffer
-        .split(|value| *value == 0)
-        .take_while(|value| !value.is_empty())
-        .map(String::from_utf16_lossy)
-        .find(|value| {
-            value.to_ascii_uppercase().starts_with("HID\\") && is_target_hardware_id(value)
-        })
-}
-
-fn is_target_hardware_id(value: &str) -> bool {
-    let uppercase = value.to_ascii_uppercase();
-    let vid = uppercase.contains("VID_2717") || uppercase.contains("VID&012717");
-    let pid = uppercase.contains("PID_32B8") || uppercase.contains("PID&32B8");
-    vid && pid
+    status.hardware_id = context.device_id.clone();
+    status.capture_active = context.reader.as_ref().is_some_and(|reader| reader.ready());
+    status.device_connected = context.reader.is_some();
+    status.error = context.error.clone();
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -888,6 +1185,10 @@ struct RemoteKeyEvent {
 
 #[cfg(not(test))]
 fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
+    if let Some(emit) = &shared.managed_event {
+        emit(button.to_string(), pressed);
+        return;
+    }
     let app = shared
         .event_app
         .read()
@@ -898,6 +1199,19 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
     }
 }
 
+#[cfg(not(test))]
+fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15::voice::PcmFrame) {
+    if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
+        use tauri::Manager;
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
+            audio.push_a15_pcm(shared.instance_id.as_deref(), &frame.samples);
+        }
+    }
+}
+
+#[cfg(test)]
+fn forward_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15::voice::PcmFrame) {}
+
 fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {
         WheelDirection::Up => 120,
@@ -907,11 +1221,73 @@ fn wheel_delta(direction: WheelDirection) -> i32 {
     }
 }
 
-/// System mouse mappings use SendInput, independently of any RC003 keyboard.
+fn driver_wheel_delta(direction: WheelDirection) -> (i32, i32) {
+    match direction {
+        WheelDirection::Up => (1, 0),
+        WheelDirection::Down => (-1, 0),
+        WheelDirection::Left => (0, -1),
+        WheelDirection::Right => (0, 1),
+    }
+}
+
+fn mouse_button_usage(button: super::MouseButton) -> Option<u16> {
+    match button {
+        super::MouseButton::Left => Some(1),
+        super::MouseButton::Right => Some(2),
+        super::MouseButton::Middle => Some(3),
+        // Universal's mouse collection currently has no XBUTTON usages.
+        super::MouseButton::Back | super::MouseButton::Forward => None,
+    }
+}
+
+#[cfg(windows)]
+fn mouse_move_steps(value: i32) -> impl Iterator<Item = i32> {
+    let mut remaining = value;
+    std::iter::from_fn(move || {
+        if remaining == 0 {
+            return None;
+        }
+        let step = remaining.clamp(-127, 127);
+        remaining -= step;
+        Some(step)
+    })
+}
+
+#[cfg(windows)]
+fn send_driver_mouse_move(
+    client: &mut super::windows_quarbor::Client,
+    x: i32,
+    y: i32,
+    wheel: i32,
+    pan: i32,
+) -> std::io::Result<()> {
+    let mut x_steps = mouse_move_steps(x);
+    let mut y_steps = mouse_move_steps(y);
+    let mut wheel_steps = mouse_move_steps(wheel);
+    let mut pan_steps = mouse_move_steps(pan);
+    loop {
+        let step = (
+            x_steps.next().unwrap_or(0),
+            y_steps.next().unwrap_or(0),
+            wheel_steps.next().unwrap_or(0),
+            pan_steps.next().unwrap_or(0),
+        );
+        if step == (0, 0, 0, 0) {
+            return Ok(());
+        }
+        client.move_mouse(step.0, step.1, step.2, step.3)?;
+    }
+}
+
+/// Mappings produced by the Windows mouse service originate outside the RC003
+/// driver, so they stay on SendInput. RC003 actions are handled separately by
+/// `emit_remote_output` and are sent back through the Universal pipe.
 pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
     match behavior {
+        // The mouse service is available to users who do not install the
+        // RC003 Universal driver, so all mouse output stays on SendInput.
         NativeBehavior::Wheel { direction, .. } => {
-            send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction))
+            send_wheel_with_axis(wheel_delta(*direction), wheel_horizontal(*direction));
         }
         NativeBehavior::CursorMove {
             direction,
@@ -929,13 +1305,20 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
                 if !send_mouse_chord_with(&keys, hold_ms, send_keyboard_inputs) {
-                    log::warn!(target: "axonkey::input", "Mouse keyboard injection incomplete; target may have higher privileges");
+                    log::warn!(
+                        target: "axonkey::input",
+                        "Mouse keyboard injection incomplete; target may have higher privileges"
+                    );
                 }
             }
         }
         NativeBehavior::SwitchProfile {
             direction, wrap, ..
-        } => super::profile_switch::execute(*direction, *wrap),
+        } => super::profile_switch::execute(
+            super::profile_switch::DeviceId::Mouse,
+            *direction,
+            *wrap,
+        ),
         NativeBehavior::Delay { .. } | NativeBehavior::Disabled { .. } => {}
     }
 }
@@ -973,55 +1356,49 @@ fn send_mouse_chord_with(
         }
         input
     };
-    if hold_ms > 0 {
-        let pressed = send(&downs).min(downs.len());
-        if pressed == downs.len() {
-            thread::sleep(Duration::from_millis(hold_ms.min(1000)));
+    let all_ups: Vec<Input> = downs.iter().copied().rev().map(release).collect();
+    if hold_ms == 0 {
+        let mut tap = downs.clone();
+        tap.extend(all_ups.iter().copied());
+        let sent = send(&tap).min(tap.len());
+        if sent == tap.len() {
+            return true;
         }
-        let ups: Vec<Input> = downs[..pressed]
+        // A partial SendInput call may have pressed some keys. Release every
+        // key whose matching up event was not accepted by the same call.
+        let pressed = sent.min(downs.len());
+        let released = sent.saturating_sub(downs.len()).min(pressed);
+        let cleanup: Vec<Input> = downs[..pressed]
             .iter()
             .copied()
             .rev()
+            .take(pressed.saturating_sub(released))
             .map(release)
             .collect();
-        let released = if ups.is_empty() {
-            0
-        } else {
-            send(&ups).min(ups.len())
-        };
-        if released < ups.len() {
-            send(&ups[released..]);
+        if !cleanup.is_empty() {
+            let _ = send(&cleanup);
         }
-        return pressed == downs.len() && released == ups.len();
+        return false;
     }
-    let mut inputs = Vec::with_capacity(downs.len() * 2);
-    inputs.extend_from_slice(&downs);
-    inputs.extend(downs.iter().copied().rev().map(release));
-    let sent = send(&inputs).min(inputs.len());
-    if sent == inputs.len() {
-        return true;
+    let pressed = send(&downs).min(downs.len());
+    if pressed == downs.len() {
+        thread::sleep(Duration::from_millis(hold_ms.min(1000)));
     }
-    // A partial batch may have inserted downs without their matching ups.
-    // Release only those keys, in reverse order, without replaying the action.
-    let held = sent.min(downs.len()) - sent.saturating_sub(downs.len());
-    if held > 0 {
-        let cleanup: Vec<Input> = downs[..held].iter().copied().rev().map(release).collect();
-        send(&cleanup);
-    }
-    false
+    let ups: Vec<Input> = downs[..pressed]
+        .iter()
+        .copied()
+        .rev()
+        .map(release)
+        .collect();
+    let released = if ups.is_empty() {
+        0
+    } else {
+        send(&ups).min(ups.len())
+    };
+    pressed == downs.len() && released == ups.len()
 }
 
 fn send_keyboard_inputs(inputs: &[Input]) -> usize {
-    #[cfg(not(test))]
-    {
-        unsafe {
-            SendInput(
-                inputs.len() as u32,
-                inputs.as_ptr(),
-                std::mem::size_of::<Input>() as i32,
-            ) as usize
-        }
-    }
     #[cfg(test)]
     {
         MOUSE_KEY_BATCHES.with(|batches| {
@@ -1036,6 +1413,14 @@ fn send_keyboard_inputs(inputs: &[Input]) -> usize {
             )
         });
         inputs.len()
+    }
+    #[cfg(not(test))]
+    unsafe {
+        SendInput(
+            inputs.len() as u32,
+            inputs.as_ptr(),
+            std::mem::size_of::<Input>() as i32,
+        ) as usize
     }
 }
 
@@ -1108,9 +1493,11 @@ fn hid_key_for_virtual_key(key: u16) -> Option<super::remote_actions::HidKey> {
         0x25 => (7, 0x50),
         0x28 => (7, 0x51),
         0x26 => (7, 0x52),
-        0xad => (7, 0x7f),
-        0xaf => (7, 0x80),
-        0xae => (7, 0x81),
+        // Volume controls belong to the Consumer Control collection exposed
+        // by the Universal driver, rather than the legacy keyboard usages.
+        0xad => (0x0c, 0x00e2),
+        0xaf => (0x0c, 0x00e9),
+        0xae => (0x0c, 0x00ea),
         0xb0 => (0x0c, 0xb5),
         0xb1 => (0x0c, 0xb6),
         0xb2 => (0x0c, 0xb7),
@@ -1118,6 +1505,36 @@ fn hid_key_for_virtual_key(key: u16) -> Option<super::remote_actions::HidKey> {
         _ => return None,
     };
     Some(super::remote_actions::HidKey { page, usage })
+}
+
+#[cfg(windows)]
+fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
+    (1..=255)
+        .filter(|virtual_key| !matches!(virtual_key, 0x10..=0x12))
+        .find(|virtual_key| hid_key_for_virtual_key(*virtual_key) == Some(key))
+        .or(match (key.page, key.usage) {
+            (7, 0xf1) => Some(0x08),
+            // A15 reports Confirm as Consumer Menu Pick, rather than keyboard Enter.
+            (0x0c, 0x41) => Some(0x0d),
+            _ => None,
+        })
+}
+
+#[cfg(windows)]
+fn send_remote_virtual_key(key: u16, down: bool) -> std::io::Result<()> {
+    let mut input = virtual_key_input(key);
+    if !down {
+        unsafe {
+            input.value.keyboard.flags |= 2;
+        }
+    }
+    if send_keyboard_inputs(&[input]) == 1 {
+        return Ok(());
+    }
+    Err(std::io::Error::other(format!(
+        "SendInput virtual key {key:#04X} {} failed",
+        if down { "down" } else { "up" }
+    )))
 }
 
 /// Convert the existing key names into USB HID usages, never scan codes or
@@ -1229,7 +1646,7 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
     None
 }
 
-fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
+pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
     for (button, triggers) in &settings.behaviors {
         for behavior in triggers.iter() {
             if !behavior.enabled() {
@@ -1313,6 +1730,7 @@ fn wheel_input(delta: i32, horizontal: bool) -> Input {
 
 #[cfg(test)]
 thread_local! {
+    static A15_RECORDING_REPORTS: std::cell::RefCell<Vec<[u8; 2]>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -1347,6 +1765,7 @@ fn send_mouse_click(button: super::MouseButton) {
     let (down, up, mouse_data) = match button {
         super::MouseButton::Left => (0x0002, 0x0004, 0),
         super::MouseButton::Right => (0x0008, 0x0010, 0),
+        super::MouseButton::Middle => (0x0020, 0x0040, 0),
         super::MouseButton::Back => (0x0080, 0x0100, 1),
         super::MouseButton::Forward => (0x0080, 0x0100, 2),
     };
@@ -1497,23 +1916,769 @@ unsafe fn SendInput(_input_count: u32, _inputs: *const Input, _input_size: i32) 
     0
 }
 
-#[cfg(target_os = "windows")]
-#[link(name = "cfgmgr32")]
-extern "system" {
-    #[link_name = "CM_Get_Device_ID_List_SizeW"]
-    fn cm_get_device_id_list_size(length: *mut u32, filter: *const u16, flags: u32) -> u32;
-    #[link_name = "CM_Get_Device_ID_ListW"]
-    fn cm_get_device_id_list(
-        filter: *const u16,
-        buffer: *mut u16,
-        buffer_length: u32,
-        flags: u32,
-    ) -> u32;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    mod managed_regressions {
+        use super::*;
+        use crate::input_service::remote_actions::RemoteActions;
+        use serde_json::json;
+
+        struct Harness {
+            channel: ManagedQuarborChannel,
+            context: QuarborContext,
+            actions: RemoteActions,
+            epoch: u64,
+            start: Instant,
+        }
+
+        impl Harness {
+            fn new(settings: NativeSettings) -> Self {
+                MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+                UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
+                Self {
+                    channel: ManagedQuarborChannel {
+                        shared: Arc::new(Shared {
+                            recording_requests: Mutex::new(Vec::new()),
+                            instance_id: Some("test-device".into()),
+                            settings: RwLock::new(settings),
+                            settings_revision: AtomicU64::new(0),
+                            status: Mutex::new(InputServiceStatus::default()),
+                            event_app: RwLock::new(None),
+                            stop: AtomicBool::new(false),
+                            driver_gate: Arc::new(AtomicBool::new(false)),
+                            driver_paused: AtomicBool::new(false),
+                            managed_event: None,
+                            managed_input: None,
+                            managed_remote_owned: AtomicBool::new(false),
+                        }),
+                        worker: Mutex::new(None),
+                    },
+                    context: QuarborContext::default(),
+                    actions: RemoteActions::default(),
+                    epoch: 0,
+                    start: Instant::now(),
+                }
+            }
+
+            fn tick(&mut self, settings: &NativeSettings, ms: u64, edges: &[bool]) {
+                self.channel.update_settings(settings.clone());
+                self.context
+                    .keys
+                    .extend(edges.iter().map(|pressed| RemoteKeyEvent {
+                        button: "up",
+                        pressed: *pressed,
+                    }));
+                process_remote_actions(
+                    &mut self.context,
+                    &self.channel.shared,
+                    &mut self.actions,
+                    &mut self.epoch,
+                    self.start + Duration::from_millis(ms),
+                );
+            }
+        }
+
+        fn a15_report(context: &mut QuarborContext, sequence: u64, bytes: Vec<u8>) {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            quarbor_accept_event(
+                context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence,
+                        dropped: context.dropped,
+                        ..Default::default()
+                    },
+                    bytes,
+                    usages: Err(50),
+                },
+            );
+        }
+
+        #[test]
+        fn a15_click_report_gaps_preserve_real_voice_edges_and_release_right_alt() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            for status_drop in [false, true] {
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true,
+                    "cmiotA15RecordingMode": "click",
+                    "behaviors": {"cmiotA15.voice": {"click": [{"type": "key", "key": "RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let mut voice = vec![0; 21];
+                voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+                a15_report(&mut harness.context, 1, voice.clone());
+                harness.tick(&settings, 0, &[]);
+                assert_eq!(harness.context.keyboard.held.len(), 1);
+
+                if status_drop {
+                    quarbor_accept_event(
+                        &mut harness.context,
+                        Event::Status(Metadata {
+                            dropped: 1,
+                            ..Default::default()
+                        }),
+                    );
+                } else {
+                    a15_report(&mut harness.context, 3, voice.clone());
+                }
+                assert!(
+                    harness.context.keys.is_empty(),
+                    "no synthetic voice release"
+                );
+                harness.tick(&settings, 10, &[]);
+                assert!(harness.context.a15_recording.is_recording());
+                assert!(harness.channel.status().cmiot_a15_recording);
+                assert!(harness.context.keyboard.held.is_empty());
+                MOUSE_KEY_BATCHES.with(|events| {
+                    assert_eq!(*events.borrow(), [vec![(0xa5, 1)], vec![(0xa5, 3)]]);
+                });
+                let mut sequence = harness.context.last_sequence.unwrap();
+                for _ in 0..4 {
+                    sequence += 1;
+                    a15_report(&mut harness.context, sequence, voice.clone());
+                }
+                harness.tick(&settings, 20, &[]);
+                assert!(harness.context.keyboard.held.is_empty());
+                assert!(harness.context.a15_recording.is_recording());
+
+                voice[3] = 0;
+                sequence += 1;
+                a15_report(&mut harness.context, sequence, voice.clone());
+                harness.tick(&settings, 30, &[]);
+                assert!(harness.context.a15_recording.is_recording());
+                voice[3] = 1;
+                sequence += 1;
+                a15_report(&mut harness.context, sequence, voice.clone());
+                harness.tick(&settings, 40, &[]);
+                assert!(!harness.context.a15_recording.is_recording());
+                // A gap after the stop must not turn repeated held F8 into a new press.
+                a15_report(&mut harness.context, sequence + 2, voice);
+                harness.tick(&settings, 50, &[]);
+                assert!(!harness.context.a15_recording.is_recording());
+                assert!(harness.context.keyboard.held.is_empty());
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]);
+                });
+            }
+        }
+
+        #[test]
+        fn a15_click_report_gap_discards_pcm_and_resynchronizes_at_next_fc_group() {
+            use crate::devices::cmiot_a15::recording::RecordingMode;
+            let mut context = QuarborContext::default();
+            context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+            context
+                .a15_recording
+                .synchronize(RecordingMode::Click, true, |_| Ok::<_, ()>(()))
+                .unwrap();
+            context
+                .a15_recording
+                .edge(true, |_| Ok::<_, ()>(()))
+                .unwrap();
+            context.a15_voice.synchronize(true);
+            let reports = [
+                vec![
+                    0xfc, 0x4b, 0x5f, 0, 0, 0x48, 0xbc, 0x92, 0xd4, 0xde, 0xeb, 0x0e, 0xc1, 0x9e,
+                    0x2d, 0x5f, 0xb0, 0x56, 0xe6, 0x9a, 0x06,
+                ],
+                vec![
+                    0xfc, 0x4b, 0x5f, 1, 0, 1, 0xef, 0x2e, 0xb0, 0x4d, 0x0c, 0x71, 0xec, 0x7c,
+                    0xbc, 0x18, 0x30, 0x8c, 0x31, 0xbb, 0xad,
+                ],
+                vec![
+                    0xfc, 0x4b, 0x5f, 2, 0, 0xf2, 2, 0xb2, 0x92, 0x95, 6, 0x21, 0x91, 4, 0, 0x1d,
+                    0, 0, 0, 0, 0,
+                ],
+            ];
+            for (index, report) in reports.iter().enumerate() {
+                a15_report(&mut context, index as u64 + 1, report.clone());
+            }
+            assert_eq!(context.a15_pcm.len(), 1);
+            a15_report(&mut context, 4, reports[0].clone());
+            a15_report(&mut context, 6, reports[1].clone());
+            a15_report(&mut context, 7, reports[2].clone());
+            assert!(context.a15_recording.is_recording());
+            assert!(context.a15_pcm.is_empty());
+            for (index, report) in reports.iter().enumerate() {
+                a15_report(&mut context, index as u64 + 8, report.clone());
+            }
+            let frame = context.a15_pcm.pop_front().unwrap();
+            assert_eq!(frame.group, 0x5f4b);
+            assert_eq!(frame.samples.len(), 320);
+            assert!(context.a15_pcm.is_empty());
+        }
+
+        #[test]
+        fn a15_hold_gaps_and_click_connection_errors_still_stop_recording() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            for (mode, reason) in [
+                ("hold", ReleaseReason::ReportGap),
+                ("hold", ReleaseReason::StatusDropped),
+                ("click", ReleaseReason::StatusError),
+                ("click", ReleaseReason::PipeError),
+                ("click", ReleaseReason::OutputError),
+                ("click", ReleaseReason::Shutdown),
+            ] {
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true, "cmiotA15RecordingMode": mode
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let mut voice = vec![0; 21];
+                voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+                a15_report(&mut harness.context, 1, voice);
+                harness.tick(&settings, 0, &[]);
+                match reason {
+                    ReleaseReason::ReportGap => a15_report(&mut harness.context, 3, vec![0xfc; 21]),
+                    ReleaseReason::StatusDropped | ReleaseReason::StatusError => {
+                        quarbor_accept_event(
+                            &mut harness.context,
+                            Event::Status(Metadata {
+                                dropped: 1,
+                                status: if matches!(reason, ReleaseReason::StatusError) {
+                                    0xc0000001
+                                } else {
+                                    0
+                                },
+                                ..Default::default()
+                            }),
+                        );
+                    }
+                    ReleaseReason::OutputError => quarbor_output_error(
+                        &mut harness.context,
+                        std::io::Error::other("test output failure"),
+                    ),
+                    _ => quarbor_release_active_usages(&mut harness.context, reason),
+                }
+                harness.tick(&settings, 10, &[]);
+                assert!(
+                    !harness.context.a15_recording.is_recording(),
+                    "{mode}: {reason:?}"
+                );
+                assert!(!harness.channel.status().cmiot_a15_recording);
+                assert!(harness.context.a15_pcm.is_empty());
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(
+                        *reports.borrow(),
+                        [[0xfb, 1], [0xfb, 0]],
+                        "{mode}: {reason:?}"
+                    );
+                });
+            }
+        }
+
+        #[test]
+        fn stopping_a15_from_overlay_never_restarts_recording_on_repeated_clicks() {
+            let settings = NativeSettings {
+                enabled: true,
+                ..Default::default()
+            };
+            let mut harness = Harness::new(settings.clone());
+            harness.channel.shared.status.lock().unwrap().capture_active = true;
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            let (reply, result) = std::sync::mpsc::sync_channel(1);
+            harness.channel.toggle_recording(reply);
+            harness.tick(&settings, 1, &[]);
+            assert!(result.try_recv().unwrap().unwrap());
+            for ms in [2, 3] {
+                let (reply, result) = std::sync::mpsc::sync_channel(1);
+                harness.channel.stop_recording(reply);
+                harness.tick(&settings, ms, &[]);
+                assert!(!result.try_recv().unwrap().unwrap());
+                assert!(!harness.channel.status().cmiot_a15_recording);
+            }
+            A15_RECORDING_REPORTS
+                .with(|reports| assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]));
+        }
+
+        #[test]
+        fn manual_a15_recording_is_scoped_to_its_channel_and_rejects_disconnection() {
+            let settings = NativeSettings {
+                enabled: true,
+                ..Default::default()
+            };
+            let mut first = Harness::new(settings.clone());
+            let second = Harness::new(settings.clone());
+            first.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+            first.channel.shared.status.lock().unwrap().capture_active = true;
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            for (ms, expected) in [(1, true), (2, false)] {
+                let (reply, result) = std::sync::mpsc::sync_channel(1);
+                first.channel.toggle_recording(reply);
+                first.tick(&settings, ms, &[]);
+                assert_eq!(result.try_recv().unwrap().unwrap(), expected);
+                assert_eq!(first.channel.status().cmiot_a15_recording, expected);
+                assert!(!second.channel.status().cmiot_a15_recording);
+            }
+            A15_RECORDING_REPORTS
+                .with(|reports| assert_eq!(*reports.borrow(), [[0xfb, 1], [0xfb, 0]]));
+            first.channel.shared.status.lock().unwrap().capture_active = false;
+            let (reply, result) = std::sync::mpsc::sync_channel(1);
+            first.channel.toggle_recording(reply);
+            first.tick(&settings, 3, &[]);
+            assert!(result.try_recv().unwrap().is_err());
+            assert!(!first.channel.status().cmiot_a15_recording);
+        }
+
+        #[test]
+        fn xbox_quarbor_reports_drive_mapping_analog_feedback_and_disconnect_release() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {"xbox.a": {"click": [{"type": "key", "key": "A"}]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.device_id = Some(r"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002045E_PID&02E0\C&1B61B8A0&0&0000".into());
+            let updates = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&updates);
+            Arc::get_mut(&mut harness.channel.shared)
+                .unwrap()
+                .managed_input = Some(Arc::new(move |values, pressed| {
+                captured.lock().unwrap().push((values, pressed));
+            }));
+            let bytes = vec![1, 0, 128, 0, 128, 0, 128, 0, 128, 0, 2, 0, 0, 0, 1, 0];
+            for (sequence, bytes) in [(1, bytes.clone()), (2, vec![2, 1])] {
+                quarbor_accept_event(
+                    &mut harness.context,
+                    Event::Report {
+                        metadata: Metadata {
+                            sequence,
+                            ..Default::default()
+                        },
+                        bytes,
+                        usages: Err(50),
+                    },
+                );
+                harness.tick(&settings, sequence * 10, &[]);
+            }
+            {
+                let updates = updates.lock().unwrap();
+                let (values, pressed) = updates.last().unwrap();
+                assert_eq!(values["xbox.a"], 1.0);
+                assert!((values["xbox.lt"] - 512.0 / 1023.0).abs() < 0.0001);
+                assert!(pressed.contains(&"xbox.a".to_string()));
+                assert!(pressed.contains(&"xbox.guide".to_string()));
+                assert!(!pressed.contains(&"xbox.lt".to_string()));
+            }
+            assert!(harness.context.usage_error.is_none());
+            assert_eq!(harness.context.keyboard.held.len(), 1);
+            quarbor_release_active_usages(&mut harness.context, ReleaseReason::Test);
+            harness.tick(&settings, 40, &[]);
+            let updates = updates.lock().unwrap();
+            assert!(updates
+                .last()
+                .unwrap()
+                .0
+                .values()
+                .all(|value| *value == 0.0));
+            assert!(updates.last().unwrap().1.is_empty());
+            assert!(harness.context.keyboard.held.is_empty());
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0x41, 0)], vec![(0x41, 2)]])
+            });
+            assert_eq!(
+                harness.context.events.len(),
+                2,
+                "original reports remain available until the batch is drained"
+            );
+        }
+
+        #[test]
+        fn a15_voice_records_and_maps_right_alt_in_both_recording_modes() {
+            use crate::input_service::windows_quarbor::{Event, Metadata};
+
+            for mode in ["hold", "click"] {
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true,
+                    "cmiotA15RecordingMode": mode,
+                    "behaviors": {"cmiotA15.voice": {"click": [{"type": "key", "key": "RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(
+                    r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_AABBCCDDEEFF\instance".into()
+                );
+                let mut sequence = 0;
+                for (index, down) in [true, false, true, false].into_iter().enumerate() {
+                    // Real driver traffic repeats each F8 report four times.
+                    for _ in 0..4 {
+                        sequence += 1;
+                        let mut bytes = vec![0; 21];
+                        bytes[..4].copy_from_slice(&[0xf8, 0x82, 3, u8::from(down)]);
+                        quarbor_accept_event(
+                            &mut harness.context,
+                            Event::Report {
+                                metadata: Metadata {
+                                    sequence,
+                                    ..Default::default()
+                                },
+                                bytes,
+                                usages: Err(50),
+                            },
+                        );
+                    }
+                    harness.tick(&settings, index as u64 * 1000, &[]);
+                    assert_eq!(
+                        harness.context.a15_recording.is_recording(),
+                        if mode == "hold" { down } else { index < 2 }
+                    );
+                    assert_eq!(harness.context.keyboard.held.len(), usize::from(down));
+                    MOUSE_KEY_BATCHES.with(|events| assert_eq!(events.borrow().len(), index + 1));
+                }
+                MOUSE_KEY_BATCHES.with(|events| {
+                    assert_eq!(
+                        *events.borrow(),
+                        vec![
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)],
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)],
+                        ]
+                    )
+                });
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(
+                        *reports.borrow(),
+                        if mode == "hold" {
+                            vec![[0xfb, 1], [0xfb, 0], [0xfb, 1], [0xfb, 0]]
+                        } else {
+                            vec![[0xfb, 1], [0xfb, 0]]
+                        }
+                    )
+                });
+            }
+        }
+
+        #[test]
+        fn a15_instances_keep_report_edges_mappings_and_profile_switches_separate() {
+            let make_settings = |key: &str| {
+                serde_json::from_value::<NativeSettings>(json!({
+                "enabled": true, "behaviors": {"cmiotA15.up": {"click": [{"type":"key", "key":key}]}}
+            })).unwrap()
+            };
+            let first_settings = make_settings("A");
+            let second_settings = make_settings("B");
+            let mut first = Harness::new(first_settings.clone());
+            let mut second = Harness::new(second_settings.clone());
+            let node = |address: &str| {
+                format!(
+                    r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&010416_PID&0300_REV&0100_{address}\instance"
+                )
+            };
+            first.context.device_id = Some(node("AABBCCDDEE01"));
+            second.context.device_id = Some(
+                r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025".into(),
+            );
+            let report = |context: &mut QuarborContext, sequence, down| {
+                quarbor_accept_event(
+                    context,
+                    super::super::super::windows_quarbor::Event::Report {
+                        metadata: super::super::super::windows_quarbor::Metadata {
+                            sequence,
+                            ..Default::default()
+                        },
+                        bytes: vec![1, 0, 0, if down { 0x52 } else { 0 }, 0, 0, 0, 0, 0],
+                        usages: Err(50),
+                    },
+                );
+            };
+            report(&mut first.context, 1, true);
+            report(&mut second.context, 1, true);
+            first.tick(&first_settings, 0, &[]);
+            second.tick(&second_settings, 0, &[]);
+            report(&mut first.context, 2, false);
+            first.tick(&first_settings, 50, &[]);
+            assert_eq!(second.context.keyboard.held.len(), 1);
+            report(&mut second.context, 2, false);
+            second.tick(&second_settings, 80, &[]);
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    vec![
+                        vec![(0x41, 0)],
+                        vec![(0x42, 0)],
+                        vec![(0x41, 2)],
+                        vec![(0x42, 2)]
+                    ]
+                )
+            });
+            let switches = Arc::new(Mutex::new(Vec::new()));
+            for (id, harness) in [("first", &mut first), ("second", &mut second)] {
+                let switches = Arc::clone(&switches);
+                harness.context.switch_profile = Some(Arc::new(move |direction, wrap| {
+                    switches.lock().unwrap().push((id, direction, wrap))
+                }));
+            }
+            emit_remote_output(
+                &mut first.context,
+                crate::input_service::remote_actions::Output::SwitchProfile(
+                    super::super::super::ProfileDirection::Next,
+                    true,
+                ),
+            )
+            .unwrap();
+            assert_eq!(switches.lock().unwrap().len(), 1);
+            assert_eq!(switches.lock().unwrap()[0].0, "first");
+        }
+
+        #[test]
+        fn repeated_settings_preserve_wait_and_following_key() {
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true, "behaviors": {"up": {"click": [
+                    {"type": "key", "key": "A"},
+                    {"type": "delay", "ms": 100},
+                    {"type": "key", "key": "B"}
+                ]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.tick(&settings, 0, &[true, false]);
+            for ms in (8..100).step_by(8) {
+                harness.tick(&settings, ms, &[]);
+            }
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0x41, 0)], vec![(0x41, 2)]])
+            });
+            harness.tick(&settings, 100, &[]);
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    vec![
+                        vec![(0x41, 0)],
+                        vec![(0x41, 2)],
+                        vec![(0x42, 0)],
+                        vec![(0x42, 2)]
+                    ]
+                )
+            });
+        }
+
+        #[test]
+        fn repeated_settings_preserve_paste_press_until_release() {
+            let text = "中文🙂\nsecond line";
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true, "behaviors": {"up": {"click": [
+                    {"type": "paste", "text": text}
+                ]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.tick(&settings, 0, &[true]);
+            for ms in (8..80).step_by(8) {
+                harness.tick(&settings, ms, &[]);
+            }
+            UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+            harness.tick(&settings, 80, &[false]);
+            harness.tick(&settings, 88, &[]);
+            UNICODE_EVENTS.with(|events| {
+                let events = events.borrow();
+                assert_eq!(events.len(), text.encode_utf16().count() * 2);
+                let typed: Vec<u16> = events
+                    .iter()
+                    .filter(|(_, flags)| *flags == 4)
+                    .map(|(unit, _)| *unit)
+                    .collect();
+                assert_eq!(String::from_utf16(&typed).unwrap(), text);
+                assert!(events
+                    .chunks_exact(2)
+                    .all(|pair| pair[0].0 == pair[1].0 && pair[1].1 == 6));
+            });
+        }
+
+        #[test]
+        fn changed_mapping_or_disable_still_cancels_pending_paste() {
+            for disable in [false, true] {
+                let mut settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true, "behaviors": {"up": {"click": [
+                        {"type": "delay", "ms": 100},
+                        {"type": "paste", "text": "must not be typed"}
+                    ]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.tick(&settings, 0, &[true, false]);
+                if disable {
+                    settings.enabled = false;
+                } else {
+                    settings.behaviors.clear();
+                }
+                harness.tick(&settings, 80, &[]);
+                harness.tick(&settings, 100, &[]);
+                UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+            }
+        }
+    }
+
+    #[test]
+    fn mouse_updates_preserve_remote_sequences_and_held_keys() {
+        use super::super::remote_actions::{Output, RemoteActions};
+
+        for change in [
+            "mouse_mapping",
+            "mouse_options",
+            "remote_mapping",
+            "disabled",
+        ] {
+            let mut settings: NativeSettings = serde_json::from_value(serde_json::json!({
+                "enabled": true,
+                "behaviors": {
+                    "up": {"click": [
+                        {"type": "paste", "text": "first"},
+                        {"type": "delay", "ms": 100},
+                        {"type": "paste", "text": "second"}
+                    ]},
+                    "voice": {"click": [{"type": "key", "key": "RAlt"}]},
+                    "mouse.top.up": {"click": [{"type": "key", "key": "A"}]}
+                }
+            }))
+            .unwrap();
+            let service = InputService {
+                shared: Arc::new(Shared {
+                    recording_requests: Mutex::new(Vec::new()),
+                    instance_id: None,
+                    settings: RwLock::new(settings.clone()),
+                    settings_revision: AtomicU64::new(1),
+                    status: Mutex::new(InputServiceStatus::default()),
+                    event_app: RwLock::new(None),
+                    stop: AtomicBool::new(false),
+                    driver_gate: Arc::new(AtomicBool::new(false)),
+                    driver_paused: AtomicBool::new(false),
+                    managed_event: None,
+                    managed_input: None,
+                    managed_remote_owned: AtomicBool::new(false),
+                }),
+                worker: Mutex::new(None),
+            };
+            let now = Instant::now();
+            let mut actions: RemoteActions = RemoteActions::default();
+            actions.synchronize(1, true);
+            actions.edge("up", true, &settings, now);
+            actions.edge("up", false, &settings, now);
+            actions.edge("voice", true, &settings, now);
+            let mut initial = Vec::new();
+            actions.tick(now, |output| initial.push(output));
+            assert!(initial.contains(&Output::Paste("first".into())));
+            assert!(initial
+                .iter()
+                .any(|output| matches!(output, Output::Key(_, true))));
+
+            match change {
+                "mouse_mapping" => settings.behaviors.remove("mouse.top.up"),
+                "mouse_options" => {
+                    settings.mouse_enabled = false;
+                    settings.mouse_edge_width = 16;
+                    settings.mouse_key_hold_ms = 25;
+                    settings.mouse_vertical_scroll_interval_ms = 100;
+                    settings.mouse_horizontal_scroll_interval_ms = 100;
+                    settings.mouse_scroll_sensitivity = 200;
+                    settings.mouse_ignore_scroll_acceleration = false;
+                    None
+                }
+                "remote_mapping" => settings.behaviors.remove("up"),
+                "disabled" => {
+                    settings.enabled = false;
+                    None
+                }
+                _ => unreachable!(),
+            };
+            service.update_settings(settings.clone()).unwrap();
+            actions.synchronize(
+                service.shared.settings_revision.load(Ordering::Relaxed),
+                settings.enabled,
+            );
+            let mut remaining = Vec::new();
+            actions.tick(now + Duration::from_millis(100), |output| {
+                remaining.push(output)
+            });
+
+            if change.starts_with("mouse_") {
+                assert_eq!(remaining, [Output::Paste("second".into())]);
+                actions.edge("voice", false, &settings, now + Duration::from_millis(101));
+                remaining.clear();
+                actions.tick(now + Duration::from_millis(101), |output| {
+                    remaining.push(output)
+                });
+            }
+            assert!(matches!(remaining.as_slice(), [Output::Key(_, false)]));
+        }
+    }
+
+    #[test]
+    fn mouse_profile_switches_retain_the_mouse_execution_source() {
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        execute_mouse_behavior(
+            &NativeBehavior::SwitchProfile {
+                enabled: true,
+                direction: super::super::ProfileDirection::Previous,
+                wrap: false,
+            },
+            10,
+        );
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "mouse", "direction": "previous", "wrap": false},
+                ])
+            );
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remote_profile_switches_retain_the_rc003_execution_source() {
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        emit_remote_output(
+            &mut QuarborContext::default(),
+            super::super::remote_actions::Output::SwitchProfile(
+                super::super::ProfileDirection::Next,
+                true,
+            ),
+        )
+        .unwrap();
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "rc003", "direction": "next", "wrap": true},
+                ])
+            );
+        });
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn input_worker_can_pause_again_after_startup_without_opening_a_device() {
+        let gate = Arc::new(AtomicBool::new(true));
+        // Automatic hardware discovery is disabled in unit tests.
+        let service = InputService::start(gate.clone());
+        service.wait_for_driver_pause().unwrap();
+        assert!(!service.status().backend_ready);
+        service.resume_after_driver_migration();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while service.shared.driver_paused.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline, "worker must resume");
+            thread::sleep(Duration::from_millis(5));
+        }
+        service.pause_for_driver_migration().unwrap();
+        assert!(!service.status().backend_ready);
+        assert!(!service.status().capture_active);
+        service.shutdown();
+    }
 
     #[cfg(windows)]
     #[test]
@@ -1540,6 +2705,7 @@ mod tests {
         for (button, expected) in [
             (super::super::MouseButton::Left, [(0x2, 0), (0x4, 0)]),
             (super::super::MouseButton::Right, [(0x8, 0), (0x10, 0)]),
+            (super::super::MouseButton::Middle, [(0x20, 0), (0x40, 0)]),
             (super::super::MouseButton::Back, [(0x80, 1), (0x100, 1)]),
             (super::super::MouseButton::Forward, [(0x80, 2), (0x100, 2)]),
         ] {
@@ -1555,408 +2721,77 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
     #[test]
-    fn hid_reports_dispatch_wheel_unicode_and_validated_launches() {
-        use super::super::windows_quarbor::{Event, Metadata};
-        let application = std::env::current_exe()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        let shared = Shared {
-            settings: RwLock::new(
-                serde_json::from_value(serde_json::json!({
-                    "enabled":true, "behaviors":{"confirm":{"click":[
-                        {"type":"wheel","direction":"up"},
-                        {"type":"wheel","direction":"down"},
-                        {"type":"wheel","direction":"left"},
-                        {"type":"wheel","direction":"right"},
-                        {"type":"paste","text":"中文🙂"},
-                        {"type":"delay","ms":100},
-                        {"type":"openApp","path":application},
-                        {"type":"openWebsite","url":"https://example.com/"},
-                        {"type":"openWebsite","url":"file:///C:/Example.exe"}
-                    ]}}
-                }))
-                .unwrap(),
-            ),
-            settings_revision: AtomicU64::new(1),
-            status: Mutex::new(InputServiceStatus::default()),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-        };
-        WHEEL_EVENTS.with(|events| events.borrow_mut().clear());
-        UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
-        super::super::launch::OPENED_TARGETS.with(|targets| targets.borrow_mut().clear());
-        let mut context = QuarborContext::default();
-        let mut actions = super::super::remote_actions::RemoteActions::default();
-        let mut epoch = 0;
-        let now = Instant::now();
-        for (sequence, usages) in [(1, vec![0x28]), (2, vec![])] {
-            quarbor_accept_event(
-                &mut context,
-                Event::Report {
-                    metadata: Metadata {
-                        sequence,
-                        timestamp: 0,
-                        dropped: 0,
-                        status: 0,
-                    },
-                    bytes: vec![1; 121],
-                    usages: Ok(usages),
-                },
-            );
-            process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-        }
-        WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), [120, -120, -120, 120]));
-        let expected: Vec<_> = "中文🙂"
-            .encode_utf16()
-            .flat_map(|unit| [(unit, 4), (unit, 6)])
-            .collect();
-        UNICODE_EVENTS.with(|events| assert_eq!(*events.borrow(), expected));
-        for elapsed in [99, 100] {
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut actions,
-                &mut epoch,
-                now + Duration::from_millis(elapsed),
-            );
-            super::super::launch::OPENED_TARGETS.with(|targets| {
-                if elapsed == 99 {
-                    assert!(targets.borrow().is_empty());
-                } else {
-                    assert_eq!(
-                        *targets.borrow(),
-                        [
-                            (application.clone(), true),
-                            ("https://example.com/".into(), false)
-                        ]
-                    );
-                }
-            });
-        }
-        // A queued launch must not survive a capture discontinuity.
-        for (sequence, usages) in [(3, vec![0x28]), (4, vec![])] {
-            quarbor_accept_event(
-                &mut context,
-                Event::Report {
-                    metadata: Metadata {
-                        sequence,
-                        timestamp: 0,
-                        dropped: 0,
-                        status: 0,
-                    },
-                    bytes: vec![1; 121],
-                    usages: Ok(usages),
-                },
-            );
-        }
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_secs(1),
-        );
-        context.state_epoch += 1;
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_secs(2),
-        );
-        super::super::launch::OPENED_TARGETS.with(|targets| assert_eq!(targets.borrow().len(), 2));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn hid_reports_execute_mouse_clicks_in_sequences_and_cancel_pending_clicks() {
-        use super::super::windows_quarbor::{Event, Metadata};
-        let shared = Shared {
-            settings: RwLock::new(
-                serde_json::from_value(serde_json::json!({
-                    "enabled":true, "behaviors":{"confirm":{"click":[
-                        {"type":"cursorMove","direction":"right","distance":37},
-                        {"type":"mouse","button":"left"},
-                        {"type":"delay","ms":100},
-                        {"type":"mouse","button":"right"}
-                    ]}}
-                }))
-                .unwrap(),
-            ),
-            settings_revision: AtomicU64::new(1),
-            status: Mutex::new(InputServiceStatus::default()),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-        };
-        let report = |sequence, usages| Event::Report {
-            metadata: Metadata {
-                sequence,
-                timestamp: 0,
-                dropped: 0,
-                status: 0,
-            },
-            bytes: vec![1; 121],
-            usages: Ok(usages),
-        };
-        MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
-        MOUSE_MOVES.with(|events| events.borrow_mut().clear());
-        let mut context = QuarborContext::default();
-        let mut actions = super::super::remote_actions::RemoteActions::default();
-        let mut epoch = 0;
-        let now = Instant::now();
-        quarbor_accept_event(&mut context, report(1, vec![0x28]));
-        process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-        MOUSE_BUTTON_EVENTS.with(|events| assert!(events.borrow().is_empty()));
-        quarbor_accept_event(&mut context, report(2, vec![]));
-        process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(*events.borrow(), [(2, 0), (4, 0)]));
-        MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), [(37, 0)]));
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_millis(99),
-        );
-        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(events.borrow().len(), 2));
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_millis(100),
-        );
-        MOUSE_BUTTON_EVENTS
-            .with(|events| assert_eq!(*events.borrow(), [(2, 0), (4, 0), (8, 0), (16, 0)]));
-        // A repeated/empty report must not click again. Disabling mappings
-        // after the next click cancels the right click still waiting on delay.
-        quarbor_accept_event(&mut context, report(3, vec![]));
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_secs(1),
-        );
-        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(events.borrow().len(), 4));
-        quarbor_accept_event(&mut context, report(4, vec![0x28]));
-        quarbor_accept_event(&mut context, report(5, vec![]));
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_secs(2),
-        );
-        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(events.borrow().len(), 6));
-        shared.settings.write().unwrap().enabled = false;
-        shared.settings_revision.fetch_add(1, Ordering::Relaxed);
-        process_remote_actions(
-            &mut context,
-            &shared,
-            &mut actions,
-            &mut epoch,
-            now + Duration::from_secs(3),
-        );
-        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(events.borrow().len(), 6));
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn hid_reports_execute_cursor_mapping_and_failures_cancel_repeats() {
-        use super::super::windows_quarbor::{Event, Metadata};
-        let shared = Shared {
-            settings: RwLock::new(
-                serde_json::from_value(serde_json::json!({
-                    "enabled":true, "behaviors":{"up":{"click":[
-                        {"type":"cursorMove", "direction":"right", "distance":37}
-                    ]}}
-                }))
-                .unwrap(),
-            ),
-            settings_revision: AtomicU64::new(0),
-            status: Mutex::new(InputServiceStatus::default()),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-        };
-        let report = |seq, usages| Event::Report {
-            metadata: Metadata {
-                sequence: seq,
-                timestamp: 0,
-                dropped: 0,
-                status: 0,
-            },
-            bytes: vec![1; 121],
-            usages,
-        };
-        for failure in 0..4 {
-            MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
-            let mut context = QuarborContext::default();
-            let mut cursor = super::super::remote_actions::RemoteActions::default();
-            let mut epoch = 0;
-            let now = Instant::now();
-            quarbor_accept_event(&mut context, report(1, Ok(vec![0x52])));
-            process_remote_actions(&mut context, &shared, &mut cursor, &mut epoch, now);
-            MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut cursor,
-                &mut epoch,
-                now + Duration::from_millis(400),
-            );
-            MOUSE_MOVES.with(|moves| assert_eq!(moves.borrow().len(), 2));
-            match failure {
-                0 => quarbor_accept_event(&mut context, report(2, Ok(vec![]))),
-                1 => quarbor_release_active_usages(&mut context), // disconnect/gap
-                2 => quarbor_accept_event(&mut context, report(2, Err(5))),
-                _ => quarbor_accept_event(
-                    &mut context,
-                    Event::Status(Metadata {
-                        sequence: 1,
-                        timestamp: 0,
-                        dropped: 0,
-                        status: 0xc0000001,
-                    }),
-                ),
-            }
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut cursor,
-                &mut epoch,
-                now + Duration::from_millis(410),
-            );
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut cursor,
-                &mut epoch,
-                now + Duration::from_secs(1),
-            );
-            MOUSE_MOVES.with(|moves| assert_eq!(moves.borrow().len(), 2, "failure={failure}"));
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn hid_mapping_service_splits_media_from_driver_chords_without_reconnecting() {
-        use super::super::windows_quarbor::{
-            tests::{command_server, framed, key_command, next},
-            Client, Event, Metadata,
-        };
-        let expected = vec![
-            framed(vec![8, 1, 0x62, 0]),
-            key_command(2, 7, 0xe6, true), // voice -> right Alt
-            key_command(3, 7, 0xe1, true),
-            key_command(4, 7, 4, true), // up -> Shift+A
-            key_command(5, 7, 4, false),
-            key_command(6, 7, 0xe1, false),
-            key_command(7, 7, 0xe6, false),
-            key_command(8, 7, 6, true),
-            key_command(9, 7, 6, false),
-        ]; // report loss releases right Alt
-        let (path, worker) = command_server(expected, 0);
-        let shared = Shared {
-            settings: RwLock::new(
-                serde_json::from_value(serde_json::json!({
-                    "enabled":true, "behaviors":{
-                        "voice":{"click":[{"type":"key","key":"RAlt"}]},
-                        "up":{"click":[{"type":"shortcut","keys":["Shift","A"]}]},
-                        "confirm":{"click":[
-                            {"type":"key","key":"MediaPlayPause"},
-                            {"type":"key","key":"MediaPrevious"},
-                            {"type":"key","key":"MediaNext"},
-                            {"type":"key","key":"MediaStop"},
-                            {"type":"key","key":"VolumeUp"},
-                            {"type":"key","key":"VolumeDown"},
-                            {"type":"key","key":"VolumeMute"},
-                            {"type":"key","key":"C"}
-                        ]}
-                    }
-                }))
-                .unwrap(),
-            ),
-            settings_revision: AtomicU64::new(1),
-            status: Mutex::new(InputServiceStatus::default()),
-            event_app: RwLock::new(None),
-            stop: AtomicBool::new(false),
-        };
+    fn software_mouse_shortcut_uses_send_input_batches() {
         MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
-        let mut context = QuarborContext {
-            reader: Some(Client::connect_path(&path, r"HID\AXONKEY_V3_READ_TEST").unwrap()),
-            device_id: Some(r"HID\AXONKEY_V3_READ_TEST".into()),
-            ..QuarborContext::default()
-        };
-        for _ in 0..2 {
-            let event = next(context.reader.as_mut().unwrap()).unwrap();
-            quarbor_accept_event(&mut context, event);
-        }
-        context
-            .reader
-            .as_mut()
-            .unwrap()
-            .set_keyboard_fixture(&[0xe6, 0xe1, 4, 6, 0x7f, 0x80, 0x81]);
-        let mut actions = super::super::remote_actions::RemoteActions::default();
-        let mut epoch = 0;
-        let now = Instant::now();
-        for (sequence, usages) in [
-            (1, vec![0x3e]),
-            (2, vec![0x3e, 0x52]),
-            (3, vec![0x3e]),
-            (5, vec![]),
-            (6, vec![0x28]),
-            (7, vec![]),
-        ] {
-            quarbor_accept_event(
-                &mut context,
-                Event::Report {
-                    metadata: Metadata {
-                        sequence,
-                        timestamp: 0,
-                        dropped: 0,
-                        status: 0,
-                    },
-                    bytes: vec![1; 121],
-                    usages: Ok(usages),
-                },
-            );
-            process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-        }
-        let mut accepted = 0;
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while accepted < 9 {
-            quarbor_wait_with_timeout(&mut context, 10);
-            for event in context.events.drain(..) {
-                if matches!(event, Event::CommandAccepted(_)) {
-                    accepted += 1;
-                }
-            }
-            assert!(context.error.is_none(), "{:?}", context.error);
-            assert!(
-                Instant::now() < deadline,
-                "driver commands never acknowledged"
-            );
-        }
-        assert_eq!(context.last_sequence, Some(7)); // Results are not physical reports.
+        execute_mouse_behavior(
+            &NativeBehavior::Shortcut {
+                enabled: true,
+                keys: vec!["Ctrl".into(), "C".into()],
+            },
+            0,
+        );
         MOUSE_KEY_BATCHES.with(|batches| {
-            let events: Vec<_> = batches
-                .borrow()
-                .iter()
-                .flatten()
-                .map(|(vk, flags)| (*vk, flags & 2 == 0))
-                .collect();
-            let expected: Vec<_> = [0xb3, 0xb1, 0xb0, 0xb2, 0xaf, 0xae, 0xad]
-                .into_iter()
-                .flat_map(|key| [(key, true), (key, false)])
-                .collect();
-            assert_eq!(events, expected);
+            assert_eq!(
+                *batches.borrow(),
+                vec![vec![(0x11, 0), (0x43, 0), (0x43, 2), (0x11, 2)]]
+            );
         });
-        drop(context);
-        worker.join().unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remote_mouse_outputs_fall_back_to_send_input_when_driver_is_unavailable() {
+        use super::super::remote_actions::Output;
+
+        let mut context = QuarborContext::default();
+        WHEEL_EVENTS.with(|events| events.borrow_mut().clear());
+        MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
+        MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
+
+        emit_remote_output(&mut context, Output::Wheel(WheelDirection::Up)).unwrap();
+        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        emit_remote_output(
+            &mut context,
+            Output::MouseClick(super::super::MouseButton::Left),
+        )
+        .unwrap();
+        emit_remote_output(
+            &mut context,
+            Output::MouseClick(super::super::MouseButton::Middle),
+        )
+        .unwrap();
+
+        WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), [120]));
+        MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
+        MOUSE_BUTTON_EVENTS
+            .with(|events| assert_eq!(*events.borrow(), [(2, 0), (4, 0), (0x20, 0), (0x40, 0)]));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remote_mouse_clicks_fall_back_to_send_input() {
+        use super::super::remote_actions::Output;
+
+        let mut context = QuarborContext::default();
+        MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
+        emit_remote_output(
+            &mut context,
+            Output::MouseClick(super::super::MouseButton::Right),
+        )
+        .unwrap();
+        MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(*events.borrow(), [(8, 0), (16, 0)]));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn remote_cursor_moves_fall_back_to_send_input() {
+        use super::super::remote_actions::Output;
+
+        let mut context = QuarborContext::default();
+        MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
+        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
     }
 
     #[cfg(windows)]
@@ -1965,7 +2800,6 @@ mod tests {
         use super::super::windows_quarbor::{Event, Metadata};
         let metadata = |sequence, dropped, status| Metadata {
             sequence,
-            timestamp: 0,
             dropped,
             status,
         };
@@ -2008,7 +2842,6 @@ mod tests {
             Event::Report {
                 metadata: Metadata {
                     sequence: 1,
-                    timestamp: u64::MAX,
                     dropped: 0,
                     status: 0,
                 },
@@ -2027,9 +2860,9 @@ mod tests {
             context.keys.is_empty(),
             "decoder failure must not invent key events"
         );
-        quarbor_release_active_usages(&mut context);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
         assert!(!context.keys.pop_front().unwrap().pressed);
-        quarbor_release_active_usages(&mut context);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
         assert!(context.keys.is_empty());
     }
 
@@ -2051,132 +2884,6 @@ mod tests {
                     pressed: true
                 }
             );
-        }
-    }
-
-    #[test]
-    fn mouse_shortcut_burst_has_no_per_event_hold_delay() {
-        MOUSE_KEY_BATCHES.with(|batches| batches.borrow_mut().clear());
-        let started = Instant::now();
-        for index in 0..40 {
-            execute_mouse_behavior(
-                &NativeBehavior::Shortcut {
-                    enabled: true,
-                    keys: if index % 2 == 0 {
-                        vec!["Ctrl".into(), "Shift".into(), "Tab".into()]
-                    } else {
-                        vec!["Ctrl".into(), "Tab".into()]
-                    },
-                },
-                0,
-            );
-        }
-        let elapsed = started.elapsed();
-        println!("40 alternating mouse shortcut outputs (mock injection): {elapsed:?}");
-        MOUSE_KEY_BATCHES.with(|batches| {
-            let batches = batches.borrow();
-            assert_eq!(batches.len(), 40);
-            for (index, batch) in batches.iter().enumerate() {
-                let expected = if index % 2 == 0 {
-                    vec![
-                        (0x11, 0),
-                        (0x10, 0),
-                        (0x09, 0),
-                        (0x09, 2),
-                        (0x10, 2),
-                        (0x11, 2),
-                    ]
-                } else {
-                    vec![(0x11, 0), (0x09, 0), (0x09, 2), (0x11, 2)]
-                };
-                assert_eq!(
-                    *batch, expected,
-                    "every notch must preserve order and release its modifiers"
-                );
-            }
-        });
-        // Generous headroom for CI scheduling; the former fixed 50 ms hold
-        // necessarily took at least two seconds, even without OS injection.
-        assert!(
-            elapsed < Duration::from_secs(1),
-            "mouse output is serialized behind a per-event hold: {elapsed:?}"
-        );
-    }
-
-    #[test]
-    fn configured_mouse_hold_separates_down_and_up() {
-        let started = Instant::now();
-        let mut batches = Vec::new();
-        assert!(send_mouse_chord_with(&[0x11, 0x09], 20, |inputs| {
-            batches.push((
-                started.elapsed(),
-                inputs
-                    .iter()
-                    .map(|input| unsafe {
-                        (input.value.keyboard.virtual_key, input.value.keyboard.flags)
-                    })
-                    .collect::<Vec<_>>(),
-            ));
-            inputs.len()
-        }));
-        assert_eq!(batches.len(), 2);
-        assert!(batches[1].0 - batches[0].0 >= Duration::from_millis(20));
-        assert_eq!(batches[0].1, vec![(0x11, 0), (0x09, 0)]);
-        assert_eq!(batches[1].1, vec![(0x09, 2), (0x11, 2)]);
-    }
-
-    #[test]
-    fn configured_mouse_hold_cleans_up_partial_injection() {
-        for partial_release in [false, true] {
-            let mut calls = 0;
-            let mut held = Vec::new();
-            assert!(!send_mouse_chord_with(&[0x11, 0x09], 1, |inputs| {
-                calls += 1;
-                let sent = if (partial_release && calls == 2) || (!partial_release && calls == 1) {
-                    1
-                } else {
-                    inputs.len()
-                };
-                for input in &inputs[..sent] {
-                    let key = unsafe { input.value.keyboard };
-                    if key.flags & 2 == 0 {
-                        held.push(key.virtual_key);
-                    } else {
-                        assert_eq!(held.pop(), Some(key.virtual_key));
-                    }
-                }
-                sent
-            }));
-            assert!(held.is_empty());
-        }
-    }
-
-    #[test]
-    fn partial_mouse_chord_injection_releases_only_unmatched_downs() {
-        let keys = [0x11, 0x10, 0x09];
-        for accepted in 0..=6 {
-            let mut calls = 0;
-            let mut held = Vec::new();
-            let complete = send_mouse_chord_with(&keys, 0, |inputs| {
-                calls += 1;
-                let sent = if calls == 1 { accepted } else { inputs.len() };
-                for input in &inputs[..sent] {
-                    assert_eq!(input.kind, 1);
-                    let key = unsafe { input.value.keyboard };
-                    if key.flags & 2 == 0 {
-                        held.push(key.virtual_key);
-                    } else {
-                        assert_eq!(held.pop(), Some(key.virtual_key));
-                    }
-                }
-                sent
-            });
-            assert_eq!(complete, accepted == 6);
-            assert!(
-                held.is_empty(),
-                "partial injection must not leave Ctrl/Shift held"
-            );
-            assert_eq!(calls, if accepted == 0 || accepted == 6 { 1 } else { 2 });
         }
     }
 
@@ -2244,119 +2951,9 @@ mod tests {
         MOUSE_MOVES.with(|events| assert_eq!(*events.borrow(), vec![(-20, 0)]));
     }
 
-    #[test]
-    fn matches_real_rc003_hardware_id_variants() {
-        assert!(is_target_hardware_id("HID\\VID_2717&PID_32B8"));
-        assert!(is_target_hardware_id(
-            "HID\\{GUID}_DEV_VID&012717_PID&32B8_REV&00A4"
-        ));
-        assert!(!is_target_hardware_id("USB\\VID_2717&PID_D002"));
-    }
-
-    #[test]
-    fn keeps_short_ble_hid_disconnects_out_of_the_visible_status() {
-        let now = Instant::now();
-        assert!(device_connection_visible(true, None, now));
-        assert!(device_connection_visible(
-            false,
-            now.checked_sub(Duration::from_secs(7)),
-            now
-        ));
-        assert!(!device_connection_visible(
-            false,
-            now.checked_sub(Duration::from_secs(8)),
-            now
-        ));
-    }
-
-    #[test]
-    fn selects_only_the_rc003_keyboard_from_present_device_ids() {
-        let ids = [
-            "BTHLEDEVICE\\SERVICE_DEV_VID&012717_PID&32B8",
-            "HID\\OTHER_DEV_VID&012717_PID&0001",
-            "HID\\RC003_DEV_VID&012717_PID&32B8",
-        ]
-        .join("\0")
-            + "\0\0";
-        let buffer = ids.encode_utf16().collect::<Vec<_>>();
-
-        assert_eq!(
-            rc003_keyboard_id_from_multisz(&buffer).as_deref(),
-            Some("HID\\RC003_DEV_VID&012717_PID&32B8")
-        );
-    }
-
     #[cfg(windows)]
     #[test]
-    fn virtual_keys_preserve_mapping_sides_and_release_backend_after_capability_change() {
-        use super::super::remote_actions::HidKey;
-        for vk in 1..=255 {
-            if let Some(hid) = hid_key_for_virtual_key(vk) {
-                assert_eq!(
-                    hid_key_for_virtual_key(virtual_key_for_hid(hid).unwrap()),
-                    Some(hid)
-                );
-            }
-        }
-        assert_eq!(
-            virtual_key_for_hid(HidKey {
-                page: 7,
-                usage: 0xe2
-            }),
-            Some(0xa4)
-        );
-        assert_eq!(
-            virtual_key_for_hid(HidKey {
-                page: 7,
-                usage: 0xe6
-            }),
-            Some(0xa5)
-        );
-        let key = HidKey {
-            page: 7,
-            usage: 0xe6,
-        };
-        let now = Instant::now();
-        let mut keyboard = RemoteKeyboard::default();
-        let mut events = Vec::new();
-        keyboard
-            .edge_with(key, true, false, now, |backend, down| {
-                events.push((backend, down));
-                Ok(())
-            })
-            .unwrap();
-        keyboard
-            .edge_with(key, true, true, now, |backend, down| {
-                events.push((backend, down));
-                Ok(())
-            })
-            .unwrap();
-        keyboard
-            .edge_with(key, false, true, now, |backend, down| {
-                events.push((backend, down));
-                Ok(())
-            })
-            .unwrap();
-        assert_eq!(
-            events,
-            [
-                (KeyBackend::Virtual(0xa5), true),
-                (KeyBackend::Virtual(0xa5), false)
-            ]
-        );
-        assert!(keyboard.held.is_empty());
-        // A rejected down must never be remembered as a held key.
-        assert!(keyboard
-            .edge_with(key, true, false, now, |_, _| Err(std::io::Error::other(
-                "injection failed"
-            )))
-            .is_err());
-        assert!(keyboard.held.is_empty());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn virtual_chords_keep_shared_modifiers_and_connected_chords_on_one_backend() {
+    fn driver_chords_keep_shared_modifiers_and_connected_chords_on_one_backend() {
         use super::super::remote_actions::{Output, RemoteActions};
         let settings: NativeSettings =
             serde_json::from_value(serde_json::json!({"enabled":true,"behaviors":{
@@ -2366,8 +2963,7 @@ mod tests {
             }}))
             .unwrap();
         let mut keyboard = RemoteKeyboard::default();
-        keyboard.prepare(&settings, |_| true);
-        let mut actions = RemoteActions::default();
+        let mut actions: RemoteActions = RemoteActions::default();
         let now = Instant::now();
         let mut events = Vec::new();
         for (button, down) in [
@@ -2382,36 +2978,77 @@ mod tests {
             actions.tick(now, |output| {
                 if let Output::Key(key, down) = output {
                     keyboard
-                        .edge_with(key, down, true, now, |backend, down| {
-                            events.push((backend, down));
-                            Ok(())
-                        })
+                        .edge_with(
+                            key,
+                            down,
+                            true,
+                            |key, down| {
+                                events.push((key, down));
+                                Ok(())
+                            },
+                            |_, _| Ok(()),
+                        )
                         .unwrap();
                 }
             });
         }
-        use KeyBackend::{Driver, Virtual};
         assert_eq!(
             events,
             [
-                (Virtual(0xa0), true),
-                (Virtual(0xb0), true),
-                (Virtual(0x42), true),
-                (Virtual(0xb0), false),
-                (Virtual(0x42), false),
-                (Virtual(0xa0), false),
                 (
-                    Driver(super::super::remote_actions::HidKey {
+                    super::super::remote_actions::HidKey {
                         page: 7,
-                        usage: 0xe6
-                    }),
+                        usage: 0xe1
+                    },
                     true
                 ),
                 (
-                    Driver(super::super::remote_actions::HidKey {
+                    super::super::remote_actions::HidKey {
+                        page: 0x0c,
+                        usage: 0xb5
+                    },
+                    true
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0x05
+                    },
+                    true
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 0x0c,
+                        usage: 0xb5
+                    },
+                    false
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0x05
+                    },
+                    false
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0xe1
+                    },
+                    false
+                ),
+                (
+                    super::super::remote_actions::HidKey {
                         page: 7,
                         usage: 0xe6
-                    }),
+                    },
+                    true
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0xe6
+                    },
                     false
                 ),
             ]
@@ -2421,144 +3058,218 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    fn virtual_media_holds_do_not_repeat_playback_and_cleanup_releases_in_reverse_order() {
+    fn unsupported_keyboard_usage_falls_back_to_virtual_injection() {
+        let mut keyboard = RemoteKeyboard::default();
+        let mut driver_emitted = Vec::new();
+        let mut virtual_emitted = Vec::new();
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 7,
+                    usage: 0x04,
+                },
+                true,
+                false,
+                |key, down| {
+                    driver_emitted.push((key, down));
+                    Ok(())
+                },
+                |key, down| {
+                    virtual_emitted.push((key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert!(driver_emitted.is_empty());
+        assert_eq!(virtual_emitted, [(0x41, true)]);
+        assert_eq!(keyboard.held.len(), 1);
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 7,
+                    usage: 0x04,
+                },
+                false,
+                false,
+                |key, down| {
+                    driver_emitted.push((key, down));
+                    Ok(())
+                },
+                |key, down| {
+                    virtual_emitted.push((key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(virtual_emitted, [(0x41, true), (0x41, false)]);
+        assert!(keyboard.held.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a15_confirm_falls_back_to_enter_and_releases_on_cancel() {
+        let key = original_key_for_button("cmiotA15.confirm").unwrap();
+        let mut keyboard = RemoteKeyboard::default();
+        let mut virtual_events = Vec::new();
+        for down in [true, true, false, true] {
+            keyboard
+                .edge_with(
+                    key,
+                    down,
+                    false,
+                    |_, _| panic!("Unsupported usage must not reach the driver"),
+                    |key, down| {
+                        virtual_events.push((key, down));
+                        Ok(())
+                    },
+                )
+                .unwrap();
+        }
+        keyboard.reset(
+            |_, _| panic!("Fallback key must be released through SendInput"),
+            |key, down| virtual_events.push((key, down)),
+        );
+        assert_eq!(
+            virtual_events,
+            [(0x0d, true), (0x0d, false), (0x0d, true), (0x0d, false)]
+        );
+        assert!(keyboard.held.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_driver_key_output_falls_back_and_releases_in_the_same_backend() {
+        let key = super::super::remote_actions::HidKey {
+            page: 7,
+            usage: 0x04,
+        };
+        let mut keyboard = RemoteKeyboard::default();
+        let mut virtual_events = Vec::new();
+        keyboard
+            .edge_with(
+                key,
+                true,
+                true,
+                |_key, _down| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "closed",
+                    ))
+                },
+                |virtual_key, down| {
+                    virtual_events.push((virtual_key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        keyboard
+            .edge_with(
+                key,
+                false,
+                true,
+                |_key, _down| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "closed",
+                    ))
+                },
+                |virtual_key, down| {
+                    virtual_events.push((virtual_key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(virtual_events, [(0x41, true), (0x41, false)]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn driver_media_holds_do_not_repeat_playback() {
         let settings: NativeSettings = serde_json::from_value(serde_json::json!({"enabled":true,
             "behaviors":{"up":{"click":[{"type":"shortcut","keys":["RAlt","MediaPlayPause"]}]}}
         }))
         .unwrap();
         let chord = behavior_hid_chord(&settings.behaviors["up"].click[0]).unwrap();
         let mut keyboard = RemoteKeyboard::default();
-        keyboard.prepare(&settings, |_| true);
-        let now = Instant::now();
-        MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+        let mut events = Vec::new();
         for key in chord {
             keyboard
-                .edge_with(key, true, true, now, |backend, down| {
-                    let KeyBackend::Virtual(vk) = backend else {
-                        panic!("mixed backend chord");
-                    };
-                    send_remote_virtual_key(vk, down)
-                })
+                .edge_with(
+                    key,
+                    true,
+                    true,
+                    |key, down| {
+                        events.push((key, down));
+                        Ok(())
+                    },
+                    |_, _| Ok(()),
+                )
                 .unwrap();
         }
-        keyboard.repeat(now + Duration::from_secs(10)).unwrap();
-        drop(keyboard);
-        MOUSE_KEY_BATCHES.with(|events| {
-            let events: Vec<_> = events
-                .borrow()
-                .iter()
-                .flatten()
-                .map(|(vk, flags)| (*vk, flags & 2 == 0))
-                .collect();
-            assert_eq!(
-                events,
-                [(0xa5, true), (0xb3, true), (0xb3, false), (0xa5, false)]
-            );
-        });
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn virtual_volume_repeats_and_releases_on_configuration_input_failure_and_shutdown() {
-        use super::super::windows_quarbor::{Event, Metadata};
-        for failure in 0..6 {
-            let shared = Shared {
-                settings: RwLock::new(
-                    serde_json::from_value(serde_json::json!({"enabled":true,
-                        "behaviors":{"confirm":{"click":[{"type":"key","key":"VolumeUp"}]}}
-                    }))
-                    .unwrap(),
-                ),
-                settings_revision: AtomicU64::new(1),
-                status: Mutex::new(InputServiceStatus::default()),
-                event_app: RwLock::new(None),
-                stop: AtomicBool::new(false),
-            };
-            let report = |sequence, usages| Event::Report {
-                metadata: Metadata {
-                    sequence,
-                    timestamp: 0,
-                    dropped: 0,
-                    status: 0,
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 0x0c,
+                    usage: 0xcd,
                 },
-                bytes: vec![1; 121],
-                usages,
-            };
-            MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
-            let mut context = QuarborContext::default();
-            let mut actions = super::super::remote_actions::RemoteActions::default();
-            let mut epoch = 0;
-            let now = Instant::now();
-            quarbor_accept_event(&mut context, report(1, Ok(vec![0x28])));
-            process_remote_actions(&mut context, &shared, &mut actions, &mut epoch, now);
-            quarbor_accept_event(&mut context, report(2, Ok(vec![0x28])));
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut actions,
-                &mut epoch,
-                now + Duration::from_millis(399),
-            );
-            MOUSE_KEY_BATCHES.with(|events| assert_eq!(events.borrow().len(), 1));
-            process_remote_actions(
-                &mut context,
-                &shared,
-                &mut actions,
-                &mut epoch,
-                now + Duration::from_millis(400),
-            );
-            MOUSE_KEY_BATCHES.with(|events| assert_eq!(events.borrow().len(), 2));
-            if failure == 5 {
-                drop(context);
-            } else {
-                match failure {
-                    0 => quarbor_accept_event(&mut context, report(3, Ok(vec![]))),
-                    1 => {
-                        shared.settings_revision.fetch_add(1, Ordering::Relaxed);
-                    }
-                    2 => quarbor_accept_event(&mut context, report(4, Ok(vec![]))),
-                    3 => quarbor_accept_event(&mut context, report(3, Err(13))),
-                    4 => quarbor_accept_event(
-                        &mut context,
-                        Event::Status(Metadata {
-                            sequence: 2,
-                            timestamp: 0,
-                            dropped: 0,
-                            status: 0xc0000001,
-                        }),
-                    ),
-                    _ => unreachable!(),
-                }
-                process_remote_actions(
-                    &mut context,
-                    &shared,
-                    &mut actions,
-                    &mut epoch,
-                    now + Duration::from_millis(410),
-                );
-                process_remote_actions(
-                    &mut context,
-                    &shared,
-                    &mut actions,
-                    &mut epoch,
-                    now + Duration::from_secs(2),
-                );
-                drop(context);
-            }
-            MOUSE_KEY_BATCHES.with(|events| {
-                let events: Vec<_> = events
-                    .borrow()
-                    .iter()
-                    .flatten()
-                    .map(|(vk, flags)| (*vk, flags & 2 == 0))
-                    .collect();
-                assert_eq!(
-                    events,
-                    [(0xaf, true), (0xaf, true), (0xaf, false)],
-                    "failure={failure}"
-                );
-            });
-        }
+                false,
+                true,
+                |key, down| {
+                    events.push((key, down));
+                    Ok(())
+                },
+                |_, _| Ok(()),
+            )
+            .unwrap();
+        keyboard
+            .edge_with(
+                super::super::remote_actions::HidKey {
+                    page: 7,
+                    usage: 0xe6,
+                },
+                false,
+                true,
+                |key, down| {
+                    events.push((key, down));
+                    Ok(())
+                },
+                |_, _| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(events.len(), 4);
+        assert_eq!(
+            events,
+            [
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0xe6
+                    },
+                    true
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 0x0c,
+                        usage: 0xcd
+                    },
+                    true
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 0x0c,
+                        usage: 0xcd
+                    },
+                    false
+                ),
+                (
+                    super::super::remote_actions::HidKey {
+                        page: 7,
+                        usage: 0xe6
+                    },
+                    false
+                )
+            ]
+        );
     }
 
     #[test]
@@ -2601,7 +3312,13 @@ mod tests {
         );
         assert_eq!(
             keys("VolumeUp+VolumeDown+VolumeMute+MediaPlayPause+MediaNext"),
-            [(7, 0x80), (7, 0x81), (7, 0x7f), (0x0c, 0xcd), (0x0c, 0xb5)]
+            [
+                (0x0c, 0xe9),
+                (0x0c, 0xea),
+                (0x0c, 0xe2),
+                (0x0c, 0xcd),
+                (0x0c, 0xb5)
+            ]
         );
     }
 
@@ -2626,6 +3343,145 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
+    fn recording_snapshot_follows_control_and_clears_after_disconnect() {
+        let shared = Shared {
+            recording_requests: Mutex::new(Vec::new()),
+            instance_id: None,
+            settings: RwLock::new(NativeSettings::default()),
+            settings_revision: AtomicU64::new(0),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            driver_gate: Arc::new(AtomicBool::new(false)),
+            driver_paused: AtomicBool::new(false),
+            managed_event: None,
+            managed_input: None,
+            managed_remote_owned: AtomicBool::new(false),
+        };
+        let mut context = QuarborContext::default();
+        context
+            .a15_recording
+            .synchronize(
+                crate::devices::cmiot_a15::recording::RecordingMode::Click,
+                true,
+                |_| Ok::<_, ()>(()),
+            )
+            .unwrap();
+        context
+            .a15_recording
+            .edge(true, |_| Ok::<_, ()>(()))
+            .unwrap();
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(shared.status.lock().unwrap().cmiot_a15_recording);
+        context
+            .a15_recording
+            .edge(false, |_| Ok::<_, ()>(()))
+            .unwrap();
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(shared.status.lock().unwrap().cmiot_a15_recording);
+        quarbor_release_active_usages(&mut context, ReleaseReason::Test);
+        publish_a15_recording(&shared, context.a15_recording.is_recording());
+        assert!(!shared.status.lock().unwrap().cmiot_a15_recording);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a15_reports_route_to_scoped_keys_and_release_only_their_collection() {
+        use super::super::windows_quarbor::{Event, Metadata};
+        let mut context = QuarborContext::default();
+        context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+        let reports = [
+            vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0],
+            vec![3, 0x41, 0],
+            vec![3, 0, 0],
+            vec![1, 0, 0, 0, 0, 0, 0, 0, 0],
+        ];
+        for (sequence, bytes) in reports.into_iter().enumerate() {
+            quarbor_accept_event(
+                &mut context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence: sequence as u64,
+                        ..Default::default()
+                    },
+                    bytes,
+                    usages: Err(50), // The RC003 decoder cannot decode A15 consumer packets.
+                },
+            );
+        }
+        assert_eq!(
+            context
+                .keys
+                .iter()
+                .map(|k| (k.button, k.pressed))
+                .collect::<Vec<_>>(),
+            vec![
+                ("cmiotA15.up", true),
+                ("cmiotA15.confirm", true),
+                ("cmiotA15.confirm", false),
+                ("cmiotA15.up", false),
+            ]
+        );
+        assert!(context.usage_error.is_none());
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+        emit_remote_output(
+            &mut context,
+            super::super::remote_actions::Output::SwitchProfile(
+                super::super::ProfileDirection::Next,
+                true,
+            ),
+        )
+        .unwrap();
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&requests.borrow()[0]).unwrap()["deviceId"],
+                "cmiotA15"
+            );
+        });
+        // A sequence gap must release every collection before accepting new data.
+        quarbor_accept_event(
+            &mut context,
+            Event::Report {
+                metadata: Metadata {
+                    sequence: 4,
+                    ..Default::default()
+                },
+                bytes: vec![3, 0xe9, 0],
+                usages: Err(50),
+            },
+        );
+        context.keys.clear();
+        quarbor_accept_event(
+            &mut context,
+            Event::Report {
+                metadata: Metadata {
+                    sequence: 7,
+                    ..Default::default()
+                },
+                bytes: vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0],
+                usages: Err(50),
+            },
+        );
+        assert_eq!(
+            context
+                .keys
+                .iter()
+                .map(|k| (k.button, k.pressed))
+                .collect::<Vec<_>>(),
+            vec![("cmiotA15.volumeUp", false), ("cmiotA15.up", true),]
+        );
+        assert_eq!(
+            original_key_for_button("cmiotA15.back"),
+            Some(super::super::remote_actions::HidKey {
+                page: 12,
+                usage: 0x224
+            })
+        );
+        assert_eq!(original_key_for_button("cmiotA15.tv"), None);
+    }
+
+    #[test]
     fn modifier_shortcuts_keep_both_sides() {
         let triggers: TriggerBehaviors = serde_json::from_value(serde_json::json!({
             "click": [{ "type": "shortcut", "keys": ["Win", "RWin"] }]
@@ -2642,18 +3498,13 @@ mod tests {
         .unwrap();
         let keys = behavior_chord(&triggers.click[0]).unwrap();
         assert_eq!(keys, vec![0xa3, 0x10, 0xa5, 0x5b]);
-        // Verify the actual mouse keyboard output keeps left/right modifiers distinct.
-        #[cfg(target_os = "windows")]
-        {
-            let strokes: Vec<_> = keys
+        assert_eq!(
+            behavior_hid_chord(&triggers.click[0])
+                .unwrap()
                 .into_iter()
-                .map(|key| {
-                    let input = virtual_key_input(key);
-                    let keyboard = unsafe { input.value.keyboard };
-                    (keyboard.virtual_key, keyboard.flags)
-                })
-                .collect();
-            assert_eq!(strokes, vec![(0xa3, 1), (0x10, 0), (0xa5, 1), (0x5b, 1)]);
-        }
+                .map(|key| (key.page, key.usage))
+                .collect::<Vec<_>>(),
+            vec![(7, 0xe4), (7, 0xe1), (7, 0xe6), (7, 0xe3)]
+        );
     }
 }

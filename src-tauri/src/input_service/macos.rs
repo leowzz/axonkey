@@ -5,7 +5,7 @@ use super::{
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
-    ffi::c_void,
+    ffi::{c_void, CString},
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -73,6 +73,7 @@ extern "C" {
         modifier_mapping_count: usize,
         cleanup_modifier_mapping_sources: *const u64,
         cleanup_modifier_mapping_source_count: usize,
+        target_serial: *const std::ffi::c_char,
     ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
@@ -94,12 +95,40 @@ extern "C" {
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
 
+#[derive(Default)]
+struct RemoteOwnership {
+    managed: bool,
+    backend_active: bool,
+}
+impl RemoteOwnership {
+    fn request_managed(&mut self, owned: bool) -> bool {
+        self.managed = owned;
+        !self.backend_active
+    }
+    fn begin_legacy(&mut self) -> bool {
+        if self.managed {
+            return false;
+        }
+        self.backend_active = true;
+        true
+    }
+}
+
+pub(super) struct RemoteInstance {
+    pub serial: CString,
+    pub on_report: Box<dyn Fn(u32, &[u8]) + Send + Sync>,
+    pub is_current: Box<dyn Fn() -> bool + Send + Sync>,
+    pub switch_profile: Box<dyn Fn(super::ProfileDirection, bool) + Send + Sync>,
+}
+
 struct Shared {
     settings: RwLock<NativeSettings>,
     status: Mutex<InputServiceStatus>,
     event_app: RwLock<Option<tauri::AppHandle>>,
     stop: AtomicBool,
     restart: AtomicBool,
+    remote_ownership: Mutex<RemoteOwnership>,
+    instance: Option<RemoteInstance>,
 }
 
 pub struct InputService {
@@ -109,13 +138,23 @@ pub struct InputService {
 
 impl InputService {
     pub fn start() -> Self {
+        Self::start_configured(NativeSettings::default(), None)
+    }
+
+    pub(super) fn start_bound(settings: NativeSettings, instance: RemoteInstance) -> Self {
+        Self::start_configured(settings, Some(instance))
+    }
+
+    fn start_configured(settings: NativeSettings, instance: Option<RemoteInstance>) -> Self {
         log::info!(target: "axonkey::input", "Starting macOS HID input service");
         let shared = Arc::new(Shared {
-            settings: RwLock::new(NativeSettings::default()),
+            settings: RwLock::new(settings),
             status: Mutex::new(InputServiceStatus::default()),
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
+            instance,
         });
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
@@ -130,6 +169,16 @@ impl InputService {
             shared,
             worker: Mutex::new(worker),
         }
+    }
+
+    /// A disabled mapper still owns IOHIDManager handles. Wait for the native
+    /// run loop to close them before the instance service opens this remote.
+    pub fn set_managed_remote_owned(&self, owned: bool) -> bool {
+        self.shared
+            .remote_ownership
+            .lock()
+            .unwrap()
+            .request_managed(owned)
     }
 
     pub fn update_settings(&self, settings: NativeSettings) -> Result<(), String> {
@@ -148,8 +197,10 @@ impl InputService {
             .read()
             .map_err(|_| "Input settings lock is unavailable")?
             .clone();
-        let should_restart = old_settings.enabled != settings.enabled
-            || hardware_capture_mappings(&old_settings) != hardware_capture_mappings(&settings);
+        let should_restart = old_settings.remote_settings_changed(&settings)
+            && (old_settings.enabled != settings.enabled
+                || hardware_capture_mappings(&old_settings)
+                    != hardware_capture_mappings(&settings));
         *self
             .shared
             .settings
@@ -305,8 +356,17 @@ struct WorkerContext {
 }
 
 fn worker_loop(shared: Arc<Shared>) {
-    while !shared.stop.load(Ordering::Acquire) {
+    while !shared.stop.load(Ordering::Acquire)
+        && shared
+            .instance
+            .as_ref()
+            .is_none_or(|instance| (instance.is_current)())
+    {
         shared.restart.store(false, Ordering::Release);
+        if !shared.remote_ownership.lock().unwrap().begin_legacy() {
+            thread::sleep(Duration::from_millis(20));
+            continue;
+        }
         let capture = desired_capture(&shared);
         if let Ok(mut status) = shared.status.lock() {
             prepare_backend_attempt(&mut status, permission_error(&shared));
@@ -349,6 +409,10 @@ fn worker_loop(shared: Arc<Shared>) {
                 hardware_modifier_mappings.len(),
                 cleanup_modifier_mapping_sources.as_ptr(),
                 cleanup_modifier_mapping_sources.len(),
+                shared
+                    .instance
+                    .as_ref()
+                    .map_or(std::ptr::null(), |instance| instance.serial.as_ptr()),
             )
         };
         if result != 0 {
@@ -365,6 +429,8 @@ fn worker_loop(shared: Arc<Shared>) {
                 }
             }
         }
+        // axonkey_macos_input_run has now closed all native HID handles.
+        shared.remote_ownership.lock().unwrap().backend_active = false;
         if !shared.stop.load(Ordering::Acquire) && !shared.restart.load(Ordering::Acquire) {
             let retry_ms = shared
                 .status
@@ -387,7 +453,14 @@ unsafe extern "C" fn should_stop_callback(context: *mut c_void) -> bool {
         return true;
     }
     let context = &mut *(context.cast::<WorkerContext>());
-    if context.shared.stop.load(Ordering::Acquire) || context.shared.restart.load(Ordering::Acquire)
+    if context.shared.stop.load(Ordering::Acquire)
+        || context.shared.restart.load(Ordering::Acquire)
+        || context.shared.remote_ownership.lock().unwrap().managed
+        || context
+            .shared
+            .instance
+            .as_ref()
+            .is_some_and(|instance| !(instance.is_current)())
     {
         return true;
     }
@@ -476,6 +549,12 @@ unsafe extern "C" fn event_callback(
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
             let report = std::slice::from_raw_parts(bytes, length);
             if let Some(usages) = parse_hid_report(report_id, report) {
+                if let Some(instance) = &context.shared.instance {
+                    if !(instance.is_current)() {
+                        return;
+                    }
+                    (instance.on_report)(report_id, report);
+                }
                 context.input.process_report(
                     &context.shared,
                     usages,
@@ -502,11 +581,20 @@ unsafe extern "C" fn event_callback(
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MacKey {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub(super) enum MacKey {
     Keyboard { code: u16, modifier: u64 },
     System { kind: i32 },
 }
+
+impl Default for MacKey {
+    fn default() -> Self {
+        Self::keyboard(0)
+    }
+}
+
+mod remote_output;
+pub(super) use remote_output::RemoteOutput;
 
 impl MacKey {
     const fn keyboard(code: u16) -> Self {
@@ -678,7 +766,13 @@ impl PressedChord {
     fn release(&mut self) {
         log::info!(target: "axonkey::input", "Mapped chord release: keys={:?}", self.keys);
         // Left/right modifiers share a flag; retain it until both sides are released.
-        for (key, flags) in self.keys.iter().copied().rev().zip(release_flags(&self.keys)) {
+        for (key, flags) in self
+            .keys
+            .iter()
+            .copied()
+            .rev()
+            .zip(release_flags(&self.keys))
+        {
             post_key(key, false, flags, false);
         }
         self.keys.clear();
@@ -822,7 +916,7 @@ impl MacInputState {
         {
             let pending = state.pending_click.take().unwrap();
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=next_press", source.id);
-            execute_click_or_original(&triggers.click, pending.original);
+            execute_click_or_original(shared, &triggers.click, pending.original);
         }
         if !settings.enabled || !has_custom_behavior(&triggers) {
             log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}", source.id, settings.enabled);
@@ -909,7 +1003,7 @@ impl MacInputState {
         let long_enabled = has_enabled(&triggers.long_press);
         if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=key_up", source.id);
-            execute_behaviors(&triggers.long_press);
+            execute_remote_behaviors(shared, &triggers.long_press);
             return;
         }
         if !long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
@@ -919,7 +1013,7 @@ impl MacInputState {
         if has_enabled(&triggers.double_click) {
             if state.pending_click.take().is_some() {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=double_click", source.id);
-                execute_behaviors(&triggers.double_click);
+                execute_remote_behaviors(shared, &triggers.double_click);
             } else {
                 log::info!(target: "axonkey::input", "RC003 click pending: button={}", source.id);
                 state.pending_click = Some(PendingClick {
@@ -929,7 +1023,7 @@ impl MacInputState {
             }
         } else {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click", source.id);
-            execute_click_or_original(&triggers.click, press.original);
+            execute_click_or_original(shared, &triggers.click, press.original);
         }
     }
 
@@ -977,7 +1071,7 @@ impl MacInputState {
                 {
                     if has_enabled(&triggers.long_press) {
                         log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
-                        execute_behaviors(&triggers.long_press);
+                        execute_remote_behaviors(shared, &triggers.long_press);
                         press.long_fired = true;
                         press.long_repeat_due_at =
                             Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
@@ -995,7 +1089,7 @@ impl MacInputState {
                         press.long_repeat_due_at = None;
                     } else if now >= due_at {
                         log::info!(target: "axonkey::input", "RC003 repeat: button={}, trigger=long_press, origin=timer, held_ms={}", source.id, now.duration_since(press.started_at).as_millis());
-                        execute_behaviors(&triggers.long_press);
+                        execute_remote_behaviors(shared, &triggers.long_press);
                         press.long_repeat_due_at =
                             Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INTERVAL_MS));
                     }
@@ -1015,7 +1109,7 @@ impl MacInputState {
             if pending_click_is_due(state, now) {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
                 let pending = state.pending_click.take().unwrap();
-                execute_click_or_original(&triggers.click, pending.original);
+                execute_click_or_original(shared, &triggers.click, pending.original);
             }
         }
     }
@@ -1214,23 +1308,60 @@ fn hardware_action_usages(mappings: &[HardwareModifierMapping]) -> HashSet<u16> 
         .collect()
 }
 
-fn execute_click_or_original(behaviors: &[NativeBehavior], original: MacKey) {
+fn execute_remote_behaviors(shared: &Shared, behaviors: &[NativeBehavior]) {
+    let Some(instance) = &shared.instance else {
+        return execute_behaviors(behaviors);
+    };
+    for behavior in behaviors.iter().filter(|b| b.enabled()) {
+        if shared.stop.load(Ordering::Acquire) || !(instance.is_current)() {
+            break;
+        }
+        match behavior {
+            NativeBehavior::SwitchProfile {
+                direction, wrap, ..
+            } => {
+                (instance.switch_profile)(*direction, *wrap);
+                break;
+            }
+            NativeBehavior::Delay { ms, .. } => {
+                let until = Instant::now() + Duration::from_millis((*ms).min(300_000));
+                while Instant::now() < until
+                    && !shared.stop.load(Ordering::Acquire)
+                    && (instance.is_current)()
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+            }
+            _ => execute_behaviors(std::slice::from_ref(behavior)),
+        }
+    }
+}
+
+fn execute_click_or_original(shared: &Shared, behaviors: &[NativeBehavior], original: MacKey) {
     if has_enabled(behaviors) {
-        execute_behaviors(behaviors);
+        execute_remote_behaviors(shared, behaviors);
     } else {
         tap_key(original);
     }
 }
 
 pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
-    execute_behaviors_with_hold(std::slice::from_ref(behavior), hold_ms);
+    execute_behaviors_with_hold(
+        std::slice::from_ref(behavior),
+        hold_ms,
+        super::profile_switch::DeviceId::Mouse,
+    );
 }
 
 pub(super) fn execute_behaviors(behaviors: &[NativeBehavior]) {
-    execute_behaviors_with_hold(behaviors, 0);
+    execute_behaviors_with_hold(behaviors, 0, super::profile_switch::DeviceId::Rc003);
 }
 
-fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
+fn execute_behaviors_with_hold(
+    behaviors: &[NativeBehavior],
+    hold_ms: u64,
+    device_id: super::profile_switch::DeviceId,
+) {
     for behavior in behaviors.iter().filter(|behavior| behavior.enabled()) {
         log_behavior(behavior);
         match behavior {
@@ -1258,9 +1389,11 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
             }
             NativeBehavior::SwitchProfile {
                 direction, wrap, ..
-            } => super::profile_switch::execute(*direction, *wrap),
+            } => super::profile_switch::execute(device_id, *direction, *wrap),
             NativeBehavior::Disabled { .. } => {}
-            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
+            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {
+                super::launch::execute(behavior)
+            }
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,
@@ -1271,6 +1404,7 @@ fn execute_behaviors_with_hold(behaviors: &[NativeBehavior], hold_ms: u64) {
                 let code = match button {
                     MouseButton::Left => 0,
                     MouseButton::Right => 1,
+                    MouseButton::Middle => 2,
                     MouseButton::Back => 3,
                     MouseButton::Forward => 4,
                 };
@@ -1511,7 +1645,7 @@ fn function_key_code(number: u8) -> Option<u16> {
     })
 }
 
-fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
+pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
     for (button, triggers) in &settings.behaviors {
         for behavior in triggers
             .click
@@ -1540,7 +1674,220 @@ fn validate_settings(settings: &NativeSettings) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn bound_remote_keeps_legacy_repeat_and_routes_profile_switch_to_its_instance() {
+        let reports = Arc::new(Mutex::new(Vec::new()));
+        let switches = Arc::new(Mutex::new(Vec::new()));
+        let active = Arc::new(AtomicBool::new(true));
+        let report_sink = reports.clone();
+        let switch_sink = switches.clone();
+        let is_current = active.clone();
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "up": {"click": [{"type": "wheel", "direction": "up"}]},
+                "down": {"click": [{"type": "switchProfile", "direction": "next", "wrap": true}]},
+                "voice": {"click": [{"type": "key", "key": "RCtrl"}]}
+            }
+        }))
+        .unwrap();
+        assert!(hardware_action_usages(&hardware_capture_mappings(&settings)).contains(&0x3e));
+        let shared = Arc::new(Shared {
+            settings: RwLock::new(settings),
+            status: Mutex::new(InputServiceStatus::default()),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
+            instance: Some(RemoteInstance {
+                serial: CString::new("test-remote").unwrap(),
+                is_current: Box::new(move || is_current.load(Ordering::Acquire)),
+                on_report: Box::new(move |_, bytes| {
+                    report_sink.lock().unwrap().push(bytes.to_vec())
+                }),
+                switch_profile: Box::new(move |direction, wrap| {
+                    switch_sink.lock().unwrap().push((direction, wrap))
+                }),
+            }),
+        });
+        let mut context = WorkerContext {
+            shared: shared.clone(),
+            capture: true,
+            hardware_modifier_mapping_usages: HashSet::new(),
+            hardware_modifier_mappings_active: false,
+            device_seen: true,
+            input: MacInputState::default(),
+            next_permission_check: Instant::now() + Duration::from_secs(1),
+        };
+        let send = |context: &mut WorkerContext, usage: u8| {
+            let report = [1, usage, 0, 0, 0, 0, 0];
+            unsafe {
+                event_callback(
+                    (context as *mut WorkerContext).cast(),
+                    EVENT_INPUT_REPORT,
+                    1,
+                    report.as_ptr(),
+                    report.len(),
+                    0,
+                );
+            }
+        };
+        TEST_WHEELS.with(|events| events.borrow_mut().clear());
+        send(&mut context, 0x52);
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), vec![WheelDirection::Up]));
+        context
+            .input
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pressed
+            .as_mut()
+            .unwrap()
+            .next_repeat_at = Instant::now();
+        context.input.process_timers(&shared);
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 2));
+        send(&mut context, 0);
+        assert!(context.input.button_states["up"].pressed.is_none());
+        assert_eq!(reports.lock().unwrap().len(), 2);
+        send(&mut context, 0x51);
+        send(&mut context, 0);
+        assert_eq!(
+            *switches.lock().unwrap(),
+            vec![(super::super::ProfileDirection::Next, true)]
+        );
+        active.store(false, Ordering::Release);
+        send(&mut context, 0x52);
+        assert_eq!(
+            reports.lock().unwrap().len(),
+            4,
+            "obsolete instance input is not dispatched"
+        );
+        TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 2));
+        context.input.release_all();
+    }
+
+    #[test]
+    fn managed_remote_waits_for_native_handles_and_releases_ownership() {
+        let mut ownership = super::RemoteOwnership::default();
+        assert!(ownership.begin_legacy());
+        assert!(
+            !ownership.request_managed(true),
+            "do not open while legacy handles exist"
+        );
+        assert!(
+            !ownership.begin_legacy(),
+            "legacy must not reopen during handoff"
+        );
+        ownership.backend_active = false;
+        assert!(ownership.request_managed(true));
+        assert!(
+            !ownership.begin_legacy(),
+            "disabled mappings still reserve ownership"
+        );
+        assert!(ownership.request_managed(false));
+        assert!(
+            ownership.begin_legacy(),
+            "unbinding restores the legacy backend"
+        );
+    }
     use super::*;
+
+    #[test]
+    fn mouse_updates_keep_pending_remote_gestures_and_global_disable_clears_them() {
+        let mut settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "enabled": true,
+            "behaviors": {
+                "up": {
+                    "click": [{"type": "wheel", "direction": "up"}],
+                    "doubleClick": [{"type": "wheel", "direction": "down"}]
+                }
+            }
+        }))
+        .unwrap();
+        let service = InputService {
+            shared: Arc::new(Shared {
+                settings: RwLock::new(settings.clone()),
+                status: Mutex::new(InputServiceStatus::default()),
+                event_app: RwLock::new(None),
+                stop: AtomicBool::new(false),
+                restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
+                instance: None,
+            }),
+            worker: Mutex::new(None),
+        };
+        let source = source_for_usage(0x52).unwrap();
+        let mut state = MacInputState::default();
+        TEST_WHEELS.with(|events| events.borrow_mut().clear());
+        state.press_source(&service.shared, source);
+        state.release_source(&service.shared, source);
+        assert!(state.button_states["up"].pending_click.is_some());
+
+        settings.mouse_enabled = false;
+        settings.mouse_edge_width = 16;
+        settings.mouse_scroll_sensitivity = 200;
+        settings.behaviors.insert(
+            "mouse.top.up".into(),
+            TriggerBehaviors {
+                click: vec![NativeBehavior::Wheel {
+                    enabled: true,
+                    direction: WheelDirection::Left,
+                }],
+                ..TriggerBehaviors::default()
+            },
+        );
+        service.update_settings(settings.clone()).unwrap();
+        assert!(!service.shared.restart.load(Ordering::Acquire));
+        state
+            .button_states
+            .get_mut("up")
+            .unwrap()
+            .pending_click
+            .as_mut()
+            .unwrap()
+            .due_at = Instant::now() - Duration::from_millis(1);
+        state.process_timers(&service.shared);
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), [WheelDirection::Up]));
+
+        state.press_source(&service.shared, source);
+        state.release_source(&service.shared, source);
+        assert!(state.button_states["up"].pending_click.is_some());
+        settings.enabled = false;
+        service.update_settings(settings).unwrap();
+        assert!(service.shared.restart.load(Ordering::Acquire));
+        state.process_timers(&service.shared);
+        assert!(state.button_states["up"].pending_click.is_none());
+        assert!(state.button_states["up"].pressed.is_none());
+        TEST_WHEELS.with(|events| assert_eq!(*events.borrow(), [WheelDirection::Up]));
+    }
+
+    #[test]
+    fn profile_switches_retain_the_remote_or_mouse_execution_source() {
+        let behavior = NativeBehavior::SwitchProfile {
+            enabled: true,
+            direction: super::super::ProfileDirection::Next,
+            wrap: false,
+        };
+        super::super::profile_switch::REQUESTS.with(|requests| requests.borrow_mut().clear());
+
+        execute_behaviors(std::slice::from_ref(&behavior));
+        execute_mouse_behavior(&behavior, 10);
+        execute_behaviors(&[NativeBehavior::SwitchProfile {
+            enabled: false,
+            direction: super::super::ProfileDirection::Previous,
+            wrap: true,
+        }]);
+
+        super::super::profile_switch::REQUESTS.with(|requests| {
+            assert_eq!(
+                serde_json::to_value(&*requests.borrow()).unwrap(),
+                serde_json::json!([
+                    {"deviceId": "rc003", "direction": "next", "wrap": false},
+                    {"deviceId": "mouse", "direction": "next", "wrap": false},
+                ])
+            );
+        });
+    }
 
     #[test]
     fn pointer_settings_are_supported_and_wheel_holds_respect_other_actions() {
@@ -1601,6 +1948,8 @@ mod tests {
                 event_app: RwLock::new(None),
                 stop: AtomicBool::new(false),
                 restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
+                instance: None,
             };
             let source = source_for_usage(0x52).unwrap();
             let mut state = MacInputState::default();
@@ -1665,6 +2014,8 @@ mod tests {
                 event_app: RwLock::new(None),
                 stop: AtomicBool::new(false),
                 restart: AtomicBool::new(false),
+                remote_ownership: Mutex::new(RemoteOwnership::default()),
+                instance: None,
             };
             let source = source_for_usage(0x52).unwrap();
             let mut state = MacInputState::default();
@@ -1727,6 +2078,8 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
+            instance: None,
         };
         let source = source_for_usage(0x52).unwrap();
         let mut state = MacInputState::default();
@@ -2023,6 +2376,8 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
+            instance: None,
         };
         let mut state = MacInputState::default();
         TEST_WHEELS.with(|events| events.borrow_mut().clear());
@@ -2252,6 +2607,8 @@ mod tests {
             event_app: RwLock::new(None),
             stop: AtomicBool::new(false),
             restart: AtomicBool::new(false),
+            remote_ownership: Mutex::new(RemoteOwnership::default()),
+            instance: None,
         });
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),

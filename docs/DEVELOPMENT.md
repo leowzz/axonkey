@@ -16,7 +16,7 @@ npm run tauri dev
 
 Windows PowerShell 使用 `Copy-Item .env.example .env` 创建本地版本文件，其余命令相同。
 
-`.env` 是本机版本来源并被 Git 忽略，只允许包含一行 `version=vX.Y.Z`（可附加 `-alpha.N`、`-beta.N` 或 `-rc.N`，N 为正整数）。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本。
+`.env` 是本机版本来源并被 Git 忽略，必须包含且仅包含一个 `version=X.Y.Z` 版本项（可附加 `-alpha.N`、`-beta.N` 或 `-rc.N`，N 为正整数），可以同时配置 `TENCENT_RUM_ID` 等环境变量。首次检出时从已提交的 `.env.example` 复制；`make release` 会同时更新本地 `.env`、`.env.example` 和各框架清单中的版本，保留其他环境变量。Git 发布标签仍使用 `vX.Y.Z` 格式。
 
 检查前端生产构建和 Rust 测试：
 
@@ -24,6 +24,24 @@ Windows PowerShell 使用 `Copy-Item .env.example .env` 创建本地版本文件
 npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+## 提交时自动格式化
+
+在仓库根目录执行 `npm install` 或 `npm ci` 时，`prepare` 会自动安装 Git 提交钩子。已有依赖的工作区可执行 `npm run prepare` 启用。
+
+每次 `git commit` 前，lint-staged 使用 Prettier 格式化本次暂存的 `src/**/*.{js,jsx,ts,tsx,mjs,cjs,json,css,scss,less}` 文件，并使用 `rustfmt` 格式化本次暂存的 `src-tauri/**/*.rs` 文件，再将格式化结果纳入提交。部分暂存文件中的未暂存修改会暂时隐藏，完成后恢复；格式化失败会阻止提交。
+
+格式遵循现有代码习惯：两空格缩进、单引号、不加分号，行宽 120，使用 LF 换行。可手动执行：
+
+```bash
+npm run format          # 格式化整个 src 的代码
+npm run format:rust     # 格式化整个 src-tauri Rust 工程
+npm run format:all      # 格式化 src 和 src-tauri
+npm run format:check    # 检查 src 和 src-tauri 的格式
+npm run format:staged   # 仅处理暂存的 src 和 src-tauri 代码
+```
+
+现有文件会在后续提交涉及它们时逐步统一格式；首次全量检查可能报告历史格式差异。
 
 ## Make 命令
 

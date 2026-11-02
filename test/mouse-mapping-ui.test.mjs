@@ -34,25 +34,80 @@ function load(file) {
   vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console, window: testWindow }, { filename:file })
   return module.exports
 }
-const { DeviceSelector, DeviceStatusCard } = load('src/components/DeviceRail.tsx')
+const { DeviceStatusCard } = load('src/components/DeviceRail.tsx')
+const { DeviceWorkspaceHeader } = load('src/devices/shared/DeviceWorkspaceHeader.tsx')
 const { MouseInputModel, MouseControlPicker, MouseTriggerSelector } = load('src/components/MouseMapping.tsx')
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 
-test('device selection exposes two rows and selected device owns its status card', () => {
+test('device status card announces recording transitions and omits the badge for other devices', () => {
   let view
-  function Harness() {
-    const [device, select] = React.useState('rc003')
+  const status = { title: 'A15 状态', rows: [], recording: false }
+  act(() => { view = Renderer.create(React.createElement(DeviceStatusCard, { status })) })
+  assert.equal(text(view.root.findByProps({ role: 'status' })), '未录音')
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { ...status, recording: true } })) })
+  const badge = view.root.findByProps({ role: 'status' })
+  assert.equal(text(badge), '正在录音')
+  assert.match(badge.props.className, /is-recording/)
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { ...status, recording: false } })) })
+  assert.equal(text(view.root.findByProps({ role: 'status' })), '未录音')
+  act(() => { view.update(React.createElement(DeviceStatusCard, { status: { title: '小米状态', rows: [] } })) })
+  assert.equal(view.root.findAllByProps({ role: 'status' }).length, 0)
+  act(() => view.unmount())
+})
+
+test('A15 recording mode restores the saved choice and defaults legacy or invalid settings to click', () => {
+  const { getStoredSettings } = load('src/appConfig.tsx')
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const [stored, expected] of [
+      [null, 'click'], ['{}', 'click'], ['invalid', 'click'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'hold' }), 'hold'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'click' }), 'click'],
+      [JSON.stringify({ cmiotA15RecordingMode: 'unknown' }), 'click'],
+    ]) {
+      testWindow.localStorage = { getItem: () => stored }
+      assert.equal(getStoredSettings().cmiotA15RecordingMode, expected)
+    }
+  } finally {
+    testWindow.localStorage = previousStorage
+  }
+})
+
+test('device workspace header returns to devices and keeps the current profile controls beside it', () => {
+  let view, returns = 0, profileOpens = 0
+  function Harness({ device }) {
     return React.createElement('main', null,
-      React.createElement(DeviceSelector, {selectedId:device,onSelect:select}),
+      React.createElement(DeviceWorkspaceHeader, {
+        deviceName:device === 'rc003' ? '小米遥控器' : '系统鼠标',
+        onBackToDevices:()=>returns++,
+        profileControls:React.createElement('button', {type:'button',onClick:()=>profileOpens++}, device === 'rc003' ? '遥控器配置' : '鼠标配置'),
+      }),
       React.createElement(DeviceStatusCard, {status:{title:device === 'rc003' ? '遥控器状态' : '鼠标状态',rows:device === 'rc003' ? [{label:'电量',value:'95%'}] : [{label:'输入来源',value:'系统鼠标'}]}}))
   }
-  act(() => { view = Renderer.create(React.createElement(Harness)) })
+  act(() => { view = Renderer.create(React.createElement(Harness, {device:'rc003'})) })
+  const back = () => view.root.findByProps({'aria-label':'返回我的设备'})
+  const profile = () => view.root.findAllByType('button').find(button=>text(button).endsWith('配置'))
   assert.equal(view.root.findAllByType('select').length, 0)
   assert.equal(view.root.findAllByType('button').length, 2)
-  assert.equal(view.root.findAllByType('button')[0].props['aria-pressed'], true)
-  act(() => view.root.findAllByType('button')[1].props.onClick())
+  assert.equal(view.root.findByType('h1').children.join(''), '小米遥控器')
+  assert.equal(back().parent, profile().parent)
+  assert.equal(text(profile()), '遥控器配置')
+  act(() => profile().props.onClick())
+  assert.equal(profileOpens, 1)
+  assert.equal(returns, 0)
+  act(() => back().props.onClick())
+  assert.equal(returns, 1)
+  assert.equal(view.root.findByType('h3').children.join(''), '遥控器状态')
+  act(() => view.update(React.createElement(Harness, {device:'mouse'})))
+  assert.equal(view.root.findAllByType('button').length, 2)
+  assert.equal(view.root.findByType('h1').children.join(''), '系统鼠标')
+  assert.equal(text(profile()), '鼠标配置')
   assert.equal(view.root.findByType('h3').children.join(''), '鼠标状态')
   assert.ok(!JSON.stringify(view.toJSON()).includes('95%'))
+  assert.ok(!JSON.stringify(view.toJSON()).includes('小米遥控器'))
+  assert.ok(!JSON.stringify(view.toJSON()).includes('遥控器配置'))
+  act(() => back().props.onClick())
+  assert.equal(returns, 2)
   act(() => view.unmount())
 })
 
@@ -79,6 +134,17 @@ test('mouse model, input picker and scope preserve selection and expose supporte
   act(() => buttons().find(b=>b.props['aria-label'] === '选择鼠标左键').props.onClick())
   assert.deepEqual(selected, {id:'mouse.top.buttonLeft',trigger:'click'})
   assert.equal(tabs().length, 3)
+  act(() => buttons().find(b=>b.props['aria-label'] === '选择滚轮按下（中键）').props.onClick())
+  assert.deepEqual(selected, {id:'mouse.top.buttonMiddle',trigger:'click'})
+  assert.equal(tabs().length, 3)
+  const middle = () => buttons().find(b=>b.props['aria-label'] === '选择滚轮按下（中键）')
+  assert.equal(middle().props['aria-pressed'], true)
+  assert.ok(view.root.findByProps({className:'mouse-wheel-center'}).findAllByType('button').includes(middle()))
+  act(() => buttons().find(b=>text(b) === '任意位置').props.onClick())
+  act(() => tabs()[2].props.onClick())
+  assert.deepEqual(selected, {id:'mouse.global.buttonMiddle',trigger:'longPress'})
+  assert.ok(text(tabs()[0]).includes('保留原始点击'))
+  act(() => buttons().find(b=>b.props['aria-label'] === '选择鼠标左键').props.onClick())
   assert.ok(!text(tabs()[1]).includes('Enter'))
   assert.ok(!buttons().some(b=>text(b) === '任意位置'))
   assert.ok(text(tabs()[0]).includes('保留原始点击'))

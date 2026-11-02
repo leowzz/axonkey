@@ -84,7 +84,7 @@ fn open_target(target: &str, application: bool) -> Result<(), String> {
             parameters: *const u16,
             directory: *const u16,
             show: i32,
-        ) -> *mut c_void;
+        ) -> isize;
     }
     #[link(name = "ole32")]
     extern "system" {
@@ -123,7 +123,7 @@ fn open_target(target: &str, application: bool) -> Result<(), String> {
                 .map_or(std::ptr::null(), |path| path.as_ptr()),
             1,
         )
-    } as isize;
+    };
     if result <= 32 {
         return Err(format!(
             "Windows could not open the target (ShellExecute error {result})"

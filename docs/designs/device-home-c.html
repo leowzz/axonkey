@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Axonkey · 方案 C · 紧凑设备清单</title>
+  <style>
+    :root { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif; color:#3b526b; background:#f5f7fa; font-synthesis:none; }
+    * { box-sizing:border-box; } body { margin:0; } button { font:inherit; cursor:pointer; } button:focus-visible, a:focus-visible, summary:focus-visible { outline:2px solid #347ed0; outline-offset:3px; } button { transition:background .15s,border-color .15s; } svg { flex-shrink:0; }
+    .app { min-height:100vh; display:grid; grid-template-columns:160px minmax(0,1fr); }
+    .sidebar { position:sticky; top:0; height:100vh; display:flex; flex-direction:column; padding:25px 12px 16px; background:#f0f3f7; }
+    .brand { display:flex; gap:10px; align-items:center; padding:0 8px 29px; font-weight:700; color:#303d4c; font-size:20px; letter-spacing:-.6px; }
+    .brand-mark { width:25px; height:25px; border-radius:7px; object-fit:contain; }
+    nav { display:grid; gap:7px; } .nav-item { border:0; background:transparent; color:#77889c; padding:12px; border-radius:7px; display:flex; align-items:center; gap:12px; text-align:left; font-size:13px; font-weight:600; } .nav-item.active { color:#2678d3; background:#e1ebf9; } .nav-item:hover { background:#e8eef6; }
+    .sidebar-bottom { margin-top:auto; color:#8898a9; font-size:11px; } .version { padding:18px 9px; } .global-toggle { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:12px 8px 1px; color:#75869b; }
+    .switch { width:34px; height:20px; background:#277ee0; border:0; border-radius:20px; padding:3px; } .switch::after { content:""; display:block; width:14px; height:14px; margin-left:14px; background:white; border-radius:50%; } .switch[aria-checked="false"] { background:#a6b3c3; } .switch[aria-checked="false"]::after { margin-left:0; }
+    main { padding:32px; min-width:0; }
+    .page-heading { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-bottom:26px; } h1 { margin:0; font-size:25px; font-weight:650; letter-spacing:-.5px; color:#344d67; } .subtitle { margin:8px 0 0; color:#8292a4; font-size:12px; line-height:1.6; }
+    .button { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:9px 13px; border:1px solid #d7e2ef; border-radius:7px; background:#fff; color:#5b7591; font-size:12px; white-space:nowrap; } .button:hover { border-color:#9dbbdb; background:#f8fbff; } .button.primary { color:#216ec2; background:#eaf3ff; border-color:#bad4f2; }
+    .permission-bar { padding:13px 16px; border:1px solid #e0e7ef; border-radius:10px; background:#fff; display:flex; align-items:center; gap:18px; flex-wrap:wrap; margin-bottom:24px; color:#6e8297; font-size:12px; } .permission-caption { display:flex; align-items:center; gap:7px; font-weight:600; color:#586f88; } .permission-status { display:inline-flex; align-items:center; gap:7px; white-space:nowrap; } .dot { width:5px; height:5px; border-radius:50%; display:inline-block; background:#449b72; } .warning .dot { background:#c9953c; } .permission-status small { color:#71927e; font-size:11px; } .permission-status.warning small { color:#a17b40; } .permission-manage { margin-left:auto; padding:2px; border:0; color:#5d83aa; background:transparent; font-size:12px; }
+    .list-heading { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; color:#7c8ea2; font-size:11px; } .list-heading strong { color:#5f768f; font-size:13px; font-weight:500; } .count { color:#9aa8b6; margin-left:7px; }
+    .devices { display:grid; gap:12px; } .device-row { display:grid; grid-template-columns:72px minmax(130px,1.1fr) minmax(115px,1fr) auto; align-items:center; gap:17px; min-height:144px; padding:19px 21px; border:1px solid #dce5ef; border-radius:12px; background:#fff; box-shadow:0 2px 8px rgb(59 86 114 / 2%); }
+    .device-art { display:grid; place-items:center; height:100px; border-radius:10px; background:#f5f7fa; } .device-art img { height:90px; width:auto; max-width:45px; } .mouse { width:50px; height:76px; }
+    .device-name { margin:0 0 6px; color:#36516d; font-size:16px; font-weight:600; } .model { color:#98a6b5; font-size:11px; margin:0 0 11px; } .device-status { display:flex; align-items:center; gap:6px; font-size:11px; color:#56846b; }
+    .profile { display:flex; flex-direction:column; gap:9px; color:#6a819b; font-size:12px; } .profile small { color:#9aa7b5; font-size:11px; } .profile span { font-weight:500; } .edit-button { padding:8px 11px; color:#447aa9; background:#f4f8fd; border:1px solid #dfe9f4; border-radius:6px; font-size:12px; white-space:nowrap; } .edit-button:hover { background:#eaf3ff; border-color:#afccec; }
+    .bottom-note { display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:22px; font-size:11px; color:#96a3b2; } .text-button { background:transparent; border:0; padding:4px 0; color:#7d91a7; font-size:11px; }
+    dialog { width:min(440px,calc(100vw - 48px)); padding:0; border:1px solid #dbe4ed; border-radius:14px; color:#4d657e; box-shadow:0 24px 70px rgb(30 52 77 / 17%); } dialog::backdrop { background:rgb(39 54 72 / 20%); } .dialog-head { display:flex; justify-content:space-between; align-items:center; padding:23px 24px 0; } .dialog-head h2 { font-size:18px; margin:0; color:#354e67; } .close { background:transparent; border:0; font-size:22px; color:#91a0ae; padding:0 4px; } .dialog-body { padding:18px 24px 24px; } .dialog-body p { margin:0 0 18px; font-size:12px; line-height:1.8; color:#8595a5; } .permission-detail { padding:15px 0; display:flex; align-items:center; justify-content:space-between; gap:12px; } .permission-detail strong { display:block; font-size:13px; font-weight:500; margin-bottom:6px; } .permission-detail small { color:#8d9cae; font-size:11px; } .grant { color:#398064; font-size:12px; } .dialog-footer { margin-top:20px; display:flex; justify-content:flex-end; gap:9px; }
+    @media(max-width:1050px) { main { padding:28px 24px; } .device-row { gap:12px; padding:17px; grid-template-columns:62px minmax(120px,1fr) minmax(108px,.9fr) auto; } .permission-bar { gap:13px; } }
+    @media(max-width:850px) { .app { grid-template-columns:136px minmax(0,1fr); } main { padding:23px 18px; } .device-row { grid-template-columns:58px minmax(0,1fr) auto; } .profile { grid-column:2; grid-row:2; } .edit-button { grid-column:3; grid-row:1 / span 2; } .device-art { grid-row:1 / span 2; } .device-row { min-height:154px; } .permission-manage { margin-left:0; } }
+    @media(prefers-reduced-motion:reduce) { * { transition:none!important; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><img class="brand-mark" src="../../src-tauri/icons/128x128@2x.png" alt="">axonkey</div>
+      <nav aria-label="主导航">
+        <button class="nav-item active"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="7" height="7" rx="1.3"/><rect x="14" y="3" width="7" height="7" rx="1.3"/><rect x="3" y="14" width="7" height="7" rx="1.3"/><rect x="14" y="14" width="7" height="7" rx="1.3"/></svg>我的设备</button>
+        <button class="nav-item" data-info="设置"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 6h9m4 0h3M4 12h3m4 0h9M4 18h11m4 0h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>设置</button>
+        <button class="nav-item" data-info="关于"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></svg>关于</button>
+      </nav>
+      <div class="sidebar-bottom"><div class="version">版本　1.0.20</div><div class="global-toggle">软件总开关<button class="switch" role="switch" aria-label="软件功能总开关" aria-checked="true"></button></div></div>
+    </aside>
+    <main>
+      <header class="page-heading"><div><h1>我的设备</h1><p class="subtitle">从设备出发，配置每一次输入。</p></div><button class="button primary" id="add-device"><span aria-hidden="true">＋</span>集成设备</button></header>
+      <section class="permission-bar" aria-label="系统权限">
+        <span class="permission-caption"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6Z"/><path d="m8 12 3 3 5-6"/></svg>系统权限</span>
+        <span class="permission-status"><i class="dot"></i>输入监控<small>已授权</small></span>
+        <span class="permission-status" id="accessibility-status"><i class="dot"></i>辅助功能<small>已授权</small></span>
+        <button class="permission-manage" id="manage-permissions">管理 ›</button>
+      </section>
+      <div class="list-heading"><strong>设备清单<span class="count">2</span></strong><span>每台设备独立配置</span></div>
+      <section class="devices" aria-label="设备清单">
+        <article class="device-row">
+          <div class="device-art"><img src="../../public/rc003-remote-keymap.svg" alt="小米遥控器"></div>
+          <div><h2 class="device-name">小米遥控器</h2><p class="model">RC003 · 蓝牙遥控器</p><span class="device-status"><i class="dot"></i>已连接</span></div>
+          <div class="profile"><small>当前配置</small><span>日常使用</span><small>3 份配置文件</small></div>
+          <button class="edit-button" data-device="小米遥控器">编辑映射 ›</button>
+        </article>
+        <article class="device-row">
+          <div class="device-art"><svg class="mouse" viewBox="0 0 100 132" fill="none" aria-label="系统鼠标" role="img"><path d="M50 8C28 8 14 23 14 46v39c0 24 13 39 36 39s36-15 36-39V46C86 23 72 8 50 8Z" fill="#e9edf1" stroke="#a3afbd" stroke-width="1.6"/><path d="M50 9v45M15 54h70" stroke="#b2bdca" stroke-width="1.4"/><rect x="45" y="26" width="10" height="20" rx="5" fill="#8d9db0"/><path d="M21 62v12m0 7v12" stroke="#899bb0" stroke-width="3" stroke-linecap="round"/></svg></div>
+          <div><h2 class="device-name">系统鼠标</h2><p class="model">系统输入 · 侧键与滚轮</p><span class="device-status"><i class="dot"></i>可用</span></div>
+          <div class="profile"><small>当前配置</small><span>默认配置</span><small>1 份配置文件</small></div>
+          <button class="edit-button" data-device="系统鼠标">编辑映射 ›</button>
+        </article>
+      </section>
+      <footer class="bottom-note"><span>配置保存在本机 · 此处为布局演示数据</span><button class="text-button" data-info="运行日志">查看运行日志 ↗</button></footer>
+    </main>
+  </div>
+  <dialog id="permissions-dialog" aria-labelledby="permission-dialog-title">
+    <header class="dialog-head"><h2 id="permission-dialog-title">系统权限</h2><button class="close" aria-label="关闭">×</button></header>
+    <div class="dialog-body"><p>权限集中管理，设备页面保持简洁。以下操作只切换演示状态。</p><div class="permission-detail"><div><strong>输入监控</strong><small>允许读取设备输入</small></div><span class="grant">已授权</span></div><div class="permission-detail"><div><strong>辅助功能</strong><small>允许执行映射后的操作</small></div><button class="button" id="toggle-grant">切换授权状态</button></div><div class="dialog-footer"><button class="button" data-close>完成</button></div></div>
+  </dialog>
+  <dialog id="info-dialog" aria-labelledby="info-title"><header class="dialog-head"><h2 id="info-title"></h2><button class="close" aria-label="关闭">×</button></header><div class="dialog-body"><p id="info-copy"></p><div class="dialog-footer"><button class="button" data-close>返回方案</button></div></div></dialog>
+  <script>
+    const $ = s => document.querySelector(s);
+    let granted = new URLSearchParams(location.search).get('permissions') !== 'warning';
+    function paintPermission() { const status = $('#accessibility-status'); status.classList.toggle('warning', !granted); status.querySelector('small').textContent = granted ? '已授权' : '未授权'; $('#toggle-grant').textContent = granted ? '模拟撤销授权' : '模拟完成授权'; }
+    function info(title, copy) { $('#info-title').textContent=title; $('#info-copy').textContent=copy; $('#info-dialog').showModal(); }
+    paintPermission();
+    $('#manage-permissions').onclick=()=>$('#permissions-dialog').showModal();
+    $('#toggle-grant').onclick=()=>{ granted=!granted; paintPermission(); };
+    $('#add-device').onclick=()=>info('集成设备','当前支持小米 RC003 遥控器与系统鼠标。正式页面从这里进入对应的设备接入流程。');
+    document.querySelectorAll('[data-device]').forEach(button=>button.onclick=()=>info(button.dataset.device,'从这里进入该设备现有的映射编辑页面，顶部保留返回与配置文件选择；本轮只比较设备与权限的合并页。'));
+    document.querySelectorAll('[data-info]').forEach(button=>button.onclick=()=>info(button.dataset.info,'保留现有入口。本轮 HTML 用于比较合并页布局，不更改其他页面。'));
+    document.querySelectorAll('[data-close], .close').forEach(button=>button.onclick=()=>button.closest('dialog').close());
+    $('.switch').onclick=event=>event.currentTarget.setAttribute('aria-checked',event.currentTarget.getAttribute('aria-checked')==='true'?'false':'true');
+    document.querySelectorAll('dialog').forEach(dialog=>dialog.addEventListener('click',event=>{if(event.target===dialog) {const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}}));
+  </script>
+</body>
+</html>

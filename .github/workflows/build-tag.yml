@@ -68,6 +68,7 @@ jobs:
     timeout-minutes: 45
     env:
       APP_VERSION: ${{ needs.release-metadata.outputs.version }}
+      TENCENT_RUM_ID: ${{ vars.TENCENT_RUM_ID }}
     outputs:
       version: ${{ needs.release-metadata.outputs.version }}
 
@@ -138,6 +139,7 @@ jobs:
     timeout-minutes: 60
     env:
       APP_VERSION: ${{ needs.release-metadata.outputs.version }}
+      TENCENT_RUM_ID: ${{ vars.TENCENT_RUM_ID }}
     outputs:
       version: ${{ needs.release-metadata.outputs.version }}
 
