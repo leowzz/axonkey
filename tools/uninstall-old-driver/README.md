@@ -47,6 +47,9 @@ PowerShell、PnPUtil 或旧版 VB-CABLE 安装器。以下命令在仓库根目�
 
 清理范围为标准版 VB-CABLE：
 
+- 卸载前停止 Windows Audio（`Audiosrv`）及正在运行的依赖服务；结束后按依赖顺序
+  恢复原来的运行或暂停状态，原本停止的服务保持停止，不修改启动类型。
+  停止失败则不继续卸载；卸载中途失败也会恢复服务，恢复失败会写入日志及 JSON 错误。
 - 精确匹配硬件 ID `VBAudioVACWDM` 的所有设备节点，通过 `DiUninstallDevice`
   删除设备及子端点，包括隐藏设备。
 - 扫描 Windows INF 目录中的全部 `oemN.inf`，使用 SetupAPI 解析并同时核对
@@ -83,6 +86,7 @@ node scripts/build-uninstall-old-driver.mjs --test
 node --test test/legacy-audio-cleanup.test.mjs test/legacy-cleanup-script.test.mjs
 ```
 
-测试仅进行临时 INF 解析、状态查询和清理预览，不执行本机驱动卸载。
+测试覆盖音频服务停止和恢复流程、临时 INF 解析、状态查询和清理预览；
+服务流程使用测试替身，不停止本机服务，也不执行本机驱动卸载。
 API 行为参见 [DiUninstallDevice](https://learn.microsoft.com/en-us/windows/win32/api/newdev/nf-newdev-diuninstalldevice)
 和 [DiUninstallDriverW](https://learn.microsoft.com/en-us/windows/win32/api/newdev/nf-newdev-diuninstalldriverw)。

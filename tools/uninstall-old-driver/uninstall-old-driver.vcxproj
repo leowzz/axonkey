@@ -69,6 +69,7 @@
     <ClCompile Include="tests\vbcable-test.cpp" Condition="'$(VbCableTests)'=='true'" />
     <ClCompile Include="src\vbcable.cpp" />
     <ClInclude Include="src\vbcable.h" />
+    <ClInclude Include="src\audio_service_pause.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

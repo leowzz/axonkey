@@ -12,6 +12,7 @@ const required = [
   'tools/uninstall-old-driver/src/main.cpp',
   'tools/uninstall-old-driver/src/vbcable.cpp',
   'tools/uninstall-old-driver/src/vbcable.h',
+  'tools/uninstall-old-driver/src/audio_service_pause.h',
   'tools/uninstall-old-driver/tests/vbcable-test.cpp',
   'tools/uninstall-old-driver/README.md',
   'scripts/build-uninstall-old-driver.mjs',

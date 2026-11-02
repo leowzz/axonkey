@@ -4,6 +4,7 @@
 #include <shlobj.h>
 
 #include "vbcable.h"
+#include "audio_service_pause.h"
 
 #include <array>
 #include <algorithm>
@@ -92,6 +93,99 @@ void recordError(Result& result, const std::function<void(const std::wstring&)>&
     result.errors.push_back(text);
     log(L"ERROR: " + text);
 }
+
+struct ServiceHandle {
+    SC_HANDLE handle;
+    ~ServiceHandle() { if (handle) CloseServiceHandle(handle); }
+};
+
+class AudioServices {
+public:
+    explicit AudioServices(const std::function<void(const std::wstring&)>& log)
+        : manager_{OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT)}, log_(log) {
+        if (!manager_.handle) fail("Open audio service manager");
+    }
+
+    DWORD state(const std::wstring& name) {
+        log_(L"Checking audio service state: " + name);
+        ServiceHandle service{open(name, SERVICE_QUERY_STATUS)};
+        return settledState(service.handle);
+    }
+
+    std::vector<std::wstring> dependents(const std::wstring& name) {
+        ServiceHandle service{open(name, SERVICE_ENUMERATE_DEPENDENTS)};
+        DWORD bytes = 0, count = 0;
+        if (EnumDependentServicesW(service.handle, SERVICE_ACTIVE, nullptr, 0, &bytes, &count)) return {};
+        if (GetLastError() != ERROR_MORE_DATA) fail("Enumerate audio dependent services");
+        std::vector<BYTE> buffer(bytes);
+        if (!EnumDependentServicesW(service.handle, SERVICE_ACTIVE,
+                reinterpret_cast<ENUM_SERVICE_STATUSW*>(buffer.data()), bytes, &bytes, &count)) {
+            fail("Enumerate audio dependent services");
+        }
+        const auto entries = reinterpret_cast<const ENUM_SERVICE_STATUSW*>(buffer.data());
+        std::vector<std::wstring> names;
+        for (DWORD i = 0; i < count; ++i) names.emplace_back(entries[i].lpServiceName);
+        return names;
+    }
+
+    void stop(const std::wstring& name) {
+        log_(L"Stopping audio service: " + name);
+        ServiceHandle service{open(name, SERVICE_QUERY_STATUS | SERVICE_STOP)};
+        SERVICE_STATUS status{};
+        if (!ControlService(service.handle, SERVICE_CONTROL_STOP, &status)) fail("Stop audio service");
+        if (settledState(service.handle) != SERVICE_STOPPED) fail("Wait for audio service to stop", ERROR_SERVICE_REQUEST_TIMEOUT);
+        log_(L"Stopped audio service: " + name);
+    }
+
+    void restore(const std::wstring& name, DWORD original) {
+        log_(L"Restoring audio service: " + name);
+        ServiceHandle service{open(name, SERVICE_QUERY_STATUS | SERVICE_START | SERVICE_PAUSE_CONTINUE)};
+        auto current = settledState(service.handle);
+        if (current == original) return;
+        if (current == SERVICE_STOPPED) {
+            if (!StartServiceW(service.handle, 0, nullptr)) fail("Restart audio service");
+            current = settledState(service.handle);
+            if (current != SERVICE_RUNNING) fail("Wait for audio service to restart", ERROR_SERVICE_REQUEST_TIMEOUT);
+        }
+        if (current != original) {
+            SERVICE_STATUS status{};
+            if (!ControlService(service.handle, original == SERVICE_PAUSED ? SERVICE_CONTROL_PAUSE : SERVICE_CONTROL_CONTINUE, &status)) {
+                fail("Restore audio service state");
+            }
+            if (settledState(service.handle) != original) fail("Wait for original audio service state", ERROR_SERVICE_REQUEST_TIMEOUT);
+        }
+        log_(L"Restored audio service: " + name);
+    }
+
+private:
+    SC_HANDLE open(const std::wstring& name, DWORD access) {
+        const auto service = OpenServiceW(manager_.handle, name.c_str(), access);
+        if (!service) fail("Open audio service");
+        return service;
+    }
+
+    DWORD settledState(SC_HANDLE service) {
+        const auto deadline = GetTickCount64() + 30000;
+        for (;;) {
+            SERVICE_STATUS status{};
+            if (!QueryServiceStatus(service, &status)) fail("Query audio service status");
+            switch (status.dwCurrentState) {
+            case SERVICE_START_PENDING:
+            case SERVICE_STOP_PENDING:
+            case SERVICE_CONTINUE_PENDING:
+            case SERVICE_PAUSE_PENDING:
+                if (GetTickCount64() >= deadline) fail("Wait for audio service state", ERROR_SERVICE_REQUEST_TIMEOUT);
+                Sleep(100);
+                break;
+            default:
+                return status.dwCurrentState;
+            }
+        }
+    }
+
+    ServiceHandle manager_;
+    const std::function<void(const std::wstring&)>& log_;
+};
 
 void removeDevices(const Plan& plan, Result& result, const std::function<void(const std::wstring&)>& log) {
     DeviceSet set{SetupDiCreateDeviceInfoList(nullptr, nullptr)};
@@ -269,9 +363,8 @@ Plan inspect(const fs::path& applicationDirectory) {
     return plan;
 }
 
-Result uninstall(const Plan& plan, const std::function<void(const std::wstring&)>& log) {
-    Result result;
-    log(L"VB-CABLE cleanup started");
+namespace {
+void uninstallDriver(const Plan& plan, Result& result, const std::function<void(const std::wstring&)>& log) {
     removeDevices(plan, result, log);
     for (const auto& package : plan.packages) {
         BOOL reboot = FALSE;
@@ -284,7 +377,7 @@ Result uninstall(const Plan& plan, const std::function<void(const std::wstring&)
         result.rebootRequired |= reboot != FALSE;
     }
     // Keep package-owned files and settings intact if Windows rejected a device or package removal.
-    if (!result.errors.empty()) return result;
+    if (!result.errors.empty()) return;
     removeService(result, log);
     removeFiles(plan, result, log);
     for (const auto* category : kMediaCategories) {
@@ -293,6 +386,23 @@ Result uninstall(const Plan& plan, const std::function<void(const std::wstring&)
     for (const REGSAM view : {KEY_WOW64_64KEY, KEY_WOW64_32KEY}) {
         removeRegistryKey(L"SOFTWARE\\VB-Audio\\Cable", view, result, log);
         removeRegistryKey(L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\VB:VBCABLE {87459874-1236-4469}", view, result, log);
+    }
+}
+} // namespace
+
+Result uninstall(const Plan& plan, const std::function<void(const std::wstring&)>& log) {
+    Result result;
+    log(L"VB-CABLE cleanup started");
+    const auto serviceError = [&](const std::system_error& error) {
+        recordError(result, log, L"Windows audio service control", error.code().value());
+    };
+    try {
+        AudioServices services(log);
+        AudioServicePause pause(services, serviceError);
+        pause.stop(L"Audiosrv");
+        uninstallDriver(plan, result, log);
+    } catch (const std::system_error& error) {
+        serviceError(error);
     }
     log(result.errors.empty() ? L"VB-CABLE cleanup completed" : L"VB-CABLE cleanup completed with errors");
     return result;
