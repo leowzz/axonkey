@@ -7,7 +7,7 @@ import { backupFilename, parseDataBackup } from '../dataBackup'
 import type { BackupDocument, ParsedBackup } from '../dataBackup'
 import { parseBackupImport } from '../backupImport'
 import type { LegacyBackupImport } from '../backupImport'
-import { devices } from '../deviceModel'
+import { devices } from '../devices/index.ts'
 import { SettingsHelp } from './SettingsHelp'
 import { logError } from '../runtimeLogging'
 

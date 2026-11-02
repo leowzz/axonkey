@@ -1,9 +1,16 @@
 import type { ComponentProps, MutableRefObject, ReactNode, RefObject } from 'react'
-import type { BehaviorMap, ButtonId, InputId, TriggerBehaviors, TriggerType, SwitchProfileBehavior } from '../behaviorModel'
+import type {
+  BehaviorMap,
+  ButtonId,
+  InputId,
+  TriggerBehaviors,
+  TriggerType,
+  SwitchProfileBehavior,
+} from '../behaviorModel'
 import type { Platform, RemoteButton } from '../appTypes'
-import type { RemoteView } from '../devices/remoteTypes.ts'
-import { devices, type DeviceId } from '../deviceModel'
-import { RemoteControl } from './RemoteControl'
+import type { RemoteView } from '../devices/types.ts'
+import { devices, type DeviceId } from '../devices/index.ts'
+import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { BehaviorEditor } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
@@ -63,57 +70,96 @@ export function MappingPage({
   behaviorEditorProps,
   remoteView,
 }: MappingPageProps) {
-  return <div className="mapping-page">
-    <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
-      <DeviceWorkspaceHeader deviceName={selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name} profileControls={profileControls} onBackToDevices={onBackToDevices} onOpenSettings={onOpenSettings} />
-      <aside className="mapping-device-rail panel-surface">
-        <DeviceStatusCard status={deviceStatus} />
-        {isMouse ? <MouseInputModel activeId={selectedBehavior.buttonId} onSelect={(id) => { selectBehaviorTarget(id, 'click', false); mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} /> : <>
-        {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
-        <div className="remote-stage">
-          <div className="remote-art">
-            <RemoteControl
-              buttons={editableButtons}
-              activeId={activeId}
-              pressedId={pressedId}
-              mappedIds={editableButtons.filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0)).map(button => button.id)}
-              onSelect={id => selectBehaviorTarget(id, 'click')}
-              remoteView={remoteView}
+  return (
+    <div className="mapping-page">
+      <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
+        <DeviceWorkspaceHeader
+          deviceName={
+            selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name
+          }
+          profileControls={profileControls}
+          onBackToDevices={onBackToDevices}
+          onOpenSettings={onOpenSettings}
+        />
+        <aside className="mapping-device-rail panel-surface">
+          <DeviceStatusCard status={deviceStatus} />
+          {isMouse ? (
+            <MouseInputModel
+              activeId={selectedBehavior.buttonId}
+              onSelect={id => {
+                selectBehaviorTarget(id, 'click', false)
+                mappingMainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+              }}
             />
-          </div>
-        </div>
-        </>}
-      </aside>
+          ) : (
+            <>
+              {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
+              <div className="remote-stage">
+                <div className="remote-art">
+                  <RemoteControl
+                    buttons={editableButtons}
+                    activeId={activeId}
+                    pressedId={pressedId}
+                    mappedIds={editableButtons
+                      .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
+                      .map(button => button.id)}
+                    onSelect={id => selectBehaviorTarget(id, 'click')}
+                    remoteView={remoteView}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+        </aside>
 
-      <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
-        <section className="key-picker" aria-labelledby="key-picker-title">
-          <div className="key-picker-head">
-            <div className="key-picker-heading">
-            <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'}</h2>
-          {!isMouse && showRemoteKeyGrid && <MappingKeyGrid
-            platform={platform}
-            buttons={editableButtons}
-            behaviors={behaviors}
-            activeId={activeId}
-            pressedId={pressedId}
-            rowRefs={rowRefs}
-            onSelect={(buttonId) => selectBehaviorTarget(buttonId, 'click')}
-          />}
+        <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射工作区">
+          <section className="key-picker" aria-labelledby="key-picker-title">
+            <div className="key-picker-head">
+              <div className="key-picker-heading">
+                <h2 id="key-picker-title">{isMouse ? '输入部位' : '按键'}</h2>
+                {!isMouse && showRemoteKeyGrid && (
+                  <MappingKeyGrid
+                    platform={platform}
+                    buttons={editableButtons}
+                    behaviors={behaviors}
+                    activeId={activeId}
+                    pressedId={pressedId}
+                    rowRefs={rowRefs}
+                    onSelect={buttonId => selectBehaviorTarget(buttonId, 'click')}
+                  />
+                )}
+              </div>
+              {toolbar}
             </div>
-            {toolbar}
-          </div>
-          {isMouse && showMouseKeyGrid && <MouseControlPicker activeId={selectedBehavior.buttonId} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
+            {isMouse && showMouseKeyGrid && (
+              <MouseControlPicker
+                activeId={selectedBehavior.buttonId}
+                onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)}
+              />
+            )}
+          </section>
+          {isMouse && (
+            <MouseTriggerSelector
+              rowRefs={rowRefs}
+              behaviors={behaviors}
+              activeId={selectedBehavior.buttonId}
+              platform={platform}
+              trigger={selectedBehavior.trigger}
+              onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)}
+            />
+          )}
+          {!isMouse && (
+            <MappingTriggerSelector
+              platform={platform}
+              button={editableButtons.find(button => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
+              behaviors={behaviors[selectedBehavior.buttonId]}
+              trigger={selectedBehavior.trigger}
+              onSelect={trigger => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
+            />
+          )}
+          <BehaviorEditor {...behaviorEditorProps} />
         </section>
-        {isMouse && <MouseTriggerSelector rowRefs={rowRefs} behaviors={behaviors} activeId={selectedBehavior.buttonId} platform={platform} trigger={selectedBehavior.trigger} onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)} />}
-        {!isMouse && <MappingTriggerSelector
-          platform={platform}
-          button={editableButtons.find((button) => button.id === selectedBehavior.buttonId) ?? editableButtons[0]}
-          behaviors={behaviors[selectedBehavior.buttonId]}
-          trigger={selectedBehavior.trigger}
-          onSelect={(trigger) => selectBehaviorTarget(selectedBehavior.buttonId, trigger)}
-        />}
-        <BehaviorEditor {...behaviorEditorProps} />
-      </section>
+      </div>
     </div>
-  </div>
+  )
 }

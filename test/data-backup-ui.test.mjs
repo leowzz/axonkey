@@ -8,7 +8,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as model from '../src/dataBackup.ts'
 import * as backupImport from '../src/backupImport.ts'
-import { devices } from '../src/deviceModel.ts'
+import { devices } from '../src/devices/index.ts'
 import { sampleData, legacyBackup } from './fixtures/data-backup.mjs'
 
 const require = createRequire(import.meta.url)
@@ -28,7 +28,7 @@ async function setup({ saveResult = '/backup.json', exportError, restoreError, o
     require(name) {
       if (name === '../dataBackup') return model
       if (name === '../backupImport') return backupImport
-      if (name === '../deviceModel') return { devices }
+      if (name === '../devices/index.ts') return { devices }
       if (name === './SettingsHelp') return { SettingsHelp: props => React.createElement('help', props) }
       if (name === '../runtimeLogging') return { logError() {} }
       if (name === '@tauri-apps/plugin-dialog') return { save: async options => { calls.push({ type: 'save', options }); return typeof saveResult === 'function' ? saveResult() : saveResult } }

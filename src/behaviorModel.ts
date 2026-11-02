@@ -5,9 +5,9 @@
  * run a sequence such as shortcut -> delay -> paste.
  */
 
-import { cmiotA15ButtonIds, devices, inputIds } from './deviceModel.ts'
-import type { DeviceId, InputId, RemoteButtonId } from './deviceModel.ts'
-export type { InputId } from './deviceModel.ts'
+import { cmiotA15RemoteButtonIds, devices, inputIds } from './devices/index.ts'
+import type { DeviceId, InputId, RemoteButtonId } from './devices/index.ts'
+export type { InputId } from './devices/index.ts'
 export type ButtonId = RemoteButtonId
 
 export const triggerTypes = ['click', 'doubleClick', 'longPress'] as const
@@ -244,8 +244,10 @@ export function createDefaultBehaviorMap(): BehaviorMap {
   const map = createEmptyBehaviorMap()
   map.power.click = [createBehavior({ type: 'key', key: 'Esc', id: 'power-click-esc' })]
   map.voice.click = [createBehavior({ type: 'key', key: 'RAlt', id: 'voice-click-ralt' })]
-  map[cmiotA15ButtonIds[0]].click = [createBehavior({ type: 'key', key: 'Esc', id: 'cmiot-a15-power-click-esc' })]
-  map[cmiotA15ButtonIds[1]].click = [createBehavior({ type: 'key', key: 'RAlt', id: 'cmiot-a15-voice-click-ralt' })]
+  map[cmiotA15RemoteButtonIds[0]].click = [createBehavior({ type: 'key', key: 'Esc', id: 'cmiot-a15-power-click-esc' })]
+  map[cmiotA15RemoteButtonIds[1]].click = [
+    createBehavior({ type: 'key', key: 'RAlt', id: 'cmiot-a15-voice-click-ralt' }),
+  ]
   return map
 }
 

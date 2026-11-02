@@ -1,5 +1,5 @@
 import type { Behavior, BehaviorMap, ButtonId, InputId } from './behaviorModel'
-import type { DeviceId } from './deviceModel'
+import type { DeviceId } from './devices/index.ts'
 
 export type MappingInput<Id extends string = InputId> = {
   id: Id

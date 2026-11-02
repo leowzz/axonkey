@@ -18,8 +18,8 @@ import {
 import { createBehavior, createDefaultBehaviorMap, parseStoredBehaviors } from './behaviorModel'
 import { triggerTypes } from './behaviorModel'
 import type { Behavior, BehaviorMap, BehaviorType, ButtonId, InputId, TriggerType } from './behaviorModel'
-import { inputIds } from './deviceModel'
-import type { DeviceId } from './deviceModel'
+import { inputIds } from './devices/index.ts'
+import type { DeviceId } from './devices/index.ts'
 import { createDefaultDeviceProfiles, extractDeviceBehaviors, parseStoredDeviceProfiles } from './deviceProfiles'
 import type {
   AppPage,

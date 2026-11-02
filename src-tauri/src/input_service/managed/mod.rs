@@ -52,7 +52,7 @@ pub struct Instance {
     #[serde(default)]
     pub audio_gain_db: i16,
     #[serde(default)]
-    pub cmiot_a15_recording_mode: crate::devices::cmiot_a15_recording::RecordingMode,
+    pub cmiot_a15_recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     #[serde(default)]
     pub cmiot_a15_recording_mode_editable: bool,
     #[serde(default, skip_serializing)]
@@ -67,7 +67,7 @@ pub struct Instance {
 }
 impl Instance {
     fn apply_recording_firmware(&mut self, firmware: &str) {
-        use crate::devices::cmiot_a15_recording::RecordingMode;
+        use crate::devices::cmiot_a15::recording::RecordingMode;
         let editable = firmware.contains("CMIOT3_B311");
         if !editable {
             self.cmiot_a15_recording_mode = RecordingMode::Hold;
@@ -725,7 +725,7 @@ impl DeviceManager {
         }
         if instance.kind == "cmiotA15" && !instance.cmiot_a15_recording_mode_editable {
             instance.cmiot_a15_recording_mode =
-                crate::devices::cmiot_a15_recording::RecordingMode::Hold;
+                crate::devices::cmiot_a15::recording::RecordingMode::Hold;
         }
         if instance.binding.is_none() {
             instance.binding_quality = None;
@@ -2336,7 +2336,7 @@ mod tests {
         second.kind = "cmiotA15".into();
         second.apply_recording_firmware("CMIOT3_B311");
         let manager = offline_manager(vec![first.clone(), second]);
-        first.cmiot_a15_recording_mode = crate::devices::cmiot_a15_recording::RecordingMode::Hold;
+        first.cmiot_a15_recording_mode = crate::devices::cmiot_a15::recording::RecordingMode::Hold;
         manager.put(0, first).unwrap();
         manager
             .remember_quarbor_target("desk", "first-target")
@@ -2347,11 +2347,11 @@ mod tests {
         let saved = load(&manager.shared.path).unwrap();
         assert_eq!(
             saved.instances[0].cmiot_a15_recording_mode,
-            crate::devices::cmiot_a15_recording::RecordingMode::Hold
+            crate::devices::cmiot_a15::recording::RecordingMode::Hold
         );
         assert_eq!(
             saved.instances[1].cmiot_a15_recording_mode,
-            crate::devices::cmiot_a15_recording::RecordingMode::Click
+            crate::devices::cmiot_a15::recording::RecordingMode::Click
         );
         let unbound = manager.unbind("desk").unwrap();
         assert!(unbound.store.instances[0].binding.is_none());
@@ -2369,7 +2369,7 @@ mod tests {
 
     #[test]
     fn a15_firmware_selects_recording_defaults_and_preserves_customization() {
-        use crate::devices::cmiot_a15_recording::RecordingMode;
+        use crate::devices::cmiot_a15::recording::RecordingMode;
         let manager = offline_manager(vec![]);
         let device = |id: &str, firmware: Option<&str>| Discovered {
             id: id.into(),

@@ -1,2 +1,2 @@
 export * from './view.ts'
-export { xiaomiRemoteDevice } from './definition.ts'
+export { xiaomiRemoteDevice, xiaomiRemoteSupportPackage } from './definition.ts'

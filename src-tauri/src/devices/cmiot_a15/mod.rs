@@ -1,10 +1,14 @@
 //! CMIOT-A15's numbered keyboard, consumer and vendor voice reports.
+pub(crate) mod recording;
+mod siren;
+pub(crate) mod voice;
+
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn matches_instance(id: &str) -> bool {
     let id = id.to_ascii_uppercase();
     let tokens: Vec<_> = id.split(['&', '_', '\\', ' ']).collect();
-    super::bluetooth_hid_service(&id).is_some()
+    super::shared::bluetooth_hid_service(&id).is_some()
         && tokens
             .windows(2)
             .any(|p| p[0] == "VID" && matches!(p[1], "0416" | "010416" | "050416"))
@@ -111,17 +115,17 @@ impl ReportState {
 
 /// One exclusive HID connection. Recording and key mapping consume the same
 /// voice edge independently, including when click-to-record stays active.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 pub(crate) struct HidSession {
     reports: ReportState,
-    recording: super::cmiot_a15_recording::RecordingControl,
-    voice: super::cmiot_a15_fc::VoiceStream,
+    recording: recording::RecordingControl,
+    voice: voice::VoiceStream,
 }
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg(any(target_os = "macos", test))]
 impl HidSession {
-    pub fn start(&mut self, mode: super::cmiot_a15_recording::RecordingMode) {
+    pub fn start(&mut self, mode: recording::RecordingMode) {
         self.recording
             .synchronize(mode, true, |_| Ok::<_, String>(()))
             .unwrap();
@@ -144,13 +148,7 @@ impl HidSession {
         &mut self,
         report: &[u8],
         mut send: impl FnMut([u8; 2]) -> Result<(), String>,
-    ) -> Result<
-        (
-            Vec<(&'static str, bool)>,
-            Option<super::cmiot_a15_fc::PcmFrame>,
-        ),
-        String,
-    > {
+    ) -> Result<(Vec<(&'static str, bool)>, Option<voice::PcmFrame>), String> {
         let edges = self.reports.accept(report);
         for &(button, pressed) in &edges {
             if button == "cmiotA15.voice" {
@@ -192,7 +190,7 @@ mod tests {
 
     #[test]
     fn manual_stop_is_idempotent_preserves_held_keys_and_can_retry() {
-        use super::super::cmiot_a15_recording::RecordingMode;
+        use super::recording::RecordingMode;
         for mode in [RecordingMode::Hold, RecordingMode::Click] {
             let mut session = HidSession::default();
             session.start(mode);
@@ -250,7 +248,7 @@ mod tests {
     #[test]
     fn manual_recording_toggles_the_hid_session_without_key_events() {
         let mut session = HidSession::default();
-        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        session.start(super::recording::RecordingMode::Hold);
         let mut reports = Vec::new();
         assert!(session
             .toggle_recording(|report| {
@@ -275,7 +273,7 @@ mod tests {
 
     #[test]
     fn hid_session_keeps_voice_key_edges_independent_of_click_recording() {
-        use super::super::cmiot_a15_recording::RecordingMode;
+        use super::recording::RecordingMode;
         for mode in [RecordingMode::Hold, RecordingMode::Click] {
             let mut session = HidSession::default();
             session.start(mode);
@@ -305,7 +303,7 @@ mod tests {
     #[test]
     fn hid_session_drops_audio_outside_recording_and_does_not_commit_failed_start() {
         let mut session = HidSession::default();
-        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        session.start(super::recording::RecordingMode::Hold);
         assert!(session.accept(&[0xfc; 21], |_| Ok(())).unwrap().1.is_none());
         let mut report = [0; 21];
         report[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
@@ -314,7 +312,7 @@ mod tests {
             .is_err());
         assert!(!session.recording());
         session.stop(|_| Ok(())).unwrap();
-        session.start(super::super::cmiot_a15_recording::RecordingMode::Hold);
+        session.start(super::recording::RecordingMode::Hold);
         assert_eq!(
             session.accept(&report, |_| Ok(())).unwrap().0,
             vec![("cmiotA15.voice", true)]

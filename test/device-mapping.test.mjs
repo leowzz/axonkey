@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { devices, deviceForInput, mouseInputIds, mouseInputId, mouseScopesForControl, remoteButtonIds } from '../src/deviceModel.ts'
+import { devices, deviceForInput, mouseInputIds, mouseInputId, mouseScopesForControl, xiaomiRemoteButtonIds } from '../src/devices/index.ts'
 import { createBehavior, createDefaultBehaviorMap, createMappingExport, parseMappingImport, parseStoredBehaviors, updateBehaviorList } from '../src/behaviorModel.ts'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../src/behaviorHistory.ts'
 import { extractDeviceBehaviors } from '../src/deviceProfiles.ts'
@@ -54,7 +54,7 @@ test('each device transfer round trips its owned inputs without exporting anothe
   assert.deepEqual(imported.behaviors, extractDeviceBehaviors(map, 'mouse'))
   assert.equal(imported.enabled, true)
   const remote = createMappingExport(map, true)
-  assert.deepEqual(Object.keys(remote.behaviors), remoteButtonIds)
+  assert.deepEqual(Object.keys(remote.behaviors), xiaomiRemoteButtonIds)
   assert.equal(parseMappingImport(remote).behaviors.power.click[0].key, 'Esc')
   assert.deepEqual(imported.behaviors.voice.click, [])
   assert.equal(parseMappingImport(transfer, 'rc003'), null)
@@ -75,7 +75,7 @@ test('mapping transfers retain an optional profile name', () => {
 test('device ownership is unique and mouse edits support undo without changing remote input', () => {
   const all = devices.flatMap(device => device.inputIds)
   assert.equal(new Set(all).size, all.length)
-  for (const id of remoteButtonIds) assert.equal(deviceForInput(id).id, 'rc003')
+  for (const id of xiaomiRemoteButtonIds) assert.equal(deviceForInput(id).id, 'rc003')
   for (const id of mouseInputIds) assert.equal(deviceForInput(id).id, 'mouse')
   const initial = createDefaultBehaviorMap()
   let history = createBehaviorHistory(initial)

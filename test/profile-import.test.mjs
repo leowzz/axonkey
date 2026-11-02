@@ -6,7 +6,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import * as deviceModel from '../src/deviceModel.ts'
+import * as deviceDefinitions from '../src/devices/index.ts'
 import { createBehavior, createEmptyBehaviorMap } from '../src/behaviorModel.ts'
 
 const require = createRequire(import.meta.url)
@@ -18,7 +18,7 @@ const module = { exports: {} }
 vm.runInNewContext(source, {
   module, exports: module.exports,
   require(name) {
-    if (name === '../deviceModel') return deviceModel
+    if (name === '../devices/index.ts') return deviceDefinitions
     if (name === '../appConfig') return {
       buttons: [{ id: 'power', label: '电源' }],
       behaviorSummary: behavior => behavior.key,

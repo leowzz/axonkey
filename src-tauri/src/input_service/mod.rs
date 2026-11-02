@@ -30,7 +30,7 @@ pub struct InputServiceStatus {
 #[derive(Clone, Default, Deserialize)]
 pub struct NativeSettings {
     #[serde(rename = "cmiotA15RecordingMode", default)]
-    pub(super) cmiot_a15_recording_mode: crate::devices::cmiot_a15_recording::RecordingMode,
+    pub(super) cmiot_a15_recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     #[serde(rename = "mouseEdgeWidth", default = "default_mouse_edge_width")]
     pub(super) mouse_edge_width: u16,
     #[serde(default)]
@@ -353,7 +353,7 @@ mod settings_tests {
 
     #[test]
     fn recording_mode_defaults_to_click_and_invalidates_only_remote_settings() {
-        use crate::devices::cmiot_a15_recording::RecordingMode;
+        use crate::devices::cmiot_a15::recording::RecordingMode;
         let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(legacy.cmiot_a15_recording_mode, RecordingMode::Click);
         let hold: NativeSettings =

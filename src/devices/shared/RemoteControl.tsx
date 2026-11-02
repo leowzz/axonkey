@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ButtonId } from '../behaviorModel'
-import type { RemoteButton } from '../appTypes'
-import { remoteKeyRegions, remoteViewBox } from '../remoteControlGeometry'
-import type { RemoteView } from '../devices/remoteTypes.ts'
+import type { ButtonId } from '../../behaviorModel'
+import type { RemoteButton } from '../../appTypes'
+import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
+import type { RemoteView } from '../types.ts'
 
 type Props = {
   buttons: Pick<RemoteButton, 'id' | 'label'>[]
@@ -14,13 +14,6 @@ type Props = {
 }
 
 const hintDismissedKey = 'axonkey.remote-interaction-hint.v1'
-const xiaomiRemoteView: RemoteView = {
-  buttons: [],
-  viewBox: remoteViewBox,
-  keyRegions: remoteKeyRegions,
-  artworkUrl: '/rc003-remote-keymap.svg',
-  ariaLabel: '小米 RC003 遥控器按键',
-}
 
 export function RemoteControl({
   buttons,

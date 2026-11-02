@@ -24,25 +24,24 @@ function compile(path, imports = {}, globals = {}) {
   })
   return module.exports
 }
+const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
+  './xbox-controller.svg': { default: 'controller.svg' },
+  './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
+})
 const model = compile('src/devices/integration/model.ts', {
-  '../xiaomi-remote/buttons': { xiaomiRemoteButtons: require('../src/devices/xiaomi-remote/buttons.ts').xiaomiRemoteButtons },
-  '../xiaomi-remote/view': { xiaomiRemoteView: { artworkUrl: 'remote.svg' } },
-  '../xbox-controller/xbox-controller.svg': { default: 'controller.svg' },
-  '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: { remoteView: { artworkUrl: 'remote.svg' }, buttons: require('../src/devices/cmiot-a15-remote/buttons.ts').cmiotA15RemoteButtons } },
+  '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
+  '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
+  '../xbox-controller/index.ts': xboxDefinition,
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
   'react-dom': { createPortal: node => node },
   '@tauri-apps/api/event': { listen: async () => () => {} },
-  '../../components/RemoteControl': { RemoteControl: () => null },
   './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
   './IntegrationControls': controls,
   '../../components/SettingsHelp': { SettingsHelp: () => null },
   '../../components/BatteryIndicator': battery,
-  '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
-  '../xiaomi-remote/view': { xiaomiRemoteView: {} },
-  '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: {} },
   './model': model,
 })
 function DeviceHub(props) {
@@ -398,7 +397,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: {} },
     '../../profileNavigation': require('../src/profileNavigation.ts'),
-    '../../components/RemoteControl': { RemoteControl },
+    '../shared/RemoteControl': { RemoteControl },
     '../../components/ProfileManager': { ProfileManager: () => null },
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
@@ -409,8 +408,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     './IntegrationControls': controls,
     '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
-    '../xiaomi-remote/view': { xiaomiRemoteView: {} },
-    '../cmiot-a15-remote/definition': { cmiotA15RemoteDevice: {} },
     './model': model,
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })

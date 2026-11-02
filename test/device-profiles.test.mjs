@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBehavior, createEmptyBehaviorMap } from '../src/behaviorModel.ts'
-import { devices } from '../src/deviceModel.ts'
+import { devices } from '../src/devices/index.ts'
 import {
   composeActiveProfileBehaviors, createDefaultDeviceProfiles, extractDeviceBehaviors,
   mergeDeviceBehaviors, parseStoredDeviceProfiles, snapshotDeviceProfiles,

@@ -138,7 +138,7 @@ fn is_input_node(id: &str, class: GUID) -> bool {
         && !id.starts_with("QUARBOR\\")
         && (matches!(class, HID_CLASS | KEYBOARD_CLASS | MOUSE_CLASS)
             || id.starts_with("HID\\")
-            || crate::devices::bluetooth_hid_service(&id).is_some())
+            || crate::devices::shared::bluetooth_hid_service(&id).is_some())
 }
 
 fn instance_id(set: &DeviceSet, info: &SP_DEVINFO_DATA) -> Result<String, String> {

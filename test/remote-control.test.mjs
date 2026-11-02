@@ -6,29 +6,26 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import * as geometry from '../src/remoteControlGeometry.ts'
+import { xiaomiRemoteView } from '../src/devices/xiaomi-remote/view.ts'
 import { cmiotA15RemoteView } from '../src/devices/cmiot-a15-remote/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
-const remoteArtworkUrl = `data:image/svg+xml,${encodeURIComponent(readFileSync(new URL('../public/rc003-remote-keymap.svg', import.meta.url), 'utf8'))}`
 const storage = new Map()
 const testWindow = new EventTarget()
 testWindow.localStorage = { getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value) }
 const testDocument = Object.assign(new EventTarget(), { hidden: false })
 test.beforeEach(() => { storage.clear(); testDocument.hidden = false })
-const source = ts.transpileModule(readFileSync(new URL('../src/components/RemoteControl.tsx', import.meta.url), 'utf8'), {
+const source = ts.transpileModule(readFileSync(new URL('../src/devices/shared/RemoteControl.tsx', import.meta.url), 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
 vm.runInNewContext(source, {
   module, exports: module.exports,
   window: testWindow, document: testDocument,
-  require: name => name === '../remoteControlGeometry' ? geometry
-    : name === '../../public/rc003-remote-keymap.svg?inline' ? { default: remoteArtworkUrl }
-    : require(name),
+  require: name => name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
 })
 const { RemoteControl } = module.exports
-const buttons = Object.keys(geometry.remoteKeyRegions).map(id => ({ id, label: id }))
+const buttons = Object.keys(xiaomiRemoteView.keyRegions).map(id => ({ id, label: id }))
 const keyboardEvent = (key, repeat = false) => ({ key, repeat, preventDefault() {}, stopPropagation() {} })
 
 function mount(props = {}) {

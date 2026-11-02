@@ -244,17 +244,14 @@ impl AudioService {
         }
     }
 
-    #[allow(dead_code)]
     pub fn pause(&self) {
         self.set_enabled(false);
     }
 
-    #[allow(dead_code)]
     pub fn resume(&self) {
         self.set_enabled(true);
     }
 
-    #[allow(dead_code)]
     pub fn restart(&self) -> Result<(), String> {
         self.pause();
         self.resume();

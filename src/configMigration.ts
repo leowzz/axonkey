@@ -7,7 +7,7 @@ import {
   triggerTypes,
 } from './behaviorModel.ts'
 import type { TriggerBehaviors } from './behaviorModel.ts'
-import { devices } from './deviceModel.ts'
+import { devices } from './devices/index.ts'
 import { parseStoredDeviceProfiles } from './deviceProfiles.ts'
 import { backupFilename } from './dataBackup.ts'
 import { parseSavedSequences, savedSequencesStorageKey } from './savedSequences.ts'

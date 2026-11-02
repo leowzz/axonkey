@@ -7,7 +7,7 @@ import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } f
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
 import { removedProfileSwitchTriggers } from '../../profileNavigation'
-import { RemoteControl } from '../../components/RemoteControl'
+import { RemoteControl } from '../shared/RemoteControl'
 import { ProfileManager } from '../../components/ProfileManager'
 import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
@@ -18,8 +18,6 @@ import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
-import { xiaomiRemoteView } from '../xiaomi-remote/view'
-import { cmiotA15RemoteDevice } from '../cmiot-a15-remote/definition'
 import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
@@ -403,7 +401,7 @@ export function InstanceWorkspace({
                   pressedId={(input.pressed[0] ?? null) as ButtonId | null}
                   mappedIds={mapped as ButtonId[]}
                   onSelect={setSelected}
-                  remoteView={instance.kind === 'rc003' ? xiaomiRemoteView : cmiotA15RemoteDevice.remoteView}
+                  remoteView={pkg.remoteView}
                 />
               )}
             </div>

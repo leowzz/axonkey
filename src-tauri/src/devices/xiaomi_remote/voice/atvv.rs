@@ -7,7 +7,7 @@ pub(super) struct AtvvDecoder {
 }
 
 impl AtvvDecoder {
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(target_os = "macos")]
     pub(super) fn pending_bytes(&self) -> usize {
         self.pending.len()
     }

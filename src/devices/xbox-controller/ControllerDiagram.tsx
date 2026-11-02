@@ -1,12 +1,25 @@
 import { useEffect, useId, useMemo, useRef } from 'react'
 import artwork from './xbox-controller-keymap.svg?raw'
-import { xboxInputs } from '../integration/model'
+import { xboxInputs } from './inputs.ts'
 
-export function ControllerDiagram({ selected, pressed, mapped, onSelect }: { selected: string; pressed: readonly string[]; mapped: readonly string[]; onSelect: (id: string) => void }) {
+export function ControllerDiagram({
+  selected,
+  pressed,
+  mapped,
+  onSelect,
+}: {
+  selected: string
+  pressed: readonly string[]
+  mapped: readonly string[]
+  onSelect: (id: string) => void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const unique = useId().replace(/:/g, '')
   // Bundled, trusted SVG only; instance-scoped IDs avoid collisions in multiple workspaces.
-  const svg = useMemo(() => artwork.replace(/xbox-keymap-/g, `${unique}-`).replace('role="img"', 'role="group"'), [unique])
+  const svg = useMemo(
+    () => artwork.replace(/xbox-keymap-/g, `${unique}-`).replace('role="img"', 'role="group"'),
+    [unique],
+  )
   useEffect(() => {
     for (const key of ref.current?.querySelectorAll<SVGGElement>('[data-key]') ?? []) {
       const id = `xbox.${key.dataset.key}`
@@ -24,5 +37,18 @@ export function ControllerDiagram({ selected, pressed, mapped, onSelect }: { sel
     const id = `xbox.${key?.dataset.key}`
     if (xboxInputs.some(input => input.id === id)) onSelect(id)
   }
-  return <div ref={ref} className="managed-controller-diagram" onClick={event => select(event.target)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(event.target) } }} dangerouslySetInnerHTML={{ __html: svg }} />
+  return (
+    <div
+      ref={ref}
+      className="managed-controller-diagram"
+      onClick={event => select(event.target)}
+      onKeyDown={event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          select(event.target)
+        }
+      }}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  )
 }

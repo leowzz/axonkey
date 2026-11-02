@@ -1,6 +1,14 @@
-export { xiaomiRemoteView } from './xiaomi-remote/index.ts'
-export { cmiotA15RemoteView } from './cmiot-a15-remote/index.ts'
-export { systemMouseDevice } from './system-mouse/index.ts'
-export type { RemoteView, RemoteKeyRegion } from './remoteTypes.ts'
-export { xiaomiRemoteButtons } from './xiaomi-remote/index.ts'
-export { cmiotA15RemoteButtons } from './cmiot-a15-remote/index.ts'
+export type {
+  DeviceId,
+  DeviceDefinition,
+  DeviceKind,
+  DeviceSupportPackage,
+  InputId,
+  RemoteButtonId,
+  RemoteView,
+  RemoteKeyRegion,
+} from './types.ts'
+export { devices, inputIds, deviceForInput } from './registry.ts'
+export * from './xiaomi-remote/index.ts'
+export * from './cmiot-a15-remote/index.ts'
+export * from './system-mouse/index.ts'

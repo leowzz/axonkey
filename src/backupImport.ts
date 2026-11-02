@@ -1,5 +1,5 @@
 import { createDefaultBehaviorMap, createEmptyBehaviorMap } from './behaviorModel.ts'
-import { devices } from './deviceModel.ts'
+import { devices } from './devices/index.ts'
 import { parseDataBackupDocument, restoreBackupStorage, writeBackupStorage } from './dataBackup.ts'
 import type { ParsedBackup } from './dataBackup.ts'
 import { inspectConfigMigration, legacyProfilesKey, migrateConfig } from './configMigration.ts'

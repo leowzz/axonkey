@@ -1,5 +1,5 @@
 import { createBehavior, createEmptyBehaviorMap, serializeSequence } from '../../src/behaviorModel.ts'
-import { devices } from '../../src/deviceModel.ts'
+import { devices } from '../../src/devices/index.ts'
 
 function profileData() {
   const first = createEmptyBehaviorMap()

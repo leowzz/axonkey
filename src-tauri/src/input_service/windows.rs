@@ -27,10 +27,10 @@ struct QuarborContext {
     device_id: Option<String>,
     a15_reports: crate::devices::cmiot_a15::ReportState,
     xbox_reports: crate::devices::xbox::ReportState,
-    a15_voice: crate::devices::cmiot_a15_fc::VoiceStream,
-    a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15_fc::PcmFrame>,
+    a15_voice: crate::devices::cmiot_a15::voice::VoiceStream,
+    a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15::voice::PcmFrame>,
     a15_voice_errors: u64,
-    a15_recording: crate::devices::cmiot_a15_recording::RecordingControl,
+    a15_recording: crate::devices::cmiot_a15::recording::RecordingControl,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
     dropped: u64,
@@ -1200,7 +1200,7 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
 }
 
 #[cfg(not(test))]
-fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFrame) {
+fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15::voice::PcmFrame) {
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
         if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
@@ -1210,7 +1210,7 @@ fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15_fc::PcmFram
 }
 
 #[cfg(test)]
-fn forward_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15_fc::PcmFrame) {}
+fn forward_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15::voice::PcmFrame) {}
 
 fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {
@@ -2070,7 +2070,7 @@ mod tests {
 
         #[test]
         fn a15_click_report_gap_discards_pcm_and_resynchronizes_at_next_fc_group() {
-            use crate::devices::cmiot_a15_recording::RecordingMode;
+            use crate::devices::cmiot_a15::recording::RecordingMode;
             let mut context = QuarborContext::default();
             context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
             context
@@ -3363,7 +3363,7 @@ mod tests {
         context
             .a15_recording
             .synchronize(
-                crate::devices::cmiot_a15_recording::RecordingMode::Click,
+                crate::devices::cmiot_a15::recording::RecordingMode::Click,
                 true,
                 |_| Ok::<_, ()>(()),
             )

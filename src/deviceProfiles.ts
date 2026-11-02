@@ -1,7 +1,7 @@
 import { cloneBehaviorMap, createEmptyBehaviorMap, parseStoredBehaviors } from './behaviorModel.ts'
 import type { BehaviorMap } from './behaviorModel.ts'
-import { devices } from './deviceModel.ts'
-import type { DeviceId } from './deviceModel.ts'
+import { devices } from './devices/index.ts'
+import type { DeviceId } from './devices/index.ts'
 import type { MappingProfile, StoredProfiles } from './appTypes.ts'
 
 export const deviceProfilesStorageVersion = 2

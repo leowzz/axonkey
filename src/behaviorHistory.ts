@@ -1,5 +1,5 @@
 import type { BehaviorMap } from './behaviorModel'
-import type { DeviceId } from './deviceModel'
+import type { DeviceId } from './devices/index.ts'
 import { mergeDeviceBehaviors } from './deviceProfiles.ts'
 
 export type BehaviorHistory = {

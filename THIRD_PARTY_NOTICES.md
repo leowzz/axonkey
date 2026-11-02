@@ -52,7 +52,7 @@ category validation, portable byte reads and unsigned noise-generator arithmetic
 and separate G.722.1 encode/decode entry points alongside the original Siren7
 API. The Rust adapter serializes access to upstream global codec state.
 Implementation notes are retained in [vendor/libsiren/AXONKEY.md](vendor/libsiren/AXONKEY.md)
-and [CMIOT_A15_AUDIO.md](src-tauri/src/devices/CMIOT_A15_AUDIO.md).
+and [A15 audio notes](src-tauri/src/devices/cmiot_a15/README.md).
 
 The original authorship and license headers remain in the vendored source.
 Distribution of statically linked binaries is subject to the applicable LGPL

@@ -45,7 +45,7 @@ impl Device {
             return Some(address.clone());
         }
         let id = self.instance_id.to_ascii_uppercase();
-        let segment = crate::devices::bluetooth_hid_service(&id)?
+        let segment = crate::devices::shared::bluetooth_hid_service(&id)?
             .split('\\')
             .next()?;
         let address = segment.rsplit('_').next()?;
