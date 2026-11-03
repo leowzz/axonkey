@@ -1514,7 +1514,7 @@ fn run(shared: Arc<Shared>) {
                 continue;
             }
             if status.state == "opening"
-                && instance.kind != "rc003"
+                && (cfg!(target_os = "macos") || instance.kind != "rc003")
                 && !readers.contains_key(&instance.id)
             {
                 // Retry an open error on the next scan, not on every 8 ms tick.
