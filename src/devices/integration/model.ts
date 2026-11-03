@@ -2,6 +2,7 @@ import type { TriggerBehaviors } from '../../behaviorModel'
 import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
 import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
 import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
+import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
 import { xboxSupportPackage } from '../xbox-controller/index.ts'
 
 export type { DeviceKind } from '../types.ts'
@@ -78,6 +79,7 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   xboxSupportPackage,
   xiaomiRemoteSupportPackage,
   cmiotA15SupportPackage,
+  xmBt29SupportPackage,
 ]
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })

@@ -19,7 +19,7 @@ export type RemoteView = {
 export type RemoteButtonId = XiaomiRemoteButtonId | CmiotA15RemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15'
+export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29'
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

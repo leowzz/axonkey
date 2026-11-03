@@ -174,7 +174,7 @@ impl AudioServiceManager {
                     .entry(target.instance_id.clone())
                     .or_insert_with(|| {
                         #[cfg(any(windows, target_os = "macos"))]
-                        if target.kind == "cmiotA15" {
+                        if matches!(target.kind.as_str(), "cmiotA15" | "xmBt29") {
                             return Arc::new(PlatformAudioService::start_a15());
                         }
                         Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))

@@ -7,6 +7,21 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
+
+fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
+    if !matches!(kind, "cmiotA15" | "xmBt29") {
+        return None;
+    }
+    Some(
+        if software.is_some_and(|version| version.contains(XM_BT_29_SOFTWARE_MARKER)) {
+            "xmBt29"
+        } else {
+            "cmiotA15"
+        },
+    )
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DeviceInformation {
@@ -45,7 +60,7 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .iter_mut()
         .find(|device| device.id == binding)
         .ok_or("未找到绑定设备")?;
-    if !matches!(device.kind.as_str(), "rc003" | "cmiotA15")
+    if !matches!(device.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
         || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
@@ -93,7 +108,7 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .discovered
                 .iter()
                 .filter(|d| {
-                    matches!(d.kind.as_str(), "rc003" | "cmiotA15")
+                    matches!(d.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
                         && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
@@ -163,13 +178,21 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: Devi
         return;
     };
     device.device_info = info.clone();
-    let Some(firmware) = info.firmware_revision.as_deref() else {
-        return;
-    };
+    let detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref());
+    if let Some(kind) = detected_kind {
+        device.kind = kind.into();
+    }
     let mut next = snapshot.store.clone();
     for instance in &mut next.instances {
-        if instance.kind == "cmiotA15" && instance.binding.as_ref() == Some(&target.id) {
-            instance.apply_recording_firmware(firmware);
+        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
+            && instance.binding.as_ref() == Some(&target.id)
+        {
+            if let Some(kind) = detected_kind {
+                instance.kind = kind.into();
+            }
+            if let Some(firmware) = info.firmware_revision.as_deref() {
+                instance.apply_recording_firmware(firmware);
+            }
         }
     }
     if next.instances == snapshot.store.instances || snapshot.error.is_some() {
@@ -340,6 +363,12 @@ fn read_service(
                 Ok(())
             })();
             if let Err(error) = read {
+                // Software Version is optional in the Device Information Service.
+                // A missing or unreadable 2A28 must leave the field empty without
+                // making the rest of the device information look unavailable.
+                if id == 0x2a28 {
+                    continue;
+                }
                 errors.push(error);
             }
         }
@@ -355,7 +384,23 @@ fn read_service(
 
 #[cfg(windows)]
 fn read_batch(targets: &[Discovered], _all_targets: &[Discovered]) -> Vec<DeviceInformation> {
-    targets.iter().map(|target| read(target, true)).collect()
+    const TIMEOUT: Duration = Duration::from_secs(15);
+    targets
+        .iter()
+        .map(|target| {
+            let target = target.clone();
+            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+            thread::spawn(move || {
+                let _ = sender.send(read(&target, true));
+            });
+            receiver
+                .recv_timeout(TIMEOUT)
+                .unwrap_or_else(|_| DeviceInformation {
+                    error: Some("设备信息读取超时".into()),
+                    ..Default::default()
+                })
+        })
+        .collect()
 }
 
 #[cfg(target_os = "macos")]
@@ -400,6 +445,25 @@ fn read_batch(targets: &[Discovered], all_targets: &[Discovered]) -> Vec<DeviceI
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn software_version_selects_xm_bt_29_and_missing_version_keeps_a15() {
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("XFRSD0D_M_R01_761")),
+            Some("xmBt29")
+        );
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("XFRSD0D_M_R01_761_debug")),
+            Some("xmBt29")
+        );
+        assert_eq!(kind_for_software("xmBt29", None), Some("cmiotA15"));
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("CMIOT3_B311")),
+            Some("cmiotA15")
+        );
+        assert_eq!(kind_for_software("rc003", Some("XFRSD0D_M_R01_761")), None);
+    }
+
     #[test]
     fn retries_three_times_then_waits_five_minutes_and_resets_after_success() {
         let mut schedule = Schedule::default();

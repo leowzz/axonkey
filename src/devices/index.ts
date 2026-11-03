@@ -11,4 +11,5 @@ export type {
 export { devices, inputIds, deviceForInput } from './registry.ts'
 export * from './xiaomi-remote/index.ts'
 export * from './cmiot-a15-remote/index.ts'
+export * from './xm-bt-29-remote/index.ts'
 export * from './system-mouse/index.ts'

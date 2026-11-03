@@ -101,7 +101,7 @@ fn recording_a15_instances(snapshot: &crate::input_service::managed::Snapshot) -
         .instances
         .iter()
         .filter(|instance| {
-            instance.kind == "cmiotA15"
+            matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
                 && snapshot
                     .runtime
                     .get(&instance.id)

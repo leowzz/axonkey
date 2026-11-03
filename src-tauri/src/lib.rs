@@ -873,7 +873,7 @@ async fn uninstall_bound_device_drivers(
             .filter(|instance| {
                 matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
                 ) && instance.binding.is_some()
             })
             .map(|instance| instance.id.clone())
@@ -1145,7 +1145,7 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
             instance.id == instance_id
                 && matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
                 )
         })
         .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
@@ -1179,7 +1179,7 @@ fn resolve_installed_quarbor_target(
         .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
     if !matches!(
         instance.kind.as_str(),
-        "rc003" | "cmiotA15" | "xboxBluetooth"
+        "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
     ) || instance.binding.is_none()
     {
         return Ok(None);
@@ -1257,7 +1257,8 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .iter()
         .filter(|instance| {
             instance.kind == "rc003"
-                || (cfg!(any(windows, target_os = "macos")) && instance.kind == "cmiotA15")
+                || (cfg!(any(windows, target_os = "macos"))
+                    && matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29"))
         })
         .map(|instance| {
             let voice_target = instance.voice_target.clone().or_else(|| {

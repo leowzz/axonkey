@@ -395,7 +395,7 @@ function DeviceCard({
               {status}
             </span>
           )}
-          {!unbound && (kind === 'rc003' || kind === 'cmiotA15') && (
+          {!unbound && (kind === 'rc003' || kind === 'cmiotA15' || kind === 'xmBt29') && (
             <span className="my-devices-power">
               <BatteryIndicator level={batteryLevel} />
             </span>
@@ -494,7 +494,11 @@ function IntegrationDialog({
                     <strong>{pkg.name}</strong>
                     <small>
                       {pkg.model.split(' · ')[0]}
-                      {pkg.kind === 'cmiotA15' && platform !== 'windows' && platform !== 'macos' ? ' · 仅配置' : ''}
+                      {(pkg.kind === 'cmiotA15' || pkg.kind === 'xmBt29') &&
+                      platform !== 'windows' &&
+                      platform !== 'macos'
+                        ? ' · 仅配置'
+                        : ''}
                     </small>
                   </span>
                 </button>
@@ -551,10 +555,10 @@ function IntegrationDialog({
                   </button>
                 </div>
               )}
-              {kind === 'cmiotA15' && platform !== 'windows' && platform !== 'macos' && (
+              {(kind === 'cmiotA15' || kind === 'xmBt29') && platform !== 'windows' && platform !== 'macos' && (
                 <p className="integration-attention">此设备暂不支持输入监听。</p>
               )}
-              {platform === 'windows' && (kind === 'rc003' || kind === 'cmiotA15') && (
+              {platform === 'windows' && (kind === 'rc003' || kind === 'cmiotA15' || kind === 'xmBt29') && (
                 <p className="integration-attention">
                   添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
                 </p>

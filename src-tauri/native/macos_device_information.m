@@ -47,7 +47,10 @@ static NSString *AKCompactAddress(NSString *value) {
     NSString *key = keys[uuid];
     if (key == nil) return;
     NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
-    if (value == nil) { [self.errors addObject:@"设备信息不是有效 UTF-8 文本"]; return; }
+    if (value == nil) {
+        if (![uuid isEqualToString:@"2A28"]) [self.errors addObject:@"设备信息不是有效 UTF-8 文本"];
+        return;
+    }
     NSMutableCharacterSet *trim = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
     [trim addCharactersInRange:NSMakeRange(0, 1)];
     value = [value stringByTrimmingCharactersInSet:trim];
@@ -180,8 +183,13 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
     device.pending -= 1;
-    if (error) [device.errors addObject:error.localizedDescription];
-    else [device acceptValue:characteristic.value UUID:characteristic.UUID.UUIDString];
+    if (error) {
+        if (![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
+            [device.errors addObject:error.localizedDescription];
+        }
+    } else {
+        [device acceptValue:characteristic.value UUID:characteristic.UUID.UUIDString];
+    }
     if (!device.pending) { device.done = YES; [self checkCompletion]; }
 }
 @end

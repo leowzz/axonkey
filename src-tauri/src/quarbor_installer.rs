@@ -35,7 +35,7 @@ impl Device {
         match kind {
             "xboxBluetooth" => crate::devices::xbox::matches_instance(&self.instance_id),
             "rc003" => self.is_rc003(),
-            "cmiotA15" => crate::devices::cmiot_a15::matches_instance(&self.instance_id),
+            "cmiotA15" | "xmBt29" => crate::devices::cmiot_a15::matches_instance(&self.instance_id),
             _ => false,
         }
     }
