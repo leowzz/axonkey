@@ -19,9 +19,18 @@ pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>>
                 values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
             }
         }
-    } else if kind == "xmBt29" {
-        let (report_id, down) = crate::devices::xm_bt_29::decode(report)?;
-        for &(id, _, button) in crate::devices::xm_bt_29::BUTTONS {
+    } else if matches!(kind, "xmBt29" | "rc313") {
+        let (report_id, down) = if kind == "xmBt29" {
+            crate::devices::xm_bt_29::decode(report)?
+        } else {
+            crate::devices::rc_313::decode(report)?
+        };
+        let buttons = if kind == "xmBt29" {
+            crate::devices::xm_bt_29::BUTTONS
+        } else {
+            crate::devices::rc_313::BUTTONS
+        };
+        for &(id, _, button) in buttons {
             if id == report_id {
                 values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
             }

@@ -332,7 +332,9 @@ fn validate(store: &Store) -> Result<(), String> {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
         }
-        if !["xboxBluetooth", "rc003", "cmiotA15", "xmBt29"].contains(&instance.kind.as_str()) {
+        if !["xboxBluetooth", "rc003", "cmiotA15", "xmBt29", "rc313"]
+            .contains(&instance.kind.as_str())
+        {
             return Err("未知设备支持包".into());
         }
         if instance.name.trim().is_empty() || instance.name.len() > 200 {
@@ -620,8 +622,8 @@ impl DeviceManager {
             .iter()
             .find(|item| item.id == instance_id)
             .ok_or("设备已被移除")?;
-        if !matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29") {
-            return Err("仅 CMIOT A15 / XM-BT-29 支持手动控制录音".into());
+        if !matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
+            return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 支持手动控制录音".into());
         }
         if !self.shared.enabled.load(Ordering::Acquire)
             || !instance.enabled
@@ -631,7 +633,7 @@ impl DeviceManager {
                 .get(instance_id)
                 .is_some_and(|status| status.state == "exclusive")
         {
-            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 设备".into());
+            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 / RC-313 设备".into());
         }
         Ok(())
     }
@@ -716,14 +718,14 @@ impl DeviceManager {
                 if device.kind != instance.kind {
                     return Err("设备与支持包不匹配".into());
                 }
-                if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29") {
+                if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
                     if let Some(firmware) = &device.device_info.firmware_revision {
                         instance.apply_recording_firmware(firmware);
                     }
                 }
             }
         }
-        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
+        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
             && !instance.cmiot_a15_recording_mode_editable
         {
             instance.cmiot_a15_recording_mode =
@@ -764,7 +766,7 @@ impl DeviceManager {
             .ok_or("未找到要更新驱动状态的设备实例")?;
         if !matches!(
             instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
+            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
         ) {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
@@ -920,7 +922,7 @@ fn open_reader(
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
     }
     #[cfg(target_os = "macos")]
-    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
+    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
         && !super::InputService::input_monitoring_granted()
     {
         return Err("请先授予输入监控权限，再连接 A15".into());
@@ -928,7 +930,7 @@ fn open_reader(
     let device = open(api, path)?;
     device.set_blocking_mode(false).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29") {
+    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
         return Ok(InputReader::A15(a15::A15Reader::open(
             device, instance, shared, cancel,
         )));
@@ -1018,8 +1020,10 @@ fn remember_pairing_ids(
                 changed = true;
             }
         }
-        if matches!(instance.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
-            && instance.voice_target.is_none()
+        if matches!(
+            instance.kind.as_str(),
+            "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+        ) && instance.voice_target.is_none()
         {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
@@ -1385,7 +1389,7 @@ fn run(shared: Arc<Shared>) {
             for instance in &configs {
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
                 ) {
                     continue;
                 }
@@ -1408,7 +1412,7 @@ fn run(shared: Arc<Shared>) {
                 };
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
                 ) || instance.binding.is_none()
                     || !instance.enabled
                     || !enabled
@@ -1453,7 +1457,7 @@ fn run(shared: Arc<Shared>) {
             let path = instance.binding.as_ref().and_then(|id| paths.get(id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
+            } else if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
                 && !cfg!(any(windows, target_os = "macos"))
             {
                 "unsupported"
@@ -1472,7 +1476,7 @@ fn run(shared: Arc<Shared>) {
             #[cfg(all(windows, not(test)))]
             if matches!(
                 instance.kind.as_str(),
-                "rc003" | "cmiotA15" | "xmBt29" | "xboxBluetooth"
+                "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
             ) {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
@@ -1537,8 +1541,10 @@ fn run(shared: Arc<Shared>) {
                             // macOS remote adapters execute their own actions; reports here
                             // only update the instance UI.
                             let maps = if cfg!(target_os = "macos")
-                                && matches!(instance.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
-                            {
+                                && matches!(
+                                    instance.kind.as_str(),
+                                    "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+                                ) {
                                 HashMap::new()
                             } else {
                                 active_mappings(instance)

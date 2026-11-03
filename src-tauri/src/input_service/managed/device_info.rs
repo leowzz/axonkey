@@ -8,18 +8,17 @@ use std::{
 };
 
 const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
+const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302_1601";
 
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
-    if !matches!(kind, "cmiotA15" | "xmBt29") {
+    if !matches!(kind, "cmiotA15" | "xmBt29" | "rc313") {
         return None;
     }
-    Some(
-        if software.is_some_and(|version| version.contains(XM_BT_29_SOFTWARE_MARKER)) {
-            "xmBt29"
-        } else {
-            "cmiotA15"
-        },
-    )
+    Some(match software {
+        Some(version) if version.contains(XM_BT_29_SOFTWARE_MARKER) => "xmBt29",
+        Some(version) if version.contains(RC_313_SOFTWARE_MARKER) => "rc313",
+        _ => "cmiotA15",
+    })
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,8 +59,10 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .iter_mut()
         .find(|device| device.id == binding)
         .ok_or("未找到绑定设备")?;
-    if !matches!(device.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
-        || !device.connected
+    if !matches!(
+        device.kind.as_str(),
+        "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+    ) || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
     {
@@ -108,7 +109,7 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .discovered
                 .iter()
                 .filter(|d| {
-                    matches!(d.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29")
+                    matches!(d.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29" | "rc313")
                         && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
@@ -184,7 +185,7 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: Devi
     }
     let mut next = snapshot.store.clone();
     for instance in &mut next.instances {
-        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29")
+        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
             && instance.binding.as_ref() == Some(&target.id)
         {
             if let Some(kind) = detected_kind {
@@ -447,7 +448,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn software_version_selects_xm_bt_29_and_missing_version_keeps_a15() {
+    fn software_version_selects_model_and_missing_version_keeps_a15() {
         assert_eq!(
             kind_for_software("cmiotA15", Some("XFRSD0D_M_R01_761")),
             Some("xmBt29")
@@ -457,6 +458,15 @@ mod tests {
             Some("xmBt29")
         );
         assert_eq!(kind_for_software("xmBt29", None), Some("cmiotA15"));
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("CMIOT18_B302_1601")),
+            Some("rc313")
+        );
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("CMIOT18_B302_1601_debug")),
+            Some("rc313")
+        );
+        assert_eq!(kind_for_software("rc313", None), Some("cmiotA15"));
         assert_eq!(
             kind_for_software("cmiotA15", Some("CMIOT3_B311")),
             Some("cmiotA15")

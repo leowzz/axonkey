@@ -223,7 +223,7 @@ export function InstanceWorkspace({
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'xboxBluetooth'].includes(instance.kind)
+  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'rc313', 'xboxBluetooth'].includes(instance.kind)
   const ready = status?.state === 'exclusive'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
@@ -359,11 +359,16 @@ export function InstanceWorkspace({
             </div>
           )}
         <aside className="mapping-device-rail panel-surface">
-          {(instance.kind === 'rc003' || instance.kind === 'cmiotA15' || instance.kind === 'xmBt29') && (
+          {(instance.kind === 'rc003' ||
+            instance.kind === 'cmiotA15' ||
+            instance.kind === 'xmBt29' ||
+            instance.kind === 'rc313') && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
               onToggle={
-                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' ? () => void toggleRecording() : undefined
+                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
+                  ? () => void toggleRecording()
+                  : undefined
               }
               disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
             />
@@ -384,7 +389,10 @@ export function InstanceWorkspace({
                 <span />
               </button>
             </div>
-            {(instance.kind === 'rc003' || instance.kind === 'cmiotA15' || instance.kind === 'xmBt29') && (
+            {(instance.kind === 'rc003' ||
+              instance.kind === 'cmiotA15' ||
+              instance.kind === 'xmBt29' ||
+              instance.kind === 'rc313') && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -410,7 +418,7 @@ export function InstanceWorkspace({
             </div>
           </div>
           {(instance.kind === 'rc003' ||
-            ((instance.kind === 'cmiotA15' || instance.kind === 'xmBt29') &&
+            ((instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313') &&
               (platform === 'windows' || platform === 'macos'))) && (
             <button
               type="button"
@@ -584,7 +592,7 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {(instance.kind === 'cmiotA15' || instance.kind === 'xmBt29') &&
+                  {(instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313') &&
                     instance.cmiotA15RecordingModeEditable &&
                     (platform === 'windows' || platform === 'macos') && (
                       <label className="settings-form-row">
