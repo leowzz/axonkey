@@ -391,6 +391,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
   const RemoteControl = () => null
+  const WorkflowAxonkey = () => null
+  const modal = { opened: 0, closed: 0, showModal() { this.opened++ }, close() { this.closed++ } }
   const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/event': { listen: async (_, listener) => { listeners.push(listener); return () => {} } },
@@ -404,8 +406,11 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
-    '../../components/WorkflowAxonkey': { WorkflowAxonkey: () => null },
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
     './IntegrationControls': controls,
     '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
     './model': model,
@@ -443,6 +448,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const views = []
   const settingsButton = { getBoundingClientRect: () => ({ x: 420, y: 18, width: 30, height: 30 }) }
   const createNodeMock = node => {
+    if (node.type === 'dialog') return modal
     if (node.type === 'button' && node.props.className === 'device-workspace-settings') return settingsButton
     if (node.type === 'section' && node.props.className === 'managed-driver-notice') {
       return {
@@ -546,7 +552,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(notice.findAllByType('button').length, 0, 'offline devices cannot start driver installation')
       act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
-      const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav managed-instance-settings-nav' })
+      const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav device-settings-drawer-nav' })
       assert.deepEqual(settingsNavigation.findAllByType('button').map(text), ['设备设置', '设备信息'])
       const manageAudioDriver = views[0].root.findAllByType('button').find(button => text(button) === '管理驱动')
       act(() => manageAudioDriver.props.onClick())
@@ -697,6 +703,35 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(refreshButton().props.disabled, true)
     }
     assert.deepEqual(actions.at(-1), ['calibrate', 'one'])
+
+    const workspace = views[0].root
+    const workflow = workspace.findByType(WorkflowAxonkey)
+    const close = () => workspace.findByProps({ 'aria-label': '关闭设备设置' }).props.onClick()
+    const open = () => workspace.findByProps({ className: 'device-workspace-settings' }).props.onClick()
+    act(close)
+    const openedBefore = modal.opened
+    const closedBefore = modal.closed
+    act(open)
+    assert.equal(modal.opened, openedBefore + 1, 'settings opens as a native modal that blocks background navigation')
+    assert.equal(workspace.findByType(WorkflowAxonkey), workflow, 'opening settings preserves the mounted workflow')
+    const dialog = () => workspace.findByType('dialog')
+    const inside = {}
+    act(() => dialog().props.onClick({ target: inside, currentTarget: {} }))
+    assert.equal(workspace.findAllByType('dialog').length, 1, 'clicking inside does not close settings')
+    let prevented = false
+    act(() => dialog().props.onCancel({ preventDefault() { prevented = true } }))
+    assert.equal(prevented, true)
+    assert.equal(workspace.findAllByType('dialog').length, 0, 'Escape closes settings without leaving the device')
+    assert.equal(modal.closed, closedBefore + 1)
+    assert.equal(workspace.findByType(WorkflowAxonkey), workflow)
+    act(open)
+    const backdrop = {}
+    act(() => dialog().props.onClick({ target: backdrop, currentTarget: backdrop }))
+    assert.equal(workspace.findAllByType('dialog').length, 0, 'clicking the backdrop closes settings')
+    act(open)
+    act(close)
+    assert.equal(workspace.findAllByType('dialog').length, 0, 'close button returns to mapping')
+    assert.equal(workspace.findByType(WorkflowAxonkey), workflow)
   } finally { act(() => views.forEach(view => view.unmount())) }
 })
 

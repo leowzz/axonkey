@@ -74,7 +74,7 @@ export type StoredUiState = {
   scrollTop: Partial<Record<AppPage, number>>
 }
 
-const appPages: readonly AppPage[] = ['home', 'mapping', 'settings', 'device-settings']
+const appPages: readonly AppPage[] = ['home', 'mapping', 'settings']
 const settingsSections = ['startup', 'permissions', 'remote', 'backup', 'about'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'cmiotA15', 'mouse']
 
@@ -135,7 +135,7 @@ export function getStoredUiState(): StoredUiState {
       activePage:
         parsed.activePage === 'about'
           ? 'settings'
-          : parsed.activePage === 'mappingFlow'
+          : parsed.activePage === 'mappingFlow' || parsed.activePage === 'device-settings'
             ? 'mapping'
             : parsed.activePage === 'overview' || parsed.activePage === 'devices'
               ? 'home'
@@ -181,7 +181,7 @@ export function getStoredSettings(): StoredSettings {
     enabled: true,
     mouseEnabled: true,
     mouseVerticalScrollIntervalMs: 50,
-    mouseHorizontalScrollIntervalMs: 50,
+    mouseHorizontalScrollIntervalMs: 300,
     mouseKeyHoldMs: 10,
     mouseScrollSensitivity: 100,
     mouseIgnoreScrollAcceleration: true,
@@ -206,7 +206,7 @@ export function getStoredSettings(): StoredSettings {
         typeof parsed.mouseHorizontalScrollIntervalMs === 'number' &&
         Number.isFinite(parsed.mouseHorizontalScrollIntervalMs)
           ? Math.max(0, Math.min(10000, Math.round(parsed.mouseHorizontalScrollIntervalMs)))
-          : 50,
+          : 300,
       mouseVerticalScrollIntervalMs:
         typeof parsed.mouseVerticalScrollIntervalMs === 'number' &&
         Number.isFinite(parsed.mouseVerticalScrollIntervalMs)

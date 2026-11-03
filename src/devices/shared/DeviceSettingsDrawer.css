@@ -1,0 +1,113 @@
+.device-settings-drawer {
+  inset: 0;
+  width: min(580px, calc(100vw - 48px));
+  height: calc(100dvh - var(--native-titlebar-height));
+  max-height: none;
+  margin: var(--native-titlebar-height) 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid #d3dfe8;
+  color: #344d61;
+  background: #f1f4f6;
+  box-shadow: -12px 0 35px rgb(24 50 71 / 14%);
+  overflow: hidden;
+}
+.device-settings-drawer::backdrop {
+  background: rgb(38 59 76 / 18%);
+  backdrop-filter: blur(1px);
+}
+.device-settings-drawer-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.device-settings-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 18px;
+  flex-shrink: 0;
+}
+.device-settings-drawer-header h2 {
+  margin: 0;
+  color: #304f6d;
+  font-size: 18px;
+  font-weight: 600;
+}
+.device-settings-drawer-header p {
+  margin: 10px 0 0;
+  color: #71879b;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.device-settings-drawer nav.device-settings-drawer-nav {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 0 24px 20px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.device-settings-drawer .device-settings-drawer-nav > button {
+  width: auto;
+  background: transparent;
+  border-color: transparent;
+  white-space: nowrap;
+}
+.device-settings-drawer .device-settings-drawer-nav > button[aria-current='page'] {
+  color: #1379e2;
+  border-color: #c9dcf2;
+  background: #fff;
+}
+.device-settings-drawer-nav .settings-refresh {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 0;
+}
+.device-settings-drawer-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 24px 24px;
+}
+.device-settings-drawer .settings-form-row {
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+}
+.device-settings-drawer .managed-remove {
+  margin-left: 122px;
+  flex-wrap: wrap;
+}
+.device-settings-drawer input:not([type]) {
+  padding: 7px 9px;
+  border: 1px solid #ccdbe8;
+  border-radius: 5px;
+  background: #fff;
+  color: #405f7d;
+  min-width: 0;
+}
+.device-settings-drawer .dialog-secondary,
+.device-settings-drawer .managed-bound-device > button,
+.device-settings-drawer .managed-remove > button,
+.device-settings-drawer .managed-driver-status-control > button {
+  padding: 7px 10px;
+  color: #547a9c;
+  border: 1px solid #d2dfeb;
+  background: #fff;
+  border-radius: 5px;
+}
+.device-settings-drawer .dialog-close {
+  flex-shrink: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.device-settings-drawer-panel > .settings-form-fields {
+  margin-top: 20px;
+}

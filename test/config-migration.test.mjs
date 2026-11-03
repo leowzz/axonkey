@@ -286,3 +286,13 @@ test('failed overwrite remembers its target across reopening and requests bindin
   assert.equal(bindingId, target.id)
   assert.equal(data.getItem(legacyProfilesKey), null)
 })
+
+
+test('legacy exports default missing horizontal intervals to 300 ms and preserve explicit values', () => {
+  for (const value of [undefined, 0, 50, 750]) {
+    const data = storage({ [legacyProfilesKey]: shared(), [settingsKey]: value === undefined ? {} : {mouseHorizontalScrollIntervalMs:value} })
+    const document = JSON.parse(createLegacyConfigExport(data).content)
+    assert.equal(document.settings.mouseHorizontalScrollIntervalMs,value ?? 300)
+    assert.equal(document.settings.mouseVerticalScrollIntervalMs,50)
+  }
+})

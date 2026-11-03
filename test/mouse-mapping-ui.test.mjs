@@ -25,13 +25,16 @@ function load(file) {
       triggerLabels: {click:'单击',doubleClick:'双击',longPress:'长按'},
       behaviorSummary: behavior => behavior.key ?? behavior.type,
     }
+    if (name.endsWith('.css')) return {}
+    if (name === 'react-dom') return { createPortal: node => node }
     if (name.startsWith('.')) {
       const path = resolve(dirname(file), name)
       return load(extname(path) ? path : existsSync(path+'.ts') ? path+'.ts' : path+'.tsx')
     }
     return require(name)
   }
-  vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console, window: testWindow }, { filename:file })
+  vm.runInNewContext(source, { module, exports:module.exports, require:localRequire, console, window: testWindow,
+    document: { body: {}, activeElement: null }, HTMLElement: class {}, setTimeout, clearTimeout }, { filename:file })
   return module.exports
 }
 const { DeviceStatusCard } = load('src/components/DeviceRail.tsx')
@@ -204,5 +207,71 @@ test('mouse key list defaults off for new and older settings and restores an exp
     }
   } finally {
     delete testWindow.localStorage
+  }
+})
+
+
+test('horizontal interval defaults to 300 ms without replacing saved intervals', () => {
+  const { getStoredSettings } = load('src/appConfig.tsx')
+  const previousStorage = testWindow.localStorage
+  try {
+    for (const [stored, expected] of [
+      [null, 300], ['{}', 300], ['invalid', 300],
+      [JSON.stringify({ mouseHorizontalScrollIntervalMs: 50 }), 50],
+      [JSON.stringify({ mouseHorizontalScrollIntervalMs: 0 }), 0],
+      [JSON.stringify({ mouseHorizontalScrollIntervalMs: 750 }), 750],
+    ]) {
+      testWindow.localStorage = { getItem: () => stored }
+      const settings = getStoredSettings()
+      assert.equal(settings.mouseHorizontalScrollIntervalMs, expected)
+      assert.equal(settings.mouseVerticalScrollIntervalMs, 50)
+    }
+    testWindow.localStorage = { getItem: () => JSON.stringify({activePage:'device-settings', selectedDeviceId:'mouse'}) }
+    const restored = load('src/appConfig.tsx').getStoredUiState()
+    assert.equal(restored.activePage, 'mapping')
+    assert.equal(restored.selectedDeviceId, 'mouse')
+  } finally { testWindow.localStorage = previousStorage }
+})
+
+test('each standalone device settings form works inside the shared drawer', () => {
+  const { DeviceSettingsDrawer } = load('src/devices/shared/DeviceSettingsDrawer.tsx')
+  const forms = [
+    [load('src/devices/system-mouse/SystemMouseSettingsPage.tsx').SystemMouseSettingsPage, '系统鼠标'],
+    [load('src/devices/xiaomi-remote/XiaomiRemoteSettingsPage.tsx').XiaomiRemoteSettingsPage, '小米遥控器'],
+    [load('src/devices/cmiot-a15-remote/CmiotA15SettingsPage.tsx').CmiotA15SettingsPage, '移动遥控器'],
+  ]
+  for (const [Form, name] of forms) {
+    let opened = 0, closed = 0, audio = 0, interval, view
+    function Host() {
+      const [show, setShow] = React.useState(true)
+      const [horizontal, setHorizontal] = React.useState(300)
+      return show && React.createElement(DeviceSettingsDrawer, {deviceName:name, onClose:()=>setShow(false)},
+        React.createElement(Form, { onOpenAudioDriver:()=>audio++, cmiotA15RecordingMode:'click',
+          showMouseKeyGrid:false, mouseIgnoreScrollAcceleration:true, mouseScrollSensitivity:100,
+          mouseVerticalScrollIntervalMs:50, mouseHorizontalScrollIntervalMs:horizontal, mouseEdgeWidth:8, mouseKeyHoldMs:10,
+          onMouseHorizontalScrollIntervalMsChange: value => { interval=value;setHorizontal(value) },
+        }))
+    }
+    act(()=>{view=Renderer.create(React.createElement(Host), {createNodeMock:node=>node.type==='dialog'
+      ? {showModal(){opened++},close(){closed++}} : null})})
+    try {
+      assert.equal(opened,1)
+      assert.ok(text(view.root.findByType('dialog')).includes(name))
+      assert.equal(view.root.findAllByProps({'aria-label':'返回我的设备'}).length,0)
+      const number = view.root.findAllByProps({id:'mouse-horizontal-interval'})[0]
+      if (number) {
+        assert.equal(number.props.value,300)
+        act(()=>number.props.onChange({target:{value:'750'}}))
+        assert.equal(interval,750)
+        assert.equal(view.root.findByProps({id:'mouse-horizontal-interval'}).props.value,750)
+        assert.equal(opened,1,'editing a setting does not reopen the drawer')
+      } else {
+        act(()=>view.root.findAllByType('button').find(button=>text(button)==='管理驱动').props.onClick())
+        assert.equal(audio,1)
+      }
+      act(()=>view.root.findByProps({'aria-label':'关闭设备设置'}).props.onClick())
+      assert.equal(view.root.findAllByType('dialog').length,0)
+      assert.equal(closed,1)
+    } finally {act(()=>view.unmount())}
   }
 })

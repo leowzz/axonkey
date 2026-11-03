@@ -15,6 +15,7 @@ import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
+import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
@@ -448,231 +449,217 @@ export function InstanceWorkspace({
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
           )}
-          {settings ? (
-            <div className="managed-instance-settings">
-              <div className="managed-instance-settings-layout">
-                <nav className="settings-nav managed-instance-settings-nav" aria-label={`${instance.name}设置分类`}>
+          <section className="key-picker">
+            <div className="key-picker-head">
+              <h2>{selectedInput.label}</h2>
+            </div>
+            {instance.kind === 'xboxBluetooth' && (
+              <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
+                {triggerTypes.map(trigger => (
                   <button
                     type="button"
-                    aria-current={settingsSection === 'overview' ? 'page' : undefined}
-                    onClick={() => setSettingsSection('overview')}
+                    key={trigger}
+                    className={`workflow-trigger-${trigger}`}
+                    aria-pressed={controllerTrigger === trigger}
+                    onClick={() => setControllerTrigger(trigger)}
                   >
-                    <Settings2 size={16} />
-                    <span>设备设置</span>
+                    {triggerLabels[trigger]}
+                    <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
                   </button>
-                  {instance.kind !== 'xboxBluetooth' && (
-                    <button
-                      type="button"
-                      aria-current={settingsSection === 'information' ? 'page' : undefined}
-                      onClick={() => setSettingsSection('information')}
-                    >
-                      <Info size={16} />
-                      <span>设备信息</span>
-                    </button>
-                  )}
-                </nav>
-                <section className="managed-instance-settings-panel" aria-labelledby="managed-instance-settings-title">
-                  <div className="managed-instance-settings-heading">
-                    <div>
-                      <h2 id="managed-instance-settings-title">
-                        {settingsSection === 'information' ? '设备信息' : '设备设置'}
-                      </h2>
-                      {settingsSection !== 'information' && <p>管理设备名称、物理绑定和已有配置。</p>}
-                    </div>
-                    {settingsSection === 'information' && (
-                      <button
-                        type="button"
-                        className="settings-refresh"
-                        aria-label="刷新设备信息"
-                        title={
-                          informationRefreshLocked ? `${informationRefreshRemaining} 秒后可再次刷新` : '刷新设备信息'
-                        }
-                        disabled={!native || !informationAvailable || !instance.binding || informationRefreshLocked}
-                        onClick={() => {
-                          if (!instance.binding || informationRefreshLocked) return
-                          setInformationRefreshRemaining(10)
-                          void refreshInformation(instance.binding).catch(() => {})
-                        }}
-                      >
-                        {informationRefreshLocked ? (
-                          <span className="device-information-countdown" aria-hidden="true">
-                            {informationRefreshRemaining}s
-                          </span>
-                        ) : (
-                          <RefreshCw size={14} aria-hidden="true" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                  {settingsSection === 'information' ? (
-                    <DeviceInformationPanel binding={instance.binding} device={boundDevice} native={native} />
-                  ) : (
-                    <>
-                      {supportsDriver && platform === 'windows' && (
-                        <div className="settings-form-row managed-driver-status-row">
-                          <span className="settings-form-label">按键驱动：</span>
-                          <div className="settings-form-control managed-driver-status-control">
-                            <strong>
-                              {!native
-                                ? '预览模式'
-                                : driverRestartRequired
-                                  ? '需重启后安装'
-                                  : deviceOffline
-                                    ? '设备不在线'
-                                    : status?.driverState === 'installed'
-                                      ? '已安装'
-                                      : status?.driverState === 'connected'
-                                        ? '已连接'
-                                        : status?.driverState === 'connecting'
-                                          ? '连接中'
-                                          : status?.driverState === 'missing'
-                                            ? '未安装'
-                                            : status?.driverState === 'disconnected'
-                                              ? '等待设备'
-                                              : '检测中'}
-                            </strong>
-                            {native && !deviceOffline && !driverRestartRequired && (
-                              <button
-                                type="button"
-                                disabled={driverBusy || !instance.binding}
-                                onClick={() => onInstallDriver(instance.id)}
-                              >
-                                {driverRunning ? '正在安装…' : driverInstalled ? '重新安装驱动' : '安装驱动'}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      <div className="settings-form-fields">
-                        {instance.kind !== 'xboxBluetooth' && (platform === 'windows' || platform === 'macos') && (
-                          <div className="settings-form-row">
-                            <span className="settings-form-label">虚拟麦克风：</span>
-                            <div className="settings-form-control">
-                              <button type="button" className="dialog-secondary" onClick={onOpenAudioDriver}>
-                                管理驱动
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                        {instance.kind === 'cmiotA15' &&
-                          instance.cmiotA15RecordingModeEditable &&
-                          (platform === 'windows' || platform === 'macos') && (
-                            <label className="settings-form-row">
-                              <span className="settings-form-label">语音录制：</span>
-                              <span className="settings-form-control">
-                                <span className="manual-key-select cmiot-recording-select">
-                                  <select
-                                    value={instance.cmiotA15RecordingMode ?? 'hold'}
-                                    onChange={event => {
-                                      const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                                      update(item => ({ ...item, cmiotA15RecordingMode }))
-                                    }}
-                                  >
-                                    <option value="hold">按住录音，松开停止</option>
-                                    <option value="click">点击开始，再次点击停止</option>
-                                  </select>
-                                  <span className="manual-key-select-icon" aria-hidden="true">
-                                    <ChevronDown size={14} />
-                                  </span>
-                                </span>
-                              </span>
-                            </label>
-                          )}
-                        <label className="settings-form-row">
-                          <span className="settings-form-label">设备名称：</span>
-                          <input
-                            key={instance.name}
-                            defaultValue={instance.name}
-                            maxLength={60}
-                            onBlur={e => {
-                              const name = e.target.value.trim()
-                              if (name && name !== instance.name) update(item => ({ ...item, name }))
-                            }}
-                          />
-                        </label>
-                        <div className="settings-form-row">
-                          <span className="settings-form-label" id="instance-binding-label">
-                            物理设备：
-                          </span>
-                          <div className="settings-form-control managed-instance-binding-control">
-                            {instance.binding ? (
-                              <BoundDeviceInfo
-                                binding={instance.binding}
-                                device={boundDevice}
-                                onUnbind={unbindDevice}
-                                disabled={pendingPhysicalAction !== null}
-                              />
-                            ) : (
-                              <DeviceBindingPicker
-                                labelledBy="instance-binding-label"
-                                value=""
-                                devices={availableDevices}
-                                onChange={binding => {
-                                  if (binding) update(item => ({ ...item, binding }))
-                                }}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="managed-remove">
-                        {confirmRemove ? (
-                          <>
-                            <span>移除此设备及其全部配置？</span>
-                            <button disabled={pendingPhysicalAction !== null} onClick={removeDevice}>
-                              {pendingPhysicalAction === 'remove' ? '正在解除绑定…' : '确认移除'}
-                            </button>
-                            <button onClick={() => setConfirmRemove(false)}>取消</button>
-                          </>
-                        ) : (
-                          <button onClick={() => setConfirmRemove(true)}>移除设备</button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </section>
+                ))}
               </div>
-            </div>
-          ) : (
-            <>
-              <section className="key-picker">
-                <div className="key-picker-head">
-                  <h2>{selectedInput.label}</h2>
-                </div>
-                {instance.kind === 'xboxBluetooth' && (
-                  <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
-                    {triggerTypes.map(trigger => (
-                      <button
-                        type="button"
-                        key={trigger}
-                        className={`workflow-trigger-${trigger}`}
-                        aria-pressed={controllerTrigger === trigger}
-                        onClick={() => setControllerTrigger(trigger)}
-                      >
-                        {triggerLabels[trigger]}
-                        <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-              <WorkflowAxonkey
-                key={profile.id + selected}
-                platform={platform}
-                button={selectedInput}
-                sequences={profile.behaviors[selected] ?? emptyTriggers()}
-                activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
-                onChange={changeSequence}
-                onRequestProfileSwitch={(inputId, trigger, behavior) =>
-                  setPendingSwitch({ inputId, trigger, behavior })
-                }
-                toolboxCategory={toolboxCategory}
-                onToolboxCategoryChange={setToolboxCategory}
-              />
-            </>
-          )}
+            )}
+          </section>
+          <WorkflowAxonkey
+            key={profile.id + selected}
+            platform={platform}
+            button={selectedInput}
+            sequences={profile.behaviors[selected] ?? emptyTriggers()}
+            activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
+            onChange={changeSequence}
+            onRequestProfileSwitch={(inputId, trigger, behavior) => setPendingSwitch({ inputId, trigger, behavior })}
+            toolboxCategory={toolboxCategory}
+            onToolboxCategoryChange={setToolboxCategory}
+          />
         </section>
       </div>
+      {settings && (
+        <DeviceSettingsDrawer deviceName={instance.name} onClose={() => setSettings(false)}>
+          <nav className="settings-nav device-settings-drawer-nav" aria-label={`${instance.name}设置分类`}>
+            <button
+              type="button"
+              aria-current={settingsSection === 'overview' ? 'page' : undefined}
+              onClick={() => setSettingsSection('overview')}
+            >
+              <Settings2 size={16} />
+              <span>设备设置</span>
+            </button>
+            {instance.kind !== 'xboxBluetooth' && (
+              <button
+                type="button"
+                aria-current={settingsSection === 'information' ? 'page' : undefined}
+                onClick={() => setSettingsSection('information')}
+              >
+                <Info size={16} />
+                <span>设备信息</span>
+              </button>
+            )}
+            {settingsSection === 'information' && (
+              <button
+                type="button"
+                className="settings-refresh"
+                aria-label="刷新设备信息"
+                title={informationRefreshLocked ? `${informationRefreshRemaining} 秒后可再次刷新` : '刷新设备信息'}
+                disabled={!native || !informationAvailable || !instance.binding || informationRefreshLocked}
+                onClick={() => {
+                  if (!instance.binding || informationRefreshLocked) return
+                  setInformationRefreshRemaining(10)
+                  void refreshInformation(instance.binding).catch(() => {})
+                }}
+              >
+                {informationRefreshLocked ? (
+                  <span className="device-information-countdown" aria-hidden="true">
+                    {informationRefreshRemaining}s
+                  </span>
+                ) : (
+                  <RefreshCw size={14} aria-hidden="true" />
+                )}
+              </button>
+            )}
+          </nav>
+          <section
+            className="device-settings-drawer-panel"
+            aria-label={settingsSection === 'information' ? '设备信息' : '设备设置'}
+          >
+            {settingsSection === 'information' ? (
+              <DeviceInformationPanel binding={instance.binding} device={boundDevice} native={native} />
+            ) : (
+              <>
+                {supportsDriver && platform === 'windows' && (
+                  <div className="settings-form-row managed-driver-status-row">
+                    <span className="settings-form-label">按键驱动：</span>
+                    <div className="settings-form-control managed-driver-status-control">
+                      <strong>
+                        {!native
+                          ? '预览模式'
+                          : driverRestartRequired
+                            ? '需重启后安装'
+                            : deviceOffline
+                              ? '设备不在线'
+                              : status?.driverState === 'installed'
+                                ? '已安装'
+                                : status?.driverState === 'connected'
+                                  ? '已连接'
+                                  : status?.driverState === 'connecting'
+                                    ? '连接中'
+                                    : status?.driverState === 'missing'
+                                      ? '未安装'
+                                      : status?.driverState === 'disconnected'
+                                        ? '等待设备'
+                                        : '检测中'}
+                      </strong>
+                      {native && !deviceOffline && !driverRestartRequired && (
+                        <button
+                          type="button"
+                          disabled={driverBusy || !instance.binding}
+                          onClick={() => onInstallDriver(instance.id)}
+                        >
+                          {driverRunning ? '正在安装…' : driverInstalled ? '重新安装驱动' : '安装驱动'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <div className="settings-form-fields">
+                  {instance.kind !== 'xboxBluetooth' && (platform === 'windows' || platform === 'macos') && (
+                    <div className="settings-form-row">
+                      <span className="settings-form-label">虚拟麦克风：</span>
+                      <div className="settings-form-control">
+                        <button type="button" className="dialog-secondary" onClick={onOpenAudioDriver}>
+                          管理驱动
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {instance.kind === 'cmiotA15' &&
+                    instance.cmiotA15RecordingModeEditable &&
+                    (platform === 'windows' || platform === 'macos') && (
+                      <label className="settings-form-row">
+                        <span className="settings-form-label">语音录制：</span>
+                        <span className="settings-form-control">
+                          <span className="manual-key-select cmiot-recording-select">
+                            <select
+                              value={instance.cmiotA15RecordingMode ?? 'hold'}
+                              onChange={event => {
+                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                update(item => ({ ...item, cmiotA15RecordingMode }))
+                              }}
+                            >
+                              <option value="hold">按住录音，松开停止</option>
+                              <option value="click">点击开始，再次点击停止</option>
+                            </select>
+                            <span className="manual-key-select-icon" aria-hidden="true">
+                              <ChevronDown size={14} />
+                            </span>
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                  <label className="settings-form-row">
+                    <span className="settings-form-label">设备名称：</span>
+                    <input
+                      key={instance.name}
+                      defaultValue={instance.name}
+                      maxLength={60}
+                      onBlur={e => {
+                        const name = e.target.value.trim()
+                        if (name && name !== instance.name) update(item => ({ ...item, name }))
+                      }}
+                    />
+                  </label>
+                  <div className="settings-form-row">
+                    <span className="settings-form-label" id="instance-binding-label">
+                      物理设备：
+                    </span>
+                    <div className="settings-form-control managed-instance-binding-control">
+                      {instance.binding ? (
+                        <BoundDeviceInfo
+                          binding={instance.binding}
+                          device={boundDevice}
+                          onUnbind={unbindDevice}
+                          disabled={pendingPhysicalAction !== null}
+                        />
+                      ) : (
+                        <DeviceBindingPicker
+                          labelledBy="instance-binding-label"
+                          value=""
+                          devices={availableDevices}
+                          onChange={binding => {
+                            if (binding) update(item => ({ ...item, binding }))
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="managed-remove">
+                  {confirmRemove ? (
+                    <>
+                      <span>移除此设备及其全部配置？</span>
+                      <button disabled={pendingPhysicalAction !== null} onClick={removeDevice}>
+                        {pendingPhysicalAction === 'remove' ? '正在解除绑定…' : '确认移除'}
+                      </button>
+                      <button onClick={() => setConfirmRemove(false)}>取消</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmRemove(true)}>移除设备</button>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        </DeviceSettingsDrawer>
+      )}
       {pendingSwitch &&
         createPortal(
           <ProfileSwitchConfirmDialog

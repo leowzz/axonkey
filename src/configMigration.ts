@@ -271,7 +271,7 @@ function createLegacyBackupDocument(storage: Pick<Storage, 'getItem'>, source: R
       mouseIgnoreScrollAcceleration: settings.mouseIgnoreScrollAcceleration ?? true,
       mouseScrollSensitivity: settings.mouseScrollSensitivity ?? 100,
       mouseVerticalScrollIntervalMs: settings.mouseVerticalScrollIntervalMs ?? 50,
-      mouseHorizontalScrollIntervalMs: settings.mouseHorizontalScrollIntervalMs ?? 50,
+      mouseHorizontalScrollIntervalMs: settings.mouseHorizontalScrollIntervalMs ?? 300,
       mouseKeyHoldMs: settings.mouseKeyHoldMs ?? 10,
       mouseEdgeWidth: settings.mouseEdgeWidth ?? 8,
       cmiotA15RecordingMode: settings.cmiotA15RecordingMode ?? 'hold',

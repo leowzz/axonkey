@@ -41,7 +41,7 @@ pub struct NativeSettings {
     pub(super) mouse_key_hold_ms: u64,
     #[serde(
         rename = "mouseHorizontalScrollIntervalMs",
-        default = "default_mouse_scroll_interval_ms"
+        default = "default_mouse_horizontal_scroll_interval_ms"
     )]
     pub(super) mouse_horizontal_scroll_interval_ms: u64,
     #[serde(
@@ -103,6 +103,10 @@ fn default_mouse_key_hold_ms() -> u64 {
 
 fn default_mouse_scroll_interval_ms() -> u64 {
     50
+}
+
+fn default_mouse_horizontal_scroll_interval_ms() -> u64 {
+    300
 }
 
 fn default_mouse_edge_width() -> u16 {
@@ -374,7 +378,7 @@ mod settings_tests {
         assert_eq!(legacy.mouse_scroll_sensitivity, 100);
         assert!(legacy.mouse_ignore_scroll_acceleration);
         assert_eq!(legacy.mouse_vertical_scroll_interval_ms, 50);
-        assert_eq!(legacy.mouse_horizontal_scroll_interval_ms, 50);
+        assert_eq!(legacy.mouse_horizontal_scroll_interval_ms, 300);
         let saved: NativeSettings = serde_json::from_str(r#"{"mouseKeyHoldMs":50,"mouseScrollSensitivity":200,"mouseIgnoreScrollAcceleration":true,"mouseVerticalScrollIntervalMs":100,"mouseHorizontalScrollIntervalMs":200}"#).unwrap();
         assert_eq!(saved.mouse_key_hold_ms, 50);
         assert_eq!(saved.mouse_scroll_sensitivity, 200);

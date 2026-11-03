@@ -198,7 +198,6 @@ body:has(.managed-discovery-help-dialog[open]),
   font-size: 11px;
   z-index: 90;
 }
-.managed-instance-settings input,
 .managed-integration-dialog select,
 .managed-integration-dialog input {
   padding: 7px 9px;
@@ -232,12 +231,6 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-analog meter {
   width: 62px;
   height: 6px;
-}
-.managed-instance-settings {
-  padding: 25px 15px;
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
 }
 .managed-remove {
   display: flex;
@@ -568,46 +561,6 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-controller-stage .remote-art {
   width: 100%;
 }
-.managed-instance-settings-layout {
-  display: grid;
-  grid-template-columns: 156px minmax(0, 1fr);
-  height: 100%;
-  min-height: 0;
-}
-.managed-instance-settings-nav {
-  min-height: 0;
-  padding: 8px 12px 8px 0;
-  border-right: 1px solid #dfe4e8;
-}
-.managed-instance-settings-panel {
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 4px 0 20px 24px;
-}
-.managed-instance-settings-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  max-width: 720px;
-}
-.managed-instance-settings-heading h2 {
-  margin: 0;
-  color: #304f6d;
-  font-size: 18px;
-  font-weight: 600;
-}
-.managed-instance-settings-heading p {
-  margin: 6px 0 0;
-  color: #8192a3;
-  font-size: 12px;
-  line-height: 1.6;
-}
-.managed-instance-settings-panel > .settings-form-fields {
-  max-width: 720px;
-  margin-top: 20px;
-}
 .managed-driver-status-row {
   max-width: 720px;
   margin-top: 20px;
@@ -621,13 +574,6 @@ body:has(.managed-discovery-help-dialog[open]),
   color: #547a9c;
   font-size: 13px;
   font-weight: 600;
-}
-.managed-instance-settings button {
-  padding: 7px 10px;
-  color: #547a9c;
-  border: 1px solid #d2dfeb;
-  background: #fff;
-  border-radius: 5px;
 }
 .managed-instance-binding-control {
   align-items: stretch;
@@ -746,11 +692,6 @@ body:has(.managed-discovery-help-dialog[open]),
 
 .managed-device-information .settings-form-row {
   align-items: start;
-}
-
-.managed-instance-settings .settings-refresh {
-  flex-shrink: 0;
-  padding: 0;
 }
 
 .device-information-countdown {

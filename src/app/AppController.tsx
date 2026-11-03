@@ -97,6 +97,7 @@ import { HomeDashboard } from '../components/HomeDashboard'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../devices/registry'
+import { DeviceSettingsDrawer } from '../devices/shared/DeviceSettingsDrawer'
 import { deviceSettingsPages } from '../devices/pages'
 import type { DeviceId } from '../devices/index.ts'
 import { mouseInputs } from '../components/MouseMapping'
@@ -269,7 +270,9 @@ function AppController({
   const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
+  const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
   const navigateToPage = (page: AppPage) => {
+    setDeviceSettingsOpen(false)
     setSelectedInstanceId(null)
     if (page === 'mapping') setMappingStyle('flow')
     setActivePage(page)
@@ -1641,7 +1644,7 @@ function AppController({
           },
         ],
         toggle: { checked: mouseEnabled, onChange: () => setMouseEnabled(value => !value) },
-        onOpenSettings: () => navigateToPage('device-settings'),
+        onOpenSettings: () => setDeviceSettingsOpen(true),
       }
     : {
         title: `${selectedDevice.name}状态`,
@@ -1777,7 +1780,7 @@ function AppController({
           {activePage === 'mapping' ? (
             <MappingPageComponent
               onBackToDevices={() => navigateToPage('home')}
-              onOpenSettings={() => navigateToPage('device-settings')}
+              onOpenSettings={() => setDeviceSettingsOpen(true)}
               profileControls={profileControls}
               debugMode={debugMode}
               selectedDeviceId={selectedDeviceId}
@@ -1850,27 +1853,6 @@ function AppController({
                 },
               }}
               remoteView={selectedDevice.remoteView}
-            />
-          ) : activePage === 'device-settings' ? (
-            <DeviceSettingsComponent
-              onOpenAudioDriver={openAudioDriver}
-              cmiotA15RecordingMode={cmiotA15RecordingMode}
-              onCmiotA15RecordingModeChange={setCmiotA15RecordingMode}
-              onBackToDevices={() => navigateToPage('home')}
-              showMouseKeyGrid={showMouseKeyGrid}
-              onShowMouseKeyGridChange={setShowMouseKeyGrid}
-              mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
-              onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
-              mouseScrollSensitivity={mouseScrollSensitivity}
-              onMouseScrollSensitivityChange={setMouseScrollSensitivity}
-              mouseVerticalScrollIntervalMs={mouseVerticalScrollIntervalMs}
-              onMouseVerticalScrollIntervalMsChange={setMouseVerticalScrollIntervalMs}
-              mouseHorizontalScrollIntervalMs={mouseHorizontalScrollIntervalMs}
-              onMouseHorizontalScrollIntervalMsChange={setMouseHorizontalScrollIntervalMs}
-              mouseEdgeWidth={mouseEdgeWidth}
-              onMouseEdgeWidthChange={setMouseEdgeWidth}
-              mouseKeyHoldMs={mouseKeyHoldMs}
-              onMouseKeyHoldMsChange={setMouseKeyHoldMs}
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
@@ -2069,6 +2051,29 @@ function AppController({
           onCancel={() => setPendingProfileImport(null)}
           onSave={saveImportedProfile}
         />
+      )}
+      {deviceSettingsOpen && (
+        <DeviceSettingsDrawer deviceName={selectedDevice.name} onClose={() => setDeviceSettingsOpen(false)}>
+          <DeviceSettingsComponent
+            onOpenAudioDriver={openAudioDriver}
+            cmiotA15RecordingMode={cmiotA15RecordingMode}
+            onCmiotA15RecordingModeChange={setCmiotA15RecordingMode}
+            showMouseKeyGrid={showMouseKeyGrid}
+            onShowMouseKeyGridChange={setShowMouseKeyGrid}
+            mouseIgnoreScrollAcceleration={mouseIgnoreScrollAcceleration}
+            onMouseIgnoreScrollAccelerationChange={setMouseIgnoreScrollAcceleration}
+            mouseScrollSensitivity={mouseScrollSensitivity}
+            onMouseScrollSensitivityChange={setMouseScrollSensitivity}
+            mouseVerticalScrollIntervalMs={mouseVerticalScrollIntervalMs}
+            onMouseVerticalScrollIntervalMsChange={setMouseVerticalScrollIntervalMs}
+            mouseHorizontalScrollIntervalMs={mouseHorizontalScrollIntervalMs}
+            onMouseHorizontalScrollIntervalMsChange={setMouseHorizontalScrollIntervalMs}
+            mouseEdgeWidth={mouseEdgeWidth}
+            onMouseEdgeWidthChange={setMouseEdgeWidth}
+            mouseKeyHoldMs={mouseKeyHoldMs}
+            onMouseKeyHoldMsChange={setMouseKeyHoldMs}
+          />
+        </DeviceSettingsDrawer>
       )}
       {editingBehavior && (
         <BehaviorEditDialog
