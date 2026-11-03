@@ -274,7 +274,7 @@ function createLegacyBackupDocument(storage: Pick<Storage, 'getItem'>, source: R
       mouseHorizontalScrollIntervalMs: settings.mouseHorizontalScrollIntervalMs ?? 300,
       mouseKeyHoldMs: settings.mouseKeyHoldMs ?? 10,
       mouseEdgeWidth: settings.mouseEdgeWidth ?? 8,
-      cmiotA15RecordingMode: settings.cmiotA15RecordingMode ?? 'hold',
+      cmiotA15RecordingMode: settings.cmiotA15RecordingMode ?? 'click',
     },
     audio: { gain: audio.gain ?? 0, stretchCompensation: audio.stretchCompensation ?? false },
     preferences: { sidebarCollapsed: ui.sidebarCollapsed ?? false },

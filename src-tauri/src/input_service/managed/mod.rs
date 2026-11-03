@@ -53,8 +53,6 @@ pub struct Instance {
     pub audio_gain_db: i16,
     #[serde(default)]
     pub cmiot_a15_recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
-    #[serde(default)]
-    pub cmiot_a15_recording_mode_editable: bool,
     #[serde(default, skip_serializing)]
     pub voice_target: Option<String>,
     #[serde(default)]
@@ -64,18 +62,6 @@ pub struct Instance {
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
-}
-impl Instance {
-    fn apply_recording_firmware(&mut self, firmware: &str) {
-        use crate::devices::cmiot_a15::recording::RecordingMode;
-        let editable = firmware.contains("CMIOT3_B311");
-        if !editable {
-            self.cmiot_a15_recording_mode = RecordingMode::Hold;
-        } else if !self.cmiot_a15_recording_mode_editable {
-            self.cmiot_a15_recording_mode = RecordingMode::Click;
-        }
-        self.cmiot_a15_recording_mode_editable = editable;
-    }
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -687,9 +673,6 @@ impl DeviceManager {
             .instances
             .iter()
             .find(|i| i.id == instance.id);
-        instance.cmiot_a15_recording_mode_editable = old
-            .filter(|old| old.binding == instance.binding)
-            .is_some_and(|old| old.cmiot_a15_recording_mode_editable);
         if let Some(old) = old {
             if old.kind != instance.kind {
                 return Err("不能更改已有实例的设备支持包".into());
@@ -718,16 +701,9 @@ impl DeviceManager {
                 if device.kind != instance.kind {
                     return Err("设备与支持包不匹配".into());
                 }
-                if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
-                    if let Some(firmware) = &device.device_info.firmware_revision {
-                        instance.apply_recording_firmware(firmware);
-                    }
-                }
             }
         }
-        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
-            && !instance.cmiot_a15_recording_mode_editable
-        {
+        if instance.kind == "rc313" {
             instance.cmiot_a15_recording_mode =
                 crate::devices::cmiot_a15::recording::RecordingMode::Hold;
         }
@@ -1868,7 +1844,6 @@ mod tests {
             binding_pairing_id: None,
             audio_gain_db: 0,
             cmiot_a15_recording_mode: Default::default(),
-            cmiot_a15_recording_mode_editable: false,
             voice_target: None,
             quarbor_target: None,
             hide_driver_missing_reminder: None,
@@ -2347,7 +2322,6 @@ mod tests {
         first.hide_driver_missing_reminder = Some(true);
         let mut second = instance("sofa", "a15-two");
         second.kind = "cmiotA15".into();
-        second.apply_recording_firmware("CMIOT3_B311");
         let manager = offline_manager(vec![first.clone(), second]);
         first.cmiot_a15_recording_mode = crate::devices::cmiot_a15::recording::RecordingMode::Hold;
         manager.put(0, first).unwrap();
@@ -2381,107 +2355,17 @@ mod tests {
     }
 
     #[test]
-    fn a15_firmware_selects_recording_defaults_and_preserves_customization() {
-        use crate::devices::cmiot_a15::recording::RecordingMode;
+    fn rc313_recording_mode_is_always_hold() {
+        let mut rc313 = instance("rc313", "unused");
+        rc313.kind = "rc313".into();
+        rc313.binding = None;
+        rc313.cmiot_a15_recording_mode = crate::devices::cmiot_a15::recording::RecordingMode::Click;
         let manager = offline_manager(vec![]);
-        let device = |id: &str, firmware: Option<&str>| Discovered {
-            id: id.into(),
-            kind: "cmiotA15".into(),
-            name: "A15".into(),
-            transport: "Bluetooth".into(),
-            identity_quality: "serial".into(),
-            vendor_id: 0x0416,
-            product_id: 0x0300,
-            connected: true,
-            paired: true,
-            bluetooth_address: Some(id.into()),
-            pairing_id: None,
-            hid_instance_id: None,
-            device_info: device_info::DeviceInformation {
-                firmware_revision: firmware.map(str::to_owned),
-                ..Default::default()
-            },
-        };
-        let ordinary = device("ordinary", Some("CMIOT3_B310"));
-        let special = device("special", Some("release_CMIOT3_B311_v1"));
-        let pending = device("pending", None);
-        manager.shared.snapshot.lock().unwrap().discovered =
-            vec![ordinary.clone(), special.clone(), pending.clone()];
-        let add = |id, binding| {
-            let mut remote = instance(id, binding);
-            remote.kind = "cmiotA15".into();
-            remote.cmiot_a15_recording_mode = RecordingMode::Click;
-            remote.cmiot_a15_recording_mode_editable = true;
-            manager
-                .put(manager.snapshot().store.revision, remote)
-                .unwrap();
-        };
-        add("one", "ordinary");
-        add("two", "special");
-        add("three", "pending");
-        let saved = load(&manager.shared.path).unwrap();
+        let saved = manager.put(0, rc313).unwrap();
         assert_eq!(
-            saved.instances[0].cmiot_a15_recording_mode,
-            RecordingMode::Hold
+            saved.store.instances[0].cmiot_a15_recording_mode,
+            crate::devices::cmiot_a15::recording::RecordingMode::Hold
         );
-        assert!(!saved.instances[0].cmiot_a15_recording_mode_editable);
-        assert_eq!(
-            saved.instances[1].cmiot_a15_recording_mode,
-            RecordingMode::Click
-        );
-        assert!(saved.instances[1].cmiot_a15_recording_mode_editable);
-        assert_eq!(
-            saved.instances[2].cmiot_a15_recording_mode,
-            RecordingMode::Hold
-        );
-        assert!(!saved.instances[2].cmiot_a15_recording_mode_editable);
-
-        let info = device_info::DeviceInformation {
-            firmware_revision: Some("CMIOT3_B311".into()),
-            ..Default::default()
-        };
-        device_info::apply_information(&manager.shared, &pending, info.clone());
-        let snapshot = manager.snapshot();
-        assert_eq!(
-            snapshot.store.instances[2].cmiot_a15_recording_mode,
-            RecordingMode::Click
-        );
-        assert!(snapshot.store.instances[2].cmiot_a15_recording_mode_editable);
-        let mut custom = snapshot.store.instances[2].clone();
-        custom.cmiot_a15_recording_mode = RecordingMode::Hold;
-        manager.put(snapshot.store.revision, custom).unwrap();
-        let revision = manager.snapshot().store.revision;
-        device_info::apply_information(&manager.shared, &pending, info);
-        device_info::apply_information(&manager.shared, &pending, Default::default());
-        let snapshot = manager.snapshot();
-        assert_eq!(snapshot.store.revision, revision);
-        assert_eq!(
-            snapshot.store.instances[2].cmiot_a15_recording_mode,
-            RecordingMode::Hold
-        );
-        assert!(snapshot.store.instances[2].cmiot_a15_recording_mode_editable);
-
-        device_info::apply_information(&manager.shared, &pending, ordinary.device_info.clone());
-        let snapshot = manager.snapshot();
-        assert!(!snapshot.store.instances[2].cmiot_a15_recording_mode_editable);
-        assert_eq!(
-            snapshot.store.instances[2].cmiot_a15_recording_mode,
-            RecordingMode::Hold
-        );
-        assert!(snapshot.store.instances[1].cmiot_a15_recording_mode_editable);
-        assert_eq!(
-            snapshot.store.instances[1].cmiot_a15_recording_mode,
-            RecordingMode::Click
-        );
-
-        let mut rebound = snapshot.store.instances[1].clone();
-        rebound.binding = None;
-        let snapshot = manager.put(snapshot.store.revision, rebound).unwrap();
-        assert_eq!(
-            snapshot.store.instances[1].cmiot_a15_recording_mode,
-            RecordingMode::Hold
-        );
-        assert!(!snapshot.store.instances[1].cmiot_a15_recording_mode_editable);
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }

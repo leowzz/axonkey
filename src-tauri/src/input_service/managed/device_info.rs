@@ -189,10 +189,15 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: Devi
             && instance.binding.as_ref() == Some(&target.id)
         {
             if let Some(kind) = detected_kind {
+                let was_rc313 = instance.kind == "rc313";
                 instance.kind = kind.into();
-            }
-            if let Some(firmware) = info.firmware_revision.as_deref() {
-                instance.apply_recording_firmware(firmware);
+                if kind == "rc313" {
+                    instance.cmiot_a15_recording_mode =
+                        crate::devices::cmiot_a15::recording::RecordingMode::Hold;
+                } else if kind == "cmiotA15" && was_rc313 {
+                    instance.cmiot_a15_recording_mode =
+                        crate::devices::cmiot_a15::recording::RecordingMode::Click;
+                }
             }
         }
     }
