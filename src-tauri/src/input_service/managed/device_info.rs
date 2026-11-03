@@ -7,17 +7,19 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+const CMIOT_A15_SOFTWARE_MARKER: &str = "CMIOT3_B311";
 const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
-const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302_1601";
+const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302";
 
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
     if !matches!(kind, "cmiotA15" | "xmBt29" | "rc313") {
         return None;
     }
     Some(match software {
+        Some(version) if version.contains(CMIOT_A15_SOFTWARE_MARKER) => "cmiotA15",
         Some(version) if version.contains(XM_BT_29_SOFTWARE_MARKER) => "xmBt29",
         Some(version) if version.contains(RC_313_SOFTWARE_MARKER) => "rc313",
-        _ => "cmiotA15",
+        _ => "rc313",
     })
 }
 
@@ -453,7 +455,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn software_version_selects_model_and_missing_version_keeps_a15() {
+    fn software_version_selects_model_and_missing_version_defaults_to_rc313() {
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("CMIOT3_B311")),
+            Some("cmiotA15")
+        );
+        assert_eq!(
+            kind_for_software("cmiotA15", Some("CMIOT3_B311_debug")),
+            Some("cmiotA15")
+        );
         assert_eq!(
             kind_for_software("cmiotA15", Some("XFRSD0D_M_R01_761")),
             Some("xmBt29")
@@ -462,7 +472,7 @@ mod tests {
             kind_for_software("cmiotA15", Some("XFRSD0D_M_R01_761_debug")),
             Some("xmBt29")
         );
-        assert_eq!(kind_for_software("xmBt29", None), Some("cmiotA15"));
+        assert_eq!(kind_for_software("xmBt29", None), Some("rc313"));
         assert_eq!(
             kind_for_software("cmiotA15", Some("CMIOT18_B302_1601")),
             Some("rc313")
@@ -471,10 +481,10 @@ mod tests {
             kind_for_software("cmiotA15", Some("CMIOT18_B302_1601_debug")),
             Some("rc313")
         );
-        assert_eq!(kind_for_software("rc313", None), Some("cmiotA15"));
+        assert_eq!(kind_for_software("rc313", None), Some("rc313"));
         assert_eq!(
-            kind_for_software("cmiotA15", Some("CMIOT3_B311")),
-            Some("cmiotA15")
+            kind_for_software("cmiotA15", Some("unknown")),
+            Some("rc313")
         );
         assert_eq!(kind_for_software("rc003", Some("XFRSD0D_M_R01_761")), None);
     }
