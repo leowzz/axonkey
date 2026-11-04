@@ -34,6 +34,7 @@ pub struct DeviceInformation {
     pub hardware_revision: Option<String>,
     pub firmware_revision: Option<String>,
     pub software_revision: Option<String>,
+    pub detected_kind: Option<String>,
     pub updated_at: Option<u64>,
     pub error: Option<String>,
 }
@@ -48,6 +49,7 @@ impl Default for DeviceInformation {
             hardware_revision: None,
             firmware_revision: None,
             software_revision: None,
+            detected_kind: None,
             updated_at: None,
             error: None,
         }
@@ -170,7 +172,7 @@ pub(super) fn start(shared: Arc<Shared>) {
     });
 }
 
-pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: DeviceInformation) {
+pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: DeviceInformation) {
     let mut snapshot = shared.snapshot.lock().unwrap();
     let Some(device) = snapshot.discovered.iter_mut().find(|d| {
         d.id == target.id
@@ -180,37 +182,9 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, info: Devi
     }) else {
         return;
     };
-    device.device_info = info.clone();
-    let detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref());
-    if let Some(kind) = detected_kind {
-        device.kind = kind.into();
-    }
-    let mut next = snapshot.store.clone();
-    for instance in &mut next.instances {
-        if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
-            && instance.binding.as_ref() == Some(&target.id)
-        {
-            if let Some(kind) = detected_kind {
-                let was_rc313 = instance.kind == "rc313";
-                instance.kind = kind.into();
-                if kind == "rc313" {
-                    instance.cmiot_a15_recording_mode =
-                        crate::devices::cmiot_a15::recording::RecordingMode::Hold;
-                } else if kind == "cmiotA15" && was_rc313 {
-                    instance.cmiot_a15_recording_mode =
-                        crate::devices::cmiot_a15::recording::RecordingMode::Click;
-                }
-            }
-        }
-    }
-    if next.instances == snapshot.store.instances || snapshot.error.is_some() {
-        return;
-    }
-    next.revision += 1;
-    match super::save(&shared.path, &next) {
-        Ok(()) => snapshot.store = next,
-        Err(error) => snapshot.error = Some(error),
-    }
+    info.detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
+        .map(str::to_owned);
+    device.device_info = info;
 }
 
 pub(super) fn retain_readings(discovered: &mut [Discovered], previous: &[Discovered]) {

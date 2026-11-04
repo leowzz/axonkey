@@ -32,6 +32,7 @@ export type DeviceInformation = {
   hardwareRevision?: string | null
   firmwareRevision?: string | null
   softwareRevision?: string | null
+  detectedKind?: DeviceKind | null
   updatedAt?: number | null
   error?: string | null
 }
@@ -66,6 +67,20 @@ export type DeviceSnapshot = {
   error: string | null
   scanError: string | null
   scanning: boolean
+}
+export const mobileRemoteKinds = ['cmiotA15', 'xmBt29', 'rc313'] as const
+export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
+  return device.vendorId === 0x0416 && device.productId === 0x0300
+}
+export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is (typeof mobileRemoteKinds)[number] {
+  return kind !== undefined && mobileRemoteKinds.includes(kind as (typeof mobileRemoteKinds)[number])
+}
+export function mobileRemoteKindForSoftware(software: string | null | undefined): DeviceKind | null {
+  if (!software) return null
+  if (software.includes('CMIOT3_B311')) return 'cmiotA15'
+  if (software.includes('XFRSD0D_M_R01_761')) return 'xmBt29'
+  if (software.includes('CMIOT18_B302')) return 'rc313'
+  return null
 }
 export const emptySnapshot = (): DeviceSnapshot => ({
   store: { version: 1, revision: 0, instances: [] },

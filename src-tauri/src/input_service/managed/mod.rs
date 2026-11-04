@@ -31,6 +31,15 @@ use tauri::Emitter;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
+fn is_mobile_remote_hardware(device: &Discovered) -> bool {
+    device.vendor_id == 0x0416 && device.product_id == 0x0300
+}
+
+fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
+    device.kind == kind
+        || (is_mobile_remote_hardware(device) && matches!(kind, "cmiotA15" | "xmBt29" | "rc313"))
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
@@ -698,7 +707,7 @@ impl DeviceManager {
                 instance.binding_quality = Some(device.identity_quality.clone());
                 instance.binding_pairing_id = device.pairing_id.clone();
                 instance.voice_target = device.bluetooth_address.clone();
-                if device.kind != instance.kind {
+                if !device_kind_matches(device, &instance.kind) {
                     return Err("设备与支持包不匹配".into());
                 }
             }
@@ -988,7 +997,7 @@ fn remember_pairing_ids(
         if instance.binding_pairing_id.is_none() {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
-                    && d.kind == instance.kind
+                    && device_kind_matches(d, &instance.kind)
                     && d.identity_quality != "ambiguous"
                     && d.pairing_id.is_some()
             }) {
@@ -1003,7 +1012,7 @@ fn remember_pairing_ids(
         {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
-                    && d.kind == instance.kind
+                    && device_kind_matches(d, &instance.kind)
                     && d.identity_quality != "ambiguous"
                     && d.bluetooth_address.is_some()
             }) {

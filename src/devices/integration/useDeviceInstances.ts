@@ -14,14 +14,18 @@ export function useDeviceInstances(native: boolean) {
     current.current = value
     setSnapshot(value)
   }, [])
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<DeviceSnapshot> => {
     if (native) {
       try {
-        accept(await invoke<DeviceSnapshot>('device_snapshot'))
+        const value = await invoke<DeviceSnapshot>('device_snapshot')
+        accept(value)
+        return value
       } catch (e) {
         setError(String(e))
+        return current.current
       }
     }
+    return current.current
   }, [native, accept])
   useEffect(() => {
     if (!native) {

@@ -310,6 +310,37 @@ body:has(.managed-discovery-help-dialog[open]),
   border-radius: 7px;
   color: #466986;
 }
+.managed-package[data-selected='true'] {
+  border-color: #4b93d1;
+  background: #edf6ff;
+  color: #2f6f9f;
+  box-shadow: 0 0 0 2px rgb(75 147 209 / 15%);
+}
+.managed-mobile-models {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+.managed-mobile-models .managed-package {
+  margin-top: 0;
+}
+.managed-mobile-models .managed-package > svg {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: #3784ce;
+}
+.managed-mobile-identify {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.managed-mobile-identify .managed-primary {
+  padding: 8px 18px;
+  border: 1px solid #3784ce;
+  border-radius: 5px;
+  color: #fff;
+  background: #3784ce;
+}
 .managed-package img {
   width: 72px;
   height: 64px;

@@ -627,6 +627,10 @@ export function InstanceWorkspace({
                     />
                   </label>
                   <div className="settings-form-row">
+                    <span className="settings-form-label">设备型号：</span>
+                    <span className="settings-form-control">{pkg.model}</span>
+                  </div>
+                  <div className="settings-form-row">
                     <span className="settings-form-label" id="instance-binding-label">
                       物理设备：
                     </span>

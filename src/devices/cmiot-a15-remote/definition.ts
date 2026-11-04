@@ -13,8 +13,8 @@ export const cmiotA15RemoteDevice: DeviceDefinition = {
 
 export const cmiotA15SupportPackage: DeviceSupportPackage = {
   kind: 'cmiotA15',
-  name: '移动遥控器',
-  model: 'CMIOT A15',
+  name: 'CMIOT-A15',
+  model: 'CMIOT-A15',
   artwork: cmiotA15RemoteView.artworkUrl,
   inputs: cmiotA15RemoteView.buttons,
   remoteView: cmiotA15RemoteView,

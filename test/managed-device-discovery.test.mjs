@@ -31,6 +31,8 @@ const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
 const model = compile('src/devices/integration/model.ts', {
   '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
+  '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
+  '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
@@ -387,6 +389,62 @@ test('integration saves devices without an input mode on every platform', async 
   }
 })
 
+test('mobile integration selects name and physical device before model and preserves both through recognition', async () => {
+  for (const identify of [false, true]) {
+    const remote = { ...device, id: 'mobile-one', kind: 'cmiotA15', vendorId: 0x0416, productId: 0x0300, connected: true,
+      deviceInfo: { status: 'ready', softwareRevision: 'XFRSD0D_M_R01_761', detectedKind: 'xmBt29' } }
+    const second = { ...remote, id: 'mobile-two' }
+    const snapshot = { ...model.emptySnapshot(), discovered: [remote, second] }
+    const saved = [], refreshed = []
+    const controller = { snapshot, error: '', busy: false,
+      refreshInformation: async binding => { refreshed.push(binding) },
+      refresh: async () => snapshot,
+      put: async instance => {
+        saved.push(instance)
+        return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-mobile' }] } }
+      },
+    }
+    let integrated = '', view
+    act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
+      controller, native: true, platform: 'windows', permissions: {}, onIntegrated: id => { integrated = id },
+    })) })
+    const button = label => view.root.findAllByType('button').find(node => text(node) === label)
+    const selectedModel = () => view.root.findAllByProps({ role: 'radio' }).find(node => node.props['aria-checked'])
+    try {
+      act(() => view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])[0].props.onClick())
+      assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 0)
+      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, remote.id)
+      act(() => view.root.findByType('input').props.onChange({ target: { value: '客厅遥控器' } }))
+      act(() => view.root.findByType(controls.DeviceBindingPicker).props.onChange(second.id))
+      act(() => button('下一步').props.onClick())
+      assert.equal(view.root.findAllByType('input').length, 0)
+      assert.equal(view.root.findAllByProps({ role: 'radio' }).length, 3)
+      assert.ok(text(selectedModel()).includes('RC-313'))
+      assert.equal(saved.length, 0)
+      if (identify) {
+        await act(async () => button('一键识别').props.onClick())
+        assert.deepEqual(refreshed, [second.id])
+        assert.ok(text(selectedModel()).includes('XM-BT-29'))
+        assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 1, 'recognition selects a model without returning to the details page')
+      } else {
+        act(() => view.root.findAllByProps({ role: 'radio' }).find(node => text(node).includes('CMIOT-A15')).props.onClick())
+      }
+      act(() => button('上一步').props.onClick())
+      assert.equal(view.root.findByType('input').props.value, '客厅遥控器')
+      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, second.id)
+      act(() => button('下一步').props.onClick())
+      assert.ok(text(selectedModel()).includes(identify ? 'XM-BT-29' : 'CMIOT-A15'))
+      assert.equal(saved.length, 0)
+      await act(async () => button('集成设备').props.onClick())
+      assert.equal(saved.length, 1)
+      assert.equal(saved[0].name, '客厅遥控器')
+      assert.equal(saved[0].binding, second.id)
+      assert.equal(saved[0].kind, identify ? 'xmBt29' : 'cmiotA15')
+      assert.equal(integrated, 'saved-mobile')
+    } finally { act(() => view.unmount()) }
+  }
+})
+
 test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
@@ -417,7 +475,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })
   const instances = ['one', 'two'].map(id => ({ ...model.newInstance('cmiotA15', `physical-${id}`), id }))
-  instances[0].cmiotA15RecordingModeEditable = true
   instances[0].cmiotA15RecordingMode = 'click'
   const snapshot = model.emptySnapshot()
   snapshot.store.instances = instances
@@ -604,9 +661,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByType('select').props.value, 'click')
     await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'hold' } }))
     assert.equal(instances[0].cmiotA15RecordingMode, 'hold')
-    assert.equal(instances[1].cmiotA15RecordingMode, 'hold')
+    assert.equal(instances[1].cmiotA15RecordingMode, 'click', 'changing one instance preserves the other recording mode')
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    assert.equal(views[1].root.findAllByType('select').length, 0, 'ordinary firmware has no recording mode editor')
+    assert.equal(views[1].root.findByType('select').props.value, 'click', 'all CMIOT-A15 instances support choosing a recording mode')
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     await act(async () => views[0].root.findByProps({ className: 'managed-bound-device' }).findByType('button').props.onClick())
     assert.deepEqual(actions.at(-1), ['unbind', 'one'])

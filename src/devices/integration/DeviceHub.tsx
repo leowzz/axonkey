@@ -1,12 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Link2Off, Plus, RefreshCw, X } from 'lucide-react'
+import { ChevronRight, Check, Link2Off, Plus, RefreshCw, X } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
-import { instanceStatusLabel, newInstance, packageFor, batteryForDevice, supportPackages } from './model'
+import {
+  instanceStatusLabel,
+  isMobileRemoteDevice,
+  isMobileRemoteKind,
+  mobileRemoteKindForSoftware,
+  mobileRemoteKinds,
+  newInstance,
+  packageFor,
+  batteryForDevice,
+  supportPackages,
+} from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
@@ -234,7 +244,7 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
                 key={device.id}
                 kind={device.kind}
                 discovered
-                title={packageFor(device.kind).name}
+                title={isMobileRemoteDevice(device) ? '移动系列遥控器' : packageFor(device.kind).name}
                 subtitle={`${device.transport === 'Bluetooth' ? '蓝牙' : device.transport} · ${device.id.slice(-6)}`}
                 status={
                   device.identityQuality === 'ambiguous'
@@ -414,6 +424,8 @@ function DeviceCard({
     </button>
   )
 }
+type IntegrationStep = 'kind' | 'mobile-model' | 'details'
+
 function IntegrationDialog({
   initial,
   controller,
@@ -424,13 +436,20 @@ function IntegrationDialog({
   onClose,
   onComplete,
 }: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
-  const [kind, setKind] = useState(initial.kind)
-  const [name, setName] = useState(initial.instance?.name ?? (initial.kind ? packageFor(initial.kind).name : ''))
+  const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
+  const [kind, setKind] = useState<DeviceKind | undefined>(() => (mobileModelSelection ? 'rc313' : initial.kind))
+  const [step, setStep] = useState<IntegrationStep>(() => (initial.kind ? 'details' : 'kind'))
+  const [name, setName] = useState(
+    () =>
+      initial.instance?.name ??
+      (mobileModelSelection ? packageFor('rc313').name : initial.kind ? packageFor(initial.kind).name : ''),
+  )
   // null follows discovery defaults; an empty string is the user's explicit “bind later” choice.
   const [bindingChoice, setBindingChoice] = useState<string | null>(
     initial.device?.id ?? initial.instance?.binding ?? null,
   )
   const [localError, setError] = useState('')
+  const [recognizing, setRecognizing] = useState(false)
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const modal = dialog.current
@@ -443,11 +462,43 @@ function IntegrationDialog({
   }, [])
   const candidates = controller.snapshot.discovered.filter(
     d =>
-      d.kind === kind &&
+      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : d.kind === kind) &&
       !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
   const device = candidates.find(d => d.id === binding)
+  const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
+  const selectedPackage = kind ? packageFor(kind) : null
+  const recognitionError = '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。'
+  async function identifyMobileRemote() {
+    if (!binding || !native) return
+    setRecognizing(true)
+    setError('')
+    try {
+      await controller.refreshInformation(binding)
+      const deadline = Date.now() + 12_000
+      while (Date.now() < deadline) {
+        const snapshot = await controller.refresh()
+        const current = snapshot.discovered.find(item => item.id === binding)
+        const information = current?.deviceInfo
+        if (information?.status === 'ready') {
+          const detectedKind = information.detectedKind ?? undefined
+          const detected = isMobileRemoteKind(detectedKind)
+            ? detectedKind
+            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? 'rc313')
+          setKind(detected)
+          return
+        }
+        if (information?.status === 'error') break
+        await new Promise(resolve => setTimeout(resolve, 300))
+      }
+      setError(recognitionError)
+    } catch {
+      setError(recognitionError)
+    } finally {
+      setRecognizing(false)
+    }
+  }
   async function integrate() {
     if (!kind) return
     try {
@@ -478,7 +529,7 @@ function IntegrationDialog({
           </button>
         </header>
         <div className="behavior-dialog-body managed-integration-body">
-          {!kind ? (
+          {step === 'kind' ? (
             <>
               {supportPackages.map(pkg => (
                 <button
@@ -487,6 +538,7 @@ function IntegrationDialog({
                   onClick={() => {
                     setKind(pkg.kind)
                     setName(pkg.name)
+                    setStep('details')
                   }}
                 >
                   <img src={pkg.artwork} alt="" />
@@ -504,13 +556,57 @@ function IntegrationDialog({
                 </button>
               ))}
             </>
+          ) : step === 'mobile-model' ? (
+            <>
+              <div className="managed-integration-product">
+                <img src={packageFor('rc313').artwork} alt="" />
+                <div>
+                  <h3>选择遥控器型号</h3>
+                  <p>移动系列遥控器</p>
+                </div>
+              </div>
+              <div className="managed-mobile-models" role="radiogroup" aria-label="移动系列遥控器型号">
+                {mobileRemoteKinds.map(modelKind => {
+                  const pkg = packageFor(modelKind)
+                  return (
+                    <button
+                      key={modelKind}
+                      type="button"
+                      className="managed-package"
+                      data-selected={kind === modelKind || undefined}
+                      role="radio"
+                      aria-checked={kind === modelKind}
+                      disabled={recognizing}
+                      onClick={() => setKind(modelKind)}
+                    >
+                      <img src={pkg.artwork} alt="" />
+                      <span>
+                        <strong>{pkg.name}</strong>
+                        <small>{pkg.model}</small>
+                      </span>
+                      {kind === modelKind && <Check size={18} aria-hidden="true" />}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="managed-mobile-identify">
+                <button
+                  type="button"
+                  className="managed-primary"
+                  disabled={!native || !binding || !device?.connected || recognizing}
+                  onClick={() => void identifyMobileRemote()}
+                >
+                  {recognizing ? '正在识别…' : '一键识别'}
+                </button>
+              </div>
+            </>
           ) : (
             <>
               <div className="managed-integration-product">
-                <img src={packageFor(kind).artwork} alt="" />
+                <img src={selectedPackage!.artwork} alt="" />
                 <div>
-                  <h3>{packageFor(kind).name}</h3>
-                  <p>{packageFor(kind).model.split(' · ')[0]}</p>
+                  <h3>{needsMobileModelSelection ? '移动系列遥控器' : selectedPackage!.name}</h3>
+                  {!needsMobileModelSelection && <p>{selectedPackage!.model.split(' · ')[0]}</p>}
                 </div>
               </div>
               <div className="settings-form-fields">
@@ -575,18 +671,45 @@ function IntegrationDialog({
         </div>
         <footer className="managed-dialog-footer">
           <button onClick={onClose}>取消</button>
-          {kind && (
+          {step === 'mobile-model' && (
+            <button
+              disabled={recognizing}
+              onClick={() => {
+                setError('')
+                setStep('details')
+              }}
+            >
+              上一步
+            </button>
+          )}
+          {step !== 'kind' && kind && (
             <button
               className="managed-primary"
               disabled={
                 !name.trim() ||
                 controller.busy ||
+                recognizing ||
                 device?.identityQuality === 'ambiguous' ||
                 Boolean(binding && !device)
               }
-              onClick={() => void integrate()}
+              onClick={() => {
+                if (step === 'details' && needsMobileModelSelection) {
+                  setError('')
+                  setStep('mobile-model')
+                } else {
+                  void integrate()
+                }
+              }}
             >
-              {!native ? '保存预览' : initial.instance ? '保存' : binding ? '集成设备' : '添加设备'}
+              {step === 'details' && needsMobileModelSelection
+                ? '下一步'
+                : !native
+                  ? '保存预览'
+                  : initial.instance
+                    ? '保存'
+                    : binding
+                      ? '集成设备'
+                      : '添加设备'}
             </button>
           )}
         </footer>
