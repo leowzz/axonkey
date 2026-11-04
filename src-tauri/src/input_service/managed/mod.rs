@@ -338,8 +338,15 @@ fn validate(store: &Store) -> Result<(), String> {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
         }
-        if !["xboxBluetooth", "rc003", "cmiotA15", "xmBt29", "rc313"]
-            .contains(&instance.kind.as_str())
+        if ![
+            "xboxBluetooth",
+            "rc003",
+            "cmiotA15",
+            "xmBt29",
+            "rc313",
+            "obeRcuR5",
+        ]
+        .contains(&instance.kind.as_str())
         {
             return Err("未知设备支持包".into());
         }
@@ -406,6 +413,10 @@ fn validate(store: &Store) -> Result<(), String> {
                         "volumeDown",
                     ]
                     .contains(&input.as_str())
+                } else if instance.kind == "obeRcuR5" {
+                    crate::devices::obe_rcu_r5::BUTTONS
+                        .iter()
+                        .any(|&(_, _, id)| id == input)
                 } else if instance.kind == "xmBt29" {
                     crate::devices::xm_bt_29::BUTTONS
                         .iter()
@@ -632,8 +643,11 @@ impl DeviceManager {
             .iter()
             .find(|item| item.id == instance_id)
             .ok_or("设备已被移除")?;
-        if !matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
-            return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 支持手动控制录音".into());
+        if !matches!(
+            instance.kind.as_str(),
+            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+        ) {
+            return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 支持手动控制录音".into());
         }
         if !self.shared.enabled.load(Ordering::Acquire)
             || !instance.enabled
@@ -643,7 +657,7 @@ impl DeviceManager {
                 .get(instance_id)
                 .is_some_and(|status| status.state == "exclusive")
         {
-            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 / RC-313 设备".into());
+            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 设备".into());
         }
         Ok(())
     }
@@ -763,7 +777,7 @@ impl DeviceManager {
             .ok_or("未找到要更新驱动状态的设备实例")?;
         if !matches!(
             instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
+            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
         ) {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
@@ -919,15 +933,20 @@ fn open_reader(
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
     }
     #[cfg(target_os = "macos")]
-    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
-        && !super::InputService::input_monitoring_granted()
+    if matches!(
+        instance.kind.as_str(),
+        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+    ) && !super::InputService::input_monitoring_granted()
     {
         return Err("请先授予输入监控权限，再连接 A15".into());
     }
     let device = open(api, path)?;
     device.set_blocking_mode(false).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313") {
+    if matches!(
+        instance.kind.as_str(),
+        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+    ) {
         return Ok(InputReader::A15(a15::A15Reader::open(
             device, instance, shared, cancel,
         )));
@@ -967,6 +986,8 @@ fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
         (0x2717, 0x32b8, 1, 6) => Some("rc003"),
         #[cfg(target_os = "macos")]
         (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
+        #[cfg(target_os = "macos")]
+        (0x1d5a, 0xc081, 1, 6) => Some("obeRcuR5"),
         _ => None,
     }
 }
@@ -1019,7 +1040,7 @@ fn remember_pairing_ids(
         }
         if matches!(
             instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
         ) && instance.voice_target.is_none()
         {
             if let Some(device) = discovered.iter().find(|d| {
@@ -1130,6 +1151,8 @@ fn merge_driver_devices(
     for device in devices {
         let (kind, vendor_id, product_id) = if device.matches_kind("cmiotA15") {
             ("cmiotA15", 0x0416, 0x0300)
+        } else if device.matches_kind("obeRcuR5") {
+            ("obeRcuR5", 0x1d5a, 0xc081)
         } else if device.matches_kind("xboxBluetooth") {
             ("xboxBluetooth", 0x045e, 0x02e0)
         } else if device.is_rc003() {
@@ -1386,7 +1409,7 @@ fn run(shared: Arc<Shared>) {
             for instance in &configs {
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
                 ) {
                     continue;
                 }
@@ -1409,7 +1432,7 @@ fn run(shared: Arc<Shared>) {
                 };
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
+                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
                 ) || instance.binding.is_none()
                     || !instance.enabled
                     || !enabled
@@ -1455,8 +1478,10 @@ fn run(shared: Arc<Shared>) {
             let path = instance.binding.as_ref().and_then(|id| paths.get(id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if matches!(instance.kind.as_str(), "cmiotA15" | "xmBt29" | "rc313")
-                && !cfg!(any(windows, target_os = "macos"))
+            } else if matches!(
+                instance.kind.as_str(),
+                "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+            ) && !cfg!(any(windows, target_os = "macos"))
             {
                 "unsupported"
             } else if instance.binding.is_none() {
@@ -1474,7 +1499,7 @@ fn run(shared: Arc<Shared>) {
             #[cfg(all(windows, not(test)))]
             if matches!(
                 instance.kind.as_str(),
-                "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "xboxBluetooth"
+                "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
             ) {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
@@ -1541,7 +1566,7 @@ fn run(shared: Arc<Shared>) {
                             let maps = if cfg!(target_os = "macos")
                                 && matches!(
                                     instance.kind.as_str(),
-                                    "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+                                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
                                 ) {
                                 HashMap::new()
                             } else {
@@ -2111,6 +2136,26 @@ mod tests {
         }
     }
     #[test]
+    fn obe_mappings_accept_projector_buttons_and_reject_a15_inputs() {
+        let mut remote = instance("obe", "");
+        remote.kind = "obeRcuR5".into();
+        remote.binding = None;
+        remote.profiles[0].behaviors = serde_json::json!({
+            "obeRcuR5.locate": {"click": [{"type": "key", "key": "A"}]},
+            "obeRcuR5.voice": {"click": [{"type": "key", "key": "RAlt"}]}
+        });
+        let mut store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        assert!(validate(&store).is_ok());
+        store.instances[0].profiles[0].behaviors = serde_json::json!({
+            "cmiotA15.mute": {"click": [{"type": "key", "key": "A"}]}
+        });
+        assert!(validate(&store).is_err());
+    }
+
+    #[test]
     fn xm_bt_29_numeric_and_delete_mappings_validate() {
         let mut remote = instance("xm", "");
         remote.kind = "xmBt29".into();
@@ -2260,6 +2305,48 @@ mod tests {
         assert_eq!(
             driver_target(&wrong_model, &[wrong_model.clone()], &discovered, &devices),
             None
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn obe_pairing_and_driver_resolution_do_not_match_mobile_remotes() {
+        let devices = vec![crate::quarbor_installer::Device {
+            instance_id: r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&011D5A_PID&C081_REV&0000_C9B5965E4F92\8&30D338AA&0&001F".into(),
+            hardware_id: String::new(),
+            bluetooth_address: None,
+            name: "OBE_RCU_R5".into(),
+            present: true,
+            bound: true,
+            recovery_active: false,
+            inf: String::new(),
+            section: String::new(),
+        }];
+        let mut discovered = vec![];
+        paired::merge(
+            &mut discovered,
+            &[paired::Device {
+                address: "c9b5965e4f92".into(),
+                name: "OBE_RCU_R5".into(),
+                vendor_id: 0x1d5a,
+                product_id: 0xc081,
+            }],
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+        assert_eq!(discovered.len(), 1);
+        assert!(discovered[0].connected && discovered[0].paired);
+        assert_eq!(discovered[0].kind, "obeRcuR5");
+        assert!(!device_kind_matches(&discovered[0], "cmiotA15"));
+        assert!(!devices[0].matches_kind("rc313"));
+
+        let mut remote = instance("projector", &discovered[0].id);
+        remote.kind = "obeRcuR5".into();
+        remote.voice_target = discovered[0].bluetooth_address.clone();
+        assert_eq!(
+            driver_target(&remote, &[remote.clone()], &discovered, &devices),
+            Some((devices[0].instance_id.clone(), true))
         );
     }
 

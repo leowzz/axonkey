@@ -223,7 +223,7 @@ export function InstanceWorkspace({
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'rc313', 'xboxBluetooth'].includes(instance.kind)
+  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'rc313', 'obeRcuR5', 'xboxBluetooth'].includes(instance.kind)
   const ready = status?.state === 'exclusive'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
@@ -362,11 +362,15 @@ export function InstanceWorkspace({
           {(instance.kind === 'rc003' ||
             instance.kind === 'cmiotA15' ||
             instance.kind === 'xmBt29' ||
-            instance.kind === 'rc313') && (
+            instance.kind === 'rc313' ||
+            instance.kind === 'obeRcuR5') && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
               onToggle={
-                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
+                instance.kind === 'cmiotA15' ||
+                instance.kind === 'xmBt29' ||
+                instance.kind === 'rc313' ||
+                instance.kind === 'obeRcuR5'
                   ? () => void toggleRecording()
                   : undefined
               }
@@ -392,7 +396,8 @@ export function InstanceWorkspace({
             {(instance.kind === 'rc003' ||
               instance.kind === 'cmiotA15' ||
               instance.kind === 'xmBt29' ||
-              instance.kind === 'rc313') && (
+              instance.kind === 'rc313' ||
+              instance.kind === 'obeRcuR5') && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -418,7 +423,10 @@ export function InstanceWorkspace({
             </div>
           </div>
           {(instance.kind === 'rc003' ||
-            ((instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313') &&
+            ((instance.kind === 'cmiotA15' ||
+              instance.kind === 'xmBt29' ||
+              instance.kind === 'rc313' ||
+              instance.kind === 'obeRcuR5') &&
               (platform === 'windows' || platform === 'macos'))) && (
             <button
               type="button"
@@ -592,28 +600,29 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
-                    <label className="settings-form-row">
-                      <span className="settings-form-label">语音录制：</span>
-                      <span className="settings-form-control">
-                        <span className="manual-key-select cmiot-recording-select">
-                          <select
-                            value={instance.cmiotA15RecordingMode ?? 'click'}
-                            onChange={event => {
-                              const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                              update(item => ({ ...item, cmiotA15RecordingMode }))
-                            }}
-                          >
-                            <option value="hold">按住录音，松开停止</option>
-                            <option value="click">点击开始，再次点击停止</option>
-                          </select>
-                          <span className="manual-key-select-icon" aria-hidden="true">
-                            <ChevronDown size={14} />
+                  {(instance.kind === 'cmiotA15' || instance.kind === 'obeRcuR5') &&
+                    (platform === 'windows' || platform === 'macos') && (
+                      <label className="settings-form-row">
+                        <span className="settings-form-label">语音录制：</span>
+                        <span className="settings-form-control">
+                          <span className="manual-key-select cmiot-recording-select">
+                            <select
+                              value={instance.cmiotA15RecordingMode ?? 'click'}
+                              onChange={event => {
+                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                update(item => ({ ...item, cmiotA15RecordingMode }))
+                              }}
+                            >
+                              <option value="hold">按住录音，松开停止</option>
+                              <option value="click">点击开始，再次点击停止</option>
+                            </select>
+                            <span className="manual-key-select-icon" aria-hidden="true">
+                              <ChevronDown size={14} />
+                            </span>
                           </span>
                         </span>
-                      </span>
-                    </label>
-                  )}
+                      </label>
+                    )}
                   <label className="settings-form-row">
                     <span className="settings-form-label">设备名称：</span>
                     <input

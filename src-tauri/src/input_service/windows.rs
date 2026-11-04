@@ -260,11 +260,10 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 for (button, pressed) in context.xbox_reports.accept(bytes) {
                     context.keys.push_back(RemoteKeyEvent { button, pressed });
                 }
-            } else if context
-                .device_id
-                .as_deref()
-                .is_some_and(crate::devices::cmiot_a15::matches_instance)
-            {
+            } else if context.device_id.as_deref().is_some_and(|id| {
+                crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::obe_rcu_r5::matches_instance(id)
+            }) {
                 context.usage_error = None;
                 if bytes.first() == Some(&0xfc) {
                     match context.a15_voice.feed(bytes) {
@@ -329,11 +328,10 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
         Event::Capabilities(_) => {
             // Pipe readiness does not mean the BLE peripheral is awake. Reset
             // local state without writing FB 00 to an idle physical device.
-            if context
-                .device_id
-                .as_deref()
-                .is_some_and(crate::devices::cmiot_a15::matches_instance)
-            {
+            if context.device_id.as_deref().is_some_and(|id| {
+                crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::obe_rcu_r5::matches_instance(id)
+            }) {
                 context.a15_recording.reset();
                 context.a15_voice.reset();
                 context.a15_pcm.clear();
@@ -373,7 +371,9 @@ fn quarbor_release_active_usages(context: &mut QuarborContext, reason: ReleaseRe
     ) && context.a15_recording.preserves_recording_on_gap();
     if !preserve_recording {
         // Never replay a queued start after recording has been reset.
-        context.keys.retain(|key| key.button != "cmiotA15.voice");
+        context
+            .keys
+            .retain(|key| !matches!(key.button, "cmiotA15.voice" | "obeRcuR5.voice"));
         if let Err(error) = context
             .a15_recording
             .stop(|report| send_a15_recording_report(&mut context.reader, report))
@@ -470,6 +470,9 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
 pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_actions::HidKey> {
     if button.starts_with("cmiotA15.") {
         crate::devices::cmiot_a15::original_usage(button)
+            .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
+    } else if button.starts_with("obeRcuR5.") {
+        crate::devices::obe_rcu_r5::original_usage(button)
             .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
     } else if button.starts_with("xmBt29.") {
         crate::devices::xm_bt_29::original_usage(button)
@@ -703,7 +706,9 @@ impl ManagedQuarborChannel {
             managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
-        let a15_reports = if kind == "xmBt29" {
+        let a15_reports = if kind == "obeRcuR5" {
+            crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::obe_rcu_r5::decode)
+        } else if kind == "xmBt29" {
             crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::xm_bt_29::decode)
         } else {
             Default::default()
@@ -818,11 +823,10 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
         );
     }
     quarbor_release_active_usages(context, ReleaseReason::Shutdown);
-    if context
-        .device_id
-        .as_deref()
-        .is_some_and(crate::devices::cmiot_a15::matches_instance)
-    {
+    if context.device_id.as_deref().is_some_and(|id| {
+        crate::devices::cmiot_a15::matches_instance(id)
+            || crate::devices::obe_rcu_r5::matches_instance(id)
+    }) {
         shared.status.lock().unwrap().capture_active = false;
         publish_a15_recording(shared, false);
         if let Some(client) = context.reader.as_mut() {
@@ -944,11 +948,10 @@ fn process_remote_actions(
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
-    if context
-        .device_id
-        .as_deref()
-        .is_some_and(crate::devices::cmiot_a15::matches_instance)
-    {
+    if context.device_id.as_deref().is_some_and(|id| {
+        crate::devices::cmiot_a15::matches_instance(id)
+            || crate::devices::obe_rcu_r5::matches_instance(id)
+    }) {
         publish_a15_recording(shared, context.a15_recording.is_recording());
     }
 }
@@ -993,7 +996,7 @@ fn process_remote_actions_inner(
         if !key.button.starts_with("xbox.") {
             emit_remote_key_event(shared, key.button, key.pressed);
         }
-        if key.button == "cmiotA15.voice" {
+        if matches!(key.button, "cmiotA15.voice" | "obeRcuR5.voice") {
             if let Err(error) = context.a15_recording.edge(key.pressed, |report| {
                 send_a15_recording_report(&mut context.reader, report)
             }) {
@@ -1104,11 +1107,10 @@ fn emit_remote_output(
                 switch(direction, wrap);
                 return Ok(());
             }
-            let device = if context
-                .device_id
-                .as_deref()
-                .is_some_and(crate::devices::cmiot_a15::matches_instance)
-            {
+            let device = if context.device_id.as_deref().is_some_and(|id| {
+                crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::obe_rcu_r5::matches_instance(id)
+            }) {
                 super::profile_switch::DeviceId::CmiotA15
             } else {
                 super::profile_switch::DeviceId::Rc003
@@ -1136,10 +1138,10 @@ fn emit_remote_output(
             // merely because their unconfigured original action cannot be emitted.
             if !supported
                 && virtual_key_for_hid(key).is_none()
-                && context
-                    .device_id
-                    .as_deref()
-                    .is_some_and(crate::devices::cmiot_a15::matches_instance)
+                && context.device_id.as_deref().is_some_and(|id| {
+                    crate::devices::cmiot_a15::matches_instance(id)
+                        || crate::devices::obe_rcu_r5::matches_instance(id)
+                })
             {
                 if down {
                     log::warn!(target: "axonkey::input", "A15 original usage has no output mapping: {:04X}/{:04X}", key.page, key.usage);
@@ -1526,6 +1528,8 @@ fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
         .find(|virtual_key| hid_key_for_virtual_key(*virtual_key) == Some(key))
         .or(match (key.page, key.usage) {
             (7, 0xf1) => Some(0x08),
+            (7, 0x80) => Some(0xaf),
+            (7, 0x81) => Some(0xae),
             // A15 reports Confirm as Consumer Menu Pick, rather than keyboard Enter.
             (0x0c, 0x41) => Some(0x0d),
             _ => None,
@@ -2368,6 +2372,51 @@ mod tests {
                             vec![[0xfb, 1], [0xfb, 0]]
                         }
                     )
+                });
+            }
+        }
+
+        #[test]
+        fn obe_keyboard_voice_maps_independently_in_both_recording_modes() {
+            for mode in ["hold", "click"] {
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true,
+                    "cmiotA15RecordingMode": mode,
+                    "behaviors": {"obeRcuR5.voice": {"click": [{"type": "key", "key": "RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&011D5A_PID&C081_REV&0000_C9B5965E4F92\8&30D338AA&0&001F".into());
+                harness.context.a15_reports = crate::devices::cmiot_a15::ReportState::with_decoder(
+                    crate::devices::obe_rcu_r5::decode,
+                );
+                for (index, down) in [true, false, true, false].into_iter().enumerate() {
+                    a15_report(
+                        &mut harness.context,
+                        index as u64 + 1,
+                        vec![1, 0, 0, if down { 0x73 } else { 0 }, 0, 0, 0, 0, 0],
+                    );
+                    harness.tick(&settings, index as u64 * 1000, &[]);
+                    assert_eq!(harness.context.keyboard.held.len(), usize::from(down));
+                    assert_eq!(
+                        harness.context.a15_recording.is_recording(),
+                        if mode == "hold" { down } else { index < 2 }
+                    );
+                }
+                MOUSE_KEY_BATCHES.with(|events| {
+                    assert_eq!(
+                        *events.borrow(),
+                        [
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)],
+                            vec![(0xa5, 1)],
+                            vec![(0xa5, 3)]
+                        ]
+                    )
+                });
+                A15_RECORDING_REPORTS.with(|reports| {
+                    assert_eq!(reports.borrow().len(), if mode == "hold" { 4 } else { 2 })
                 });
             }
         }

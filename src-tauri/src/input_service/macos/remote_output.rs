@@ -8,6 +8,16 @@ impl RemoteKey for MacKey {
     }
 
     fn original(button: &str) -> Option<Self> {
+        if let Some(button) = button.strip_prefix("obeRcuR5.") {
+            return match button {
+                "back" => mac_key_for_name("Escape"),
+                "locate" | "voice" => None,
+                _ => SOURCE_KEYS
+                    .iter()
+                    .find(|source| source.id == button)
+                    .map(|source| source.original),
+            };
+        }
         if let Some(button) = button.strip_prefix("xmBt29.") {
             return match button {
                 "delete" => mac_key_for_name("Backspace"),

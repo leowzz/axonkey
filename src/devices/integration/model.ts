@@ -3,6 +3,7 @@ import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
 import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
 import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
 import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
+import { obeRcuR5SupportPackage } from '../obe-rcu-r5-remote/definition.ts'
 import { rc313SupportPackage } from '../rc-313-remote/definition.ts'
 import { xboxSupportPackage } from '../xbox-controller/index.ts'
 
@@ -96,6 +97,7 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   cmiotA15SupportPackage,
   xmBt29SupportPackage,
   rc313SupportPackage,
+  obeRcuR5SupportPackage,
 ]
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })

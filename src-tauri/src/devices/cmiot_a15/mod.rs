@@ -121,15 +121,19 @@ impl ReportState {
             .collect()
     }
 
-    // Keep physical F8 state so repeated down reports cannot become a new click.
+    // Keep physical voice state so repeated down reports cannot become a new click.
     pub(crate) fn release_non_voice(&mut self) -> Vec<(&'static str, bool)> {
         let mut released = Vec::new();
-        self.active.retain(|&report, keys| {
-            if report == 0xf8 {
-                return true;
-            }
-            released.extend(keys.iter().map(|&id| (id, false)));
-            false
+        self.active.retain(|_, keys| {
+            keys.retain(|&id| {
+                if matches!(id, "cmiotA15.voice" | "obeRcuR5.voice") {
+                    true
+                } else {
+                    released.push((id, false));
+                    false
+                }
+            });
+            !keys.is_empty()
         });
         released
     }
@@ -180,7 +184,7 @@ impl HidSession {
     ) -> Result<(Vec<(&'static str, bool)>, Option<voice::PcmFrame>), String> {
         let edges = self.reports.accept(report);
         for &(button, pressed) in &edges {
-            if button == "cmiotA15.voice" {
+            if matches!(button, "cmiotA15.voice" | "obeRcuR5.voice") {
                 self.recording.edge(pressed, &mut send)?;
                 self.voice.synchronize(self.recording());
             }
