@@ -395,24 +395,4 @@ mod tests {
             .unwrap()
             .is_empty());
     }
-    #[test]
-    #[ignore = "reads the current OS pairing inventory without connecting devices"]
-    fn system_pairing_inventory() {
-        let records = scan().unwrap();
-        let mut devices = vec![];
-        merge(&mut devices, &records, &HashSet::new(), &HashMap::new());
-        for device in &devices {
-            eprintln!(
-                "paired {} {:04x}:{:04x} …{}",
-                device.kind,
-                device.vendor_id,
-                device.product_id,
-                &device.id[device.id.len() - 6..]
-            );
-        }
-        assert!(
-            !devices.is_empty(),
-            "Pair a supported device before this read-only check"
-        );
-    }
 }

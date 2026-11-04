@@ -121,6 +121,7 @@ impl Reassembler {
         {
             return Ok(None);
         }
+        let incomplete = fragment == 0 && self.count > 0;
         if fragment == 0 {
             self.reset();
             self.synchronized = true;
@@ -135,6 +136,9 @@ impl Reassembler {
         self.reports[fragment].copy_from_slice(report);
         self.last_report = Some(report.try_into().unwrap());
         self.count += 1;
+        if incomplete {
+            return Err("FC group is incomplete; resumed at the next fragment zero");
+        }
         if self.count != 3 {
             return Ok(None);
         }
@@ -215,6 +219,38 @@ mod tests {
             .max()
             .unwrap();
         assert!((3500..3600).contains(&peak), "captured frame peak: {peak}");
+    }
+
+    #[test]
+    fn captured_xm_bt_29_group_decodes_with_the_shared_g7221_pipeline() {
+        let reports = [
+            [
+                0xfc, 0x11, 0x0a, 0, 0, 0x3a, 0xcc, 0xe6, 0x04, 0x17, 0x15, 0xcb, 0x23, 0x40, 0xcb,
+                0x97, 0x36, 0xf6, 0xbb, 0x75, 0x99,
+            ],
+            [
+                0xfc, 0x11, 0x0a, 1, 0, 0x0a, 0x26, 0xea, 0xa8, 0xe3, 0xfc, 0x5b, 0x87, 0x46, 0x5c,
+                0x0f, 0xa0, 0x4d, 0x7e, 0xb7, 0x51,
+            ],
+            [
+                0xfc, 0x11, 0x0a, 2, 0, 0x14, 0x11, 0x9c, 0x0d, 0x45, 0xf1, 0x51, 0xcf, 0x17, 0,
+                0x11, 0x0a, 0x4d, 0x7e, 0xb7, 0x51,
+            ],
+        ];
+        let mut stream = VoiceStream::default();
+        stream.synchronize(true);
+        assert!(stream.feed(&reports[0]).unwrap().is_none());
+        assert!(stream.feed(&reports[1]).unwrap().is_none());
+        let frame = stream.feed(&reports[2]).unwrap().unwrap();
+        assert_eq!(frame.group, 0x0a11);
+        assert_eq!(frame.samples.len(), 320);
+        let peak = frame
+            .samples
+            .iter()
+            .map(|s| i32::from(*s).abs())
+            .max()
+            .unwrap();
+        assert_eq!(peak, 1957);
     }
 
     #[test]
@@ -303,6 +339,20 @@ mod tests {
         assert!(assembler.feed(&[0xfc; 20]).is_err());
         assert!(assembler.feed(&packet(2, 3)).is_err());
     }
+
+    #[test]
+    fn reports_incomplete_groups_without_losing_the_next_frame_start() {
+        for received in [1, 2] {
+            let mut assembler = Reassembler::default();
+            for part in 0..received {
+                assert!(assembler.feed(&packet(1, part)).unwrap().is_none());
+            }
+            assert!(assembler.feed(&packet(2, 0)).is_err());
+            assert!(assembler.feed(&packet(2, 1)).unwrap().is_none());
+            assert_eq!(assembler.feed(&packet(2, 2)).unwrap().unwrap().group, 2);
+        }
+    }
+
     #[test]
     fn waits_for_initial_boundary_and_recovers_after_packet_loss() {
         let mut assembler = Reassembler::default();

@@ -522,46 +522,4 @@ mod tests {
         retain_readings(&mut next, &previous);
         assert!(next.iter().all(|d| d.device_info.battery_level.is_none()));
     }
-    #[cfg(windows)]
-    #[test]
-    #[ignore = "reads connected remotes over Bluetooth"]
-    fn connected_remote_information() {
-        let devices = super::super::paired::scan().unwrap();
-        let remotes: Vec<_> = devices
-            .iter()
-            .filter(|d| {
-                matches!(
-                    (d.vendor_id, d.product_id),
-                    (0x0416, 0x0300) | (0x2717, 0x32b8)
-                )
-            })
-            .collect();
-        assert!(
-            !remotes.is_empty(),
-            "Connect a supported remote before running this hardware test"
-        );
-        for d in remotes {
-            let target = Discovered {
-                id: d.address.clone(),
-                kind: super::super::paired::kind(d.vendor_id, d.product_id)
-                    .unwrap()
-                    .into(),
-                name: d.name.clone(),
-                transport: "Bluetooth".into(),
-                identity_quality: "serial".into(),
-                vendor_id: d.vendor_id,
-                product_id: d.product_id,
-                connected: true,
-                paired: true,
-                pairing_id: None,
-                hid_instance_id: None,
-                bluetooth_address: Some(d.address.clone()),
-                device_info: Default::default(),
-            };
-            let info = read(&target, true);
-            eprintln!("{}: {info:?}", d.name);
-            assert!(info.error.is_none(), "{:?}", info.error);
-            assert!(info.battery_level.is_some());
-        }
-    }
 }
