@@ -366,7 +366,11 @@ fn ble_worker_loop(shared: Arc<Shared>) {
             status.forwarding = false;
             status.error = None;
         });
-        match VoiceConnection::connect(Arc::clone(&shared)) {
+        let connection = {
+            let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
+            VoiceConnection::connect(Arc::clone(&shared))
+        };
+        match connection {
             Ok(mut connection) => {
                 last_connection_error = None;
                 log::info!(target: "axonkey::audio", "RC003 voice GATT connected");
