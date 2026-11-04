@@ -20,7 +20,7 @@
 <th width="50%">按键配置</th>
 </tr>
 <tr>
-<td align="center"><a href="./docs/images/axonkey-home.png"><img src="./docs/images/axonkey-home.png" height="280" alt="Axonkey 首页，展示设备状态、系统权限、语音通道和快捷操作"></a></td>
+<td align="center"><a href="./docs/images/axonkey-home.png"><img src="./docs/images/axonkey-home.png" height="280" alt="Axonkey 我的设备，展示已添加设备、连接状态、当前配置和发现设备"></a></td>
 <td align="center"><a href="./docs/images/axonkey-mapping.png"><img src="./docs/images/axonkey-mapping.png" height="280" alt="Axonkey 按键配置，展示遥控器、触发方式和行为编辑器"></a></td>
 </tr>
 </table>
