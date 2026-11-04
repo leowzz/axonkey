@@ -469,7 +469,8 @@ function IntegrationDialog({
   const device = candidates.find(d => d.id === binding)
   const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
   const selectedPackage = kind ? packageFor(kind) : null
-  const recognitionError = '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。'
+  const recognitionError =
+    '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。如果依然识别失败，请看遥控器背面或者说明书确认型号，并手动选择。'
   async function identifyMobileRemote() {
     if (!binding || !native) return
     setRecognizing(true)

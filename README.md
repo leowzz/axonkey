@@ -1,6 +1,6 @@
 # Axonkey · Vibe Coding 快捷键与语音输入工具
 
-把小米蓝牙遥控器 2 Pro（RC003）和鼠标变成 Vibe Coding（AI 编程）的快捷控制器。在 macOS 和 Windows 上，为 Cursor、Claude Code、OpenAI Codex 等工具配置快捷键、常用提示词和组合动作，也能将遥控器用作语音输入麦克风。
+把各种输入设备（遥控器、鼠标、游戏手柄）变成 Vibe Coding（AI 编程）的快捷控制器。在 macOS 和 Windows 上，为 Cursor、Claude Code、OpenAI Codex 等工具配置快捷键、常用提示词和组合动作，也能将遥控器用作语音输入麦克风。
 
 [![Release](https://img.shields.io/github/v/release/leowzz/axonkey?style=flat&color=blue)](https://github.com/leowzz/axonkey/releases)
 [![Build](https://img.shields.io/github/actions/workflow/status/leowzz/axonkey/build-tag.yml?style=flat&label=build)](https://github.com/leowzz/axonkey/actions/workflows/build-tag.yml)
@@ -91,7 +91,7 @@
 
 灵感来自 [remote-mic-app](https://github.com/HD838A/remote-mic-app)，感谢原项目。
 
-Windows 按键映射使用 `QuarborUniversalKeyboardDriver`，感谢 `奇桦科技有限公司` 提供的专有驱动。
+Windows 按键映射和虚拟麦克风使用 `QuarborUniversalKeyboardDriver`和`QuarborVirtualMicrophoneDriver`，感谢 `奇桦科技有限公司` 提供的专有驱动。
 
 ## 投喂一点Token
 

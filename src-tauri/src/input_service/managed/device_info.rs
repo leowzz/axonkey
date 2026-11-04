@@ -222,16 +222,15 @@ fn text(bytes: &[u8]) -> Result<Option<String>, String> {
 
 #[cfg(windows)]
 fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
-    use windows::{
-        Devices::Bluetooth::BluetoothLEDevice,
-        Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED},
-    };
+    use windows::Devices::Bluetooth::BluetoothLEDevice;
     let mut info = DeviceInformation::default();
-    let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok();
-    if let Err(error) = initialized {
-        info.error = Some(error.to_string());
-        return info;
-    }
+    let _apartment = match crate::windows_runtime::initialize_mta() {
+        Ok(apartment) => apartment,
+        Err(error) => {
+            info.error = Some(error.to_string());
+            return info;
+        }
+    };
     let result = (|| -> Result<(), String> {
         let address = u64::from_str_radix(
             &target.bluetooth_address.as_ref().unwrap().replace(':', ""),
@@ -262,7 +261,6 @@ fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
             Err(errors.join("；"))
         }
     })();
-    unsafe { CoUninitialize() };
     info.error = result.err();
     info
 }

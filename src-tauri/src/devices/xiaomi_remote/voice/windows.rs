@@ -25,7 +25,6 @@ use windows::{
     },
     Foundation::TypedEventHandler,
     Storage::Streams::{DataReader, DataWriter, IBuffer},
-    Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED},
 };
 
 const VOICE_SERVICE_UUID: GUID = GUID::from_u128(0xab5e0001_5a21_4f05_bc7d_af01f617b664);
@@ -342,15 +341,17 @@ impl Drop for AudioService {
 }
 
 fn ble_worker_loop(shared: Arc<Shared>) {
-    let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-    if !initialized {
-        log::error!(target: "axonkey::audio", "Cannot initialize the Windows Bluetooth runtime");
-        shared.update_status(|status| {
-            status.state = "error".into();
-            status.error = Some("Cannot initialize the Windows Bluetooth runtime".into());
-        });
-        return;
-    }
+    let _apartment = match crate::windows_runtime::initialize_mta() {
+        Ok(apartment) => apartment,
+        Err(error) => {
+            log::error!(target: "axonkey::audio", "Cannot initialize the Windows Bluetooth runtime: {error}");
+            shared.update_status(|status| {
+                status.state = "error".into();
+                status.error = Some("Cannot initialize the Windows Bluetooth runtime".into());
+            });
+            return;
+        }
+    };
 
     let mut last_connection_error: Option<String> = None;
     while !shared.stop.load(Ordering::Acquire) {
@@ -394,7 +395,6 @@ fn ble_worker_loop(shared: Arc<Shared>) {
         }
         wait_or_stop(&shared, RETRY_DELAY, &shared.ble_refresh);
     }
-    unsafe { CoUninitialize() };
 }
 
 struct VoiceConnection {

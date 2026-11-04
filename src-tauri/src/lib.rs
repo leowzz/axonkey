@@ -15,6 +15,8 @@ mod release_update;
 #[cfg(target_os = "windows")]
 mod windows_driver_devices;
 #[cfg(target_os = "windows")]
+mod windows_runtime;
+#[cfg(target_os = "windows")]
 mod windows_vmic;
 
 use audio_service::{AudioServiceManager, AudioServiceStatus, AudioTarget};

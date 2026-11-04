@@ -243,12 +243,9 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
             Enumeration::DeviceInformation,
         },
         Foundation::IPropertyValue,
-        Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_MULTITHREADED},
     };
-    let initialized = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.is_ok();
-    if !initialized {
-        return Err("无法初始化蓝牙配对查询".into());
-    }
+    let _apartment = crate::windows_runtime::initialize_mta()
+        .map_err(|e| format!("无法初始化蓝牙配对查询：{e}"))?;
     let result = (|| -> windows::core::Result<Vec<Device>> {
         let mut devices = vec![];
         for (index, selector) in [
@@ -325,7 +322,6 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
         }
         Ok(devices)
     })();
-    unsafe { CoUninitialize() };
     result.map_err(|e| format!("无法读取蓝牙配对列表：{e}"))
 }
 
@@ -337,6 +333,22 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "queries the local Bluetooth pairing inventory repeatedly"]
+    fn repeated_windows_pairing_queries() {
+        for _ in 0..8 {
+            std::thread::spawn(|| {
+                for _ in 0..32 {
+                    scan().unwrap();
+                }
+            })
+            .join()
+            .unwrap();
+        }
+    }
+
     fn controller(address: &str) -> Device {
         Device {
             address: address.into(),
