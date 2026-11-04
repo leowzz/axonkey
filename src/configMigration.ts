@@ -266,6 +266,7 @@ function createLegacyBackupDocument(storage: Pick<Storage, 'getItem'>, source: R
     settings: {
       enabled: settings.enabled ?? true,
       mouseEnabled: settings.mouseEnabled ?? true,
+      showRecordingOverlay: settings.showRecordingOverlay ?? true,
       showRemoteKeyGrid: settings.showRemoteKeyGrid ?? true,
       showMouseKeyGrid: settings.showMouseKeyGrid ?? false,
       mouseIgnoreScrollAcceleration: settings.mouseIgnoreScrollAcceleration ?? true,

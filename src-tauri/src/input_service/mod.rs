@@ -29,6 +29,8 @@ pub struct InputServiceStatus {
 
 #[derive(Clone, Default, Deserialize)]
 pub struct NativeSettings {
+    #[serde(rename = "showRecordingOverlay", default = "enabled_by_default")]
+    pub(crate) show_recording_overlay: bool,
     #[serde(rename = "cmiotA15RecordingMode", default)]
     pub(super) cmiot_a15_recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     #[serde(rename = "mouseEdgeWidth", default = "default_mouse_edge_width")]
@@ -354,6 +356,17 @@ pub use unsupported::InputService;
 #[cfg(test)]
 mod settings_tests {
     use super::NativeSettings;
+
+    #[test]
+    fn recording_overlay_defaults_on_without_invalidating_input_settings() {
+        let legacy: NativeSettings = serde_json::from_str("{}").unwrap();
+        assert!(legacy.show_recording_overlay);
+        let hidden: NativeSettings =
+            serde_json::from_str(r#"{"showRecordingOverlay":false}"#).unwrap();
+        assert!(!hidden.show_recording_overlay);
+        assert!(!legacy.remote_settings_changed(&hidden));
+        assert!(!legacy.mouse_settings_changed(&hidden));
+    }
 
     #[test]
     fn recording_mode_defaults_to_click_and_invalidates_only_remote_settings() {

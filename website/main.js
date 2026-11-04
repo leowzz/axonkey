@@ -1,14 +1,14 @@
 const previews = {
   home: {
-    source: new URL('../docs/images/axonkey-home.png', import.meta.url).href,
+    source: new URL('../docs/images/axonkey-home.webp', import.meta.url).href,
     alt: 'Axonkey 主页，展示设备状态、系统权限、语音通道和快捷操作',
   },
   mapping: {
-    source: new URL('../docs/images/axonkey-mapping.png', import.meta.url).href,
+    source: new URL('../docs/images/axonkey-mapping.webp', import.meta.url).href,
     alt: 'Axonkey 按键映射界面，可选择实体按键并编辑触发行为',
   },
   overview: {
-    source: new URL('../docs/images/axonkey-overview.png', import.meta.url).href,
+    source: new URL('../docs/images/axonkey-overview.webp', import.meta.url).href,
     alt: 'Axonkey 总览，展示遥控器各按键的映射行为与触发方式',
   },
 };

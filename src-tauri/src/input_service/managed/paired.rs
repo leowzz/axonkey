@@ -246,6 +246,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
     };
     let _apartment = crate::windows_runtime::initialize_mta()
         .map_err(|e| format!("无法初始化蓝牙配对查询：{e}"))?;
+    let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
     let result = (|| -> windows::core::Result<Vec<Device>> {
         let mut devices = vec![];
         for (index, selector) in [

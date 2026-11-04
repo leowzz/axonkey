@@ -260,3 +260,11 @@ test('full backup import honors per-device skip choices while still restoring sa
     assert.equal(values.get(legacyProfilesKey), 'local legacy source must be preserved')
   }
 })
+
+
+test('older backups default recording overlay on and new backups preserve disabling it', () => {
+  const document = createDataBackup(sampleData(), '1.7.13')
+  assert.equal(parseDataBackup(JSON.stringify(document)).settings.showRecordingOverlay, false)
+  delete document.settings.showRecordingOverlay
+  assert.equal(parseDataBackup(JSON.stringify(document)).settings.showRecordingOverlay, true)
+})

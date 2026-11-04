@@ -1,6 +1,6 @@
 # Axonkey 官网
 
-独立的中文产品官网，使用原生 HTML、CSS、JavaScript 与 Vite。网站源码位于此目录，应用截图与根目录 README 共用 `../docs/images/axonkey-home.png`、`../docs/images/axonkey-overview.png` 和 `../docs/images/axonkey-mapping.png`，只维护一份源文件。Vite 构建时自动打包这些共享图片。其他图片来自项目已有产品素材。
+独立的中文产品官网，使用原生 HTML、CSS、JavaScript 与 Vite。网站源码位于此目录，应用截图与根目录 README 共用 `../docs/images/axonkey-home.webp`、`../docs/images/axonkey-overview.webp` 和 `../docs/images/axonkey-mapping.webp`，只维护一份源文件。Vite 构建时自动打包这些共享图片。其他图片来自项目已有产品素材。
 
 ## 本地预览
 

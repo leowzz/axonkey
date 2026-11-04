@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, sync::OnceLock};
+use std::{
+    marker::PhantomData,
+    sync::{Mutex, MutexGuard, OnceLock},
+};
 use windows::{
     core::{Error, Result, HRESULT},
     Win32::System::Com::{
@@ -7,6 +10,14 @@ use windows::{
 };
 
 pub(crate) struct MtaApartment(PhantomData<*mut ()>);
+
+pub(crate) fn bluetooth_call_guard() -> MutexGuard<'static, ()> {
+    static BLUETOOTH_CALLS: OnceLock<Mutex<()>> = OnceLock::new();
+    BLUETOOTH_CALLS
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 pub(crate) fn initialize_mta() -> Result<MtaApartment> {
     static MTA: OnceLock<std::result::Result<(), HRESULT>> = OnceLock::new();

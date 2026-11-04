@@ -20,8 +20,8 @@
 <th width="50%">按键配置</th>
 </tr>
 <tr>
-<td align="center"><a href="./docs/images/axonkey-home.png"><img src="./docs/images/axonkey-home.png" height="280" alt="Axonkey 我的设备，展示已添加设备、连接状态、当前配置和发现设备"></a></td>
-<td align="center"><a href="./docs/images/axonkey-mapping.png"><img src="./docs/images/axonkey-mapping.png" height="280" alt="Axonkey 按键配置，展示遥控器、触发方式和行为编辑器"></a></td>
+<td align="center"><a href="./docs/images/axonkey-home.webp"><img src="./docs/images/axonkey-home.webp" height="280" alt="Axonkey 我的设备，展示已添加设备、连接状态、当前配置和发现设备"></a></td>
+<td align="center"><a href="./docs/images/axonkey-mapping.webp"><img src="./docs/images/axonkey-mapping.webp" height="280" alt="Axonkey 按键配置，展示遥控器、触发方式和行为编辑器"></a></td>
 </tr>
 </table>
 
@@ -29,7 +29,7 @@
 <summary>查看总览界面</summary>
 
 <p align="center">
-<img src="./docs/images/axonkey-overview.png" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
+<img src="./docs/images/axonkey-overview.webp" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
 </p>
 
 </details>
@@ -98,5 +98,5 @@ Windows 按键映射和虚拟麦克风使用 `QuarborUniversalKeyboardDriver`和
 如果 Axonkey 用着顺手，欢迎投喂一点Token，让我继续折腾好玩又好用的小功能 😄
 
 <p align="center">
-<img src="./docs/images/sponsor-wechat.png" width="320" alt="微信赞赏码：投喂一点Token">
+<img src="./docs/images/sponsor-wechat.webp" width="320" alt="微信赞赏码：投喂一点Token">
 </p>

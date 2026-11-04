@@ -231,6 +231,7 @@ fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
             return info;
         }
     };
+    let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
     let result = (|| -> Result<(), String> {
         let address = u64::from_str_radix(
             &target.bluetooth_address.as_ref().unwrap().replace(':', ""),

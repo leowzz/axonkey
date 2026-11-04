@@ -277,6 +277,7 @@ function AppController({
     if (page === 'mapping') setMappingStyle('flow')
     setActivePage(page)
   }
+  const [showRecordingOverlay, setShowRecordingOverlay] = useState(() => getStoredSettings().showRecordingOverlay)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
@@ -622,6 +623,7 @@ function AppController({
     window.localStorage.setItem(
       settingsStorageKey,
       JSON.stringify({
+        showRecordingOverlay,
         cmiotA15RecordingMode,
         showRemoteKeyGrid,
         showMouseKeyGrid,
@@ -643,6 +645,7 @@ function AppController({
         if ('__TAURI_INTERNALS__' in window) {
           await invoke('update_input_settings', {
             settings: {
+              showRecordingOverlay,
               cmiotA15RecordingMode,
               behaviors,
               enabled,
@@ -669,6 +672,7 @@ function AppController({
     void syncNativeSettings()
   }, [
     cmiotA15RecordingMode,
+    showRecordingOverlay,
     showRemoteKeyGrid,
     showMouseKeyGrid,
     behaviors,
@@ -1875,6 +1879,7 @@ function AppController({
                       ...profileStateRef.current,
                       savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
                       settings: {
+                        showRecordingOverlay,
                         cmiotA15RecordingMode,
                         showRemoteKeyGrid,
                         showMouseKeyGrid,
@@ -1906,6 +1911,8 @@ function AppController({
               onSectionChange={setSettingsSection}
               showRemoteKeyGrid={showRemoteKeyGrid}
               onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
+              showRecordingOverlay={showRecordingOverlay}
+              onShowRecordingOverlayChange={setShowRecordingOverlay}
               platform={platform}
               nativeRuntime={nativeRuntime}
               systemProbeState={systemProbeState}

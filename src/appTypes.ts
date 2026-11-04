@@ -176,6 +176,7 @@ export type ManualKeyOption = { value: string; label: string }
 export type CmiotA15RecordingMode = 'hold' | 'click'
 
 export type StoredSettings = {
+  showRecordingOverlay: boolean
   cmiotA15RecordingMode: CmiotA15RecordingMode
   mouseEdgeWidth: number
   showRemoteKeyGrid: boolean

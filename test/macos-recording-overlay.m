@@ -2,6 +2,9 @@
 #include <assert.h>
 #include <stdio.h>
 
+static bool showRecordingOverlay = true;
+bool axonkey_show_recording_overlay(void) { return showRecordingOverlay; }
+
 static unsigned int clicks;
 static void clicked(void) { clicks++; }
 
@@ -51,6 +54,12 @@ int main(void) {
         AxonkeyRecordingPanel *first = recordingPanel;
         axonkey_macos_recording_overlay(false, 160, 36, clicked);
         assert(!recordingPanel.visible);
+        axonkey_macos_recording_overlay(true, 160, 36, clicked);
+        assert(recordingPanel == first && recordingPanel.visible);
+        showRecordingOverlay = false;
+        axonkey_macos_recording_overlay(true, 160, 36, clicked);
+        assert(!recordingPanel.visible);
+        showRecordingOverlay = true;
         axonkey_macos_recording_overlay(true, 160, 36, clicked);
         assert(recordingPanel == first && recordingPanel.visible);
         [button performClick:nil];

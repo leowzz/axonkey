@@ -18,6 +18,7 @@ thread_local! {
 }
 
 pub(super) fn refresh_window(visible: bool) {
+    let visible = visible && super::axonkey_show_recording_overlay();
     let result = WINDOW.with(|slot| -> windows::core::Result<()> {
         let mut slot = slot.borrow_mut();
         if visible {
@@ -358,6 +359,26 @@ mod tests {
             window.hide();
             assert!(!IsWindowVisible(window.0).as_bool());
         }
+    }
+
+    #[test]
+    fn recording_overlay_setting_hides_and_restores_an_active_indicator() {
+        use crate::recording_overlay::{axonkey_show_recording_overlay, set_enabled};
+
+        assert!(axonkey_show_recording_overlay());
+        refresh_window(true);
+        let window = WINDOW.with(|slot| slot.borrow().as_ref().unwrap().0);
+        assert!(unsafe { IsWindowVisible(window).as_bool() });
+
+        set_enabled(false).unwrap();
+        refresh_window(true);
+        assert!(!unsafe { IsWindowVisible(window).as_bool() });
+
+        set_enabled(true).unwrap();
+        refresh_window(true);
+        assert!(unsafe { IsWindowVisible(window).as_bool() });
+        refresh_window(false);
+        assert!(!unsafe { IsWindowVisible(window).as_bool() });
     }
 
     #[test]
