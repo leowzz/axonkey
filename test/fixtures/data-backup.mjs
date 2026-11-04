@@ -16,7 +16,7 @@ function profileData() {
     savedSequences: [{ id: 'saved', name: '粘贴并确认', sequence: serializeSequence([
       createBehavior({ type: 'paste', text: '多行\n文本' }), createBehavior({ type: 'key', key: 'Enter' }),
     ]) }],
-    settings: { cmiotA15RecordingMode: 'hold', enabled: false, mouseEnabled: true, showRemoteKeyGrid: false, showMouseKeyGrid: true, mouseIgnoreScrollAcceleration: false, mouseScrollSensitivity: 175, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 75, mouseKeyHoldMs: 10, mouseEdgeWidth: 15 },
+    settings: { showRecordingOverlay: false, cmiotA15RecordingMode: 'hold', enabled: false, mouseEnabled: true, showRemoteKeyGrid: false, showMouseKeyGrid: true, mouseIgnoreScrollAcceleration: false, mouseScrollSensitivity: 175, mouseVerticalScrollIntervalMs: 0, mouseHorizontalScrollIntervalMs: 75, mouseKeyHoldMs: 10, mouseEdgeWidth: 15 },
     audio: { gain: -6, stretchCompensation: true }, preferences: { sidebarCollapsed: true },
   }
 }

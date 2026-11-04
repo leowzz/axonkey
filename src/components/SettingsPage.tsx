@@ -35,6 +35,8 @@ type SettingsPageProps = {
   onToggleEnabled: () => void
   platform: Platform
   nativeRuntime: boolean
+  showRecordingOverlay: boolean
+  onShowRecordingOverlayChange: (value: boolean) => void
   showRemoteKeyGrid: boolean
   onShowRemoteKeyGridChange: (value: boolean) => void
   systemProbeState: 'loading' | 'ready' | 'error'
@@ -79,6 +81,8 @@ export function SettingsPage({
   onToggleEnabled,
   platform,
   nativeRuntime,
+  showRecordingOverlay,
+  onShowRecordingOverlayChange,
   showRemoteKeyGrid,
   onShowRemoteKeyGridChange,
   systemProbeState,
@@ -538,6 +542,19 @@ export function SettingsPage({
               <span>更改自动保存</span>
             </div>
             <div className="settings-form-fields">
+              <div className="settings-form-row">
+                <span className="settings-form-label">录音悬浮窗：</span>
+                <div className="settings-form-control">
+                  <label className="settings-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={showRecordingOverlay}
+                      onChange={event => onShowRecordingOverlayChange(event.target.checked)}
+                    />
+                    显示正在录音状态
+                  </label>
+                </div>
+              </div>
               <div className="settings-form-row">
                 <span className="settings-form-label">按键列表：</span>
                 <div className="settings-form-control">

@@ -1,6 +1,8 @@
 #import <AppKit/AppKit.h>
 #include <stdbool.h>
 
+extern bool axonkey_show_recording_overlay(void);
+
 @interface AxonkeyRecordingButton : NSButton
 @property(nonatomic, assign) void (*onClick)(void);
 @end
@@ -42,7 +44,7 @@ static AxonkeyRecordingPanel *recordingPanel;
 // Invoked on Tauri's main thread; the panel must leave the input app focused.
 void axonkey_macos_recording_overlay(bool visible, int width, int height, void (*onClick)(void)) {
     NSCAssert(NSThread.isMainThread, @"Recording notifications require AppKit's main thread");
-    if (!visible) {
+    if (!visible || !axonkey_show_recording_overlay()) {
         [recordingPanel orderOut:nil];
         return;
     }

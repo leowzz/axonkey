@@ -1495,6 +1495,7 @@ fn update_input_settings(
     manager: tauri::State<'_, DeviceManager>,
 ) -> Result<(), String> {
     log::debug!(target: "axonkey::runtime", "Applying input settings from frontend");
+    recording_overlay::set_enabled(settings.show_recording_overlay)?;
     manager.set_enabled(settings.enabled);
     input_service.update_settings(settings.clone())?;
     mouse_service.update_settings(&settings)

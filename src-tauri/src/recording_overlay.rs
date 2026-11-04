@@ -15,6 +15,7 @@ mod windows;
 
 const WIDTH: i32 = 160;
 const HEIGHT: i32 = 36;
+static SHOW_RECORDING_OVERLAY: AtomicBool = AtomicBool::new(true);
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 static ON_CLICK: OnceLock<fn()> = OnceLock::new();
 static ACTIVE: LazyLock<Mutex<ActiveRecordings>> =
@@ -44,6 +45,20 @@ impl ActiveRecordings {
 pub fn initialize(app: tauri::AppHandle) {
     let _ = APP.set(app);
     let _ = ON_CLICK.set(stop_active_recording);
+}
+
+pub(crate) fn set_enabled(enabled: bool) -> Result<(), String> {
+    SHOW_RECORDING_OVERLAY.store(enabled, Ordering::Relaxed);
+    if let Some(app) = APP.get() {
+        app.run_on_main_thread(refresh_window)
+            .map_err(|error| format!("Cannot schedule recording indicator: {error}"))?;
+    }
+    Ok(())
+}
+
+#[no_mangle]
+pub extern "C" fn axonkey_show_recording_overlay() -> bool {
+    SHOW_RECORDING_OVERLAY.load(Ordering::Relaxed)
 }
 
 pub(crate) struct RecordingSource {
