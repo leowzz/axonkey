@@ -97,8 +97,8 @@ Axonkey 是本地设备映射工具，使用 React、TypeScript、Tauri 和普�
 
 仅更新 README 截图时，按本节处理，无需执行桌面 UI 的构建或交互验证。
 
-- 首页、总览、映射截图分别使用 `docs/images/axonkey-home.png`、`docs/images/axonkey-overview.png`、`docs/images/axonkey-mapping.png`；替换对应文件，保留 README 的相对路径与显示宽度。
-- 默认每张控制在 **300～500 KB**，保留 PNG 格式及文字可读性；原图已经小于目标时不为凑下限增大文件。
+- 首页、总览、映射截图分别使用 `docs/images/axonkey-home.webp`、`docs/images/axonkey-overview.webp`、`docs/images/axonkey-mapping.webp`；替换对应文件，保留 README 的相对路径与显示宽度。
+- 默认每张控制在 **500 KB 以内**，使用无损 WebP 格式并保留文字可读性；原图已经小于目标时不增大文件。
 - 先移除元数据并做无损压缩；仍超过 500 KB 时，从原始截图等比缩小，避免反复缩放已压缩版本。宽度 1500px 可作为尝试值，最终以体积和清晰度决定，不裁剪界面内容。
-- 可用 ImageMagick：`rtk proxy magick "$source_image" -strip -define png:compression-level=9 "$output_image"`；需要缩小时，在 `-strip` 前加入 `-resize '1500x>'`。
+- 可用 ImageMagick：`rtk proxy magick "$source_image" -strip -define webp:lossless=true "$output_image"`；需要缩小时，在 `-strip` 前加入 `-resize '1500x>'`。
 - 完成后检查每张文件大小、图片能否打开、缩放后的文字清晰度及 README 引用；汇报最终体积。纯截图替换无需运行应用构建。
