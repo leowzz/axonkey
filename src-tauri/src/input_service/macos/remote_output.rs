@@ -8,6 +8,12 @@ impl RemoteKey for MacKey {
     }
 
     fn original(button: &str) -> Option<Self> {
+        if let Some(button) = button.strip_prefix("xmBt29.") {
+            return match button {
+                "delete" => mac_key_for_name("Backspace"),
+                _ => button.strip_prefix("digit").and_then(mac_key_for_name),
+            };
+        }
         let button = button.strip_prefix("cmiotA15.")?;
         if let Some(source) = SOURCE_KEYS.iter().find(|source| source.id == button) {
             // F8 is a vendor recording signal, not an ordinary keyboard key.

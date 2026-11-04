@@ -32,7 +32,11 @@ impl A15Reader {
             cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
             ..Default::default()
         };
-        let mut session = HidSession::default();
+        let mut session = if instance.kind == "xmBt29" {
+            HidSession::with_decoder(crate::devices::xm_bt_29::decode)
+        } else {
+            HidSession::default()
+        };
         session.start(instance.cmiot_a15_recording_mode);
         let mut actions = RemoteActions::default();
         actions.synchronize(1, true);

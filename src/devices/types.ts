@@ -1,6 +1,7 @@
 import type { CmiotA15RecordingMode, MappingInput, RemoteButton } from '../appTypes'
 import type { XiaomiRemoteButtonId } from './xiaomi-remote/buttons.ts'
 import type { CmiotA15RemoteButtonId } from './cmiot-a15-remote/buttons.ts'
+import type { XmBt29RemoteButtonId } from './xm-bt-29-remote/buttons.ts'
 import type { MouseInputId } from './system-mouse/inputs.ts'
 
 export type RemoteKeyRegion = {
@@ -16,7 +17,7 @@ export type RemoteView = {
   ariaLabel: string
 }
 
-export type RemoteButtonId = XiaomiRemoteButtonId | CmiotA15RemoteButtonId
+export type RemoteButtonId = XiaomiRemoteButtonId | CmiotA15RemoteButtonId | XmBt29RemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
 export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313'

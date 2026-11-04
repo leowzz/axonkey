@@ -4,6 +4,8 @@ import {
   ChevronRight,
   ChevronUp,
   Command,
+  Delete,
+  Hash,
   Home,
   Menu,
   Mic,
@@ -320,6 +322,10 @@ export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
       return <VolumeX {...props} />
     case 'settings':
       return <Settings {...props} />
+    case 'number':
+      return <Hash {...props} />
+    case 'delete':
+      return <Delete {...props} />
     case 'm':
       return (
         <svg

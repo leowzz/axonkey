@@ -471,6 +471,9 @@ pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_acti
     if button.starts_with("cmiotA15.") {
         crate::devices::cmiot_a15::original_usage(button)
             .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
+    } else if button.starts_with("xmBt29.") {
+        crate::devices::xm_bt_29::original_usage(button)
+            .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
     } else {
         rc003_usage_for_button(button).map(|usage| super::remote_actions::HidKey { page: 7, usage })
     }
@@ -658,6 +661,7 @@ impl Drop for InputService {
 /// Each RC003/A15 instance owns one Quarbor pipe and one action state machine.
 #[cfg(windows)]
 pub(super) struct ManagedQuarborChannel {
+    pub(super) kind: String,
     shared: Arc<Shared>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
@@ -668,6 +672,7 @@ impl ManagedQuarborChannel {
     pub(super) fn start(
         instance_id: String,
         target: String,
+        kind: String,
         settings: NativeSettings,
         app: tauri::AppHandle,
         driver_gate: Arc<AtomicBool>,
@@ -698,17 +703,24 @@ impl ManagedQuarborChannel {
             managed_remote_owned: AtomicBool::new(false),
         });
         let worker_shared = Arc::clone(&shared);
+        let a15_reports = if kind == "xmBt29" {
+            crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::xm_bt_29::decode)
+        } else {
+            Default::default()
+        };
         let worker = thread::Builder::new()
             .name(format!("Axonkey Quarbor {instance_id}"))
             .spawn(move || {
                 let mut context = QuarborContext {
                     switch_profile: Some(switch_profile),
+                    a15_reports,
                     ..Default::default()
                 };
                 run_context(&mut context, &worker_shared, target);
             })
             .ok();
         Self {
+            kind,
             shared,
             worker: Mutex::new(worker),
         }
@@ -1940,6 +1952,7 @@ mod tests {
                 UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
                 Self {
                     channel: ManagedQuarborChannel {
+                        kind: "cmiotA15".into(),
                         shared: Arc::new(Shared {
                             recording_requests: Mutex::new(Vec::new()),
                             instance_id: Some("test-device".into()),
@@ -3479,6 +3492,70 @@ mod tests {
             })
         );
         assert_eq!(original_key_for_button("cmiotA15.tv"), None);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn xm_bt_29_driver_reports_deliver_numeric_and_delete_edges() {
+        use super::super::windows_quarbor::{Event, Metadata};
+        let mut context = QuarborContext {
+            device_id: Some(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300"
+                    .into(),
+            ),
+            a15_reports: crate::devices::cmiot_a15::ReportState::with_decoder(
+                crate::devices::xm_bt_29::decode,
+            ),
+            ..Default::default()
+        };
+        for (sequence, bytes) in [
+            vec![1, 0, 0, 0x27],
+            vec![3, 0xfc, 0],
+            vec![1, 0, 0, 0],
+            vec![3, 0, 0],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            quarbor_accept_event(
+                &mut context,
+                Event::Report {
+                    metadata: Metadata {
+                        sequence: sequence as u64 + 1,
+                        ..Default::default()
+                    },
+                    bytes,
+                    usages: Err(50),
+                },
+            );
+        }
+        assert_eq!(
+            context
+                .keys
+                .iter()
+                .map(|key| (key.button, key.pressed))
+                .collect::<Vec<_>>(),
+            [
+                ("xmBt29.digit0", true),
+                ("xmBt29.delete", true),
+                ("xmBt29.digit0", false),
+                ("xmBt29.delete", false),
+            ]
+        );
+        assert_eq!(
+            original_key_for_button("xmBt29.digit0"),
+            Some(super::super::remote_actions::HidKey {
+                page: 7,
+                usage: 0x27
+            })
+        );
+        assert_eq!(
+            original_key_for_button("xmBt29.delete"),
+            Some(super::super::remote_actions::HidKey {
+                page: 12,
+                usage: 0xfc
+            })
+        );
     }
 
     #[test]

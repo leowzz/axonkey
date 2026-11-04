@@ -1,7 +1,14 @@
-import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from '../cmiot-a15-remote/view.ts'
+import type { RemoteView } from '../types.ts'
+import { xmBt29RemoteButtons } from './buttons.ts'
+import { xmBt29RemoteKeyRegions, xmBt29RemoteViewBox } from './geometry.ts'
 
-// XM-BT-29 currently uses the same artwork and button layout as CMIOT-A15.
-export const xmBt29RemoteButtonIds = cmiotA15RemoteButtonIds
-export const xmBt29RemoteView = cmiotA15RemoteView
+export { xmBt29RemoteButtonIds, xmBt29RemoteButtons } from './buttons.ts'
+export { xmBt29RemoteKeyRegions, xmBt29RemoteViewBox } from './geometry.ts'
 
-export { cmiotA15RemoteButtons as xmBt29RemoteButtons } from '../cmiot-a15-remote/view.ts'
+export const xmBt29RemoteView: RemoteView = {
+  buttons: xmBt29RemoteButtons,
+  viewBox: xmBt29RemoteViewBox,
+  keyRegions: xmBt29RemoteKeyRegions,
+  artworkUrl: '/xm-bt-29-remote-keymap.svg',
+  ariaLabel: '移动遥控器 XM-BT-29 按键',
+}

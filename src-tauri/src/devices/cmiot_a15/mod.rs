@@ -43,6 +43,13 @@ pub(crate) fn original_usage(button: &str) -> Option<(u16, u16)> {
 }
 
 pub(crate) fn decode(bytes: &[u8]) -> Option<(u8, HashSet<&'static str>)> {
+    decode_with_buttons(bytes, BUTTONS)
+}
+
+pub(super) fn decode_with_buttons(
+    bytes: &[u8],
+    buttons: &[(u8, u16, &'static str)],
+) -> Option<(u8, HashSet<&'static str>)> {
     let report = *bytes.first()?;
     let usages: Vec<u16> = match report {
         1 if bytes.len() == 9 && bytes[1..3] == [0, 0] => {
@@ -64,22 +71,37 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<(u8, HashSet<&'static str>)> {
     };
     Some((
         report,
-        BUTTONS
+        buttons
             .iter()
             .filter_map(|&(r, usage, id)| (r == report && usages.contains(&usage)).then_some(id))
             .collect(),
     ))
 }
 
-#[derive(Default)]
 pub(crate) struct ReportState {
     active: HashMap<u8, HashSet<&'static str>>,
+    decode: ReportDecoder,
+}
+
+pub(crate) type ReportDecoder = fn(&[u8]) -> Option<(u8, HashSet<&'static str>)>;
+
+impl Default for ReportState {
+    fn default() -> Self {
+        Self::with_decoder(decode)
+    }
 }
 
 impl ReportState {
+    pub(crate) fn with_decoder(decode: ReportDecoder) -> Self {
+        Self {
+            active: HashMap::new(),
+            decode,
+        }
+    }
+
     /// Unrelated and malformed vendor packets do not release held keys.
     pub(crate) fn accept(&mut self, bytes: &[u8]) -> Vec<(&'static str, bool)> {
-        let Some((report, current)) = decode(bytes) else {
+        let Some((report, current)) = (self.decode)(bytes) else {
             return Vec::new();
         };
         let previous = self.active.entry(report).or_default();
@@ -125,6 +147,13 @@ pub(crate) struct HidSession {
 
 #[cfg(any(target_os = "macos", test))]
 impl HidSession {
+    pub(crate) fn with_decoder(decode: ReportDecoder) -> Self {
+        Self {
+            reports: ReportState::with_decoder(decode),
+            ..Default::default()
+        }
+    }
+
     pub fn start(&mut self, mode: recording::RecordingMode) {
         self.recording
             .synchronize(mode, true, |_| Ok::<_, String>(()))

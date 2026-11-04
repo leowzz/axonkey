@@ -132,6 +132,7 @@ pub struct Snapshot {
 #[cfg(all(windows, not(test)))]
 struct QuarborRegistration {
     target: String,
+    kind: String,
     settings: NativeSettings,
 }
 
@@ -171,7 +172,7 @@ impl QuarborRegistry {
         }
         for (id, registration) in registrations {
             if let Some((target, channel)) = channels.get(id) {
-                if target == &registration.target {
+                if target == &registration.target && channel.kind == registration.kind {
                     channel.update_settings(registration.settings.clone());
                     continue;
                 }
@@ -210,6 +211,7 @@ impl QuarborRegistry {
                     ManagedQuarborChannel::start(
                         id.clone(),
                         registration.target.clone(),
+                        registration.kind.clone(),
                         registration.settings.clone(),
                         self.app.clone(),
                         Arc::clone(&self.gate),
@@ -395,6 +397,10 @@ fn validate(store: &Store) -> Result<(), String> {
                         "volumeDown",
                     ]
                     .contains(&input.as_str())
+                } else if instance.kind == "xmBt29" {
+                    crate::devices::xm_bt_29::BUTTONS
+                        .iter()
+                        .any(|&(_, _, id)| id == input)
                 } else {
                     input.starts_with("cmiotA15.")
                 };
@@ -1408,6 +1414,7 @@ fn run(shared: Arc<Shared>) {
                     instance.id.clone(),
                     QuarborRegistration {
                         target: target.clone(),
+                        kind: instance.kind.clone(),
                         settings: super::NativeSettings {
                             enabled: true,
                             behaviors: active_mappings(instance),
@@ -2097,6 +2104,39 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn xm_bt_29_numeric_and_delete_mappings_validate() {
+        let mut remote = instance("xm", "");
+        remote.kind = "xmBt29".into();
+        remote.binding = None;
+        let mut behaviors = serde_json::Map::new();
+        for id in [
+            "xmBt29.digit0",
+            "xmBt29.digit1",
+            "xmBt29.digit2",
+            "xmBt29.digit3",
+            "xmBt29.digit4",
+            "xmBt29.digit5",
+            "xmBt29.digit6",
+            "xmBt29.digit7",
+            "xmBt29.digit8",
+            "xmBt29.digit9",
+            "xmBt29.delete",
+            "cmiotA15.power",
+        ] {
+            behaviors.insert(
+                id.into(),
+                serde_json::json!({"click": [{"type": "key", "key": "A"}]}),
+            );
+        }
+        remote.profiles[0].behaviors = serde_json::Value::Object(behaviors);
+        assert!(validate(&Store {
+            instances: vec![remote],
+            ..Default::default()
+        })
+        .is_ok());
+    }
+
     fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {

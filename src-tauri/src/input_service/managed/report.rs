@@ -62,6 +62,40 @@ mod tests {
     }
 
     #[test]
+    fn xm_bt_29_digits_and_delete_press_and_release_in_their_own_report_groups() {
+        for (usage, id) in [
+            (0x27, "xmBt29.digit0"),
+            (0x1e, "xmBt29.digit1"),
+            (0x1f, "xmBt29.digit2"),
+            (0x20, "xmBt29.digit3"),
+            (0x21, "xmBt29.digit4"),
+            (0x22, "xmBt29.digit5"),
+            (0x23, "xmBt29.digit6"),
+            (0x24, "xmBt29.digit7"),
+            (0x25, "xmBt29.digit8"),
+            (0x26, "xmBt29.digit9"),
+        ] {
+            for report in [vec![1, 0, 0, usage], vec![1, 0, 0, usage, 0, 0, 0, 0, 0]] {
+                let keys = decode("xmBt29", &report).unwrap();
+                assert_eq!(keys[id], 1.);
+                assert_eq!(keys.values().filter(|&&value| value == 1.).count(), 1);
+                assert!(!keys.contains_key("xmBt29.delete"));
+                assert!(!keys.contains_key("cmiotA15.voice"));
+                assert_eq!(decode("xmBt29", &[1, 0, 0, 0]).unwrap()[id], 0.);
+            }
+        }
+        let keys = decode("xmBt29", &[3, 0xfc, 0]).unwrap();
+        assert_eq!(keys["xmBt29.delete"], 1.);
+        assert!(!keys.contains_key("xmBt29.digit0"));
+        assert_eq!(decode("xmBt29", &[3, 0, 0]).unwrap()["xmBt29.delete"], 0.);
+        for kind in ["cmiotA15", "rc313"] {
+            let keys = decode(kind, &[3, 0xfc, 0]).unwrap();
+            assert!(!keys.contains_key("xmBt29.delete"));
+            assert!(keys.values().all(|&value| value == 0.));
+        }
+    }
+
+    #[test]
     fn xbox_buttons_axes_and_diagonal_hat_are_independent() {
         let report = [1, 0, 0, 255, 255, 0, 128, 0, 128, 255, 3, 0, 0, 2, 1, 2];
         let v = decode("xboxBluetooth", &report).unwrap();

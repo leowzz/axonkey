@@ -36,6 +36,8 @@ export type RemoteButton = {
     | 'mute'
     | 'settings'
     | 'm'
+    | 'number'
+    | 'delete'
 }
 
 export type Platform = 'windows' | 'macos' | 'unsupported'

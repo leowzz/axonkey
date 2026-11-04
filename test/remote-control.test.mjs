@@ -8,6 +8,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import { xiaomiRemoteView } from '../src/devices/xiaomi-remote/view.ts'
 import { cmiotA15RemoteView } from '../src/devices/cmiot-a15-remote/view.ts'
+import { xmBt29RemoteView } from '../src/devices/xm-bt-29-remote/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -47,6 +48,27 @@ test('A15 added keys have independent selectable SVG regions', () => {
   }
   assert.deepEqual(selected, ids)
   assert.notEqual(cmiotA15RemoteView.keyRegions[ids[2]].path, cmiotA15RemoteView.keyRegions[ids[3]].path)
+  act(() => view.unmount())
+})
+
+test('XM-BT-29 numeric and delete keys select and highlight independently', () => {
+  const ids = [...Array.from({ length: 10 }, (_, digit) => `xmBt29.digit${digit}`), 'xmBt29.delete']
+  const props = { buttons: xmBt29RemoteView.buttons, remoteView: xmBt29RemoteView }
+  const { view, key, selected } = mount(props)
+  assert.equal(view.root.findByType('image').props.href, '/xm-bt-29-remote-keymap.svg')
+  assert.equal(view.root.findByType('svg').props.viewBox, '0 0 420 1560')
+  assert.equal(new Set(ids.map(id => key(id).findByProps({ className: 'remote-key-surface' }).props.d)).size, 11)
+  for (const id of ids) {
+    act(() => key(id).props.onClick())
+    act(() => view.update(React.createElement(RemoteControl, { ...props, activeId: id, pressedId: id, mappedIds: [], onSelect() {} })))
+    assert.equal(key(id).props['aria-pressed'], true)
+    assert.match(key(id).props.className, /\bpressed\b/)
+    assert.equal(view.root.findAll(node => node.props['data-remote-key'] && /\bpressed\b/.test(node.props.className)).length, 1)
+    act(() => view.update(React.createElement(RemoteControl, { ...props, activeId: id, pressedId: null, mappedIds: [], onSelect: id => selected.push(id) })))
+    assert.doesNotMatch(key(id).props.className, /\bpressed\b/)
+  }
+  assert.deepEqual(selected, ids)
+  for (const button of cmiotA15RemoteView.buttons) assert.ok(key(button.id))
   act(() => view.unmount())
 })
 
