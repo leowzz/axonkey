@@ -278,14 +278,23 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     if !source_path.exists() {
         return Ok(Store::default());
     }
-    let store: Store =
+    let mut store: Store =
         serde_json::from_slice(&std::fs::read(source_path).map_err(|e| e.to_string())?)
             .map_err(|e| format!("设备配置无法读取，已保留原文件：{e}"))?;
     if store.version != 1 {
         return Err("设备配置版本不受支持，已保留原文件".into());
     }
     validate(&store)?;
+    for instance in &mut store.instances {
+        normalize_recording_mode(instance);
+    }
     Ok(store)
+}
+fn normalize_recording_mode(instance: &mut Instance) {
+    if matches!(instance.kind.as_str(), "xmBt29" | "rc313") {
+        instance.cmiot_a15_recording_mode =
+            crate::devices::cmiot_a15::recording::RecordingMode::Hold;
+    }
 }
 fn save(path: &std::path::Path, store: &Store) -> Result<(), String> {
     use std::io::Write;
@@ -718,10 +727,7 @@ impl DeviceManager {
                 }
             }
         }
-        if instance.kind == "rc313" {
-            instance.cmiot_a15_recording_mode =
-                crate::devices::cmiot_a15::recording::RecordingMode::Hold;
-        }
+        normalize_recording_mode(&mut instance);
         if instance.binding.is_none() {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
@@ -2404,16 +2410,58 @@ mod tests {
     }
 
     #[test]
-    fn rc313_recording_mode_is_always_hold() {
-        let mut rc313 = instance("rc313", "unused");
-        rc313.kind = "rc313".into();
-        rc313.binding = None;
-        rc313.cmiot_a15_recording_mode = crate::devices::cmiot_a15::recording::RecordingMode::Click;
-        let manager = offline_manager(vec![]);
-        let saved = manager.put(0, rc313).unwrap();
+    fn xm_bt_29_and_rc313_recording_modes_are_always_saved_as_hold() {
+        for kind in ["xmBt29", "rc313"] {
+            let mut remote = instance(kind, "unused");
+            remote.kind = kind.into();
+            remote.binding = None;
+            remote.cmiot_a15_recording_mode =
+                crate::devices::cmiot_a15::recording::RecordingMode::Click;
+            let manager = offline_manager(vec![]);
+            let saved = manager.put(0, remote).unwrap();
+            assert_eq!(
+                saved.store.instances[0].cmiot_a15_recording_mode,
+                crate::devices::cmiot_a15::recording::RecordingMode::Hold
+            );
+            let _ = std::fs::remove_file(&manager.shared.path);
+            let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+        }
+    }
+
+    #[test]
+    fn loaded_recording_modes_fix_xm_bt_29_and_rc313_and_preserve_a15_choices() {
+        use crate::devices::cmiot_a15::recording::RecordingMode;
+        let remotes = [
+            ("xmBt29", RecordingMode::Click),
+            ("rc313", RecordingMode::Click),
+            ("cmiotA15", RecordingMode::Click),
+            ("cmiotA15", RecordingMode::Hold),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (kind, mode))| {
+            let mut remote = instance(&index.to_string(), "unused");
+            remote.kind = kind.into();
+            remote.binding = None;
+            remote.cmiot_a15_recording_mode = mode;
+            remote
+        })
+        .collect();
+        let manager = offline_manager(remotes);
+        save(&manager.shared.path, &manager.snapshot().store).unwrap();
+        let loaded = load(&manager.shared.path).unwrap();
         assert_eq!(
-            saved.store.instances[0].cmiot_a15_recording_mode,
-            crate::devices::cmiot_a15::recording::RecordingMode::Hold
+            loaded
+                .instances
+                .iter()
+                .map(|remote| remote.cmiot_a15_recording_mode)
+                .collect::<Vec<_>>(),
+            [
+                RecordingMode::Hold,
+                RecordingMode::Hold,
+                RecordingMode::Click,
+                RecordingMode::Hold
+            ]
         );
         let _ = std::fs::remove_file(&manager.shared.path);
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));

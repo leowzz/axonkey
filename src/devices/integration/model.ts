@@ -106,7 +106,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     name: packageFor(kind).name,
     binding,
     audioGainDb: 0,
-    cmiotA15RecordingMode: 'click',
+    cmiotA15RecordingMode: kind === 'xmBt29' || kind === 'rc313' ? 'hold' : 'click',
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

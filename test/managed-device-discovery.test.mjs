@@ -440,6 +440,7 @@ test('mobile integration selects name and physical device before model and prese
       assert.equal(saved[0].name, '客厅遥控器')
       assert.equal(saved[0].binding, second.id)
       assert.equal(saved[0].kind, identify ? 'xmBt29' : 'cmiotA15')
+      assert.equal(saved[0].cmiotA15RecordingMode, identify ? 'hold' : 'click')
       assert.equal(integrated, 'saved-mobile')
     } finally { act(() => view.unmount()) }
   }
