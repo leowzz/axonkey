@@ -12,6 +12,9 @@ const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
 const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302";
 
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
+    if kind == "obeRcuR5" {
+        return Some("obeRcuR5");
+    }
     if !matches!(kind, "cmiotA15" | "xmBt29" | "rc313") {
         return None;
     }
@@ -65,7 +68,7 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .ok_or("未找到绑定设备")?;
     if !matches!(
         device.kind.as_str(),
-        "rc003" | "cmiotA15" | "xmBt29" | "rc313"
+        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
     ) || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
@@ -113,8 +116,10 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .discovered
                 .iter()
                 .filter(|d| {
-                    matches!(d.kind.as_str(), "rc003" | "cmiotA15" | "xmBt29" | "rc313")
-                        && d.connected
+                    matches!(
+                        d.kind.as_str(),
+                        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                    ) && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
                 })
@@ -426,6 +431,13 @@ fn read_batch(targets: &[Discovered], all_targets: &[Discovered]) -> Vec<DeviceI
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn obe_model_does_not_depend_on_software_revision() {
+        for software in [None, Some("CMIOT3_B311"), Some("unknown")] {
+            assert_eq!(kind_for_software("obeRcuR5", software), Some("obeRcuR5"));
+        }
+    }
 
     #[test]
     fn software_version_selects_model_and_missing_version_defaults_to_rc313() {

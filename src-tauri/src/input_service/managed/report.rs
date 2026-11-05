@@ -12,9 +12,15 @@ pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>>
         });
     } else if kind == "rc003" {
         return crate::devices::xiaomi_remote::input::decode(report);
-    } else if kind == "cmiotA15" {
-        let (report_id, down) = crate::devices::cmiot_a15::decode(report)?;
-        for &(id, _, button) in crate::devices::cmiot_a15::BUTTONS {
+    } else if matches!(kind, "cmiotA15" | "obeRcuR5") {
+        let (report_id, down, buttons) = if kind == "obeRcuR5" {
+            let (id, down) = crate::devices::obe_rcu_r5::decode(report)?;
+            (id, down, crate::devices::obe_rcu_r5::BUTTONS)
+        } else {
+            let (id, down) = crate::devices::cmiot_a15::decode(report)?;
+            (id, down, crate::devices::cmiot_a15::BUTTONS)
+        };
+        for &(id, _, button) in buttons {
             if id == report_id {
                 values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
             }
@@ -49,6 +55,41 @@ pub(super) fn pressed(value: f64, was_pressed: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn obe_keyboard_reports_press_and_release_each_projector_button() {
+        for (usage, button) in [
+            (0x66, "obeRcuR5.power"),
+            (0x72, "obeRcuR5.locate"),
+            (0x52, "obeRcuR5.up"),
+            (0x51, "obeRcuR5.down"),
+            (0x50, "obeRcuR5.left"),
+            (0x4f, "obeRcuR5.right"),
+            (0x28, "obeRcuR5.confirm"),
+            (0x4a, "obeRcuR5.home"),
+            (0x29, "obeRcuR5.back"),
+            (0x73, "obeRcuR5.voice"),
+            (0x81, "obeRcuR5.volumeDown"),
+            (0x80, "obeRcuR5.volumeUp"),
+        ] {
+            let keys = decode("obeRcuR5", &[1, 0, 0, usage, 0, 0, 0, 0, 0]).unwrap();
+            assert_eq!(keys[button], 1.);
+            assert_eq!(keys.len(), 12);
+            assert_eq!(keys.values().filter(|&&value| value == 1.).count(), 1);
+            assert_eq!(
+                decode("obeRcuR5", &[1, 0, 0, 0, 0, 0, 0, 0, 0]).unwrap()[button],
+                0.
+            );
+            assert_eq!(
+                crate::devices::obe_rcu_r5::original_usage(button),
+                Some((7, u16::from(usage)))
+            );
+        }
+        assert!(decode("obeRcuR5", &[3, 0xe9, 0]).is_none());
+        let mut old_voice = [0; 21];
+        old_voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+        assert!(decode("obeRcuR5", &old_voice).is_none());
+    }
+
     #[test]
     fn a15_reports_update_only_their_own_controls() {
         let keys = decode("cmiotA15", &[1, 0, 0, 0x52, 0, 0, 0, 0, 0]).unwrap();

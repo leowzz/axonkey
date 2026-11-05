@@ -33,6 +33,7 @@ const model = compile('src/devices/integration/model.ts', {
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
   '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
+  '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
@@ -446,6 +447,33 @@ test('mobile integration selects name and physical device before model and prese
   }
 })
 
+test('OBE_RCU_R5 integrates directly by hardware model without software recognition', async () => {
+  const remote = { ...device, id: 'obe-one', kind: 'obeRcuR5', name: 'OBE_RCU_R5',
+    vendorId: 0x1d5a, productId: 0xc081, connected: true }
+  const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+  const saved = []
+  const controller = { snapshot, error: '', busy: false, put: async instance => {
+    saved.push(instance)
+    return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-obe' }] } }
+  } }
+  let view
+  act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
+    controller, native: true, platform: 'windows', permissions: {}, onIntegrated() {},
+  })) })
+  try {
+    act(() => view.root.find(node => node.type === 'button' && node.props['data-discovered']).props.onClick())
+    assert.ok(text(view.root).includes('OBE_RCU_R5'))
+    assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 0)
+    assert.equal(view.root.findAllByType('button').filter(button => text(button) === '一键识别').length, 0)
+    assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, remote.id)
+    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+    assert.equal(saved.length, 1)
+    assert.equal(saved[0].kind, 'obeRcuR5')
+    assert.equal(saved[0].binding, remote.id)
+    assert.equal(saved[0].cmiotA15RecordingMode, 'hold')
+  } finally { act(() => view.unmount()) }
+})
+
 test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
@@ -685,6 +713,12 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
         assert.equal(indicator.props.className.includes('is-recording'), recording)
       }
     }
+    act(() => {
+      instances[1] = { ...instances[1], kind: 'obeRcuR5' }
+      views[1].update(React.createElement(InstanceWorkspace, props(1)))
+    })
+    assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
+    assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
     act(() => {
       instances[1] = { ...instances[1], kind: 'xboxBluetooth' }
       views[1].update(React.createElement(InstanceWorkspace, props(1)))

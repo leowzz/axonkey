@@ -305,17 +305,12 @@ for (const channel of ['alpha', 'beta', 'rc']) {
     assert.equal(readFileSync(output, 'utf8'), `version=${tag.slice(1)}\nprerelease=true\n`)
     assert.equal(readFileSync(environment, 'utf8'), `APP_VERSION=${tag.slice(1)}\n`)
     const before = snapshotVersionFiles(root)
-    const implicit = runRelease(root)
-    assert.notEqual(implicit.status, 0)
-    assert.match(implicit.stderr, /explicit V/)
-    assert.deepEqual(snapshotVersionFiles(root), before)
-
     const older = runRelease(root, 'v1.2.2')
     assert.notEqual(older.status, 0)
     assert.match(older.stderr, /older than current/)
     assert.deepEqual(snapshotVersionFiles(root), before)
 
-    const stable = runRelease(root, 'v1.2.3')
+    const stable = runRelease(root)
     assert.equal(stable.status, 0, stable.stderr)
     assert.equal(checkVersions('v1.2.3', root), 'v1.2.3')
   })
@@ -398,6 +393,24 @@ for (const current of ['v0.2.29', 'v0.2.29-alpha.1']) {
     })
   }
 }
+
+test('make release promotes a generated RC to stable, then bumps patch', { skip: process.platform === 'win32' }, (t) => {
+  const root = seedRepository(t)
+  for (const [args, expected] of [
+    [['RC=2'], 'v0.1.6-rc.2'],
+    [[], 'v0.1.6'],
+    [[], 'v0.1.7'],
+  ]) {
+    const result = run(root, 'make', ['release', ...args], {
+      check: false, env: { ...process.env, ENV_FILE: '.env', V: '', RC: '' },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(checkVersions(expected, root), expected)
+    assert.equal(git(root, 'cat-file', '-t', expected).stdout.trim(), 'tag')
+    assert.equal(git(root, 'rev-parse', `${expected}^{}`).stdout.trim(), git(root, 'rev-parse', 'HEAD').stdout.trim())
+    assert.equal(git(root, 'status', '--porcelain').stdout.trim(), '')
+  }
+})
 
 test('bare V works without RC and the shell entry point forwards RC', (t) => {
   const root = seedRepository(t)

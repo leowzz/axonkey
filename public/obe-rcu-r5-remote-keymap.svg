@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="1320" viewBox="0 0 420 1320" fill="none" role="img" aria-labelledby="title description">
+  <title id="title">OBE RCU R5 投影仪遥控器</title>
+  <desc id="description">根据参考照片绘制的透明背景矢量遥控器。保留顶部电源和功能键、圆形方向键、主页、返回、菜单以及音量减和音量加按键。</desc>
+  <defs>
+    <linearGradient id="body" x1="10" y1="660" x2="410" y2="660" gradientUnits="userSpaceOnUse"><stop stop-color="#c7c4ad"/><stop offset=".06" stop-color="#e9e6d1"/><stop offset=".34" stop-color="#f4f1dc"/><stop offset=".68" stop-color="#eeebd5"/><stop offset=".94" stop-color="#d9d6c0"/><stop offset="1" stop-color="#aaa895"/></linearGradient>
+    <linearGradient id="body-light" x1="210" y1="12" x2="210" y2="1309" gradientUnits="userSpaceOnUse"><stop stop-color="#fff" stop-opacity=".38"/><stop offset=".35" stop-color="#fff" stop-opacity=".08"/><stop offset="1" stop-color="#8e8c7c" stop-opacity=".18"/></linearGradient>
+    <linearGradient id="button" x1="-30" y1="-40" x2="30" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#f7f4df"/><stop offset=".5" stop-color="#e8e4cd"/><stop offset="1" stop-color="#c9c6ae"/></linearGradient>
+    <linearGradient id="button-rim" x1="0" y1="-42" x2="0" y2="42" gradientUnits="userSpaceOnUse"><stop stop-color="#fff" stop-opacity=".62"/><stop offset=".48" stop-color="#b8b39d" stop-opacity=".25"/><stop offset="1" stop-color="#8e8a73" stop-opacity=".72"/></linearGradient>
+    <linearGradient id="direction" x1="-110" y1="-145" x2="110" y2="145" gradientUnits="userSpaceOnUse"><stop stop-color="#f4f1db"/><stop offset=".52" stop-color="#e7e3cc"/><stop offset="1" stop-color="#c8c4ab"/></linearGradient>
+    <radialGradient id="indicator"><stop stop-color="#3b3a30"/><stop offset=".45" stop-color="#22231f"/><stop offset="1" stop-color="#101210"/></radialGradient>
+    <g id="button"><circle cy="1" r="43" fill="#aaa691" fill-opacity=".34"/><circle r="40.8" fill="url(#button)" stroke="url(#button-rim)" stroke-width="1.3"/></g>
+  </defs>
+  <g id="shell">
+    <path d="M67 12 Q210 3 353 12 C386 14 406 35 408 67 L410 1251 C410 1287 390 1307 356 1309 Q210 1316 64 1309 C30 1307 10 1287 10 1251 L12 67 C14 35 34 14 67 12Z" fill="url(#body)" stroke="#9e9b87" stroke-width="1.5"/>
+    <path d="M67 12 Q210 3 353 12 C386 14 406 35 408 67 L410 1251 C410 1287 390 1307 356 1309 Q210 1316 64 1309 C30 1307 10 1287 10 1251 L12 67 C14 35 34 14 67 12Z" fill="url(#body-light)"/>
+    <path d="M17 1225 18 68 C20 39 37 20 68 16 Q210 7 352 16" stroke="#fffdf0" stroke-opacity=".42" stroke-width="1.1"/>
+    <path d="M404 70 407 1250 C407 1282 388 1303 355 1305 Q210 1312 65 1305" stroke="#868373" stroke-opacity=".3" stroke-width="2"/>
+  </g>
+  <rect id="status-light" x="204" y="66" width="12" height="30" rx="6" fill="url(#indicator)"/>
+  <g id="power" transform="translate(88 93)"><use href="#button"/><g stroke="#b9b7a7" stroke-width="3.2" stroke-linecap="round"><path d="M-9-10 A13.5 13.5 0 1 0 9-10"/><path d="M0-16 V1"/></g></g>
+  <g id="function" transform="translate(332 93)"><use href="#button"/><circle r="14" stroke="#b9b7a7" stroke-width="3"/><circle r="4" fill="#b9b7a7"/><path d="M-22 0H-16 M16 0H22 M0-22V-16 M0 16V22" stroke="#c2bfad" stroke-width="2.6" stroke-linecap="round"/></g>
+  <g id="direction-pad" transform="translate(210 354)"><circle cy="1" r="148" fill="#b4b09b" fill-opacity=".3"/><circle r="145.8" fill="url(#direction)" stroke="#b6b29d" stroke-width="1.5"/><circle r="66" fill="#eeeace" stroke="#b5b19b" stroke-width="1.4"/><g stroke="#b7b4a4" stroke-width="4.4" stroke-linecap="square" stroke-linejoin="miter"><path id="up" d="M-13-107 0-121 13-107"/><path id="left" d="M-107-13-121 0-107 13"/><path id="right" d="M107-13 121 0 107 13"/><path id="down" d="M-13 107 0 121 13 107"/></g></g>
+  <g id="home" transform="translate(88 584)"><use href="#button"/><path d="M-16-1 0-16 16-1 M-10 2 V15 H10 V2" stroke="#b5b2a1" stroke-width="3.6" stroke-linecap="square" stroke-linejoin="miter"/></g>
+  <g id="back" transform="translate(210 584)"><use href="#button"/><path d="M-16 0 H9 C20 0 20 13 9 13 H1" stroke="#b5b2a1" stroke-width="3.6" stroke-linecap="square"/><path d="M-21 0-7-10-9 0-7 10Z" fill="#b5b2a1"/></g>
+  <g id="menu" transform="translate(332 584)"><use href="#button"/><path d="M-15-10 H0 M-15 0 H0 M-15 10 H0" stroke="#b5b2a1" stroke-width="3.4" stroke-linecap="round"/><circle cx="10" cy="-10" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="0" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="10" r="2.6" fill="#b5b2a1"/></g>
+  <g id="volume-down" transform="translate(88 748)"><use href="#button"/><path d="M-15 0 H15" stroke="#b5b2a1" stroke-width="4" stroke-linecap="round"/></g>
+  <g id="volume-up" transform="translate(332 748)"><use href="#button"/><path d="M-15 0 H15 M0-15 V15" stroke="#b5b2a1" stroke-width="4" stroke-linecap="round"/></g>
+</svg>

@@ -42,6 +42,7 @@ export function ManagedDriverCleanupDialog({
               device.kind === 'cmiotA15' ||
               device.kind === 'xmBt29' ||
               device.kind === 'rc313' ||
+              device.kind === 'obeRcuR5' ||
               device.kind === 'xboxBluetooth') &&
             device.binding !== null,
         ),
@@ -115,7 +116,9 @@ export function ManagedDriverCleanupDialog({
                           ? 'XM-BT-29'
                           : device.kind === 'rc313'
                             ? 'RC-313'
-                            : 'Xbox 蓝牙手柄'}{' '}
+                            : device.kind === 'obeRcuR5'
+                              ? 'OBE_RCU_R5'
+                              : 'Xbox 蓝牙手柄'}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>
