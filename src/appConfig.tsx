@@ -73,12 +73,12 @@ export type StoredUiState = {
   selectedDeviceId: DeviceId
   activeId: ButtonId
   selectedBehavior: { buttonId: InputId; trigger: TriggerType }
-  settingsSection: 'startup' | 'permissions' | 'remote' | 'backup' | 'about'
+  settingsSection: 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
   scrollTop: Partial<Record<AppPage, number>>
 }
 
 const appPages: readonly AppPage[] = ['home', 'mapping', 'settings']
-const settingsSections = ['startup', 'permissions', 'remote', 'backup', 'about'] as const
+const settingsSections = ['startup', 'permissions', 'remote', 'backup', 'cloud', 'about'] as const
 const deviceIds: readonly DeviceId[] = ['rc003', 'cmiotA15', 'mouse']
 
 function isRecord(value: unknown): value is Record<string, unknown> {

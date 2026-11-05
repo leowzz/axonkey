@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   ArrowLeft,
+  Cloud,
   DatabaseBackup,
   ExternalLink,
   Info,
@@ -16,7 +17,7 @@ import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, DriverState } from '../systemState'
 
-export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'about'
+export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
 
 type SettingsPageProps = {
   onOpenConfigMigration: () => void
@@ -29,6 +30,7 @@ type SettingsPageProps = {
   onOpenDevtools: () => void
   onBack: () => void
   aboutContent: ReactNode
+  cloudContent?: ReactNode
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   enabled: boolean
@@ -75,6 +77,7 @@ export function SettingsPage({
   onOpenDevtools,
   onBack,
   aboutContent,
+  cloudContent,
   section,
   onSectionChange,
   enabled,
@@ -115,6 +118,7 @@ export function SettingsPage({
     { id: 'permissions' as const, label: '设备与权限', icon: <ShieldCheck size={16} /> },
     { id: 'remote' as const, label: '页面布局', icon: <LayoutDashboard size={16} /> },
     { id: 'backup' as const, label: '数据备份', icon: <DatabaseBackup size={16} /> },
+    { id: 'cloud' as const, label: '账号与同步', icon: <Cloud size={16} /> },
     { id: 'about' as const, label: '关于', icon: <Info size={16} /> },
   ]
   const loading = systemProbeState === 'loading'
@@ -190,6 +194,9 @@ export function SettingsPage({
           </label>
         </nav>
         <div className="settings-panels">
+          <section id="settings-panel-cloud" aria-labelledby="settings-nav-cloud" hidden={currentSection !== 'cloud'}>
+            {cloudContent}
+          </section>
           <section id="settings-panel-about" aria-labelledby="settings-nav-about" hidden={currentSection !== 'about'}>
             {aboutContent}
           </section>

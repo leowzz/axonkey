@@ -11,6 +11,7 @@ mod profile_switch_overlay;
 mod quarbor_installer;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod recording_overlay;
+mod relay;
 mod release_update;
 #[cfg(target_os = "windows")]
 mod windows_driver_devices;
@@ -1079,10 +1080,11 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn open_external_page(page: String) -> Result<(), String> {
+fn open_external_page(page: String, ticket: Option<String>) -> Result<(), String> {
     let url = match page.as_str() {
-        "github" => "https://github.com/leowzz/axonkey",
-        "releases" => "https://github.com/leowzz/axonkey/releases",
+        "github" => "https://github.com/leowzz/axonkey".to_owned(),
+        "releases" => "https://github.com/leowzz/axonkey/releases".to_owned(),
+        "console" => relay::console_url(ticket.as_deref().unwrap_or(""))?,
         _ => return Err("Unsupported external page".into()),
     };
     log::info!(target: "axonkey::runtime", "Opening external page: {page}");
@@ -1744,6 +1746,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            relay::relay_request,
+            relay::load_relay_session,
+            relay::save_relay_session,
             onboarding::get_onboarding_completed,
             onboarding::complete_onboarding,
             legacy_cleanup::get_legacy_cleanup,

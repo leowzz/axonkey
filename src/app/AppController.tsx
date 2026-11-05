@@ -3,6 +3,9 @@ import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
+import { CloudSyncSettings } from '../components/CloudSyncSettings'
+import { useCloudSync } from '../cloud/useCloudSync'
+import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
@@ -968,6 +971,31 @@ function AppController({
     showBehaviorToast('映射规则已导出')
   }
 
+  const createBackup = () =>
+    createDataBackup(
+      {
+        ...profileStateRef.current,
+        savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
+        settings: {
+          showRecordingOverlay,
+          cmiotA15RecordingMode,
+          showRemoteKeyGrid,
+          showMouseKeyGrid,
+          enabled,
+          mouseEnabled,
+          mouseKeyHoldMs,
+          mouseScrollSensitivity,
+          mouseIgnoreScrollAcceleration,
+          mouseVerticalScrollIntervalMs,
+          mouseHorizontalScrollIntervalMs,
+          mouseEdgeWidth,
+        },
+        audio: { gain: audioGain, stretchCompensation },
+        preferences: { sidebarCollapsed },
+      },
+      appPackage.version,
+    )
+
   const restoreDataBackup = (backup: ParsedBackup) => {
     restoreBackupStorage(
       window.localStorage,
@@ -990,6 +1018,25 @@ function AppController({
     }
     window.location.reload()
   }
+
+  const cloud = useCloudSync({
+    native: nativeRuntime,
+    ready: deviceInstances.loaded && !deviceInstances.busy && !deviceInstances.snapshot.error,
+    snapshot: () => createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances),
+    restore: async cloudState => {
+      const restored = prepareCloudRestore(cloudState, createBackup(), deviceInstances.snapshot.store.instances)
+      let restoredCount = 0
+      try {
+        for (const instance of restored.instances) {
+          await deviceInstances.put(instance)
+          restoredCount++
+        }
+        restoreDataBackup(restored.backup)
+      } catch (error) {
+        throw new Error(`恢复未完成（已恢复 ${restoredCount} 个设备）：${String(error)}。请重试。`)
+      }
+    },
+  })
 
   const openMappingImport = () => {
     mappingFileInputRef.current?.click()
@@ -1860,6 +1907,7 @@ function AppController({
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
+              cloudContent={<CloudSyncSettings cloud={cloud} />}
               aboutContent={<AboutPage update={releaseUpdate} />}
               onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}
@@ -1873,30 +1921,7 @@ function AppController({
               enabled={enabled}
               onToggleEnabled={toggleEnabled}
               backup={{
-                onCreateBackup: () =>
-                  createDataBackup(
-                    {
-                      ...profileStateRef.current,
-                      savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
-                      settings: {
-                        showRecordingOverlay,
-                        cmiotA15RecordingMode,
-                        showRemoteKeyGrid,
-                        showMouseKeyGrid,
-                        enabled,
-                        mouseEnabled,
-                        mouseKeyHoldMs,
-                        mouseScrollSensitivity,
-                        mouseIgnoreScrollAcceleration,
-                        mouseVerticalScrollIntervalMs,
-                        mouseHorizontalScrollIntervalMs,
-                        mouseEdgeWidth,
-                      },
-                      audio: { gain: audioGain, stretchCompensation },
-                      preferences: { sidebarCollapsed },
-                    },
-                    appPackage.version,
-                  ),
+                onCreateBackup: createBackup,
                 onRestoreBackup: restoreDataBackup,
                 onImportLegacyConfig,
               }}
