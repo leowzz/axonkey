@@ -7,6 +7,7 @@ import {
   Delete,
   Hash,
   Home,
+  LocateFixed,
   Menu,
   Mic,
   Power,
@@ -298,6 +299,8 @@ export const iconFor = (kind: RemoteButton['icon'], size = 16) => {
   switch (kind) {
     case 'power':
       return <Power {...props} />
+    case 'locate':
+      return <LocateFixed {...props} />
     case 'mic':
       return <Mic {...props} />
     case 'up':

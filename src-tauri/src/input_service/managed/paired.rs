@@ -27,6 +27,7 @@ pub(super) fn kind(vendor: u16, product: u16) -> Option<&'static str> {
         (0x045e, 0x02e0) => Some("xboxBluetooth"),
         (0x2717, 0x32b8) => Some("rc003"),
         (0x0416, 0x0300) => Some("cmiotA15"),
+        (0x1d5a, 0xc081) => Some("obeRcuR5"),
         _ => None,
     }
 }
@@ -287,7 +288,9 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 ) else {
                     continue;
                 };
-                if source != Some(2) && (vendor_id, product_id) != (0x0416, 0x0300) {
+                if source != Some(2)
+                    && !matches!((vendor_id, product_id), (0x0416, 0x0300) | (0x1d5a, 0xc081))
+                {
                     continue;
                 }
                 if kind(vendor_id, product_id).is_none() {

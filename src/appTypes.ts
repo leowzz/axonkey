@@ -21,6 +21,7 @@ export type RemoteButton = {
   y: number
   icon:
     | 'power'
+    | 'locate'
     | 'mic'
     | 'up'
     | 'left'

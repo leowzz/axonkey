@@ -32,7 +32,9 @@ impl A15Reader {
             cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
             ..Default::default()
         };
-        let mut session = if instance.kind == "xmBt29" {
+        let mut session = if instance.kind == "obeRcuR5" {
+            HidSession::with_obe_decoder(crate::devices::obe_rcu_r5::decode)
+        } else if instance.kind == "xmBt29" {
             HidSession::with_decoder(crate::devices::xm_bt_29::decode)
         } else {
             HidSession::default()

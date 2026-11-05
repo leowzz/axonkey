@@ -9,6 +9,7 @@ import Renderer, { act } from 'react-test-renderer'
 import { xiaomiRemoteView } from '../src/devices/xiaomi-remote/view.ts'
 import { cmiotA15RemoteView } from '../src/devices/cmiot-a15-remote/view.ts'
 import { xmBt29RemoteView } from '../src/devices/xm-bt-29-remote/view.ts'
+import { obeRcuR5RemoteView } from '../src/devices/obe-rcu-r5-remote/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -48,6 +49,30 @@ test('A15 added keys have independent selectable SVG regions', () => {
   }
   assert.deepEqual(selected, ids)
   assert.notEqual(cmiotA15RemoteView.keyRegions[ids[2]].path, cmiotA15RemoteView.keyRegions[ids[3]].path)
+  act(() => view.unmount())
+})
+
+test('OBE projector buttons select and show physical input feedback using the updated artwork', () => {
+  const props = { buttons: obeRcuR5RemoteView.buttons, remoteView: obeRcuR5RemoteView }
+  const { view, key, selected } = mount(props)
+  assert.equal(view.root.findByType('image').props.href, '/obe-rcu-r5-remote-keymap.svg')
+  assert.equal(view.root.findAllByProps({ role: 'button' }).length, 12)
+  assert.equal(key('obeRcuR5.locate').props['aria-label'], '定位键')
+  assert.equal(key('obeRcuR5.voice').props['aria-label'], '语音键（菜单按钮）')
+  assert.equal(view.root.findAllByProps({ 'data-remote-key': 'cmiotA15.mute' }).length, 0)
+  for (const button of obeRcuR5RemoteView.buttons) {
+    act(() => key(button.id).props.onClick())
+    act(() => view.update(React.createElement(RemoteControl, {
+      ...props, activeId: button.id, pressedId: button.id, mappedIds: [], onSelect: id => selected.push(id),
+    })))
+    assert.equal(key(button.id).props['aria-pressed'], true)
+    assert.equal(view.root.findAll(node => node.props['data-remote-key'] && /\bpressed\b/.test(node.props.className)).length, 1)
+    act(() => view.update(React.createElement(RemoteControl, {
+      ...props, activeId: button.id, pressedId: null, mappedIds: [], onSelect: id => selected.push(id),
+    })))
+    assert.doesNotMatch(key(button.id).props.className, /\bpressed\b/)
+  }
+  assert.deepEqual(selected, obeRcuR5RemoteView.buttons.map(button => button.id))
   act(() => view.unmount())
 })
 

@@ -121,15 +121,19 @@ impl ReportState {
             .collect()
     }
 
-    // Keep physical F8 state so repeated down reports cannot become a new click.
+    // Keep physical voice state so repeated down reports cannot become a new click.
     pub(crate) fn release_non_voice(&mut self) -> Vec<(&'static str, bool)> {
         let mut released = Vec::new();
-        self.active.retain(|&report, keys| {
-            if report == 0xf8 {
-                return true;
-            }
-            released.extend(keys.iter().map(|&id| (id, false)));
-            false
+        self.active.retain(|_, keys| {
+            keys.retain(|&id| {
+                if matches!(id, "cmiotA15.voice" | "obeRcuR5.voice") {
+                    true
+                } else {
+                    released.push((id, false));
+                    false
+                }
+            });
+            !keys.is_empty()
         });
         released
     }
@@ -138,11 +142,50 @@ impl ReportState {
 /// One exclusive HID connection. Recording and key mapping consume the same
 /// voice edge independently, including when click-to-record stays active.
 #[cfg(any(target_os = "macos", test))]
+enum VoiceDecoder {
+    A15(voice::VoiceStream),
+    Obe(crate::devices::obe_rcu_r5::voice::VoiceStream),
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Default for VoiceDecoder {
+    fn default() -> Self {
+        Self::A15(voice::VoiceStream::default())
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl VoiceDecoder {
+    fn synchronize(&mut self, active: bool) {
+        match self {
+            Self::A15(stream) => stream.synchronize(active),
+            Self::Obe(stream) => stream.synchronize(active),
+        }
+    }
+
+    fn reset(&mut self) {
+        match self {
+            Self::A15(stream) => stream.reset(),
+            Self::Obe(stream) => stream.reset(),
+        }
+    }
+
+    fn feed(&mut self, report: &[u8]) -> Result<Option<voice::PcmFrame>, String> {
+        match self {
+            Self::A15(stream) => stream.feed(report),
+            Self::Obe(stream) => stream
+                .feed(report)
+                .map(|samples| samples.map(voice::PcmFrame::from_samples)),
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 pub(crate) struct HidSession {
     reports: ReportState,
     recording: recording::RecordingControl,
-    voice: voice::VoiceStream,
+    voice: VoiceDecoder,
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -150,6 +193,14 @@ impl HidSession {
     pub(crate) fn with_decoder(decode: ReportDecoder) -> Self {
         Self {
             reports: ReportState::with_decoder(decode),
+            ..Default::default()
+        }
+    }
+
+    pub(crate) fn with_obe_decoder(decode: ReportDecoder) -> Self {
+        Self {
+            reports: ReportState::with_decoder(decode),
+            voice: VoiceDecoder::Obe(Default::default()),
             ..Default::default()
         }
     }
@@ -182,6 +233,9 @@ impl HidSession {
         for &(button, pressed) in &edges {
             if button == "cmiotA15.voice" {
                 self.recording.edge(pressed, &mut send)?;
+                self.voice.synchronize(self.recording());
+            } else if button == "obeRcuR5.voice" {
+                self.recording.edge(pressed, |_| Ok::<_, String>(()))?;
                 self.voice.synchronize(self.recording());
             }
         }
@@ -298,6 +352,22 @@ mod tests {
             .unwrap());
         assert!(!session.recording());
         assert_eq!(reports, [[0xfb, 1], [0xfb, 0]]);
+    }
+
+    #[test]
+    fn obe_hid_session_routes_sbc_audio_to_the_shared_pcm_frame() {
+        let report = [
+            0x1e, 0xcc, 0x65, 0x8a, 0x54, 0x61, 0x1c, 0x68, 0x0d, 0x85, 0x2b, 0x5d, 0x31, 0x3c,
+            0x47, 0xa3, 0x89, 0xd6, 0x0f, 0x56, 0x69, 0xc6, 0x98, 0x57, 0xfa, 0x90, 0x8c, 0xff,
+            0xc4, 0xd2, 0xfc, 0x93, 0xfb, 0x82, 0x09, 0x88, 0x02, 0x86, 0xfa, 0x89, 0xb9, 0xc7,
+            0xf7, 0x9d, 0x00, 0x8d, 0xa1, 0xa3, 0xfe, 0x9c, 0xf3, 0x9c, 0xf2, 0xc1, 0x8a, 0xe4,
+            0xa2, 0x9b, 0xe5, 0x9e, 0xe4,
+        ];
+        let mut session = HidSession::with_obe_decoder(super::super::obe_rcu_r5::decode);
+        session.start(super::recording::RecordingMode::Hold);
+        session.toggle_recording(|_| Ok(())).unwrap();
+        let (_, pcm) = session.accept(&report, |_| Ok(())).unwrap();
+        assert_eq!(pcm.unwrap().samples.len(), 128);
     }
 
     #[test]
