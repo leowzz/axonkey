@@ -18,10 +18,10 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
   return (
     <div className="cloud-settings">
       <div className="cloud-settings-heading">
-        <h3 className="settings-section-title">账号与同步</h3>
+        <h3 className="cloud-settings-title">账号与同步</h3>
         {cloud.user && (
           <button
-            className="dialog-secondary"
+            className="cloud-console-button"
             type="button"
             disabled={cloud.busy}
             onClick={() => void cloud.openConsole()}

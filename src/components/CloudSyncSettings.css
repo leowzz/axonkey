@@ -106,6 +106,35 @@
   gap: 12px;
   margin-bottom: 22px;
 }
-.cloud-settings .cloud-settings-heading .settings-section-title {
+.cloud-settings-title {
   margin: 0;
+  color: #30383f;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.cloud-console-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #bdd7f5;
+  border-radius: 6px;
+  color: #246bbd;
+  background: #e7f1ff;
+  font-size: 14px;
+  line-height: 20px;
+}
+.cloud-console-button:hover:not(:disabled) {
+  border-color: #94b8df;
+  background: #d9eaff;
+}
+.cloud-console-button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+.cloud-console-button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
