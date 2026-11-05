@@ -5,17 +5,9 @@ import { AppErrorBoundary } from './components/AppErrorBoundary'
 import { ProfileSwitchOverlay } from './components/ProfileSwitchOverlay'
 import './styles.css'
 import { installRuntimeLogging, logInfo } from './runtimeLogging'
-import Aegis from 'aegis-web-sdk'
+import { initializeTencentRum } from './telemetry'
 
-const tencentRumId = import.meta.env.TENCENT_RUM_ID?.trim()
-if (tencentRumId) {
-  new Aegis({
-    id: tencentRumId,
-    reportApiSpeed: true,
-    reportAssetSpeed: true,
-    spa: true,
-  })
-}
+initializeTencentRum(import.meta.env.TENCENT_RUM_ID)
 
 // The remote voice button sends F5; cancel refresh without blocking key handlers.
 const preventF5Refresh = (event: KeyboardEvent) => {

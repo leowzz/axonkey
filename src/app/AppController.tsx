@@ -128,6 +128,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { save } from '@tauri-apps/plugin-dialog'
 import { ChangeEvent, KeyboardEvent, SetStateAction, useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { reportTencentEvent } from '../telemetry'
 
 type PendingProfileImport = ImportedMapping & {
   deviceId: DeviceId
@@ -1288,6 +1289,7 @@ function AppController({
   const installManagedDriver = async (instanceId: string) => {
     if (managedDriverAction?.status === 'running') return
     setManagedDriverAction({ instanceId, status: 'running' })
+    if (platform === 'windows') reportTencentEvent('windows_hid_driver_install')
     try {
       const result = await invoke<DriverActionResult>('install_device_driver', {
         instanceId,
