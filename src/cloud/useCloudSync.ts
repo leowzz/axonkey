@@ -223,6 +223,15 @@ export function useCloudSync(options: {
           setMessage('已退出本机账号，云端会话未能撤销，可在 Relay 控制台管理会话')
         }
       }),
+    openConsole: () =>
+      run(async () => {
+        const { ticket } = await client.request<{ ticket: string }>('POST', '/auth/console-ticket', {})
+        if (latest.current.native) {
+          await invoke('open_external_page', { page: 'console', ticket })
+        } else {
+          window.location.assign(`https://relay.wleo.cn/#console-ticket=${encodeURIComponent(ticket)}`)
+        }
+      }),
     sync,
     fetchRestore: () =>
       run(async () => {

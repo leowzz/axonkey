@@ -107,7 +107,12 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
     let allowed = match method {
         "POST" => matches!(
             path,
-            "/auth/code" | "/auth/verify" | "/auth/refresh" | "/auth/logout" | "/device-configs"
+            "/auth/code"
+                | "/auth/verify"
+                | "/auth/refresh"
+                | "/auth/logout"
+                | "/auth/console-ticket"
+                | "/device-configs"
         ),
         "GET" => matches!(
             path,
@@ -133,6 +138,24 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_launch_accepts_only_url_safe_tickets() {
+        let ticket = "a".repeat(43);
+        assert_eq!(
+            console_url(&ticket).unwrap(),
+            format!("https://relay.wleo.cn/#console-ticket={ticket}")
+        );
+        for invalid in [
+            "".to_owned(),
+            "a".repeat(42),
+            format!("{}&", "a".repeat(42)),
+            "https://other.invalid".to_owned(),
+        ] {
+            assert!(console_url(&invalid).is_err());
+        }
+        assert!(validate_request("POST", "/auth/console-ticket").is_ok());
+    }
 
     #[test]
     fn persists_refresh_retries_replaces_credentials_and_removes_on_logout() {
@@ -168,4 +191,16 @@ mod tests {
             assert!(validate_request("PUT", path).is_err());
         }
     }
+}
+
+// Only the fixed Relay origin and URL-safe ticket may reach the system browser launcher.
+pub(crate) fn console_url(ticket: &str) -> Result<String, String> {
+    if ticket.len() != 43
+        || !ticket
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')
+    {
+        return Err("控制台跳转凭据无效，请重试".into());
+    }
+    Ok(format!("https://relay.wleo.cn/#console-ticket={ticket}"))
 }

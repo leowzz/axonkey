@@ -113,9 +113,11 @@ async function setup({ credential = null, stored = null } = {}) {
           values.set('session-file', request.session)
           return
         }
+        if (_command === 'open_external_page') { requests.push({ command: _command, ...request }); return }
         requests.push(request)
         if (offline) throw '无法连接云端，请检查网络后重试；本地功能不受影响'
         if (request.path === '/auth/verify') return { status: 200, body: { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() / 1000 + 900, user: { id: 'user', email: 'user@example.invalid', phone: null } } }
+        if (request.path === '/auth/console-ticket') return { status: 200, body: { ticket: 'A'.repeat(43), expires_in: 60 } }
         if (request.path === '/auth/logout') return { status: 204, body: null }
         if (request.path.startsWith('/device-')) return { status: 200, body: { items: [] } }
         if (request.method === 'PUT') { settings = { ...request.body, revision: (settings?.revision ?? 0) + 1 }; return { status: 200, body: settings } }
@@ -227,5 +229,33 @@ test('cloud conflict pauses automatic upload and restore requires a separate con
     await app.call(cloud => cloud.confirmRestore())
     assert.equal(app.restores, 1)
     assert.equal(app.cloud.autoSync, false)
+  } finally { await app.close() }
+})
+
+test('console button is signed-in only and launches with a one-time ticket without syncing', async () => {
+  const signedOut = await settingsView()
+  assert.equal(signedOut.button('前往控制台'), undefined)
+  await signedOut.close()
+  let opened = 0
+  const signedIn = await settingsView({ user: { email: 'user@example.invalid' }, openConsole: () => { opened++ } })
+  await signedIn.click('前往控制台')
+  assert.equal(opened, 1)
+  await signedIn.close()
+  const app = await setup()
+  try {
+    await app.call(c => c.login('email', 'user@example.invalid', '123456'))
+    app.requests.length = 0
+    await app.call(c => c.openConsole())
+    assert.equal(app.requests.length, 2)
+    assert.equal(app.requests[0].path, '/auth/console-ticket')
+    assert.equal(app.requests[0].token, 'access')
+    assert.deepEqual(JSON.parse(JSON.stringify(app.requests[1])), { command: 'open_external_page', page: 'console', ticket: 'A'.repeat(43) })
+    assert.equal(app.cloud.autoSync, false)
+    assert.equal(app.cloud.error, '')
+    app.offline(true)
+    app.requests.length = 0
+    await app.call(c => c.openConsole())
+    assert.equal(app.requests.length, 1)
+    assert.ok(app.cloud.user)
   } finally { await app.close() }
 })

@@ -98,3 +98,14 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+.cloud-settings-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.cloud-settings .cloud-settings-heading .settings-section-title {
+  margin: 0;
+}

@@ -17,7 +17,19 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
   }, [cooldown])
   return (
     <div className="cloud-settings">
-      <h3 className="settings-section-title">账号与同步</h3>
+      <div className="cloud-settings-heading">
+        <h3 className="settings-section-title">账号与同步</h3>
+        {cloud.user && (
+          <button
+            className="dialog-secondary"
+            type="button"
+            disabled={cloud.busy}
+            onClick={() => void cloud.openConsole()}
+          >
+            前往控制台
+          </button>
+        )}
+      </div>
       <p className="cloud-local-note">无需登录即可使用全部本地功能。</p>
       {!cloud.user ? (
         <form
