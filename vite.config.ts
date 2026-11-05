@@ -12,5 +12,6 @@ export default defineConfig({
     // 1420 is currently in a Windows excluded TCP range on some developer machines.
     port: 3001,
     strictPort: true,
+    proxy: { '/api': { target: 'https://relay.wleo.cn', changeOrigin: true } },
   },
 })

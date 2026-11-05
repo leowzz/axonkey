@@ -7,6 +7,7 @@ export function useDeviceInstances(native: boolean) {
   const [snapshot, setSnapshot] = useState<DeviceSnapshot>(emptySnapshot)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const current = useRef(snapshot)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
   const accept = useCallback((value: DeviceSnapshot) => {
@@ -19,6 +20,7 @@ export function useDeviceInstances(native: boolean) {
       try {
         const value = await invoke<DeviceSnapshot>('device_snapshot')
         accept(value)
+        setLoaded(true)
         return value
       } catch (e) {
         setError(String(e))
@@ -35,6 +37,7 @@ export function useDeviceInstances(native: boolean) {
           const store: DeviceSnapshot['store'] = JSON.parse(saved)
           accept({ ...emptySnapshot(), store })
         }
+        setLoaded(true)
       } catch {
         setError('浏览器预览配置无法读取。')
       }
@@ -155,6 +158,6 @@ export function useDeviceInstances(native: boolean) {
       }),
     [native, transact],
   )
-  return { snapshot, error, busy, refresh, refreshInformation, toggleRecording, put, update, remove }
+  return { snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove }
 }
 export type DeviceController = ReturnType<typeof useDeviceInstances>

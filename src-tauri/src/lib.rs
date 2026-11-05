@@ -11,6 +11,7 @@ mod profile_switch_overlay;
 mod quarbor_installer;
 #[cfg(any(target_os = "windows", target_os = "macos"))]
 mod recording_overlay;
+mod relay;
 mod release_update;
 #[cfg(target_os = "windows")]
 mod windows_driver_devices;
@@ -1741,6 +1742,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            relay::relay_request,
+            relay::load_relay_session,
+            relay::save_relay_session,
             onboarding::get_onboarding_completed,
             onboarding::complete_onboarding,
             legacy_cleanup::get_legacy_cleanup,

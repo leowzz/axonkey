@@ -15,6 +15,7 @@
     "format:rust:check": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
     "format:staged": "lint-staged",
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
+    "test:cloud": "node --test test/cloud-sync.test.mjs test/cloud-sync-ui.test.mjs",
     "dev": "vite",
     "dev:tauri": "vite",
     "build": "tsc -b && vite build",
