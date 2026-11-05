@@ -14,6 +14,7 @@ import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteD
 import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
+import { reportTencentEvent } from '../../telemetry'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
@@ -91,6 +92,7 @@ export function InstanceWorkspace({
     sequences: TriggerBehaviors
   } | null>(null)
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
+  const recordingRef = useRef({ instanceId: instance.id, recording: false })
   const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
   const status = controller.snapshot.runtime[instance.id]
@@ -111,6 +113,13 @@ export function InstanceWorkspace({
     const timer = setInterval(() => setInformationRefreshRemaining(seconds => Math.max(0, seconds - 1)), 1000)
     return () => clearInterval(timer)
   }, [informationRefreshLocked])
+  useEffect(() => {
+    const recording = status?.recording === true
+    const previous = recordingRef.current
+    if (previous.instanceId === instance.id && recording && !previous.recording)
+      reportTencentEvent('voice_recording_start')
+    recordingRef.current = { instanceId: instance.id, recording }
+  }, [instance.id, status?.recording])
   const availableDevices = controller.snapshot.discovered.filter(
     device =>
       device.kind === instance.kind &&
