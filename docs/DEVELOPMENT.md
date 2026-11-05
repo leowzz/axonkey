@@ -59,7 +59,7 @@ make release V=v0.1.25
 
 ## 版本与发布
 
-`make release` 要求 Git 工作区完全干净。未传 `V` 时，它从 `.env` 递增 patch；也可以用 `V=vX.Y.Z` 指定版本。命令会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建 `chore: release vX.Y.Z` 提交，再在该提交上创建 annotated tag。它不会构建、推送或发布远端 Release。
+`make release` 要求 Git 工作区完全干净。未传 `V` 和 `RC` 时，正式版从 `.env` 递增 patch，预发布版本去掉后缀转为同版本正式版；也可以用 `V=vX.Y.Z` 指定版本。命令会同步 `.env.example`、npm、Cargo 和 Tauri 版本，创建 `chore: release vX.Y.Z` 提交，再在该提交上创建 annotated tag。它不会构建、推送或发布远端 Release。
 
 预发布沿用同一套发版和构建流程：
 
@@ -67,13 +67,13 @@ make release V=v0.1.25
 make release V=v1.2.3-beta.1
 make release RC=1          # 当前为 v0.2.29 或 v0.2.29-alpha.1 时，生成 v0.2.30-rc.1
 make release V=0.2.30 RC=3 # 生成 v0.2.30-rc.3（V 也可带 v 前缀）
-# 后续显式指定 beta.2、rc.1，或正式版 v1.2.3
+# 后续可显式指定 beta.2、rc.1；不带参数则转为同版本正式版
 ```
 
 推送 `v*` tag 后，CI 先校验版本和远端分支归属，再运行测试并构建 Windows NSIS、macOS Universal 安装包。
 预发布使用相同的签名、公证配置，发布为 GitHub Pre-release，不占用 Latest；各主版本的正式版均发布为 Release 并标记为 Latest。
 GitHub Latest 与应用自动更新通道独立，应用仍只检查和安装同一主版本的更新。
-当前为预发布版本时，必须显式传入 `V` 或 `RC`；两者均不传时会拒绝执行。正式版不传两者仍递增 patch。
+当前为预发布版本时，不传 `V` 和 `RC` 会转为同版本正式版，例如 `1.7.15-rc.2` → `1.7.15`。正式版不传两者仍递增 patch。
 `RC=N` 要求 N 为无前导零的正整数；不传 `V` 时，去掉当前预发布后缀并递增 patch，再追加 `-rc.N`。
 同时传入 `V` 和 `RC` 时直接使用指定基础版本（支持带或不带 `v` 前缀），此时 `V` 不能附带预发布后缀。
 版本顺序为 `alpha.N < beta.N < rc.N < 正式版`，不接受低于当前版本的发版请求。

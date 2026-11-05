@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import {
   assertVersionsMatch,
   compareVersions,
+  isPrerelease,
   nextPatchVersion,
   numericVersion,
   readEnvVersion,
@@ -67,7 +68,7 @@ function main() {
     numericVersion(tag)
   } else {
     const baseVersion = requestedRc ? currentVersion.split('-')[0] : currentVersion
-    tag = `v${nextPatchVersion(baseVersion)}`
+    tag = `v${isPrerelease(baseVersion) ? baseVersion.split('-')[0] : nextPatchVersion(baseVersion)}`
   }
   if (requestedRc) {
     if (tag.includes('-')) throw new Error('When RC is specified, V must be a base version such as V=0.2.30')
