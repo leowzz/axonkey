@@ -1,6 +1,8 @@
-//! OBE_RCU_R5 keyboard reports; voice transport still uses the initial A15 adapter.
+//! OBE_RCU_R5 keyboard reports and its 60-byte custom SBC voice transport.
 
 use std::collections::HashSet;
+
+pub(crate) mod voice;
 
 pub(crate) fn matches_instance(id: &str) -> bool {
     let id = id.to_ascii_uppercase();

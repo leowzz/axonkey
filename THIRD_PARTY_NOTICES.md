@@ -59,6 +59,17 @@ Distribution of statically linked binaries is subject to the applicable LGPL
 source and relinking-material requirements; this notice does not replace those
 materials.
 
+## obesbc
+
+- Author: Dmitry Grinberg
+- Bundled source: [vendor/obesbc](vendor/obesbc)
+- License: BSD-style two-clause license; the complete text is preserved in
+  [vendor/obesbc/LICENSE](vendor/obesbc/LICENSE)
+
+Axonkey uses the decoder from this source to decode OBE_RCU_R5's custom SBC
+voice transport. The original copyright and license headers remain in
+[sbcdec.c](vendor/obesbc/sbcdec.c) and [sbcdec.h](vendor/obesbc/sbcdec.h).
+
 ## BlackHole
 
 - Project: `ExistentialAudio/BlackHole`

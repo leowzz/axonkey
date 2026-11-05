@@ -8,6 +8,12 @@ fn main() {
     }
     codec.compile("axonkey_siren7");
     println!("cargo:rerun-if-changed={siren}");
+    let obe_sbc = "../vendor/obesbc";
+    cc::Build::new()
+        .include(obe_sbc)
+        .file(format!("{obe_sbc}/sbcdec.c"))
+        .compile("axonkey_obe_sbc");
+    println!("cargo:rerun-if-changed={obe_sbc}");
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         let proto_dir = "../vendor/QuarborUniversalKeyboardDriverInstaller/SDK";
         let schema = format!("{proto_dir}/keyboard.proto");

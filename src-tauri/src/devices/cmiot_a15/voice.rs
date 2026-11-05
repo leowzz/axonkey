@@ -10,6 +10,19 @@ pub(crate) struct PcmFrame {
     pub headers: [[u8; 4]; 3],
 }
 
+#[cfg(any(target_os = "macos", test))]
+impl PcmFrame {
+    pub(crate) fn from_samples(samples: Vec<i16>) -> Self {
+        Self {
+            group: 0,
+            sample_rate: 16000,
+            samples,
+            tail: [0; 8],
+            headers: [[0; 4]; 3],
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct VoiceStream {
     active: bool,

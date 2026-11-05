@@ -15,6 +15,7 @@ use tauri::Emitter;
 
 const WAIT_TIMEOUT_MS: u32 = 50;
 const DEVICE_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const OBE_PCM_FRAME_SAMPLES: usize = 320;
 
 #[cfg(windows)]
 struct QuarborContext {
@@ -29,7 +30,11 @@ struct QuarborContext {
     xbox_reports: crate::devices::xbox::ReportState,
     a15_voice: crate::devices::cmiot_a15::voice::VoiceStream,
     a15_pcm: std::collections::VecDeque<crate::devices::cmiot_a15::voice::PcmFrame>,
+    obe_voice: crate::devices::obe_rcu_r5::voice::VoiceStream,
+    obe_pcm: std::collections::VecDeque<Vec<i16>>,
+    obe_pcm_accumulator: Vec<i16>,
     a15_voice_errors: u64,
+    obe_voice_errors: u64,
     a15_recording: crate::devices::cmiot_a15::recording::RecordingControl,
     last_pipe_attempt: Instant,
     last_sequence: Option<u64>,
@@ -54,7 +59,11 @@ impl Default for QuarborContext {
             xbox_reports: Default::default(),
             a15_voice: Default::default(),
             a15_pcm: Default::default(),
+            obe_voice: Default::default(),
+            obe_pcm: Default::default(),
+            obe_pcm_accumulator: Default::default(),
             a15_voice_errors: 0,
+            obe_voice_errors: 0,
             a15_recording: Default::default(),
             last_pipe_attempt: Instant::now() - Duration::from_secs(2),
             last_sequence: None,
@@ -265,6 +274,10 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                     || crate::devices::obe_rcu_r5::matches_instance(id)
             }) {
                 context.usage_error = None;
+                let obe = context
+                    .device_id
+                    .as_deref()
+                    .is_some_and(crate::devices::obe_rcu_r5::matches_instance);
                 if bytes.first() == Some(&0xfc) {
                     match context.a15_voice.feed(bytes) {
                         Ok(Some(frame)) => {
@@ -279,6 +292,35 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                             if context.a15_voice_errors == 1 || context.a15_voice_errors % 128 == 0
                             {
                                 log::warn!(target: "axonkey::audio", "A15 FC decode: {error}; errors={}", context.a15_voice_errors);
+                            }
+                        }
+                    }
+                }
+                if obe && bytes.first() == Some(&0x1e) {
+                    match context.obe_voice.feed(bytes) {
+                        Ok(Some(samples)) => {
+                            context.obe_pcm_accumulator.extend(samples);
+                            while context.obe_pcm_accumulator.len() >= OBE_PCM_FRAME_SAMPLES {
+                                let frame: Vec<_> = context
+                                    .obe_pcm_accumulator
+                                    .drain(..OBE_PCM_FRAME_SAMPLES)
+                                    .collect();
+                                if context.obe_pcm.len() == 32 {
+                                    context.obe_pcm.pop_front();
+                                }
+                                context.obe_pcm.push_back(frame);
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            context.obe_voice_errors += 1;
+                            if context.obe_voice_errors == 1 || context.obe_voice_errors % 128 == 0
+                            {
+                                log::warn!(
+                                    target: "axonkey::audio",
+                                    "OBE_RCU_R5 SBC decode: {error}; errors={}",
+                                    context.obe_voice_errors
+                                );
                             }
                         }
                     }
@@ -334,7 +376,10 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }) {
                 context.a15_recording.reset();
                 context.a15_voice.reset();
+                context.obe_voice.reset();
                 context.a15_pcm.clear();
+                context.obe_pcm.clear();
+                context.obe_pcm_accumulator.clear();
             }
             // Each connection starts with a neutral output state.
             if let Some(client) = context.reader.as_mut() {
@@ -383,10 +428,16 @@ fn quarbor_release_active_usages(context: &mut QuarborContext, reason: ReleaseRe
         context.a15_recording.reset();
     }
     context.a15_voice.reset();
+    context.obe_voice.reset();
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
+    context
+        .obe_voice
+        .synchronize(context.a15_recording.is_recording());
     context.a15_pcm.clear();
+    context.obe_pcm.clear();
+    context.obe_pcm_accumulator.clear();
     context.keyboard.reset(
         |key, down| {
             if let Some(client) = context.reader.as_mut() {
@@ -918,6 +969,9 @@ fn process_remote_actions(
     while let Some(frame) = context.a15_pcm.pop_front() {
         forward_a15_pcm(shared, frame);
     }
+    while let Some(samples) = context.obe_pcm.pop_front() {
+        forward_obe_pcm(shared, samples);
+    }
     process_remote_actions_inner(context, shared, actions, state_epoch, now);
     for (stop, reply) in std::mem::take(&mut *shared.recording_requests.lock().unwrap()) {
         let result = if shared.status.lock().unwrap().capture_active
@@ -941,6 +995,12 @@ fn process_remote_actions(
         context
             .a15_voice
             .synchronize(context.a15_recording.is_recording());
+        context
+            .obe_voice
+            .synchronize(context.a15_recording.is_recording());
+        if !context.a15_recording.is_recording() {
+            context.obe_pcm_accumulator.clear();
+        }
         publish_a15_recording(shared, context.a15_recording.is_recording());
         let _ = reply.send(result);
     }
@@ -948,6 +1008,12 @@ fn process_remote_actions(
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
+    context
+        .obe_voice
+        .synchronize(context.a15_recording.is_recording());
+    if !context.a15_recording.is_recording() {
+        context.obe_pcm_accumulator.clear();
+    }
     if context.device_id.as_deref().is_some_and(|id| {
         crate::devices::cmiot_a15::matches_instance(id)
             || crate::devices::obe_rcu_r5::matches_instance(id)
@@ -992,6 +1058,12 @@ fn process_remote_actions_inner(
     context
         .a15_voice
         .synchronize(context.a15_recording.is_recording());
+    context
+        .obe_voice
+        .synchronize(context.a15_recording.is_recording());
+    if !context.a15_recording.is_recording() {
+        context.obe_pcm_accumulator.clear();
+    }
     while let Some(key) = context.keys.pop_front() {
         if !key.button.starts_with("xbox.") {
             emit_remote_key_event(shared, key.button, key.pressed);
@@ -1008,6 +1080,12 @@ fn process_remote_actions_inner(
             context
                 .a15_voice
                 .synchronize(context.a15_recording.is_recording());
+            context
+                .obe_voice
+                .synchronize(context.a15_recording.is_recording());
+            if !context.a15_recording.is_recording() {
+                context.obe_pcm_accumulator.clear();
+            }
         } else if key.button == "obeRcuR5.voice" {
             if let Err(error) = context
                 .a15_recording
@@ -1021,6 +1099,12 @@ fn process_remote_actions_inner(
             context
                 .a15_voice
                 .synchronize(context.a15_recording.is_recording());
+            context
+                .obe_voice
+                .synchronize(context.a15_recording.is_recording());
+            if !context.a15_recording.is_recording() {
+                context.obe_pcm_accumulator.clear();
+            }
         }
         actions.edge(key.button, key.pressed, &settings, now);
     }
@@ -1227,17 +1311,30 @@ fn emit_remote_key_event(shared: &Shared, button: &'static str, pressed: bool) {
 }
 
 #[cfg(not(test))]
-fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15::voice::PcmFrame) {
+fn forward_pcm(shared: &Shared, samples: &[i16]) {
     if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
         use tauri::Manager;
         if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
-            audio.push_a15_pcm(shared.instance_id.as_deref(), &frame.samples);
+            audio.push_a15_pcm(shared.instance_id.as_deref(), samples);
         }
     }
 }
 
+#[cfg(not(test))]
+fn forward_a15_pcm(shared: &Shared, frame: crate::devices::cmiot_a15::voice::PcmFrame) {
+    forward_pcm(shared, &frame.samples);
+}
+
+#[cfg(not(test))]
+fn forward_obe_pcm(shared: &Shared, samples: Vec<i16>) {
+    forward_pcm(shared, &samples);
+}
+
 #[cfg(test)]
 fn forward_a15_pcm(_shared: &Shared, _frame: crate::devices::cmiot_a15::voice::PcmFrame) {}
+
+#[cfg(test)]
+fn forward_obe_pcm(_shared: &Shared, _samples: Vec<i16>) {}
 
 fn wheel_delta(direction: WheelDirection) -> i32 {
     match direction {
