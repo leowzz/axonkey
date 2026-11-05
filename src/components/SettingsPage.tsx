@@ -198,7 +198,7 @@ export function SettingsPage({
             {cloudContent}
           </section>
           <section id="settings-panel-about" aria-labelledby="settings-nav-about" hidden={currentSection !== 'about'}>
-            {aboutContent}
+            {currentSection === 'about' && aboutContent}
           </section>
           <section
             id="settings-panel-backup"

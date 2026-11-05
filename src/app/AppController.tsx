@@ -1996,6 +1996,10 @@ function AppController({
               }
               nativeRuntime={nativeRuntime}
               onOpenSettings={() => navigateToPage('settings')}
+              onOpenCloud={() => {
+                setSettingsSection('cloud')
+                navigateToPage('settings')
+              }}
               onOpenLogs={() => void openLogDirectory()}
               onOpenAbout={() => {
                 setSettingsSection('about')

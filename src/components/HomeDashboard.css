@@ -92,6 +92,9 @@
   border-color: #a5c3e1;
   background: #f5f9ff;
 }
+.home-account-button {
+  color: #246bbd;
+}
 .home-utility-button:disabled {
   cursor: default;
   opacity: 0.5;

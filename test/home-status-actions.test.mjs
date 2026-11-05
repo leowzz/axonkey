@@ -10,16 +10,17 @@ test('home renders the device workspace and routes footer actions independently'
     ...base,
     deviceContent: React.createElement('section', { 'aria-label': '设备工作区' }, '已绑定设备'),
     onOpenSettings: () => actions.push('settings'),
+    onOpenCloud: () => actions.push('cloud'),
     onOpenLogs: () => actions.push('logs'),
     onOpenAbout: () => actions.push('about'),
   }
   const renderer = Renderer.create(React.createElement(HomeDashboard, props))
   try {
     assert.equal(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), '已绑定设备')
-    for (const label of ['设置', '运行日志', '关于']) {
-      renderer.root.findByProps({ 'aria-label': label }).props.onClick()
+    for (const label of ['设置', '账号与同步', '运行日志', '关于']) {
+      renderer.root.findAllByType('button').find(button => text(button) === label).props.onClick()
     }
-    assert.deepEqual(actions, ['settings', 'logs', 'about'])
+    assert.deepEqual(actions, ['settings', 'cloud', 'logs', 'about'])
   } finally { renderer.unmount() }
 })
 
