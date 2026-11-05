@@ -39,3 +39,15 @@ cargo test --manifest-path src-tauri/Cargo.toml --lib relay::tests
 ```
 
 自动化测试覆盖本地启动不请求云端、登录不上传、手动与自动同步、断网保留配置、令牌刷新重试与会话失效、修订冲突、恢复确认和可迁移字段。测试不向真实收件人发送验证码，不代表真实账号、macOS 原生环境或硬件输入的联合验收。
+
+## 排查日志
+
+通过首页的日志入口打开现有运行日志目录，搜索 `[relay]`（前端操作）和 `axonkey::relay`（原生文件/网络故障）。无需开启额外调试开关。
+
+- `operation.start` / `operation.complete` / `operation.failed` 包含操作名称、结果与耗时；验证码通道、登录、退出、控制台跳转、手动/自动同步及恢复均有记录。
+- `request.complete` 包含方法、API 路径、HTTP 状态、耗时和 `server_request_id`，可使用该 ID 对照 Relay 服务端日志。原生网络失败另记录超时、连接或响应解析阶段。
+- `session.*` 记录本地会话加载/保存、刷新及失效。`refresh_request_id` 用于核对超时后是否复用了同一刷新请求，不是登录凭据。
+- `sync.snapshot` 仅记录配置数量及是否选择覆盖；`sync.conflict`、`sync.deferred` 分别表示等待用户选择和暂缓重试。自动同步没有配置变化时不刷日志。
+- `restore.preview` / `restore.confirmed` / `restore.cancelled` 区分查看、确认与取消；`auth.logout.local_only` 表示已清除本机登录，但云端撤销未完成。
+
+日志不记录验证码、邮箱/手机号、access/refresh token、控制台临时凭据、请求/响应正文或配置内容。接口失败记录状态与错误码，不输出可能含账号或配置内容的服务端错误详情；未知本地异常只记录类型和所在阶段。日志写入失败不会阻止账号操作或本地功能。

@@ -196,3 +196,45 @@ test('portable round trip includes mouse and library but excludes local bindings
   cloud.documents[0].config.profiles[0].behaviors.unknownInput = { click: [], doubleClick: [], longPress: [] }
   assert.throws(() => prepareCloudRestore(cloud, backup, []), /不支持/)
 })
+
+test('request diagnostics correlate server IDs and refresh retries without logging payloads or remote detail', async t => {
+  const logs = []
+  const previousWindow = globalThis.window
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: async (command, args) => {
+    assert.equal(command, 'plugin:log|log')
+    if (args.message.startsWith('[relay] ')) logs.push(JSON.parse(args.message.slice(8)))
+  } } }
+  t.after(() => { globalThis.window = previousWindow })
+  let refreshCalls = 0
+  let status = 409
+  const client = new RelayClient(async (_method, path) => {
+    if (path === '/auth/refresh') {
+      refreshCalls++
+      return refreshCalls === 1
+        ? { status: 503, requestId: 'server-refresh-failed', body: { code: 'service_unavailable', detail: 'SECRET_REMOTE_DETAIL' } }
+        : { status: 200, requestId: 'server-refresh-success', body: { ...session(), access_token: 'SECRET_ACCESS', refresh_token: 'SECRET_REFRESH' } }
+    }
+    return { status, requestId: 'server-document', body: { code: status === 409 ? 'revision_conflict' : 'session_invalid', detail: 'SECRET_REMOTE_DETAIL' } }
+  }, { ...session(), expires_at: 0, refresh_token: 'SECRET_OLD_REFRESH' }, () => {})
+  await assert.rejects(client.request('PUT', '/app-settings/axonkey', { secret: 'SECRET_CONFIGURATION' }))
+  await assert.rejects(client.request('PUT', '/app-settings/axonkey', { secret: 'SECRET_CONFIGURATION' }))
+  const refresh = logs.filter(log => log.event === 'session.refresh.start')
+  assert.deepEqual(refresh.map(log => log.retry), [false, true])
+  assert.equal(refresh[0].refresh_request_id, refresh[1].refresh_request_id)
+  assert.ok(logs.some(log => log.event === 'session.refresh.failed' && log.status === 503 && log.code === 'service_unavailable'))
+  assert.ok(logs.some(log => log.event === 'request.complete' && log.server_request_id === 'server-document' && log.status === 409 && typeof log.duration_ms === 'number'))
+  status = 401
+  await assert.rejects(client.request('GET', '/app-settings/axonkey'))
+  assert.equal(client.session, null)
+  assert.ok(logs.some(log => log.event === 'session.invalidated'))
+  assert.ok(!JSON.stringify(logs).includes('SECRET_'))
+})
+
+test('log write failures do not interrupt account requests', async t => {
+  const previousWindow = globalThis.window
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: async () => { throw new Error('log disk unavailable') } } }
+  t.after(() => { globalThis.window = previousWindow })
+  const client = new RelayClient(async () => ({ status: 200, body: session() }), null, () => {})
+  await client.login('email', 'user@example.invalid', '123456')
+  assert.equal(client.session.user.id, 'test-user')
+})

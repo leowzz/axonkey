@@ -8,6 +8,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import * as clientModule from '../src/cloud/relayClient.ts'
 import * as syncModule from '../src/cloud/cloudSync.ts'
+import * as loggingModule from '../src/cloud/cloudLogging.ts'
 
 const require = createRequire(import.meta.url)
 const nodeText = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(nodeText).join('')
@@ -85,6 +86,12 @@ test('first-sync selection is neutral, aligned with controls, and confirms uploa
 })
 
 async function setup({ credential = null, stored = null } = {}) {
+  const logs = []
+  const previousWindow = globalThis.window
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: async (command, args) => {
+    assert.equal(command, 'plugin:log|log')
+    if (args.message.startsWith('[relay] ')) logs.push({ ...JSON.parse(args.message.slice(8)), level: args.level })
+  } } }
   const values = new Map()
   if (stored) values.set('axonkey.relay.v1', JSON.stringify(stored))
   const timers = new Map()
@@ -105,6 +112,7 @@ async function setup({ credential = null, stored = null } = {}) {
     require(name) {
       if (name === './relayClient') return clientModule
       if (name === './cloudSync') return syncModule
+      if (name === './cloudLogging') return loggingModule
       if (name === '../../package.json') return { version: 'test' }
       if (name === '@tauri-apps/api/core') return { invoke: async (_command, request) => {
         if (_command === 'load_relay_session') return credential
@@ -133,13 +141,13 @@ async function setup({ credential = null, stored = null } = {}) {
   let view
   await act(async () => { view = Renderer.create(React.createElement(App)) })
   return {
-    get cloud() { return controller }, requests, values, get restores() { return restores },
+    get cloud() { return controller }, requests, values, logs, get restores() { return restores },
     offline: value => { offline = value },
     edit: value => { snapshot = { documents: [], settings: { enabled: value } } },
     remoteEdit: value => { settings = { schema_version: 1, revision: (settings?.revision ?? 0) + 1, settings: { enabled: value } } },
     call: async fn => { await act(async () => { await fn(controller) }) },
     tick: async () => { await act(async () => { for (const callback of [...timers.values()]) callback(); await new Promise(resolve => setImmediate(resolve)) }) },
-    close: async () => { await act(async () => view.unmount()) },
+    close: async () => { await act(async () => view.unmount()); globalThis.window = previousWindow },
   }
 }
 
@@ -257,5 +265,43 @@ test('console button is signed-in only and launches with a one-time ticket witho
     await app.call(c => c.openConsole())
     assert.equal(app.requests.length, 1)
     assert.ok(app.cloud.user)
+  } finally { await app.close() }
+})
+
+test('account and sync logs explain outcomes without credentials, contacts, or configuration content', async () => {
+  const app = await setup()
+  try {
+    assert.ok(app.logs.some(log => log.event === 'session.load.complete' && !log.signed_in))
+    await app.call(c => c.login('email', 'user@example.invalid', '123456'))
+    await app.call(c => c.openConsole())
+    await app.call(c => c.sync())
+    assert.ok(app.logs.some(log => log.event === 'operation.complete' && log.operation === 'auth.login.email'))
+    assert.ok(app.logs.some(log => log.event === 'operation.complete' && log.operation === 'console.open'))
+    assert.ok(app.logs.some(log => log.event === 'operation.complete' && log.operation === 'sync.manual'))
+    await app.call(c => c.setAutoSync(true))
+    app.edit(false)
+    await app.tick()
+    assert.ok(app.logs.some(log => log.event === 'operation.start' && log.operation === 'sync.automatic'))
+    const idleCount = app.logs.length
+    await app.tick()
+    assert.equal(app.logs.length, idleCount)
+    app.remoteEdit(true)
+    await app.call(c => c.sync())
+    assert.ok(app.logs.some(log => log.event === 'sync.conflict' && log.auto_sync_paused))
+    await app.call(c => c.fetchRestore())
+    await app.call(c => c.cancelRestore())
+    await app.call(c => c.fetchRestore())
+    await app.call(c => c.confirmRestore())
+    assert.ok(app.logs.some(log => log.event === 'restore.cancelled'))
+    assert.ok(app.logs.some(log => log.event === 'operation.complete' && log.operation === 'restore.apply'))
+    app.offline(true)
+    const start = app.logs.length
+    await app.call(c => c.sync())
+    assert.ok(app.logs.slice(start).some(log => log.event === 'sync.deferred' && log.error_type === 'network_unavailable'))
+    assert.ok(!app.logs.slice(start).some(log => log.event === 'operation.complete'))
+    await app.call(c => c.logout())
+    assert.ok(app.logs.some(log => log.event === 'operation.complete' && log.operation === 'auth.logout' && log.outcome === 'local_only'))
+    const raw = JSON.stringify(app.logs)
+    for (const secret of ['user@example.invalid', '123456', 'A'.repeat(43), '"access"', '"refresh"', '"settings":{"']) assert.ok(!raw.includes(secret), secret)
   } finally { await app.close() }
 })

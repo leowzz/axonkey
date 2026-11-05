@@ -12,6 +12,7 @@ pub(crate) fn load_relay_session(app: tauri::AppHandle) -> Result<Option<Value>,
         .app_data_dir()
         .map_err(|_| "无法读取软件数据目录")?;
     read_session(&directory.join("relay-session.json"))
+        .inspect_err(|error| log::error!(target: "axonkey::relay", "session.load failed: {error}"))
 }
 
 #[tauri::command]
@@ -23,8 +24,12 @@ pub(crate) fn save_relay_session(
         .path()
         .app_data_dir()
         .map_err(|_| "无法读取软件数据目录")?;
-    fs::create_dir_all(&directory).map_err(|_| "无法创建软件数据目录")?;
+    fs::create_dir_all(&directory).map_err(|error| {
+        log::error!(target: "axonkey::relay", "session.directory failed kind={:?}", error.kind());
+        "无法创建软件数据目录"
+    })?;
     write_session(&directory.join("relay-session.json"), session)
+        .inspect_err(|error| log::error!(target: "axonkey::relay", "session.save failed: {error}"))
 }
 
 fn read_session(path: &Path) -> Result<Option<Value>, String> {
@@ -56,6 +61,8 @@ fn write_session(path: &Path, session: Option<Value>) -> Result<(), String> {
 pub(crate) struct RelayResponse {
     status: u16,
     body: Value,
+    #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
 }
 
 #[tauri::command]
@@ -73,7 +80,10 @@ pub(crate) async fn relay_request(
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(user_agent)
         .build()
-        .map_err(|_| "无法初始化云端连接")?;
+        .map_err(|_| {
+            log::error!(target: "axonkey::relay", "request.client failed");
+            "无法初始化云端连接"
+        })?;
     let mut request = client
         .request(
             method.parse().map_err(|_| "不支持的请求方法")?,
@@ -90,17 +100,32 @@ pub(crate) async fn relay_request(
     let response = request
         .send()
         .await
-        .map_err(|_| "无法连接云端，请检查网络后重试；本地功能不受影响")?;
+        .map_err(|error| {
+            log::error!(target: "axonkey::relay", "request.send failed method={method} path={path} timeout={} connect={} request={}", error.is_timeout(), error.is_connect(), error.is_request());
+            "无法连接云端，请检查网络后重试；本地功能不受影响"
+        })?;
     let status = response.status().as_u16();
+    let request_id = response
+        .headers()
+        .get("X-Request-ID")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let body = if status == 204 {
         Value::Null
     } else {
         response
             .json::<Value>()
             .await
-            .map_err(|_| "云端响应无法读取，请稍后重试")?
+            .map_err(|error| {
+                log::error!(target: "axonkey::relay", "request.decode failed method={method} path={path} status={status} request_id={request_id:?} timeout={} decode={}", error.is_timeout(), error.is_decode());
+                "云端响应无法读取，请稍后重试"
+            })?
     };
-    Ok(RelayResponse { status, body })
+    Ok(RelayResponse {
+        status,
+        body,
+        request_id,
+    })
 }
 
 fn validate_request(method: &str, path: &str) -> Result<(), String> {

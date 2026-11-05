@@ -1,3 +1,5 @@
+import { logCloud } from './cloudLogging.ts'
+
 export type RelaySession = {
   access_token: string
   refresh_token: string
@@ -5,7 +7,7 @@ export type RelaySession = {
   user: { id: string; email: string | null; phone: string | null }
   requestId?: string
 }
-export type RelayResponse = { status: number; body: unknown }
+export type RelayResponse = { status: number; body: unknown; requestId?: string }
 export type RelayTransport = (method: string, path: string, body?: unknown, token?: string) => Promise<RelayResponse>
 export class RelayError extends Error {
   status: number
@@ -62,12 +64,15 @@ export class RelayClient {
       if (!this.session) throw new RelayError(401, 'login_required', '请先登录')
       if (this.session.requestId || this.session.expires_at <= Date.now() / 1000 + 30) await this.refresh()
     }
-    let response = await this.transport(method, path, body, authenticated ? this.session!.access_token : undefined)
+    let response = await this.send(method, path, body, authenticated ? this.session!.access_token : undefined)
     if (authenticated && response.status === 401 && errorBody(response.body).code === 'access_token_expired') {
       await this.refresh()
-      response = await this.transport(method, path, body, this.session!.access_token)
+      response = await this.send(method, path, body, this.session!.access_token)
     }
-    if (authenticated && response.status === 401) await this.setSession(null)
+    if (authenticated && response.status === 401) {
+      logCloud('session.invalidated', { method, path, status: response.status })
+      await this.setSession(null)
+    }
     return unwrap<T>(response)
   }
 
@@ -83,20 +88,77 @@ export class RelayClient {
   private async refreshSession() {
     const previous = this.session!
     const pending = { ...previous, requestId: previous.requestId ?? crypto.randomUUID() }
-    // Relay rotates refresh tokens. Persist the retry ID before sending, including across restarts.
-    await this.setSession(pending)
-    const response = await this.transport('POST', '/auth/refresh', {
-      refresh_token: pending.refresh_token,
-      request_id: pending.requestId,
-    })
-    if (response.status === 401) await this.setSession(null)
-    await this.setSession(parseSession(unwrap<unknown>(response)))
+    const started = Date.now()
+    logCloud('session.refresh.start', { retry: !!previous.requestId, refresh_request_id: pending.requestId })
+    try {
+      // Relay rotates refresh tokens. Persist the retry ID before sending, including across restarts.
+      await this.setSession(pending)
+      const response = await this.send('POST', '/auth/refresh', {
+        refresh_token: pending.refresh_token,
+        request_id: pending.requestId,
+      })
+      if (response.status === 401) {
+        logCloud('session.invalidated', { path: '/auth/refresh', status: response.status })
+        await this.setSession(null)
+      }
+      await this.setSession(parseSession(unwrap<unknown>(response)))
+      logCloud('session.refresh.success', { duration_ms: Date.now() - started })
+    } catch (error) {
+      logCloud('session.refresh.failed', { ...relayFailureDetails(error), duration_ms: Date.now() - started }, 'error')
+      throw error
+    }
   }
 
   private async setSession(session: RelaySession | null) {
-    await this.save(session)
+    try {
+      await this.save(session)
+    } catch (error) {
+      logCloud('session.save.failed', { signed_in: !!session, ...relayFailureDetails(error) }, 'error')
+      throw error
+    }
     this.session = session
+    logCloud('session.saved', { signed_in: !!session, refresh_pending: !!session?.requestId })
   }
+
+  private async send(method: string, path: string, body?: unknown, token?: string) {
+    const started = Date.now()
+    logCloud('request.start', { method, path })
+    try {
+      const response = await this.transport(method, path, body, token)
+      logCloud('request.complete', {
+        method,
+        path,
+        status: response.status,
+        server_request_id: response.requestId,
+        duration_ms: Date.now() - started,
+      })
+      return response
+    } catch (error) {
+      logCloud(
+        'request.failed',
+        { method, path, duration_ms: Date.now() - started, ...relayFailureDetails(error) },
+        'error',
+      )
+      throw error
+    }
+  }
+}
+
+// Remote detail strings and arbitrary exception messages can contain account or configuration data.
+export function relayFailureDetails(error: unknown) {
+  if (error instanceof RelayError) return { status: error.status, code: error.code }
+  if (error instanceof Error) return { error_type: error.name }
+  const reasons: Record<string, string> = {
+    '无法连接云端，请检查网络后重试；本地功能不受影响': 'network_unavailable',
+    '云端响应无法读取，请稍后重试': 'invalid_response',
+    无法初始化云端连接: 'http_client_initialization',
+    '无法读取登录凭据文件；本地功能不受影响': 'session_read',
+    '登录凭据无法读取，请重新登录': 'session_decode',
+    无法保存登录凭据文件: 'session_write',
+    无法更新登录凭据文件: 'session_replace',
+    '无法清除登录凭据文件，请重试退出登录': 'session_delete',
+  }
+  return { error_type: typeof error === 'string' ? (reasons[error] ?? 'native_error') : 'unknown_error' }
 }
 
 function loginInput(channel: 'email' | 'sms', target: string) {
