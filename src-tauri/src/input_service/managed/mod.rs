@@ -291,7 +291,7 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     Ok(store)
 }
 fn normalize_recording_mode(instance: &mut Instance) {
-    if matches!(instance.kind.as_str(), "xmBt29" | "rc313") {
+    if matches!(instance.kind.as_str(), "xmBt29" | "rc313" | "obeRcuR5") {
         instance.cmiot_a15_recording_mode =
             crate::devices::cmiot_a15::recording::RecordingMode::Hold;
     }
@@ -2497,8 +2497,8 @@ mod tests {
     }
 
     #[test]
-    fn xm_bt_29_and_rc313_recording_modes_are_always_saved_as_hold() {
-        for kind in ["xmBt29", "rc313"] {
+    fn hold_recording_modes_are_always_saved_as_hold() {
+        for kind in ["xmBt29", "rc313", "obeRcuR5"] {
             let mut remote = instance(kind, "unused");
             remote.kind = kind.into();
             remote.binding = None;
@@ -2516,11 +2516,12 @@ mod tests {
     }
 
     #[test]
-    fn loaded_recording_modes_fix_xm_bt_29_and_rc313_and_preserve_a15_choices() {
+    fn loaded_recording_modes_fix_hold_only_remotes_and_preserve_a15_choices() {
         use crate::devices::cmiot_a15::recording::RecordingMode;
         let remotes = [
             ("xmBt29", RecordingMode::Click),
             ("rc313", RecordingMode::Click),
+            ("obeRcuR5", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Hold),
         ]
@@ -2544,6 +2545,7 @@ mod tests {
                 .map(|remote| remote.cmiot_a15_recording_mode)
                 .collect::<Vec<_>>(),
             [
+                RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Click,

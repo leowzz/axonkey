@@ -470,7 +470,7 @@ test('OBE_RCU_R5 integrates directly by hardware model without software recognit
     assert.equal(saved.length, 1)
     assert.equal(saved[0].kind, 'obeRcuR5')
     assert.equal(saved[0].binding, remote.id)
-    assert.equal(saved[0].cmiotA15RecordingMode, 'click')
+    assert.equal(saved[0].cmiotA15RecordingMode, 'hold')
   } finally { act(() => view.unmount()) }
 })
 
