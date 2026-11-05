@@ -3,6 +3,7 @@ import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
 import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
 import appPackage from '../../package.json'
+import { WechatGroupCard } from './WechatGroupCard'
 
 const appIconUrl = new URL('../../src-tauri/icons/128x128@2x.png', import.meta.url).href
 
@@ -51,83 +52,88 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
           <span>如果觉得好用，欢迎给个 Star ⭐</span>
         </div>
       </section>
-      <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
-        <div role="status">
-          <strong>{status}</strong>
-          <p>
-            {update.error ??
-              (update.hasUpdate ? (
-                update.canInstall ? (
-                  '可继续使用当前版本。点击“更新并重启”后才会下载并安装新版，完成后重启应用。'
-                ) : (
-                  `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`
-                )
-              ) : (
-                <>
-                  仅检查当前主版本的更新。跨主版本请
-                  <a
-                    className="about-update-link"
-                    href={releasesUrl}
-                    onClick={openReleases}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    前往下载
-                  </a>
-                  并手动安装。
-                </>
-              ))}
-          </p>
-          {update.phase === 'downloading' && (
-            <progress
-              aria-label="更新下载进度"
-              max={update.total ?? undefined}
-              value={update.total ? update.downloaded : undefined}
-            />
-          )}
+      <div className="about-details">
+        <div className="about-details-main">
+          <section className={`about-update ${update.hasUpdate ? 'available' : ''}`} aria-label="版本更新">
+            <div role="status">
+              <strong>{status}</strong>
+              <p>
+                {update.error ??
+                  (update.hasUpdate ? (
+                    update.canInstall ? (
+                      '可继续使用当前版本。点击“更新并重启”后才会下载并安装新版，完成后重启应用。'
+                    ) : (
+                      `当前版本 ${appPackage.version}，可前往 GitHub 下载更新。`
+                    )
+                  ) : (
+                    <>
+                      仅检查当前主版本的更新。跨主版本请
+                      <a
+                        className="about-update-link"
+                        href={releasesUrl}
+                        onClick={openReleases}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        前往下载
+                      </a>
+                      并手动安装。
+                    </>
+                  ))}
+              </p>
+              {update.phase === 'downloading' && (
+                <progress
+                  aria-label="更新下载进度"
+                  max={update.total ?? undefined}
+                  value={update.total ? update.downloaded : undefined}
+                />
+              )}
+            </div>
+            <div className="about-update-actions">
+              <button
+                type="button"
+                disabled={update.checking || update.phase !== 'idle'}
+                onClick={() => update.check(true)}
+              >
+                {update.checking ? '检查中…' : '检查更新'}
+              </button>
+              {update.hasUpdate && !busy && (
+                <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">
+                  前往下载
+                </a>
+              )}
+              {update.canInstall && (
+                <button
+                  className="about-install-update"
+                  type="button"
+                  disabled={busy || update.checking}
+                  onClick={update.install}
+                >
+                  {update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}
+                </button>
+              )}
+            </div>
+          </section>
+          <section className="about-features" aria-label="应用功能">
+            <article>
+              <Keyboard size={22} />
+              <h3>自定义按键</h3>
+              <p>为单击、双击和长按配置按键、组合键、文本与多步操作。</p>
+            </article>
+            <article>
+              <AudioLines size={22} />
+              <h3>遥控器语音</h3>
+              <p>长按语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
+            </article>
+            <article>
+              <ShieldCheck size={22} />
+              <h3>本地运行</h3>
+              <p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p>
+            </article>
+          </section>
         </div>
-        <div className="about-update-actions">
-          <button
-            type="button"
-            disabled={update.checking || update.phase !== 'idle'}
-            onClick={() => update.check(true)}
-          >
-            {update.checking ? '检查中…' : '检查更新'}
-          </button>
-          {update.hasUpdate && !busy && (
-            <a href={releasesUrl} onClick={openReleases} target="_blank" rel="noopener noreferrer">
-              前往下载
-            </a>
-          )}
-          {update.canInstall && (
-            <button
-              className="about-install-update"
-              type="button"
-              disabled={busy || update.checking}
-              onClick={update.install}
-            >
-              {update.phase === 'ready' ? '重启应用' : busy ? '更新中…' : '更新并重启'}
-            </button>
-          )}
-        </div>
-      </section>
-      <section className="about-features" aria-label="应用功能">
-        <article>
-          <Keyboard size={22} />
-          <h3>自定义按键</h3>
-          <p>为单击、双击和长按配置按键、组合键、文本与多步操作。</p>
-        </article>
-        <article>
-          <AudioLines size={22} />
-          <h3>遥控器语音</h3>
-          <p>长按语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
-        </article>
-        <article>
-          <ShieldCheck size={22} />
-          <h3>本地运行</h3>
-          <p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p>
-        </article>
-      </section>
+        <WechatGroupCard />
+      </div>
       <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置页左侧开启软件总开关。</p>
     </div>
   )

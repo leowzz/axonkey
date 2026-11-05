@@ -25,6 +25,6 @@ export const base = {
   onDismissMicrophoneDriverWarning() {},
   onOpenAudioDriver() {},
   deviceContent: null, hasUpdate: false,
-  onOpenSettings() {}, onOpenLogs() {}, onOpenAbout() {},
+  onOpenSettings() {}, onOpenCloud() {}, onOpenLogs() {}, onOpenAbout() {},
 }
 export const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')

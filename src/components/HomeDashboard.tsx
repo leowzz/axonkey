@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { ExternalLink, FileText, Github, Info, Settings2, Star, X } from 'lucide-react'
+import { ExternalLink, FileText, Github, Info, Settings2, Star, UserRound, X } from 'lucide-react'
 import appPackage from '../../package.json'
 import { openGitHub } from '../openGitHub'
 import './HomeDashboard.css'
@@ -12,6 +12,7 @@ type HomeDashboardProps = {
   onDismissMicrophoneDriverWarning: () => void | Promise<void>
   onOpenAudioDriver: () => void
   onOpenSettings: () => void
+  onOpenCloud: () => void
   onOpenLogs: () => void
   onOpenAbout: () => void
   hasUpdate: boolean
@@ -25,6 +26,7 @@ export function HomeDashboard({
   onDismissMicrophoneDriverWarning,
   onOpenAudioDriver,
   onOpenSettings,
+  onOpenCloud,
   onOpenLogs,
   onOpenAbout,
   hasUpdate,
@@ -114,6 +116,10 @@ export function HomeDashboard({
           >
             <Settings2 size={15} aria-hidden="true" />
             设置
+          </button>
+          <button type="button" className="home-utility-button home-account-button" onClick={onOpenCloud}>
+            <UserRound size={15} aria-hidden="true" />
+            账号与同步
           </button>
           <button
             type="button"
