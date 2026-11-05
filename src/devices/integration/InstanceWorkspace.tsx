@@ -367,10 +367,7 @@ export function InstanceWorkspace({
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
               onToggle={
-                instance.kind === 'cmiotA15' ||
-                instance.kind === 'xmBt29' ||
-                instance.kind === 'rc313' ||
-                instance.kind === 'obeRcuR5'
+                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
                   ? () => void toggleRecording()
                   : undefined
               }

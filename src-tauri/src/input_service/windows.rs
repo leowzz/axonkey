@@ -996,10 +996,23 @@ fn process_remote_actions_inner(
         if !key.button.starts_with("xbox.") {
             emit_remote_key_event(shared, key.button, key.pressed);
         }
-        if matches!(key.button, "cmiotA15.voice" | "obeRcuR5.voice") {
+        if key.button == "cmiotA15.voice" {
             if let Err(error) = context.a15_recording.edge(key.pressed, |report| {
                 send_a15_recording_report(&mut context.reader, report)
             }) {
+                quarbor_output_error(context, error);
+                actions.cancel();
+                return;
+            }
+            publish_a15_recording(shared, context.a15_recording.is_recording());
+            context
+                .a15_voice
+                .synchronize(context.a15_recording.is_recording());
+        } else if key.button == "obeRcuR5.voice" {
+            if let Err(error) = context
+                .a15_recording
+                .edge(key.pressed, |_| Ok::<_, std::io::Error>(()))
+            {
                 quarbor_output_error(context, error);
                 actions.cancel();
                 return;
@@ -2377,7 +2390,7 @@ mod tests {
         }
 
         #[test]
-        fn obe_keyboard_voice_maps_independently_in_both_recording_modes() {
+        fn obe_keyboard_voice_records_without_sending_recording_hid() {
             for mode in ["hold", "click"] {
                 A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
                 let settings: NativeSettings = serde_json::from_value(json!({
@@ -2415,9 +2428,7 @@ mod tests {
                         ]
                     )
                 });
-                A15_RECORDING_REPORTS.with(|reports| {
-                    assert_eq!(reports.borrow().len(), if mode == "hold" { 4 } else { 2 })
-                });
+                A15_RECORDING_REPORTS.with(|reports| assert!(reports.borrow().is_empty()));
             }
         }
 

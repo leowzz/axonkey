@@ -184,8 +184,11 @@ impl HidSession {
     ) -> Result<(Vec<(&'static str, bool)>, Option<voice::PcmFrame>), String> {
         let edges = self.reports.accept(report);
         for &(button, pressed) in &edges {
-            if matches!(button, "cmiotA15.voice" | "obeRcuR5.voice") {
+            if button == "cmiotA15.voice" {
                 self.recording.edge(pressed, &mut send)?;
+                self.voice.synchronize(self.recording());
+            } else if button == "obeRcuR5.voice" {
+                self.recording.edge(pressed, |_| Ok::<_, String>(()))?;
                 self.voice.synchronize(self.recording());
             }
         }

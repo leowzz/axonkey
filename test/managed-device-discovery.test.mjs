@@ -714,6 +714,12 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       }
     }
     act(() => {
+      instances[1] = { ...instances[1], kind: 'obeRcuR5' }
+      views[1].update(React.createElement(InstanceWorkspace, props(1)))
+    })
+    assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
+    assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
+    act(() => {
       instances[1] = { ...instances[1], kind: 'xboxBluetooth' }
       views[1].update(React.createElement(InstanceWorkspace, props(1)))
     })
