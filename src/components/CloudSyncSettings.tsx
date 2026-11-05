@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { ExternalLink } from 'lucide-react'
 import type { CloudSyncController } from '../cloud/useCloudSync'
 import { SettingsHelp } from './SettingsHelp'
 import './CloudSyncSettings.css'
@@ -17,19 +18,7 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
   }, [cooldown])
   return (
     <div className="cloud-settings">
-      <div className="cloud-settings-heading">
-        <h3 className="cloud-settings-title">账号与同步</h3>
-        {cloud.user && (
-          <button
-            className="cloud-console-button"
-            type="button"
-            disabled={cloud.busy}
-            onClick={() => void cloud.openConsole()}
-          >
-            前往控制台
-          </button>
-        )}
-      </div>
+      <h3 className="cloud-settings-title">账号与同步</h3>
       <p className="cloud-local-note">无需登录即可使用全部本地功能。</p>
       {!cloud.user ? (
         <form
@@ -186,6 +175,15 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
                 onClick={() => void cloud.fetchRestore()}
               >
                 从云端恢复
+              </button>
+              <button
+                className="cloud-console-button"
+                type="button"
+                disabled={cloud.busy}
+                onClick={() => void cloud.openConsole()}
+              >
+                前往控制台
+                <ExternalLink size={14} aria-hidden="true" />
               </button>
             </div>
           </div>

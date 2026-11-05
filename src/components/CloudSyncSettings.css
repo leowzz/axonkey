@@ -99,15 +99,8 @@
   gap: 8px;
 }
 
-.cloud-settings-heading {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 22px;
-}
 .cloud-settings-title {
-  margin: 0;
+  margin: 0 0 22px;
   color: #30383f;
   font-size: 14px;
   font-weight: 600;
@@ -117,18 +110,20 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   height: 32px;
-  padding: 0 10px;
-  border: 1px solid #bdd7f5;
+  padding: 0 4px;
+  border: 0;
   border-radius: 6px;
   color: #246bbd;
-  background: #e7f1ff;
-  font-size: 14px;
+  background: transparent;
+  font: inherit;
   line-height: 20px;
+  white-space: nowrap;
 }
 .cloud-console-button:hover:not(:disabled) {
-  border-color: #94b8df;
-  background: #d9eaff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .cloud-console-button:focus-visible {
   outline: 2px solid var(--blue);
