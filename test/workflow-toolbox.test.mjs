@@ -12,7 +12,7 @@ const module = { exports: {} }
 const source = ts.transpileModule(readFileSync('src/components/WorkflowToolbox.tsx', 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
 }).outputText
-vm.runInNewContext(source, { require, module, exports: module.exports })
+vm.runInNewContext(source, { require: name => name === 'react-dom' ? { createPortal: node => node } : require(name), module, exports: module.exports, document: { body: {} } })
 const { WorkflowToolbox } = module.exports
 const step = (type, name, description = '') => ({ type, name, componentType: 'task', properties: { description } })
 const delay = step('delay', '等待', '300 毫秒')
@@ -24,12 +24,14 @@ const palettes = [
 ]
 const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')
 const items = view => view.root.findAll(node => node.type === 'div' && node.props.className?.startsWith('sqd-toolbox-item '))
+const mainButton = item => item.findByProps({ className: 'workflow-toolbox-item-main' })
+const toolboxActions = { onAddStep() {}, addLabel: '添加到单击', getStepPreview: item => [item.name] }
 function render() {
   let view
   const drags = []
   function Harness() {
     const [selectedCategory, onCategoryChange] = React.useState('all')
-    return React.createElement(WorkflowToolbox, { palettes, iconUrls: {}, selectedCategory, onCategoryChange, api: { toolbox: { tryDrag: (...args) => drags.push(args) } } })
+    return React.createElement(WorkflowToolbox, { ...toolboxActions, palettes, iconUrls: {}, selectedCategory, onCategoryChange, api: { toolbox: { tryDrag: (...args) => drags.push(args) } } })
   }
   act(() => { view = Renderer.create(React.createElement(Harness)) })
   return { view, drags }
@@ -64,13 +66,13 @@ test('filtered palette items pass their original definition and pointer position
   try {
     const item = items(view)[0]
     const event = { button: 0, clientX: 120, clientY: 240, preventDefault() {}, stopPropagation() {} }
-    act(() => item.props.onMouseDown({ ...event, button: 2 }))
+    act(() => mainButton(item).props.onMouseDown({ ...event, button: 2 }))
     assert.equal(drags.length, 0)
-    act(() => item.props.onMouseDown(event))
+    act(() => mainButton(item).props.onMouseDown(event))
     assert.equal(drags[0][1], delay)
     assert.equal(drags[0][0].x, 120)
     assert.equal(drags[0][0].y, 240)
-    act(() => item.props.onTouchStart({ ...event, touches: [{ clientX: 30, clientY: 40 }] }))
+    act(() => mainButton(item).props.onTouchStart({ ...event, touches: [{ clientX: 30, clientY: 40 }] }))
     assert.equal(drags[1][1], delay)
     assert.equal(drags[1][0].x, 30)
     assert.equal(drags[1][0].y, 40)
@@ -84,7 +86,7 @@ test('saved items remain independently draggable and deleting one never starts a
   let view
   let category = 'all'
   const renderToolbox = () => React.createElement(WorkflowToolbox, {
-    palettes: [...palettes, { name: '已保存', groups: [{ name: '已保存', steps: saved }] }],
+    ...toolboxActions, palettes: [...palettes, { name: '已保存', groups: [{ name: '已保存', steps: saved }] }],
     iconUrls: {}, selectedCategory: category, onCategoryChange() {},
     onRemoveSavedSequence: id => removed.push(id), api: { toolbox: { tryDrag: (...args) => drags.push(args) } },
   })
@@ -97,14 +99,58 @@ test('saved items remain independently draggable and deleting one never starts a
     act(() => view.update(renderToolbox()))
     assert.equal(search.props.value, '', 'saving while searching reveals the saved category')
     assert.equal(items(view).length, 2)
-    let stopped = 0
     const remove = view.root.findAllByType('button').find(node => node.props['aria-label'] === '删除已保存的first')
-    act(() => remove.props.onMouseDown({ stopPropagation() { stopped++ } }))
-    act(() => remove.props.onClick({ stopPropagation() { stopped++ } }))
-    assert.equal(stopped, 2)
+    act(() => remove.props.onClick())
     assert.deepEqual(removed, ['first'])
     assert.equal(drags.length, 0)
-    act(() => items(view)[1].props.onMouseDown({ button: 0, clientX: 10, clientY: 20, preventDefault() {}, stopPropagation() {} }))
+    act(() => mainButton(items(view)[1]).props.onMouseDown({ button: 0, clientX: 10, clientY: 20, preventDefault() {}, stopPropagation() {} }))
     assert.equal(drags[0][1], saved[1])
+  } finally { act(() => view.unmount()) }
+})
+
+
+test('basic and my tabs isolate their searches and preserve the empty and failed library states', () => {
+  const saved = { ...step('savedSequence', '我的发送序列'), properties: { savedSequenceId: 'mine' } }
+  let view
+  function Harness({ error = '', savedSteps = [saved] }) {
+    const [selectedCategory, onCategoryChange] = React.useState('all')
+    return React.createElement(WorkflowToolbox, { ...toolboxActions, palettes: [...palettes, { name: '已保存', groups: [{ name: '已保存', steps: savedSteps }] }], selectedCategory, onCategoryChange, savedError: error, iconUrls: {}, api: { toolbox: { tryDrag() {} } } })
+  }
+  act(() => { view = Renderer.create(React.createElement(Harness)) })
+  try {
+    const tabs = view.root.findByProps({ 'aria-label': '行为来源' })
+    assert.deepEqual(tabs.findAllByType('button').map(text), ['基础', '我的'])
+    const search = view.root.findByType('input')
+    act(() => search.props.onChange({ target: { value: '我的发送序列' } }))
+    assert.equal(items(view).length, 0)
+    act(() => tabs.findAllByType('button')[1].props.onClick())
+    assert.equal(search.props.value, '')
+    assert.equal(items(view).length, 1)
+    act(() => search.props.onChange({ target: { value: '300 毫秒' } }))
+    assert.equal(items(view).length, 0, 'my search cannot leak built-in results')
+    act(() => search.props.onChange({ target: { value: '' } }))
+    act(() => view.update(React.createElement(Harness, { savedSteps: [] })))
+    assert.equal(text(view.root.findByType('p')), '暂无已保存的行为序列')
+    act(() => view.update(React.createElement(Harness, { error: '读取失败', savedSteps: [] })))
+    assert.equal(text(view.root.findByProps({ role: 'alert' })), '读取失败')
+    assert.equal(view.root.findAllByType('p').length, 1, 'failure does not also claim an empty library')
+  } finally { act(() => view.unmount()) }
+})
+
+test('preview and add controls use the original palette action without starting a drag', () => {
+  let view
+  const added = [], drags = []
+  act(() => { view = Renderer.create(React.createElement(WorkflowToolbox, { ...toolboxActions, palettes, selectedCategory: 'all', onCategoryChange() {}, iconUrls: {}, getStepPreview: item => ['预览：' + item.name], onAddStep: item => added.push(item), api: { toolbox: { tryDrag: (...args) => drags.push(args) } } })) })
+  try {
+    act(() => items(view)[0].findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
+    assert.equal(added[0], delay)
+    assert.equal(drags.length, 0)
+    act(() => mainButton(items(view)[0]).props.onClick({ detail: 0 }))
+    const dialog = view.root.findByType('dialog')
+    assert.equal(text(dialog.findByType('li')), '预览：等待')
+    act(() => dialog.findAllByType('button').at(-1).props.onClick())
+    assert.equal(added[1], delay)
+    assert.equal(view.root.findAllByType('dialog').length, 0)
+    assert.equal(drags.length, 0)
   } finally { act(() => view.unmount()) }
 })

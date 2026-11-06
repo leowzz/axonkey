@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
-import type { DesignerApi, Step, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
+import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 import { DefinitionChangeType, Designer, StepsDesignerExtension } from 'sequential-workflow-designer'
 import { behaviorSummary, keyDisplayName, rightModifierChoices, triggerLabels } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, MappingInput, Platform } from '../appTypes'
@@ -13,12 +13,28 @@ import type { SavedSequence } from '../savedSequences'
 import { SequencePasteDialog } from './BehaviorEditor'
 import { WorkflowSequenceSaveDialog } from './WorkflowSequenceSaveDialog'
 import { createTriggerRootExtension, defaultWorkflowTriggers, isTriggerRoot } from './WorkflowTriggerRoot'
-import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, isWorkflowStepLocked, workflowBranches, workflowSequenceSignature, workflowToBehaviors } from './workflowBehaviorBridge'
+import {
+  behaviorToWorkflowStep,
+  behaviorsToWorkflow,
+  clearWorkflowLane,
+  insertedWorkflowSteps,
+  isWorkflowLaneDisabled,
+  isWorkflowStepLocked,
+  workflowBranches,
+  workflowSequenceSignature,
+  workflowToBehaviors,
+} from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
 import type { WorkflowToolboxPalette } from './WorkflowToolbox'
 import { createWorkflowStepInteraction } from './WorkflowStepInteraction'
-import { defaultWorkflowDelayMs, findWorkflowStepEditor, isEditableWorkflowStep, workflowBehaviorProperties, workflowStepBehavior } from './workflowStepEditing'
+import {
+  defaultWorkflowDelayMs,
+  findWorkflowStepEditor,
+  isEditableWorkflowStep,
+  workflowBehaviorProperties,
+  workflowStepBehavior,
+} from './workflowStepEditing'
 import { WorkflowStepDialog } from './WorkflowStepDialog'
 import type { WorkflowStepEdit } from './WorkflowStepDialog'
 import type { WorkflowActionChoicePreset } from './workflowActionChoices'
@@ -51,17 +67,31 @@ type WorkflowAxonkeyProps<Id extends string> = {
 }
 
 type WorkflowAction = {
-  preset: CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | 'switchProfile' | WorkflowActionChoicePreset
+  preset:
+    CommonBehaviorPreset | AdvancedBehaviorType | 'wheel' | 'cursorMove' | 'switchProfile' | WorkflowActionChoicePreset
   name: string
   description?: string
 }
 
-export function WorkflowAxonkey<Id extends string = InputId>({ platform, button, sequences, activeTrigger, onChange, onRequestProfileSwitch, toolboxCategory, onToolboxCategoryChange }: WorkflowAxonkeyProps<Id>) {
-  const triggers = button.triggerLabel ? [{ id: 'click' as const, label: button.triggerLabel }]
-    : activeTrigger ? defaultWorkflowTriggers.filter(trigger => trigger.id === activeTrigger) : defaultWorkflowTriggers
+export function WorkflowAxonkey<Id extends string = InputId>({
+  platform,
+  button,
+  sequences,
+  activeTrigger,
+  onChange,
+  onRequestProfileSwitch,
+  toolboxCategory,
+  onToolboxCategoryChange,
+}: WorkflowAxonkeyProps<Id>) {
+  const triggers = button.triggerLabel
+    ? [{ id: 'click' as const, label: button.triggerLabel }]
+    : activeTrigger
+      ? defaultWorkflowTriggers.filter(trigger => trigger.id === activeTrigger)
+      : defaultWorkflowTriggers
   const triggersRef = useRef(triggers)
   triggersRef.current = triggers
   const refreshLanesRef = useRef<(() => void) | null>(null)
+  const addStepRef = useRef<((step: StepDefinition, trigger: TriggerType) => void) | null>(null)
   const inputLabel = [button.label, button.contextLabel].filter(Boolean).join(' · ')
   const workflowRef = useRef<HTMLElement>(null)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -75,8 +105,11 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
   onRequestProfileSwitchRef.current = onRequestProfileSwitch
   const [reload, setReload] = useState(0)
   const [library, setLibrary] = useState<{ items: SavedSequence[]; error: string }>(() => {
-    try { return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' } }
-    catch { return { items: [], error: '无法读取已保存的序列，请重新打开页面重试。' } }
+    try {
+      return { items: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)), error: '' }
+    } catch {
+      return { items: [], error: '无法读取已保存的序列，请重新打开页面重试。' }
+    }
   })
   const [sequenceDialog, setSequenceDialog] = useState<
     { type: 'save'; trigger: TriggerType; behaviors: Behavior[] } | { type: 'paste'; trigger: TriggerType } | null
@@ -119,11 +152,19 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
     ]
     const compositeActions: WorkflowAction[] = [
       { preset: 'textAndEnter', name: '输入文本并回车', description: '等待 30 毫秒后回车' },
-      { preset: 'deleteAllText', name: '删除全部文本', description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X` },
+      {
+        preset: 'deleteAllText',
+        name: '删除全部文本',
+        description: `${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + A，等待 30 毫秒后 ${keyDisplayName(platform === 'macos' ? 'Win' : 'Ctrl', platform)} + X`,
+      },
     ]
     const controlActions: WorkflowAction[] = [
       { preset: 'switchProfile', name: '切换配置文件', description: '上一个或下一个配置文件，可设置到边缘自动循环' },
-      { preset: 'disabled', name: '禁用此触发方式', description: '替换当前泳道的序列，不发送任何输入；清空泳道可取消禁用' },
+      {
+        preset: 'disabled',
+        name: '禁用此触发方式',
+        description: '替换当前泳道的序列，不发送任何输入；清空泳道可取消禁用',
+      },
       { preset: 'delay', name: '等待' },
       { preset: 'paste', name: '粘贴文本' },
       { preset: 'openApp', name: '打开应用' },
@@ -145,9 +186,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       { preset: 'mediaTrack', name: '曲目切换', description: '选择上一首或下一首' },
     ]
     if (platform === 'windows') mediaActions.push({ preset: 'mediaStop', name: '停止播放' })
-    mediaActions.push(
-      { preset: 'volumeControl', name: '音量控制', description: '选择增大音量、减小音量或静音' },
-    )
+    mediaActions.push({ preset: 'volumeControl', name: '音量控制', description: '选择增大音量、减小音量或静音' })
     const actionGroups = [
       { name: '控制', actions: controlActions },
       { name: '键盘', actions: keyboardActions },
@@ -157,8 +196,14 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
     const toGroup = (group: { name: string; actions: WorkflowAction[] }): ToolboxGroupConfiguration => ({
       name: group.name,
       steps: group.actions.map(({ preset, name, description }) => ({
-        componentType: 'task', type: preset, name,
-        properties: { preset, description: description ?? '', ...(preset === 'delay' ? { ms: defaultWorkflowDelayMs } : {}) },
+        componentType: 'task',
+        type: preset,
+        name,
+        properties: {
+          preset,
+          description: description ?? '',
+          ...(preset === 'delay' ? { ms: defaultWorkflowDelayMs } : {}),
+        },
       })),
     })
     const palettes: WorkflowToolboxPalette[] = [
@@ -180,8 +225,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       const editor = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
       if (!editor || isWorkflowLaneDisabled(workflowBranches(api.editor.getDefinition())[editor.trigger])) return
       setEditingStep({
-        stepId, trigger: editor.trigger, behavior: editor.behavior,
-        onSave: (behavior) => {
+        stepId,
+        trigger: editor.trigger,
+        behavior: editor.behavior,
+        onSave: behavior => {
           if (!active) return
           const current = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
           if (!current || api.editor.isReadonly()) return
@@ -206,16 +253,24 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
         },
       })
     }
-    const canDragStep = (step: Step, source: Step[]) => !workflowApi?.editor.isReadonly()
-      && !isTriggerRoot(step) && !isWorkflowStepLocked(step, source) && (selectionBinding?.canDragSelection() ?? true)
+    const canDragStep = (step: Step, source: Step[]) =>
+      !workflowApi?.editor.isReadonly() &&
+      !isTriggerRoot(step) &&
+      !isWorkflowStepLocked(step, source) &&
+      (selectionBinding?.canDragSelection() ?? true)
     const designer = Designer.create(canvasRef.current, definition, {
       theme: 'light',
-      textWidthMeasurer: (text) => {
+      textWidthMeasurer: text => {
         const full = text.textContent ?? ''
-        const maxWidth = Math.max(20, workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggersRef.current.length).laneWidth - 62)
+        const maxWidth = Math.max(
+          20,
+          workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggersRef.current.length).laneWidth - 62,
+        )
         if (text.getComputedTextLength() > maxWidth) {
           let end = full.length
-          do { text.textContent = `${full.slice(0, --end)}…` } while (end > 0 && text.getComputedTextLength() > maxWidth)
+          do {
+            text.textContent = `${full.slice(0, --end)}…`
+          } while (end > 0 && text.getComputedTextLength() > maxWidth)
           const title = document.createElementNS('http://www.w3.org/2000/svg', 'title')
           title.textContent = full
           text.parentElement?.appendChild(title)
@@ -227,68 +282,116 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
         iconUrlProvider: (_componentType, type) => iconUrls[type] ?? null,
         isDraggable: canDragStep,
         isDeletable: (step, source) => !isTriggerRoot(step) && !isWorkflowStepLocked(step, source),
-        isDuplicable: (step, source) => step.type !== 'switchProfile' && !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
+        isDuplicable: (step, source) =>
+          step.type !== 'switchProfile' && !isTriggerRoot(step) && !isWorkflowLaneDisabled(source),
         canInsertStep: (_step, target) => !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(target),
-        canMoveStep: (source, step, target) => step.type !== 'switchProfile' && !isTriggerRoot(step) && !target.some(isTriggerRoot) && !isWorkflowLaneDisabled(source) && !isWorkflowLaneDisabled(target),
+        canMoveStep: (source, step, target) =>
+          step.type !== 'switchProfile' &&
+          !isTriggerRoot(step) &&
+          !target.some(isTriggerRoot) &&
+          !isWorkflowLaneDisabled(source) &&
+          !isWorkflowLaneDisabled(target),
       },
-      extensions: [fixedWorkflowViewport, StepsDesignerExtension.create({ task: { view: {
-        paddingLeft: 8, paddingRight: 8, paddingY: 10, textMarginLeft: 8,
-        minTextWidth: 20, iconSize: 18, radius: 5, inputSize: 14, outputSize: 10,
-      } } }), createWorkflowStepInteraction(openEditor, (interrupt) => selectionBinding?.finishDrag(interrupt), canDragStep), {
-        draggedComponent: createWorkflowDraggedSteps((step) => selectionBinding?.getDragSteps(step.id) ?? [step]),
-        contextMenu: {
-          createItemsProvider: () => ({
-            getItems: (step, parentSequence) => step && isEditableWorkflowStep(step) && !workflowApi?.editor.isReadonly() && !isWorkflowLaneDisabled(parentSequence)
-              ? [{ label: '编辑', order: -1, callback: () => openEditor(step.id) }]
-              : [],
-          }),
-        },
-        rootComponent: createTriggerRootExtension((trigger) => {
-          const api = workflowApi
-          if (!active || !api || api.editor.isReadonly()) return
-          if (!clearWorkflowLane(api.editor.getDefinition(), trigger)) return
-          const restoreFocus = document.activeElement?.getAttribute('data-trigger-clear') === trigger
-          if (restoreFocus) void designer.onRootComponentUpdated.once().then(() => {
-            if (active) canvasRef.current?.querySelector<SVGElement>(`[data-trigger-clear="${trigger}"]`)?.focus()
-          })
-          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-        }, () => {
-          // Invalidate the designer's cached drag targets after a lane scroll.
-          const workspace = workflowApi?.workspace
-          if (workspace) workspace.setViewport(workspace.getViewport())
-        }, (trigger, action) => {
-          const api = workflowApi
-          if (!active || !api || api.editor.isReadonly()) return
-          if (action === 'paste') { setSequenceDialog({ type: 'paste', trigger }); return }
-          const current = api.editor.getDefinition()
-          if (workflowBranches(current)[trigger].some((step) => step.properties.draftGroup)) {
-            setLaneStatus('请先完成当前泳道中的行为配置')
-            return
-          }
-          const sequence = workflowToBehaviors(current)?.[trigger]
-          if (!sequence?.length) return
-          if (action === 'save') setSequenceDialog({ type: 'save', trigger, behaviors: sequence })
-          else void writeClipboardText(serializeSequence(sequence)).then(() => {
-            if (active) setLaneStatus(`${button.triggerLabel ?? triggerLabels[trigger]}序列已复制`)
-          }).catch(() => { if (active) setLaneStatus('复制失败，请重试') })
-        }, () => triggersRef.current),
-        uiComponents: [{
-          create: (root, api) => {
-            workflowApi = api
-            const host = document.createElement('aside')
-            host.className = 'sqd-toolbox workflow-toolbox'
-            host.setAttribute('aria-label', '行为工具箱')
-            // Keep the toolbox in the workbench layout so it stays docked to
-            // the canvas instead of floating over the designer surface.
-            const toolboxParent = workflowRef.current && typeof workflowRef.current.appendChild === 'function'
-              ? workflowRef.current
-              : root
-            toolboxParent.appendChild(host)
-            setToolbox({ host, api, palettes, iconUrls })
-            return { updateLayout() {}, destroy() { host.remove() } }
+      extensions: [
+        fixedWorkflowViewport,
+        StepsDesignerExtension.create({
+          task: {
+            view: {
+              paddingLeft: 8,
+              paddingRight: 8,
+              paddingY: 10,
+              textMarginLeft: 8,
+              minTextWidth: 20,
+              iconSize: 18,
+              radius: 5,
+              inputSize: 14,
+              outputSize: 10,
+            },
           },
-        }],
-      }],
+        }),
+        createWorkflowStepInteraction(openEditor, interrupt => selectionBinding?.finishDrag(interrupt), canDragStep),
+        {
+          draggedComponent: createWorkflowDraggedSteps(step => selectionBinding?.getDragSteps(step.id) ?? [step]),
+          contextMenu: {
+            createItemsProvider: () => ({
+              getItems: (step, parentSequence) =>
+                step &&
+                isEditableWorkflowStep(step) &&
+                !workflowApi?.editor.isReadonly() &&
+                !isWorkflowLaneDisabled(parentSequence)
+                  ? [{ label: '编辑', order: -1, callback: () => openEditor(step.id) }]
+                  : [],
+            }),
+          },
+          rootComponent: createTriggerRootExtension(
+            trigger => {
+              const api = workflowApi
+              if (!active || !api || api.editor.isReadonly()) return
+              if (!clearWorkflowLane(api.editor.getDefinition(), trigger)) return
+              const restoreFocus = document.activeElement?.getAttribute('data-trigger-clear') === trigger
+              if (restoreFocus)
+                void designer.onRootComponentUpdated.once().then(() => {
+                  if (active) canvasRef.current?.querySelector<SVGElement>(`[data-trigger-clear="${trigger}"]`)?.focus()
+                })
+              api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+            },
+            () => {
+              // Invalidate the designer's cached drag targets after a lane scroll.
+              const workspace = workflowApi?.workspace
+              if (workspace) workspace.setViewport(workspace.getViewport())
+            },
+            (trigger, action) => {
+              const api = workflowApi
+              if (!active || !api || api.editor.isReadonly()) return
+              if (action === 'paste') {
+                setSequenceDialog({ type: 'paste', trigger })
+                return
+              }
+              const current = api.editor.getDefinition()
+              if (workflowBranches(current)[trigger].some(step => step.properties.draftGroup)) {
+                setLaneStatus('请先完成当前泳道中的行为配置')
+                return
+              }
+              const sequence = workflowToBehaviors(current)?.[trigger]
+              if (!sequence?.length) return
+              if (action === 'save') setSequenceDialog({ type: 'save', trigger, behaviors: sequence })
+              else
+                void writeClipboardText(serializeSequence(sequence))
+                  .then(() => {
+                    if (active) setLaneStatus(`${button.triggerLabel ?? triggerLabels[trigger]}序列已复制`)
+                  })
+                  .catch(() => {
+                    if (active) setLaneStatus('复制失败，请重试')
+                  })
+            },
+            () => triggersRef.current,
+          ),
+          uiComponents: [
+            {
+              create: (root, api) => {
+                workflowApi = api
+                const host = document.createElement('aside')
+                host.className = 'sqd-toolbox workflow-toolbox'
+                host.setAttribute('aria-label', '行为工具箱')
+                // Keep the toolbox in the workbench layout so it stays docked to
+                // the canvas instead of floating over the designer surface.
+                const toolboxParent =
+                  workflowRef.current && typeof workflowRef.current.appendChild === 'function'
+                    ? workflowRef.current
+                    : root
+                toolboxParent.appendChild(host)
+                setToolbox({ host, api, palettes, iconUrls })
+                return {
+                  updateLayout() {},
+                  destroy() {
+                    host.remove()
+                  },
+                }
+              },
+            },
+          ],
+        },
+      ],
       toolbox: false,
       editors: false,
       controlBar: false,
@@ -296,29 +399,38 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       keyboard: false,
       i18n: (key, defaultValue) => translations[key] ?? defaultValue,
     })
-    selectionBinding = bindWorkflowSelection(canvasRef.current, designer, () => {
-      workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-    }, () => workflowApi?.workspace)
-    const unbindTrash = trashRef.current ? bindWorkflowTrash(canvasRef.current, trashRef.current, designer, (stepId) => {
-      const api = workflowApi
-      if (!active || !api || api.editor.isReadonly()) return
-      const definition = api.editor.getDefinition()
-      const selectedIds = new Set(selectionBinding?.getSelectedIds())
-      const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
-      let removed = false
-      for (const branch of Object.values(workflowBranches(definition))) {
-        for (let index = branch.length - 1; index >= 0; index--) {
-          if (!idsToDelete.has(branch[index].id) || isWorkflowStepLocked(branch[index], branch)) continue
-          branch.splice(index, 1)
-          removed = true
-        }
-      }
-      if (!removed) return
-      designer.clearSelectedStep()
-      api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-    }) : () => {}
+    selectionBinding = bindWorkflowSelection(
+      canvasRef.current,
+      designer,
+      () => {
+        workflowApi?.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+      },
+      () => workflowApi?.workspace,
+    )
+    const unbindTrash = trashRef.current
+      ? bindWorkflowTrash(canvasRef.current, trashRef.current, designer, stepId => {
+          const api = workflowApi
+          if (!active || !api || api.editor.isReadonly()) return
+          const definition = api.editor.getDefinition()
+          const selectedIds = new Set(selectionBinding?.getSelectedIds())
+          const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
+          let removed = false
+          for (const branch of Object.values(workflowBranches(definition))) {
+            for (let index = branch.length - 1; index >= 0; index--) {
+              if (!idsToDelete.has(branch[index].id) || isWorkflowStepLocked(branch[index], branch)) continue
+              branch.splice(index, 1)
+              removed = true
+            }
+          }
+          if (!removed) return
+          designer.clearSelectedStep()
+          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        })
+      : () => {}
     let ready = false
-    designer.onReady.subscribe(() => { ready = true })
+    designer.onReady.subscribe(() => {
+      ready = true
+    })
     const persist = (next: TriggerBehaviors) => {
       const signature = workflowSequenceSignature(next)
       const current = workflowBranches(workflowApi!.editor.getDefinition())
@@ -335,44 +447,63 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
         if (active && workflowApi) {
           // Keep incomplete drafts in other lanes when the user cancels.
           const restored = structuredClone(acceptedBranches)
-          for (const trigger of Object.keys(current) as TriggerType[]) current[trigger].splice(0, current[trigger].length, ...restored[trigger])
+          for (const trigger of Object.keys(current) as TriggerType[])
+            current[trigger].splice(0, current[trigger].length, ...restored[trigger])
           workflowApi.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
         }
         return
       }
       acceptedBranches = structuredClone(current)
     }
-    designer.onDefinitionChanged.subscribe((event) => {
+    const normalizeInsertion = (trigger: TriggerType, index: number) => {
+      const api = workflowApi!
+      const branch = workflowBranches(api.editor.getDefinition())[trigger]
+      const nodes = insertedWorkflowSteps(branch[index], platform, label)
+      const profileSwitch = nodes.map(workflowStepBehavior).find(behavior => behavior?.type === 'switchProfile')
+      if (profileSwitch?.type === 'switchProfile') {
+        branch.splice(index, 1)
+        designer.clearSelectedStep()
+        api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+        onRequestProfileSwitchRef.current(button.id, trigger, profileSwitch)
+        return
+      }
+      if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
+        branch.splice(0, branch.length, ...nodes)
+      } else branch.splice(index, 1, ...nodes)
+      api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+    }
+    designer.onDefinitionChanged.subscribe(event => {
       if (!active) return
       const current = workflowApi?.editor.getDefinition()
       if (!current) return
       if (event.changeType === DefinitionChangeType.stepInserted && event.stepId) {
         for (const [trigger, branch] of Object.entries(workflowBranches(current))) {
-          const index = branch.findIndex((step) => step.id === event.stepId)
+          const index = branch.findIndex(step => step.id === event.stepId)
           if (index < 0) continue
-          const nodes = insertedWorkflowSteps(branch[index], platform, label)
-          const profileSwitch = nodes.map(workflowStepBehavior).find((behavior) => behavior?.type === 'switchProfile')
-          if (profileSwitch?.type === 'switchProfile') {
-            branch.splice(index, 1)
-            designer.clearSelectedStep()
-            workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-            onRequestProfileSwitchRef.current(button.id, trigger as TriggerType, profileSwitch)
-            break
-          }
-          if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
-            branch.splice(0, branch.length, ...nodes)
-          } else branch.splice(index, 1, ...nodes)
-          workflowApi!.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-          // Dropping a block only inserts it. Users can open the editor from
-          // the block itself when they want to change its parameters.
-          // The designer coalesces nested change notifications. Save the
-          // normalized definition here instead of waiting for another event.
+          normalizeInsertion(trigger as TriggerType, index)
+          // The designer coalesces nested notifications. Persist the normalized
+          // definition here, using the same path as adding from the library.
           break
         }
       }
       const next = workflowToBehaviors(current)
       if (next) persist(next)
     })
+    addStepRef.current = (step, trigger) => {
+      const api = workflowApi
+      if (!active || !api || api.editor.isReadonly()) return
+      const current = api.editor.getDefinition()
+      const branch = workflowBranches(current)[trigger]
+      if (isWorkflowLaneDisabled(branch)) {
+        setLaneStatus('请先清空当前泳道，取消禁用后再添加行为')
+        return
+      }
+      const index = branch.length
+      branch.push({ ...structuredClone(step), id: crypto.randomUUID() })
+      normalizeInsertion(trigger, index)
+      const next = workflowToBehaviors(current)
+      if (next) persist(next)
+    }
     const resizeObserver = new ResizeObserver(() => {
       if (!ready || designer.isDragging()) return
       designer.updateLayout()
@@ -391,6 +522,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
     return () => {
       active = false
       refreshLanesRef.current = null
+      addStepRef.current = null
       // Designer events are batched. Flush a last drop/move/delete before a fast
       // key/page switch, but never write the old canvas over an external undo.
       if (workflowApi && workflowSequenceSignature(incomingRef.current) === savedRef.current) {
@@ -400,7 +532,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
             if (!branch[index].properties.behaviorType) {
               const nodes = insertedWorkflowSteps(branch[index], platform, label)
               // A fast page change must not commit an unconfirmed shared action.
-              branch.splice(index, 1, ...(nodes.some((node) => node.type === 'switchProfile') ? [] : nodes))
+              branch.splice(index, 1, ...(nodes.some(node => node.type === 'switchProfile') ? [] : nodes))
             }
           }
         }
@@ -417,12 +549,14 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
     }
   }, [platform, button.id, reload])
 
-  useEffect(() => { refreshLanesRef.current?.() }, [activeTrigger, button.triggerLabel])
+  useEffect(() => {
+    refreshLanesRef.current?.()
+  }, [activeTrigger, button.triggerLabel])
 
   useEffect(() => {
     // An import, reset, or shared undo replaces the view. Our own save echo keeps
     // the current designer and its viewport intact.
-    if (workflowSequenceSignature(sequences) !== savedRef.current) setReload((value) => value + 1)
+    if (workflowSequenceSignature(sequences) !== savedRef.current) setReload(value => value + 1)
   }, [sequences])
 
   const storeLibrary = (items: SavedSequence[]): string | null => {
@@ -431,13 +565,23 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
       window.localStorage.setItem(savedSequencesStorageKey, JSON.stringify(items))
       setLibrary({ items, error: '' })
       return null
-    } catch { return '保存失败，请重试。' }
+    } catch {
+      return '保存失败，请重试。'
+    }
   }
   const savedPalette: WorkflowToolboxPalette = {
-    name: '已保存', groups: [{ name: '已保存', steps: library.items.map((item) => ({
-      componentType: 'task', type: 'savedSequence', name: item.name,
-      properties: { savedSequenceId: item.id, sequence: item.sequence },
-    })) }],
+    name: '已保存',
+    groups: [
+      {
+        name: '已保存',
+        steps: library.items.map(item => ({
+          componentType: 'task',
+          type: 'savedSequence',
+          name: item.name,
+          properties: { savedSequenceId: item.id, sequence: item.sequence },
+        })),
+      },
+    ],
   }
 
   const closeEditor = () => {
@@ -447,45 +591,112 @@ export function WorkflowAxonkey<Id extends string = InputId>({ platform, button,
     setEditingStep(null)
   }
 
-  return <section ref={workflowRef} className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
-    <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
-    <button ref={trashRef} type="button" className="workflow-trash" aria-label="垃圾桶，拖入行为即可删除" tabIndex={-1}>
-      <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
-      <span>拖入删除</span>
-    </button>
-    {toolbox && createPortal(<WorkflowToolbox api={toolbox.api} palettes={[...toolbox.palettes, savedPalette]} savedError={library.error} onRemoveSavedSequence={(id) => { const error = storeLibrary(library.items.filter((item) => item.id !== id)); if (error) setLaneStatus(error) }} iconUrls={toolbox.iconUrls} selectedCategory={toolboxCategory} onCategoryChange={onToolboxCategoryChange} />, toolbox.host)}
-    {laneStatus && <div className="workflow-lane-status" role="status">{laneStatus}</div>}
-    {sequenceDialog?.type === 'save' && createPortal(<WorkflowSequenceSaveDialog
-      initialName={`${inputLabel} · ${button.triggerLabel ?? triggerLabels[sequenceDialog.trigger]}`}
-      onClose={() => setSequenceDialog(null)}
-      onSave={(name) => {
-        const saved = createSavedSequence(name, sequenceDialog.behaviors)
-        const error = storeLibrary([...library.items, saved])
-        if (error) return error
-        setSequenceDialog(null)
-        onToolboxCategoryChange('已保存/已保存')
-        setLaneStatus('已保存到行为库')
-        return null
-      }}
-    />, document.body)}
-    {sequenceDialog?.type === 'paste' && toolbox && createPortal(<SequencePasteDialog
-      platform={platform} button={button} trigger={sequenceDialog.trigger}
-      onClose={() => setSequenceDialog(null)}
-      onApply={(sequence) => {
-        if (toolbox.api.editor.isReadonly()) return
-        const profileSwitch = sequence.find((behavior) => behavior.type === 'switchProfile')
-        if (profileSwitch?.type === 'switchProfile') {
-          onRequestProfileSwitchRef.current(button.id, sequenceDialog.trigger, profileSwitch)
-          setSequenceDialog(null)
-          return
-        }
-        const branch = workflowBranches(toolbox.api.editor.getDefinition())[sequenceDialog.trigger]
-        branch.splice(0, branch.length, ...sequence.map((behavior) => behaviorToWorkflowStep(behavior, (item) => behaviorSummary(item, platform))))
-        toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-        setSequenceDialog(null)
-        setLaneStatus('当前泳道序列已替换，可撤销')
-      }}
-    />, document.body)}
-    {editingStep && createPortal(<WorkflowStepDialog key={editingStep.stepId} edit={editingStep} platform={platform} button={button} onClose={closeEditor} />, document.body)}
-  </section>
+  return (
+    <section ref={workflowRef} className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
+      <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+      <button
+        ref={trashRef}
+        type="button"
+        className="workflow-trash"
+        aria-label="垃圾桶，拖入行为即可删除"
+        tabIndex={-1}
+      >
+        <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
+        <span>拖入删除</span>
+      </button>
+      {toolbox &&
+        createPortal(
+          <WorkflowToolbox
+            api={toolbox.api}
+            palettes={[...toolbox.palettes, savedPalette]}
+            savedError={library.error}
+            onRemoveSavedSequence={id => {
+              const error = storeLibrary(library.items.filter(item => item.id !== id))
+              if (error) setLaneStatus(error)
+            }}
+            iconUrls={toolbox.iconUrls}
+            addLabel={`添加到${triggers[0].label}`}
+            onAddStep={step => addStepRef.current?.(step, triggers[0].id)}
+            getStepPreview={step =>
+              insertedWorkflowSteps({ ...step, id: 'preview' }, platform, behavior =>
+                behaviorSummary(behavior, platform),
+              ).map(node => {
+                const behavior = workflowStepBehavior(node)
+                if (!behavior) return node.name
+                const description =
+                  behavior.type === 'paste'
+                    ? `粘贴：${behavior.text || '（添加后填写文本）'}`
+                    : behaviorSummary(behavior, platform)
+                return `${description}${behavior.enabled ? '' : '（已停用）'}`
+              })
+            }
+            selectedCategory={toolboxCategory}
+            onCategoryChange={onToolboxCategoryChange}
+          />,
+          toolbox.host,
+        )}
+      {laneStatus && (
+        <div className="workflow-lane-status" role="status">
+          {laneStatus}
+        </div>
+      )}
+      {sequenceDialog?.type === 'save' &&
+        createPortal(
+          <WorkflowSequenceSaveDialog
+            initialName={`${inputLabel} · ${button.triggerLabel ?? triggerLabels[sequenceDialog.trigger]}`}
+            onClose={() => setSequenceDialog(null)}
+            onSave={name => {
+              const saved = createSavedSequence(name, sequenceDialog.behaviors)
+              const error = storeLibrary([...library.items, saved])
+              if (error) return error
+              setSequenceDialog(null)
+              onToolboxCategoryChange('已保存/已保存')
+              setLaneStatus('已保存到行为库')
+              return null
+            }}
+          />,
+          document.body,
+        )}
+      {sequenceDialog?.type === 'paste' &&
+        toolbox &&
+        createPortal(
+          <SequencePasteDialog
+            platform={platform}
+            button={button}
+            trigger={sequenceDialog.trigger}
+            onClose={() => setSequenceDialog(null)}
+            onApply={sequence => {
+              if (toolbox.api.editor.isReadonly()) return
+              const profileSwitch = sequence.find(behavior => behavior.type === 'switchProfile')
+              if (profileSwitch?.type === 'switchProfile') {
+                onRequestProfileSwitchRef.current(button.id, sequenceDialog.trigger, profileSwitch)
+                setSequenceDialog(null)
+                return
+              }
+              const branch = workflowBranches(toolbox.api.editor.getDefinition())[sequenceDialog.trigger]
+              branch.splice(
+                0,
+                branch.length,
+                ...sequence.map(behavior => behaviorToWorkflowStep(behavior, item => behaviorSummary(item, platform))),
+              )
+              toolbox.api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+              setSequenceDialog(null)
+              setLaneStatus('当前泳道序列已替换，可撤销')
+            }}
+          />,
+          document.body,
+        )}
+      {editingStep &&
+        createPortal(
+          <WorkflowStepDialog
+            key={editingStep.stepId}
+            edit={editingStep}
+            platform={platform}
+            button={button}
+            onClose={closeEditor}
+          />,
+          document.body,
+        )}
+    </section>
+  )
 }

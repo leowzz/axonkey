@@ -4,12 +4,14 @@ import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
+import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
+import { clearLocalData } from '../localDataReset'
 import type { ParsedBackup } from '../dataBackup'
 import type { LegacyBackupImport } from '../backupImport'
 import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
@@ -1023,7 +1025,13 @@ function AppController({
   const cloud = useCloudSync({
     native: nativeRuntime,
     ready: deviceInstances.loaded && !deviceInstances.busy && !deviceInstances.snapshot.error,
-    snapshot: () => createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances),
+    snapshot: memory => createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances, memory),
+    clearLocalData: async () => {
+      await clearLocalData(window.localStorage, deviceInstances)
+      // A queued scroll-save may run while the reload navigation starts.
+      uiStateRef.current = getStoredUiState()
+      window.location.reload()
+    },
     restore: async cloudState => {
       const restored = prepareCloudRestore(cloudState, createBackup(), deviceInstances.snapshot.store.instances)
       let restoredCount = 0
@@ -1910,6 +1918,7 @@ function AppController({
           ) : activePage === 'settings' ? (
             <SettingsPage
               cloudContent={<CloudSyncSettings cloud={cloud} />}
+              localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
               aboutContent={<AboutPage update={releaseUpdate} />}
               onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}

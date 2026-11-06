@@ -19,8 +19,9 @@ const defaults = (): CloudPreferences => ({ session: null, autoSync: false, acco
 export function useCloudSync(options: {
   native: boolean
   ready: boolean
-  snapshot: () => CloudSnapshot
+  snapshot: (memory: SyncMemory) => CloudSnapshot
   restore: (cloud: CloudState) => Promise<void>
+  clearLocalData: () => Promise<void>
 }) {
   const latest = useRef(options)
   latest.current = options
@@ -191,7 +192,7 @@ export function useCloudSync(options: {
           setMessage('正在保存本地配置，请稍后同步')
           return 'local_not_ready'
         }
-        const snapshot = latest.current.snapshot()
+        const snapshot = latest.current.snapshot(account().memory)
         logCloud('sync.snapshot', {
           source,
           overwrite,
@@ -219,8 +220,8 @@ export function useCloudSync(options: {
     const tick = () => {
       if (!latest.current.ready || working.current || Date.now() < retryAt.current) return
       try {
-        const snapshot = latest.current.snapshot()
         const saved = current.current.accounts[current.current.session!.user.id]
+        const snapshot = latest.current.snapshot(saved?.memory ?? {})
         if (fingerprint(snapshot) !== saved?.fingerprint) void syncRef.current(false, 'automatic')
       } catch (error) {
         logCloud('sync.snapshot.failed', { ...relayFailureDetails(error), retry_after_ms: 60000 }, 'error')
@@ -252,6 +253,14 @@ export function useCloudSync(options: {
       setError('')
       setMessage('')
     },
+    clearLocalData: () =>
+      run('local.clear', async () => {
+        if (!latest.current.ready) throw new Error('正在保存本地配置，请稍后重试')
+        update({ ...current.current, autoSync: false, accounts: {} })
+        setConflict(null)
+        setPendingRestore(null)
+        await latest.current.clearLocalData()
+      }),
     setAutoSync(value: boolean) {
       if (!client.session || working.current) return
       logCloud('sync.auto.changed', { enabled: value })

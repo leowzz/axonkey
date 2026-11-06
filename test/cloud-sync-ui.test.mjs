@@ -14,27 +14,31 @@ import * as captchaModule from '../src/cloud/captcha.ts'
 const require = createRequire(import.meta.url)
 const nodeText = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(nodeText).join('')
 
-async function settingsView(overrides = {}) {
+async function settingsView(overrides = {}, component = 'CloudSyncSettings') {
   const calls = []
   const cloud = {
     user: null, busy: false, ready: true, error: '', message: '', conflict: null, pendingRestore: null,
     clearFeedback() {},
+    clearLocalData: () => calls.push(['clearLocalData']),
     sendCode: async (channel, target, sent) => { calls.push(['code', channel, target]); sent(60) },
     sync: overwrite => calls.push(['sync', overwrite]),
     ...overrides,
   }
-  const source = ts.transpileModule(readFileSync('src/components/CloudSyncSettings.tsx', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText
+  const source = ts.transpileModule(readFileSync(`src/components/${component}.tsx`, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX } }).outputText
   const module = { exports: {} }
+  const root = { inert: false }
   vm.runInNewContext(source, {
     module, exports: module.exports, Date,
+    document: { getElementById: () => root, activeElement: null, body: { style: { overflow: '' } } },
+    HTMLElement: class {},
     window: { setTimeout: () => 1, clearTimeout() {} },
-    require: name => name.endsWith('.css') ? {} : name === './SettingsHelp' ? { SettingsHelp: () => null } : require(name),
+    require: name => name.endsWith('.css') ? {} : name === './SettingsHelp' ? { SettingsHelp: () => null } : name === 'react-dom' ? { createPortal: children => children } : require(name),
   })
   let view
-  await act(async () => { view = Renderer.create(React.createElement(module.exports.CloudSyncSettings, { cloud })) })
+  await act(async () => { view = Renderer.create(React.createElement(module.exports[component], { cloud })) })
   const button = label => view.root.findAllByType('button').find(node => nodeText(node) === label)
   return {
-    view, calls, button,
+    view, calls, button, root,
     input: id => view.root.findByProps({ id }),
     click: async label => { await act(async () => button(label).props.onClick()) },
     close: async () => { await act(async () => view.unmount()) },
@@ -44,6 +48,7 @@ async function settingsView(overrides = {}) {
 test('login methods are direct buttons with email first and preserve each contact when switching', async () => {
   const app = await settingsView()
   try {
+    assert.equal(app.button('清除本地数据'), undefined)
     assert.equal(app.view.root.findAllByType('select').length, 0)
     const group = app.view.root.findByProps({ role: 'group' })
     assert.deepEqual(group.findAllByType('button').map(nodeText), ['邮箱登录', '手机登录'])
@@ -86,7 +91,39 @@ test('first-sync selection is neutral, aligned with controls, and confirms uploa
   } finally { await app.close() }
 })
 
-async function setup({ credential = null, stored = null } = {}) {
+test('local reset is available without login and requires a warning and a second confirmation', async () => {
+  const app = await settingsView({}, 'LocalDataResetSettings')
+  try {
+    await app.click('清除本地数据')
+    assert.equal(app.root.inert, true)
+    const dialog = app.view.root.findByProps({ role: 'alertdialog' })
+    assert.match(nodeText(dialog), /驱动和系统授权保留/)
+    assert.match(nodeText(dialog), /建议先导出备份/)
+    assert.equal(app.button('确认清除'), undefined)
+    await app.click('取消')
+    assert.equal(app.root.inert, false)
+    assert.deepEqual(app.calls, [])
+    await app.click('清除本地数据')
+    await app.click('继续')
+    assert.match(nodeText(app.view.toJSON()), /无法撤销/)
+    assert.deepEqual(app.calls, [])
+    await app.click('返回')
+    assert.equal(app.button('确认清除'), undefined)
+    await app.click('继续')
+    await app.click('确认清除')
+    assert.deepEqual(app.calls, [['clearLocalData']])
+  } finally { await app.close() }
+})
+
+test('local reset is disabled while configuration is loading or cloud work is running', async () => {
+  for (const overrides of [{ busy: true }, { ready: false }]) {
+    const app = await settingsView(overrides, 'LocalDataResetSettings')
+    try { assert.equal(app.button('清除本地数据').props.disabled, true) }
+    finally { await app.close() }
+  }
+})
+
+async function setup({ credential = null, stored = null, clearError = null } = {}) {
   const logs = []
   const previousWindow = globalThis.window
   globalThis.window = { __TAURI_INTERNALS__: { invoke: async (command, args) => {
@@ -103,6 +140,8 @@ async function setup({ credential = null, stored = null } = {}) {
   let snapshot = { documents: [], settings: { enabled: true } }
   let controller
   let restores = 0
+  let clears = 0
+  let clearPreferences
   const schedule = callback => { timers.set(++timerId, callback); return timerId }
   const source = ts.transpileModule(readFileSync('src/cloud/useCloudSync.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
   const module = { exports: {} }
@@ -137,13 +176,17 @@ async function setup({ credential = null, stored = null } = {}) {
     },
   })
   function App() {
-    controller = module.exports.useCloudSync({ native: true, ready: true, snapshot: () => snapshot, restore: async () => { restores++ } })
+    controller = module.exports.useCloudSync({ native: true, ready: true, snapshot: () => snapshot, restore: async () => { restores++ }, clearLocalData: async () => {
+      clears++
+      clearPreferences = JSON.parse(values.get('axonkey.relay.v1'))
+      if (clearError) throw new Error(clearError)
+    } })
     return React.createElement('local-editor', { enabled: snapshot.settings.enabled })
   }
   let view
   await act(async () => { view = Renderer.create(React.createElement(App)) })
   return {
-    get cloud() { return controller }, requests, values, logs, get restores() { return restores },
+    get cloud() { return controller }, requests, values, logs, get restores() { return restores }, get clears() { return clears }, get clearPreferences() { return clearPreferences },
     offline: value => { offline = value },
     edit: value => { snapshot = { documents: [], settings: { enabled: value } } },
     remoteEdit: value => { settings = { schema_version: 1, revision: (settings?.revision ?? 0) + 1, settings: { enabled: value } } },
@@ -239,6 +282,43 @@ test('cloud conflict pauses automatic upload and restore requires a separate con
     await app.call(cloud => cloud.confirmRestore())
     assert.equal(app.restores, 1)
     assert.equal(app.cloud.autoSync, false)
+  } finally { await app.close() }
+})
+
+test('clearing local data pauses sync and forgets revisions before deletion, preserving login and cloud data', async () => {
+  const app = await setup()
+  try {
+    await app.call(c => c.login('email', 'user@example.invalid', '123456'))
+    await app.call(c => c.setAutoSync(true))
+    await app.tick()
+    assert.ok(app.cloud.lastSync)
+    const before = app.requests.length
+    await app.call(c => c.clearLocalData())
+    assert.equal(app.clears, 1)
+    assert.equal(app.clearPreferences.autoSync, false)
+    assert.deepEqual(app.clearPreferences.accounts, {})
+    assert.equal(app.cloud.user.id, 'user')
+    assert.equal(app.cloud.autoSync, false)
+    assert.equal(app.cloud.lastSync, undefined)
+    app.edit(false)
+    await app.tick()
+    assert.equal(app.requests.length, before)
+  } finally { await app.close() }
+})
+
+test('local reset failures remain visible and keep automatic sync paused for a retry', async () => {
+  const app = await setup({ clearError: '设备配置无法写入' })
+  try {
+    await app.call(c => c.login('email', 'user@example.invalid', '123456'))
+    await app.call(c => c.setAutoSync(true))
+    await app.call(c => c.clearLocalData())
+    assert.match(app.cloud.error, /设备配置无法写入/)
+    assert.equal(app.cloud.autoSync, false)
+    assert.equal(app.cloud.busy, false)
+    assert.equal(app.cloud.user.id, 'user')
+    assert.equal(app.requests.length, 1)
+    await app.call(c => c.clearLocalData())
+    assert.equal(app.clears, 2)
   } finally { await app.close() }
 })
 

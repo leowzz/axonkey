@@ -1,35 +1,44 @@
-import { normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import { createDefaultBehaviorMap, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import type { TriggerBehaviors } from '../behaviorModel.ts'
 import { parseDataBackupDocument } from '../dataBackup.ts'
 import type { BackupDocument } from '../dataBackup.ts'
 import { supportPackages } from '../devices/integration/model.ts'
 import type { DeviceInstance } from '../devices/integration/model.ts'
-import type { CloudSnapshot, CloudState } from './cloudSync.ts'
+import { fingerprint } from './cloudSync.ts'
+import type { CloudSnapshot, CloudState, SyncMemory } from './cloudSync.ts'
 
 const legacyKeys = { rc003: 'legacy-rc003', cmiotA15: 'legacy-cmiotA15', mouse: 'system-mouse' } as const
 
-export function createCloudSnapshot(backup: BackupDocument, instances: DeviceInstance[]): CloudSnapshot {
+export function createCloudSnapshot(
+  backup: BackupDocument,
+  instances: DeviceInstance[],
+  memory: SyncMemory = {},
+): CloudSnapshot {
   const { cmiotA15RecordingMode: _mode, ...settings } = backup.settings
   return {
     documents: [
       ...instances.map(instance => ({ key: instance.id, kind: instance.kind, config: portableInstance(instance) })),
-      ...(['rc003', 'cmiotA15', 'mouse'] as const).map(kind => ({
-        key: legacyKeys[kind],
-        kind,
-        config: {
-          name: kind === 'mouse' ? '系统鼠标' : `${kind} 旧版映射`,
-          enabled: kind === 'mouse' ? backup.settings.mouseEnabled : backup.settings.enabled,
-          activeProfileId: backup.activeProfileIds[kind],
-          profiles: backup.profiles
-            .filter(profile => profile.deviceId === kind)
-            .map(profile => ({
-              id: profile.id,
-              name: profile.name,
-              behaviors: profile.keys,
-            })),
-          ...(kind === 'rc003' ? { audioGainDb: backup.audio.gain } : {}),
-          ...(kind === 'cmiotA15' ? { cmiotA15RecordingMode: backup.settings.cmiotA15RecordingMode } : {}),
-        },
-      })),
+      // Keep previously synced documents so clearing a mapping still reaches the cloud.
+      ...(['rc003', 'cmiotA15', 'mouse'] as const)
+        .filter(kind => memory[`${kind}/${legacyKeys[kind]}`] || hasLegacyData(backup, kind))
+        .map(kind => ({
+          key: legacyKeys[kind],
+          kind,
+          config: {
+            name: kind === 'mouse' ? '系统鼠标' : `${kind} 旧版映射`,
+            enabled: kind === 'mouse' ? backup.settings.mouseEnabled : backup.settings.enabled,
+            activeProfileId: backup.activeProfileIds[kind],
+            profiles: backup.profiles
+              .filter(profile => profile.deviceId === kind)
+              .map(profile => ({
+                id: profile.id,
+                name: profile.name,
+                behaviors: profile.keys,
+              })),
+            ...(kind === 'rc003' ? { audioGainDb: backup.audio.gain } : {}),
+            ...(kind === 'cmiotA15' ? { cmiotA15RecordingMode: backup.settings.cmiotA15RecordingMode } : {}),
+          },
+        })),
     ],
     settings: {
       ...settings,
@@ -38,6 +47,28 @@ export function createCloudSnapshot(backup: BackupDocument, instances: DeviceIns
       savedBehaviors: backup.savedBehaviors,
     },
   }
+}
+
+function hasLegacyData(backup: BackupDocument, kind: keyof typeof legacyKeys): boolean {
+  const profiles = backup.profiles.filter(profile => profile.deviceId === kind)
+  if (!profiles.some(profile => hasBehaviors(profile.keys))) return false
+  const defaults: Record<string, TriggerBehaviors> = createDefaultBehaviorMap()
+  return (
+    profiles.length > 1 ||
+    profiles.some(
+      profile =>
+        profile.id !== `${kind}:default` ||
+        profile.name !== '默认配置' ||
+        Object.entries(profile.keys).some(
+          ([input, behaviors]) =>
+            fingerprint(behaviors) !== fingerprint(defaults[kind === 'mouse' ? `mouse.${input}` : input]),
+        ),
+    )
+  )
+}
+
+function hasBehaviors(behaviors: Record<string, TriggerBehaviors>): boolean {
+  return Object.values(behaviors).some(triggers => triggerTypes.some(trigger => triggers[trigger].length > 0))
 }
 
 function portableInstance(instance: DeviceInstance): Record<string, unknown> {

@@ -4,6 +4,8 @@ import { RelayClient, RelayError } from '../src/cloud/relayClient.ts'
 import { uploadCloud, readCloud, fingerprint, SyncConflict } from '../src/cloud/cloudSync.ts'
 import { registerHooks } from 'node:module'
 import { createDataBackup } from '../src/dataBackup.ts'
+import { createBehavior, createDefaultBehaviorMap, createEmptyBehaviorMap } from '../src/behaviorModel.ts'
+import { createDefaultDeviceProfiles } from '../src/deviceProfiles.ts'
 import { sampleData } from './fixtures/data-backup.mjs'
 
 const assets = registerHooks({ load(url, context, next) {
@@ -196,6 +198,53 @@ test('missing model and newer schemas stop upload without partial writes', async
   await assert.rejects(uploadCloud(server.client, snapshot(), {}, () => {}), /型号/)
   assert.equal(server.writes.length, 0)
   await assert.rejects(readCloud(cloudServer({ documents: [{ ...remote(), schema_version: 2 }] }).client), /版本较新/)
+})
+
+function initialBackup(behaviors = createDefaultBehaviorMap()) {
+  return createDataBackup({ ...sampleData(), ...createDefaultDeviceProfiles(behaviors), behaviors }, '1.8.5')
+}
+
+test('new users and empty profiles upload preferences without creating legacy device documents', async () => {
+  for (const behaviors of [createDefaultBehaviorMap(), createEmptyBehaviorMap()]) {
+    const data = createCloudSnapshot(initialBackup(behaviors), [])
+    assert.deepEqual(data.documents, [])
+    const server = cloudServer({ models: [] })
+    await uploadCloud(server.client, data, {}, () => {})
+    assert.deepEqual(server.writes.map(write => write.path), ['/app-settings/axonkey'])
+    assert.equal(server.writes[0].body.settings.savedBehaviors.length, 1)
+  }
+})
+
+test('only configured legacy devices upload, including disabled and inactive mappings', async () => {
+  const backup = initialBackup()
+  const mouse = backup.profiles.find(profile => profile.deviceId === 'mouse')
+  backup.profiles.push({ ...structuredClone(mouse), id: 'mouse:custom', name: '自定义' })
+  backup.profiles.at(-1).keys['top.up'].longPress = [createBehavior({ type: 'disabled', id: 'disable', enabled: false })]
+  backup.settings.mouseEnabled = false
+  const data = createCloudSnapshot(backup, [])
+  assert.deepEqual(data.documents.map(doc => doc.key), ['system-mouse'])
+  assert.equal(data.documents[0].config.enabled, false)
+  assert.equal(data.documents[0].config.profiles.length, 2)
+  assert.equal(data.documents[0].config.activeProfileId, mouse.id)
+  const server = cloudServer({ models: [{ id: 'mouse', code: 'mouse' }] })
+  await uploadCloud(server.client, data, {}, () => {})
+  assert.equal(server.writes[0].body.instance_key, 'system-mouse')
+})
+
+test('clearing a previously synced mapping updates its cloud document without creating empty devices', async () => {
+  const behaviors = createEmptyBehaviorMap()
+  behaviors.power.click = [createBehavior({ type: 'key', key: 'Enter', id: 'custom' })]
+  const configured = createCloudSnapshot(initialBackup(behaviors), [])
+  const document = { ...remote(), instance_key: 'legacy-rc003', config: configured.documents[0].config }
+  const memory = { 'rc003/legacy-rc003': { revision: 2 } }
+  const data = createCloudSnapshot(initialBackup(createEmptyBehaviorMap()), [], memory)
+  assert.deepEqual(data.documents.map(doc => doc.key), ['legacy-rc003'])
+  assert.deepEqual(createCloudSnapshot(initialBackup(), [], memory).documents.map(doc => doc.key), ['legacy-rc003'])
+  const server = cloudServer({ documents: [document] })
+  await uploadCloud(server.client, data, memory, () => {})
+  assert.equal(server.writes[0].method, 'PUT')
+  assert.equal(server.writes[0].path, '/device-configs/remote')
+  assert.ok(Object.values(server.writes[0].body.config.profiles[0].behaviors).every(triggers => Object.values(triggers).every(actions => actions.length === 0)))
 })
 
 test('portable round trip includes mouse and library but excludes local bindings and credentials', () => {

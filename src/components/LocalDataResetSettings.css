@@ -1,0 +1,16 @@
+.local-data-reset {
+  margin-top: 28px;
+}
+.local-data-reset-dialog .behavior-dialog-body {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.local-data-reset-dialog .behavior-dialog-body p {
+  margin: 0 0 12px;
+}
+.local-data-reset-dialog .behavior-dialog-body p:last-child {
+  margin-bottom: 0;
+}
+.local-data-reset-error {
+  color: #b42318;
+}

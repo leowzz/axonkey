@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Link2Off, Plus, RefreshCw, X } from 'lucide-react'
+import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
@@ -8,6 +9,7 @@ import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
   instanceStatusLabel,
+  instanceState,
   isMobileRemoteDevice,
   isMobileRemoteKind,
   mobileRemoteKindForSoftware,
@@ -117,6 +119,7 @@ export function DeviceHub(props: Props) {
                     title={item.name}
                     subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
                     status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
+                    state={native ? instanceState(item, snapshot) : undefined}
                     unbound={!item.binding}
                     batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
                     profile={item.profiles.find(p => p.id === item.activeProfileId)?.name}
@@ -355,6 +358,20 @@ function DiscoveryHelpDialog({
   )
 }
 
+const deviceStatusAppearance: Record<
+  string,
+  { icon: LucideIcon; tone: 'ready' | 'muted' | 'connecting' | 'warning' | 'error' }
+> = {
+  exclusive: { icon: Check, tone: 'ready' },
+  paused: { icon: Pause, tone: 'muted' },
+  disconnected: { icon: Link2Off, tone: 'muted' },
+  needsRebind: { icon: Link2Off, tone: 'warning' },
+  opening: { icon: RefreshCw, tone: 'connecting' },
+  unbound: { icon: Link2Off, tone: 'warning' },
+  unsupported: { icon: Clock3, tone: 'warning' },
+  error: { icon: TriangleAlert, tone: 'error' },
+}
+
 function DeviceCard({
   kind,
   discovered = false,
@@ -362,6 +379,7 @@ function DeviceCard({
   title,
   subtitle,
   status,
+  state,
   profile,
   batteryLevel = null,
   onClick,
@@ -372,10 +390,13 @@ function DeviceCard({
   title: string
   subtitle: string
   status: string
+  state?: string
   profile?: string
   batteryLevel?: number | null
   onClick: () => void
 }) {
+  const appearance = state ? deviceStatusAppearance[state] : undefined
+  const StatusIcon = appearance?.icon
   return (
     <button
       className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`}
@@ -400,8 +421,12 @@ function DeviceCard({
               未绑定
             </span>
           ) : (
-            <span className="my-devices-status">
-              <i className="my-devices-status-dot" />
+            <span className="my-devices-status" data-tone={appearance?.tone}>
+              {StatusIcon ? (
+                <StatusIcon size={12} aria-hidden="true" />
+              ) : (
+                <i className="my-devices-status-dot" aria-hidden="true" />
+              )}
               {status}
             </span>
           )}
