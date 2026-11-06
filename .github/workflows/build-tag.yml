@@ -93,11 +93,16 @@ jobs:
           Copy-Item -LiteralPath '.env.example' -Destination '.env'
           node ./scripts/repo-version.mjs check $env:TAG_NAME
 
-      - name: Select stable Rust toolchain
+      - name: Set up pinned Rust toolchain
         shell: pwsh
-        run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+        run: rustup toolchain install --no-self-update
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}-${{ runner.arch }}
+          save-if: 'false'
 
       - name: Install dependencies
         run: npm ci
@@ -224,12 +229,18 @@ jobs:
           cp .env.example .env
           node ./scripts/repo-version.mjs check "$TAG_NAME"
 
-      - name: Select stable Rust toolchain
+      - name: Set up pinned Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal --no-self-update
-          rustup default stable
+          rustup toolchain install --no-self-update
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}-${{ runner.arch }}
+          save-if: 'false'
 
       - name: Install dependencies
         run: npm ci

@@ -1,0 +1,80 @@
+name: Warm release Rust cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/warm-rust-cache.yml'
+      - '.github/workflows/build-tag.yml'
+      - 'rust-toolchain.toml'
+      - '.cargo/**'
+      - 'src-tauri/.cargo/**'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/Cargo.lock'
+      - '.node-version'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: warm-rust-cache-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  warm-cache:
+    if: github.ref == 'refs/heads/main'
+    name: Warm Rust cache (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            args: ''
+          - os: macos-14
+            args: --target universal-apple-darwin
+    defaults:
+      run:
+        shell: bash
+    env:
+      TENCENT_RUM_ID: ${{ vars.TENCENT_RUM_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Set up pinned Rust toolchain
+        run: rustup toolchain install --no-self-update
+
+      - name: Install macOS Rust targets
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      # Tags can restore main's cache, but cannot restore another tag's cache.
+      - name: Cache Rust build dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          shared-key: release-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Prepare build environment
+        run: cp .env.example .env
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS audio resources
+        if: runner.os == 'macOS'
+        run: ./scripts/build-macos-audio-package.sh
+
+      - name: Compile release without packaging
+        run: npm run tauri build -- --no-bundle --config src-tauri/tauri.updater.conf.json ${{ matrix.args }}
