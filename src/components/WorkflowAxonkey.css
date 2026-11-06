@@ -286,6 +286,30 @@
   padding: 0;
   color: #40576b;
 }
+.behavior-dialog.workflow-share-login {
+  width: min(320px, calc(100vw - 48px));
+}
+.workflow-share-login .behavior-dialog-head {
+  padding: 20px 20px 18px;
+}
+.workflow-share-login .behavior-dialog-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.workflow-share-login .behavior-dialog-actions {
+  min-height: 0;
+  padding: 0 20px 20px;
+}
+.workflow-share-login .behavior-dialog-buttons button {
+  justify-content: center;
+  min-width: 72px;
+  height: 32px;
+  padding: 0 14px;
+}
+.workflow-share-login button:focus-visible {
+  outline: 2px solid #2878d4;
+  outline-offset: 2px;
+}
 .workflow-library-dialog::backdrop {
   background: rgb(29 45 63 / 35%);
 }

@@ -19,6 +19,7 @@ export function BehaviorShareDialog({
 }) {
   const account = useContext(BehaviorLibraryContext)!
   const dialog = useRef<HTMLDialogElement>(null)
+  const loginConfirmRef = useRef<HTMLButtonElement>(null)
   const titleId = useId()
   const [item, setItem] = useState<SharedSequence | null>(null)
   const [loading, setLoading] = useState(true)
@@ -29,6 +30,7 @@ export function BehaviorShareDialog({
   const [attempt, retry] = useState(0)
   useEffect(() => {
     dialog.current?.showModal()
+    loginConfirmRef.current?.focus()
   }, [])
   useEffect(() => {
     let active = true
@@ -87,7 +89,7 @@ export function BehaviorShareDialog({
   return (
     <dialog
       ref={dialog}
-      className="behavior-dialog workflow-library-dialog"
+      className={`behavior-dialog workflow-library-dialog${account.userId ? '' : ' workflow-share-login'}`}
       aria-labelledby={titleId}
       onCancel={event => {
         if (busy) event.preventDefault()
@@ -97,6 +99,13 @@ export function BehaviorShareDialog({
       <form
         onSubmit={event => {
           event.preventDefault()
+          if (!account.userId) {
+            if (account.accountReady) {
+              onClose()
+              account.onLogin()
+            }
+            return
+          }
           if (!busy && loaded && !pending)
             void run(() =>
               submitSequence(
@@ -110,67 +119,71 @@ export function BehaviorShareDialog({
         }}
       >
         <header className="behavior-dialog-head">
-          <h2 id={titleId}>分享「{sequence.name}」</h2>
-          <button type="button" className="dialog-close" aria-label="关闭分享" disabled={busy} onClick={onClose}>
-            <X size={17} />
-          </button>
+          <h2 id={titleId}>{account.userId ? `分享「${sequence.name}」` : '登录后分享'}</h2>
+          {account.userId && (
+            <button type="button" className="dialog-close" aria-label="关闭分享" disabled={busy} onClick={onClose}>
+              <X size={17} />
+            </button>
+          )}
         </header>
-        <div className="behavior-dialog-body">
-          <p className="workflow-library-description">
-            审核通过后公开到社区。请确认下列内容不含私密文本或个人路径。适用于
-            {platform === 'macos' ? ' macOS' : ' Windows'}。
-          </p>
-          <ol className="workflow-library-steps">
-            {preview.map((text, index) => (
-              <li key={index}>{text}</li>
-            ))}
-          </ol>
-          {status && (
-            <p role="status" className="workflow-share-status">
-              {status}
+        {account.userId && (
+          <div className="behavior-dialog-body">
+            <p className="workflow-library-description">
+              审核通过后公开到社区。请确认下列内容不含私密文本或个人路径。适用于
+              {platform === 'macos' ? ' macOS' : ' Windows'}。
             </p>
-          )}
-          {(item?.block_reason || item?.latest_version.review_note) && (
-            <p className="workflow-share-status">{item.block_reason || item.latest_version.review_note}</p>
-          )}
-          {!pending && (
-            <details className="workflow-share-note" open>
-              <summary>备注（可选）</summary>
-              <textarea
-                aria-label="分享备注"
-                maxLength={1000}
-                value={note}
-                disabled={busy}
-                onChange={event => setNote(event.target.value)}
-              />
-            </details>
-          )}
-          {loading && <p role="status">正在读取分享状态…</p>}
-          {error && (
-            <p className="behavior-launch-error" role="alert">
-              {error}{' '}
-              <button
-                type="button"
-                className="dialog-secondary"
-                disabled={busy}
-                onClick={() => retry(value => value + 1)}
-              >
-                重新读取
-              </button>
-            </p>
-          )}
-        </div>
+            <ol className="workflow-library-steps">
+              {preview.map((text, index) => (
+                <li key={index}>{text}</li>
+              ))}
+            </ol>
+            {status && (
+              <p role="status" className="workflow-share-status">
+                {status}
+              </p>
+            )}
+            {(item?.block_reason || item?.latest_version.review_note) && (
+              <p className="workflow-share-status">{item.block_reason || item.latest_version.review_note}</p>
+            )}
+            {!pending && (
+              <details className="workflow-share-note" open>
+                <summary>备注（可选）</summary>
+                <textarea
+                  aria-label="分享备注"
+                  maxLength={1000}
+                  value={note}
+                  disabled={busy}
+                  onChange={event => setNote(event.target.value)}
+                />
+              </details>
+            )}
+            {loading && <p role="status">正在读取分享状态…</p>}
+            {error && (
+              <p className="behavior-launch-error" role="alert">
+                {error}{' '}
+                <button
+                  type="button"
+                  className="dialog-secondary"
+                  disabled={busy}
+                  onClick={() => retry(value => value + 1)}
+                >
+                  重新读取
+                </button>
+              </p>
+            )}
+          </div>
+        )}
         <footer className="behavior-dialog-actions">
           <div className="behavior-dialog-buttons">
             {!account.userId ? (
-              <button
-                type="button"
-                className="button primary"
-                disabled={!account.accountReady}
-                onClick={account.onLogin}
-              >
-                登录后分享
-              </button>
+              <>
+                <button type="button" className="dialog-secondary" onClick={onClose}>
+                  取消
+                </button>
+                <button type="submit" className="button primary" ref={loginConfirmRef} disabled={!account.accountReady}>
+                  确定
+                </button>
+              </>
             ) : (
               <>
                 {pending && (
