@@ -144,6 +144,9 @@ pub(crate) async fn relay_request(
 }
 
 fn validate_request(method: &str, path: &str) -> Result<(), String> {
+    if valid_library_request(method, path) {
+        return Ok(());
+    }
     let resource_id = path
         .strip_prefix("/v2/device-configs/")
         .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-'));
@@ -196,9 +199,101 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
     }
 }
 
+fn valid_library_request(method: &str, path: &str) -> bool {
+    let (route, _) = path.split_once('?').unwrap_or((path, ""));
+    let Some(tail) = route.strip_prefix("/v2/behavior-library") else {
+        return false;
+    };
+    let Ok(url) = reqwest::Url::parse(&format!("https://relay.wleo.cn{path}")) else {
+        return false;
+    };
+    if url.fragment().is_some() {
+        return false;
+    }
+    let pairs: Vec<_> = url.query_pairs().collect();
+    let value = |key: &str| {
+        pairs
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_ref())
+    };
+    let only = |keys: &[&str]| {
+        pairs.iter().all(|(key, _)| keys.contains(&key.as_ref()))
+            && pairs.iter().enumerate().all(|(index, (key, _))| {
+                !pairs[..index].iter().any(|(previous, _)| previous == key)
+            })
+    };
+    let id =
+        |part: &str| !part.is_empty() && part.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-');
+    match (method, tail) {
+        ("GET", "") => {
+            only(&["app_id", "platform", "view", "limit", "q", "cursor"])
+                && value("app_id") == Some("axonkey")
+                && matches!(value("platform"), Some("windows" | "macos"))
+                && matches!(value("view"), Some("recommended" | "community"))
+        }
+        ("GET", "/mine") => {
+            only(&["app_id", "limit", "offset"]) && value("app_id") == Some("axonkey")
+        }
+        ("POST", "/submissions") => pairs.is_empty(),
+        ("POST", _) => {
+            let parts: Vec<_> = tail.trim_start_matches('/').split('/').collect();
+            match parts.as_slice() {
+                [item, "additions"] => id(item) && pairs.is_empty(),
+                ["mine", item, "withdraw" | "unpublish"] => {
+                    id(item) && only(&["app_id"]) && value("app_id") == Some("axonkey")
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn behavior_library_requests_use_the_app_routes_only() {
+        for (method, path) in [
+            ("GET", "/v2/behavior-library?app_id=axonkey&platform=macos&view=recommended&limit=25"),
+            ("GET", "/v2/behavior-library?app_id=axonkey&platform=windows&view=community&q=%E9%9F%B3%E9%87%8F&cursor=abc_123"),
+            ("GET", "/v2/behavior-library/mine?app_id=axonkey&limit=100&offset=0"),
+            ("POST", "/v2/behavior-library/submissions"),
+            ("POST", "/v2/behavior-library/019a-abcd/additions"),
+            ("POST", "/v2/behavior-library/mine/019a-abcd/withdraw?app_id=axonkey"),
+            ("POST", "/v2/behavior-library/mine/019a-abcd/unpublish?app_id=axonkey"),
+        ] {
+            assert!(validate_request(method, path).is_ok(), "{method} {path}");
+        }
+        for (method, path) in [
+            (
+                "GET",
+                "/v2/behavior-library?app_id=other&platform=macos&view=recommended",
+            ),
+            (
+                "GET",
+                "/v2/behavior-library?app_id=axonkey&app_id=other&platform=macos&view=recommended",
+            ),
+            (
+                "GET",
+                "/v2/behavior-library?app_id=axonkey&platform=macos&view=community#fragment",
+            ),
+            (
+                "POST",
+                "/v2/behavior-library/mine/../withdraw?app_id=axonkey",
+            ),
+            (
+                "POST",
+                "/v2/behavior-library/mine/019a-abcd/review?app_id=axonkey",
+            ),
+            ("GET", "/console/behavior-library/items?app_id=axonkey"),
+            ("DELETE", "/v2/behavior-library/019a-abcd"),
+        ] {
+            assert!(validate_request(method, path).is_err(), "{method} {path}");
+        }
+    }
 
     #[test]
     fn console_launch_accepts_only_url_safe_tickets() {
