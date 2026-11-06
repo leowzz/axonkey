@@ -134,6 +134,8 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
             path,
             "/auth/code"
                 | "/auth/verify"
+                | "/auth/v2/code"
+                | "/auth/v2/verify"
                 | "/auth/refresh"
                 | "/auth/logout"
                 | "/auth/console-ticket"
@@ -141,7 +143,8 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
         ),
         "GET" => matches!(
             path,
-            "/device-models?app_id=axonkey"
+            "/auth/captcha"
+                | "/device-models?app_id=axonkey"
                 | "/device-configs?app_id=axonkey"
                 | "/app-settings/axonkey"
         ),
@@ -205,6 +208,9 @@ mod tests {
 
     #[test]
     fn only_supports_app_auth_and_config_routes() {
+        assert!(validate_request("GET", "/auth/captcha").is_ok());
+        assert!(validate_request("POST", "/auth/v2/code").is_ok());
+        assert!(validate_request("POST", "/auth/v2/verify").is_ok());
         assert!(validate_request("POST", "/auth/refresh").is_ok());
         assert!(validate_request("PUT", "/device-configs/019a-abcd").is_ok());
         for path in [

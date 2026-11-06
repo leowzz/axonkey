@@ -1,4 +1,5 @@
 import { logCloud } from './cloudLogging.ts'
+import type { CaptchaConfig } from './captcha.ts'
 
 export type RelaySession = {
   access_token: string
@@ -34,14 +35,23 @@ export class RelayClient {
     this.save = save
   }
 
-  async sendCode(channel: 'email' | 'sms', target: string) {
-    return this.request<{ retry_after: number }>('POST', '/auth/code', loginInput(channel, target), false)
+  async captcha() {
+    return this.request<CaptchaConfig>('GET', '/auth/captcha', undefined, false)
+  }
+
+  async sendCode(channel: 'email' | 'sms', target: string, captchaToken: string) {
+    return this.request<{ retry_after: number }>(
+      'POST',
+      '/auth/v2/code',
+      { ...loginInput(channel, target), captcha_token: captchaToken },
+      false,
+    )
   }
 
   async login(channel: 'email' | 'sms', target: string, code: string) {
     const session = await this.request<unknown>(
       'POST',
-      '/auth/verify',
+      '/auth/v2/verify',
       {
         ...loginInput(channel, target),
         code,

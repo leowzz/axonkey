@@ -5,6 +5,7 @@ import type { RelayResponse, RelaySession, RelayTransport } from './relayClient'
 import { fingerprint, readCloud, SyncConflict, uploadCloud } from './cloudSync'
 import type { CloudSnapshot, CloudState, SyncMemory } from './cloudSync'
 import { logCloud } from './cloudLogging'
+import { solveCaptcha } from './captcha'
 import appPackage from '../../package.json'
 
 const storageKey = 'axonkey.relay.v1'
@@ -259,8 +260,17 @@ export function useCloudSync(options: {
     },
     sendCode: (channel: 'email' | 'sms', target: string, sent: (seconds: number) => void) =>
       run(`auth.send_code.${channel}`, async () => {
-        const result = await client.sendCode(channel, target)
-        sent(result.retry_after)
+        setMessage('正在完成人机验证…')
+        try {
+          const captcha = await client.captcha()
+          if (!captcha.enabled) throw new Error('人机验证暂时不可用，请稍后重试')
+          const token = await solveCaptcha(captcha)
+          setMessage('正在发送验证码…')
+          const result = await client.sendCode(channel, target, token)
+          sent(result.retry_after)
+        } finally {
+          setMessage('')
+        }
       }),
     login: (channel: 'email' | 'sms', target: string, code: string) =>
       run(`auth.login.${channel}`, async () => {

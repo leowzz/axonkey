@@ -103,7 +103,7 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
                     })
                   }
                 >
-                  {cooldown > 0 ? `${cooldown} 秒后重发` : '获取验证码'}
+                  {cloud.busy ? '处理中…' : cooldown > 0 ? `${cooldown} 秒后重发` : '获取验证码'}
                 </button>
               </div>
               <p className="cloud-code-status" role="status">

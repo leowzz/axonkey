@@ -28,9 +28,10 @@ test('login uses the app domain and persists credentials without touching config
     calls.push({ method, path, body })
     return { status: 200, body: path.endsWith('/code') ? { retry_after: 60 } : session() }
   }, null, value => saved.push(value))
-  await client.sendCode('sms', ' 13800000000 ')
+  await client.sendCode('sms', ' 13800000000 ', 'one-time-cap-token')
   await client.login('email', ' user@example.invalid ', '123456')
-  assert.deepEqual(calls.map(call => call.path), ['/auth/code', '/auth/verify'])
+  assert.deepEqual(calls.map(call => call.path), ['/auth/v2/code', '/auth/v2/verify'])
+  assert.equal(calls[0].body.captcha_token, 'one-time-cap-token')
   assert.equal(calls[0].body.phone, '13800000000')
   assert.equal(calls[1].body.email, 'user@example.invalid')
   assert.equal(calls[1].body.app_id, 'axonkey')
@@ -57,6 +58,25 @@ test('refresh persists its retry ID before sending and reuses it after a timeout
   assert.deepEqual(await restarted.request('GET', '/app-settings/axonkey'), { ok: true })
   assert.equal(saved.refresh_token, 'rotated')
   assert.equal(saved.requestId, undefined)
+})
+
+test('new authentication never falls back to an unprotected legacy endpoint', async () => {
+  const calls = []
+  const client = new RelayClient(async (_method, path) => {
+    calls.push(path)
+    return { status: 404, body: { code: 'not_found', detail: 'upgrade required' } }
+  }, null, () => {})
+  await assert.rejects(client.sendCode('email', 'user@example.invalid', 'one-time-cap-token'), RelayError)
+  assert.deepEqual(calls, ['/auth/v2/code'])
+})
+
+test('captcha discovery uses an unauthenticated request without refreshing existing sessions', async () => {
+  const calls = []
+  const config = { enabled: true, api_endpoint: 'https://cap.example/site/', assets_url: 'https://cap.example/assets/' }
+  const client = new RelayClient(async (...args) => { calls.push(args); return { status: 200, body: config } }, { ...session(), expires_at: 0 }, () => {})
+  assert.deepEqual(await client.captcha(), config)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0], ['GET', '/auth/captcha', undefined, undefined])
 })
 
 test('concurrent requests share one refresh, and service outages keep credentials', async () => {

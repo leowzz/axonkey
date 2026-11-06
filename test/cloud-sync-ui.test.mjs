@@ -9,6 +9,7 @@ import Renderer, { act } from 'react-test-renderer'
 import * as clientModule from '../src/cloud/relayClient.ts'
 import * as syncModule from '../src/cloud/cloudSync.ts'
 import * as loggingModule from '../src/cloud/cloudLogging.ts'
+import * as captchaModule from '../src/cloud/captcha.ts'
 
 const require = createRequire(import.meta.url)
 const nodeText = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(nodeText).join('')
@@ -113,6 +114,7 @@ async function setup({ credential = null, stored = null } = {}) {
       if (name === './relayClient') return clientModule
       if (name === './cloudSync') return syncModule
       if (name === './cloudLogging') return loggingModule
+      if (name === './captcha') return captchaModule
       if (name === '../../package.json') return { version: 'test' }
       if (name === '@tauri-apps/api/core') return { invoke: async (_command, request) => {
         if (_command === 'load_relay_session') return credential
@@ -124,7 +126,7 @@ async function setup({ credential = null, stored = null } = {}) {
         if (_command === 'open_external_page') { requests.push({ command: _command, ...request }); return }
         requests.push(request)
         if (offline) throw '无法连接云端，请检查网络后重试；本地功能不受影响'
-        if (request.path === '/auth/verify') return { status: 200, body: { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() / 1000 + 900, user: { id: 'user', email: 'user@example.invalid', phone: null } } }
+        if (request.path === '/auth/v2/verify') return { status: 200, body: { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() / 1000 + 900, user: { id: 'user', email: 'user@example.invalid', phone: null } } }
         if (request.path === '/auth/console-ticket') return { status: 200, body: { ticket: 'A'.repeat(43), expires_in: 60 } }
         if (request.path === '/auth/logout') return { status: 204, body: null }
         if (request.path.startsWith('/device-')) return { status: 200, body: { items: [] } }
@@ -160,7 +162,7 @@ test('local startup and login stay offline until explicit manual sync; manual sy
     assert.equal(app.requests.length, 0)
     await app.call(cloud => cloud.login('email', 'user@example.invalid', '123456'))
     await app.tick()
-    assert.deepEqual(app.requests.map(request => request.path), ['/auth/verify'])
+    assert.deepEqual(app.requests.map(request => request.path), ['/auth/v2/verify'])
     assert.equal(app.cloud.autoSync, false)
     await app.call(cloud => cloud.sync())
     assert.equal(app.requests.filter(request => request.method === 'PUT').length, 1)
