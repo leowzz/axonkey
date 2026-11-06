@@ -711,3 +711,44 @@ test('cancelling shared deletion preserves unfinished drafts in other lanes', as
     assert.equal(app.writes.length, 0)
   } finally { await app.unmount() }
 })
+
+
+test('library add buttons append independent actions to the current trigger and preserve the palette', async () => {
+  const app = await render(empty(), { activeTrigger: 'doubleClick' })
+  try {
+    let toolbox = app.view.root.findByType(MockToolbox)
+    const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === 'delay')
+    const before = copy(action)
+    assert.equal(toolbox.props.addLabel, '添加到双击')
+    await act(async () => { toolbox.props.onAddStep(action); toolbox.props.onAddStep(action) })
+    assert.equal(branches(app.current()).click.length, 0)
+    const inserted = branches(app.current()).doubleClick
+    assert.equal(inserted.length, 2)
+    assert.notEqual(inserted[0].id, inserted[1].id)
+    assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
+    assert.deepEqual(copy(action), before)
+    await app.update({ activeTrigger: 'longPress' })
+    toolbox = app.view.root.findByType(MockToolbox)
+    assert.equal(toolbox.props.addLabel, '添加到长按')
+    await act(async () => toolbox.props.onAddStep(action))
+    assert.equal(app.writes.at(-1)[1].longPress.length, 1)
+    assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
+  } finally { await app.unmount() }
+})
+
+test('library add buttons reuse disabled-lane and profile-switch rules', async () => {
+  const app = await render({ ...empty(), click: [delay(20)] })
+  try {
+    const toolbox = app.view.root.findByType(MockToolbox)
+    const actions = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps)
+    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'switchProfile')))
+    assert.equal(app.requests.length, 1)
+    assert.equal(app.requests[0][1], 'click')
+    assert.equal(branches(app.current()).click.length, 1, 'shared action waits for existing confirmation')
+    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'disabled')))
+    assert.equal(branches(app.current()).click.length, 1)
+    assert.equal(app.writes.at(-1)[1].click[0].type, 'disabled')
+    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'delay')))
+    assert.equal(branches(app.current()).click.length, 1, 'cannot append into a disabled lane')
+  } finally { await app.unmount() }
+})

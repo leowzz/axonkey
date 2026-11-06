@@ -3,13 +3,16 @@ import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
+import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/cloudMetadata'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
+import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
+import { clearLocalData } from '../localDataReset'
 import type { ParsedBackup } from '../dataBackup'
 import type { LegacyBackupImport } from '../backupImport'
 import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
@@ -1020,19 +1023,64 @@ function AppController({
     window.location.reload()
   }
 
+  const cloudMetadataInitialized = useRef(false)
+  useEffect(() => {
+    if (!deviceInstances.loaded || !platformReady) return
+    try {
+      annotateSnapshot(
+        createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances),
+        cloudSource(platform === 'windows' || platform === 'macos' ? platform : 'unknown'),
+        appPackage.version,
+        !cloudMetadataInitialized.current,
+      )
+      cloudMetadataInitialized.current = true
+    } catch (error) {
+      logError('Failed to save cloud profile metadata', error)
+    }
+  }, [deviceInstances.loaded, deviceInstances.snapshot.store, platformReady, profiles, activeProfileIds, behaviors])
+
   const cloud = useCloudSync({
     native: nativeRuntime,
-    ready: deviceInstances.loaded && !deviceInstances.busy && !deviceInstances.snapshot.error,
-    snapshot: () => createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances),
-    restore: async cloudState => {
-      const restored = prepareCloudRestore(cloudState, createBackup(), deviceInstances.snapshot.store.instances)
+    ready: platformReady && deviceInstances.loaded && !deviceInstances.busy && !deviceInstances.snapshot.error,
+    snapshot: memory => {
+      const source = cloudSource(platform === 'windows' || platform === 'macos' ? platform : 'unknown')
+      const localMemory = Object.fromEntries(
+        Object.entries(memory).map(([key, value]) => [key.replace(`/${source.source_installation_id}:`, '/'), value]),
+      )
+      return annotateSnapshot(
+        createCloudSnapshot(createBackup(), deviceInstances.snapshot.store.instances, localMemory),
+        source,
+        appPackage.version,
+      )
+    },
+    clearLocalData: async () => {
+      await clearLocalData(window.localStorage, deviceInstances)
+      // A queued scroll-save may run while the reload navigation starts.
+      uiStateRef.current = getStoredUiState()
+      window.location.reload()
+    },
+    restore: async (cloudState, selection) => {
+      const restored = prepareCloudRestore(
+        cloudState,
+        createBackup(),
+        deviceInstances.snapshot.store.instances,
+        selection,
+      )
+      saveProfileMetadata(restored.metadata)
       let restoredCount = 0
       try {
         for (const instance of restored.instances) {
-          await deviceInstances.put(instance)
+          if (deviceInstances.snapshot.store.instances.some(item => item.id === instance.id))
+            await deviceInstances.update(instance.id, () => instance)
+          else await deviceInstances.put(instance)
           restoredCount++
         }
-        restoreDataBackup(restored.backup)
+        if (
+          selection.settings ||
+          selection.savedBehaviors ||
+          selection.devices.some(item => item.targetId.startsWith('legacy:'))
+        )
+          restoreDataBackup(restored.backup)
       } catch (error) {
         throw new Error(`恢复未完成（已恢复 ${restoredCount} 个设备）：${String(error)}。请重试。`)
       }
@@ -1909,7 +1957,14 @@ function AppController({
             />
           ) : activePage === 'settings' ? (
             <SettingsPage
-              cloudContent={<CloudSyncSettings cloud={cloud} />}
+              cloudContent={
+                <CloudSyncSettings
+                  cloud={cloud}
+                  instances={deviceInstances.snapshot.store.instances}
+                  platform={platform}
+                />
+              }
+              localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
               aboutContent={<AboutPage update={releaseUpdate} />}
               onOpenConfigMigration={onOpenConfigMigration}
               onOpenUserGuide={userGuide.show}

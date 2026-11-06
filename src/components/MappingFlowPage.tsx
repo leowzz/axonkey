@@ -35,7 +35,7 @@ export function MappingFlowPage({
   behaviorEditorProps,
   remoteView,
 }: MappingPageProps) {
-  const [toolboxCategory, setToolboxCategory] = useState('常用行为/常用行为')
+  const [toolboxCategory, setToolboxCategory] = useState('all')
   return (
     <div className="mapping-page mapping-flow-page">
       <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>

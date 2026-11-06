@@ -178,7 +178,26 @@
   color: #8393a7;
   font-size: 10px;
   line-height: 1.6;
+  font-weight: 600;
   white-space: nowrap;
+}
+.my-devices-status svg {
+  flex-shrink: 0;
+}
+.my-devices-status[data-tone='ready'] {
+  color: #27805d;
+}
+.my-devices-status[data-tone='muted'] {
+  color: #748394;
+}
+.my-devices-status[data-tone='connecting'] {
+  color: #397ab5;
+}
+.my-devices-status[data-tone='warning'] {
+  color: #94651e;
+}
+.my-devices-status[data-tone='error'] {
+  color: #b44a42;
 }
 .my-devices-status-dot {
   width: 5px;

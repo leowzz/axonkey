@@ -31,6 +31,7 @@ type SettingsPageProps = {
   onBack: () => void
   aboutContent: ReactNode
   cloudContent?: ReactNode
+  localDataResetContent?: ReactNode
   section: SettingsSection
   onSectionChange: (section: SettingsSection) => void
   enabled: boolean
@@ -78,6 +79,7 @@ export function SettingsPage({
   onBack,
   aboutContent,
   cloudContent,
+  localDataResetContent,
   section,
   onSectionChange,
   enabled,
@@ -207,6 +209,7 @@ export function SettingsPage({
           >
             <h3 className="settings-section-title">数据备份</h3>
             <DataBackupSettings {...backup} nativeRuntime={nativeRuntime} />
+            {localDataResetContent}
             {debugMode && (
               <div className="settings-form-fields">
                 <div className="settings-form-row">

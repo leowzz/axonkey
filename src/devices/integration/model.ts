@@ -136,13 +136,16 @@ export function stateLabel(state?: string): string {
   )
 }
 export function instanceStatusLabel(instance: DeviceInstance, snapshot: DeviceSnapshot): string {
+  return stateLabel(instanceState(instance, snapshot))
+}
+export function instanceState(instance: DeviceInstance, snapshot: DeviceSnapshot): string | undefined {
   const state = snapshot.runtime[instance.id]?.state
   if (
     instance.binding &&
     !snapshot.scanning &&
     !snapshot.discovered.some(device => device.id === instance.binding && device.connected)
   ) {
-    return stateLabel(state === 'needsRebind' ? state : 'disconnected')
+    return state === 'needsRebind' ? state : 'disconnected'
   }
-  return stateLabel(state)
+  return state
 }

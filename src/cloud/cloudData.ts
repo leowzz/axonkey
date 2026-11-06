@@ -1,35 +1,52 @@
-import { normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import { createDefaultBehaviorMap, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import type { TriggerBehaviors } from '../behaviorModel.ts'
 import { parseDataBackupDocument } from '../dataBackup.ts'
 import type { BackupDocument } from '../dataBackup.ts'
 import { supportPackages } from '../devices/integration/model.ts'
 import type { DeviceInstance } from '../devices/integration/model.ts'
-import type { CloudSnapshot, CloudState } from './cloudSync.ts'
+import { profileContent, profileMetadataKey, readProfileMetadata } from './cloudMetadata.ts'
+import type { ProfileMetadata, RestoreSource } from './cloudMetadata.ts'
+import { fingerprint } from './cloudSync.ts'
+import type { CloudSnapshot, CloudState, SyncMemory } from './cloudSync.ts'
 
 const legacyKeys = { rc003: 'legacy-rc003', cmiotA15: 'legacy-cmiotA15', mouse: 'system-mouse' } as const
 
-export function createCloudSnapshot(backup: BackupDocument, instances: DeviceInstance[]): CloudSnapshot {
+export function createCloudSnapshot(
+  backup: BackupDocument,
+  instances: DeviceInstance[],
+  memory: SyncMemory = {},
+): CloudSnapshot {
   const { cmiotA15RecordingMode: _mode, ...settings } = backup.settings
   return {
     documents: [
-      ...instances.map(instance => ({ key: instance.id, kind: instance.kind, config: portableInstance(instance) })),
-      ...(['rc003', 'cmiotA15', 'mouse'] as const).map(kind => ({
-        key: legacyKeys[kind],
-        kind,
-        config: {
-          name: kind === 'mouse' ? '系统鼠标' : `${kind} 旧版映射`,
-          enabled: kind === 'mouse' ? backup.settings.mouseEnabled : backup.settings.enabled,
-          activeProfileId: backup.activeProfileIds[kind],
-          profiles: backup.profiles
-            .filter(profile => profile.deviceId === kind)
-            .map(profile => ({
-              id: profile.id,
-              name: profile.name,
-              behaviors: profile.keys,
-            })),
-          ...(kind === 'rc003' ? { audioGainDb: backup.audio.gain } : {}),
-          ...(kind === 'cmiotA15' ? { cmiotA15RecordingMode: backup.settings.cmiotA15RecordingMode } : {}),
-        },
-      })),
+      ...instances
+        .filter(
+          instance =>
+            memory[`${instance.kind}/${instance.id}`] ||
+            instance.profiles.some(profile => hasBehaviors(profile.behaviors)),
+        )
+        .map(instance => ({ key: instance.id, kind: instance.kind, config: portableInstance(instance) })),
+      // Keep previously synced documents so clearing a mapping still reaches the cloud.
+      ...(['rc003', 'cmiotA15', 'mouse'] as const)
+        .filter(kind => memory[`${kind}/${legacyKeys[kind]}`] || hasLegacyData(backup, kind))
+        .map(kind => ({
+          key: legacyKeys[kind],
+          kind,
+          config: {
+            name: kind === 'mouse' ? '系统鼠标' : `${kind} 旧版映射`,
+            enabled: kind === 'mouse' ? backup.settings.mouseEnabled : backup.settings.enabled,
+            activeProfileId: backup.activeProfileIds[kind],
+            profiles: backup.profiles
+              .filter(profile => profile.deviceId === kind)
+              .map(profile => ({
+                id: profile.id,
+                name: profile.name,
+                behaviors: profile.keys,
+              })),
+            ...(kind === 'rc003' ? { audioGainDb: backup.audio.gain } : {}),
+            ...(kind === 'cmiotA15' ? { cmiotA15RecordingMode: backup.settings.cmiotA15RecordingMode } : {}),
+          },
+        })),
     ],
     settings: {
       ...settings,
@@ -38,6 +55,28 @@ export function createCloudSnapshot(backup: BackupDocument, instances: DeviceIns
       savedBehaviors: backup.savedBehaviors,
     },
   }
+}
+
+function hasLegacyData(backup: BackupDocument, kind: keyof typeof legacyKeys): boolean {
+  const profiles = backup.profiles.filter(profile => profile.deviceId === kind)
+  if (!profiles.some(profile => hasBehaviors(profile.keys))) return false
+  const defaults: Record<string, TriggerBehaviors> = createDefaultBehaviorMap()
+  return (
+    profiles.length > 1 ||
+    profiles.some(
+      profile =>
+        profile.id !== `${kind}:default` ||
+        profile.name !== '默认配置' ||
+        Object.entries(profile.keys).some(
+          ([input, behaviors]) =>
+            fingerprint(behaviors) !== fingerprint(defaults[kind === 'mouse' ? `mouse.${input}` : input]),
+        ),
+    )
+  )
+}
+
+function hasBehaviors(behaviors: Record<string, TriggerBehaviors>): boolean {
+  return Object.values(behaviors).some(triggers => triggerTypes.some(trigger => triggers[trigger].length > 0))
 }
 
 function portableInstance(instance: DeviceInstance): Record<string, unknown> {
@@ -51,57 +90,119 @@ function portableInstance(instance: DeviceInstance): Record<string, unknown> {
   }
 }
 
-export function prepareCloudRestore(cloud: CloudState, local: BackupDocument, instances: DeviceInstance[]) {
-  if (!cloud.documents.length && !cloud.settings) throw new Error('云端还没有配置')
+export type RestoreSelection = {
+  devices: { documentId: string; profileIds: string[]; targetId: string }[]
+  settings: boolean
+  savedBehaviors: boolean
+}
+export type RestoreMetadata = Record<string, ProfileMetadata>
+
+export function prepareCloudRestore(
+  cloud: CloudState,
+  local: BackupDocument,
+  instances: DeviceInstance[],
+  selection: RestoreSelection,
+) {
   const backup = structuredClone(local)
-  const restoredInstances: DeviceInstance[] = []
-  for (const document of cloud.documents) {
+  const targets = new Map<string, DeviceInstance>()
+  const metadata: RestoreMetadata = { ...readProfileMetadata() }
+  let imported = 0
+  for (const selected of selection.devices) {
+    if (!selected.profileIds.length) continue
+    const document = cloud.documents.find(item => item.id === selected.documentId)
+    if (!document) throw new Error('所选云端设备已不存在，请刷新后重试')
     const kind = cloud.models.find(model => model.id === document.model_id)?.code
     const legacyKind = (Object.keys(legacyKeys) as (keyof typeof legacyKeys)[]).find(
-      key => kind === key && document.instance_key === legacyKeys[key],
+      key => selected.targetId === `legacy:${key}` && key === kind,
     )
-    if (legacyKind) {
-      const config = document.config
-      if (!Array.isArray(config.profiles)) throw new Error('云端配置方案格式无效')
-      backup.profiles = [
-        ...backup.profiles.filter(profile => profile.deviceId !== legacyKind),
-        ...config.profiles.map(profile => ({
-          id: profile.id,
-          name: profile.name,
-          deviceId: legacyKind,
-          keys: profile.behaviors,
-        })),
-      ]
-      backup.activeProfileIds[legacyKind] = config.activeProfileId as string
-      if (legacyKind === 'rc003' && config.audioGainDb !== undefined) backup.audio.gain = config.audioGainDb as number
-      if (legacyKind === 'cmiotA15' && config.cmiotA15RecordingMode !== undefined)
-        backup.settings.cmiotA15RecordingMode = config.cmiotA15RecordingMode as 'hold' | 'click'
-      continue
-    }
     const support = supportPackages.find(item => item.kind === kind)
-    if (!support) throw new Error(`当前版本不支持云端设备型号 ${kind ?? document.model_id}`)
-    const config = parseInstanceConfig(
-      document.config,
-      support.inputs.map(input => input.id),
-    )
-    const existing = instances.find(instance => instance.id === document.instance_key)
-    if (existing && existing.kind !== support.kind) throw new Error('云端实例与本机设备型号不一致')
-    restoredInstances.push({
-      ...existing,
-      ...config,
-      id: document.instance_key,
-      kind: support.kind,
-      binding: existing?.binding ?? null,
-    })
+    if (!support && kind !== 'mouse') throw new Error(`当前版本不支持云端设备型号 ${kind}`)
+    const inputs =
+      kind === 'mouse'
+        ? Object.keys(createDefaultBehaviorMap())
+            .filter(key => key.startsWith('mouse.'))
+            .map(key => key.slice(6))
+        : support!.inputs.map(input => input.id)
+    const config = parseInstanceConfig(document.config, inputs)
+    let target: DeviceInstance | undefined
+    if (!legacyKind) {
+      if (!support) throw new Error('系统鼠标只能恢复到本机鼠标映射')
+      const existing =
+        targets.get(selected.targetId) ?? instances.find(item => item.id === selected.targetId.replace(/^new:/, ''))
+      if (existing && existing.kind !== kind) throw new Error('请选择同型号的本机设备')
+      if (!existing && !selected.targetId.startsWith('new:')) throw new Error('本机目标设备已不存在，请重新选择')
+      target = existing
+        ? structuredClone(existing)
+        : {
+            ...config,
+            id: selected.targetId.slice(4),
+            kind: support.kind,
+            binding: null,
+            enabled: false,
+            profiles: [],
+            activeProfileId: '',
+          }
+    }
+    const targetKey = legacyKind ? legacyKeys[legacyKind] : target!.id
+    const profiles = legacyKind
+      ? backup.profiles
+          .filter(item => item.deviceId === legacyKind)
+          .map(item => ({ id: item.id, name: item.name, behaviors: item.keys }))
+      : target!.profiles
+    for (const id of selected.profileIds) {
+      const profile = config.profiles.find(item => item.id === id) as
+        (DeviceInstance['profiles'][number] & { app_version?: string | null }) | undefined
+      if (!profile) throw new Error('所选云端方案已不存在，请刷新后重试')
+      const already = profiles.some(item => {
+        const prior = metadata[profileMetadataKey(targetKey, item.id)]
+        return (
+          prior?.restored_from?.device_config_id === document.id &&
+          prior.restored_from.profile_id === profile.id &&
+          prior.restored_content === profileContent(item) &&
+          prior.source_content === profileContent(profile)
+        )
+      })
+      if (already) continue
+      const restored = { ...profile, id: crypto.randomUUID() }
+      const origin: RestoreSource = {
+        device_config_id: document.id,
+        profile_id: profile.id,
+        revision: document.revision,
+        source_platform: document.source_platform ?? 'unknown',
+        source_computer_name: document.source_computer_name ?? null,
+        app_version: profile.app_version ?? null,
+      }
+      metadata[profileMetadataKey(targetKey, restored.id)] = {
+        content: profileContent(restored),
+        app_version: origin.app_version,
+        restored_from: origin,
+        source_content: profileContent(profile),
+      }
+      if (profiles.some(item => item.name === restored.name)) restored.name += '（云端副本）'
+      // The display name belongs to this local copy; keep the source content version.
+      metadata[profileMetadataKey(targetKey, restored.id)].content = profileContent(restored)
+      metadata[profileMetadataKey(targetKey, restored.id)].restored_content = profileContent(restored)
+      profiles.push(restored)
+      imported++
+      if (legacyKind)
+        backup.profiles.push({ id: restored.id, name: restored.name, deviceId: legacyKind, keys: restored.behaviors })
+    }
+    if (target) {
+      if (!target.activeProfileId) target.activeProfileId = target.profiles[0].id
+      targets.set(selected.targetId, target)
+    }
   }
   if (cloud.settings) {
     const { sidebarCollapsed, audioStretchCompensation, savedBehaviors, ...settings } = cloud.settings.settings
-    backup.settings = { ...backup.settings, ...settings }
-    if (sidebarCollapsed !== undefined) backup.preferences.sidebarCollapsed = sidebarCollapsed as boolean
-    if (audioStretchCompensation !== undefined) backup.audio.stretchCompensation = audioStretchCompensation as boolean
-    if (savedBehaviors !== undefined) backup.savedBehaviors = savedBehaviors as BackupDocument['savedBehaviors']
+    if (selection.settings) {
+      backup.settings = { ...backup.settings, ...settings }
+      if (sidebarCollapsed !== undefined) backup.preferences.sidebarCollapsed = sidebarCollapsed as boolean
+      if (audioStretchCompensation !== undefined) backup.audio.stretchCompensation = audioStretchCompensation as boolean
+    }
+    if (selection.savedBehaviors && savedBehaviors !== undefined)
+      backup.savedBehaviors = savedBehaviors as BackupDocument['savedBehaviors']
   }
-  return { backup: parseDataBackupDocument(backup), instances: restoredInstances }
+  return { backup: parseDataBackupDocument(backup), instances: [...targets.values()], metadata, imported }
 }
 
 function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {

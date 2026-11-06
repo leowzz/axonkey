@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { CloudSyncController } from '../cloud/useCloudSync'
+import { CloudRestorePicker } from './CloudRestorePicker'
+import type { DeviceInstance } from '../devices/integration/model'
 import { SettingsHelp } from './SettingsHelp'
 import './CloudSyncSettings.css'
 
-export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
+export function CloudSyncSettings({
+  cloud,
+  instances = [],
+  platform = 'unknown',
+}: {
+  cloud: CloudSyncController
+  instances?: DeviceInstance[]
+  platform?: string
+}) {
+  const [computerName, setComputerName] = useState(() => localStorage.getItem('axonkey.cloud-computer-name.v1') ?? '')
   const [channel, setChannel] = useState<'email' | 'sms'>('email')
   const [targets, setTargets] = useState({ email: '', sms: '' })
   const target = targets[channel]
@@ -141,6 +152,24 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
             </div>
           </div>
           <div className="settings-form-row">
+            <label className="settings-form-label" htmlFor="cloud-computer-name">
+              本机名称：
+            </label>
+            <div className="settings-form-control">
+              <input
+                id="cloud-computer-name"
+                placeholder="例如：MacBook 或办公电脑"
+                value={computerName}
+                maxLength={32}
+                disabled={cloud.busy}
+                onChange={event => {
+                  setComputerName(event.target.value)
+                  localStorage.setItem('axonkey.cloud-computer-name.v1', event.target.value.trim())
+                }}
+              />
+            </div>
+          </div>
+          <div className="settings-form-row">
             <span className="settings-form-label">自动同步：</span>
             <div className="settings-form-control">
               <label>
@@ -239,31 +268,18 @@ export function CloudSyncSettings({ cloud }: { cloud: CloudSyncController }) {
                 </div>
               )}
               {cloud.pendingRestore && (
-                <div className="cloud-confirm" role="region" aria-label="确认恢复云端配置">
-                  <p>
-                    将恢复 {cloud.pendingRestore.documents.length} 份设备配置
-                    {cloud.pendingRestore.settings ? '及软件设置' : ''}
-                    ，覆盖本机对应实例的配置，无法撤销。新设备需重新绑定实物。
-                  </p>
-                  <div className="cloud-confirm-actions">
-                    <button
-                      type="button"
-                      className="button primary"
-                      disabled={cloud.busy}
-                      onClick={() => void cloud.confirmRestore()}
-                    >
-                      确认恢复到本机
-                    </button>
-                    <button
-                      type="button"
-                      className="dialog-secondary"
-                      disabled={cloud.busy}
-                      onClick={cloud.cancelRestore}
-                    >
-                      取消
-                    </button>
-                  </div>
-                </div>
+                <CloudRestorePicker
+                  key={
+                    JSON.stringify(cloud.pendingRestore.documents.map(doc => [doc.id, doc.revision])) +
+                    cloud.pendingRestore.settings?.etag
+                  }
+                  state={cloud.pendingRestore}
+                  instances={instances}
+                  platform={platform}
+                  busy={cloud.busy}
+                  onConfirm={selection => void cloud.confirmRestore(selection)}
+                  onCancel={cloud.cancelRestore}
+                />
               )}
             </div>
           </div>
