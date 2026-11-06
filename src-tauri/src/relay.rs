@@ -61,6 +61,7 @@ fn write_session(path: &Path, session: Option<Value>) -> Result<(), String> {
 pub(crate) struct RelayResponse {
     status: u16,
     body: Value,
+    etag: Option<String>,
     #[serde(rename = "requestId", skip_serializing_if = "Option::is_none")]
     request_id: Option<String>,
 }
@@ -73,6 +74,8 @@ pub(crate) async fn relay_request(
     body: Option<Value>,
     token: Option<String>,
     user_agent: String,
+    if_match: Option<String>,
+    if_none_match: Option<String>,
 ) -> Result<RelayResponse, String> {
     validate_request(&method, &path)?;
     let client = reqwest::Client::builder()
@@ -91,6 +94,12 @@ pub(crate) async fn relay_request(
         )
         .header("X-App-Id", "axonkey")
         .header("X-App-Version", app.package_info().version.to_string());
+    if let Some(value) = if_match {
+        request = request.header("If-Match", value);
+    }
+    if let Some(value) = if_none_match {
+        request = request.header("If-None-Match", value);
+    }
     if let Some(token) = token {
         request = request.bearer_auth(token);
     }
@@ -105,6 +114,11 @@ pub(crate) async fn relay_request(
             "无法连接云端，请检查网络后重试；本地功能不受影响"
         })?;
     let status = response.status().as_u16();
+    let etag = response
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     let request_id = response
         .headers()
         .get("X-Request-ID")
@@ -125,10 +139,29 @@ pub(crate) async fn relay_request(
         status,
         body,
         request_id,
+        etag,
     })
 }
 
 fn validate_request(method: &str, path: &str) -> Result<(), String> {
+    let resource_id = path
+        .strip_prefix("/v2/device-configs/")
+        .is_some_and(|id| !id.is_empty() && id.bytes().all(|c| c.is_ascii_hexdigit() || c == b'-'));
+    let list = path
+        .strip_prefix("/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=")
+        .is_some_and(|offset| !offset.is_empty() && offset.bytes().all(|c| c.is_ascii_digit()));
+    if (method == "GET"
+        && (resource_id
+            || list
+            || matches!(
+                path,
+                "/v2/device-models?app_id=axonkey" | "/v2/app-settings/axonkey"
+            )))
+        || (method == "POST" && path == "/v2/device-configs")
+        || (method == "PUT" && (resource_id || path == "/v2/app-settings/axonkey"))
+    {
+        return Ok(());
+    }
     let allowed = match method {
         "POST" => matches!(
             path,
@@ -204,6 +237,40 @@ mod tests {
         write_session(&path, None).unwrap();
         assert_eq!(read_session(&path).unwrap(), None);
         fs::remove_dir(&directory).unwrap();
+    }
+
+    #[test]
+    fn supports_v2_etag_resources_and_bounded_pagination_routes() {
+        for (method, path) in [
+            ("GET", "/v2/device-models?app_id=axonkey"),
+            (
+                "GET",
+                "/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=100",
+            ),
+            ("GET", "/v2/device-configs/019a-abcd"),
+            ("POST", "/v2/device-configs"),
+            ("PUT", "/v2/device-configs/019a-abcd"),
+            ("PUT", "/v2/app-settings/axonkey"),
+        ] {
+            assert!(validate_request(method, path).is_ok(), "{method} {path}");
+        }
+        for path in [
+            "/v2/device-configs/../me",
+            "/v2/device-configs?app_id=axonkey&view=full&limit=100&offset=0&app_id=other",
+            "/v2/console/device-configs",
+        ] {
+            assert!(validate_request("GET", path).is_err());
+        }
+        let response = RelayResponse {
+            status: 200,
+            body: Value::Null,
+            request_id: None,
+            etag: Some("\"opaque\"".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["etag"],
+            "\"opaque\""
+        );
     }
 
     #[test]

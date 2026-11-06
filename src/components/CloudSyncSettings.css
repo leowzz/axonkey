@@ -133,3 +133,126 @@
   cursor: default;
   opacity: 0.55;
 }
+
+.cloud-restore {
+  width: 100%;
+  min-width: 0;
+}
+.cloud-restore-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cloud-restore-heading h4 {
+  margin: 0;
+}
+.cloud-restore > p,
+.cloud-restore-source,
+.cloud-restore-profiles small {
+  color: var(--text-muted, #6b7c8e);
+  font-size: 12px;
+}
+.cloud-restore-devices {
+  border: 0;
+  padding: 0;
+  margin: 14px 0;
+  min-width: 0;
+}
+.cloud-restore-device {
+  padding: 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color, #dce3eb);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 35%);
+}
+.cloud-restore-device-title,
+.cloud-restore-profiles label,
+.cloud-restore-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.cloud-restore-device-title span {
+  color: var(--text-muted, #6b7c8e);
+  font-size: 12px;
+}
+.cloud-restore-source {
+  margin: 8px 0 12px 24px;
+  overflow-wrap: anywhere;
+}
+.cloud-restore-profiles {
+  display: grid;
+  gap: 10px;
+  margin-left: 24px;
+}
+.cloud-restore-profiles label span {
+  flex: 1;
+  min-width: 100px;
+  overflow-wrap: anywhere;
+}
+.cloud-restore-target {
+  margin-top: 16px;
+}
+.cloud-restore select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 34px;
+  max-width: 100%;
+  padding: 6px 34px 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background-color: rgb(255 255 255 / 88%);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2373777d' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  box-shadow: 0 1px 2px rgb(32 35 39 / 4%);
+  cursor: pointer;
+  transition:
+    border-color 120ms,
+    background-color 120ms;
+}
+.cloud-restore select:hover:not(:disabled) {
+  border-color: #aab7c5;
+  background-color: #fff;
+}
+.cloud-restore select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+  border-color: var(--blue);
+}
+.cloud-restore select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.cloud-restore-heading select {
+  min-width: 120px;
+  flex-shrink: 0;
+}
+.cloud-restore-target select {
+  min-width: 180px;
+  max-width: min(100%, 360px);
+  text-overflow: ellipsis;
+}
+
+.cloud-restore-warning {
+  color: #966123;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.cloud-restore-options {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.cloud-restore-options label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}

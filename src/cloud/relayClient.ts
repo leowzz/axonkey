@@ -8,8 +8,15 @@ export type RelaySession = {
   user: { id: string; email: string | null; phone: string | null }
   requestId?: string
 }
-export type RelayResponse = { status: number; body: unknown; requestId?: string }
-export type RelayTransport = (method: string, path: string, body?: unknown, token?: string) => Promise<RelayResponse>
+export type RelayResponse = { status: number; body: unknown; requestId?: string; etag?: string }
+export type RelayTransport = (
+  method: string,
+  path: string,
+  body?: unknown,
+  token?: string,
+  conditions?: RelayConditions,
+) => Promise<RelayResponse>
+export type RelayConditions = { ifMatch?: string; ifNoneMatch?: '*' }
 export class RelayError extends Error {
   status: number
   code: string
@@ -69,21 +76,43 @@ export class RelayClient {
     }
   }
 
-  async request<T>(method: string, path: string, body?: unknown, authenticated = true): Promise<T> {
+  async request<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    authenticated = true,
+    conditions?: RelayConditions,
+  ): Promise<T> {
+    return (await this.resource<T>(method, path, body, authenticated, conditions)).body
+  }
+
+  async resource<T>(
+    method: string,
+    path: string,
+    body?: unknown,
+    authenticated = true,
+    conditions?: RelayConditions,
+  ): Promise<{ body: T; etag?: string }> {
     if (authenticated) {
       if (!this.session) throw new RelayError(401, 'login_required', '请先登录')
       if (this.session.requestId || this.session.expires_at <= Date.now() / 1000 + 30) await this.refresh()
     }
-    let response = await this.send(method, path, body, authenticated ? this.session!.access_token : undefined)
+    let response = await this.send(
+      method,
+      path,
+      body,
+      authenticated ? this.session!.access_token : undefined,
+      conditions,
+    )
     if (authenticated && response.status === 401 && errorBody(response.body).code === 'access_token_expired') {
       await this.refresh()
-      response = await this.send(method, path, body, this.session!.access_token)
+      response = await this.send(method, path, body, this.session!.access_token, conditions)
     }
     if (authenticated && response.status === 401) {
       logCloud('session.invalidated', { method, path, status: response.status })
       await this.setSession(null)
     }
-    return unwrap<T>(response)
+    return { body: unwrap<T>(response), etag: response.etag }
   }
 
   private refresh() {
@@ -130,11 +159,11 @@ export class RelayClient {
     logCloud('session.saved', { signed_in: !!session, refresh_pending: !!session?.requestId })
   }
 
-  private async send(method: string, path: string, body?: unknown, token?: string) {
+  private async send(method: string, path: string, body?: unknown, token?: string, conditions?: RelayConditions) {
     const started = Date.now()
     logCloud('request.start', { method, path })
     try {
-      const response = await this.transport(method, path, body, token)
+      const response = await this.transport(method, path, body, token, conditions)
       logCloud('request.complete', {
         method,
         path,

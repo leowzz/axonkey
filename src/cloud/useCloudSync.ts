@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { RelayClient, RelayError, relayFailureDetails } from './relayClient'
 import type { RelayResponse, RelaySession, RelayTransport } from './relayClient'
-import { fingerprint, readCloud, SyncConflict, uploadCloud } from './cloudSync'
+import { fingerprint, readCloud, readCloudDocument, SyncConflict, uploadCloud } from './cloudSync'
+import type { RestoreSelection } from './cloudData'
 import type { CloudSnapshot, CloudState, SyncMemory } from './cloudSync'
 import { logCloud } from './cloudLogging'
 import { solveCaptcha } from './captcha'
@@ -20,7 +21,7 @@ export function useCloudSync(options: {
   native: boolean
   ready: boolean
   snapshot: (memory: SyncMemory) => CloudSnapshot
-  restore: (cloud: CloudState) => Promise<void>
+  restore: (cloud: CloudState, selection: RestoreSelection) => Promise<void>
   clearLocalData: () => Promise<void>
 }) {
   const latest = useRef(options)
@@ -42,7 +43,7 @@ export function useCloudSync(options: {
     setPreferences(value)
   }
   const [client] = useState(() => {
-    const transport: RelayTransport = async (method, path, body, token) => {
+    const transport: RelayTransport = async (method, path, body, token, conditions) => {
       if (options.native)
         return invoke<RelayResponse>('relay_request', {
           method,
@@ -50,6 +51,8 @@ export function useCloudSync(options: {
           body: body ?? null,
           token: token ?? null,
           userAgent: navigator.userAgent,
+          ifMatch: conditions?.ifMatch ?? null,
+          ifNoneMatch: conditions?.ifNoneMatch ?? null,
         })
       const response = await fetch(`/api${path}`, {
         method,
@@ -57,6 +60,8 @@ export function useCloudSync(options: {
           'Content-Type': 'application/json',
           'X-App-Id': 'axonkey',
           'X-App-Version': appPackage.version,
+          ...(conditions?.ifMatch ? { 'If-Match': conditions.ifMatch } : {}),
+          ...(conditions?.ifNoneMatch ? { 'If-None-Match': conditions.ifNoneMatch } : {}),
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -64,6 +69,7 @@ export function useCloudSync(options: {
       })
       return {
         status: response.status,
+        etag: response.headers.get('ETag') ?? undefined,
         body: response.status === 204 ? null : await response.json(),
         requestId: response.headers.get('X-Request-ID') ?? undefined,
       }
@@ -137,8 +143,8 @@ export function useCloudSync(options: {
         syncing &&
         (error instanceof SyncConflict ||
           (error instanceof RelayError &&
-            error.status === 409 &&
-            ['revision_conflict', 'already_exists'].includes(error.code)))
+            (error.status === 412 ||
+              (error.status === 409 && ['revision_conflict', 'already_exists'].includes(error.code)))))
       ) {
         logCloud('sync.conflict', {
           operation,
@@ -326,14 +332,36 @@ export function useCloudSync(options: {
       logCloud('restore.cancelled')
       setPendingRestore(null)
     },
-    confirmRestore: () =>
+    confirmRestore: (selection: RestoreSelection) =>
       run(`restore.apply`, async () => {
         if (!pendingRestore) return 'no_pending_restore'
         logCloud('restore.confirmed', {
           documents: pendingRestore.documents.length,
           has_settings: !!pendingRestore.settings,
         })
-        await latest.current.restore(pendingRestore)
+        if (!latest.current.ready) throw new Error('正在保存本地配置，请稍后重试')
+        if (!selection.devices.some(item => item.profileIds.length) && !selection.settings && !selection.savedBehaviors)
+          throw new Error('请先选择要恢复的方案或设置')
+        const selectedIds = new Set(
+          selection.devices.filter(item => item.profileIds.length).map(item => item.documentId),
+        )
+        const documents = await Promise.all([...selectedIds].map(id => readCloudDocument(client, id)))
+        if (
+          documents.some(doc => doc.revision !== pendingRestore.documents.find(item => item.id === doc.id)?.revision)
+        ) {
+          setPendingRestore(await readCloud(client))
+          throw new Error('云端方案已更新，请重新勾选后恢复')
+        }
+        let settings = pendingRestore.settings
+        if (selection.settings || selection.savedBehaviors) {
+          const fresh = await readCloud(client)
+          if (fresh.settings?.etag !== settings?.etag) {
+            setPendingRestore(fresh)
+            throw new Error('云端软件设置已更新，请重新勾选后恢复')
+          }
+          settings = fresh.settings
+        }
+        await latest.current.restore({ ...pendingRestore, documents, settings }, selection)
         setPendingRestore(null)
         setConflict(null)
         setMessage('已从云端恢复，自动同步已关闭')

@@ -2,6 +2,7 @@ import type { DeviceSnapshot } from './devices/integration/model.ts'
 
 const personalDataKeys = [
   'axonkey.settings.v1',
+  'axonkey.cloud-profile-metadata.v1',
   'axonkey.mapping-profiles.v1',
   'axonkey.mapping-profiles.v2',
   'axonkey.saved-sequences.v1',
