@@ -1,8 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useContext, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Search, Trash2, X } from 'lucide-react'
+import { Plus, Search, Share2, Trash2, X } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
 import type { DesignerApi, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
+
+import type { Platform } from '../appTypes'
+import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
+import { useBehaviorLibrary } from '../cloud/useBehaviorLibrary'
+import { BehaviorShareDialog } from './BehaviorShareDialog'
 
 export type WorkflowToolboxPalette = {
   name: string
@@ -11,6 +16,7 @@ export type WorkflowToolboxPalette = {
 
 export function WorkflowToolbox({
   api,
+  platform = 'windows',
   palettes,
   iconUrls,
   selectedCategory,
@@ -22,6 +28,7 @@ export function WorkflowToolbox({
   savedError,
 }: {
   api: DesignerApi
+  platform?: Platform
   palettes: WorkflowToolboxPalette[]
   iconUrls: Record<string, string>
   selectedCategory: string
@@ -32,6 +39,8 @@ export function WorkflowToolbox({
   onRemoveSavedSequence?: (id: string) => void
   savedError?: string
 }) {
+  const account = useContext(BehaviorLibraryContext)
+  const [sharing, setSharing] = useState<StepDefinition | null>(null)
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<StepDefinition | null>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -48,6 +57,19 @@ export function WorkflowToolbox({
 
   const filter = query.trim().toLocaleLowerCase()
   const mine = selectedCategory === '已保存/已保存'
+  const cloudView =
+    account && (selectedCategory === 'recommended' || selectedCategory === 'community') ? selectedCategory : null
+  const cloud = useBehaviorLibrary(
+    account?.client,
+    platform,
+    cloudView,
+    query.trim(),
+    palettes
+      .filter(palette => palette.name !== '已保存')
+      .flatMap(palette => palette.groups.flatMap(group => group.steps)),
+  )
+  const localFallback = !!cloudView && !cloud.steps.length && (cloudView === 'recommended' || !!cloud.error)
+  const sourceLabel = mine ? '我的' : cloudView === 'recommended' ? '推荐' : cloudView === 'community' ? '社区' : '基础'
   const categories = palettes
     .filter(palette => palette.name !== '已保存')
     .flatMap(palette =>
@@ -59,13 +81,17 @@ export function WorkflowToolbox({
     )
     .filter(group => group.steps.length > 0)
   const currentCategory = categories.some(group => group.id === selectedCategory) ? selectedCategory : 'all'
-  const groups = mine
-    ? palettes
-        .filter(palette => palette.name === '已保存')
-        .flatMap(palette => palette.groups.map(group => ({ ...group, id: '已保存/已保存', palette: '我的' })))
-    : categories
+  const groups = cloudView
+    ? localFallback
+      ? categories.filter(group => group.palette === '常用行为' || group.palette === '组合行为')
+      : [{ id: cloudView, name: sourceLabel, palette: sourceLabel, steps: cloud.steps }]
+    : mine
+      ? palettes
+          .filter(palette => palette.name === '已保存')
+          .flatMap(palette => palette.groups.map(group => ({ ...group, id: '已保存/已保存', palette: '我的' })))
+      : categories
   const visibleGroups = groups
-    .filter(group => mine || filter || currentCategory === 'all' || group.id === currentCategory)
+    .filter(group => cloudView || mine || filter || currentCategory === 'all' || group.id === currentCategory)
     .map(group => ({
       ...group,
       steps: group.steps.filter(step =>
@@ -85,36 +111,41 @@ export function WorkflowToolbox({
           <input
             className="sqd-toolbox-filter-input"
             type="search"
-            aria-label={mine ? '搜索我的行为' : '搜索基础行为'}
-            placeholder={mine ? '搜索我的行为' : '搜索基础行为'}
+            aria-label={`搜索${sourceLabel}行为`}
+            placeholder={`搜索${sourceLabel}行为`}
+            maxLength={64}
             value={query}
             onChange={event => setQuery(event.target.value)}
           />
         </label>
       </div>
       <nav className="workflow-toolbox-tabs" aria-label="行为来源">
-        <button
-          type="button"
-          aria-pressed={!mine}
-          onClick={() => {
-            setQuery('')
-            onCategoryChange('all')
-          }}
-        >
-          基础
-        </button>
-        <button
-          type="button"
-          aria-pressed={mine}
-          onClick={() => {
-            setQuery('')
-            onCategoryChange('已保存/已保存')
-          }}
-        >
-          我的
-        </button>
+        {(account
+          ? [
+              ['recommended', '推荐'],
+              ['all', '基础'],
+              ['community', '社区'],
+              ['已保存/已保存', '我的'],
+            ]
+          : [
+              ['all', '基础'],
+              ['已保存/已保存', '我的'],
+            ]
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={id === 'all' ? !mine && !cloudView : selectedCategory === id}
+            onClick={() => {
+              setQuery('')
+              onCategoryChange(id)
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </nav>
-      {!mine && (
+      {!mine && !cloudView && (
         <nav className="workflow-toolbox-categories" aria-label="行为分类">
           <button
             type="button"
@@ -141,11 +172,22 @@ export function WorkflowToolbox({
           ))}
         </nav>
       )}
-      <div
-        ref={listRef}
-        className="workflow-toolbox-list"
-        aria-label={filter ? '行为搜索结果' : mine ? '我的行为' : '基础行为'}
-      >
+      <div ref={listRef} className="workflow-toolbox-list" aria-label={filter ? '行为搜索结果' : `${sourceLabel}行为`}>
+        {cloudView && (
+          <div className="workflow-library-feedback">
+            {cloud.loading && <span role="status">加载中…</span>}
+            {cloud.error && (
+              <span role="alert">
+                {cloud.error}，{cloud.steps.length ? '当前列表仍可使用' : '可使用本地行为'}{' '}
+                <button type="button" onClick={cloud.retry} disabled={cloud.loading}>
+                  重试
+                </button>
+              </span>
+            )}
+            {localFallback && <span>本地常用</span>}
+            {!!cloud.skipped && <span>部分行为需更新客户端后使用</span>}
+          </div>
+        )}
         {mine && savedError ? (
           <p className="workflow-toolbox-empty" role="alert">
             {savedError}
@@ -154,12 +196,12 @@ export function WorkflowToolbox({
           <>
             {visibleGroups.map(group => (
               <section key={group.id} aria-label={group.name}>
-                {!mine && (currentCategory === 'all' || filter) && (
+                {!mine && !cloudView && (currentCategory === 'all' || filter) && (
                   <h3 className="sqd-toolbox-group-title">{group.name}</h3>
                 )}
                 {group.steps.map(step => (
                   <div
-                    key={String(step.properties.savedSequenceId ?? step.type)}
+                    key={String(step.properties.libraryItemId ?? step.properties.savedSequenceId ?? step.type)}
                     className={`sqd-toolbox-item sqd-type-${step.type}`}
                   >
                     <button
@@ -207,6 +249,17 @@ export function WorkflowToolbox({
                     >
                       <Plus size={15} aria-hidden="true" />
                     </button>
+                    {account && typeof step.properties.savedSequenceId === 'string' && (
+                      <button
+                        type="button"
+                        className="icon-button workflow-saved-share"
+                        aria-label={`分享${step.name}`}
+                        title="分享"
+                        onClick={() => setSharing(step)}
+                      >
+                        <Share2 size={14} aria-hidden="true" />
+                      </button>
+                    )}
                     {typeof step.properties.savedSequenceId === 'string' && onRemoveSavedSequence && (
                       <button
                         type="button"
@@ -222,12 +275,44 @@ export function WorkflowToolbox({
                 ))}
               </section>
             ))}
-            {visibleGroups.length === 0 && (
-              <p className="workflow-toolbox-empty">{mine && !filter ? '暂无已保存的行为序列' : '没有匹配的行为'}</p>
+            {visibleGroups.length === 0 && (!cloudView || (!cloud.loading && !cloud.error)) && (
+              <p className="workflow-toolbox-empty">
+                {mine && !filter
+                  ? '暂无已保存的行为序列'
+                  : cloudView === 'community' && !filter
+                    ? '暂无社区行为'
+                    : '没有匹配的行为'}
+              </p>
             )}
           </>
         )}
+        {cloudView && cloud.nextCursor && (
+          <button
+            type="button"
+            className="workflow-library-more"
+            disabled={cloud.loading}
+            onClick={() => void cloud.more()}
+          >
+            加载更多
+          </button>
+        )}
       </div>
+      {sharing &&
+        account &&
+        createPortal(
+          <BehaviorShareDialog
+            key={`${account.userId}/${sharing.properties.savedSequenceId}`}
+            sequence={{
+              id: sharing.properties.savedSequenceId as string,
+              name: sharing.name,
+              sequence: sharing.properties.sequence as string,
+            }}
+            platform={platform}
+            preview={getStepPreview(sharing)}
+            onClose={() => setSharing(null)}
+          />,
+          document.body,
+        )}
       {preview &&
         createPortal(
           <dialog
@@ -243,6 +328,9 @@ export function WorkflowToolbox({
               </button>
             </header>
             <div className="behavior-dialog-body">
+              {typeof preview.properties.author === 'string' && preview.properties.author && (
+                <p className="workflow-library-description">{preview.properties.author}</p>
+              )}
               {typeof preview.properties.description === 'string' && preview.properties.description && (
                 <p className="workflow-library-description">{preview.properties.description}</p>
               )}

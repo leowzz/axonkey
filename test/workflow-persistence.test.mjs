@@ -104,18 +104,20 @@ const delay = ms => ({ id: 'wait', type: 'delay', enabled: true, ms })
 const palette = type => ({ id: `new-${type}`, type, componentType: 'task', name: type, properties: { preset: type } })
 const branches = instance => instance.definition.sequence[0].branches
 const clearLane = (instance, trigger) => instance.configuration.extensions.find(extension => extension.rootComponent).rootComponent.clear(trigger)
-const render = async (sequences = empty(), options = {}) => {
+const { BehaviorLibraryContext } = load('src/cloud/BehaviorLibraryContext.tsx')
+const render = async (sequences = empty(), options = {}, account = null) => {
   let view
   const writes = []
   const requests = []
   let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]), ...options }
-  await act(async () => { view = Renderer.create(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }), { createNodeMock: () => {
+  const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))
+  await act(async () => { view = Renderer.create(element(), { createNodeMock: () => {
     const handlers = new Map()
     return { handlers, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
     view, writes, requests, current: () => instances.at(-1),
-    update: async update => { props = { ...props, ...update }; await act(async () => view.update(React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))) },
+    update: async update => { props = { ...props, ...update }; await act(async () => view.update(element())) },
     unmount: async () => act(async () => view.unmount()),
   }
 }
@@ -750,5 +752,32 @@ test('library add buttons reuse disabled-lane and profile-switch rules', async (
     assert.equal(app.writes.at(-1)[1].click[0].type, 'disabled')
     await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'delay')))
     assert.equal(branches(app.current()).click.length, 1, 'cannot append into a disabled lane')
+  } finally { await app.unmount() }
+})
+
+
+test('cloud additions count saved copies once, exclude canceled drafts, and survive failed statistics', async () => {
+  const additions = []
+  const app = await render(empty(), {}, { client: { request: async (...args) => { additions.push(args); throw new Error('offline') } } })
+  try {
+    const toolbox = app.view.root.findByType(MockToolbox)
+    const action = { ...palette('delay'), properties: { ms: 20, libraryItemId: 'abc-123' } }
+    await act(async () => toolbox.props.onAddStep(action))
+    assert.equal(additions.length, 1)
+    assert.equal(additions[0][1], '/v2/behavior-library/abc-123/additions')
+    assert.equal(app.writes.at(-1)[1].click.length, 1)
+    assert.equal(branches(app.current()).click[0].properties.libraryItemId, undefined)
+    await act(async () => app.current().emit(library.DefinitionChangeType.stepChildrenChanged))
+    assert.equal(additions.length, 1)
+    const draft = { ...palette('paste'), properties: { libraryItemId: 'def-456' } }
+    await act(async () => toolbox.props.onAddStep(draft))
+    assert.equal(additions.length, 1)
+    const canceled = await openContextEditor(app, 'click', 1)
+    await act(async () => canceled.props.onClose())
+    assert.equal(additions.length, 1)
+    const dialog = await openContextEditor(app, 'click', 1)
+    await act(async () => dialog.props.edit.onSave({ ...dialog.props.edit.behavior, text: 'ready' }))
+    assert.equal(additions.length, 2)
+    assert.equal(app.writes.at(-1)[1].click.at(-1).text, 'ready')
   } finally { await app.unmount() }
 })

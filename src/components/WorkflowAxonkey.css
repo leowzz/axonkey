@@ -585,3 +585,52 @@
 .profile-switch-delete-dialog .profile-switch-overwrites span {
   overflow-wrap: anywhere;
 }
+
+.workflow-library-feedback {
+  display: grid;
+  gap: 6px;
+  color: #687581;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.workflow-library-feedback:has(span) {
+  margin-bottom: 10px;
+}
+.workflow-library-feedback button,
+.workflow-library-more {
+  border: 0;
+  border-radius: 5px;
+  padding: 4px 8px;
+  color: #176fcf;
+  background: #e8f1fd;
+}
+.workflow-library-more {
+  display: block;
+  margin: 10px auto;
+  min-height: 30px;
+}
+.workflow-share-note {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.workflow-share-note textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  margin-top: 8px;
+  padding: 8px;
+  resize: vertical;
+  border: 1px solid #cbd7e2;
+  border-radius: 6px;
+  font: inherit;
+}
+.workflow-share-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.workflow-library-dialog > form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: inherit;
+}

@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import vm from 'node:vm'
-import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 
-const require = createRequire(import.meta.url)
-const module = { exports: {} }
-const source = ts.transpileModule(readFileSync('src/components/WorkflowToolbox.tsx', 'utf8'), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
-}).outputText
-vm.runInNewContext(source, { require: name => name === 'react-dom' ? { createPortal: node => node } : require(name), module, exports: module.exports, document: { body: {} } })
-const { WorkflowToolbox } = module.exports
+import { libraryHarness } from './helpers/behavior-library-harness.mjs'
+
+const { WorkflowToolbox } = libraryHarness().load('components/WorkflowToolbox.tsx')
 const step = (type, name, description = '') => ({ type, name, componentType: 'task', properties: { description } })
 const delay = step('delay', '等待', '300 毫秒')
 const key = step('key', '组合键', 'Ctrl Enter')

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
+import { recordLibraryAddition } from '../cloud/behaviorLibrary'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
@@ -83,6 +85,9 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   toolboxCategory,
   onToolboxCategoryChange,
 }: WorkflowAxonkeyProps<Id>) {
+  const libraryAccount = useContext(BehaviorLibraryContext)
+  const libraryAccountRef = useRef(libraryAccount)
+  libraryAccountRef.current = libraryAccount
   const triggers = button.triggerLabel
     ? [{ id: 'click' as const, label: button.triggerLabel }]
     : activeTrigger
@@ -247,7 +252,9 @@ export function WorkflowAxonkey<Id extends string = InputId>({
               if (group && node.properties.draftGroup === group) delete node.properties.draftGroup
             }
           }
+          const libraryItemId = current.step.properties.libraryItemId
           Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
+          if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
           setEditingStep(null)
         },
@@ -453,12 +460,26 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         }
         return
       }
+      for (const branch of Object.values(current)) {
+        for (const node of branch) {
+          const itemId = node.properties.libraryItemId
+          if (typeof itemId !== 'string' || node.properties.draftGroup) continue
+          delete node.properties.libraryItemId
+          if (libraryAccountRef.current) void recordLibraryAddition(libraryAccountRef.current.client, itemId, platform)
+        }
+      }
       acceptedBranches = structuredClone(current)
     }
     const normalizeInsertion = (trigger: TriggerType, index: number) => {
       const api = workflowApi!
       const branch = workflowBranches(api.editor.getDefinition())[trigger]
+      const itemId = branch[index].properties.libraryItemId
       const nodes = insertedWorkflowSteps(branch[index], platform, label)
+      for (const node of nodes) {
+        delete node.properties.libraryItemId
+        delete node.properties.libraryVersionId
+        delete node.properties.author
+      }
       const profileSwitch = nodes.map(workflowStepBehavior).find(behavior => behavior?.type === 'switchProfile')
       if (profileSwitch?.type === 'switchProfile') {
         branch.splice(index, 1)
@@ -467,6 +488,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         onRequestProfileSwitchRef.current(button.id, trigger, profileSwitch)
         return
       }
+      if (nodes.length && typeof itemId === 'string') nodes[0].properties.libraryItemId = itemId
       if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
         branch.splice(0, branch.length, ...nodes)
       } else branch.splice(index, 1, ...nodes)
@@ -608,6 +630,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         createPortal(
           <WorkflowToolbox
             api={toolbox.api}
+            platform={platform}
             palettes={[...toolbox.palettes, savedPalette]}
             savedError={library.error}
             onRemoveSavedSequence={id => {
@@ -626,7 +649,9 @@ export function WorkflowAxonkey<Id extends string = InputId>({
                 const description =
                   behavior.type === 'paste'
                     ? `粘贴：${behavior.text || '（添加后填写文本）'}`
-                    : behaviorSummary(behavior, platform)
+                    : behavior.type === 'openApp'
+                      ? `打开应用：${behavior.path || '（添加后选择应用）'}`
+                      : behaviorSummary(behavior, platform)
                 return `${description}${behavior.enabled ? '' : '（已停用）'}`
               })
             }

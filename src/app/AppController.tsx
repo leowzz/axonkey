@@ -1,3 +1,4 @@
+import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
 import { LegacyCleanupFlow } from '../components/LegacyCleanupDialog'
 import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
@@ -1858,7 +1859,7 @@ function AppController({
     </div>
   )
 
-  return (
+  const appShell = (
     <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && (
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
@@ -2294,6 +2295,21 @@ function AppController({
         <LegacyCleanupFlow onComplete={() => setLegacyCleanupOpen(false)} />
       )}
     </div>
+  )
+  return (
+    <BehaviorLibraryContext.Provider
+      value={{
+        client: cloud.client,
+        userId: cloud.user?.id ?? null,
+        accountReady: cloud.accountReady,
+        onLogin: () => {
+          setSettingsSection('cloud')
+          navigateToPage('settings')
+        },
+      }}
+    >
+      {appShell}
+    </BehaviorLibraryContext.Provider>
   )
 }
 

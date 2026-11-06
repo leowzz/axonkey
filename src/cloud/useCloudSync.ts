@@ -246,6 +246,8 @@ export function useCloudSync(options: {
   }, [preferences.session?.user.id, preferences.autoSync])
 
   return {
+    client,
+    accountReady: accountLoaded,
     user: preferences.session?.user ?? null,
     autoSync: preferences.autoSync,
     lastSync: preferences.session ? preferences.accounts[preferences.session.user.id]?.lastSync : null,
