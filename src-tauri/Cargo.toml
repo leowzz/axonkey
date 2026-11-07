@@ -1,6 +1,6 @@
 [package]
 name = "axonkey"
-version = "1.8.12"
+version = "1.8.13"
 default-run = "axonkey"
 description = "Axonkey RC003 key mapping editor"
 authors = ["Axonkey"]
