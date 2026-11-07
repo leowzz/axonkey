@@ -96,7 +96,7 @@ export function insertedWorkflowSteps(step: Step, platform: Platform, label: Lab
     behaviors = [behavior]
   }
   const steps = behaviors.map((behavior) => behaviorToWorkflowStep(behavior, label))
-  if (['paste', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
+  if (['paste', 'typeText', 'openPath', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
     for (const node of steps) node.properties.draftGroup = step.id
   }
   return steps

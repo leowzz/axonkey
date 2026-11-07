@@ -172,6 +172,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       },
       { preset: 'delay', name: '等待' },
       { preset: 'paste', name: '粘贴文本' },
+      { preset: 'typeText', name: '模拟输入文字' },
+      { preset: 'openPath', name: '打开文件或文件夹' },
       { preset: 'openApp', name: '打开应用' },
       { preset: 'openWebsite', name: '打开网站' },
     ]

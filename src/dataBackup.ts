@@ -1,5 +1,7 @@
 import {
   createEmptyBehaviorMap,
+  requiresNewBehaviorVersion,
+  newBehaviorMinAppVersion,
   normalizeBehavior,
   parseSequenceImport,
   serializeSequence,
@@ -24,7 +26,8 @@ export type BackupData = {
 }
 export type BackupDocument = {
   format: 'axonkey-backup'
-  version: 2
+  version: 2 | 3
+  minAppVersion?: string
   exportedAt: string
   appVersion: string
   activeProfileIds: Record<DeviceId, string>
@@ -63,7 +66,7 @@ function behavior(value: unknown): Behavior {
     !normalized ||
     Object.entries(normalized).some(([key, entry]) => JSON.stringify(raw[key]) !== JSON.stringify(entry))
   )
-    return invalid('包含不支持或不完整的行为')
+    return invalid(`包含不支持或不完整的行为 ${String(raw.type)}，请升级 Axonkey 后重试`)
   return normalized
 }
 
@@ -77,7 +80,7 @@ export function createDataBackup(
   appVersion: string,
   date = new Date(),
 ): BackupDocument {
-  return {
+  const document: BackupDocument = {
     format: 'axonkey-backup',
     version: 2,
     exportedAt: date.toISOString(),
@@ -103,6 +106,17 @@ export function createDataBackup(
     audio: { ...data.audio },
     preferences: { ...data.preferences },
   }
+  const behaviors = [
+    ...document.profiles.flatMap(profile =>
+      Object.values(profile.keys).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
+    ),
+    ...document.savedBehaviors.flatMap(saved => saved.behaviors),
+  ]
+  if (requiresNewBehaviorVersion(behaviors)) {
+    document.version = 3
+    document.minAppVersion = newBehaviorMinAppVersion
+  }
+  return document
 }
 
 /** Reject the whole backup on unsupported data; never import a partial profile. */
@@ -118,7 +132,8 @@ export function parseDataBackup(text: string): ParsedBackup {
 
 export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
   const root = record(decoded)
-  if (root.format !== 'axonkey-backup' || root.version !== 2) return invalid('不是支持的 Axonkey 数据备份版本')
+  if (root.format !== 'axonkey-backup' || ![2, 3].includes(root.version as number))
+    return invalid('不是支持的 Axonkey 数据备份版本')
   const exportedAt = string(root.exportedAt, '备份时间')
   if (!Number.isFinite(Date.parse(exportedAt))) return invalid('备份时间不正确')
   if (!Array.isArray(root.profiles) || !root.profiles.length) return invalid('至少需要一个配置文件')
@@ -184,8 +199,9 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
         }),
       ),
     )
-  } catch {
-    return invalid('已保存的行为列表不完整或包含重复 ID')
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('备份文件无效：')) throw error
+    return invalid('已保存的行为列表不完整、包含不支持的行为或重复 ID，请检查文件或升级 Axonkey')
   }
   const settings = record(root.settings)
   const audio = record(root.audio)

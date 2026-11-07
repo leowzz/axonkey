@@ -43,7 +43,7 @@ test('default backup filenames include the local timestamp and a JSON extension'
 test('malformed or newer backup data is rejected as a whole rather than silently dropping mappings', () => {
   const valid = createDataBackup(sampleData(), '1.0.14')
   for (const mutate of [
-    data => { data.version = 3 },
+    data => { data.version = 4 },
     data => { data.profiles = [] },
     data => { data.profiles[1].id = data.profiles[0].id },
     data => { data.activeProfileIds.rc003 = 'missing' },
@@ -107,8 +107,8 @@ test('restore writes compatible application storage and returns to backup settin
   assert.equal(values.get('setup'), 'local permissions')
 })
 
-test('backups only accept the current version', () => {
-  for (const version of [undefined, 1, 3]) {
+test('backups reject unknown versions', () => {
+  for (const version of [undefined, 1, 4]) {
     const document = createDataBackup(sampleData(), '1.0.20')
     document.version = version
     assert.throws(() => parseDataBackup(JSON.stringify(document)), /版本/)
@@ -172,7 +172,7 @@ test('old v2 backups can omit the complete middle-button group; malformed mappin
   }
   assert.equal(parseBackupImport(JSON.stringify(file)).kind, 'legacy')
   for (const mutate of [
-    data => { data.version = 3 },
+    data => { data.version = 4 },
     data => { data.profiles[0].keys.power.click[0].type = 'unknown' },
     data => { data.profiles.find(profile => profile.deviceId === 'mouse').keys['global.buttonMiddle'] = { click: [], doubleClick: [], longPress: [] } },
     data => { data.activeProfileIds.rc003 = 'missing' },

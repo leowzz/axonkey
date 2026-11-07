@@ -1359,9 +1359,12 @@ bool axonkey_macos_post_text(const uint16_t *text, size_t length) {
         return false;
     }
     const size_t chunk_size = 20;
-    for (size_t offset = 0; offset < length; offset += chunk_size) {
+    for (size_t offset = 0; offset < length;) {
         size_t count = length - offset;
         if (count > chunk_size) count = chunk_size;
+        // Keep a UTF-16 surrogate pair in the same keyboard event.
+        if (offset + count < length && text[offset + count - 1] >= 0xD800 &&
+            text[offset + count - 1] <= 0xDBFF) count--;
         CGEventRef down = CGEventCreateKeyboardEvent(NULL, 0, true);
         CGEventRef up = CGEventCreateKeyboardEvent(NULL, 0, false);
         if (down == NULL || up == NULL) {
@@ -1379,12 +1382,15 @@ bool axonkey_macos_post_text(const uint16_t *text, size_t length) {
             kCGEventSourceUserData,
             AXONKEY_SYNTHETIC_EVENT_MARKER
         );
+        CGEventSetFlags(down, 0);
+        CGEventSetFlags(up, 0);
         CGEventKeyboardSetUnicodeString(down, count, (const UniChar *)(text + offset));
         CGEventKeyboardSetUnicodeString(up, count, (const UniChar *)(text + offset));
         CGEventPost(kCGHIDEventTap, down);
         CGEventPost(kCGHIDEventTap, up);
         CFRelease(down);
         CFRelease(up);
+        offset += count;
     }
     return true;
 }

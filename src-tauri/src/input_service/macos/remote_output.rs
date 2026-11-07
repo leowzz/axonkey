@@ -84,6 +84,14 @@ impl RemoteOutput {
                 enabled: true,
                 direction,
             },
+            Output::TypeText(text) => NativeBehavior::TypeText {
+                enabled: true,
+                text,
+            },
+            Output::OpenPath(path) => NativeBehavior::OpenPath {
+                enabled: true,
+                path,
+            },
             Output::Paste(text) => NativeBehavior::Paste {
                 enabled: true,
                 text,

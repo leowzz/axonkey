@@ -20,8 +20,10 @@ export const behaviorTypes = [
   'mouse',
   'cursorMove',
   'paste',
+  'typeText',
   'delay',
   'openApp',
+  'openPath',
   'openWebsite',
   'switchProfile',
   'disabled',
@@ -52,6 +54,9 @@ export type PasteBehavior = BehaviorBase & {
   text: string
 }
 
+export type TypeTextBehavior = BehaviorBase & { type: 'typeText'; text: string }
+export type OpenPathBehavior = BehaviorBase & { type: 'openPath'; path: string }
+
 export type DelayBehavior = BehaviorBase & {
   type: 'delay'
   ms: number
@@ -76,6 +81,8 @@ export type Behavior =
   | MouseBehavior
   | CursorMoveBehavior
   | PasteBehavior
+  | TypeTextBehavior
+  | OpenPathBehavior
   | DelayBehavior
   | OpenAppBehavior
   | OpenWebsiteBehavior
@@ -90,7 +97,8 @@ export const mappingTransferVersion = 2
 
 export type MappingTransfer = {
   format: typeof mappingTransferFormat
-  version: typeof mappingTransferVersion
+  version: 2 | 3
+  minAppVersion?: string
   exportedAt: string
   deviceId: DeviceId
   enabled: boolean
@@ -110,6 +118,8 @@ export type CreateBehaviorOptions =
   | { type: 'cursorMove'; direction: CursorDirection; distance?: number; enabled?: boolean; id?: string }
   | { type: 'key'; key?: string; enabled?: boolean; id?: string }
   | { type: 'shortcut'; keys?: readonly string[]; enabled?: boolean; id?: string }
+  | { type: 'typeText'; text?: string; enabled?: boolean; id?: string }
+  | { type: 'openPath'; path?: string; enabled?: boolean; id?: string }
   | { type: 'paste'; text?: string; enabled?: boolean; id?: string }
   | { type: 'delay'; ms?: number; enabled?: boolean; id?: string }
   | { type: 'openApp'; path?: string; enabled?: boolean; id?: string }
@@ -118,6 +128,18 @@ export type CreateBehaviorOptions =
   | { type: 'disabled'; enabled?: boolean; id?: string }
 
 const maxDelayMs = 300_000
+
+export const newBehaviorMinAppVersion = '1.8.11'
+export function requiresNewBehaviorVersion(behaviors: readonly Behavior[]): boolean {
+  return behaviors.some(behavior => behavior.type === 'typeText' || behavior.type === 'openPath')
+}
+
+export function normalizeFilePath(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const path = value.trim().replace(/^"(.*)"$/, '$1')
+  if (/[\u0000-\u001f\u007f]/.test(path)) return null
+  return /^(?:[a-z]:[\\/]|\\\\[^\\]+\\|\/)/i.test(path) ? path : null
+}
 
 export function normalizeApplicationPath(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -205,10 +227,13 @@ export function createBehavior(options: CreateBehaviorOptions): Behavior {
       const keys = cleanKeys(options.keys)
       return { id, enabled, type: 'shortcut', keys: keys.length > 0 ? keys : ['Ctrl', 'C'] }
     }
+    case 'typeText':
     case 'paste':
-      return { id, enabled, type: 'paste', text: typeof options.text === 'string' ? options.text : '' }
+      return { id, enabled, type: options.type, text: typeof options.text === 'string' ? options.text : '' }
     case 'delay':
       return { id, enabled, type: 'delay', ms: finiteDelay(options.ms) }
+    case 'openPath':
+      return { id, enabled, type: 'openPath', path: normalizeFilePath(options.path) ?? '' }
     case 'openApp':
       return { id, enabled, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
     case 'openWebsite':
@@ -311,10 +336,15 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
       const keys = cleanKeys(value.keys)
       return keys.length > 0 ? { id, enabled, type, keys } : null
     }
+    case 'typeText':
     case 'paste':
       return typeof value.text === 'string' ? { id, enabled, type, text: value.text } : null
     case 'delay':
       return { id, enabled, type, ms: finiteDelay(value.ms) }
+    case 'openPath': {
+      const path = normalizeFilePath(value.path)
+      return path ? { id, enabled, type, path } : null
+    }
     case 'openApp': {
       const path = normalizeApplicationPath(value.path)
       return path ? { id, enabled, type, path } : null
@@ -378,9 +408,11 @@ export function parseStoredBehaviors(value: unknown): BehaviorMap {
     for (const trigger of triggerTypes) {
       const rawList = rawButton[trigger]
       if (!Array.isArray(rawList)) continue
-      result[buttonId][trigger] = rawList
-        .map((entry, index) => normalizeBehavior(entry, `${buttonId}-${trigger}-${index + 1}`))
-        .filter((entry): entry is Behavior => entry !== null)
+      const normalized = rawList.map((entry, index) => normalizeBehavior(entry, `${buttonId}-${trigger}-${index + 1}`))
+      if (normalized.some(entry => entry === null)) {
+        console.error(`不支持的行为：${buttonId}/${trigger} 已禁用整个序列，请升级 Axonkey。`)
+        result[buttonId][trigger] = [createBehavior({ type: 'disabled' })]
+      } else result[buttonId][trigger] = normalized as Behavior[]
     }
   }
   return result
@@ -404,6 +436,14 @@ export function createMappingExport(
     enabled,
     behaviors: Object.fromEntries(device.inputIds.map(id => [id, cloned[id]])),
   }
+  if (
+    requiresNewBehaviorVersion(
+      Object.values(transfer.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
+    )
+  ) {
+    transfer.version = 3
+    transfer.minAppVersion = newBehaviorMinAppVersion
+  }
   const name =
     typeof profileName === 'string'
       ? profileName
@@ -424,7 +464,7 @@ function sequenceArgument(value: string) {
 /** One command per line; quoted arguments preserve text, whitespace and paths. */
 export function serializeSequence(behaviors: Behavior[]): string {
   return [
-    sequenceTextHeader,
+    requiresNewBehaviorVersion(behaviors) ? 'axonkey/2' : sequenceTextHeader,
     ...behaviors.map(behavior => {
       let line: string
       switch (behavior.type) {
@@ -436,6 +476,12 @@ export function serializeSequence(behaviors: Behavior[]): string {
           break
         case 'delay':
           line = `wait ${behavior.ms}ms`
+          break
+        case 'typeText':
+          line = `type ${JSON.stringify(behavior.text)}`
+          break
+        case 'openPath':
+          line = `path ${sequenceArgument(behavior.path)}`
           break
         case 'paste':
           line = `text ${JSON.stringify(behavior.text)}`
@@ -493,7 +539,7 @@ function parseSequenceText(text: string): unknown[] | null {
       .trim(),
   )
   const headers = lines.flatMap((line, index) => (/^axonkey\/\S+$/.test(line) ? [index] : []))
-  if (headers.length !== 1 || lines[headers[0]] !== sequenceTextHeader) return null
+  if (headers.length !== 1 || ![sequenceTextHeader, 'axonkey/2'].includes(lines[headers[0]])) return null
   const end = lines.indexOf('end', headers[0] + 1)
   if (end === -1) return null
   const behaviors: unknown[] = []
@@ -512,6 +558,8 @@ function parseSequenceText(text: string): unknown[] | null {
       if (ms > maxDelayMs) return null
       behavior = { type: 'delay', ms }
     } else if (command === 'text' && args.length === 1) behavior = { type: 'paste', text: args[0] }
+    else if (command === 'type' && args.length === 1) behavior = { type: 'typeText', text: args[0] }
+    else if (command === 'path' && args.length === 1) behavior = { type: 'openPath', path: args[0] }
     else if (command === 'wheel' && args.length === 1) behavior = { type: 'wheel', direction: args[0] }
     else if (command === 'mouse' && args.length === 1) behavior = { type: 'mouse', button: args[0] }
     else if (command === 'move' && args.length === 2 && /^\d+$/.test(args[1])) {
@@ -560,7 +608,8 @@ export function parseMappingImport(value: unknown, targetDeviceId: DeviceId = 'r
   }
   if (!isRecord(parsed)) return null
 
-  if (parsed.format !== mappingTransferFormat || parsed.version !== mappingTransferVersion) return null
+  if (parsed.format !== mappingTransferFormat || ![mappingTransferVersion, 3].includes(parsed.version as number))
+    return null
   if (parsed.deviceId !== targetDeviceId) return null
   const device = devices.find(device => device.id === targetDeviceId)!
   const source = parsed.behaviors
