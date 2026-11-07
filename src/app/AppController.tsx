@@ -136,11 +136,87 @@ import { listen } from '@tauri-apps/api/event'
 import { save } from '@tauri-apps/plugin-dialog'
 import { ChangeEvent, KeyboardEvent, SetStateAction, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { reportTencentEvent } from '../telemetry'
+import { behaviorToCliBehavior, cliBehaviorToBehavior, cliSchema, normalizeCliSequence } from '../cliContract'
+import type { CliRequest } from '../cliContract'
 
 type PendingProfileImport = ImportedMapping & {
   deviceId: DeviceId
   fileName: string
   suggestedName: string
+}
+
+type CliParams = Record<string, unknown>
+
+class CliOperationError extends Error {
+  code: string
+
+  constructor(code: string, message: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+async function loadCliKeymapSvg(url: string) {
+  const response = await fetch(new URL(url, window.location.href))
+  if (!response.ok) throw new Error(`无法读取键位图 SVG（HTTP ${response.status}）`)
+  return response.text()
+}
+
+function cliParams(value: unknown): CliParams {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return value as CliParams
+}
+
+function cliPlatform(platform: Platform): 'windows' | 'macos' {
+  return platform === 'macos' ? 'macos' : 'windows'
+}
+
+function cliDeviceId(value: unknown, fallback: DeviceId): DeviceId {
+  if (typeof value !== 'string' || !value.trim()) return fallback
+  const normalized = value.trim().toLowerCase()
+  const aliases: Record<string, DeviceId> = {
+    remote: 'rc003',
+    rc003: 'rc003',
+    xiaomi: 'rc003',
+    cmiot: 'cmiotA15',
+    cmiota15: 'cmiotA15',
+    mouse: 'mouse',
+  }
+  const device = aliases[normalized]
+  if (!device) throw new CliOperationError('invalid_target', '不支持的设备：' + value)
+  return device
+}
+
+function cliTrigger(value: unknown): TriggerType {
+  if (value === undefined || value === null || value === '') return 'click'
+  if (value === 'click' || value === 'doubleClick' || value === 'longPress') return value
+  if (value === 'double-click') return 'doubleClick'
+  if (value === 'long-press') return 'longPress'
+  throw new CliOperationError('invalid_target', '不支持的触发方式：' + String(value))
+}
+
+function cliInputId(value: unknown, deviceId: DeviceId): InputId {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new CliOperationError('invalid_target', '必须指定 button 或 input')
+  }
+  const input = value.trim() as InputId
+  const device = devices.find(item => item.id === deviceId)!
+  if (device.inputIds.includes(input)) return input
+  const aliases: Record<string, string> = {
+    voice: 'voice',
+    power: 'power',
+    back: 'back',
+    home: 'home',
+    menu: 'menu',
+    enter: 'enter',
+  }
+  const alias = aliases[input.toLowerCase()]
+  if (alias && device.inputIds.includes(alias as InputId)) return alias as InputId
+  throw new CliOperationError('invalid_target', '设备 ' + deviceId + ' 没有按键：' + value)
+}
+
+function cliPublicSequence(list: Behavior[], platform: Platform) {
+  return list.map(behavior => behaviorToCliBehavior(behavior, cliPlatform(platform)))
 }
 
 function AppController({
@@ -435,9 +511,11 @@ function AppController({
     if (notifyOnDesktop && nativeRuntime) {
       const from = current.profiles.find(profile => profile.id === current.activeProfileIds[target.deviceId])!.name
       logInfo(`Showing profile switch notification: ${from} -> ${target.name}`)
-      void invoke('show_profile_switch_overlay', { device: devices.find(device => device.id === target.deviceId)!.name, from, to: target.name }).catch(error =>
-        logError('Failed to show profile switch notification', error),
-      )
+      void invoke('show_profile_switch_overlay', {
+        device: devices.find(device => device.id === target.deviceId)!.name,
+        from,
+        to: target.name,
+      }).catch(error => logError('Failed to show profile switch notification', error))
     }
     setToast(`已切换到“${target.name}”`)
     window.setTimeout(() => setToast(''), 1800)
@@ -447,11 +525,7 @@ function AppController({
   profileSwitchRef.current = request => {
     const current = profileStateRef.current
     if (request.deviceId !== 'rc003' && request.deviceId !== 'cmiotA15' && request.deviceId !== 'mouse') return
-    const id = adjacentProfileId(
-      current.profiles,
-      current.activeProfileIds[request.deviceId],
-      request,
-    )
+    const id = adjacentProfileId(current.profiles, current.activeProfileIds[request.deviceId], request)
     if (id) switchMappingProfile(id, true)
   }
   useEffect(() => {
@@ -593,6 +667,342 @@ function AppController({
     setBehaviors(current => updateWorkflowInput(current, inputId, sequences))
     setAutoSaveState('saving')
   }, [])
+
+  const processCliRequest = useCallback(
+    async (request: CliRequest) => {
+      const respond = async (response: Record<string, unknown>) => {
+        await invoke('cli_write_response', {
+          response: {
+            protocol: cliSchema,
+            id: request.id,
+            ...response,
+          },
+        })
+      }
+      try {
+        if (request.protocol !== cliSchema) throw new CliOperationError('invalid_arguments', '不支持的 CLI 协议版本')
+        const params = cliParams(request.params)
+        const state = profileStateRef.current
+        const selectedDevice = selectedDeviceId
+        const deviceId = cliDeviceId(params.device, selectedDevice)
+        const device = devices.find(item => item.id === deviceId)!
+        const platformName = cliPlatform(platform)
+        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
+        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
+        const profile =
+          profileValue !== '' && profileValue !== 'active'
+            ? persistedProfiles.find(
+                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
+              )
+            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
+        if (!profile && request.method !== 'keymap.get')
+          throw new CliOperationError('invalid_target', '找不到指定配置文件')
+
+        if (request.method === 'capabilities') {
+          await respond({
+            ok: true,
+            result: {
+              schema: cliSchema,
+              platform: platformName,
+              appVersion: appPackage.version,
+              triggers: ['click', 'doubleClick', 'longPress'],
+              sequence: {
+                type: 'array',
+                description: '按顺序执行的行为；空数组表示保留原始输入',
+              },
+              behaviors: [
+                { type: 'key', fields: ['key'] },
+                { type: 'shortcut', fields: ['keys'] },
+                { type: 'wheel', fields: ['direction'] },
+                { type: 'mouse', fields: ['button'] },
+                { type: 'cursorMove', fields: ['direction', 'distance'], distance: { min: 1, max: 500 } },
+                { type: 'paste', fields: ['text'] },
+                { type: 'typeText', fields: ['text'] },
+                { type: 'delay', fields: ['ms'], ms: { min: 0, max: 300000 } },
+                { type: 'openApp', fields: ['path'] },
+                { type: 'openPath', fields: ['path'] },
+                { type: 'openWebsite', fields: ['url'] },
+                { type: 'switchProfile', fields: ['direction', 'wrap'] },
+                { type: 'disabled', fields: [] },
+              ],
+              devices: devices.map(item => ({
+                id: item.id,
+                name: item.name,
+                model: item.model,
+                inputKind: item.inputKind,
+                keymap: item.remoteView
+                  ? { method: 'keymap.get', format: 'svg' }
+                  : { method: 'keymap.get', format: null, coordinateSystem: 'semantic-inputs' },
+                inputs: item.inputIds.map(inputId => {
+                  const button = item.buttons?.find(candidate => candidate.id === inputId)
+                  return { id: inputId, label: button?.label ?? inputId }
+                }),
+              })),
+              profiles: Object.fromEntries(
+                devices.map(item => [
+                  item.id,
+                  persistedProfiles
+                    .filter(profileItem => profileItem.deviceId === item.id)
+                    .map(profileItem => ({
+                      id: profileItem.id,
+                      name: profileItem.name,
+                      active: profileItem.id === state.activeProfileIds[item.id],
+                    })),
+                ]),
+              ),
+            },
+          })
+          return
+        }
+        if (request.method === 'status') {
+          await respond({
+            ok: true,
+            result: {
+              schema: cliSchema,
+              appVersion: appPackage.version,
+              platform: platformName,
+              mappingEnabled: enabled,
+              mouseEnabled,
+            },
+          })
+          return
+        }
+        if (request.method === 'keymap.get') {
+          const remoteView = device.remoteView
+          const artwork = remoteView
+            ? {
+                format: 'svg',
+                url: remoteView.artworkUrl,
+                ariaLabel: remoteView.ariaLabel,
+                viewBox: remoteView.viewBox,
+                svg: await loadCliKeymapSvg(remoteView.artworkUrl),
+              }
+            : null
+          const keys = device.inputIds.map(inputId => {
+            const button = device.buttons?.find(candidate => candidate.id === inputId)
+            const mouseInput = mouseInputs.find(candidate => candidate.id === inputId)
+            const region = remoteView?.keyRegions[inputId]
+            const normalized =
+              remoteView && region
+                ? {
+                    x: region.anchor.x / remoteView.viewBox.width,
+                    y: region.anchor.y / remoteView.viewBox.height,
+                  }
+                : null
+            const verticalZone = normalized
+              ? normalized.y < 1 / 3
+                ? 'upper'
+                : normalized.y < 2 / 3
+                  ? 'middle'
+                  : 'lower'
+              : null
+            const horizontalZone = normalized
+              ? normalized.x < 1 / 3
+                ? 'left'
+                : normalized.x < 2 / 3
+                  ? 'center'
+                  : 'right'
+              : null
+            return {
+              id: inputId,
+              label: button?.label ?? mouseInput?.label ?? inputId,
+              short: button?.short ?? null,
+              side: button?.side ?? null,
+              position:
+                button && remoteView
+                  ? {
+                      percent: { x: button.x, y: button.y },
+                      viewBox: region?.anchor ?? null,
+                      normalized,
+                      zone: { vertical: verticalZone, horizontal: horizontalZone },
+                    }
+                  : null,
+              regionPath: region?.path ?? null,
+              context: mouseInput?.contextLabel ?? null,
+            }
+          })
+          await respond({
+            ok: true,
+            result: {
+              schema: cliSchema,
+              device: { id: device.id, name: device.name, model: device.model, inputKind: device.inputKind },
+              artwork,
+              layout: remoteView
+                ? {
+                    coordinateSystem: 'svg-viewBox',
+                    origin: 'top-left',
+                    percentRange: { x: [0, 100], y: [0, 100] },
+                    verticalZones: {
+                      upper: [0, 33.333],
+                      middle: [33.333, 66.667],
+                      lower: [66.667, 100],
+                    },
+                  }
+                : { coordinateSystem: 'semantic-inputs' },
+              keys,
+            },
+          })
+          return
+        }
+        if (!profile) throw new CliOperationError('invalid_target', '找不到指定配置文件')
+        if (request.method === 'profile.list') {
+          await respond({
+            ok: true,
+            result: {
+              device: deviceId,
+              profiles: persistedProfiles
+                .filter(item => item.deviceId === deviceId)
+                .map(item => ({ id: item.id, name: item.name, active: item.id === state.activeProfileIds[deviceId] })),
+            },
+          })
+          return
+        }
+
+        if (!['mapping', 'shortcut'].some(prefix => request.method.startsWith(prefix + '.'))) {
+          throw new CliOperationError('invalid_arguments', '不支持的 CLI 操作：' + request.method)
+        }
+        const action = request.method.split('.')[1]
+        const inputValue = params.button ?? params.input
+        const inputId = action === 'list' && inputValue === undefined ? null : cliInputId(inputValue, deviceId)
+        const trigger = cliTrigger(params.trigger)
+        const targetSequence = inputId ? profile.behaviors[inputId][trigger] : null
+        const publicTarget = inputId ? cliPublicSequence(targetSequence!, platform) : null
+
+        if (action === 'list') {
+          await respond({
+            ok: true,
+            result: {
+              device: deviceId,
+              profile: { id: profile.id, name: profile.name, active: profile.id === state.activeProfileIds[deviceId] },
+              mappings: device.inputIds.flatMap(input =>
+                (['click', 'doubleClick', 'longPress'] as TriggerType[]).map(triggerName => ({
+                  button: input,
+                  trigger: triggerName,
+                  actions: cliPublicSequence(profile.behaviors[input][triggerName], platform),
+                })),
+              ),
+            },
+          })
+          return
+        }
+        if (!inputId || !targetSequence || !publicTarget) {
+          throw new CliOperationError('invalid_target', 'get、set、clear 必须指定 button 或 input')
+        }
+        if (action === 'get') {
+          await respond({
+            ok: true,
+            result: {
+              device: deviceId,
+              profile: { id: profile.id, name: profile.name },
+              button: inputId,
+              trigger,
+              actions: publicTarget,
+            },
+          })
+          return
+        }
+        if (action !== 'set' && action !== 'clear') {
+          throw new CliOperationError('invalid_arguments', '不支持的映射操作：' + action)
+        }
+        if (action === 'clear' && params.yes !== true) {
+          throw new CliOperationError('invalid_arguments', '清除映射需要 --yes')
+        }
+        const rawSequence =
+          action === 'clear'
+            ? []
+            : request.method.startsWith('shortcut.')
+              ? [{ type: 'shortcut', keys: params.keys }]
+              : (params.sequence ?? params.actions ?? (params.action === undefined ? undefined : [params.action]))
+        const normalized = normalizeCliSequence(rawSequence, platformName)
+        if (!normalized) throw new CliOperationError('invalid_behavior', '行为序列格式不正确，请参考 capabilities')
+        const nextSequence = normalized.map((item, index) => {
+          const behavior = cliBehaviorToBehavior(item, platformName, inputId + '-' + trigger + '-' + (index + 1))
+          if (!behavior) throw new CliOperationError('invalid_behavior', '行为格式不正确，请参考 capabilities')
+          return behavior
+        })
+        const before = publicTarget
+        const after = cliPublicSequence(nextSequence, platform)
+        if (params.dryRun === true) {
+          await respond({
+            ok: true,
+            result: {
+              dryRun: true,
+              device: deviceId,
+              profile: { id: profile.id, name: profile.name },
+              button: inputId,
+              trigger,
+              before,
+              after,
+            },
+          })
+          return
+        }
+        const nextProfile = {
+          ...profile,
+          behaviors: updateBehaviorList(profile.behaviors, inputId, trigger, () => nextSequence),
+        }
+        const nextProfiles = persistedProfiles.map(item => (item.id === profile.id ? nextProfile : item))
+        const isActive = profile.id === state.activeProfileIds[deviceId]
+        const nextBehaviors = isActive
+          ? mergeDeviceBehaviors(state.behaviors, deviceId, nextProfile.behaviors)
+          : state.behaviors
+        const nextState = { profiles: nextProfiles, activeProfileIds: state.activeProfileIds, behaviors: nextBehaviors }
+        profileStateRef.current = nextState
+        setProfiles(nextProfiles)
+        if (isActive) setBehaviors(nextBehaviors)
+        setAutoSaveState('saving')
+        if (isActive) await new Promise<void>(resolve => window.setTimeout(resolve, 0))
+        await respond({
+          ok: true,
+          result: {
+            applied: true,
+            device: deviceId,
+            profile: { id: profile.id, name: profile.name },
+            button: inputId,
+            trigger,
+            before,
+            after,
+          },
+        })
+      } catch (error) {
+        const code = error instanceof CliOperationError ? error.code : 'app_error'
+        const message = error instanceof Error ? error.message : String(error)
+        try {
+          await respond({ ok: false, error: { code, message } })
+        } catch (responseError) {
+          logError('Failed to write CLI response', responseError)
+        }
+      }
+    },
+    [enabled, mouseEnabled, nativeRuntime, platform, selectedDeviceId, setBehaviors],
+  )
+
+  useEffect(() => {
+    if (!nativeRuntime || !platformReady) return
+    let active = true
+    let polling = false
+    const poll = async () => {
+      if (!active || polling) return
+      polling = true
+      try {
+        const requests = await invoke<CliRequest[]>('cli_poll_requests')
+        for (const request of requests) {
+          if (!active) break
+          await processCliRequest(request)
+        }
+      } catch (error) {
+        logError('Failed to poll CLI requests', error)
+      } finally {
+        polling = false
+      }
+    }
+    void poll()
+    const timer = window.setInterval(() => void poll(), 120)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [nativeRuntime, platformReady, processCliRequest])
 
   useEffect(() => {
     // Discard legacy coordinates so shipped artwork positions always take effect.

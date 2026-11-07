@@ -107,6 +107,8 @@ venv/
 
 # Native and managed compiler output
 [Bb]in/
+!src-tauri/src/bin/
+!src-tauri/src/bin/axonkey-cli.rs
 [Oo]bj/
 [Dd]ebug/
 [Rr]elease/

@@ -1,5 +1,6 @@
 mod audio_service;
 mod backup_files;
+mod cli_ipc;
 mod devices;
 mod driver_migration;
 mod input_service;
@@ -95,12 +96,65 @@ fn launched_from_autostart() -> bool {
     args_request_autostart(std::env::args())
 }
 
+fn launched_from_cli_request() -> bool {
+    std::env::args().any(|arg| arg == cli_ipc::REQUEST_FLAG)
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn app_bundle_for_executable(executable: &std::path::Path) -> Option<std::path::PathBuf> {
     executable
         .ancestors()
         .find(|path| path.extension().is_some_and(|extension| extension == "app"))
         .map(std::path::Path::to_path_buf)
+}
+
+#[cfg(target_os = "macos")]
+fn register_cli_command() -> Result<(), String> {
+    use std::os::unix::fs::symlink;
+
+    let executable =
+        std::env::current_exe().map_err(|error| format!("Cannot locate Axonkey: {error}"))?;
+    let Some(bundle) = app_bundle_for_executable(&executable) else {
+        return Ok(());
+    };
+    let cli = bundle.join("Contents/MacOS/axonkey-cli");
+    if !cli.is_file() {
+        return Err(format!("Bundled CLI was not found at {}", cli.display()));
+    }
+
+    let home = std::env::var_os("HOME").ok_or_else(|| "HOME is not available".to_string())?;
+    let bin_directory = std::path::PathBuf::from(home).join(".local/bin");
+    std::fs::create_dir_all(&bin_directory)
+        .map_err(|error| format!("Cannot create {}: {error}", bin_directory.display()))?;
+    let link = bin_directory.join("axonkey-cli");
+
+    match std::fs::symlink_metadata(&link) {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            let target = std::fs::read_link(&link)
+                .map_err(|error| format!("Cannot inspect {}: {error}", link.display()))?;
+            if target == cli {
+                return Ok(());
+            }
+            let managed = target
+                .to_string_lossy()
+                .contains(".app/Contents/MacOS/axonkey-cli");
+            if !managed {
+                return Err(format!("{} already points to another CLI", link.display()));
+            }
+            std::fs::remove_file(&link)
+                .map_err(|error| format!("Cannot replace {}: {error}", link.display()))?;
+        }
+        Ok(_) => {
+            return Err(format!(
+                "{} already exists and is not a symlink",
+                link.display()
+            ))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("Cannot inspect {}: {error}", link.display())),
+    }
+
+    symlink(&cli, &link).map_err(|error| format!("Cannot register {}: {error}", link.display()))
 }
 
 #[cfg(target_os = "macos")]
@@ -1646,6 +1700,10 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            if args.iter().any(|arg| arg == cli_ipc::REQUEST_FLAG) {
+                log::info!(target: "axonkey::cli", "Existing instance received a CLI request");
+                return;
+            }
             if args_request_autostart(args) {
                 log::info!(target: "axonkey::runtime", "Existing instance received an autostart launch");
                 return;
@@ -1696,6 +1754,13 @@ pub fn run() {
             if let Err(error) = initialize_autostart(app.handle()) {
                 log::warn!(target: "axonkey::runtime", "Cannot initialize autostart: {error}");
             }
+            if let Err(error) = cli_ipc::initialize(app.handle()) {
+                log::warn!(target: "axonkey::cli", "Cannot initialize CLI bridge: {error}");
+            }
+            #[cfg(target_os = "macos")]
+            if let Err(error) = register_cli_command() {
+                log::warn!(target: "axonkey::cli", "Cannot register macOS CLI command: {error}");
+            }
             #[cfg(target_os = "windows")]
             app.manage(driver_migration::MigrationState::default());
             #[cfg(target_os = "windows")]
@@ -1715,7 +1780,11 @@ pub fn run() {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");
                 return Err(error.into());
             }
-            if launched_from_autostart() {
+            if launched_from_cli_request() {
+                #[cfg(target_os = "macos")]
+                let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                log::info!(target: "axonkey::cli", "CLI launch will remain in the background");
+            } else if launched_from_autostart() {
                 #[cfg(target_os = "macos")]
                 let _ = app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 log::info!(target: "axonkey::runtime", "Autostart launch will remain in the background");
@@ -1803,6 +1872,9 @@ pub fn run() {
             remove_device_instance,
             write_mapping_file,
             backup_files::open_backup_location,
+            cli_ipc::cli_poll_requests,
+            cli_ipc::cli_write_response,
+            cli_ipc::cli_cancel_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")

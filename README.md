@@ -84,6 +84,8 @@
 ## 更多帮助
 
 - [使用指南](docs/USAGE.md)：安装、映射、语音、设置与配置备份。
+- [Agent CLI](docs/CLI.md)：让 Agent 通过终端查看和配置快捷键与行为序列。
+- [行为格式](docs/BEHAVIORS.md)：文字输入、路径打开、序列导入导出与版本兼容约定。
 - [常见问题](docs/TROUBLESHOOTING.md)：启动、授权、设备连接和日志排查。
 - [设备集成约定](docs/DEVICE_INTEGRATION.md)：扫描、实物绑定、同型号多实例与新设备接入。
 - [开发与发布](docs/DEVELOPMENT.md)：源码运行、构建、签名与发布流程。
