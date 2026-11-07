@@ -1,4 +1,5 @@
-import type { DeviceDefinition, DeviceSupportPackage } from '../types.ts'
+import { supportPackageFor } from '../packages.ts'
+import type { DeviceDefinition } from '../types.ts'
 import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from './view.ts'
 
 export const cmiotA15RemoteDevice: DeviceDefinition = {
@@ -11,11 +12,4 @@ export const cmiotA15RemoteDevice: DeviceDefinition = {
   remoteView: cmiotA15RemoteView,
 }
 
-export const cmiotA15SupportPackage: DeviceSupportPackage = {
-  kind: 'cmiotA15',
-  name: 'CMIOT-A15',
-  model: 'CMIOT-A15',
-  artwork: cmiotA15RemoteView.artworkUrl,
-  inputs: cmiotA15RemoteView.buttons,
-  remoteView: cmiotA15RemoteView,
-}
+export const cmiotA15SupportPackage = supportPackageFor('cmiotA15')

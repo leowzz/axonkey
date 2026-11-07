@@ -1,9 +1,4 @@
 import type { CmiotA15RecordingMode, MappingInput, RemoteButton } from '../appTypes'
-import type { XiaomiRemoteButtonId } from './xiaomi-remote/buttons.ts'
-import type { CmiotA15RemoteButtonId } from './cmiot-a15-remote/buttons.ts'
-import type { XmBt29RemoteButtonId } from './xm-bt-29-remote/buttons.ts'
-import type { ObeRcuR5RemoteButtonId } from './obe-rcu-r5-remote/buttons.ts'
-import type { MouseInputId } from './system-mouse/inputs.ts'
 
 export type RemoteKeyRegion = {
   path: string
@@ -18,13 +13,16 @@ export type RemoteView = {
   ariaLabel: string
 }
 
-export type RemoteButtonId =
-  XiaomiRemoteButtonId | CmiotA15RemoteButtonId | XmBt29RemoteButtonId | ObeRcuR5RemoteButtonId
-export type InputId = RemoteButtonId | MouseInputId
+export type RemoteButtonId = string
+export type InputId = string
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313' | 'obeRcuR5'
+export type DeviceKind = string
 
 export type DeviceSupportPackage = {
+  version: number
+  adapter: string
+  hardwareId: string
+  capabilities: import('./packages.ts').PackageDefinition['capabilities']
   kind: DeviceKind
   name: string
   model: string

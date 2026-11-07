@@ -514,9 +514,10 @@ function IntegrationDialog({
         const information = current?.deviceInfo
         if (information?.status === 'ready') {
           const detectedKind = information.detectedKind ?? undefined
-          const detected = isMobileRemoteKind(detectedKind)
-            ? detectedKind
-            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? 'rc313')
+          const detected =
+            detectedKind !== undefined && isMobileRemoteKind(detectedKind)
+              ? detectedKind
+              : (mobileRemoteKindForSoftware(information.softwareRevision) ?? 'rc313')
           setKind(detected)
           return
         }

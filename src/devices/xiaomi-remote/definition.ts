@@ -1,4 +1,5 @@
-import type { DeviceDefinition, DeviceSupportPackage } from '../types.ts'
+import { supportPackageFor } from '../packages.ts'
+import type { DeviceDefinition } from '../types.ts'
 import { xiaomiRemoteButtonIds, xiaomiRemoteView } from './view.ts'
 
 export const xiaomiRemoteDevice: DeviceDefinition = {
@@ -11,11 +12,4 @@ export const xiaomiRemoteDevice: DeviceDefinition = {
   remoteView: xiaomiRemoteView,
 }
 
-export const xiaomiRemoteSupportPackage: DeviceSupportPackage = {
-  kind: 'rc003',
-  name: '小米蓝牙遥控器2Pro',
-  model: 'RC003',
-  artwork: xiaomiRemoteView.artworkUrl,
-  inputs: xiaomiRemoteView.buttons,
-  remoteView: xiaomiRemoteView,
-}
+export const xiaomiRemoteSupportPackage = supportPackageFor('rc003')

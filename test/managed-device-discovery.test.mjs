@@ -24,18 +24,7 @@ function compile(path, imports = {}, globals = {}) {
   })
   return module.exports
 }
-const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
-  './xbox-controller.svg': { default: 'controller.svg' },
-  './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
-})
-const model = compile('src/devices/integration/model.ts', {
-  '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
-  '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
-  '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
-  '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
-  '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
-  '../xbox-controller/index.ts': xboxDefinition,
-})
+const model = require('../src/devices/integration/model.ts')
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
@@ -485,6 +474,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '@tauri-apps/api/event': { listen: async (_, listener) => { listeners.push(listener); return () => {} } },
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: {} },
+    '../../telemetry': { reportTencentEvent() {} },
     '../../profileNavigation': require('../src/profileNavigation.ts'),
     '../shared/RemoteControl': { RemoteControl },
     '../../components/ProfileManager': { ProfileManager: () => null },

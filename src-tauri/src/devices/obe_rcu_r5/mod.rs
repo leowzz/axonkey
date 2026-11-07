@@ -5,13 +5,7 @@ use std::collections::HashSet;
 pub(crate) mod voice;
 
 pub(crate) fn matches_instance(id: &str) -> bool {
-    let id = id.to_ascii_uppercase();
-    let tokens: Vec<_> = id.split(['&', '_', '\\', ' ']).collect();
-    super::shared::bluetooth_hid_service(&id).is_some()
-        && tokens
-            .windows(2)
-            .any(|p| p[0] == "VID" && matches!(p[1], "1D5A" | "011D5A" | "051D5A"))
-        && tokens.windows(2).any(|p| p[0] == "PID" && p[1] == "C081")
+    super::packages::registry().matches_windows("obeRcuR5", id, "")
 }
 
 // Report ID, keyboard usage, device-scoped input ID.

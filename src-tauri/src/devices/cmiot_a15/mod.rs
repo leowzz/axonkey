@@ -6,13 +6,7 @@ pub(crate) mod voice;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn matches_instance(id: &str) -> bool {
-    let id = id.to_ascii_uppercase();
-    let tokens: Vec<_> = id.split(['&', '_', '\\', ' ']).collect();
-    super::shared::bluetooth_hid_service(&id).is_some()
-        && tokens
-            .windows(2)
-            .any(|p| p[0] == "VID" && matches!(p[1], "0416" | "010416" | "050416"))
-        && tokens.windows(2).any(|p| p[0] == "PID" && p[1] == "0300")
+    super::packages::registry().matches_windows("cmiotA15", id, "")
 }
 
 // Report ID, usage (or vendor state), device-scoped input ID.

@@ -1,13 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) fn matches_instance(id: &str) -> bool {
-    let id = id.to_ascii_uppercase();
-    let tokens: Vec<_> = id.split(['&', '_', '\\']).collect();
-    id.starts_with("HID\\")
-        && tokens
-            .windows(2)
-            .any(|p| p[0] == "VID" && matches!(p[1], "045E" | "0002045E"))
-        && tokens.windows(2).any(|p| p == ["PID", "02E0"])
+    super::packages::registry().matches_windows("xboxBluetooth", id, "")
 }
 
 // Only the verified 045e:02e0 Bluetooth layout; retain the physical report ID.

@@ -1,0 +1,215 @@
+[
+  {
+    "name": "schema version",
+    "path": [
+      "schemaVersion"
+    ],
+    "value": 2
+  },
+  {
+    "name": "empty packages",
+    "path": [
+      "packages"
+    ],
+    "value": []
+  },
+  {
+    "name": "duplicate package",
+    "path": [
+      "packages",
+      1,
+      "id"
+    ],
+    "value": "xboxBluetooth"
+  },
+  {
+    "name": "missing hardware",
+    "path": [
+      "packages",
+      0,
+      "hardwareId"
+    ],
+    "value": "unknown"
+  },
+  {
+    "name": "wrong fallback family",
+    "path": [
+      "hardware",
+      2,
+      "softwareFallbackPackageId"
+    ],
+    "value": "rc003"
+  },
+  {
+    "name": "unknown adapter",
+    "path": [
+      "packages",
+      0,
+      "adapter"
+    ],
+    "value": "downloaded-code"
+  },
+  {
+    "name": "invalid package version",
+    "path": [
+      "packages",
+      0,
+      "version"
+    ],
+    "value": 0
+  },
+  {
+    "name": "duplicate input",
+    "path": [
+      "packages",
+      1,
+      "inputs",
+      1,
+      "id"
+    ],
+    "value": "power"
+  },
+  {
+    "name": "missing region",
+    "path": [
+      "packages",
+      1,
+      "presentation",
+      "keyRegions",
+      "voice"
+    ],
+    "remove": true
+  },
+  {
+    "name": "wrong region reference",
+    "path": [
+      "packages",
+      1,
+      "inputs",
+      1,
+      "id"
+    ],
+    "value": "unknown"
+  },
+  {
+    "name": "invalid viewBox",
+    "path": [
+      "packages",
+      1,
+      "presentation",
+      "viewBox",
+      "height"
+    ],
+    "value": 0
+  },
+  {
+    "name": "invalid icon",
+    "path": [
+      "packages",
+      0,
+      "inputs",
+      0,
+      "icon"
+    ],
+    "value": "unknown"
+  },
+  {
+    "name": "invalid anchor",
+    "path": [
+      "packages",
+      1,
+      "presentation",
+      "keyRegions",
+      "voice",
+      "anchor",
+      "x"
+    ],
+    "value": "378"
+  },
+  {
+    "name": "remote asset",
+    "path": [
+      "packages",
+      0,
+      "presentation",
+      "artwork"
+    ],
+    "value": "https://example.com/device.svg"
+  },
+  {
+    "name": "invalid voice adapter",
+    "path": [
+      "packages",
+      1,
+      "capabilities",
+      "voice"
+    ],
+    "value": "unknown"
+  },
+  {
+    "name": "invalid recording mode",
+    "path": [
+      "packages",
+      1,
+      "capabilities",
+      "defaultRecordingMode"
+    ],
+    "value": "unknown"
+  },
+  {
+    "name": "invalid vendor",
+    "path": [
+      "hardware",
+      0,
+      "vendorId"
+    ],
+    "value": 65536
+  },
+  {
+    "name": "empty Windows matcher",
+    "path": [
+      "hardware",
+      0,
+      "windows",
+      "prefixes"
+    ],
+    "value": []
+  },
+  {
+    "name": "duplicate software marker",
+    "path": [
+      "packages",
+      3,
+      "softwareMarker"
+    ],
+    "value": "CMIOT3_B311"
+  },
+  {
+    "name": "missing nullable marker",
+    "path": [
+      "packages",
+      0,
+      "softwareMarker"
+    ],
+    "remove": true
+  },
+  {
+    "name": "missing voice capability",
+    "path": [
+      "packages",
+      1,
+      "capabilities",
+      "voice"
+    ],
+    "remove": true
+  },
+  {
+    "name": "missing software fallback",
+    "path": [
+      "hardware",
+      0,
+      "softwareFallbackPackageId"
+    ],
+    "remove": true
+  }
+]

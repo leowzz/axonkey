@@ -1,0 +1,1787 @@
+{
+  "schemaVersion": 1,
+  "hardware": [
+    {
+      "id": "xbox",
+      "vendorId": 1118,
+      "productId": 736,
+      "usagePage": 1,
+      "usage": 5,
+      "initialPackageId": "xboxBluetooth",
+      "softwareFallbackPackageId": null,
+      "hidPlatforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "windows": {
+        "prefixes": [
+          "HID\\"
+        ],
+        "vidTokens": [
+          "045E",
+          "0002045E"
+        ],
+        "requireHidService": false,
+        "includeHardwareId": false
+      }
+    },
+    {
+      "id": "rc003",
+      "vendorId": 10007,
+      "productId": 12984,
+      "usagePage": 1,
+      "usage": 6,
+      "initialPackageId": "rc003",
+      "softwareFallbackPackageId": null,
+      "hidPlatforms": [
+        "windows",
+        "macos",
+        "linux"
+      ],
+      "windows": {
+        "prefixes": [
+          "BTHLEDEVICE\\",
+          "HID\\"
+        ],
+        "vidTokens": [
+          "2717",
+          "012717"
+        ],
+        "requireHidService": false,
+        "includeHardwareId": true
+      }
+    },
+    {
+      "id": "mobile-a15",
+      "vendorId": 1046,
+      "productId": 768,
+      "usagePage": 1,
+      "usage": 6,
+      "initialPackageId": "cmiotA15",
+      "softwareFallbackPackageId": "rc313",
+      "hidPlatforms": [
+        "macos"
+      ],
+      "windows": {
+        "prefixes": [
+          "BTHLEDEVICE"
+        ],
+        "vidTokens": [
+          "0416",
+          "010416",
+          "050416"
+        ],
+        "requireHidService": true,
+        "includeHardwareId": false
+      }
+    },
+    {
+      "id": "obe",
+      "vendorId": 7514,
+      "productId": 49281,
+      "usagePage": 1,
+      "usage": 6,
+      "initialPackageId": "obeRcuR5",
+      "softwareFallbackPackageId": "obeRcuR5",
+      "hidPlatforms": [
+        "macos"
+      ],
+      "windows": {
+        "prefixes": [
+          "BTHLEDEVICE"
+        ],
+        "vidTokens": [
+          "1D5A",
+          "011D5A",
+          "051D5A"
+        ],
+        "requireHidService": true,
+        "includeHardwareId": false
+      }
+    }
+  ],
+  "packages": [
+    {
+      "id": "xboxBluetooth",
+      "version": 1,
+      "adapter": "xboxBluetooth",
+      "hardwareId": "xbox",
+      "name": "标准手柄",
+      "model": "Xbox 蓝牙 · 045E:02E0",
+      "softwareMarker": null,
+      "capabilities": {
+        "voice": null,
+        "recordingModes": [],
+        "defaultRecordingMode": "click"
+      },
+      "presentation": {
+        "renderer": "xbox",
+        "artwork": "/xbox-controller.svg"
+      },
+      "inputs": [
+        {
+          "id": "xbox.a",
+          "label": "A 键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.b",
+          "label": "B 键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.x",
+          "label": "X 键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.y",
+          "label": "Y 键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.lb",
+          "label": "LB 左肩键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rb",
+          "label": "RB 右肩键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.lt",
+          "label": "LT 左扳机",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rt",
+          "label": "RT 右扳机",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.view",
+          "label": "View 视图键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.menu",
+          "label": "Menu 菜单键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.guide",
+          "label": "主键",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.ls",
+          "label": "LS 左摇杆按下",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rs",
+          "label": "RS 右摇杆按下",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.dpad.up",
+          "label": "方向键向上",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.dpad.down",
+          "label": "方向键向下",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.dpad.left",
+          "label": "方向键向左",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.dpad.right",
+          "label": "方向键向右",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.ls.up",
+          "label": "左摇杆向上",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.ls.down",
+          "label": "左摇杆向下",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.ls.left",
+          "label": "左摇杆向左",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.ls.right",
+          "label": "左摇杆向右",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rs.up",
+          "label": "右摇杆向上",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rs.down",
+          "label": "右摇杆向下",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rs.left",
+          "label": "右摇杆向左",
+          "icon": "center"
+        },
+        {
+          "id": "xbox.rs.right",
+          "label": "右摇杆向右",
+          "icon": "center"
+        }
+      ]
+    },
+    {
+      "id": "rc003",
+      "version": 1,
+      "adapter": "rc003",
+      "hardwareId": "rc003",
+      "name": "小米蓝牙遥控器2Pro",
+      "model": "RC003",
+      "softwareMarker": null,
+      "capabilities": {
+        "voice": "rc003-atvv",
+        "recordingModes": [],
+        "defaultRecordingMode": "click"
+      },
+      "presentation": {
+        "renderer": "remote",
+        "artwork": "/rc003-remote-keymap.svg",
+        "ariaLabel": "小米 RC003 遥控器按键",
+        "viewBox": {
+          "width": 516,
+          "height": 1255
+        },
+        "keyRegions": {
+          "power": {
+            "path": "M 78.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0",
+            "anchor": {
+              "x": 132,
+              "y": 162
+            }
+          },
+          "voice": {
+            "path": "M 324.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0",
+            "anchor": {
+              "x": 378,
+              "y": 162
+            }
+          },
+          "up": {
+            "path": "M 115.34641071565687 318.23549801218286 A 197.5 192 0 0 1 394.6535892843432 318.2354980121829 L 329.59976541518074 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 379.40023458481926 Z",
+            "anchor": {
+              "x": 255,
+              "y": 304
+            }
+          },
+          "left": {
+            "path": "M 115.34641071565687 589.7645019878171 A 197.5 192 0 0 1 115.34641071565684 318.2354980121829 L 180.4002345848192 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 528.5997654151807 Z",
+            "anchor": {
+              "x": 100,
+              "y": 454
+            }
+          },
+          "confirm": {
+            "path": "M 149.8 455 a 105.2 105.2 0 1 0 210.4 0 a 105.2 105.2 0 1 0 -210.4 0",
+            "anchor": {
+              "x": 255,
+              "y": 455
+            }
+          },
+          "right": {
+            "path": "M 394.6535892843432 318.2354980121829 A 197.5 192 0 0 1 394.6535892843432 589.7645019878171 L 329.59976541518074 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 379.40023458481926 Z",
+            "anchor": {
+              "x": 410,
+              "y": 454
+            }
+          },
+          "down": {
+            "path": "M 394.6535892843432 589.7645019878171 A 197.5 192 0 0 1 115.34641071565687 589.7645019878171 L 180.40023458481926 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 528.5997654151807 Z",
+            "anchor": {
+              "x": 255,
+              "y": 604
+            }
+          },
+          "back": {
+            "path": "M 74.3 747 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
+            "anchor": {
+              "x": 154,
+              "y": 747
+            }
+          },
+          "volumeUp": {
+            "path": "M 273.5 837 V 750 A 80.5 80.5 0 0 1 434.5 750 V 837 Z",
+            "anchor": {
+              "x": 354,
+              "y": 747
+            }
+          },
+          "home": {
+            "path": "M 74.3 926 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
+            "anchor": {
+              "x": 154,
+              "y": 926
+            }
+          },
+          "volumeDown": {
+            "path": "M 273.5 837 H 434.5 V 924 A 80.5 80.5 0 0 1 273.5 924 Z",
+            "anchor": {
+              "x": 354,
+              "y": 927
+            }
+          },
+          "menu": {
+            "path": "M 74.3 1104 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
+            "anchor": {
+              "x": 154,
+              "y": 1104
+            }
+          },
+          "tv": {
+            "path": "M 274.3 1105 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
+            "anchor": {
+              "x": 354,
+              "y": 1105
+            }
+          }
+        }
+      },
+      "inputs": [
+        {
+          "id": "power",
+          "label": "电源键",
+          "short": "电源",
+          "side": "left",
+          "x": 18.27,
+          "y": 12.06,
+          "icon": "power"
+        },
+        {
+          "id": "voice",
+          "label": "语音键",
+          "short": "语音",
+          "side": "right",
+          "x": 66.19,
+          "y": 11.5,
+          "icon": "mic"
+        },
+        {
+          "id": "up",
+          "label": "方向上",
+          "short": "上",
+          "side": "left",
+          "x": 40.61,
+          "y": 24.79,
+          "icon": "up"
+        },
+        {
+          "id": "left",
+          "label": "方向左",
+          "short": "左",
+          "side": "left",
+          "x": 12.76,
+          "y": 37.3,
+          "icon": "left"
+        },
+        {
+          "id": "confirm",
+          "label": "确认键",
+          "short": "确认",
+          "side": "right",
+          "x": 42.23,
+          "y": 37.07,
+          "icon": "center"
+        },
+        {
+          "id": "right",
+          "label": "方向右",
+          "short": "右",
+          "side": "right",
+          "x": 71.7,
+          "y": 36.07,
+          "icon": "right"
+        },
+        {
+          "id": "down",
+          "label": "方向下",
+          "short": "下",
+          "side": "right",
+          "x": 40.61,
+          "y": 49.02,
+          "icon": "down"
+        },
+        {
+          "id": "back",
+          "label": "返回键",
+          "short": "返回",
+          "side": "left",
+          "x": 20.42,
+          "y": 61.09,
+          "icon": "back"
+        },
+        {
+          "id": "volumeUp",
+          "label": "音量加",
+          "short": "音量 +",
+          "side": "right",
+          "x": 60.42,
+          "y": 61.09,
+          "icon": "volumeUp"
+        },
+        {
+          "id": "home",
+          "label": "主页键",
+          "short": "主页",
+          "side": "left",
+          "x": 22.8,
+          "y": 75.72,
+          "icon": "home"
+        },
+        {
+          "id": "volumeDown",
+          "label": "音量减",
+          "short": "音量 -",
+          "side": "right",
+          "x": 60.42,
+          "y": 76.85,
+          "icon": "volumeDown"
+        },
+        {
+          "id": "menu",
+          "label": "功能键",
+          "short": "功能",
+          "side": "left",
+          "x": 21.18,
+          "y": 90.79,
+          "icon": "menu"
+        },
+        {
+          "id": "tv",
+          "label": "电视键",
+          "short": "电视",
+          "side": "right",
+          "x": 60.69,
+          "y": 91.91,
+          "icon": "tv"
+        }
+      ]
+    },
+    {
+      "id": "cmiotA15",
+      "version": 1,
+      "adapter": "cmiotA15",
+      "hardwareId": "mobile-a15",
+      "name": "CMIOT-A15",
+      "model": "CMIOT-A15",
+      "softwareMarker": "CMIOT3_B311",
+      "capabilities": {
+        "voice": "a15-g7221",
+        "recordingModes": [
+          "click",
+          "hold"
+        ],
+        "defaultRecordingMode": "click"
+      },
+      "presentation": {
+        "renderer": "remote",
+        "artwork": "/cmiot-a15-remote-keymap.svg",
+        "ariaLabel": "移动遥控器 CMIOT-A15 按键",
+        "viewBox": {
+          "width": 420,
+          "height": 1320
+        },
+        "keyRegions": {
+          "cmiotA15.power": {
+            "path": "M 47.2 101 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 101
+            }
+          },
+          "cmiotA15.voice": {
+            "path": "M 162 889 a 48 48 0 1 0 96 0 a 48 48 0 1 0 -96 0",
+            "anchor": {
+              "x": 210,
+              "y": 889
+            }
+          },
+          "cmiotA15.up": {
+            "path": "M 92.05458889808388 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 330.05458889808386 L 260.91168824543144 397.08831175456856 A 72 72 0 0 0 159.08831175456856 397.08831175456856 Z",
+            "anchor": {
+              "x": 210,
+              "y": 328
+            }
+          },
+          "cmiotA15.left": {
+            "path": "M 92.05458889808388 565.9454111019162 A 166.8 166.8 0 0 1 92.05458889808384 330.05458889808386 L 159.08831175456856 397.08831175456856 A 72 72 0 0 0 159.08831175456856 498.91168824543144 Z",
+            "anchor": {
+              "x": 90,
+              "y": 448
+            }
+          },
+          "cmiotA15.confirm": {
+            "path": "M 138 448 a 72 72 0 1 0 144 0 a 72 72 0 1 0 -144 0",
+            "anchor": {
+              "x": 210,
+              "y": 448
+            }
+          },
+          "cmiotA15.right": {
+            "path": "M 327.94541110191614 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 565.9454111019161 L 260.91168824543144 498.91168824543144 A 72 72 0 0 0 260.91168824543144 397.08831175456856 Z",
+            "anchor": {
+              "x": 330,
+              "y": 448
+            }
+          },
+          "cmiotA15.down": {
+            "path": "M 327.94541110191614 565.9454111019161 A 166.8 166.8 0 0 1 92.05458889808388 565.9454111019162 L 159.08831175456856 498.91168824543144 A 72 72 0 0 0 260.91168824543144 498.91168824543144 Z",
+            "anchor": {
+              "x": 210,
+              "y": 568
+            }
+          },
+          "cmiotA15.back": {
+            "path": "M 291.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 701
+            }
+          },
+          "cmiotA15.volumeUp": {
+            "path": "M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z",
+            "anchor": {
+              "x": 88,
+              "y": 824
+            }
+          },
+          "cmiotA15.home": {
+            "path": "M 47.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 701
+            }
+          },
+          "cmiotA15.volumeDown": {
+            "path": "M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z",
+            "anchor": {
+              "x": 88,
+              "y": 963
+            }
+          },
+          "cmiotA15.menu": {
+            "path": "M 169.2 213 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 210,
+              "y": 213
+            }
+          },
+          "cmiotA15.mute": {
+            "path": "M 47.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 214
+            }
+          },
+          "cmiotA15.settings": {
+            "path": "M 291.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 214
+            }
+          },
+          "cmiotA15.m": {
+            "path": "M 169.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 210,
+              "y": 701
+            }
+          },
+          "cmiotA15.channelUp": {
+            "path": "M 290.7 889 V 819.3 A 41.3 41.3 0 0 1 373.3 819.3 V 889 Z",
+            "anchor": {
+              "x": 332,
+              "y": 824
+            }
+          },
+          "cmiotA15.channelDown": {
+            "path": "M 290.7 889 H 373.3 V 958.7 A 41.3 41.3 0 0 1 290.7 958.7 Z",
+            "anchor": {
+              "x": 332,
+              "y": 963
+            }
+          }
+        }
+      },
+      "inputs": [
+        {
+          "id": "cmiotA15.power",
+          "label": "电源键",
+          "short": "电源",
+          "side": "left",
+          "x": 18.27,
+          "y": 12.06,
+          "icon": "power"
+        },
+        {
+          "id": "cmiotA15.voice",
+          "label": "语音键",
+          "short": "语音",
+          "side": "right",
+          "x": 66.19,
+          "y": 11.5,
+          "icon": "mic"
+        },
+        {
+          "id": "cmiotA15.up",
+          "label": "方向上",
+          "short": "上",
+          "side": "left",
+          "x": 40.61,
+          "y": 24.79,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.left",
+          "label": "方向左",
+          "short": "左",
+          "side": "left",
+          "x": 12.76,
+          "y": 37.3,
+          "icon": "left"
+        },
+        {
+          "id": "cmiotA15.confirm",
+          "label": "确认键",
+          "short": "确认",
+          "side": "right",
+          "x": 42.23,
+          "y": 37.07,
+          "icon": "center"
+        },
+        {
+          "id": "cmiotA15.right",
+          "label": "方向右",
+          "short": "右",
+          "side": "right",
+          "x": 71.7,
+          "y": 36.07,
+          "icon": "right"
+        },
+        {
+          "id": "cmiotA15.down",
+          "label": "方向下",
+          "short": "下",
+          "side": "right",
+          "x": 40.61,
+          "y": 49.02,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.back",
+          "label": "返回键",
+          "short": "返回",
+          "side": "left",
+          "x": 20.42,
+          "y": 61.09,
+          "icon": "back"
+        },
+        {
+          "id": "cmiotA15.volumeUp",
+          "label": "音量加",
+          "short": "音量 +",
+          "side": "right",
+          "x": 60.42,
+          "y": 61.09,
+          "icon": "volumeUp"
+        },
+        {
+          "id": "cmiotA15.home",
+          "label": "主页键",
+          "short": "主页",
+          "side": "left",
+          "x": 22.8,
+          "y": 75.72,
+          "icon": "home"
+        },
+        {
+          "id": "cmiotA15.volumeDown",
+          "label": "音量减",
+          "short": "音量 -",
+          "side": "right",
+          "x": 60.42,
+          "y": 76.85,
+          "icon": "volumeDown"
+        },
+        {
+          "id": "cmiotA15.menu",
+          "label": "功能键",
+          "short": "功能",
+          "side": "left",
+          "x": 21.18,
+          "y": 90.79,
+          "icon": "menu"
+        },
+        {
+          "id": "cmiotA15.mute",
+          "label": "静音键",
+          "short": "静音",
+          "side": "left",
+          "x": 20.95,
+          "y": 16.21,
+          "icon": "mute"
+        },
+        {
+          "id": "cmiotA15.settings",
+          "label": "设置键",
+          "short": "设置",
+          "side": "right",
+          "x": 79.05,
+          "y": 16.21,
+          "icon": "settings"
+        },
+        {
+          "id": "cmiotA15.channelUp",
+          "label": "频道加",
+          "short": "频道 +",
+          "side": "right",
+          "x": 79.05,
+          "y": 62.42,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.channelDown",
+          "label": "频道减",
+          "short": "频道 -",
+          "side": "right",
+          "x": 79.05,
+          "y": 72.95,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.m",
+          "label": "M 键",
+          "short": "M",
+          "side": "left",
+          "x": 50,
+          "y": 53.11,
+          "icon": "m"
+        }
+      ]
+    },
+    {
+      "id": "xmBt29",
+      "version": 1,
+      "adapter": "xmBt29",
+      "hardwareId": "mobile-a15",
+      "name": "XM-BT-29",
+      "model": "XM-BT-29",
+      "softwareMarker": "XFRSD0D_M_R01_761",
+      "capabilities": {
+        "voice": "a15-g7221",
+        "recordingModes": [
+          "hold"
+        ],
+        "defaultRecordingMode": "hold"
+      },
+      "presentation": {
+        "renderer": "remote",
+        "artwork": "/xm-bt-29-remote-keymap.svg",
+        "ariaLabel": "移动遥控器 XM-BT-29 按键",
+        "viewBox": {
+          "width": 420,
+          "height": 1560
+        },
+        "keyRegions": {
+          "cmiotA15.power": {
+            "path": "M 291.2 84 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 84
+            }
+          },
+          "cmiotA15.voice": {
+            "path": "M 146 748 a 64 64 0 1 0 128 0 a 64 64 0 1 0 -128 0",
+            "anchor": {
+              "x": 210,
+              "y": 748
+            }
+          },
+          "cmiotA15.up": {
+            "path": "M 106.90383130300137 266.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 266.90383130300137 L 255.25483399593904 324.74516600406093 A 64 64 0 0 0 164.74516600406096 324.74516600406093 Z",
+            "anchor": {
+              "x": 210,
+              "y": 260
+            }
+          },
+          "cmiotA15.left": {
+            "path": "M 106.90383130300137 473.09616869699863 A 145.8 145.8 0 0 1 106.90383130300134 266.90383130300137 L 164.74516600406093 324.74516600406093 A 64 64 0 0 0 164.74516600406096 415.25483399593907 Z",
+            "anchor": {
+              "x": 100,
+              "y": 370
+            }
+          },
+          "cmiotA15.confirm": {
+            "path": "M 146 370 a 64 64 0 1 0 128 0 a 64 64 0 1 0 -128 0",
+            "anchor": {
+              "x": 210,
+              "y": 370
+            }
+          },
+          "cmiotA15.right": {
+            "path": "M 313.09616869699863 266.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 473.09616869699863 L 255.25483399593904 415.25483399593907 A 64 64 0 0 0 255.25483399593904 324.74516600406093 Z",
+            "anchor": {
+              "x": 320,
+              "y": 370
+            }
+          },
+          "cmiotA15.down": {
+            "path": "M 313.09616869699863 473.09616869699863 A 145.8 145.8 0 0 1 106.90383130300137 473.09616869699863 L 164.74516600406096 415.25483399593907 A 64 64 0 0 0 255.25483399593904 415.25483399593907 Z",
+            "anchor": {
+              "x": 210,
+              "y": 480
+            }
+          },
+          "cmiotA15.back": {
+            "path": "M 313.5 553 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 584
+            }
+          },
+          "cmiotA15.volumeUp": {
+            "path": "M 54.5 748 V 682.5 a 33.5 33.5 0 0 1 67 0 V 748 Z",
+            "anchor": {
+              "x": 88,
+              "y": 687
+            }
+          },
+          "cmiotA15.home": {
+            "path": "M 69.5 553 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 584
+            }
+          },
+          "cmiotA15.volumeDown": {
+            "path": "M 54.5 748 H 121.5 V 813.5 a 33.5 33.5 0 0 1 -67 0 Z",
+            "anchor": {
+              "x": 88,
+              "y": 811
+            }
+          },
+          "cmiotA15.menu": {
+            "path": "M 69.5 155 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 186
+            }
+          },
+          "cmiotA15.mute": {
+            "path": "M 69.5 1163 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 1194
+            }
+          },
+          "cmiotA15.settings": {
+            "path": "M 313.5 155 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 186
+            }
+          },
+          "cmiotA15.m": {
+            "path": "M 191.5 553 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 210,
+              "y": 584
+            }
+          },
+          "cmiotA15.channelUp": {
+            "path": "M 298.5 748 V 682.5 a 33.5 33.5 0 0 1 67 0 V 748 Z",
+            "anchor": {
+              "x": 332,
+              "y": 687
+            }
+          },
+          "cmiotA15.channelDown": {
+            "path": "M 298.5 748 H 365.5 V 813.5 a 33.5 33.5 0 0 1 -67 0 Z",
+            "anchor": {
+              "x": 332,
+              "y": 811
+            }
+          },
+          "xmBt29.digit1": {
+            "path": "M 69.5 887 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 918
+            }
+          },
+          "xmBt29.digit2": {
+            "path": "M 191.5 887 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 210,
+              "y": 918
+            }
+          },
+          "xmBt29.digit3": {
+            "path": "M 313.5 887 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 918
+            }
+          },
+          "xmBt29.digit4": {
+            "path": "M 69.5 979 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 1010
+            }
+          },
+          "xmBt29.digit5": {
+            "path": "M 191.5 979 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 210,
+              "y": 1010
+            }
+          },
+          "xmBt29.digit6": {
+            "path": "M 313.5 979 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 1010
+            }
+          },
+          "xmBt29.digit7": {
+            "path": "M 69.5 1071 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 88,
+              "y": 1102
+            }
+          },
+          "xmBt29.digit8": {
+            "path": "M 191.5 1071 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 210,
+              "y": 1102
+            }
+          },
+          "xmBt29.digit9": {
+            "path": "M 313.5 1071 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 1102
+            }
+          },
+          "xmBt29.digit0": {
+            "path": "M 191.5 1163 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 210,
+              "y": 1194
+            }
+          },
+          "xmBt29.delete": {
+            "path": "M 313.5 1163 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
+            "anchor": {
+              "x": 332,
+              "y": 1194
+            }
+          }
+        }
+      },
+      "inputs": [
+        {
+          "id": "cmiotA15.power",
+          "label": "电源键",
+          "short": "电源",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 5.384615384615385,
+          "icon": "power"
+        },
+        {
+          "id": "cmiotA15.voice",
+          "label": "语音键",
+          "short": "语音",
+          "side": "right",
+          "x": 50,
+          "y": 47.94871794871795,
+          "icon": "mic"
+        },
+        {
+          "id": "cmiotA15.up",
+          "label": "方向上",
+          "short": "上",
+          "side": "right",
+          "x": 50,
+          "y": 16.666666666666664,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.left",
+          "label": "方向左",
+          "short": "左",
+          "side": "left",
+          "x": 23.809523809523807,
+          "y": 23.717948717948715,
+          "icon": "left"
+        },
+        {
+          "id": "cmiotA15.confirm",
+          "label": "确认键",
+          "short": "确认",
+          "side": "right",
+          "x": 50,
+          "y": 23.717948717948715,
+          "icon": "center"
+        },
+        {
+          "id": "cmiotA15.right",
+          "label": "方向右",
+          "short": "右",
+          "side": "right",
+          "x": 76.19047619047619,
+          "y": 23.717948717948715,
+          "icon": "right"
+        },
+        {
+          "id": "cmiotA15.down",
+          "label": "方向下",
+          "short": "下",
+          "side": "right",
+          "x": 50,
+          "y": 30.76923076923077,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.back",
+          "label": "返回键",
+          "short": "返回",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 37.43589743589744,
+          "icon": "back"
+        },
+        {
+          "id": "cmiotA15.volumeUp",
+          "label": "音量加",
+          "short": "音量 +",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 44.03846153846154,
+          "icon": "volumeUp"
+        },
+        {
+          "id": "cmiotA15.home",
+          "label": "主页键",
+          "short": "主页",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 37.43589743589744,
+          "icon": "home"
+        },
+        {
+          "id": "cmiotA15.volumeDown",
+          "label": "音量减",
+          "short": "音量 -",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 51.98717948717949,
+          "icon": "volumeDown"
+        },
+        {
+          "id": "cmiotA15.menu",
+          "label": "菜单键",
+          "short": "菜单",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 11.923076923076923,
+          "icon": "menu"
+        },
+        {
+          "id": "cmiotA15.mute",
+          "label": "静音键",
+          "short": "静音",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 76.53846153846153,
+          "icon": "mute"
+        },
+        {
+          "id": "cmiotA15.settings",
+          "label": "设置键",
+          "short": "设置",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 11.923076923076923,
+          "icon": "settings"
+        },
+        {
+          "id": "cmiotA15.channelUp",
+          "label": "频道加",
+          "short": "频道 +",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 44.03846153846154,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.channelDown",
+          "label": "频道减",
+          "short": "频道 -",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 51.98717948717949,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.m",
+          "label": "M 键",
+          "short": "M",
+          "side": "right",
+          "x": 50,
+          "y": 37.43589743589744,
+          "icon": "m"
+        },
+        {
+          "id": "xmBt29.digit0",
+          "label": "数字 0",
+          "short": "0",
+          "side": "right",
+          "x": 50,
+          "y": 76.53846153846153,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit1",
+          "label": "数字 1",
+          "short": "1",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 58.84615384615385,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit2",
+          "label": "数字 2",
+          "short": "2",
+          "side": "right",
+          "x": 50,
+          "y": 58.84615384615385,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit3",
+          "label": "数字 3",
+          "short": "3",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 58.84615384615385,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit4",
+          "label": "数字 4",
+          "short": "4",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 64.74358974358975,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit5",
+          "label": "数字 5",
+          "short": "5",
+          "side": "right",
+          "x": 50,
+          "y": 64.74358974358975,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit6",
+          "label": "数字 6",
+          "short": "6",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 64.74358974358975,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit7",
+          "label": "数字 7",
+          "short": "7",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 70.64102564102565,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit8",
+          "label": "数字 8",
+          "short": "8",
+          "side": "right",
+          "x": 50,
+          "y": 70.64102564102565,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.digit9",
+          "label": "数字 9",
+          "short": "9",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 70.64102564102565,
+          "icon": "number"
+        },
+        {
+          "id": "xmBt29.delete",
+          "label": "删除键",
+          "short": "删除",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 76.53846153846153,
+          "icon": "delete"
+        }
+      ]
+    },
+    {
+      "id": "rc313",
+      "version": 1,
+      "adapter": "rc313",
+      "hardwareId": "mobile-a15",
+      "name": "RC-313",
+      "model": "RC-313",
+      "softwareMarker": "CMIOT18_B302",
+      "capabilities": {
+        "voice": "a15-g7221",
+        "recordingModes": [
+          "hold"
+        ],
+        "defaultRecordingMode": "hold"
+      },
+      "presentation": {
+        "renderer": "remote",
+        "artwork": "/cmiot-a15-remote-keymap.svg",
+        "ariaLabel": "移动遥控器 CMIOT-A15 按键",
+        "viewBox": {
+          "width": 420,
+          "height": 1320
+        },
+        "keyRegions": {
+          "cmiotA15.power": {
+            "path": "M 47.2 101 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 101
+            }
+          },
+          "cmiotA15.voice": {
+            "path": "M 162 889 a 48 48 0 1 0 96 0 a 48 48 0 1 0 -96 0",
+            "anchor": {
+              "x": 210,
+              "y": 889
+            }
+          },
+          "cmiotA15.up": {
+            "path": "M 92.05458889808388 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 330.05458889808386 L 260.91168824543144 397.08831175456856 A 72 72 0 0 0 159.08831175456856 397.08831175456856 Z",
+            "anchor": {
+              "x": 210,
+              "y": 328
+            }
+          },
+          "cmiotA15.left": {
+            "path": "M 92.05458889808388 565.9454111019162 A 166.8 166.8 0 0 1 92.05458889808384 330.05458889808386 L 159.08831175456856 397.08831175456856 A 72 72 0 0 0 159.08831175456856 498.91168824543144 Z",
+            "anchor": {
+              "x": 90,
+              "y": 448
+            }
+          },
+          "cmiotA15.confirm": {
+            "path": "M 138 448 a 72 72 0 1 0 144 0 a 72 72 0 1 0 -144 0",
+            "anchor": {
+              "x": 210,
+              "y": 448
+            }
+          },
+          "cmiotA15.right": {
+            "path": "M 327.94541110191614 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 565.9454111019161 L 260.91168824543144 498.91168824543144 A 72 72 0 0 0 260.91168824543144 397.08831175456856 Z",
+            "anchor": {
+              "x": 330,
+              "y": 448
+            }
+          },
+          "cmiotA15.down": {
+            "path": "M 327.94541110191614 565.9454111019161 A 166.8 166.8 0 0 1 92.05458889808388 565.9454111019162 L 159.08831175456856 498.91168824543144 A 72 72 0 0 0 260.91168824543144 498.91168824543144 Z",
+            "anchor": {
+              "x": 210,
+              "y": 568
+            }
+          },
+          "cmiotA15.back": {
+            "path": "M 291.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 701
+            }
+          },
+          "cmiotA15.volumeUp": {
+            "path": "M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z",
+            "anchor": {
+              "x": 88,
+              "y": 824
+            }
+          },
+          "cmiotA15.home": {
+            "path": "M 47.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 701
+            }
+          },
+          "cmiotA15.volumeDown": {
+            "path": "M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z",
+            "anchor": {
+              "x": 88,
+              "y": 963
+            }
+          },
+          "cmiotA15.menu": {
+            "path": "M 169.2 213 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 210,
+              "y": 213
+            }
+          },
+          "cmiotA15.mute": {
+            "path": "M 47.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 214
+            }
+          },
+          "cmiotA15.settings": {
+            "path": "M 291.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 214
+            }
+          },
+          "cmiotA15.m": {
+            "path": "M 169.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 210,
+              "y": 701
+            }
+          },
+          "cmiotA15.channelUp": {
+            "path": "M 290.7 889 V 819.3 A 41.3 41.3 0 0 1 373.3 819.3 V 889 Z",
+            "anchor": {
+              "x": 332,
+              "y": 824
+            }
+          },
+          "cmiotA15.channelDown": {
+            "path": "M 290.7 889 H 373.3 V 958.7 A 41.3 41.3 0 0 1 290.7 958.7 Z",
+            "anchor": {
+              "x": 332,
+              "y": 963
+            }
+          }
+        }
+      },
+      "inputs": [
+        {
+          "id": "cmiotA15.power",
+          "label": "电源键",
+          "short": "电源",
+          "side": "left",
+          "x": 18.27,
+          "y": 12.06,
+          "icon": "power"
+        },
+        {
+          "id": "cmiotA15.voice",
+          "label": "语音键",
+          "short": "语音",
+          "side": "right",
+          "x": 66.19,
+          "y": 11.5,
+          "icon": "mic"
+        },
+        {
+          "id": "cmiotA15.up",
+          "label": "方向上",
+          "short": "上",
+          "side": "left",
+          "x": 40.61,
+          "y": 24.79,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.left",
+          "label": "方向左",
+          "short": "左",
+          "side": "left",
+          "x": 12.76,
+          "y": 37.3,
+          "icon": "left"
+        },
+        {
+          "id": "cmiotA15.confirm",
+          "label": "确认键",
+          "short": "确认",
+          "side": "right",
+          "x": 42.23,
+          "y": 37.07,
+          "icon": "center"
+        },
+        {
+          "id": "cmiotA15.right",
+          "label": "方向右",
+          "short": "右",
+          "side": "right",
+          "x": 71.7,
+          "y": 36.07,
+          "icon": "right"
+        },
+        {
+          "id": "cmiotA15.down",
+          "label": "方向下",
+          "short": "下",
+          "side": "right",
+          "x": 40.61,
+          "y": 49.02,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.back",
+          "label": "返回键",
+          "short": "返回",
+          "side": "left",
+          "x": 20.42,
+          "y": 61.09,
+          "icon": "back"
+        },
+        {
+          "id": "cmiotA15.volumeUp",
+          "label": "音量加",
+          "short": "音量 +",
+          "side": "right",
+          "x": 60.42,
+          "y": 61.09,
+          "icon": "volumeUp"
+        },
+        {
+          "id": "cmiotA15.home",
+          "label": "主页键",
+          "short": "主页",
+          "side": "left",
+          "x": 22.8,
+          "y": 75.72,
+          "icon": "home"
+        },
+        {
+          "id": "cmiotA15.volumeDown",
+          "label": "音量减",
+          "short": "音量 -",
+          "side": "right",
+          "x": 60.42,
+          "y": 76.85,
+          "icon": "volumeDown"
+        },
+        {
+          "id": "cmiotA15.menu",
+          "label": "功能键",
+          "short": "功能",
+          "side": "left",
+          "x": 21.18,
+          "y": 90.79,
+          "icon": "menu"
+        },
+        {
+          "id": "cmiotA15.mute",
+          "label": "静音键",
+          "short": "静音",
+          "side": "left",
+          "x": 20.95,
+          "y": 16.21,
+          "icon": "mute"
+        },
+        {
+          "id": "cmiotA15.settings",
+          "label": "设置键",
+          "short": "设置",
+          "side": "right",
+          "x": 79.05,
+          "y": 16.21,
+          "icon": "settings"
+        },
+        {
+          "id": "cmiotA15.channelUp",
+          "label": "频道加",
+          "short": "频道 +",
+          "side": "right",
+          "x": 79.05,
+          "y": 62.42,
+          "icon": "up"
+        },
+        {
+          "id": "cmiotA15.channelDown",
+          "label": "频道减",
+          "short": "频道 -",
+          "side": "right",
+          "x": 79.05,
+          "y": 72.95,
+          "icon": "down"
+        },
+        {
+          "id": "cmiotA15.m",
+          "label": "M 键",
+          "short": "M",
+          "side": "left",
+          "x": 50,
+          "y": 53.11,
+          "icon": "m"
+        }
+      ]
+    },
+    {
+      "id": "obeRcuR5",
+      "version": 1,
+      "adapter": "obeRcuR5",
+      "hardwareId": "obe",
+      "name": "投影仪语音遥控器 OBE_RCU_R5",
+      "model": "OBE_RCU_R5",
+      "softwareMarker": null,
+      "capabilities": {
+        "voice": "obe-sbc",
+        "recordingModes": [
+          "hold"
+        ],
+        "defaultRecordingMode": "hold"
+      },
+      "presentation": {
+        "renderer": "remote",
+        "artwork": "/obe-rcu-r5-remote-keymap.svg",
+        "ariaLabel": "投影仪语音遥控器 OBE_RCU_R5 按键",
+        "viewBox": {
+          "width": 420,
+          "height": 1320
+        },
+        "keyRegions": {
+          "obeRcuR5.power": {
+            "path": "M 47.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 93
+            }
+          },
+          "obeRcuR5.locate": {
+            "path": "M 291.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 93
+            }
+          },
+          "obeRcuR5.up": {
+            "path": "M 106.90383130300137 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 250.90383130300137 L 256.6690475583121 307.3309524416879 A 66 66 0 0 0 163.33095244168788 307.3309524416879 Z",
+            "anchor": {
+              "x": 210,
+              "y": 246
+            }
+          },
+          "obeRcuR5.left": {
+            "path": "M 106.90383130300137 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300134 250.90383130300137 L 163.33095244168786 307.3309524416879 A 66 66 0 0 0 163.33095244168788 400.6690475583121 Z",
+            "anchor": {
+              "x": 102,
+              "y": 354
+            }
+          },
+          "obeRcuR5.confirm": {
+            "path": "M 144 354 a 66 66 0 1 0 132 0 a 66 66 0 1 0 -132 0",
+            "anchor": {
+              "x": 210,
+              "y": 354
+            }
+          },
+          "obeRcuR5.right": {
+            "path": "M 313.09616869699863 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 457.09616869699863 L 256.6690475583121 400.6690475583121 A 66 66 0 0 0 256.6690475583121 307.3309524416879 Z",
+            "anchor": {
+              "x": 318,
+              "y": 354
+            }
+          },
+          "obeRcuR5.down": {
+            "path": "M 313.09616869699863 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300137 457.09616869699863 L 163.33095244168788 400.6690475583121 A 66 66 0 0 0 256.6690475583121 400.6690475583121 Z",
+            "anchor": {
+              "x": 210,
+              "y": 462
+            }
+          },
+          "obeRcuR5.home": {
+            "path": "M 47.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 584
+            }
+          },
+          "obeRcuR5.back": {
+            "path": "M 169.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 210,
+              "y": 584
+            }
+          },
+          "obeRcuR5.voice": {
+            "path": "M 291.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 584
+            }
+          },
+          "obeRcuR5.volumeDown": {
+            "path": "M 47.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 88,
+              "y": 748
+            }
+          },
+          "obeRcuR5.volumeUp": {
+            "path": "M 291.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
+            "anchor": {
+              "x": 332,
+              "y": 748
+            }
+          }
+        }
+      },
+      "inputs": [
+        {
+          "id": "obeRcuR5.power",
+          "label": "电源键",
+          "short": "电源",
+          "icon": "power",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 7.045454545454545
+        },
+        {
+          "id": "obeRcuR5.locate",
+          "label": "定位键",
+          "short": "定位",
+          "icon": "locate",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 7.045454545454545
+        },
+        {
+          "id": "obeRcuR5.up",
+          "label": "方向上",
+          "short": "上",
+          "icon": "up",
+          "side": "right",
+          "x": 50,
+          "y": 18.636363636363637
+        },
+        {
+          "id": "obeRcuR5.left",
+          "label": "方向左",
+          "short": "左",
+          "icon": "left",
+          "side": "left",
+          "x": 24.285714285714285,
+          "y": 26.81818181818182
+        },
+        {
+          "id": "obeRcuR5.confirm",
+          "label": "确认键",
+          "short": "确认",
+          "icon": "center",
+          "side": "right",
+          "x": 50,
+          "y": 26.81818181818182
+        },
+        {
+          "id": "obeRcuR5.right",
+          "label": "方向右",
+          "short": "右",
+          "icon": "right",
+          "side": "right",
+          "x": 75.71428571428571,
+          "y": 26.81818181818182
+        },
+        {
+          "id": "obeRcuR5.down",
+          "label": "方向下",
+          "short": "下",
+          "icon": "down",
+          "side": "right",
+          "x": 50,
+          "y": 35
+        },
+        {
+          "id": "obeRcuR5.home",
+          "label": "主页键",
+          "short": "主页",
+          "icon": "home",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 44.24242424242424
+        },
+        {
+          "id": "obeRcuR5.back",
+          "label": "返回键",
+          "short": "返回",
+          "icon": "back",
+          "side": "right",
+          "x": 50,
+          "y": 44.24242424242424
+        },
+        {
+          "id": "obeRcuR5.voice",
+          "label": "语音键（菜单按钮）",
+          "short": "语音",
+          "icon": "mic",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 44.24242424242424
+        },
+        {
+          "id": "obeRcuR5.volumeDown",
+          "label": "音量减",
+          "short": "音量 -",
+          "icon": "volumeDown",
+          "side": "left",
+          "x": 20.952380952380953,
+          "y": 56.666666666666664
+        },
+        {
+          "id": "obeRcuR5.volumeUp",
+          "label": "音量加",
+          "short": "音量 +",
+          "icon": "volumeUp",
+          "side": "right",
+          "x": 79.04761904761905,
+          "y": 56.666666666666664
+        }
+      ]
+    }
+  ]
+}

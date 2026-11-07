@@ -7,23 +7,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const CMIOT_A15_SOFTWARE_MARKER: &str = "CMIOT3_B311";
-const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
-const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302";
-
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
-    if kind == "obeRcuR5" {
-        return Some("obeRcuR5");
-    }
-    if !matches!(kind, "cmiotA15" | "xmBt29" | "rc313") {
-        return None;
-    }
-    Some(match software {
-        Some(version) if version.contains(CMIOT_A15_SOFTWARE_MARKER) => "cmiotA15",
-        Some(version) if version.contains(XM_BT_29_SOFTWARE_MARKER) => "xmBt29",
-        Some(version) if version.contains(RC_313_SOFTWARE_MARKER) => "rc313",
-        _ => "rc313",
-    })
+    crate::devices::packages::registry().software_kind(kind, software)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

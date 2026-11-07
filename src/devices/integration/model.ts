@@ -1,11 +1,6 @@
+import { devicePackages, supportPackageFor } from '../packages.ts'
 import type { TriggerBehaviors } from '../../behaviorModel'
-import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
-import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
-import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
-import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
-import { obeRcuR5SupportPackage } from '../obe-rcu-r5-remote/definition.ts'
-import { rc313SupportPackage } from '../rc-313-remote/definition.ts'
-import { xboxSupportPackage } from '../xbox-controller/index.ts'
+import type { DeviceKind } from '../types.ts'
 
 export type { DeviceKind } from '../types.ts'
 export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
@@ -69,19 +64,17 @@ export type DeviceSnapshot = {
   scanError: string | null
   scanning: boolean
 }
-export const mobileRemoteKinds = ['cmiotA15', 'xmBt29', 'rc313'] as const
+export const mobileRemoteKinds = devicePackages.packages
+  .filter(pkg => pkg.hardwareId === 'mobile-a15')
+  .map(pkg => pkg.id)
 export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
-  return device.vendorId === 0x0416 && device.productId === 0x0300
+  return devicePackages.forHardware(device.vendorId, device.productId)?.id === 'mobile-a15'
 }
-export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is (typeof mobileRemoteKinds)[number] {
-  return kind !== undefined && mobileRemoteKinds.includes(kind as (typeof mobileRemoteKinds)[number])
+export function isMobileRemoteKind(kind: DeviceKind | undefined): boolean {
+  return kind !== undefined && mobileRemoteKinds.includes(kind)
 }
 export function mobileRemoteKindForSoftware(software: string | null | undefined): DeviceKind | null {
-  if (!software) return null
-  if (software.includes('CMIOT3_B311')) return 'cmiotA15'
-  if (software.includes('XFRSD0D_M_R01_761')) return 'xmBt29'
-  if (software.includes('CMIOT18_B302')) return 'rc313'
-  return null
+  return devicePackages.forSoftware('mobile-a15', software)?.id ?? null
 }
 export const emptySnapshot = (): DeviceSnapshot => ({
   store: { version: 1, revision: 0, instances: [] },
@@ -91,15 +84,13 @@ export const emptySnapshot = (): DeviceSnapshot => ({
   scanError: null,
   scanning: false,
 })
-export const supportPackages: readonly DeviceSupportPackage[] = [
-  xboxSupportPackage,
-  xiaomiRemoteSupportPackage,
-  cmiotA15SupportPackage,
-  xmBt29SupportPackage,
-  rc313SupportPackage,
-  obeRcuR5SupportPackage,
-]
-export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
+export const supportPackages = devicePackages.packages.map(pkg => supportPackageFor(pkg.id))
+const packagesById = new Map(supportPackages.map(pkg => [pkg.kind, pkg]))
+export function packageFor(kind: DeviceKind) {
+  const pkg = packagesById.get(kind)
+  if (!pkg) throw new Error(`未知设备支持包：${kind}`)
+  return pkg
+}
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
 export function newInstance(kind: DeviceKind, binding: string | null): DeviceInstance {
   return {
@@ -108,7 +99,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     name: packageFor(kind).name,
     binding,
     audioGainDb: 0,
-    cmiotA15RecordingMode: kind === 'xmBt29' || kind === 'rc313' || kind === 'obeRcuR5' ? 'hold' : 'click',
+    cmiotA15RecordingMode: packageFor(kind).capabilities.defaultRecordingMode,
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],

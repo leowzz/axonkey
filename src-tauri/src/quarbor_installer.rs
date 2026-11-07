@@ -27,20 +27,15 @@ pub(crate) struct Device {
 
 impl Device {
     pub fn is_rc003(&self) -> bool {
-        let id = self.instance_id.to_ascii_uppercase();
-        (id.starts_with("BTHLEDEVICE\\") || id.starts_with("HID\\")) && self.is_rc003_hardware()
+        self.matches_kind("rc003")
     }
 
     pub fn matches_kind(&self, kind: &str) -> bool {
-        match kind {
-            "xboxBluetooth" => crate::devices::xbox::matches_instance(&self.instance_id),
-            "rc003" => self.is_rc003(),
-            "obeRcuR5" => crate::devices::obe_rcu_r5::matches_instance(&self.instance_id),
-            "cmiotA15" | "xmBt29" | "rc313" => {
-                crate::devices::cmiot_a15::matches_instance(&self.instance_id)
-            }
-            _ => false,
-        }
+        crate::devices::packages::registry().matches_windows(
+            kind,
+            &self.instance_id,
+            &self.hardware_id,
+        )
     }
 
     pub fn bluetooth_address(&self) -> Option<String> {
@@ -54,19 +49,6 @@ impl Device {
         let address = segment.rsplit('_').next()?;
         (address.len() == 12 && address.bytes().all(|b| b.is_ascii_hexdigit()))
             .then(|| address.to_string())
-    }
-
-    pub fn is_rc003_hardware(&self) -> bool {
-        let id = self.instance_id.to_ascii_uppercase();
-        let hardware = self.hardware_id.to_ascii_uppercase();
-        let text = format!("{id} {hardware}");
-        let tokens: Vec<_> = text.split(['&', '_', '\\', ' ']).collect();
-        tokens
-            .windows(2)
-            .any(|pair| pair[0] == "VID" && matches!(pair[1], "2717" | "012717"))
-            && tokens
-                .windows(2)
-                .any(|pair| pair[0] == "PID" && pair[1] == "32B8")
     }
 }
 

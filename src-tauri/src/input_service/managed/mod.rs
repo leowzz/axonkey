@@ -12,6 +12,7 @@ use super::windows::ManagedQuarborChannel;
 #[cfg(all(windows, not(test)))]
 use super::NativeSettings;
 use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
+use crate::devices::packages::registry;
 use gesture::Gestures;
 use hidapi::{HidApi, HidDevice};
 use serde::{Deserialize, Serialize};
@@ -31,13 +32,13 @@ use tauri::Emitter;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
-fn is_mobile_remote_hardware(device: &Discovered) -> bool {
-    device.vendor_id == 0x0416 && device.product_id == 0x0300
-}
-
 fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
     device.kind == kind
-        || (is_mobile_remote_hardware(device) && matches!(kind, "cmiotA15" | "xmBt29" | "rc313"))
+        || registry().hardware_for(kind).is_some_and(|hw| {
+            hw.software_fallback_package_id.is_some()
+                && hw.vendor_id == device.vendor_id
+                && hw.product_id == device.product_id
+        })
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -290,7 +291,10 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     Ok(store)
 }
 fn normalize_recording_mode(instance: &mut Instance) {
-    if matches!(instance.kind.as_str(), "xmBt29" | "rc313" | "obeRcuR5") {
+    if registry()
+        .get(&instance.kind)
+        .is_some_and(|pkg| pkg.capabilities.recording_modes == ["hold"])
+    {
         instance.cmiot_a15_recording_mode =
             crate::devices::cmiot_a15::recording::RecordingMode::Hold;
     }
@@ -337,18 +341,7 @@ fn validate(store: &Store) -> Result<(), String> {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
         }
-        if ![
-            "xboxBluetooth",
-            "rc003",
-            "cmiotA15",
-            "xmBt29",
-            "rc313",
-            "obeRcuR5",
-        ]
-        .contains(&instance.kind.as_str())
-        {
-            return Err("未知设备支持包".into());
-        }
+        let package = registry().get(&instance.kind).ok_or("未知设备支持包")?;
         if instance.name.trim().is_empty() || instance.name.len() > 200 {
             return Err("请填写有效的设备名称".into());
         }
@@ -393,36 +386,7 @@ fn validate(store: &Store) -> Result<(), String> {
                 ..Default::default()
             })?;
             for (input, mapping) in &maps {
-                let valid = if instance.kind == "xboxBluetooth" {
-                    super_input_ids().contains(&input.as_str())
-                } else if instance.kind == "rc003" {
-                    [
-                        "power",
-                        "voice",
-                        "up",
-                        "down",
-                        "left",
-                        "right",
-                        "confirm",
-                        "home",
-                        "menu",
-                        "tv",
-                        "back",
-                        "volumeUp",
-                        "volumeDown",
-                    ]
-                    .contains(&input.as_str())
-                } else if instance.kind == "obeRcuR5" {
-                    crate::devices::obe_rcu_r5::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else if instance.kind == "xmBt29" {
-                    crate::devices::xm_bt_29::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else {
-                    input.starts_with("cmiotA15.")
-                };
+                let valid = package.inputs.iter().any(|declared| declared.id == *input);
                 if !valid || mapping.iter().count() > 256 {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
                 }
@@ -430,35 +394,6 @@ fn validate(store: &Store) -> Result<(), String> {
         }
     }
     Ok(())
-}
-fn super_input_ids() -> &'static [&'static str] {
-    &[
-        "xbox.a",
-        "xbox.b",
-        "xbox.x",
-        "xbox.y",
-        "xbox.lb",
-        "xbox.rb",
-        "xbox.lt",
-        "xbox.rt",
-        "xbox.view",
-        "xbox.menu",
-        "xbox.guide",
-        "xbox.ls",
-        "xbox.rs",
-        "xbox.dpad.up",
-        "xbox.dpad.down",
-        "xbox.dpad.left",
-        "xbox.dpad.right",
-        "xbox.ls.up",
-        "xbox.ls.down",
-        "xbox.ls.left",
-        "xbox.ls.right",
-        "xbox.rs.up",
-        "xbox.rs.down",
-        "xbox.rs.left",
-        "xbox.rs.right",
-    ]
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
@@ -970,20 +905,13 @@ fn open(api: &HidApi, path: &std::ffi::CStr) -> Result<HidDevice, String> {
     result
 }
 fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
-    match (
+    registry().hid_kind(
         info.vendor_id(),
         info.product_id(),
         info.usage_page(),
         info.usage(),
-    ) {
-        (0x045e, 0x02e0, 1, 5) => Some("xboxBluetooth"),
-        (0x2717, 0x32b8, 1, 6) => Some("rc003"),
-        #[cfg(target_os = "macos")]
-        (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
-        #[cfg(target_os = "macos")]
-        (0x1d5a, 0xc081, 1, 6) => Some("obeRcuR5"),
-        _ => None,
-    }
+        std::env::consts::OS,
+    )
 }
 // hidapi's macOS manager is process-global and is scheduled on its creator's
 // CFRunLoop. Close it before that worker thread exits, otherwise a later manager
@@ -1888,6 +1816,45 @@ fn save_profile_switch(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn declared_inputs_are_the_only_accepted_mapping_targets() {
+        let mut instance: super::Instance = serde_json::from_value(serde_json::json!({
+            "id": "catalog-test", "kind": "cmiotA15", "name": "test", "binding": null,
+            "enabled": false, "activeProfileId": "default", "profiles": [{"id":"default", "name":"default", "behaviors":{}}]
+        })).unwrap();
+        for package in crate::devices::packages::registry().packages.iter() {
+            instance.kind = package.id.clone();
+            instance.profiles[0].behaviors = serde_json::Value::Object(
+                package
+                    .inputs
+                    .iter()
+                    .map(|input| {
+                        (
+                            input.id.clone(),
+                            serde_json::json!({"click":[],"doubleClick":[],"longPress":[]}),
+                        )
+                    })
+                    .collect(),
+            );
+            assert!(
+                super::validate(&super::Store {
+                    instances: vec![instance.clone()],
+                    ..Default::default()
+                })
+                .is_ok(),
+                "{}",
+                package.id
+            );
+            instance.profiles[0].behaviors["cmiotA15.notARealButton"] =
+                serde_json::json!({"click":[],"doubleClick":[],"longPress":[]});
+            assert!(super::validate(&super::Store {
+                instances: vec![instance.clone()],
+                ..Default::default()
+            })
+            .is_err());
+        }
+    }
+
     use super::*;
     #[test]
     fn legacy_output_selection_is_ignored_and_removed_on_save() {
@@ -2793,7 +2760,10 @@ mod tests {
             save_profile_switch(shared, "one", ProfileDirection::Next, false),
             Some(("one".into(), "默认".into(), "游戏".into()))
         );
-        assert_eq!(load(&shared.path).unwrap().instances[0].active_profile_id, "game");
+        assert_eq!(
+            load(&shared.path).unwrap().instances[0].active_profile_id,
+            "game"
+        );
         assert_eq!(
             save_profile_switch(shared, "one", ProfileDirection::Next, false),
             None

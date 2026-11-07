@@ -18,6 +18,7 @@ const nativeClipboard = { readText: async () => 'native clipboard', writeText: a
 
 function load(file) {
   file = resolve(file)
+  if (extname(file) === '.json') return { __esModule: true, default: JSON.parse(readFileSync(file, 'utf8')) }
   if (cache.has(file)) return cache.get(file).exports
   const module = { exports: {} }
   cache.set(file, module)

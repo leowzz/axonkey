@@ -2,12 +2,12 @@
 
 本目录保存已确认的 Xbox 标准布局手柄设计资源。中心按键使用通用主页图标，不含 Xbox 品牌标志。
 
-`inputs.ts` 定义手柄输入，`definition.ts` 定义实例支持包，`index.ts` 提供型号公开出口。交互图直接读取本目录的输入定义，不依赖公共实例模型。
+手柄输入与支持包元数据维护于 `device-packages/builtin.json`，`inputs.ts`、`definition.ts` 为兼容出口，`index.ts` 提供型号公开出口。交互图从同一声明读取输入，不依赖公共实例模型。完整约定见 [设备支持包](../../../docs/DEVICE_PACKAGES.md)。
 
 | 文件 | 用途 |
 | --- | --- |
 | `xbox-controller-keymap.svg` | 映射编辑示意图，包含按键区域、摇杆方向和部位说明，画布为 `680 × 520` |
-| `xbox-controller.svg` | 设备卡片图，无编辑状态和部位说明，导出尺寸为 `240 × 196` |
+| `public/xbox-controller.svg` | 设备卡片图，无编辑状态和部位说明，导出尺寸为 `240 × 196` |
 
 两份 SVG 均内置样式、渐变和阴影，可独立显示，无原型页面 CSS、脚本或网络依赖。
 
