@@ -1668,6 +1668,7 @@ pub fn run() {
             Some(vec![AUTOSTART_ARG]),
         ))
         .setup(|app| {
+            input_service::text_output::initialize(app.handle().clone());
             use tauri::Manager;
 
             let default_panic_hook = std::panic::take_hook();

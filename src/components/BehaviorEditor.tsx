@@ -35,6 +35,7 @@ import {
   defaultCursorDistance,
   maxCursorDistance,
   normalizeApplicationPath,
+  normalizeFilePath,
   normalizeWebsiteUrl,
   parseSequenceImport,
 } from '../behaviorModel'
@@ -504,6 +505,16 @@ export function BehaviorEditor({
               <>
                 <BehaviorActionButton
                   icon={<Keyboard size={17} />}
+                  label="模拟输入文字"
+                  onClick={() => onAddAdvancedBehavior('typeText')}
+                />
+                <BehaviorActionButton
+                  icon={<FolderOpen size={17} />}
+                  label="打开文件或文件夹"
+                  onClick={() => onAddAdvancedBehavior('openPath')}
+                />
+                <BehaviorActionButton
+                  icon={<Keyboard size={17} />}
                   label="按键 / 组合键"
                   onClick={() => onAddAdvancedBehavior('key')}
                 />
@@ -691,7 +702,7 @@ export function BehaviorEditDialog({
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(
-    savedBehavior.type === 'openApp'
+    savedBehavior.type === 'openApp' || savedBehavior.type === 'openPath'
       ? savedBehavior.path
       : savedBehavior.type === 'openWebsite'
         ? savedBehavior.url
@@ -709,17 +720,23 @@ export function BehaviorEditDialog({
     // keep the same id and must not restart recording.
   }, [savedBehavior.id])
   const nativeRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-  const launchBehavior = savedBehavior.type === 'openApp' || savedBehavior.type === 'openWebsite'
-  const normalizedTarget =
-    savedBehavior.type === 'openApp' ? normalizeApplicationPath(launchTarget) : normalizeWebsiteUrl(launchTarget)
+  const launchBehavior =
+    savedBehavior.type === 'openApp' || savedBehavior.type === 'openPath' || savedBehavior.type === 'openWebsite'
+  const normalizeTarget =
+    savedBehavior.type === 'openPath'
+      ? normalizeFilePath
+      : savedBehavior.type === 'openApp'
+        ? normalizeApplicationPath
+        : normalizeWebsiteUrl
+  const normalizedTarget = normalizeTarget(launchTarget)
   const updateLaunchTarget = (value: string) => {
     setLaunchTarget(value)
     setPickerError('')
-    const target = savedBehavior.type === 'openApp' ? normalizeApplicationPath(value) : normalizeWebsiteUrl(value)
+    const target = normalizeTarget(value)
     // Keep incomplete edits local so existing mappings remain usable.
     if (target || draft)
       onUpdate(current =>
-        current.type === 'openApp'
+        current.type === 'openApp' || current.type === 'openPath'
           ? { ...current, path: target ?? '' }
           : current.type === 'openWebsite'
             ? { ...current, url: target ?? '' }
@@ -729,7 +746,7 @@ export function BehaviorEditDialog({
   const updateLaunchTargetRef = useRef(updateLaunchTarget)
   updateLaunchTargetRef.current = updateLaunchTarget
   useEffect(() => {
-    if (!nativeRuntime || savedBehavior.type !== 'openApp') return
+    if (!nativeRuntime || (savedBehavior.type !== 'openApp' && savedBehavior.type !== 'openPath')) return
     let disposed = false
     let unlisten: (() => void) | undefined
     void getCurrentWebviewWindow()
@@ -747,12 +764,15 @@ export function BehaviorEditDialog({
         setApplicationDragOver(payload.type !== 'drop' && inside)
         if (payload.type !== 'drop' || !inside) return
         if (payload.paths.length !== 1) {
-          setPickerError('请一次拖入一个应用或快捷方式。')
+          setPickerError('请一次拖入一个目标。')
           return
         }
-        const path = normalizeApplicationPath(payload.paths[0])
+        const path =
+          savedBehavior.type === 'openPath'
+            ? normalizeFilePath(payload.paths[0])
+            : normalizeApplicationPath(payload.paths[0])
         if (!path) {
-          setPickerError('不支持这个文件，请拖入应用程序或快捷方式（.exe、.com、.lnk 或 .app）。')
+          setPickerError('不支持这个目标，请检查完整路径及文件类型。')
           return
         }
         updateLaunchTargetRef.current(path)
@@ -769,15 +789,19 @@ export function BehaviorEditDialog({
       unlisten?.()
     }
   }, [nativeRuntime, savedBehavior.type])
-  const chooseApplication = async () => {
+  const chooseApplication = async (directory = false) => {
     setPicking(true)
     setPickerError('')
     try {
       const path = await open({
-        title: '选择应用',
+        title: savedBehavior.type === 'openPath' ? (directory ? '选择文件夹' : '选择文件') : '选择应用',
+        directory,
         multiple: false,
         defaultPath: platform === 'macos' ? '/Applications' : undefined,
-        filters: [{ name: '应用', extensions: platform === 'macos' ? ['app'] : ['exe', 'com', 'lnk'] }],
+        filters:
+          savedBehavior.type === 'openPath'
+            ? undefined
+            : [{ name: '应用', extensions: platform === 'macos' ? ['app'] : ['exe', 'com', 'lnk'] }],
       })
       if (typeof path === 'string') updateLaunchTarget(path)
     } catch (error) {
@@ -835,7 +859,7 @@ export function BehaviorEditDialog({
       ? Boolean(behavior.key)
       : behavior.type === 'shortcut'
         ? behavior.keys.length > 0
-        : behavior.type === 'paste'
+        : behavior.type === 'paste' || behavior.type === 'typeText'
           ? Boolean(behavior.text.trim())
           : true
   return (
@@ -1135,11 +1159,24 @@ export function BehaviorEditDialog({
           ) : launchBehavior ? (
             <div className="behavior-dialog-field">
               <div className="behavior-launch-label">
-                <label htmlFor="behavior-launch-target">{behavior.type === 'openApp' ? '应用路径' : '网站地址'}</label>
-                <SettingsHelp id="behavior-launch-help" label={behavior.type === 'openApp' ? '应用路径' : '网站地址'}>
-                  {behavior.type === 'openApp'
-                    ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。'
-                    : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}
+                <label htmlFor="behavior-launch-target">
+                  {behavior.type === 'openPath' ? '路径' : behavior.type === 'openApp' ? '应用路径' : '网站地址'}
+                </label>
+                <SettingsHelp
+                  id="behavior-launch-help"
+                  label={
+                    behavior.type === 'openPath'
+                      ? '文件或文件夹路径'
+                      : behavior.type === 'openApp'
+                        ? '应用路径'
+                        : '网站地址'
+                  }
+                >
+                  {behavior.type === 'openPath'
+                    ? '通过系统默认程序打开完整路径，可选择文件或文件夹，也可拖入此弹窗。'
+                    : behavior.type === 'openApp'
+                      ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。'
+                      : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}
                 </SettingsHelp>
               </div>
               <div className="behavior-launch-row">
@@ -1149,17 +1186,41 @@ export function BehaviorEditDialog({
                   autoFocus={draft}
                   value={launchTarget}
                   placeholder={
-                    behavior.type === 'openApp'
+                    behavior.type === 'openPath'
                       ? platform === 'macos'
-                        ? '/Applications/Safari.app'
-                        : 'C:\\Program Files\\App\\App.exe'
-                      : 'https://example.com'
+                        ? '/Users/name/Documents'
+                        : 'C:\\Users\\name\\Documents'
+                      : behavior.type === 'openApp'
+                        ? platform === 'macos'
+                          ? '/Applications/Safari.app'
+                          : 'C:\\Program Files\\App\\App.exe'
+                        : 'https://example.com'
                   }
                   spellCheck={false}
                   aria-invalid={Boolean(launchTarget && !normalizedTarget)}
                   aria-describedby={launchTarget && !normalizedTarget ? 'behavior-launch-error' : undefined}
                   onChange={event => updateLaunchTarget(event.target.value)}
                 />
+                {behavior.type === 'openPath' && (
+                  <>
+                    <button
+                      type="button"
+                      className="reset-button"
+                      disabled={!nativeRuntime || picking}
+                      onClick={() => void chooseApplication()}
+                    >
+                      选择文件
+                    </button>
+                    <button
+                      type="button"
+                      className="reset-button"
+                      disabled={!nativeRuntime || picking}
+                      onClick={() => void chooseApplication(true)}
+                    >
+                      选择文件夹
+                    </button>
+                  </>
+                )}
                 {behavior.type === 'openApp' && (
                   <button
                     type="button"
@@ -1175,9 +1236,11 @@ export function BehaviorEditDialog({
               </div>
               {launchTarget && !normalizedTarget && (
                 <p id="behavior-launch-error" className="behavior-launch-error" role="alert">
-                  {behavior.type === 'openApp'
-                    ? '请填写应用的完整路径（.exe、.com、.lnk 或 .app）。'
-                    : '请输入有效的 HTTP 或 HTTPS 网站地址。'}
+                  {behavior.type === 'openPath'
+                    ? '请填写文件或文件夹的完整路径。'
+                    : behavior.type === 'openApp'
+                      ? '请填写应用的完整路径（.exe、.com、.lnk 或 .app）。'
+                      : '请输入有效的 HTTP 或 HTTPS 网站地址。'}
                 </p>
               )}
               {pickerError && (
@@ -1186,17 +1249,28 @@ export function BehaviorEditDialog({
                 </p>
               )}
             </div>
-          ) : behavior.type === 'paste' ? (
+          ) : behavior.type === 'paste' || behavior.type === 'typeText' ? (
             <div className="behavior-dialog-field">
-              <label htmlFor="behavior-paste-text">粘贴内容</label>
+              <div className="behavior-launch-label">
+                <label htmlFor="behavior-paste-text">文本内容</label>
+                <SettingsHelp id="behavior-text-help" label="文本输入方式">
+                  {behavior.type === 'typeText'
+                    ? '通过系统模拟输入文字，不读取或修改剪贴板；目标应用须支持系统文字输入。'
+                    : '将文本写入剪贴板，再发送粘贴快捷键；会替换当前剪贴板内容。'}
+                </SettingsHelp>
+              </div>
               <textarea
                 id="behavior-paste-text"
                 className="behavior-paste-input"
                 autoFocus={draft}
                 value={behavior.text}
-                placeholder="输入要粘贴的文本"
+                placeholder="输入要发送的文本"
                 onChange={event =>
-                  onUpdate(current => (current.type === 'paste' ? { ...current, text: event.target.value } : current))
+                  onUpdate(current =>
+                    current.type === 'paste' || current.type === 'typeText'
+                      ? { ...current, text: event.target.value }
+                      : current,
+                  )
                 }
               />
             </div>
@@ -1275,7 +1349,9 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
   const edited = useRef(false)
   const parsed = useMemo(() => parseSequenceImport(value), [value])
   const invalid = Boolean(value.trim() && parsed === null)
-  const errorMessage = invalid ? '序列格式无效，请粘贴由“复制序列”生成的内容。' : clipboardError
+  const errorMessage = invalid
+    ? '序列格式无效或包含当前版本不支持的行为；请升级 Axonkey 或检查复制内容。'
+    : clipboardError
 
   useEffect(() => {
     let active = true
@@ -1333,7 +1409,7 @@ export function SequencePasteDialog({ platform, button, trigger, onClose, onAppl
                     <span className="behavior-type-label">{behaviorTypeLabels[behavior.type]}</span>
                     {!behavior.enabled && <span className="sequence-step-disabled">已停用</span>}
                     <strong>
-                      {behavior.type === 'paste'
+                      {behavior.type === 'paste' || behavior.type === 'typeText'
                         ? behavior.text || '空文本'
                         : behavior.type === 'openApp'
                           ? behavior.path

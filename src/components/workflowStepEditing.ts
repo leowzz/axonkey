@@ -1,6 +1,6 @@
 import type { BranchedStep, Definition, Step } from 'sequential-workflow-designer'
 import type { Behavior, CursorDirection, MouseBehavior } from '../behaviorModel.ts'
-import { defaultCursorDistance, maxCursorDistance, normalizeApplicationPath, normalizeWebsiteUrl, triggerTypes } from '../behaviorModel.ts'
+import { defaultCursorDistance, maxCursorDistance, normalizeApplicationPath, normalizeFilePath, normalizeWebsiteUrl, triggerTypes } from '../behaviorModel.ts'
 import { isWorkflowActionChoiceSelected, workflowActionChoiceStep } from './workflowActionChoices.ts'
 
 export const defaultWorkflowDelayMs = 300
@@ -8,7 +8,7 @@ const directionSuffixes: Record<string, CursorDirection> = { Up: 'up', Down: 'do
 const mouseButtons: Record<string, MouseBehavior['button']> = { mouseLeft: 'left', mouseRight: 'right', mouseBack: 'back', mouseForward: 'forward' }
 
 export function isEditableWorkflowStep(step: Step) {
-  return ['delay', 'paste', 'customKey', 'openApp', 'openWebsite', 'switchProfile'].includes(step.type) || step.type.startsWith('cursor') || step.type.startsWith('wheel') || Boolean(workflowActionChoiceStep(step.type))
+  return ['delay', 'paste', 'typeText', 'openPath', 'customKey', 'openApp', 'openWebsite', 'switchProfile'].includes(step.type) || step.type.startsWith('cursor') || step.type.startsWith('wheel') || Boolean(workflowActionChoiceStep(step.type))
 }
 
 export function workflowStepBehavior(step: Step): Behavior | null {
@@ -32,6 +32,8 @@ export function workflowStepBehavior(step: Step): Behavior | null {
     case 'switchProfile': return { ...base, type: 'switchProfile', direction: step.properties.direction === 'previous' ? 'previous' : 'next', wrap: step.properties.wrap !== false }
     case 'disabled': return { ...base, type: 'disabled' }
     case 'delay': return { ...base, type: 'delay', ms: typeof ms === 'number' && Number.isInteger(ms) && ms >= 0 && ms <= 300000 ? ms : defaultWorkflowDelayMs }
+    case 'typeText': return { ...base, type: 'typeText', text: typeof text === 'string' ? text : '' }
+    case 'openPath': return { ...base, type: 'openPath', path: typeof path === 'string' ? path : '' }
     case 'paste': return { ...base, type: 'paste', text: typeof text === 'string' ? text : '' }
     case 'openApp': return { ...base, type: 'openApp', path: typeof path === 'string' ? path : '' }
     case 'openWebsite': return { ...base, type: 'openWebsite', url: typeof url === 'string' ? url : '' }
@@ -68,11 +70,15 @@ export function workflowBehaviorProperties(step: Step, behavior: Behavior) {
   if (step.type === 'delay' && behavior.type === 'delay' && Number.isInteger(behavior.ms) && behavior.ms >= 0 && behavior.ms <= 300000) {
     return { ...properties, ms: behavior.ms }
   }
-  if (step.type === 'paste' && behavior.type === 'paste' && behavior.text.trim()) {
+  if ((step.type === 'paste' || step.type === 'typeText') && (behavior.type === 'paste' || behavior.type === 'typeText') && step.type === behavior.type && behavior.text.trim()) {
     return { ...properties, text: behavior.text }
   }
   if (step.type === 'switchProfile' && behavior.type === 'switchProfile') {
     return { ...properties, direction: behavior.direction, wrap: behavior.wrap }
+  }
+  if (step.type === 'openPath' && behavior.type === 'openPath') {
+    const path = normalizeFilePath(behavior.path)
+    return path ? { ...properties, path } : null
   }
   if (step.type === 'openApp' && behavior.type === 'openApp') {
     const path = normalizeApplicationPath(behavior.path)

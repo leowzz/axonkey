@@ -1,4 +1,9 @@
-import { createDefaultBehaviorMap, normalizeBehavior, triggerTypes } from '../behaviorModel.ts'
+import {
+  createDefaultBehaviorMap,
+  requiresNewBehaviorVersion,
+  normalizeBehavior,
+  triggerTypes,
+} from '../behaviorModel.ts'
 import type { TriggerBehaviors } from '../behaviorModel.ts'
 import { parseDataBackupDocument } from '../dataBackup.ts'
 import type { BackupDocument } from '../dataBackup.ts'
@@ -16,6 +21,17 @@ export function createCloudSnapshot(
   instances: DeviceInstance[],
   memory: SyncMemory = {},
 ): CloudSnapshot {
+  if (
+    backup.version === 3 ||
+    instances.some(instance =>
+      instance.profiles.some(profile =>
+        requiresNewBehaviorVersion(
+          Object.values(profile.behaviors).flatMap(triggers => triggerTypes.flatMap(trigger => triggers[trigger])),
+        ),
+      ),
+    )
+  )
+    throw new Error('云端尚不支持“模拟输入文字”或“打开文件或文件夹”，本次同步已停止，本地配置已保留。')
   const { cmiotA15RecordingMode: _mode, ...settings } = backup.settings
   return {
     documents: [

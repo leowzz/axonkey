@@ -162,10 +162,12 @@ export type CommonBehaviorPreset =
   | 'mediaStop'
   | 'textAndEnter'
   | 'customKey'
+  | 'typeText'
+  | 'openPath'
   | 'openApp'
   | 'openWebsite'
 
-export type AdvancedBehaviorType = 'key' | 'paste' | 'delay' | 'openApp' | 'openWebsite'
+export type AdvancedBehaviorType = 'key' | 'paste' | 'typeText' | 'openPath' | 'delay' | 'openApp' | 'openWebsite'
 
 export type DraftBehaviorState = {
   behavior: Behavior

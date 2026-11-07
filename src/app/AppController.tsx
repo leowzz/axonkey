@@ -1142,9 +1142,9 @@ function AppController({
       type === 'key'
         ? { ...createBehavior({ type: 'shortcut' }), keys: [] }
         : createBehavior(
-            type === 'paste'
+            type === 'paste' || type === 'typeText'
               ? { type, text: '' }
-              : type === 'openApp'
+              : type === 'openApp' || type === 'openPath'
                 ? { type, path: '' }
                 : type === 'openWebsite'
                   ? { type, url: '' }
@@ -1272,6 +1272,8 @@ function AppController({
       case 'customKey':
         beginBehaviorDraft('key', 'replace')
         return
+      case 'typeText':
+      case 'openPath':
       case 'openApp':
       case 'openWebsite':
         beginBehaviorDraft(preset, 'replace')

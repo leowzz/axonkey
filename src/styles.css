@@ -1334,6 +1334,10 @@ h1 {
   align-items: center;
   gap: 8px;
 }
+.behavior-launch-row .reset-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .behavior-launch-input {
   width: 100%;
   min-width: 0;

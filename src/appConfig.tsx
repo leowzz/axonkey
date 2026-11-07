@@ -363,6 +363,8 @@ export const behaviorTypeLabels: Record<BehaviorType, string> = {
   key: '按键 / 组合键',
   shortcut: '按键 / 组合键',
   paste: '粘贴文本',
+  typeText: '模拟输入文字',
+  openPath: '打开文件或文件夹',
   delay: '等待',
   openApp: '打开应用',
   openWebsite: '打开网站',
@@ -522,6 +524,10 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
       return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
     case 'shortcut':
       return behavior.keys.length > 0 ? behavior.keys.map(key => keyDisplayName(key, platform)).join(' + ') : '未录入'
+    case 'typeText':
+      return behavior.text ? `输入：${behavior.text.slice(0, 12)}` : '模拟输入文字'
+    case 'openPath':
+      return `打开：${behavior.path || '文件或文件夹'}`
     case 'paste':
       return behavior.text ? `粘贴：${behavior.text.slice(0, 12)}` : '粘贴文本'
     case 'delay':
