@@ -1214,10 +1214,12 @@ fn emit_remote_output(
             };
             super::profile_switch::execute(device, direction, wrap)
         }
-        // The Universal protocol has no Unicode/text command. Keep paste as a
-        // text injection operation; keyboard, media and mouse outputs above
-        // remain source-aware.
-        Output::Paste(text) => send_unicode_text(&text),
+        Output::TypeText(text) => send_unicode_text(&text),
+        Output::Paste(text) => paste_text(&text),
+        Output::OpenPath(path) => super::launch::execute(&NativeBehavior::OpenPath {
+            enabled: true,
+            path,
+        }),
         Output::OpenApp(path) => super::launch::execute(&NativeBehavior::OpenApp {
             enabled: true,
             path,
@@ -1422,10 +1424,11 @@ pub(super) fn execute_mouse_behavior(behavior: &NativeBehavior, hold_ms: u64) {
             send_mouse_move(dx, dy);
         }
         NativeBehavior::Mouse { button, .. } => send_mouse_click(*button),
-        NativeBehavior::Paste { text, .. } => send_unicode_text(text),
-        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {
-            super::launch::execute(behavior)
-        }
+        NativeBehavior::TypeText { text, .. } => send_unicode_text(text),
+        NativeBehavior::Paste { text, .. } => paste_text(text),
+        NativeBehavior::OpenPath { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
         NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
             if let Some(keys) = behavior_chord(behavior) {
                 if !send_mouse_chord_with(&keys, hold_ms, send_keyboard_inputs) {
@@ -1567,6 +1570,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
         NativeBehavior::Wheel { .. }
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
+        | NativeBehavior::TypeText { .. }
+        | NativeBehavior::OpenPath { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }
@@ -1970,6 +1975,17 @@ fn send_mouse_move(dx: i32, dy: i32) {
     }
 }
 
+fn paste_text(text: &str) {
+    super::text_output::paste_with(text, || {
+        let keys = behavior_chord(&NativeBehavior::Shortcut {
+            enabled: true,
+            keys: vec!["Ctrl".into(), "V".into()],
+        })
+        .unwrap();
+        send_mouse_chord_with(&keys, 0, send_keyboard_inputs);
+    });
+}
+
 fn send_unicode_text(text: &str) {
     const INPUT_KEYBOARD: u32 = 1;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
@@ -2015,9 +2031,9 @@ fn send_unicode_text(text: &str) {
             };
         }
     }
-    log::info!(target: "axonkey::input", "Mapped paste output: expected_events={expected_events}, sent_events={sent_events}");
+    log::info!(target: "axonkey::input", "Mapped text input output: expected_events={expected_events}, sent_events={sent_events}");
     if sent_events != expected_events {
-        log::warn!(target: "axonkey::input", "Mapped paste injection incomplete: expected_events={expected_events}, sent_events={sent_events}");
+        log::warn!(target: "axonkey::input", "Mapped text input injection incomplete: expected_events={expected_events}, sent_events={sent_events}");
     }
 }
 
@@ -2634,11 +2650,11 @@ mod tests {
         }
 
         #[test]
-        fn repeated_settings_preserve_paste_press_until_release() {
+        fn repeated_settings_preserve_type_text_press_until_release() {
             let text = "中文🙂\nsecond line";
             let settings: NativeSettings = serde_json::from_value(json!({
                 "enabled": true, "behaviors": {"up": {"click": [
-                    {"type": "paste", "text": text}
+                    {"type": "typeText", "text": text}
                 ]}}
             }))
             .unwrap();
@@ -2666,12 +2682,12 @@ mod tests {
         }
 
         #[test]
-        fn changed_mapping_or_disable_still_cancels_pending_paste() {
+        fn changed_mapping_or_disable_still_cancels_pending_type_text() {
             for disable in [false, true] {
                 let mut settings: NativeSettings = serde_json::from_value(json!({
                     "enabled": true, "behaviors": {"up": {"click": [
                         {"type": "delay", "ms": 100},
-                        {"type": "paste", "text": "must not be typed"}
+                        {"type": "typeText", "text": "must not be typed"}
                     ]}}
                 }))
                 .unwrap();
@@ -2687,6 +2703,47 @@ mod tests {
                 UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
             }
         }
+    }
+
+    #[test]
+    fn text_input_preserves_clipboard_and_paste_uses_shortcut() {
+        let text = "中文🙂\nsecond line";
+        super::super::text_output::CLIPBOARD.with(|value| *value.borrow_mut() = "original".into());
+        UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
+        execute_mouse_behavior(
+            &NativeBehavior::TypeText {
+                enabled: true,
+                text: text.into(),
+            },
+            0,
+        );
+        let typed = UNICODE_EVENTS.with(|events| {
+            events
+                .borrow()
+                .iter()
+                .filter(|(_, flags)| *flags == 4)
+                .map(|(unit, _)| *unit)
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(String::from_utf16(&typed).unwrap(), text);
+        super::super::text_output::CLIPBOARD.with(|value| assert_eq!(*value.borrow(), "original"));
+        UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
+        MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+        execute_mouse_behavior(
+            &NativeBehavior::Paste {
+                enabled: true,
+                text: text.into(),
+            },
+            0,
+        );
+        super::super::text_output::CLIPBOARD.with(|value| assert_eq!(*value.borrow(), text));
+        UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+        MOUSE_KEY_BATCHES.with(|events| {
+            assert_eq!(
+                events.borrow().concat(),
+                vec![(0x11, 0), (0x56, 0), (0x56, 2), (0x11, 2)]
+            )
+        });
     }
 
     #[test]

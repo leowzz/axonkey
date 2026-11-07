@@ -36,6 +36,7 @@ ManifestDPIAwareness PerMonitorV2
 !include "StrFunc.nsh"
 ${StrCase}
 ${StrLoc}
+${StrStr}
 
 {{#if installer_hooks}}
 !include "{{installer_hooks}}"
@@ -758,6 +759,9 @@ Section Install
     !insertmacro NSIS_HOOK_POSTINSTALL
   !endif
 
+  ; Make the installed Agent CLI discoverable from a new terminal.
+  Call AddCliToUserPath
+
   ; Auto close this page for passive mode
   ${If} $PassiveMode = 1
     SetAutoClose true
@@ -774,6 +778,19 @@ Function .onInstSuccess
       ${GetOptions} $CMDLINE "/ARGS" $R0
       nsis_tauri_utils::RunAsUser "$INSTDIR\${MAINBINARYNAME}.exe" "$R0"
     ${EndIf}
+  ${EndIf}
+FunctionEnd
+
+Function AddCliToUserPath
+  ReadRegStr $0 HKCU "Environment" "Path"
+  ${StrStr} $1 $0 "$INSTDIR"
+  ${If} $1 == ""
+    ${If} $0 == ""
+      WriteRegExpandStr HKCU "Environment" "Path" "$INSTDIR"
+    ${Else}
+      WriteRegExpandStr HKCU "Environment" "Path" "$0;$INSTDIR"
+    ${EndIf}
+    SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
   ${EndIf}
 FunctionEnd
 

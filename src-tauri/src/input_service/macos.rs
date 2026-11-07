@@ -1374,13 +1374,21 @@ fn execute_behaviors_with_hold(
                     pressed.release();
                 }
             }
-            NativeBehavior::Paste { text, .. } => {
+            NativeBehavior::Paste { text, .. } => super::text_output::paste_with(text, || {
+                let keys = behavior_chord(&NativeBehavior::Shortcut {
+                    enabled: true,
+                    keys: vec!["Win".into(), "V".into()],
+                })
+                .unwrap();
+                PressedChord::press(&keys).release();
+            }),
+            NativeBehavior::TypeText { text, .. } => {
                 let utf16 = text.encode_utf16().collect::<Vec<_>>();
                 if !utf16.is_empty() {
                     let posted = unsafe { axonkey_macos_post_text(utf16.as_ptr(), utf16.len()) };
-                    log::info!(target: "axonkey::input", "Mapped paste output: utf16_units={}, posted={posted}", utf16.len());
+                    log::info!(target: "axonkey::input", "Mapped text input output: utf16_units={}, posted={posted}", utf16.len());
                     if !posted {
-                        log::warn!(target: "axonkey::input", "Mapped paste injection failed");
+                        log::warn!(target: "axonkey::input", "Mapped text input injection failed");
                     }
                 }
             }
@@ -1391,9 +1399,9 @@ fn execute_behaviors_with_hold(
                 direction, wrap, ..
             } => super::profile_switch::execute(device_id, *direction, *wrap),
             NativeBehavior::Disabled { .. } => {}
-            NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {
-                super::launch::execute(behavior)
-            }
+            NativeBehavior::OpenPath { .. }
+            | NativeBehavior::OpenApp { .. }
+            | NativeBehavior::OpenWebsite { .. } => super::launch::execute(behavior),
             NativeBehavior::Wheel { direction, .. } => post_wheel(*direction),
             NativeBehavior::CursorMove {
                 direction,
@@ -1437,6 +1445,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Shortcut { keys, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=shortcut, keys={keys:?}")
         }
+        NativeBehavior::TypeText { text, .. } => {
+            log::info!(target: "axonkey::input", "Mapped action: type=typeText, chars={}", text.chars().count())
+        }
         NativeBehavior::Paste { text, .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=paste, chars={}", text.chars().count())
         }
@@ -1451,7 +1462,9 @@ fn log_behavior(behavior: &NativeBehavior) {
         NativeBehavior::Disabled { .. } => {
             log::info!(target: "axonkey::input", "Mapped action: type=disabled")
         }
-        NativeBehavior::OpenApp { .. } | NativeBehavior::OpenWebsite { .. } => {}
+        NativeBehavior::OpenPath { .. }
+        | NativeBehavior::OpenApp { .. }
+        | NativeBehavior::OpenWebsite { .. } => {}
     }
 }
 
@@ -1474,6 +1487,8 @@ fn behavior_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
         NativeBehavior::Wheel { .. }
         | NativeBehavior::CursorMove { .. }
         | NativeBehavior::Mouse { .. }
+        | NativeBehavior::TypeText { .. }
+        | NativeBehavior::OpenPath { .. }
         | NativeBehavior::Paste { .. }
         | NativeBehavior::OpenApp { .. }
         | NativeBehavior::OpenWebsite { .. }

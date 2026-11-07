@@ -5,6 +5,7 @@ mod launch;
 pub mod managed;
 pub mod mouse;
 mod profile_switch;
+pub(crate) mod text_output;
 
 #[cfg(windows)]
 pub(super) mod windows_quarbor;
@@ -174,6 +175,16 @@ pub(super) enum NativeBehavior {
         #[serde(default)]
         keys: Vec<String>,
     },
+    TypeText {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        text: String,
+    },
+    OpenPath {
+        #[serde(default = "enabled_by_default")]
+        enabled: bool,
+        path: String,
+    },
     Paste {
         #[serde(default = "enabled_by_default")]
         enabled: bool,
@@ -293,6 +304,8 @@ impl NativeBehavior {
             | Self::CursorMove { enabled, .. } => *enabled,
             Self::Key { enabled, .. }
             | Self::Shortcut { enabled, .. }
+            | Self::TypeText { enabled, .. }
+            | Self::OpenPath { enabled, .. }
             | Self::Paste { enabled, .. }
             | Self::Delay { enabled, .. }
             | Self::OpenApp { enabled, .. }

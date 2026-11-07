@@ -1,6 +1,11 @@
 import type { StepDefinition } from 'sequential-workflow-designer'
 import type { Platform } from '../appTypes.ts'
-import { normalizeBehavior, parseSequenceImport, serializeSequence } from '../behaviorModel.ts'
+import {
+  requiresNewBehaviorVersion,
+  normalizeBehavior,
+  parseSequenceImport,
+  serializeSequence,
+} from '../behaviorModel.ts'
 import type { SavedSequence } from '../savedSequences.ts'
 import type { RelayClient } from './relayClient.ts'
 
@@ -120,6 +125,8 @@ export function submitSequence(
 ) {
   const behaviors = parseSequenceImport(sequence.sequence)
   if (!behaviors?.length) throw new Error('此序列无法分享，请重新保存')
+  if (requiresNewBehaviorVersion(behaviors))
+    throw new Error('云端行为库尚不支持“模拟输入文字”或“打开文件或文件夹”，请使用本地序列导出。')
   return client.request<SharedSequence>('POST', `${endpoint}/submissions`, {
     app_id: 'axonkey',
     source_sequence_key: sequence.id,

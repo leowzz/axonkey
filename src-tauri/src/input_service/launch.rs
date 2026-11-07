@@ -19,6 +19,18 @@ fn website_target(value: &str) -> Result<String, String> {
     Ok(url.into())
 }
 
+fn path_target(value: &str) -> Result<String, String> {
+    if value.chars().any(char::is_control) || !Path::new(value).is_absolute() {
+        return Err(
+            "File or folder path must be an absolute path without control characters".into(),
+        );
+    }
+    if !Path::new(value).exists() {
+        return Err("File or folder does not exist".into());
+    }
+    Ok(value.to_owned())
+}
+
 fn application_target(value: &str) -> Result<String, String> {
     if value.chars().any(char::is_control) {
         return Err("Application path contains control characters".into());
@@ -52,6 +64,7 @@ fn execute_with(
         return Ok(());
     }
     match behavior {
+        NativeBehavior::OpenPath { path, .. } => open(&path_target(path)?, false),
         NativeBehavior::OpenApp { path, .. } => open(&application_target(path)?, true),
         NativeBehavior::OpenWebsite { url, .. } => open(&website_target(url)?, false),
         _ => Ok(()),
@@ -60,6 +73,7 @@ fn execute_with(
 
 pub(super) fn execute(behavior: &NativeBehavior) {
     let kind = match behavior {
+        NativeBehavior::OpenPath { .. } => "openPath",
         NativeBehavior::OpenApp { .. } => "openApp",
         NativeBehavior::OpenWebsite { .. } => "openWebsite",
         _ => return,
@@ -215,6 +229,41 @@ mod tests {
             execute_with(&behavior, |_, _| Err("no browser".into())),
             Err("no browser".into())
         );
+    }
+
+    #[test]
+    fn opens_existing_files_and_folders_as_literal_targets() {
+        let directory = std::env::temp_dir().join(format!("axonkey-path-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let file = directory.join("中文 & quoted file.txt");
+        std::fs::write(&file, "test").unwrap();
+        for path in [&directory, &file] {
+            let behavior = NativeBehavior::OpenPath {
+                enabled: true,
+                path: path.to_str().unwrap().into(),
+            };
+            execute_with(&behavior, |target, application| {
+                assert_eq!(target, path.to_str().unwrap());
+                assert!(!application);
+                Ok(())
+            })
+            .unwrap();
+        }
+        for value in ["relative.txt", "https://example.com", "", "\0"] {
+            assert!(path_target(value).is_err());
+        }
+        let disabled = NativeBehavior::OpenPath {
+            enabled: false,
+            path: String::new(),
+        };
+        execute_with(&disabled, |_, _| panic!("disabled target opened")).unwrap();
+        let behavior = NativeBehavior::OpenPath {
+            enabled: true,
+            path: file.to_str().unwrap().into(),
+        };
+        assert!(execute_with(&behavior, |_, _| Err("No associated application".into())).is_err());
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(execute_with(&behavior, |_, _| panic!("missing target opened")).is_err());
     }
 
     #[test]

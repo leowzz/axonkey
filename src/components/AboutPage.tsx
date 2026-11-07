@@ -1,7 +1,7 @@
 import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
-import { AudioLines, Github, Keyboard, ShieldCheck } from 'lucide-react'
+import { AudioLines, Github, Keyboard, ShieldCheck, Terminal } from 'lucide-react'
 import appPackage from '../../package.json'
 import { WechatGroupCard } from './WechatGroupCard'
 
@@ -129,6 +129,14 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
               <ShieldCheck size={22} />
               <h3>本地运行</h3>
               <p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p>
+            </article>
+            <article>
+              <Terminal size={22} />
+              <h3>Agent CLI</h3>
+              <p>
+                让 Agent 查看、预览并修改快捷键，支持快捷键、文本、鼠标和多步行为。终端运行{' '}
+                <code>axonkey-cli capabilities --json</code> 查看格式。
+              </p>
             </article>
           </section>
         </div>

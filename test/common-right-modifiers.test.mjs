@@ -438,6 +438,7 @@ test('non-key editors and grouped media choices do not start keyboard capture', 
 
 test('launch dialogs validate drafts and retain existing targets during incomplete edits', () => {
   for (const [type, field, target, invalid] of [
+    ['openPath', 'path', 'C:\\Users\\name\\Documents', 'relative.txt'],
     ['openApp', 'path', 'C:\\Program Files\\Tool.exe', 'relative.exe'],
     ['openWebsite', 'url', 'https://example.com/', 'javascript:alert(1)'],
   ]) {

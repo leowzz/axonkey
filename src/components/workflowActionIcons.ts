@@ -39,6 +39,8 @@ const actionGlyphs: Record<string, string> = {
   "textAndEnter": "ClipboardPaste",
   "deleteAllText": "Trash2",
   "customKey": "Keyboard",
+  "typeText": "Keyboard",
+  "openPath": "FolderOpen",
   "openApp": "FolderOpen",
   "openWebsite": "Globe",
   "paste": "ClipboardPaste",

@@ -341,7 +341,7 @@ function readTriggers(value: unknown, id: string): TriggerBehaviors {
     if (!Array.isArray(list)) throw new Error('按键行为列表不正确。')
     result[trigger] = list.map((entry, index) => {
       const behavior = normalizeBehavior(entry, `${id}-${trigger}-${index}`)
-      if (!behavior) throw new Error('包含不支持的按键行为，旧数据已保留。')
+      if (!behavior) throw new Error('包含不支持的按键行为，请升级 Axonkey；旧数据已保留。')
       return behavior
     })
   }

@@ -37,6 +37,8 @@ pub(super) enum Output<K = HidKey> {
     CursorMove(WheelDirection, u32),
     MouseClick(MouseButton),
     Wheel(WheelDirection),
+    TypeText(String),
+    OpenPath(String),
     Paste(String),
     OpenApp(String),
     OpenWebsite(String),
@@ -97,6 +99,12 @@ fn schedule<K: RemoteKey>(
                 queue.push((due, Output::MouseClick(*button)));
             }
             NativeBehavior::Wheel { direction, .. } => queue.push((due, Output::Wheel(*direction))),
+            NativeBehavior::TypeText { text, .. } => {
+                queue.push((due, Output::TypeText(text.clone())))
+            }
+            NativeBehavior::OpenPath { path, .. } => {
+                queue.push((due, Output::OpenPath(path.clone())))
+            }
             NativeBehavior::Paste { text, .. } => queue.push((due, Output::Paste(text.clone()))),
             NativeBehavior::OpenApp { path, .. } => {
                 queue.push((due, Output::OpenApp(path.clone())))
@@ -396,12 +404,15 @@ mod tests {
             {"type":"delay","ms":300000,"enabled":false},
             {"type":"wheel","direction":"left"},
             {"type":"paste","text":"中文🙂"},
+            {"type":"typeText","text":"输入🙂"},
+            {"type":"typeText","text":"ignored","enabled":false},
             {"type":"cursorMove","direction":"right","distance":23},
             {"type":"mouse","button":"left"},
             {"type":"key","key":"A"},
             {"type":"shortcut","keys":["Shift","B"]},
             {"type":"delay","ms":100},
             {"type":"openApp","path":"C:\\Example.exe"},
+            {"type":"openPath","path":"C:\\文档 & 文件夹"},
             {"type":"openWebsite","url":"https://example.com/"}
         ]}));
         let now = Instant::now();
@@ -416,6 +427,7 @@ mod tests {
             [
                 Output::Wheel(WheelDirection::Left),
                 Output::Paste("中文🙂".into()),
+                Output::TypeText("输入🙂".into()),
                 Output::CursorMove(WheelDirection::Right, 23),
                 Output::MouseClick(MouseButton::Left),
                 key(4, true),
@@ -431,6 +443,7 @@ mod tests {
             outputs(&mut actions, now + Duration::from_millis(100)),
             [
                 Output::OpenApp("C:\\Example.exe".into()),
+                Output::OpenPath("C:\\文档 & 文件夹".into()),
                 Output::OpenWebsite("https://example.com/".into())
             ]
         );
