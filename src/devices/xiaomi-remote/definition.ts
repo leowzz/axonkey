@@ -3,7 +3,7 @@ import { xiaomiRemoteButtonIds, xiaomiRemoteView } from './view.ts'
 
 export const xiaomiRemoteDevice: DeviceDefinition = {
   id: 'rc003',
-  name: '小米遥控器',
+  name: '小米蓝牙遥控器2Pro',
   model: 'RC003',
   inputIds: xiaomiRemoteButtonIds,
   inputKind: 'button',
@@ -13,7 +13,7 @@ export const xiaomiRemoteDevice: DeviceDefinition = {
 
 export const xiaomiRemoteSupportPackage: DeviceSupportPackage = {
   kind: 'rc003',
-  name: '小米遥控器',
+  name: '小米蓝牙遥控器2Pro',
   model: 'RC003',
   artwork: xiaomiRemoteView.artworkUrl,
   inputs: xiaomiRemoteView.buttons,
