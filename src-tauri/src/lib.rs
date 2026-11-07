@@ -1705,6 +1705,10 @@ pub fn run() {
             start_device_services(app.handle()).map_err(std::io::Error::other)?;
             app.manage(PermissionHelperWindowState::default());
             app.manage(profile_switch_overlay::OverlayState::default());
+            #[cfg(not(any(target_os = "macos", windows)))]
+            if let Err(error) = profile_switch_overlay::initialize(app.handle()) {
+                log::warn!(target: "axonkey::profile_overlay", "Cannot initialize profile switch overlay: {error}");
+            }
             app.manage(legacy_driver::LegacyProbeState::default());
             if let Err(error) = install_tray(app) {
                 log::error!(target: "axonkey::runtime", "Failed to install the system tray: {error}");

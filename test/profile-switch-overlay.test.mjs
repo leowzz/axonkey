@@ -57,10 +57,10 @@ function harness({ snapshot = null, subscription } = {}) {
 }
 
 test('first load recovers the pending switch and shows both profile names before starting its two-second timeout', async () => {
-  const app = harness({ snapshot: { revision: 1, from: '工作', to: '游戏' } })
+  const app = harness({ snapshot: { revision: 1, device: '客厅遥控器', from: '工作', to: '游戏' } })
   await app.mount()
   try {
-    assert.equal(app.content(), '配置已切换工作→游戏')
+    assert.equal(app.content(), '客厅遥控器 · 配置已切换工作→游戏')
     assert.deepEqual(app.calls.map(call => call.command), ['get_profile_switch_overlay', 'reveal_profile_switch_overlay'])
     assert.equal(app.calls[1].args.revision, 1)
     const [timer] = app.timers.values()
@@ -77,13 +77,13 @@ test('rapid switches reset the lifetime and ignore older events and snapshots', 
   const app = harness({ snapshot: snapshot.promise })
   await app.mount()
   try {
-    await app.emit({ revision: 2, from: '游戏', to: '阅读' })
+    await app.emit({ revision: 2, device: '客厅遥控器', from: '游戏', to: '阅读' })
     const firstTimer = [...app.timers.keys()][0]
-    await act(async () => snapshot.resolve({ revision: 1, from: '工作', to: '游戏' }))
-    await app.emit({ revision: 1, from: '工作', to: '游戏' })
-    assert.equal(app.content(), '配置已切换游戏→阅读')
-    await app.emit({ revision: 3, from: '阅读', to: '工作' })
-    assert.equal(app.content(), '配置已切换阅读→工作')
+    await act(async () => snapshot.resolve({ revision: 1, device: '客厅遥控器', from: '工作', to: '游戏' }))
+    await app.emit({ revision: 1, device: '客厅遥控器', from: '工作', to: '游戏' })
+    assert.equal(app.content(), '客厅遥控器 · 配置已切换游戏→阅读')
+    await app.emit({ revision: 3, device: '鼠标', from: '阅读', to: '工作' })
+    assert.equal(app.content(), '鼠标 · 配置已切换阅读→工作')
     assert.equal(app.timers.has(firstTimer), false)
     assert.equal(app.timers.size, 1)
     assert.deepEqual(app.calls.filter(call => call.command === 'reveal_profile_switch_overlay').map(call => call.args.revision), [2, 3])

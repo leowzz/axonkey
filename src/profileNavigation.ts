@@ -15,19 +15,20 @@ import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProf
 export type ProfileSwitchRequest = { deviceId: DeviceId; direction: ProfileDirection; wrap: boolean }
 
 export function adjacentProfileId(
-  profiles: readonly { id: string }[],
+  profiles: readonly { id: string; deviceId: DeviceId }[],
   activeId: string,
-  request: Pick<ProfileSwitchRequest, 'direction' | 'wrap'>,
+  request: Pick<ProfileSwitchRequest, 'deviceId' | 'direction' | 'wrap'>,
 ): string | null {
   if (request.direction !== 'previous' && request.direction !== 'next') return null
-  const index = profiles.findIndex(profile => profile.id === activeId)
-  if (index < 0 || profiles.length < 2) return null
+  const deviceProfiles = profiles.filter(profile => profile.deviceId === request.deviceId)
+  const index = deviceProfiles.findIndex(profile => profile.id === activeId)
+  if (index < 0 || deviceProfiles.length < 2) return null
   let next = index + (request.direction === 'previous' ? -1 : 1)
-  if (next < 0 || next >= profiles.length) {
+  if (next < 0 || next >= deviceProfiles.length) {
     if (!request.wrap) return null
-    next = (next + profiles.length) % profiles.length
+    next = (next + deviceProfiles.length) % deviceProfiles.length
   }
-  return profiles[next].id
+  return deviceProfiles[next].id
 }
 
 export type ProfileState = {

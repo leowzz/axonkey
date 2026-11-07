@@ -434,7 +434,8 @@ function AppController({
     setAutoSaveState('saving')
     if (notifyOnDesktop && nativeRuntime) {
       const from = current.profiles.find(profile => profile.id === current.activeProfileIds[target.deviceId])!.name
-      void invoke('show_profile_switch_overlay', { from, to: target.name }).catch(error =>
+      logInfo(`Showing profile switch notification: ${from} -> ${target.name}`)
+      void invoke('show_profile_switch_overlay', { device: devices.find(device => device.id === target.deviceId)!.name, from, to: target.name }).catch(error =>
         logError('Failed to show profile switch notification', error),
       )
     }
@@ -447,7 +448,7 @@ function AppController({
     const current = profileStateRef.current
     if (request.deviceId !== 'rc003' && request.deviceId !== 'cmiotA15' && request.deviceId !== 'mouse') return
     const id = adjacentProfileId(
-      current.profiles.filter(profile => profile.deviceId === request.deviceId),
+      current.profiles,
       current.activeProfileIds[request.deviceId],
       request,
     )

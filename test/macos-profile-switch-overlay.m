@@ -12,7 +12,7 @@ int main(void) {
         // Exercise the same regular-app policy as an open Axonkey main window.
         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
         BOOL wasActive = NSApp.active;
-        unsigned int status = axonkey_show_profile_switch_overlay("工作", "游戏");
+        unsigned int status = axonkey_show_profile_switch_overlay("客厅遥控器", "工作", "游戏");
         assert(status == 3); // visible, on the currently active Space
         assert(NSApp.active == wasActive);
         assert([profileSwitchPanel isKindOfClass:NSPanel.class]);
@@ -26,6 +26,7 @@ int main(void) {
         assert(!profileSwitchPanel.keyWindow);
         assert(profileSwitchPanel.ignoresMouseEvents);
         assert(profileSwitchPanel.level == NSStatusWindowLevel);
+        assert([profileSwitchPanel.deviceLabel.stringValue isEqualToString:@"客厅遥控器 · 配置已切换"]);
         assert([profileSwitchPanel.fromLabel.stringValue isEqualToString:@"工作"]);
         assert([profileSwitchPanel.toLabel.stringValue isEqualToString:@"游戏"]);
         NSVisualEffectView *blur = (NSVisualEffectView *)profileSwitchPanel.contentView.subviews.firstObject;
@@ -38,7 +39,7 @@ int main(void) {
 
         AxonkeyProfileSwitchPanel *firstPanel = profileSwitchPanel;
         runFor(1.1);
-        status = axonkey_show_profile_switch_overlay("游戏", "阅读");
+        status = axonkey_show_profile_switch_overlay("客厅遥控器", "游戏", "阅读");
         assert(status == 3);
         assert(profileSwitchPanel == firstPanel);
         runFor(1.1); // The original notification's expiry must not hide this one.
@@ -48,7 +49,7 @@ int main(void) {
         runFor(1.2);
         assert(!profileSwitchPanel.visible);
         // Reuse after hiding must also join the active Space.
-        status = axonkey_show_profile_switch_overlay("阅读", "工作");
+        status = axonkey_show_profile_switch_overlay("客厅遥控器", "阅读", "工作");
         assert(status == 3);
         assert(NSApp.active == wasActive);
         [profileSwitchPanel orderOut:nil];

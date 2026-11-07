@@ -2,6 +2,7 @@
 #import <QuartzCore/QuartzCore.h>
 
 @interface AxonkeyProfileSwitchPanel : NSPanel
+@property(nonatomic, strong) NSTextField *deviceLabel;
 @property(nonatomic, strong) NSTextField *fromLabel;
 @property(nonatomic, strong) NSTextField *toLabel;
 @property(nonatomic, strong) NSTextField *arrowLabel;
@@ -72,6 +73,7 @@ static AxonkeyProfileSwitchPanel *createProfileSwitchPanel(void) {
     NSTextField *title = profileSwitchLabel(@"配置已切换", 12, NSFontWeightMedium, 0.72);
     title.frame = NSMakeRect(64, 62, 332, 18);
     [root addSubview:title];
+    panel.deviceLabel = title;
     panel.fromLabel = profileSwitchLabel(@"", 17, NSFontWeightRegular, 0.75);
     panel.arrowLabel = profileSwitchLabel(@"→", 17, NSFontWeightRegular, 1);
     panel.toLabel = profileSwitchLabel(@"", 17, NSFontWeightSemibold, 1);
@@ -84,11 +86,12 @@ static AxonkeyProfileSwitchPanel *createProfileSwitchPanel(void) {
 
 // AppKit main thread only. Rendering and expiry do not depend on a hidden
 // WebView running JavaScript in another desktop.
-unsigned int axonkey_show_profile_switch_overlay(const char *from, const char *to) {
+unsigned int axonkey_show_profile_switch_overlay(const char *device, const char *from, const char *to) {
     NSCAssert(NSThread.isMainThread, @"Profile notifications require AppKit's main thread");
     if (!profileSwitchPanel) profileSwitchPanel = createProfileSwitchPanel();
     AxonkeyProfileSwitchPanel *panel = profileSwitchPanel;
     [panel orderOut:nil];
+    panel.deviceLabel.stringValue = [NSString stringWithFormat:@"%@ · 配置已切换", [NSString stringWithUTF8String:device] ?: @""];
     panel.fromLabel.stringValue = [NSString stringWithUTF8String:from] ?: @"";
     panel.toLabel.stringValue = [NSString stringWithUTF8String:to] ?: @"";
     CGFloat fromWidth = MIN(142, panel.fromLabel.fittingSize.width);

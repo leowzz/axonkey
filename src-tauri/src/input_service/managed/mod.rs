@@ -237,7 +237,6 @@ enum RecordingRequest {
 }
 
 struct Shared {
-    #[cfg(target_os = "macos")]
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
     information_requests: Mutex<HashSet<String>>,
@@ -487,10 +486,7 @@ impl DeviceManager {
         #[cfg(any(not(target_os = "windows"), test))]
         {
             let manager = Self::start_with_callbacks(path, emit, legacy_remote);
-            #[cfg(target_os = "macos")]
-            {
-                *manager.shared.app.lock().unwrap() = Some(app);
-            }
+            *manager.shared.app.lock().unwrap() = Some(app);
             manager
         }
     }
@@ -532,8 +528,7 @@ impl DeviceManager {
             Err(error) => (Store::default(), Some(error)),
         };
         let shared = Arc::new(Shared {
-            #[cfg(target_os = "macos")]
-            app: Mutex::new(None),
+            app: Mutex::new(quarbor.as_ref().map(|registry| registry.app.clone())),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
@@ -564,7 +559,6 @@ impl DeviceManager {
             Err(error) => (Store::default(), Some(error)),
         };
         let shared = Arc::new(Shared {
-            #[cfg(target_os = "macos")]
             app: Mutex::new(None),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
@@ -1824,10 +1818,26 @@ fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) ->
             .any(|instance| instance == expected && instance.enabled)
 }
 fn switch_profile(shared: &Shared, id: &str, direction: ProfileDirection, wrap: bool) {
+    let Some((device, from, to)) = save_profile_switch(shared, id, direction, wrap) else {
+        return;
+    };
+    if let Some(app) = shared.app.lock().unwrap().as_ref() {
+        if let Err(error) = crate::profile_switch_overlay::show(app, device, from, to) {
+            log::warn!(target: "axonkey::profile_overlay", "Cannot show device profile notification: {error}");
+        }
+    }
+}
+
+fn save_profile_switch(
+    shared: &Shared,
+    id: &str,
+    direction: ProfileDirection,
+    wrap: bool,
+) -> Option<(String, String, String)> {
     let mut snapshot = shared.snapshot.lock().unwrap();
     let mut next = snapshot.store.clone();
     let Some(instance) = next.instances.iter_mut().find(|i| i.id == id) else {
-        return;
+        return None;
     };
     let current = instance
         .profiles
@@ -1855,13 +1865,24 @@ fn switch_profile(shared: &Shared, id: &str, direction: ProfileDirection, wrap: 
         }
     };
     if target == current {
-        return;
+        return None;
     }
+    let names = (
+        instance.name.clone(),
+        instance.profiles[current].name.clone(),
+        instance.profiles[target].name.clone(),
+    );
     instance.active_profile_id = instance.profiles[target].id.clone();
     next.revision += 1;
     match save(&shared.path, &next) {
-        Ok(()) => snapshot.store = next,
-        Err(error) => snapshot.error = Some(error),
+        Ok(()) => {
+            snapshot.store = next;
+            Some(names)
+        }
+        Err(error) => {
+            snapshot.error = Some(error);
+            None
+        }
     }
 }
 
@@ -2191,7 +2212,6 @@ mod tests {
     fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
-                #[cfg(target_os = "macos")]
                 app: Mutex::new(None),
                 information_requests: Mutex::new(HashSet::new()),
                 recording_requests: Mutex::new(Vec::new()),
@@ -2758,6 +2778,49 @@ mod tests {
         assert!(validate(&store).is_ok());
         store.instances[1].binding = store.instances[0].binding.clone();
         assert!(validate(&store).is_err());
+    }
+    #[test]
+    fn profile_switch_notification_names_require_a_saved_change() {
+        let mut device = instance("one", "physical-one");
+        device.profiles.push(Profile {
+            id: "game".into(),
+            name: "游戏".into(),
+            behaviors: serde_json::json!({}),
+        });
+        let manager = offline_manager(vec![device]);
+        let shared = &manager.shared;
+        assert_eq!(
+            save_profile_switch(shared, "one", ProfileDirection::Next, false),
+            Some(("one".into(), "默认".into(), "游戏".into()))
+        );
+        assert_eq!(load(&shared.path).unwrap().instances[0].active_profile_id, "game");
+        assert_eq!(
+            save_profile_switch(shared, "one", ProfileDirection::Next, false),
+            None
+        );
+        assert_eq!(
+            save_profile_switch(shared, "missing", ProfileDirection::Next, true),
+            None
+        );
+        assert_eq!(
+            save_profile_switch(shared, "one", ProfileDirection::Next, true),
+            Some(("one".into(), "游戏".into(), "默认".into()))
+        );
+        // A directory at the temporary file path makes the actual save fail.
+        let temp = shared.path.with_extension("tmp");
+        std::fs::create_dir(&temp).unwrap();
+        assert_eq!(
+            save_profile_switch(shared, "one", ProfileDirection::Next, false),
+            None
+        );
+        assert_eq!(
+            shared.snapshot.lock().unwrap().store.instances[0].active_profile_id,
+            "default"
+        );
+        assert!(shared.snapshot.lock().unwrap().error.is_some());
+        std::fs::remove_dir(temp).unwrap();
+        let _ = std::fs::remove_file(&shared.path);
+        let _ = std::fs::remove_file(shared.path.with_extension("bak"));
     }
     #[test]
     fn paired_offline_device_can_be_bound_and_keeps_its_configuration() {

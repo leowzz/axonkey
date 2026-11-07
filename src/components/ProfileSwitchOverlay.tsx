@@ -5,7 +5,7 @@ import { Layers3 } from 'lucide-react'
 import { logError } from '../runtimeLogging'
 import './ProfileSwitchOverlay.css'
 
-type Notification = { revision: number; from: string; to: string }
+type Notification = { revision: number; device: string; from: string; to: string }
 
 export function ProfileSwitchOverlay() {
   const [notification, setNotification] = useState<Notification | null>(null)
@@ -45,7 +45,7 @@ export function ProfileSwitchOverlay() {
   return <aside className="profile-switch-overlay" role="status" aria-live="polite">
     <Layers3 className="profile-switch-overlay-icon" size={24} aria-hidden="true" />
     <div className="profile-switch-overlay-content">
-      <p>配置已切换</p>
+      <p>{notification.device} · 配置已切换</p>
       <div className="profile-switch-overlay-names">
         <span className="profile-switch-overlay-from">{notification.from}</span>
         <span aria-label="切换到">→</span>

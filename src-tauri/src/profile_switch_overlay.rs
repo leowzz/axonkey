@@ -1,18 +1,61 @@
 use serde::Serialize;
 use std::sync::Mutex;
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 use tauri::Emitter;
 use tauri::Manager;
 
+#[cfg(windows)]
+mod windows;
+
 const LABEL: &str = "profile-switch-overlay";
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 const EVENT: &str = "axonkey-profile-switch-overlay";
 const WIDTH: f64 = 420.0;
 const HEIGHT: f64 = 100.0;
 
+#[cfg(not(any(target_os = "macos", windows)))]
+fn create_overlay_window(app: &tauri::AppHandle) -> Result<(), String> {
+    if app.get_webview_window(LABEL).is_some() {
+        return Ok(());
+    }
+    let builder = tauri::WebviewWindowBuilder::new(
+        app,
+        LABEL,
+        tauri::WebviewUrl::App("index.html?view=profile-switch-overlay".into()),
+    )
+    .title("配置切换 · Axonkey")
+    .inner_size(WIDTH, HEIGHT)
+    .decorations(false)
+    .resizable(false)
+    .transparent(true)
+    .visible(false)
+    .focused(false)
+    .focusable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false);
+    #[cfg(target_os = "windows")]
+    let builder = builder.effects(
+        tauri::window::EffectsBuilder::new()
+            .effect(tauri::window::Effect::Acrylic)
+            .color(tauri::window::Color(28, 32, 39, 105))
+            .build(),
+    );
+    let window = builder.build().map_err(|e| e.to_string())?;
+    window
+        .set_ignore_cursor_events(true)
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+pub fn initialize(app: &tauri::AppHandle) -> Result<(), String> {
+    create_overlay_window(app)
+}
+
 #[derive(Clone, Serialize)]
 pub struct Notification {
     revision: u64,
+    device: String,
     from: String,
     to: String,
 }
@@ -24,10 +67,11 @@ struct NotificationState {
 }
 
 impl NotificationState {
-    fn replace(&mut self, from: String, to: String) -> Notification {
+    fn replace(&mut self, device: String, from: String, to: String) -> Notification {
         self.revision += 1;
         let notification = Notification {
             revision: self.revision,
+            device,
             from,
             to,
         };
@@ -45,16 +89,28 @@ impl NotificationState {
 #[derive(Default)]
 pub struct OverlayState(Mutex<NotificationState>);
 
-// This command is async because creating a webview from a synchronous command
-// can deadlock the Windows event loop. The lock also serializes first creation.
+// Keep WebView creation off synchronous IPC handlers.
 #[tauri::command]
 pub async fn show_profile_switch_overlay(
     app: tauri::AppHandle,
-    state: tauri::State<'_, OverlayState>,
+    device: String,
     from: String,
     to: String,
 ) -> Result<(), String> {
-    let notification = state.0.lock().map_err(|e| e.to_string())?.replace(from, to);
+    show(&app, device, from, to)
+}
+
+pub(crate) fn show(app: &tauri::AppHandle, device: String, from: String, to: String) -> Result<(), String> {
+    let state = app.state::<OverlayState>();
+    let notification = state.0.lock().map_err(|e| e.to_string())?.replace(device, from, to);
+    log::info!(
+        target: "axonkey::profile_overlay",
+        "Profile notification requested: revision={} device={:?} from={:?} to={:?}",
+        notification.revision,
+        notification.device,
+        notification.from,
+        notification.to,
+    );
     #[cfg(target_os = "macos")]
     {
         let handle = app.clone();
@@ -63,51 +119,58 @@ pub async fn show_profile_switch_overlay(
             let Ok(state) = state.0.lock() else { return };
             if !state.is_current(notification.revision) { return; }
             // Imported names may contain NUL; keep them displayable in AppKit.
+            let device = std::ffi::CString::new(notification.device.replace('\0', "�")).unwrap();
             let from = std::ffi::CString::new(notification.from.replace('\0', "�")).unwrap();
             let to = std::ffi::CString::new(notification.to.replace('\0', "�")).unwrap();
             unsafe extern "C" {
-                fn axonkey_show_profile_switch_overlay(from: *const std::ffi::c_char, to: *const std::ffi::c_char) -> u32;
+                fn axonkey_show_profile_switch_overlay(device: *const std::ffi::c_char, from: *const std::ffi::c_char, to: *const std::ffi::c_char) -> u32;
             }
-            let status = unsafe { axonkey_show_profile_switch_overlay(from.as_ptr(), to.as_ptr()) };
+            let status = unsafe { axonkey_show_profile_switch_overlay(device.as_ptr(), from.as_ptr(), to.as_ptr()) };
             log::info!(target: "axonkey::profile_overlay", "Native profile notification: revision={} visible={} active_space={}", notification.revision, status & 1 != 0, status & 2 != 0);
         }).map_err(|e| e.to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    {
+        let revision = notification.revision;
+        let device = notification.device;
+        let from = notification.from;
+        let to = notification.to;
+        let handle = app.clone();
+        app.run_on_main_thread(move || {
+            let state = handle.state::<OverlayState>();
+            let Ok(state) = state.0.lock() else { return };
+            if !state.is_current(revision) { return; }
+            if let Err(error) = windows::show_profile_switch_overlay(&device, &from, &to, revision) {
+                log::warn!(target: "axonkey::profile_overlay", "Cannot show native profile notification: {error}");
+            } else {
+                log::info!(target: "axonkey::profile_overlay", "Native Windows profile notification shown: revision={revision}");
+            }
+        }).map_err(|e| e.to_string())?;
+        let handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            let state_handle = handle.clone();
+            let _ = handle.run_on_main_thread(move || {
+                let state = state_handle.state::<OverlayState>();
+                let Ok(mut state) = state.0.lock() else {
+                    return;
+                };
+                if state.is_current(revision) {
+                    windows::hide_profile_switch_overlay(revision);
+                    state.current = None;
+                }
+            });
+        });
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
     {
         // Serialize first creation on platforms that render this in a WebView.
         let state = state.0.lock().map_err(|e| e.to_string())?;
         if !state.is_current(notification.revision) {
             return Ok(());
         }
-        if app.get_webview_window(LABEL).is_none() {
-            let builder = tauri::WebviewWindowBuilder::new(
-                &app,
-                LABEL,
-                tauri::WebviewUrl::App("index.html?view=profile-switch-overlay".into()),
-            )
-            .title("配置切换 · Axonkey")
-            .inner_size(WIDTH, HEIGHT)
-            .decorations(false)
-            .resizable(false)
-            .transparent(true)
-            .visible(false)
-            .focused(false)
-            .focusable(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .shadow(false);
-            #[cfg(target_os = "windows")]
-            let builder = builder.effects(
-                tauri::window::EffectsBuilder::new()
-                    .effect(tauri::window::Effect::Acrylic)
-                    .color(tauri::window::Color(28, 32, 39, 105))
-                    .build(),
-            );
-            let window = builder.build().map_err(|e| e.to_string())?;
-            window
-                .set_ignore_cursor_events(true)
-                .map_err(|e| e.to_string())?;
-        }
+        create_overlay_window(&app)?;
         // The first webview load recovers this payload through the snapshot command.
         app.emit_to(LABEL, EVENT, notification)
             .map_err(|e| e.to_string())
@@ -182,15 +245,16 @@ mod tests {
     #[test]
     fn older_notifications_cannot_reveal_or_hide_a_new_switch() {
         let mut state = NotificationState::default();
-        let first = state.replace("工作".into(), "游戏".into());
-        let second = state.replace("游戏".into(), "阅读".into());
+        let first = state.replace("客厅遥控器".into(), "工作".into(), "游戏".into());
+        let second = state.replace("客厅遥控器".into(), "游戏".into(), "阅读".into());
         assert!(!state.is_current(first.revision));
         assert!(state.is_current(second.revision));
+        assert_eq!(state.current.as_ref().unwrap().device, "客厅遥控器");
         assert_eq!(state.current.as_ref().unwrap().from, "游戏");
         assert_eq!(state.current.as_ref().unwrap().to, "阅读");
         state.current = None;
         assert!(!state.is_current(second.revision));
-        let third = state.replace("阅读".into(), "工作".into());
+        let third = state.replace("客厅遥控器".into(), "阅读".into(), "工作".into());
         assert!(third.revision > second.revision);
     }
 }

@@ -9,14 +9,24 @@ import { composeActiveProfileBehaviors, extractDeviceBehaviors } from '../src/de
 const profiles = ['a', 'b', 'c'].map(id => ({ id, name: id, deviceId: 'rc003', behaviors: createEmptyBehaviorMap() }))
 test('previous and next respect profile order, optional wrapping and empty/single/unknown profiles', () => {
   for (const wrap of [false, true]) {
-    assert.equal(adjacentProfileId(profiles, 'b', { direction: 'previous', wrap }), 'a')
-    assert.equal(adjacentProfileId(profiles, 'b', { direction: 'next', wrap }), 'c')
-    assert.equal(adjacentProfileId(profiles, 'a', { direction: 'previous', wrap }), wrap ? 'c' : null)
-    assert.equal(adjacentProfileId(profiles, 'c', { direction: 'next', wrap }), wrap ? 'a' : null)
-    assert.equal(adjacentProfileId([], 'a', { direction: 'next', wrap }), null)
-    assert.equal(adjacentProfileId(profiles.slice(0, 1), 'a', { direction: 'previous', wrap }), null)
-    assert.equal(adjacentProfileId(profiles, 'missing', { direction: 'next', wrap }), null)
+    assert.equal(adjacentProfileId(profiles, 'b', { deviceId: 'rc003', direction: 'previous', wrap }), 'a')
+    assert.equal(adjacentProfileId(profiles, 'b', { deviceId: 'rc003', direction: 'next', wrap }), 'c')
+    assert.equal(adjacentProfileId(profiles, 'a', { deviceId: 'rc003', direction: 'previous', wrap }), wrap ? 'c' : null)
+    assert.equal(adjacentProfileId(profiles, 'c', { deviceId: 'rc003', direction: 'next', wrap }), wrap ? 'a' : null)
+    assert.equal(adjacentProfileId([], 'a', { deviceId: 'rc003', direction: 'next', wrap }), null)
+    assert.equal(adjacentProfileId(profiles.slice(0, 1), 'a', { deviceId: 'rc003', direction: 'previous', wrap }), null)
+    assert.equal(adjacentProfileId(profiles, 'missing', { deviceId: 'rc003', direction: 'next', wrap }), null)
   }
+})
+
+test('profile switching stays within the requested device', () => {
+  const mixed = [
+    ...profiles,
+    { id: 'mouse-a', name: 'mouse-a', deviceId: 'mouse', behaviors: createEmptyBehaviorMap() },
+    { id: 'mouse-b', name: 'mouse-b', deviceId: 'mouse', behaviors: createEmptyBehaviorMap() },
+  ]
+  assert.equal(adjacentProfileId(mixed, 'c', { deviceId: 'rc003', direction: 'next', wrap: true }), 'a')
+  assert.equal(adjacentProfileId(mixed, 'mouse-a', { deviceId: 'mouse', direction: 'next', wrap: true }), 'mouse-b')
 })
 
 test('rapid consecutive switches preserve unsaved edits and isolate each profile', () => {
@@ -24,7 +34,7 @@ test('rapid consecutive switches preserve unsaved edits and isolate each profile
   behaviors.power.click.push(createBehavior({ type: 'key', key: 'A' }))
   let state = { profiles, activeProfileIds: { rc003: 'a', mouse: 'mouse-default' }, behaviors }
   for (let index = 0; index < 8; index++) {
-    const id = adjacentProfileId(state.profiles, state.activeProfileIds.rc003, { direction: 'next', wrap: true })
+    const id = adjacentProfileId(state.profiles, state.activeProfileIds.rc003, { deviceId: 'rc003', direction: 'next', wrap: true })
     state = changeProfileState(state, id)
   }
   assert.equal(state.activeProfileIds.rc003, 'c')
