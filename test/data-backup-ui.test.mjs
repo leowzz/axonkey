@@ -130,7 +130,7 @@ test('import previews all profiles and saved behaviors, cancel leaves data untou
   try {
     const file = JSON.stringify(backup())
     await app.importFile(file)
-    for (const expected of ['工作（导入后使用）', '娱乐（导入后使用）', '小米遥控器 ·', '鼠标 ·', '粘贴并确认', '将覆盖当前所有配置文件', '重新加载界面']) assert.ok(app.content().includes(expected), expected)
+    for (const expected of ['工作（导入后使用）', '娱乐（导入后使用）', '小米蓝牙遥控器2Pro ·', '鼠标 ·', '粘贴并确认', '将覆盖当前所有配置文件', '重新加载界面']) assert.ok(app.content().includes(expected), expected)
     assert.equal(app.restores.length, 0)
     await app.click('取消')
     assert.equal(app.restores.length, 0)
