@@ -31,7 +31,12 @@ test('macOS build embeds packages and requires Installer signing for signed rele
   assert.deepEqual(config.bundle.resources, ['resources/macos'])
   assert.equal(config.bundle.macOS.infoPlist, 'Info.macos.plist')
   assert.match(read('scripts/package-macos-audio-driver.sh'), /REQUIRE_SIGNED_INSTALLER/)
-  assert.match(read('scripts/build-macos.mjs'), /REQUIRE_SIGNED_INSTALLER/)
+  const macosBuild = read('scripts/build-macos.mjs')
+  assert.match(macosBuild, /REQUIRE_SIGNED_INSTALLER/)
+  assert.match(macosBuild, /axonkey-cli/)
+  assert.match(macosBuild, /aarch64-apple-darwin/)
+  assert.match(macosBuild, /x86_64-apple-darwin/)
+  assert.match(macosBuild, /lipo/)
   assert.match(read('src-tauri/tauri.conf.json'), /npm run build:tauri/)
   assert.match(read('scripts/verify-macos-audio-resources.mjs'), /MiRemoteV2ch-Install\.pkg/)
 

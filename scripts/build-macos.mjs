@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs'
+import { mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -9,6 +9,14 @@ const buildArgs = inputArgs.length > 0 ? inputArgs : ['--bundles', 'app,dmg']
 const signingIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim()
 const signedRelease = Boolean(signingIdentity && signingIdentity !== '-')
 const tauriArgs = ['run', 'tauri', '--', 'build', ...buildArgs]
+const optionValue = (longName, shortName) => {
+  const longIndex = buildArgs.indexOf(longName)
+  if (longIndex >= 0) return buildArgs[longIndex + 1]
+  const shortIndex = buildArgs.indexOf(shortName)
+  if (shortIndex >= 0) return buildArgs[shortIndex + 1]
+  const inline = buildArgs.find((argument) => argument.startsWith(`${longName}=`))
+  return inline?.slice(longName.length + 1)
+}
 
 const audioPackage = spawnSync(
   join(root, 'scripts', 'build-macos-audio-package.sh'),
@@ -24,6 +32,46 @@ const audioPackage = spawnSync(
 )
 if (audioPackage.status !== 0) process.exit(audioPackage.status ?? 1)
 
+const profile = buildArgs.includes('--debug') || buildArgs.includes('-d') ? 'debug' : 'release'
+const cargoProfileArgs = profile === 'debug' ? [] : ['--release']
+const cargoManifest = join(root, 'src-tauri', 'Cargo.toml')
+const target = optionValue('--target', '-t')
+const targetRoot = target
+  ? join(root, 'src-tauri', 'target', target, profile)
+  : join(root, 'src-tauri', 'target', profile)
+
+function runCargo(args) {
+  const result = spawnSync('cargo', ['build', '--manifest-path', cargoManifest, '--bin', 'axonkey-cli', ...args], {
+    cwd: root,
+    env: process.env,
+    stdio: 'inherit',
+  })
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
+function buildCliBinary() {
+  if (target === 'universal-apple-darwin') {
+    const architectures = ['aarch64-apple-darwin', 'x86_64-apple-darwin']
+    const binaries = architectures.map((architecture) => {
+      runCargo([...cargoProfileArgs, '--target', architecture])
+      return join(root, 'src-tauri', 'target', architecture, profile, 'axonkey-cli')
+    })
+    const universalBinary = join(targetRoot, 'axonkey-cli')
+    mkdirSync(targetRoot, { recursive: true })
+    const lipo = spawnSync('lipo', ['-create', ...binaries, '-output', universalBinary], {
+      cwd: root,
+      env: process.env,
+      stdio: 'inherit',
+    })
+    if (lipo.status !== 0) process.exit(lipo.status ?? 1)
+    return
+  }
+
+  runCargo([...cargoProfileArgs, ...(target ? ['--target', target] : [])])
+}
+
+buildCliBinary()
+
 if (signingIdentity) {
   tauriArgs.push('--config', JSON.stringify({
     bundle: { macOS: { signingIdentity } },
@@ -33,23 +81,8 @@ if (signingIdentity) {
 const build = spawnSync('npm', tauriArgs, { cwd: root, env: process.env, stdio: 'inherit' })
 if (build.status !== 0) process.exit(build.status ?? 1)
 
-const optionValue = (longName, shortName) => {
-  const longIndex = buildArgs.indexOf(longName)
-  if (longIndex >= 0) return buildArgs[longIndex + 1]
-  const shortIndex = buildArgs.indexOf(shortName)
-  if (shortIndex >= 0) return buildArgs[shortIndex + 1]
-  const inline = buildArgs.find((argument) => argument.startsWith(`${longName}=`))
-  return inline?.slice(longName.length + 1)
-}
-
 const bundles = optionValue('--bundles', '-b')
 if (bundles && !bundles.split(',').includes('dmg')) process.exit(0)
-
-const target = optionValue('--target', '-t')
-const profile = buildArgs.includes('--debug') || buildArgs.includes('-d') ? 'debug' : 'release'
-const targetRoot = target
-  ? join(root, 'src-tauri', 'target', target, profile)
-  : join(root, 'src-tauri', 'target', profile)
 const dmgDirectory = join(targetRoot, 'bundle', 'dmg')
 const dmgFiles = readdirSync(dmgDirectory)
   .filter((file) => file.endsWith('.dmg'))
