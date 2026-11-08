@@ -4,6 +4,13 @@ import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
+import {
+  InstanceCliError,
+  normalizeCliDeviceSelector,
+  processInstanceCliRequest,
+  resolveCliInstance,
+} from '../devices/integration/instanceCli'
+import { supportPackages } from '../devices/integration/model'
 import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/cloudMetadata'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
@@ -169,22 +176,6 @@ function cliParams(value: unknown): CliParams {
 
 function cliPlatform(platform: Platform): 'windows' | 'macos' {
   return platform === 'macos' ? 'macos' : 'windows'
-}
-
-function cliDeviceId(value: unknown, fallback: DeviceId): DeviceId {
-  if (typeof value !== 'string' || !value.trim()) return fallback
-  const normalized = value.trim().toLowerCase()
-  const aliases: Record<string, DeviceId> = {
-    remote: 'rc003',
-    rc003: 'rc003',
-    xiaomi: 'rc003',
-    cmiot: 'cmiotA15',
-    cmiota15: 'cmiotA15',
-    mouse: 'mouse',
-  }
-  const device = aliases[normalized]
-  if (!device) throw new CliOperationError('invalid_target', '不支持的设备：' + value)
-  return device
 }
 
 function cliTrigger(value: unknown): TriggerType {
@@ -682,22 +673,29 @@ function AppController({
       try {
         if (request.protocol !== cliSchema) throw new CliOperationError('invalid_arguments', '不支持的 CLI 协议版本')
         const params = cliParams(request.params)
-        const state = profileStateRef.current
-        const selectedDevice = selectedDeviceId
-        const deviceId = cliDeviceId(params.device, selectedDevice)
-        const device = devices.find(item => item.id === deviceId)!
         const platformName = cliPlatform(platform)
-        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
-        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
-        const profile =
-          profileValue !== '' && profileValue !== 'active'
-            ? persistedProfiles.find(
-                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
-              )
-            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
-        if (!profile && request.method !== 'keymap.get')
-          throw new CliOperationError('invalid_target', '找不到指定配置文件')
-
+        const snapshot = await deviceInstances.refresh(true)
+        const instanceContext = { platform: platformName, snapshot, update: deviceInstances.update }
+        const sharedMethod = ['capabilities', 'status', 'keymap.get'].includes(request.method)
+        const systemMouseTarget = normalizeCliDeviceSelector(params.device) === 'mouse' && params.instance === undefined
+        if (request.method === 'device.list' || (!sharedMethod && !systemMouseTarget)) {
+          const result = await processInstanceCliRequest(request.method, params, instanceContext)
+          await respond({ ok: true, result })
+          return
+        }
+        if (snapshot.error) throw new CliOperationError('app_error', snapshot.error)
+        const cliDevices = [
+          ...supportPackages.map(item => ({
+            id: item.kind,
+            name: item.name,
+            model: item.model,
+            inputKind: 'button',
+            inputIds: item.inputs.map(input => input.id),
+            buttons: item.remoteView?.buttons,
+            remoteView: item.remoteView,
+          })),
+          devices.find(item => item.id === 'mouse')!,
+        ]
         if (request.method === 'capabilities') {
           await respond({
             ok: true,
@@ -722,10 +720,16 @@ function AppController({
                 { type: 'openApp', fields: ['path'] },
                 { type: 'openPath', fields: ['path'] },
                 { type: 'openWebsite', fields: ['url'] },
-                { type: 'switchProfile', fields: ['direction', 'wrap'] },
+                {
+                  type: 'switchProfile',
+                  fields: ['direction', 'wrap'],
+                  scope: 'instanceProfiles',
+                  exclusive: true,
+                  inheritedByNewProfiles: true,
+                },
                 { type: 'disabled', fields: [] },
               ],
-              devices: devices.map(item => ({
+              devices: cliDevices.map(item => ({
                 id: item.id,
                 name: item.name,
                 model: item.model,
@@ -738,18 +742,47 @@ function AppController({
                   return { id: inputId, label: button?.label ?? inputId }
                 }),
               })),
-              profiles: Object.fromEntries(
-                devices.map(item => [
-                  item.id,
-                  persistedProfiles
-                    .filter(profileItem => profileItem.deviceId === item.id)
-                    .map(profileItem => ({
-                      id: profileItem.id,
-                      name: profileItem.name,
-                      active: profileItem.id === state.activeProfileIds[item.id],
-                    })),
+              targeting: { instance: '--instance <id>', device: '--device <kind>（必须只有一个匹配实例）' },
+              operations: [
+                'device.list',
+                'profile.list',
+                'profile.create',
+                'profile.activate',
+                'mapping.list',
+                'mapping.get',
+                'mapping.set',
+                'mapping.clear',
+                'shortcut.list',
+                'shortcut.get',
+                'shortcut.set',
+                'shortcut.clear',
+                'keymap.get',
+              ],
+              instances: (await processInstanceCliRequest('device.list', {}, instanceContext)).devices,
+              profiles: Object.fromEntries([
+                ...snapshot.store.instances.map(instance => [
+                  instance.id,
+                  instance.profiles.map(profile => ({
+                    id: profile.id,
+                    name: profile.name,
+                    active: profile.id === instance.activeProfileId,
+                  })),
                 ]),
-              ),
+                [
+                  'mouse',
+                  snapshotDeviceProfiles(
+                    profileStateRef.current.profiles,
+                    profileStateRef.current.activeProfileIds,
+                    profileStateRef.current.behaviors,
+                  )
+                    .filter(profile => profile.deviceId === 'mouse')
+                    .map(profile => ({
+                      id: profile.id,
+                      name: profile.name,
+                      active: profile.id === profileStateRef.current.activeProfileIds.mouse,
+                    })),
+                ],
+              ]),
             },
           })
           return
@@ -763,11 +796,20 @@ function AppController({
               platform: platformName,
               mappingEnabled: enabled,
               mouseEnabled,
+              revision: snapshot.store.revision,
+              instances: (await processInstanceCliRequest('device.list', {}, instanceContext)).devices,
             },
           })
           return
         }
         if (request.method === 'keymap.get') {
+          const selector = normalizeCliDeviceSelector(params.device)
+          let instance = params.instance !== undefined || !selector ? resolveCliInstance(params, snapshot) : null
+          let device = cliDevices.find(item => item.id.toLowerCase() === (instance?.kind.toLowerCase() ?? selector))
+          if (!device) {
+            instance = resolveCliInstance(params, snapshot)
+            device = cliDevices.find(item => item.id === instance!.kind)!
+          }
           const remoteView = device.remoteView
           const artwork = remoteView
             ? {
@@ -826,6 +868,7 @@ function AppController({
             result: {
               schema: cliSchema,
               device: { id: device.id, name: device.name, model: device.model, inputKind: device.inputKind },
+              instance: instance ? { id: instance.id, kind: instance.kind, name: instance.name } : null,
               artwork,
               layout: remoteView
                 ? {
@@ -844,6 +887,17 @@ function AppController({
           })
           return
         }
+        const state = profileStateRef.current
+        const deviceId: DeviceId = 'mouse'
+        const device = devices.find(item => item.id === deviceId)!
+        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
+        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
+        const profile =
+          profileValue && profileValue !== 'active'
+            ? persistedProfiles.find(
+                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
+              )
+            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
         if (!profile) throw new CliOperationError('invalid_target', '找不到指定配置文件')
         if (request.method === 'profile.list') {
           await respond({
@@ -965,7 +1019,7 @@ function AppController({
           },
         })
       } catch (error) {
-        const code = error instanceof CliOperationError ? error.code : 'app_error'
+        const code = error instanceof CliOperationError || error instanceof InstanceCliError ? error.code : 'app_error'
         const message = error instanceof Error ? error.message : String(error)
         try {
           await respond({ ok: false, error: { code, message } })
@@ -974,7 +1028,7 @@ function AppController({
         }
       }
     },
-    [enabled, mouseEnabled, nativeRuntime, platform, selectedDeviceId, setBehaviors],
+    [deviceInstances.refresh, deviceInstances.update, enabled, mouseEnabled, platform, setBehaviors],
   )
 
   useEffect(() => {
