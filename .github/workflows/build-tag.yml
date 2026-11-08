@@ -113,11 +113,57 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test Windows signing setup
+        shell: pwsh
+        run: ./test/windows-signing.test.ps1
+
+      - name: Import Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE -or -not $env:WINDOWS_CERTIFICATE_PASSWORD) {
+            throw 'WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD must both be configured.'
+          }
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'axonkey-windows-signing.pfx'
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $configPath = ./scripts/prepare-windows-signing.ps1 -CertificatePath $pfxPath
+          "WINDOWS_SIGNING_CONFIG=$configPath" >> $env:GITHUB_ENV
+
       - name: Build NSIS installer
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.updater.conf.json
+        run: npm run tauri build -- --bundles nsis --config src-tauri/tauri.updater.conf.json --config "$env:WINDOWS_SIGNING_CONFIG"
+
+      - name: Verify Windows signatures
+        shell: pwsh
+        run: |
+          $config = Get-Content -LiteralPath $env:WINDOWS_SIGNING_CONFIG -Raw | ConvertFrom-Json
+          $thumbprint = $config.bundle.windows.certificateThumbprint
+          $certificate = Get-Item "Cert:\CurrentUser\My\$thumbprint"
+          # Trust only on this disposable runner to verify the self-signed chain.
+          $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+          $store.Open('ReadWrite')
+          try {
+            $store.Add($certificate)
+            $files = @(
+              'src-tauri/target/release/axonkey.exe',
+              "src-tauri/target/release/bundle/nsis/Axonkey_$($env:APP_VERSION)_x64-setup.exe"
+            )
+            foreach ($file in $files) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $file
+              if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $thumbprint) {
+                throw "Invalid Windows signature: $file ($($signature.Status))"
+              }
+              if (-not $signature.TimeStamperCertificate) { throw "Missing timestamp: $file" }
+              Write-Host "Verified signature and timestamp: $file"
+            }
+          } finally {
+            $store.Remove($certificate)
+            $store.Close()
+          }
 
       - name: Create SHA-256 checksum
         shell: pwsh
@@ -142,6 +188,19 @@ jobs:
             src-tauri/target/release/bundle/nsis/Axonkey_${{ needs.release-metadata.outputs.version }}_x64-setup.exe.sig
           if-no-files-found: error
           retention-days: 30
+
+      - name: Remove Windows signing credentials
+        if: always()
+        shell: pwsh
+        run: |
+          $configPath = 'src-tauri/target/windows-signing.json'
+          if (Test-Path -LiteralPath $configPath) {
+            $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+            $thumbprint = $config.bundle.windows.certificateThumbprint
+            Remove-Item "Cert:\CurrentUser\My\$thumbprint" -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $configPath -Force
+          }
+          Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'axonkey-windows-signing.pfx') -Force -ErrorAction SilentlyContinue
 
   build-macos:
     needs: [release-metadata, test-release]

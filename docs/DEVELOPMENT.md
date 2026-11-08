@@ -105,6 +105,28 @@ src-tauri/target/release/bundle/dmg/Axonkey_<version>_<arch>.dmg
 
 `make build-macos-audio` 可单独从固定的 BlackHole 源码构建 MiRemoteV 驱动及安装、卸载 PKG；`make build` 和 `make build-macos` 在 macOS 上会自动执行这一步。
 
+## Windows 自签名
+
+Windows 的 `make build` 和 tag 发布流程使用固定 PFX 证书进行 Authenticode 签名。Tauri 在生成更新包签名与 SHA-256 之前签署主程序、NSIS 安装包和卸载程序；证书缺失、密码错误或证书过期时构建失败。
+
+本地构建需要以下文件（`secrets/` 已被 Git 忽略，需自行备份并复制到 Windows 构建机）：
+
+```text
+secrets/windows-signing.pfx
+secrets/windows-signing-password.txt
+```
+
+也可以设置 `WINDOWS_CERTIFICATE_PATH` 和 `WINDOWS_CERTIFICATE_PASSWORD`，使用其他位置的 PFX。准备脚本只将证书及私钥导入当前用户的 Personal 证书库，不修改构建机的受信任根证书。直接调用 Tauri 时，先准备签名配置：
+
+```powershell
+$config = ./scripts/prepare-windows-signing.ps1
+npm run tauri build -- --bundles nsis --config $config
+```
+
+GitHub Actions 使用两项 Secrets：`WINDOWS_CERTIFICATE` 为 PFX 的 base64，`WINDOWS_CERTIFICATE_PASSWORD` 为导出密码。CI 在临时 runner 上导入证书，签名后验证主程序、安装包的签名身份和时间戳，最后清理证书及临时 PFX；验签所需的自签名根信任只在该 runner 上临时添加。更换证书时应同步更新两项 Secrets，不能在每次构建时重新生成证书。
+
+当前自签名证书的公开部分为 [`packaging/windows/Axonkey-SelfSigned.cer`](../packaging/windows/Axonkey-SelfSigned.cer)。它可用于核对签名身份，自签名中的发布者名称是自行声明的身份。普通用户的 Windows 不会默认信任该证书；自签名不能保证消除 SmartScreen 提示，也不能解决智能应用控制对未知应用的拦截。公开分发需要系统信任的代码签名证书。
+
 ## macOS 签名与公证
 
 设置 `APPLE_SIGNING_IDENTITY` 后，`make build-macos` 会用该证书签名 App 和 DMG；此时还需通过 `MACOS_INSTALLER_SIGNING_IDENTITY` 指定钥匙串中的安装包签名证书，否则构建会拒绝嵌入未签名的 MiRemoteV PKG。构建流程支持自签名证书和 Developer ID 证书。两项 identity 都不设置时，App 使用 ad-hoc 签名，MiRemoteV PKG 不签名。输入监控和辅助功能权限绑定代码签名身份，经常安装本地构建时应固定使用同一签名证书。ad-hoc 构建每次变化后都可能需要移除旧权限条目并重新授权。
