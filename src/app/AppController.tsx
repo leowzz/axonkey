@@ -42,7 +42,12 @@ import type { Application } from '../applications'
 import { processMouseCliRequest } from '../mouseCli'
 import { useCliRequests } from '../useCliRequests'
 import { useForegroundApplications } from '../useForegroundApplications'
-import { bindMouseApplication, effectiveMouseProfileId, mouseApplicationProfile } from '../mouseProfiles'
+import {
+  bindMouseApplication,
+  deleteMouseProfile,
+  effectiveMouseProfileId,
+  mouseApplicationProfile,
+} from '../mouseProfiles'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -697,18 +702,30 @@ function AppController({
     if (deviceProfiles.length <= 1) return
     const current = profiles.find(profile => profile.id === activeProfileId)
     if (!current || !window.confirm(`确定删除配置文件“${current.name}”吗？`)) return
-    const remaining = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors).filter(
-      profile => profile.id !== activeProfileId,
-    )
+    const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
+    const deleted =
+      selectedDeviceId === 'mouse'
+        ? deleteMouseProfile(saved, activeProfileId, mouseGlobalProfileRef.current)
+        : {
+            profiles: saved.filter(profile => profile.id !== activeProfileId),
+            globalProfileId: mouseGlobalProfileRef.current,
+          }
+    const remaining = deleted.profiles
+    const nextGlobalProfileId = deleted.globalProfileId
     const next = remaining.find(profile => profile.deviceId === selectedDeviceId)!
-    if (current.id === mouseGlobalProfileId) {
-      mouseGlobalProfileRef.current = next.id
-      setMouseGlobalProfileId(next.id)
+    if (selectedDeviceId === 'mouse') {
+      mouseGlobalProfileRef.current = nextGlobalProfileId
+      setMouseGlobalProfileId(nextGlobalProfileId)
     }
+    const editorProfileId =
+      selectedDeviceId === 'mouse'
+        ? (mouseApplicationProfile(remaining, mouseEditingApplicationId)?.id ?? nextGlobalProfileId)
+        : next.id
+    const editorProfile = remaining.find(profile => profile.id === editorProfileId) ?? next
     const nextState = {
       profiles: remaining,
-      activeProfileIds: { ...activeProfileIds, [selectedDeviceId]: next.id },
-      behaviors: mergeDeviceBehaviors(behaviors, selectedDeviceId, next.behaviors),
+      activeProfileIds: { ...activeProfileIds, [selectedDeviceId]: editorProfile.id },
+      behaviors: mergeDeviceBehaviors(behaviors, selectedDeviceId, editorProfile.behaviors),
     }
     profileStateRef.current = nextState
     setProfiles(nextState.profiles)

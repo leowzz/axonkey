@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { activeApplicationProfile, selectInstanceProfile, setApplicationProfile } from '../src/devices/integration/applicationProfiles.ts'
+import { bindMouseApplication, deleteMouseProfile } from '../src/mouseProfiles.ts'
 import { addApplicationForEditing, addInstanceProfile, deleteInstanceProfile } from '../src/devices/integration/instanceProfiles.ts'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -55,6 +56,33 @@ test('changing and deleting profiles cannot leave duplicate or dangling app asso
   assert.equal(deletedGlobal.applicationProfiles[0].profileId, 'editor')
   const last = { ...first, profiles: [first.profiles[0]] }
   assert.equal(deleteInstanceProfile(last, 'global'), last)
+})
+
+test('deleting a mouse app profile keeps the app selected and falls back to the global profile', () => {
+  const profiles = [
+    { id: 'global', name: '默认', deviceId: 'mouse', behaviors: {}, applicationIds: [] },
+    { id: 'browser', name: '浏览器', deviceId: 'mouse', behaviors: {}, applicationIds: [chrome.id] },
+  ]
+  const deleted = deleteMouseProfile(profiles, 'browser', 'global')
+  assert.equal(deleted.globalProfileId, 'global')
+  assert.equal(deleted.profiles.length, 1)
+  assert.deepEqual(deleted.profiles[0].applicationIds, [chrome.id])
+  assert.equal(deleted.profiles[0].id, 'global')
+  assert.equal(deleted.profiles.find(profile => profile.applicationIds?.includes(chrome.id)).id, 'global')
+})
+
+test('deleting the mouse global profile moves its app bindings to the new global profile', () => {
+  const profiles = bindMouseApplication(
+    [
+      { id: 'global', name: '默认', deviceId: 'mouse', behaviors: {} },
+      { id: 'other', name: '其他', deviceId: 'mouse', behaviors: {} },
+    ],
+    chrome.id,
+    'global',
+  )
+  const deleted = deleteMouseProfile(profiles, 'global', 'global')
+  assert.equal(deleted.globalProfileId, 'other')
+  assert.deepEqual(deleted.profiles[0].applicationIds, [chrome.id])
 })
 
 function compile(path, imports = {}, globals = {}) {
