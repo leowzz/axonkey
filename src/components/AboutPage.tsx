@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
-import { AudioLines, Github, Keyboard, ShieldCheck, Terminal } from 'lucide-react'
+import { AudioLines, Check, Copy, Github, Keyboard, Terminal } from 'lucide-react'
+import { writeClipboardText } from '../clipboard'
 import appPackage from '../../package.json'
 import { WechatGroupCard } from './WechatGroupCard'
 
@@ -125,24 +127,49 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
               <h3>遥控器语音</h3>
               <p>使用遥控器语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
             </article>
-            <article>
-              <ShieldCheck size={22} />
-              <h3>本地运行</h3>
-              <p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p>
-            </article>
-            <article>
-              <Terminal size={22} />
-              <h3>Agent CLI</h3>
-              <p>
-                让 Agent 查看、预览并修改快捷键，支持快捷键、文本、鼠标和多步行为。终端运行{' '}
-                <code>axonkey-cli capabilities --json</code> 查看格式。
-              </p>
-            </article>
+          </section>
+          <section className="about-cli" aria-labelledby="about-cli-title">
+            <h3 id="about-cli-title">
+              <Terminal size={22} aria-hidden="true" /> 让 Agent 帮你配置
+            </h3>
+            <p>复制给你的 Agent，再告诉它你想怎么设置。</p>
+            <CopyableSnippet
+              label="示例 Prompt"
+              text="我在用 Axonkey 设置设备按键。请先了解它的命令行工具 axonkey-cli，之后根据我的需求，帮我查看和调整按键设置。"
+            />
           </section>
         </div>
         <WechatGroupCard />
       </div>
       <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置页左侧开启软件总开关。</p>
+    </div>
+  )
+}
+
+function CopyableSnippet({ label, text }: { label: string; text: string }) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+
+  return (
+    <div className="about-cli-snippet">
+      <div className="about-cli-snippet-header">
+        <h4>{label}</h4>
+        <button
+          type="button"
+          aria-label={`复制${label}`}
+          onClick={() => {
+            void writeClipboardText(text)
+              .then(() => setCopyState('copied'))
+              .catch(() => setCopyState('error'))
+          }}
+        >
+          {copyState === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          <span role="status">{copyState === 'copied' ? '已复制' : '复制'}</span>
+        </button>
+      </div>
+      <pre>
+        <code>{text}</code>
+      </pre>
+      {copyState === 'error' && <p role="alert">复制失败，请拖选文本后使用系统复制快捷键。</p>}
     </div>
   )
 }

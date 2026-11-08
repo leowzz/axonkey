@@ -3254,6 +3254,84 @@ body:has(.audio-test-dialog[open]) {
 .about-details .about-features article {
   padding: 20px 16px;
 }
+.about-cli {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid #dfe1e4;
+  border-radius: 8px;
+  background: #f8f8f7;
+}
+.about-cli > h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+}
+.about-cli > h3 svg {
+  color: #526f86;
+}
+.about-cli > p {
+  margin: 10px 0 16px;
+  color: #69737b;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.about-cli-snippet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.about-cli-snippet-header h4 {
+  margin: 0;
+  color: #505e69;
+  font-size: 13px;
+  font-weight: 600;
+}
+.about-cli-snippet-header button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: #1766b5;
+  background: transparent;
+  font-size: 13px;
+}
+.about-cli-snippet-header button:hover {
+  background: #e2efff;
+}
+.about-cli-snippet-header button:focus-visible {
+  outline: 2px solid #1478e8;
+  outline-offset: 2px;
+}
+.about-cli-snippet pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgb(82 111 134 / 6%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.about-cli-snippet pre,
+.about-cli-snippet code {
+  -webkit-user-select: text;
+  user-select: text;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.about-cli-snippet > p {
+  margin: 8px 0 0;
+  color: #b42318;
+  font-size: 13px;
+}
 .about-wechat {
   display: flex;
   flex-direction: column;
@@ -3401,7 +3479,7 @@ body:has(.audio-test-dialog[open]) {
 }
 .about-features {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-top: 16px;
 }
@@ -3415,8 +3493,13 @@ body:has(.audio-test-dialog[open]) {
   color: #526f86;
 }
 .about-features h3 {
-  margin: 16px 0 10px;
+  display: inline;
+  margin: 0 0 0 8px;
   font-size: 16px;
+  vertical-align: top;
+}
+.about-features p {
+  margin: 12px 0 0;
 }
 .about-note {
   margin: 18px 0;
@@ -4828,6 +4911,7 @@ html.macos-vibrancy,
   color: #596d7e;
 }
 .macos-vibrancy .about-features article,
+.macos-vibrancy .about-cli,
 .macos-vibrancy .about-update,
 .macos-vibrancy .about-wechat {
   border-color: rgb(70 80 90 / 12%);
@@ -4841,6 +4925,7 @@ html.macos-vibrancy,
 .macos-vibrancy .about-version,
 .macos-vibrancy .about-intro p,
 .macos-vibrancy .about-features p,
+.macos-vibrancy .about-cli > p,
 .macos-vibrancy .about-update p,
 .macos-vibrancy .about-wechat p,
 .macos-vibrancy .about-note,
