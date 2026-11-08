@@ -93,6 +93,12 @@ jobs:
           Copy-Item -LiteralPath '.env.example' -Destination '.env'
           node ./scripts/repo-version.mjs check $env:TAG_NAME
 
+      - name: Prepare verified NSIS toolchain through GitHub API
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/prepare-windows-nsis.mjs "$env:LOCALAPPDATA/tauri"
+
       - name: Set up pinned Rust toolchain
         shell: pwsh
         run: rustup toolchain install --no-self-update
