@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { lazy, StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { AppErrorBoundary } from './components/AppErrorBoundary'
@@ -34,10 +34,23 @@ installRuntimeLogging()
 logInfo('Frontend runtime initialized')
 
 const root = createRoot(document.getElementById('root')!)
+const BottomBarPrototype = import.meta.env.DEV ? lazy(() => import('./components/prototypes/BottomBarPrototype')) : null
+const isBottomBarPrototype =
+  import.meta.env.DEV && new URLSearchParams(window.location.search).get('view') === 'bottom-bar-prototype'
 const isProfileSwitchOverlay = new URLSearchParams(window.location.search).get('view') === 'profile-switch-overlay'
 if (isProfileSwitchOverlay) document.documentElement.classList.add('profile-switch-overlay-window')
 root.render(
   <StrictMode>
-    <AppErrorBoundary>{isProfileSwitchOverlay ? <ProfileSwitchOverlay /> : <App />}</AppErrorBoundary>
+    <AppErrorBoundary>
+      {isBottomBarPrototype && BottomBarPrototype ? (
+        <Suspense fallback={null}>
+          <BottomBarPrototype />
+        </Suspense>
+      ) : isProfileSwitchOverlay ? (
+        <ProfileSwitchOverlay />
+      ) : (
+        <App />
+      )}
+    </AppErrorBoundary>
   </StrictMode>,
 )

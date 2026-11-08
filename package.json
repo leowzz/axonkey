@@ -17,6 +17,7 @@
     "test:windows-wheel": "node --test test/wheel-behavior.test.mjs test/cursor-move-behavior.test.mjs && cargo test --manifest-path src-tauri/Cargo.toml --lib input_service",
     "test:cloud": "node --test test/behavior-library.test.mjs test/cloud-sync.test.mjs test/cloud-sync-ui.test.mjs test/captcha.test.mjs test/local-data-reset.test.mjs",
     "dev": "vite --config vite.config.ts",
+    "prototype:bottom-bar": "vite --config vite.config.ts --port 3015 --open '/?view=bottom-bar-prototype'",
     "dev:tauri": "vite --config vite.config.ts",
     "build": "tsc -b && vite build",
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
