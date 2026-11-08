@@ -1,6 +1,7 @@
 //! Physical-device ownership and input lifetime live here, independently of the editor window.
 #[cfg(target_os = "macos")]
 mod a15;
+mod app_profiles;
 mod device_info;
 mod gesture;
 mod paired;
@@ -12,6 +13,7 @@ use super::windows::ManagedQuarborChannel;
 #[cfg(all(windows, not(test)))]
 use super::NativeSettings;
 use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
+use app_profiles::{application_binding, effective_instance, ApplicationProfile};
 use gesture::Gestures;
 use hidapi::{HidApi, HidDevice};
 use serde::{Deserialize, Serialize};
@@ -71,6 +73,10 @@ pub struct Instance {
     pub enabled: bool,
     pub profiles: Vec<Profile>,
     pub active_profile_id: String,
+    #[serde(default)]
+    pub app_profile_switching: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub application_profiles: Vec<ApplicationProfile>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,6 +119,7 @@ pub struct RuntimeStatus {
     pub error: Option<String>,
     pub reports: u64,
     pub recording: bool,
+    pub effective_profile_id: Option<String>,
     #[serde(default)]
     pub driver_installed: bool,
     #[serde(default)]
@@ -372,6 +379,7 @@ fn validate(store: &Store) -> Result<(), String> {
             return Err("设备配置文件无效".into());
         }
         let mut profiles = HashSet::new();
+        app_profiles::validate(instance)?;
         for profile in &instance.profiles {
             if profile.id.is_empty()
                 || !profiles.insert(&profile.id)
@@ -598,7 +606,19 @@ impl DeviceManager {
         }
     }
     pub fn snapshot(&self) -> Snapshot {
-        self.shared.snapshot.lock().unwrap().clone()
+        let (_, app_id) = crate::foreground::context();
+        let mut snapshot = self.shared.snapshot.lock().unwrap().clone();
+        for instance in &snapshot.store.instances {
+            let profile_id = effective_instance(instance, app_id.as_deref())
+                .active_profile_id
+                .clone();
+            snapshot
+                .runtime
+                .entry(instance.id.clone())
+                .or_default()
+                .effective_profile_id = Some(profile_id);
+        }
+        snapshot
     }
     pub fn refresh_information(&self, binding: &str) -> Result<Snapshot, String> {
         device_info::request(&self.shared, binding)
@@ -1209,7 +1229,7 @@ fn run(shared: Arc<Shared>) {
     let mut readers: HashMap<String, Reader> = HashMap::new();
     let mut failures: HashMap<String, (Instance, String)> = HashMap::new();
     let mut configs = Vec::new();
-    let mut config_revision = u64::MAX;
+    let mut config_revision = (u64::MAX, u64::MAX);
     #[cfg(all(windows, not(test)))]
     let mut driver_devices = Vec::new();
     let mut paths = HashMap::new();
@@ -1390,10 +1410,16 @@ fn run(shared: Arc<Shared>) {
             }
         }
         {
+            let (generation, app_id) = crate::foreground::context();
             let snapshot = shared.snapshot.lock().unwrap();
-            if config_revision != snapshot.store.revision {
-                config_revision = snapshot.store.revision;
-                configs = snapshot.store.instances.clone();
+            if config_revision != (snapshot.store.revision, generation) {
+                config_revision = (snapshot.store.revision, generation);
+                configs = snapshot
+                    .store
+                    .instances
+                    .iter()
+                    .map(|instance| effective_instance(instance, app_id.as_deref()).into_owned())
+                    .collect();
             }
         }
         failures.retain(|id, _| configs.iter().any(|i| &i.id == id));
@@ -1899,6 +1925,7 @@ fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<
 }
 
 fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) -> bool {
+    let (_, app_id) = crate::foreground::context();
     !cancel.load(Ordering::Acquire)
         && !shared.stop.load(Ordering::Acquire)
         && shared.enabled.load(Ordering::Acquire)
@@ -1909,7 +1936,10 @@ fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) ->
             .store
             .instances
             .iter()
-            .any(|instance| instance == expected && instance.enabled)
+            .any(|instance| {
+                instance.enabled
+                    && effective_instance(instance, app_id.as_deref()).as_ref() == expected
+            })
 }
 fn switch_profile(shared: &Shared, id: &str, direction: ProfileDirection, wrap: bool) {
     let Some((device, from, to)) = save_profile_switch(shared, id, direction, wrap) else {
@@ -1928,15 +1958,27 @@ fn save_profile_switch(
     direction: ProfileDirection,
     wrap: bool,
 ) -> Option<(String, String, String)> {
+    let app_id = crate::foreground::frontmost_application_id();
+    save_profile_switch_for_app(shared, id, direction, wrap, app_id.as_deref())
+}
+
+fn save_profile_switch_for_app(
+    shared: &Shared,
+    id: &str,
+    direction: ProfileDirection,
+    wrap: bool,
+    app_id: Option<&str>,
+) -> Option<(String, String, String)> {
     let mut snapshot = shared.snapshot.lock().unwrap();
     let mut next = snapshot.store.clone();
     let Some(instance) = next.instances.iter_mut().find(|i| i.id == id) else {
         return None;
     };
+    let effective = effective_instance(instance, app_id);
     let current = instance
         .profiles
         .iter()
-        .position(|p| p.id == instance.active_profile_id)
+        .position(|p| p.id == effective.active_profile_id)
         .unwrap_or(0);
     let target = match direction {
         ProfileDirection::Next => {
@@ -1961,12 +2003,24 @@ fn save_profile_switch(
     if target == current {
         return None;
     }
+    let app_binding = application_binding(instance, app_id);
     let names = (
-        instance.name.clone(),
+        app_binding
+            .map(|index| {
+                format!(
+                    "{} 的设备配置 · {}",
+                    instance.application_profiles[index].application.name, instance.name
+                )
+            })
+            .unwrap_or_else(|| instance.name.clone()),
         instance.profiles[current].name.clone(),
         instance.profiles[target].name.clone(),
     );
-    instance.active_profile_id = instance.profiles[target].id.clone();
+    if let Some(index) = app_binding {
+        instance.application_profiles[index].profile_id = instance.profiles[target].id.clone();
+    } else {
+        instance.active_profile_id = instance.profiles[target].id.clone();
+    }
     next.revision += 1;
     match save(&shared.path, &next) {
         Ok(()) => {
@@ -1996,7 +2050,7 @@ mod tests {
             .is_none());
     }
 
-    fn instance(id: &str, binding: &str) -> Instance {
+    pub(super) fn instance(id: &str, binding: &str) -> Instance {
         Instance {
             id: id.into(),
             kind: "xboxBluetooth".into(),
@@ -2016,6 +2070,8 @@ mod tests {
                 behaviors: serde_json::json!({}),
             }],
             active_profile_id: "default".into(),
+            app_profile_switching: false,
+            application_profiles: vec![],
         }
     }
     #[test]
@@ -2947,6 +3003,94 @@ mod tests {
         std::fs::remove_dir(temp).unwrap();
         let _ = std::fs::remove_file(&shared.path);
         let _ = std::fs::remove_file(shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn app_profile_switches_persist_the_app_binding_and_leave_global_and_other_devices_untouched() {
+        let mut first = instance("one", "physical-one");
+        first.profiles.extend([
+            Profile {
+                id: "browser".into(),
+                name: "浏览器".into(),
+                behaviors: serde_json::json!({}),
+            },
+            Profile {
+                id: "editor".into(),
+                name: "编辑器".into(),
+                behaviors: serde_json::json!({}),
+            },
+        ]);
+        first.app_profile_switching = true;
+        for (id, name, profile) in [
+            ("chrome", "Chrome", "browser"),
+            ("code", "VS Code", "editor"),
+        ] {
+            first.application_profiles.push(ApplicationProfile {
+                application: crate::foreground::Application {
+                    id: id.into(),
+                    name: name.into(),
+                    path: format!("/{name}.app"),
+                },
+                profile_id: profile.into(),
+            });
+        }
+        let second = instance("two", "physical-two");
+        let manager = offline_manager(vec![first, second.clone()]);
+        let names = save_profile_switch_for_app(
+            &manager.shared,
+            "one",
+            ProfileDirection::Next,
+            true,
+            Some("chrome"),
+        )
+        .unwrap();
+        assert_eq!(
+            names,
+            (
+                "Chrome 的设备配置 · one".into(),
+                "浏览器".into(),
+                "编辑器".into()
+            )
+        );
+        let saved = load(&manager.shared.path).unwrap();
+        assert_eq!(saved.instances[0].active_profile_id, "default");
+        assert_eq!(
+            saved.instances[0].application_profiles[0].profile_id,
+            "editor"
+        );
+        assert!(saved.instances[1] == second);
+        assert_eq!(
+            effective_instance(&saved.instances[0], Some("chrome")).active_profile_id,
+            "editor"
+        );
+        assert_eq!(
+            effective_instance(&saved.instances[0], Some("code")).active_profile_id,
+            "editor"
+        );
+        assert_eq!(
+            effective_instance(&saved.instances[0], Some("unknown")).active_profile_id,
+            "default"
+        );
+        save_profile_switch_for_app(
+            &manager.shared,
+            "one",
+            ProfileDirection::Next,
+            true,
+            Some("unknown"),
+        )
+        .unwrap();
+        let saved = load(&manager.shared.path).unwrap();
+        assert_eq!(saved.instances[0].active_profile_id, "browser");
+        assert_eq!(
+            saved.instances[0].application_profiles[0].profile_id,
+            "editor"
+        );
+        assert_eq!(
+            saved.instances[0].application_profiles[1].profile_id,
+            "editor"
+        );
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
     #[test]
     fn paired_offline_device_can_be_bound_and_keeps_its_configuration() {

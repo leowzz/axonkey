@@ -9,7 +9,9 @@ import { triggerLabels } from '../../appConfig'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
 import { removedProfileSwitchTriggers } from '../../profileNavigation'
 import { RemoteControl } from '../shared/RemoteControl'
-import { ProfileManager } from '../../components/ProfileManager'
+import { ApplicationProfileToolbar } from '../../components/ApplicationProfileToolbar'
+import { useForegroundApplications } from '../../useForegroundApplications'
+import { setApplicationProfile } from './applicationProfiles'
 import { ProfileSwitchConfirmDialog } from '../../components/ProfileSwitchConfirmDialog'
 import { ProfileSwitchDeleteDialog } from '../../components/ProfileSwitchDeleteDialog'
 import { SettingsHelp } from '../../components/SettingsHelp'
@@ -28,6 +30,7 @@ import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
+  deleteInstanceProfile,
   applyInstanceProfileSwitch,
   removeInstanceProfileSwitch,
   updateInstanceSequence,
@@ -80,6 +83,8 @@ export function InstanceWorkspace({
     storeDeviceInput(instance.id, inputId)
   }
   const [settings, setSettings] = useState(false)
+  const [editingApplicationId, setEditingApplicationId] = useState('')
+  const applications = useForegroundApplications(native)
   const [recordingPending, setRecordingPending] = useState(false)
   const [driverNoticeDismissed, setDriverNoticeDismissed] = useState(false)
   const [dismissingDriverNotice, setDismissingDriverNotice] = useState(false)
@@ -107,7 +112,10 @@ export function InstanceWorkspace({
   } | null>(null)
   const [input, setInput] = useState<{ pressed: string[]; values: Record<string, number> }>({ pressed: [], values: {} })
   const recordingRef = useRef({ instanceId: instance.id, recording: false })
-  const profile = instance.profiles.find(p => p.id === instance.activeProfileId)!
+  const applicationProfile = instance.applicationProfiles?.find(
+    binding => binding.application.id === editingApplicationId,
+  )
+  const profile = instance.profiles.find(p => p.id === (applicationProfile?.profileId ?? instance.activeProfileId))!
   const selectedInput: MappingInput<string> = pkg.inputs.find(i => i.id === selected) ?? pkg.inputs[0]
   const status = controller.snapshot.runtime[instance.id]
   const boundDevice = instance.binding
@@ -226,7 +234,7 @@ export function InstanceWorkspace({
   }, [native, instance.id])
   useEffect(() => {
     setInput({ pressed: [], values: {} })
-  }, [instance.enabled, instance.activeProfileId, status?.state])
+  }, [instance.enabled, profile.id, status?.state])
   const changeSequence = (id: string, sequences: TriggerBehaviors) => {
     const triggers = removedProfileSwitchTriggers(profile.behaviors[id] ?? emptyTriggers(), sequences)
     if (triggers.length) {
@@ -237,12 +245,7 @@ export function InstanceWorkspace({
   }
   const renameProfile = (name: string) =>
     update(item => ({ ...item, profiles: item.profiles.map(p => (p.id === profile.id ? { ...p, name } : p)) }))
-  const deleteProfile = () =>
-    update(item => {
-      if (item.profiles.length <= 1) return item
-      const profiles = item.profiles.filter(p => p.id !== profile.id)
-      return { ...item, profiles, activeProfileId: profiles[0].id }
-    })
+  const deleteProfile = () => update(item => deleteInstanceProfile(item, profile.id))
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
@@ -290,14 +293,30 @@ export function InstanceWorkspace({
           onBackToDevices={onBack}
           onOpenSettings={() => setSettings(v => !v)}
           profileControls={
-            <ProfileManager
-              profiles={instance.profiles}
-              activeProfileId={instance.activeProfileId}
-              onSwitch={activeProfileId => update(item => ({ ...item, activeProfileId }))}
-              onCreate={() => update(item => addInstanceProfile(item, false))}
-              onDuplicate={() => update(item => addInstanceProfile(item, true))}
-              onRename={renameProfile}
-              onDelete={deleteProfile}
+            <ApplicationProfileToolbar
+              instance={instance}
+              applications={applications}
+              native={native}
+              platform={platform}
+              editingApplicationId={applicationProfile?.application.id ?? ''}
+              profileId={profile.id}
+              onSelectApplication={setEditingApplicationId}
+              onUpdate={change => controller.update(instance.id, change)}
+              onSwitchProfile={profileId =>
+                update(item =>
+                  applicationProfile
+                    ? setApplicationProfile(item, applicationProfile.application, profileId)
+                    : { ...item, activeProfileId: profileId },
+                )
+              }
+              onCreateProfile={() =>
+                update(item => addInstanceProfile(item, false, applicationProfile?.application.id))
+              }
+              onDuplicateProfile={() =>
+                update(item => addInstanceProfile(item, true, applicationProfile?.application.id))
+              }
+              onRenameProfile={renameProfile}
+              onDeleteProfile={deleteProfile}
             />
           }
         />

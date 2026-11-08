@@ -29,6 +29,7 @@ fn main() {
             .file("native/macos_input.m")
             .file("native/macos_device_identity.m")
             .file("native/macos_device_information.m")
+            .file("native/macos_foreground.m")
             .file("native/devices/xiaomi_remote/macos_audio.m")
             .file("native/macos_overlay.m")
             .file("native/macos_recording_overlay.m")
@@ -49,6 +50,7 @@ fn main() {
         println!("cargo:rerun-if-changed=native/macos_input.m");
         println!("cargo:rerun-if-changed=native/macos_device_identity.m");
         println!("cargo:rerun-if-changed=native/macos_device_information.m");
+        println!("cargo:rerun-if-changed=native/macos_foreground.m");
         println!("cargo:rerun-if-changed=native/macos_overlay.m");
         println!("cargo:rerun-if-changed=native/macos_recording_overlay.m");
     }

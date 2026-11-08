@@ -4,6 +4,7 @@ mod backup_files;
 mod cli_ipc;
 mod devices;
 mod driver_migration;
+mod foreground;
 mod input_service;
 mod legacy_cleanup;
 mod legacy_driver;
@@ -1689,6 +1690,9 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
         .app_data_dir()
         .map_err(|e| e.to_string())?
         .join("device-instances.json");
+    app.manage(foreground::Monitor::start(
+        device_path.with_file_name("recent-applications.json"),
+    )?);
     app.manage(AudioServiceManager::start());
     #[cfg(target_os = "windows")]
     let input_service = InputService::start(std::sync::Arc::new(
@@ -1895,6 +1899,8 @@ pub fn run() {
             export_signal_monitor,
             update_input_settings,
             device_snapshot,
+            foreground::foreground_applications,
+            foreground::resolve_application_path,
             refresh_device_information,
             toggle_device_recording,
             restart_app,

@@ -1,4 +1,5 @@
 import type { TriggerBehaviors } from '../../behaviorModel'
+import type { ApplicationProfile } from '../../applications'
 import type { DeviceKind, DeviceSupportPackage } from '../types.ts'
 import { xiaomiRemoteSupportPackage } from '../xiaomi-remote/definition.ts'
 import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
@@ -23,6 +24,8 @@ export type DeviceInstance = {
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
+  appProfileSwitching?: boolean
+  applicationProfiles?: ApplicationProfile[]
 }
 export type DeviceInformation = {
   status: 'pending' | 'ready' | 'retrying' | 'error' | 'disconnected'
@@ -61,6 +64,7 @@ export type DeviceSnapshot = {
       error: string | null
       reports: number
       recording?: boolean
+      effectiveProfileId?: string
       driverInstalled?: boolean
       driverState?: string
     }

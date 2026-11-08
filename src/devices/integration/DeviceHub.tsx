@@ -122,7 +122,12 @@ export function DeviceHub(props: Props) {
                     state={native ? instanceState(item, snapshot) : undefined}
                     unbound={!item.binding}
                     batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
-                    profile={item.profiles.find(p => p.id === item.activeProfileId)?.name}
+                    profile={
+                      item.profiles.find(
+                        p =>
+                          p.id === (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
+                      )?.name
+                    }
                     onClick={() => setSelected(item.id)}
                   />
                 ))}

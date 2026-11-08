@@ -1,5 +1,7 @@
 import type { DeviceInstance } from './model'
 import type { SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
+import { setApplicationProfile } from './applicationProfiles.ts'
+import type { Application } from '../../applications'
 
 const empty = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
 
@@ -53,8 +55,9 @@ export function removeInstanceProfileSwitch(
   }
 }
 
-export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean): DeviceInstance {
-  const active = instance.profiles.find(p => p.id === instance.activeProfileId)!
+export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean, appId?: string): DeviceInstance {
+  const applicationProfile = instance.applicationProfiles?.find(binding => binding.application.id === appId)
+  const active = instance.profiles.find(p => p.id === (applicationProfile?.profileId ?? instance.activeProfileId))!
   const id = crypto.randomUUID()
   const behaviors = structuredClone(active.behaviors)
   if (!duplicate)
@@ -62,12 +65,37 @@ export function addInstanceProfile(instance: DeviceInstance, duplicate: boolean)
       for (const trigger of ['click', 'doubleClick', 'longPress'] as const)
         triggers[trigger] = triggers[trigger].filter(b => b.type === 'switchProfile')
     }
-  return {
+  const next = {
     ...instance,
     activeProfileId: id,
     profiles: [
       ...instance.profiles,
       { id, name: duplicate ? `${active.name} 副本` : `配置 ${instance.profiles.length + 1}`, behaviors },
     ],
+  }
+  return applicationProfile
+    ? setApplicationProfile({ ...next, activeProfileId: instance.activeProfileId }, applicationProfile.application, id)
+    : next
+}
+
+export function addApplicationForEditing(instance: DeviceInstance, application: Application): DeviceInstance {
+  if (instance.applicationProfiles?.some(binding => binding.application.id === application.id)) return instance
+  const next = addInstanceProfile(instance, true)
+  next.profiles[next.profiles.length - 1].name = `${application.name} 配置`.slice(0, 40)
+  return setApplicationProfile(
+    { ...next, activeProfileId: instance.activeProfileId },
+    application,
+    next.activeProfileId,
+  )
+}
+
+export function deleteInstanceProfile(instance: DeviceInstance, profileId: string): DeviceInstance {
+  if (instance.profiles.length <= 1) return instance
+  const profiles = instance.profiles.filter(profile => profile.id !== profileId)
+  return {
+    ...instance,
+    profiles,
+    activeProfileId: instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId,
+    applicationProfiles: instance.applicationProfiles?.filter(binding => binding.profileId !== profileId),
   }
 }
