@@ -33,14 +33,40 @@
   padding: 0 16px 16px;
   isolation: isolate;
 }
-.workflow-axonkey-canvas {
-  width: 100%;
+.workflow-canvas-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
   border: 1px solid #dde3e7;
   border-radius: 8px;
+}
+.workflow-axonkey-canvas {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 8px;
   background: transparent;
   overflow: hidden;
+}
+.workflow-canvas-footer {
+  position: relative;
+  flex: 0 0 auto;
+  min-height: 78px;
+  padding: 10px 12px 12px 100px;
+}
+.workflow-voice-guidance {
+  color: #526779;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.workflow-voice-guidance p {
+  margin: 0;
+}
+.workflow-voice-guidance p + p {
+  margin-top: 4px;
 }
 .workflow-axonkey-canvas .sqd-designer {
   background: transparent;
@@ -352,8 +378,8 @@
 .workflow-trash {
   position: absolute;
   z-index: 20;
-  bottom: 28px;
-  left: 28px;
+  bottom: 12px;
+  left: 12px;
   display: inline-flex;
   width: 76px;
   height: 54px;

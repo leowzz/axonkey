@@ -625,17 +625,27 @@ export function WorkflowAxonkey<Id extends string = InputId>({
 
   return (
     <section ref={workflowRef} className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
-      <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
-      <button
-        ref={trashRef}
-        type="button"
-        className="workflow-trash"
-        aria-label="垃圾桶，拖入行为即可删除"
-        tabIndex={-1}
-      >
-        <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
-        <span>拖入删除</span>
-      </button>
+      <div className="workflow-canvas-panel">
+        <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+        <div className="workflow-canvas-footer">
+          {button.icon === 'mic' && (
+            <div className="workflow-voice-guidance">
+              <p>要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。</p>
+              <p>这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。</p>
+            </div>
+          )}
+          <button
+            ref={trashRef}
+            type="button"
+            className="workflow-trash"
+            aria-label="垃圾桶，拖入行为即可删除"
+            tabIndex={-1}
+          >
+            <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
+            <span>拖入删除</span>
+          </button>
+        </div>
+      </div>
       {toolbox &&
         createPortal(
           <WorkflowToolbox

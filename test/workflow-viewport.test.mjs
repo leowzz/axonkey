@@ -30,9 +30,10 @@ test('workflow keeps a fixed scale through zoom commands, pinch limits and viewp
 test('wheel and button lanes fit their canvas independently of sequence lengths, including after a resize', () => {
   for (const width of [360, 480, 876, 1400]) {
     for (const count of [1, 3]) {
-      const { padding, gap, laneWidth } = workflowLaneLayout(width, 500, count)
+      const { padding, gap, laneWidth, laneHeight } = workflowLaneLayout(width, 500, count)
       assert.ok(laneWidth > 0)
       assert.ok(Math.abs(padding * 2 + gap * (count - 1) + laneWidth * count - width) < .001)
+      assert.equal(padding * 2 + laneHeight, 500, 'the canvas does not reserve footer space twice')
     }
   }
 })
