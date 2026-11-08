@@ -141,7 +141,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
         </div>
         <WechatGroupCard />
       </div>
-      <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置页左侧开启软件总开关。</p>
+      <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置中开启软件总开关。</p>
     </div>
   )
 }

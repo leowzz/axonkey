@@ -1,7 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react'
-import { ExternalLink, FileText, Github, Info, Settings2, Star, UserRound, X } from 'lucide-react'
-import appPackage from '../../package.json'
-import { openGitHub } from '../openGitHub'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
+import { X } from 'lucide-react'
 import './HomeDashboard.css'
 
 type HomeDashboardProps = {
@@ -11,11 +9,7 @@ type HomeDashboardProps = {
   microphoneDriverWarningSuppressed: boolean
   onDismissMicrophoneDriverWarning: () => void | Promise<void>
   onOpenAudioDriver: () => void
-  onOpenSettings: () => void
-  onOpenCloud: () => void
-  onOpenLogs: () => void
-  onOpenAbout: () => void
-  hasUpdate: boolean
+  settingsButtonRef: RefObject<HTMLButtonElement>
 }
 
 export function HomeDashboard({
@@ -25,14 +19,9 @@ export function HomeDashboard({
   microphoneDriverWarningSuppressed,
   onDismissMicrophoneDriverWarning,
   onOpenAudioDriver,
-  onOpenSettings,
-  onOpenCloud,
-  onOpenLogs,
-  onOpenAbout,
-  hasUpdate,
+  settingsButtonRef,
 }: HomeDashboardProps) {
   const warningRef = useRef<HTMLDivElement>(null)
-  const settingsRef = useRef<HTMLButtonElement>(null)
   const closingAnimation = useRef<Animation | null>(null)
 
   useEffect(() => () => closingAnimation.current?.cancel(), [])
@@ -40,7 +29,7 @@ export function HomeDashboard({
   const dismissWarning = async () => {
     if (closingAnimation.current) return
     const warning = warningRef.current
-    const settings = settingsRef.current
+    const settings = settingsButtonRef.current
     const restoreFocus = warning?.contains(document.activeElement)
     if (warning && settings && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       const from = warning.getBoundingClientRect()
@@ -105,63 +94,6 @@ export function HomeDashboard({
         </div>
       )}
       {deviceContent}
-      <footer className="home-footer">
-        <nav className="home-utilities" aria-label="常用入口">
-          <button
-            ref={settingsRef}
-            type="button"
-            className="home-utility-button"
-            aria-label="设置"
-            onClick={onOpenSettings}
-          >
-            <Settings2 size={15} aria-hidden="true" />
-            设置
-          </button>
-          <button type="button" className="home-utility-button home-account-button" onClick={onOpenCloud}>
-            <UserRound size={15} aria-hidden="true" />
-            账号与同步
-          </button>
-          <button
-            type="button"
-            className="home-utility-button home-log-button"
-            aria-label="运行日志"
-            disabled={!nativeRuntime}
-            onClick={nativeRuntime ? onOpenLogs : undefined}
-            title={!nativeRuntime ? '请在桌面应用中查看' : '打开日志目录'}
-          >
-            <FileText size={15} aria-hidden="true" />
-            运行日志
-          </button>
-          <button
-            type="button"
-            className={`home-utility-button${hasUpdate ? ' has-update' : ''}`}
-            aria-label="关于"
-            title={hasUpdate ? '关于 · 发现新版本' : '关于'}
-            onClick={onOpenAbout}
-          >
-            <Info size={15} aria-hidden="true" />
-            关于{hasUpdate && <span className="update-dot" role="img" aria-label="有新版本可用" />}
-          </button>
-        </nav>
-        <div className="home-project">
-          <p>
-            <Star size={15} aria-hidden="true" />
-            如果 Axonkey 对你有帮助，欢迎点个 Star，支持项目持续更新。
-          </p>
-          <a
-            className="home-project-link"
-            href="https://github.com/leowzz/axonkey"
-            onClick={openGitHub}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Github size={14} aria-hidden="true" />
-            leowzz/axonkey
-            <ExternalLink size={12} aria-hidden="true" />
-          </a>
-          <span className="home-version">版本 {appPackage.version}</span>
-        </div>
-      </footer>
     </div>
   )
 }

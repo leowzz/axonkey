@@ -10,7 +10,7 @@ import {
   processInstanceCliRequest,
   resolveCliInstance,
 } from '../devices/integration/instanceCli'
-import { supportPackages } from '../devices/integration/model'
+import { instanceState, instanceStatusLabel, supportPackages } from '../devices/integration/model'
 import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/cloudMetadata'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
@@ -108,6 +108,8 @@ import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
+import { AppBottomBar, type AppBottomBarProps } from '../components/AppBottomBar'
+import { AppSettingsPanel } from '../components/AppSettingsPanel'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../devices/registry'
@@ -341,6 +343,9 @@ function AppController({
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialBindingId ? 'home' : initialUiState.activePage)
+  const [workspacePage, setWorkspacePage] = useState<'home' | 'mapping'>(
+    !initialBindingId && initialUiState.activePage === 'mapping' ? 'mapping' : 'home',
+  )
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(initialBindingId)
   const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
@@ -348,14 +353,36 @@ function AppController({
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
   const navigateToPage = (page: AppPage) => {
     setDeviceSettingsOpen(false)
+    if (page === 'settings') {
+      setActivePage(page)
+      return
+    }
     setSelectedInstanceId(null)
     if (page === 'mapping') setMappingStyle('flow')
+    setWorkspacePage(page)
     setActivePage(page)
   }
+  const closeSettingsPanel = () => setActivePage(workspacePage)
   const [showRecordingOverlay, setShowRecordingOverlay] = useState(() => getStoredSettings().showRecordingOverlay)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
+  const lastSettingsSection = useRef<SettingsSection>('startup')
+  if (settingsSection !== 'cloud' && settingsSection !== 'about') lastSettingsSection.current = settingsSection
+  const activePanel =
+    activePage === 'settings'
+      ? settingsSection === 'cloud' || settingsSection === 'about'
+        ? settingsSection
+        : 'settings'
+      : null
+  const openGlobalPanel = (panel: 'settings' | 'cloud' | 'about') => {
+    if (activePanel === panel) {
+      closeSettingsPanel()
+      return
+    }
+    setSettingsSection(panel === 'settings' ? lastSettingsSection.current : panel)
+    navigateToPage('settings')
+  }
   const releaseUpdate = useReleaseUpdate(activePage === 'settings' && settingsSection === 'about', debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
   const [microphoneDriverAbnormal, setMicrophoneDriverAbnormal] = useState(false)
@@ -369,6 +396,7 @@ function AppController({
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const mappingMainRef = useRef<HTMLElement>(null)
   const mainContentRef = useRef<HTMLElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const pageScrollTopRef = useRef(initialUiState.scrollTop)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
   const [pendingProfileImport, setPendingProfileImport] = useState<PendingProfileImport | null>(null)
@@ -402,7 +430,7 @@ function AppController({
   useEffect(() => {
     const mainContent = mainContentRef.current
     if (!mainContent) return
-    const page = activePage
+    const page = workspacePage
     const restoreFrame = window.requestAnimationFrame(() => {
       mainContent.scrollTop = pageScrollTopRef.current[page] ?? 0
     })
@@ -423,7 +451,7 @@ function AppController({
       persistUiState()
       mainContent.removeEventListener('scroll', handleScroll)
     }
-  }, [activePage, persistUiState])
+  }, [workspacePage, persistUiState])
 
   const {
     stretchCompensation,
@@ -2326,214 +2354,258 @@ function AppController({
     </div>
   )
 
+  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
+    instance => instance.id === selectedInstanceId,
+  )
+  const managedState = workspaceInstance ? instanceState(workspaceInstance, deviceInstances.snapshot) : undefined
+  const workspaceStatus: AppBottomBarProps['workspaceStatus'] = workspaceInstance
+    ? {
+        label: nativeRuntime ? instanceStatusLabel(workspaceInstance, deviceInstances.snapshot) : '预览配置',
+        tone: !nativeRuntime
+          ? 'muted'
+          : managedState === 'exclusive'
+            ? 'connected'
+            : managedState === 'error' || managedState === 'needsRebind'
+              ? 'warning'
+              : 'muted',
+      }
+    : workspacePage === 'mapping'
+      ? {
+          label: !nativeRuntime
+            ? '浏览器预览'
+            : !enabled || (isMouse && !mouseEnabled)
+              ? '已暂停'
+              : isMouse
+                ? '系统输入源'
+                : systemState.device.status === 'connected'
+                  ? '已连接'
+                  : '未连接',
+          tone:
+            nativeRuntime && enabled && !isMouse && systemState.device.status === 'connected' ? 'connected' : 'muted',
+        }
+      : undefined
+
   const appShell = (
-    <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
+    <div className={`app-shell ${workspacePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && (
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
       )}
       <div className="app-main">
-        <main ref={mainContentRef} key={activePage} className="main-content">
-          {!enabled && (
-            <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
-              <Info size={20} aria-hidden="true" />
-              <div className="mapping-disabled-copy">
-                <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
-                <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过设置页左侧的总开关开启。</p>
-              </div>
-              <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
-                立即开启
-              </button>
-            </section>
-          )}
-
-          {activePage === 'mapping' ? (
-            <MappingPageComponent
-              onBackToDevices={() => navigateToPage('home')}
-              onOpenSettings={() => setDeviceSettingsOpen(true)}
-              profileControls={profileControls}
-              debugMode={debugMode}
-              selectedDeviceId={selectedDeviceId}
-              selectBehaviorTarget={selectBehaviorTarget}
-              activeId={activeId}
-              mappingMainRef={mappingMainRef}
-              deviceStatus={deviceStatus}
-              isMouse={isMouse}
-              selectedBehavior={selectedBehavior}
-              adjustPreviewBattery={adjustPreviewBattery}
-              editableButtons={editableButtons}
-              pressedId={pressedId}
-              behaviors={behaviors}
-              onWorkflowChange={updateWorkflow}
-              onRequestProfileSwitch={requestProfileSwitch}
-              platform={platform}
-              showRemoteKeyGrid={showRemoteKeyGrid}
-              showMouseKeyGrid={showMouseKeyGrid}
-              rowRefs={rowRefs}
-              toolbar={
-                <div className="key-picker-actions">
-                  <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
-                    <button
-                      type="button"
-                      className="behavior-history-button"
-                      title="撤销"
-                      aria-label="撤销行为更改"
-                      disabled={!canUndoBehavior}
-                      onClick={undoBehaviorChange}
-                    >
-                      <UndoCircle size={15} weight="Outline" />
-                    </button>
-                    <button
-                      type="button"
-                      className="behavior-history-button"
-                      title="重做"
-                      aria-label="重做行为更改"
-                      disabled={!canRedoBehavior}
-                      onClick={redoBehaviorChange}
-                    >
-                      <RedoCircle size={15} weight="Outline" />
-                    </button>
-                  </div>
-                  {mappingActions}
+        <div className="app-workspace">
+          <main ref={mainContentRef} key={workspacePage} className="main-content">
+            {!enabled && (
+              <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
+                <Info size={20} aria-hidden="true" />
+                <div className="mapping-disabled-copy">
+                  <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
+                  <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可在设置中开启软件总开关。</p>
                 </div>
-              }
-              behaviorEditorProps={{
-                editorRef: behaviorEditorRef,
-                attention: behaviorEditorAttention,
-                platform,
-                button: selectedButton,
-                trigger: selectedBehavior.trigger,
-                behaviors: behaviors[selectedBehavior.buttonId][selectedBehavior.trigger],
-                onApplyCommonBehavior: applyCommonBehavior,
-                onAddAdvancedBehavior: type => beginBehaviorDraft(type, 'append'),
-                onRemoveBehavior: removeBehavior,
-                onMoveBehavior: moveSelectedBehavior,
-                onEditBehavior: setEditingBehaviorId,
-                onReturnToMappings: returnToSelectedMapping,
-                onCopySequence: () => void copySelectedSequence(),
-                onPasteSequence: () => setSequencePasteOpen(true),
-                onClearSequence: () => {
-                  const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
-                  if (
-                    updateWorkflow(selectedBehavior.buttonId, { ...current, [selectedBehavior.trigger]: [] }) === false
-                  )
-                    return
-                  clearBehaviorEditingState()
-                  showBehaviorToast('当前序列已清除')
-                },
-              }}
-              remoteView={selectedDevice.remoteView}
-            />
-          ) : activePage === 'settings' ? (
-            <SettingsPage
-              cloudContent={
-                <CloudSyncSettings
-                  cloud={cloud}
-                  instances={deviceInstances.snapshot.store.instances}
-                  platform={platform}
-                />
-              }
-              localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
-              aboutContent={<AboutPage update={releaseUpdate} />}
-              onOpenConfigMigration={onOpenConfigMigration}
-              onOpenUserGuide={userGuide.show}
-              onOpenDevtools={openDevtools}
-              debugMode={debugMode}
-              onOpenDriverMigration={() => setDriverMigrationOpen(true)}
-              onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
-              onOpenWindowsAudioDriver={openAudioDriver}
-              onOpenVirtualAudioUpgrade={() => setVirtualAudioUpgradeOpen(true)}
-              onBack={() => navigateToPage('home')}
-              enabled={enabled}
-              onToggleEnabled={toggleEnabled}
-              backup={{
-                onCreateBackup: createBackup,
-                onRestoreBackup: restoreDataBackup,
-                onImportLegacyConfig,
-              }}
-              onOpenSignalMonitor={() => void openSignalMonitor()}
-              signalMonitorOpening={signalMonitorOpening}
-              signalMonitorError={signalMonitorError}
-              stretchCompensation={stretchCompensation}
-              stretchError={stretchError}
-              stretchUpdating={stretchUpdating}
-              onStretchCompensationChange={updateStretchCompensation}
-              section={settingsSection}
-              onSectionChange={setSettingsSection}
-              showRemoteKeyGrid={showRemoteKeyGrid}
-              onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
-              showRecordingOverlay={showRecordingOverlay}
-              onShowRecordingOverlayChange={setShowRecordingOverlay}
-              platform={platform}
-              nativeRuntime={nativeRuntime}
-              systemProbeState={systemProbeState}
-              permissions={macPermissions}
-              inputAuthorizationStale={inputAuthorizationStale}
-              inputDriver={systemState.drivers.input}
-              onRequestPermission={kind => void requestMacPermission(kind)}
-              onOpenSettings={kind => void openSystemSettings(kind)}
-              onRefresh={() => void probeSystemState(false)}
-              audioDriver={systemState.drivers.audio}
-              onAudioAction={action => void runDriverAction('audio', action)}
-              audioRestarting={audioRestarting}
-              audioRestartError={audioRestartError}
-              onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
-              onProbeAudio={() => void probeAudioState()}
-              onOpenSound={() => void openSystemSettings('sound')}
-              onOpenManagedDriverCleanup={() => setManagedDriverCleanupOpen(true)}
-            />
-          ) : (
-            <HomeDashboard
-              microphoneDriverAbnormal={microphoneDriverAbnormal}
-              microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
-              onDismissMicrophoneDriverWarning={dismissMicrophoneDriverWarning}
-              onOpenAudioDriver={openAudioDriver}
-              deviceContent={
-                <DeviceHub
-                  selectedInstanceId={selectedInstanceId}
-                  bindInstanceId={pendingBindingId}
-                  onBindingOpened={() => setPendingBindingId(null)}
-                  onSelectInstance={setSelectedInstanceId}
-                  onOpenAudioDriver={openAudioDriver}
-                  onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
-                  onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
-                  controller={deviceInstances}
-                  onBrandClick={handleBrandClick}
-                  native={nativeRuntime}
-                  platform={platform}
-                  permissions={macPermissions}
-                  mouseProfileName={profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'}
-                  onPermissions={() => {
-                    setSettingsSection('permissions')
-                    navigateToPage('settings')
-                  }}
-                  onOpenAudioCalibration={openInstanceAudioCalibration}
-                  driverAction={managedDriverAction}
-                  onInstallDriver={instanceId => void installManagedDriver(instanceId)}
-                  onUnbindDevice={unbindManagedInstance}
-                  onRemoveDevice={removeManagedInstance}
-                  onLegacy={deviceId => {
-                    setSelectedDeviceId(deviceId)
-                    const device = devices.find(d => d.id === deviceId)!
-                    selectBehaviorTarget(device.inputIds[0], 'click', false)
-                    navigateToPage('mapping')
-                  }}
-                />
-              }
-              nativeRuntime={nativeRuntime}
-              onOpenSettings={() => navigateToPage('settings')}
-              onOpenCloud={() => {
-                setSettingsSection('cloud')
-                navigateToPage('settings')
-              }}
-              onOpenLogs={() => void openLogDirectory()}
-              onOpenAbout={() => {
-                setSettingsSection('about')
-                navigateToPage('settings')
-              }}
-              hasUpdate={releaseUpdate.hasUpdate}
-            />
+                <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
+                  立即开启
+                </button>
+              </section>
+            )}
+
+            {workspacePage === 'mapping' ? (
+              <MappingPageComponent
+                onBackToDevices={() => navigateToPage('home')}
+                onOpenSettings={() => setDeviceSettingsOpen(true)}
+                profileControls={profileControls}
+                debugMode={debugMode}
+                selectedDeviceId={selectedDeviceId}
+                selectBehaviorTarget={selectBehaviorTarget}
+                activeId={activeId}
+                mappingMainRef={mappingMainRef}
+                deviceStatus={deviceStatus}
+                isMouse={isMouse}
+                selectedBehavior={selectedBehavior}
+                adjustPreviewBattery={adjustPreviewBattery}
+                editableButtons={editableButtons}
+                pressedId={pressedId}
+                behaviors={behaviors}
+                onWorkflowChange={updateWorkflow}
+                onRequestProfileSwitch={requestProfileSwitch}
+                platform={platform}
+                showRemoteKeyGrid={showRemoteKeyGrid}
+                showMouseKeyGrid={showMouseKeyGrid}
+                rowRefs={rowRefs}
+                toolbar={
+                  <div className="key-picker-actions">
+                    <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
+                      <button
+                        type="button"
+                        className="behavior-history-button"
+                        title="撤销"
+                        aria-label="撤销行为更改"
+                        disabled={!canUndoBehavior}
+                        onClick={undoBehaviorChange}
+                      >
+                        <UndoCircle size={15} weight="Outline" />
+                      </button>
+                      <button
+                        type="button"
+                        className="behavior-history-button"
+                        title="重做"
+                        aria-label="重做行为更改"
+                        disabled={!canRedoBehavior}
+                        onClick={redoBehaviorChange}
+                      >
+                        <RedoCircle size={15} weight="Outline" />
+                      </button>
+                    </div>
+                    {mappingActions}
+                  </div>
+                }
+                behaviorEditorProps={{
+                  editorRef: behaviorEditorRef,
+                  attention: behaviorEditorAttention,
+                  platform,
+                  button: selectedButton,
+                  trigger: selectedBehavior.trigger,
+                  behaviors: behaviors[selectedBehavior.buttonId][selectedBehavior.trigger],
+                  onApplyCommonBehavior: applyCommonBehavior,
+                  onAddAdvancedBehavior: type => beginBehaviorDraft(type, 'append'),
+                  onRemoveBehavior: removeBehavior,
+                  onMoveBehavior: moveSelectedBehavior,
+                  onEditBehavior: setEditingBehaviorId,
+                  onReturnToMappings: returnToSelectedMapping,
+                  onCopySequence: () => void copySelectedSequence(),
+                  onPasteSequence: () => setSequencePasteOpen(true),
+                  onClearSequence: () => {
+                    const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
+                    if (
+                      updateWorkflow(selectedBehavior.buttonId, { ...current, [selectedBehavior.trigger]: [] }) ===
+                      false
+                    )
+                      return
+                    clearBehaviorEditingState()
+                    showBehaviorToast('当前序列已清除')
+                  },
+                }}
+                remoteView={selectedDevice.remoteView}
+              />
+            ) : (
+              <HomeDashboard
+                microphoneDriverAbnormal={microphoneDriverAbnormal}
+                microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
+                onDismissMicrophoneDriverWarning={dismissMicrophoneDriverWarning}
+                onOpenAudioDriver={openAudioDriver}
+                deviceContent={
+                  <DeviceHub
+                    selectedInstanceId={selectedInstanceId}
+                    bindInstanceId={pendingBindingId}
+                    onBindingOpened={() => setPendingBindingId(null)}
+                    onSelectInstance={setSelectedInstanceId}
+                    onOpenAudioDriver={openAudioDriver}
+                    onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
+                    onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
+                    controller={deviceInstances}
+                    onBrandClick={handleBrandClick}
+                    native={nativeRuntime}
+                    platform={platform}
+                    permissions={macPermissions}
+                    mouseProfileName={
+                      profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'
+                    }
+                    onPermissions={() => {
+                      setSettingsSection('permissions')
+                      navigateToPage('settings')
+                    }}
+                    onOpenAudioCalibration={openInstanceAudioCalibration}
+                    driverAction={managedDriverAction}
+                    onInstallDriver={instanceId => void installManagedDriver(instanceId)}
+                    onUnbindDevice={unbindManagedInstance}
+                    onRemoveDevice={removeManagedInstance}
+                    onLegacy={deviceId => {
+                      setSelectedDeviceId(deviceId)
+                      const device = devices.find(d => d.id === deviceId)!
+                      selectBehaviorTarget(device.inputIds[0], 'click', false)
+                      navigateToPage('mapping')
+                    }}
+                  />
+                }
+                nativeRuntime={nativeRuntime}
+                settingsButtonRef={settingsButtonRef}
+              />
+            )}
+          </main>
+          {activePage === 'settings' && (
+            <AppSettingsPanel workspaceRef={mainContentRef} onClose={closeSettingsPanel}>
+              <SettingsPage
+                presentation="panel"
+                cloudContent={
+                  <CloudSyncSettings
+                    cloud={cloud}
+                    instances={deviceInstances.snapshot.store.instances}
+                    platform={platform}
+                  />
+                }
+                localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
+                aboutContent={<AboutPage update={releaseUpdate} />}
+                onOpenConfigMigration={onOpenConfigMigration}
+                onOpenUserGuide={userGuide.show}
+                onOpenDevtools={openDevtools}
+                debugMode={debugMode}
+                onOpenDriverMigration={() => setDriverMigrationOpen(true)}
+                onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
+                onOpenWindowsAudioDriver={openAudioDriver}
+                onOpenVirtualAudioUpgrade={() => setVirtualAudioUpgradeOpen(true)}
+                onBack={closeSettingsPanel}
+                enabled={enabled}
+                onToggleEnabled={toggleEnabled}
+                backup={{
+                  onCreateBackup: createBackup,
+                  onRestoreBackup: restoreDataBackup,
+                  onImportLegacyConfig,
+                }}
+                onOpenSignalMonitor={() => void openSignalMonitor()}
+                signalMonitorOpening={signalMonitorOpening}
+                signalMonitorError={signalMonitorError}
+                stretchCompensation={stretchCompensation}
+                stretchError={stretchError}
+                stretchUpdating={stretchUpdating}
+                onStretchCompensationChange={updateStretchCompensation}
+                section={settingsSection}
+                onSectionChange={setSettingsSection}
+                showRemoteKeyGrid={showRemoteKeyGrid}
+                onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
+                showRecordingOverlay={showRecordingOverlay}
+                onShowRecordingOverlayChange={setShowRecordingOverlay}
+                platform={platform}
+                nativeRuntime={nativeRuntime}
+                systemProbeState={systemProbeState}
+                permissions={macPermissions}
+                inputAuthorizationStale={inputAuthorizationStale}
+                inputDriver={systemState.drivers.input}
+                onRequestPermission={kind => void requestMacPermission(kind)}
+                onOpenSettings={kind => void openSystemSettings(kind)}
+                onRefresh={() => void probeSystemState(false)}
+                audioDriver={systemState.drivers.audio}
+                onAudioAction={action => void runDriverAction('audio', action)}
+                audioRestarting={audioRestarting}
+                audioRestartError={audioRestartError}
+                onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
+                onProbeAudio={() => void probeAudioState()}
+                onOpenSound={() => void openSystemSettings('sound')}
+                onOpenManagedDriverCleanup={() => setManagedDriverCleanupOpen(true)}
+              />
+            </AppSettingsPanel>
           )}
-        </main>
+        </div>
+        <AppBottomBar
+          activePanel={activePanel}
+          workspaceName={workspaceInstance?.name ?? (workspacePage === 'mapping' ? selectedDevice.name : undefined)}
+          workspaceStatus={workspaceStatus}
+          nativeRuntime={nativeRuntime}
+          hasUpdate={releaseUpdate.hasUpdate}
+          settingsButtonRef={settingsButtonRef}
+          onOpenDevices={() => navigateToPage('home')}
+          onReturnToWorkspace={closeSettingsPanel}
+          onOpenSettings={() => openGlobalPanel('settings')}
+          onOpenCloud={() => openGlobalPanel('cloud')}
+          onOpenLogs={() => void openLogDirectory()}
+          onOpenAbout={() => openGlobalPanel('about')}
+        />
       </div>
       {toast && (
         <div className="toast">

@@ -16,10 +16,12 @@ import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, DriverState } from '../systemState'
+import './SettingsPanelLayout.css'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
 
 type SettingsPageProps = {
+  presentation?: 'page' | 'panel'
   onOpenConfigMigration: () => void
   debugMode: boolean
   onOpenDriverMigration: () => void
@@ -68,6 +70,7 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  presentation = 'page',
   onOpenConfigMigration,
   debugMode,
   onOpenDriverMigration,
@@ -161,13 +164,15 @@ export function SettingsPage({
     audioRestartError || audioDriver.action.error || (audioDriver.status === 'error' ? audioDriver.message : undefined)
   const grantedCount = items.filter(item => item.granted).length
   return (
-    <div className="settings-page settings-form-page">
+    <div className={`settings-page settings-form-page${presentation === 'panel' ? ' settings-side-panel' : ''}`}>
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="设置分类">
-          <button type="button" className="settings-nav-back" onClick={onBack}>
-            <ArrowLeft size={16} aria-hidden="true" />
-            <span>返回</span>
-          </button>
+          {presentation === 'page' && (
+            <button type="button" className="settings-nav-back" onClick={onBack}>
+              <ArrowLeft size={16} aria-hidden="true" />
+              <span>返回</span>
+            </button>
+          )}
           {sections.map(item => (
             <button
               key={item.id}
