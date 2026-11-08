@@ -118,7 +118,7 @@
   box-shadow: 0 0 0 3px rgb(63 142 210 / 18%);
 }
 .my-devices-card.managed-system-mouse {
-  cursor: pointer;
+  cursor: grab;
 }
 .my-devices-card:active {
   cursor: grabbing;

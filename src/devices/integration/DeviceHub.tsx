@@ -48,6 +48,27 @@ type Props = {
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
+const deviceCardOrderKey = 'axonkey.device-hub-card-order.v1'
+const systemMouseCardId = 'system-mouse'
+
+function getStoredDeviceCardOrder() {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+function saveDeviceCardOrder(order: string[]) {
+  try {
+    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
+  } catch {
+    // UI preference is best-effort.
+  }
+}
+
 function getDiscoveredDevicesExpanded() {
   if (typeof window === 'undefined') return true
   try {
@@ -63,6 +84,7 @@ export function DeviceHub(props: Props) {
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
+  const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
   const didDragRef = useRef(false)
   const pointerDragRef = useRef<{
     id: string
@@ -80,14 +102,37 @@ export function DeviceHub(props: Props) {
     props.onBindingOpened?.()
   }, [props.bindInstanceId, props.onBindingOpened, snapshot.store.instances])
   const instance = snapshot.store.instances.find(i => i.id === selected)
-  function reorderInstances(sourceId: string, targetId: string) {
+  const instanceById = new Map(snapshot.store.instances.map(item => [item.id, item]))
+  const allCardIds = [...snapshot.store.instances.map(item => item.id), systemMouseCardId]
+  const availableCardIds = new Set(allCardIds)
+  const orderedCardIds = [
+    ...savedCardOrder.filter(id => availableCardIds.has(id)),
+    ...allCardIds.filter(id => !savedCardOrder.includes(id)),
+  ]
+  const orderedCardIdsKey = orderedCardIds.join('\0')
+  useEffect(() => {
+    saveDeviceCardOrder(orderedCardIds)
+    setSavedCardOrder(current => {
+      if (current.length === orderedCardIds.length && current.every((id, index) => id === orderedCardIds[index])) {
+        return current
+      }
+      return orderedCardIds
+    })
+  }, [orderedCardIdsKey])
+  function reorderCards(sourceId: string, targetId: string) {
     if (sourceId === targetId) return
-    const ids = snapshot.store.instances.map(item => item.id)
+    const ids = [...orderedCardIds]
     const sourceIndex = ids.indexOf(sourceId)
-    if (sourceIndex < 0 || ids.indexOf(targetId) < 0) return
+    const targetIndex = ids.indexOf(targetId)
+    if (sourceIndex < 0 || targetIndex < 0) return
     ids.splice(sourceIndex, 1)
-    ids.splice(ids.indexOf(targetId), 0, sourceId)
-    void controller.reorder(ids)
+    const nextTargetIndex = ids.indexOf(targetId)
+    ids.splice(sourceIndex < targetIndex ? nextTargetIndex + 1 : nextTargetIndex, 0, sourceId)
+    setSavedCardOrder(ids)
+    saveDeviceCardOrder(ids)
+    const managedIds = ids.filter(id => id !== systemMouseCardId && instanceById.has(id))
+    const currentManagedIds = snapshot.store.instances.map(item => item.id)
+    if (managedIds.some((id, index) => id !== currentManagedIds[index])) void controller.reorder(managedIds)
   }
   function finishDevicePointerDrag(targetId?: string) {
     const drag = pointerDragRef.current
@@ -97,7 +142,7 @@ export function DeviceHub(props: Props) {
     if (drag.active) {
       didDragRef.current = true
       const destinationId = targetId ?? drag.overId
-      if (destinationId && destinationId !== drag.id) reorderInstances(drag.id, destinationId)
+      if (destinationId && destinationId !== drag.id) reorderCards(drag.id, destinationId)
     }
     pointerDragRef.current = null
     setDraggingInstanceId(null)
@@ -194,45 +239,65 @@ export function DeviceHub(props: Props) {
                 我的设备
               </h2>
               <div className="managed-device-grid">
-                {snapshot.store.instances.map(item => (
-                  <DeviceCard
-                    key={item.id}
-                    instanceId={item.id}
-                    kind={item.kind}
-                    title={item.name}
-                    subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
-                    status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
-                    state={native ? instanceState(item, snapshot) : undefined}
-                    unbound={!item.binding}
-                    batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
-                    profile={
-                      item.profiles.find(
-                        p =>
-                          p.id === (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
-                      )?.name
-                    }
-                    applicationProfileCount={item.applicationProfiles?.length ?? 0}
-                    applicationProfileSwitching={item.appProfileSwitching === true}
-                    onClick={() => {
-                      if (didDragRef.current) {
-                        didDragRef.current = false
-                        return
-                      }
-                      setSelected(item.id)
-                    }}
-                    dragging={draggingInstanceId === item.id}
-                    dragOver={dragOverInstanceId === item.id}
-                    onPointerDown={event => handleDevicePointerDown(event, item.id)}
-                  />
-                ))}
-                <DeviceCard
-                  kind="mouse"
-                  title="系统鼠标"
-                  subtitle="按键、滚轮和屏幕边缘"
-                  status="系统输入源"
-                  profile={props.mouseProfileName}
-                  onClick={() => props.onLegacy('mouse')}
-                />
+                {orderedCardIds.map(cardId => {
+                  const item = instanceById.get(cardId)
+                  if (item) {
+                    return (
+                      <DeviceCard
+                        key={item.id}
+                        instanceId={item.id}
+                        kind={item.kind}
+                        title={item.name}
+                        subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
+                        status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
+                        state={native ? instanceState(item, snapshot) : undefined}
+                        unbound={!item.binding}
+                        batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
+                        profile={
+                          item.profiles.find(
+                            p =>
+                              p.id ===
+                              (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
+                          )?.name
+                        }
+                        applicationProfileCount={item.applicationProfiles?.length ?? 0}
+                        applicationProfileSwitching={item.appProfileSwitching === true}
+                        onClick={() => {
+                          if (didDragRef.current) {
+                            didDragRef.current = false
+                            return
+                          }
+                          setSelected(item.id)
+                        }}
+                        dragging={draggingInstanceId === item.id}
+                        dragOver={dragOverInstanceId === item.id}
+                        onPointerDown={event => handleDevicePointerDown(event, item.id)}
+                      />
+                    )
+                  }
+                  if (cardId !== systemMouseCardId) return null
+                  return (
+                    <DeviceCard
+                      key={systemMouseCardId}
+                      instanceId={systemMouseCardId}
+                      kind="mouse"
+                      title="系统鼠标"
+                      subtitle="按键、滚轮和屏幕边缘"
+                      status="系统输入源"
+                      profile={props.mouseProfileName}
+                      dragging={draggingInstanceId === systemMouseCardId}
+                      dragOver={dragOverInstanceId === systemMouseCardId}
+                      onPointerDown={event => handleDevicePointerDown(event, systemMouseCardId)}
+                      onClick={() => {
+                        if (didDragRef.current) {
+                          didDragRef.current = false
+                          return
+                        }
+                        props.onLegacy('mouse')
+                      }}
+                    />
+                  )
+                })}
               </div>
             </section>
             <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
