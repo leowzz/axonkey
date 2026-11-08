@@ -74,20 +74,47 @@ test('download progress, double clicks and restart retry do not reinstall', asyn
 
 test('failed or invalid-signature installation stays retryable and never restarts', async () => {
   let state, installs = 0, restarts = 0
+  const failures = []
+  const failure = Error('signature verification failed')
   const checker = createNativeReleaseChecker(next => { state = next }, {
     currentVersion: '0.2.29',
-    checkUpdate: async () => ({ version: '0.3.0', close: async () => {}, downloadAndInstall: async () => {
-      installs++; throw Error('signature verification failed')
+    checkUpdate: async () => ({ version: '0.3.0', close: async () => {}, downloadAndInstall: async progress => {
+      installs++; progress({ event: 'Finished' }); throw failure
     } }),
     relaunch: async () => { restarts++ },
+    onError: (stage, error) => failures.push({ stage, error }),
   })
   await checker.check()
   await checker.install()
   assert.equal(state.phase, 'idle')
   assert.ok(state.error)
+  assert.match(state.error, /校验或安装失败/)
   await checker.install()
   assert.equal(installs, 2)
   assert.equal(restarts, 0)
+  assert.deepEqual(failures, [{ stage: 'install', error: failure }, { stage: 'install', error: failure }])
+  checker.dispose()
+})
+
+test('a download HTTP failure reports download rather than installation and retains its original error', async () => {
+  let state, restarts = 0
+  const failures = []
+  const failure = 'Download request failed with status: 504 Gateway Timeout'
+  const checker = createNativeReleaseChecker(next => { state = next }, {
+    currentVersion: '1.8.15',
+    checkUpdate: async () => ({ version: '1.8.18', close: async () => {}, downloadAndInstall: async () => {
+      throw failure
+    } }),
+    relaunch: async () => { restarts++ },
+    onError: (stage, error) => failures.push({ stage, error }),
+  })
+  await checker.check()
+  await checker.install()
+  assert.equal(state.phase, 'idle')
+  assert.match(state.error, /下载失败/)
+  assert.equal(state.latestVersion, '1.8.18')
+  assert.equal(restarts, 0)
+  assert.deepEqual(failures, [{ stage: 'download', error: failure }])
   checker.dispose()
 })
 

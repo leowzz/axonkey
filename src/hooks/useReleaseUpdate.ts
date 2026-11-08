@@ -4,6 +4,7 @@ import { createNativeReleaseChecker, initialUpdateState } from '../nativeRelease
 import { invoke } from '@tauri-apps/api/core'
 import { Update } from '@tauri-apps/plugin-updater'
 import appPackage from '../../package.json'
+import { logError } from '../runtimeLogging'
 
 export function useReleaseUpdate(aboutVisible: boolean, debugMode = false) {
   const native = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -27,6 +28,7 @@ export function useReleaseUpdate(aboutVisible: boolean, debugMode = false) {
             return metadata ? new Update(metadata) : null
           },
           relaunch: () => invoke<void>('restart_app'),
+          onError: (stage, error) => logError(`Update ${stage} failed`, error),
         })
       : createReleaseChecker(next => setState({ ...initialUpdateState, ...next }), {
           currentVersion: appPackage.version,

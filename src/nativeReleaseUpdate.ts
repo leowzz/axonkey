@@ -9,30 +9,44 @@ export type NativeUpdateState = ReleaseUpdateState & {
 }
 
 export const initialUpdateState: NativeUpdateState = {
-  checking: false, latestVersion: null, checkedAt: null, error: null,
-  phase: 'idle', downloaded: 0, total: null,
+  checking: false,
+  latestVersion: null,
+  checkedAt: null,
+  error: null,
+  phase: 'idle',
+  downloaded: 0,
+  total: null,
 }
 
 type PendingUpdate = Pick<Update, 'version' | 'downloadAndInstall' | 'close'>
 
-export function createNativeReleaseChecker(onChange: (state: NativeUpdateState) => void, {
-  currentVersion,
-  checkUpdate,
-  relaunch,
-  now = Date.now,
-}: {
-  currentVersion: string
-  checkUpdate: () => Promise<PendingUpdate | null>
-  relaunch: () => Promise<void>
-  now?: () => number
-}) {
+export function createNativeReleaseChecker(
+  onChange: (state: NativeUpdateState) => void,
+  {
+    currentVersion,
+    checkUpdate,
+    relaunch,
+    onError = () => {},
+    now = Date.now,
+  }: {
+    currentVersion: string
+    checkUpdate: () => Promise<PendingUpdate | null>
+    relaunch: () => Promise<void>
+    onError?: (stage: 'check' | 'download' | 'install' | 'restart', error: unknown) => void
+    now?: () => number
+  },
+) {
   let state = { ...initialUpdateState }
   let pending: PendingUpdate | null = null
   let disposed = false
   let nextCheckAt = 0
   let installing = false
-  const publish = () => { if (!disposed) onChange({ ...state }) }
-  const close = (update: PendingUpdate | null) => { void update?.close().catch(() => {}) }
+  const publish = () => {
+    if (!disposed) onChange({ ...state })
+  }
+  const close = (update: PendingUpdate | null) => {
+    void update?.close().catch(() => {})
+  }
 
   return {
     async check(force = false) {
@@ -41,13 +55,17 @@ export function createNativeReleaseChecker(onChange: (state: NativeUpdateState) 
       publish()
       try {
         const update = await checkUpdate()
-        if (disposed) { close(update); return }
+        if (disposed) {
+          close(update)
+          return
+        }
         close(pending)
         pending = update && isNewerRelease(update.version, currentVersion) ? update : null
         if (update && !pending) close(update)
         state = { ...state, latestVersion: pending?.version ?? null, checkedAt: now() }
         nextCheckAt = now() + 60 * 60 * 1000
-      } catch {
+      } catch (error) {
+        onError('check', error)
         state = { ...state, error: '暂时无法检查更新，请稍后重试或前往 GitHub 下载。' }
         nextCheckAt = now() + 60 * 1000
       } finally {
@@ -75,20 +93,34 @@ export function createNativeReleaseChecker(onChange: (state: NativeUpdateState) 
         state = { ...state, phase: 'restarting' }
         publish()
         await relaunch()
-      } catch {
+      } catch (error) {
         const installed = state.phase === 'restarting'
-        state = { ...state, phase: installed ? 'ready' : 'idle', error: installed
-          ? '更新已安装，请重试重启或手动退出并重新打开应用。'
-          : '更新安装失败，请重试或前往 GitHub 下载。' }
+        const downloadFailed = state.phase === 'downloading'
+        onError(installed ? 'restart' : downloadFailed ? 'download' : 'install', error)
+        state = {
+          ...state,
+          phase: installed ? 'ready' : 'idle',
+          error: installed
+            ? '更新已安装，请重试重启或手动退出并重新打开应用。'
+            : downloadFailed
+              ? '更新包下载失败，请重试或前往 GitHub 下载。'
+              : '更新包校验或安装失败，请重试或前往 GitHub 下载。',
+        }
         publish()
       } finally {
         installing = false
-        if (disposed) { close(pending); pending = null }
+        if (disposed) {
+          close(pending)
+          pending = null
+        }
       }
     },
     dispose() {
       disposed = true
-      if (!installing) { close(pending); pending = null }
+      if (!installing) {
+        close(pending)
+        pending = null
+      }
     },
   }
 }
