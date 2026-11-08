@@ -1045,9 +1045,12 @@ export function BehaviorEditDialog({
             <>
               <div className="settings-form-fields behavior-dialog-form">
                 <div className="settings-form-row">
-                  <span className="settings-form-label" id="behavior-cursor-direction-label">
-                    移动方向：
-                  </span>
+                  <div className="behavior-launch-label">
+                    <span id="behavior-cursor-direction-label">移动方向</span>
+                    <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">
+                      从当前光标位置相对移动，不会跳到固定坐标。
+                    </SettingsHelp>
+                  </div>
                   <div className="settings-form-control">
                     <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-cursor-direction-label">
                       {(
@@ -1074,15 +1077,17 @@ export function BehaviorEditDialog({
                         )
                       })}
                     </div>
-                    <SettingsHelp id="behavior-cursor-direction-help" label="移动方向">
-                      从当前光标位置相对移动，不会跳到固定坐标。
-                    </SettingsHelp>
                   </div>
                 </div>
                 <div className="settings-form-row">
-                  <label className="settings-form-label" htmlFor="behavior-cursor-distance">
-                    移动距离：
-                  </label>
+                  <div className="behavior-launch-label">
+                    <label htmlFor="behavior-cursor-distance">移动距离</label>
+                    <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">
+                      {button.contextLabel
+                        ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
+                        : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}
+                    </SettingsHelp>
+                  </div>
                   <div className="settings-form-control">
                     <input
                       id="behavior-cursor-distance"
@@ -1107,11 +1112,6 @@ export function BehaviorEditDialog({
                       }
                     />
                     <span>像素</span>
-                    <SettingsHelp id="behavior-cursor-distance-help" label="移动距离">
-                      {button.contextLabel
-                        ? `每次触发移动指定像素。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。`
-                        : `每次移动的像素数量。范围 1–${maxCursorDistance}，默认 ${defaultCursorDistance}。仅配置一个单击光标移动行为且未配置双击或长按时，按住连续移动，松开停止。`}
-                    </SettingsHelp>
                   </div>
                 </div>
               </div>
@@ -1120,7 +1120,7 @@ export function BehaviorEditDialog({
             <div className="settings-form-fields behavior-dialog-form">
               <div className="settings-form-row">
                 <span className="settings-form-label" id="behavior-profile-direction-label">
-                  切换到：
+                  切换到
                 </span>
                 <div className="settings-form-control">
                   <div className="shortcut-modifiers" role="group" aria-labelledby="behavior-profile-direction-label">
@@ -1146,7 +1146,7 @@ export function BehaviorEditDialog({
                 </div>
               </div>
               <div className="settings-form-row">
-                <span className="settings-form-label">循环切换：</span>
+                <span className="settings-form-label">循环切换</span>
                 <div className="settings-form-control">
                   <label className="settings-checkbox">
                     <input
@@ -1180,9 +1180,9 @@ export function BehaviorEditDialog({
                   }
                 >
                   {behavior.type === 'openPath'
-                    ? '通过系统默认程序打开完整路径，可选择文件或文件夹，也可拖入此弹窗。'
+                    ? '通过系统默认程序打开完整路径，可选择文件或文件夹，也可拖入编辑区。'
                     : behavior.type === 'openApp'
-                      ? '可将应用或快捷方式拖入此弹窗，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。'
+                      ? '可将应用或快捷方式拖入编辑区，也可选择应用或填写完整路径。Windows 支持 .exe、.com 和 .lnk；macOS 支持 .app。快捷方式保留自身的目标和启动参数。'
                       : '通过默认浏览器打开 HTTP 或 HTTPS 地址。未填写协议时使用 HTTPS。'}
                 </SettingsHelp>
               </div>

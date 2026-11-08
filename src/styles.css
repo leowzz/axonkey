@@ -1247,16 +1247,10 @@ h1 {
 .modifier-side-select select:disabled {
   cursor: default;
 }
-.behavior-dialog-form {
+.behavior-edit-form .behavior-dialog-form {
   margin-top: 0;
   padding: 0;
-  gap: 18px;
-}
-.behavior-dialog-form .settings-form-row {
-  grid-template-columns: 84px minmax(0, 1fr);
-}
-.behavior-dialog-form .settings-form-label {
-  color: #657c8e;
+  gap: var(--behavior-row-gap);
 }
 .behavior-dialog-field {
   display: flex;
@@ -1273,35 +1267,104 @@ h1 {
 .behavior-edit-form .behavior-dialog-body {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--behavior-row-gap);
+}
+.behavior-edit-form {
+  --behavior-label-width: 84px;
+  --behavior-column-gap: 12px;
+  --behavior-row-gap: 14px;
+  --behavior-control-height: 34px;
+  container: behavior-editor / inline-size;
+}
+.behavior-edit-form .behavior-key-capture-row {
+  grid-template-columns: var(--behavior-label-width) minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px var(--behavior-column-gap);
+}
+.behavior-edit-form .behavior-current-value {
+  display: contents;
+}
+.behavior-edit-form .behavior-current-value strong {
+  min-height: var(--behavior-control-height);
+  padding: 6px 10px;
+  line-height: 20px;
 }
 .behavior-edit-form .behavior-manual-section {
   margin-top: 0;
 }
-.behavior-edit-form .behavior-dialog-field {
+.behavior-edit-form .behavior-dialog-field,
+.behavior-edit-form .shortcut-manual-builder,
+.behavior-edit-form .behavior-dialog-form .settings-form-row {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
+  grid-template-columns: var(--behavior-label-width) minmax(0, 1fr);
   align-items: start;
-  gap: 10px 12px;
+  gap: var(--behavior-row-gap) var(--behavior-column-gap);
+  min-width: 0;
 }
 .behavior-edit-form .behavior-dialog-field > label,
-.behavior-edit-form .behavior-dialog-field > span {
-  padding-top: 9px;
+.behavior-edit-form .behavior-dialog-field > span,
+.behavior-edit-form .behavior-dialog-form .settings-form-label,
+.behavior-edit-form .behavior-current-value span,
+.behavior-edit-form .behavior-base-key-label {
+  padding-top: 7px;
   color: #657c8e;
-  text-align: right;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.behavior-edit-form .behavior-field-title,
+.behavior-edit-form .behavior-launch-label {
+  justify-content: flex-start;
+  min-height: var(--behavior-control-height);
+  padding-top: 0;
+  color: #657c8e;
   font-size: 13px;
 }
-.behavior-edit-form .behavior-launch-label {
-  justify-content: flex-end;
-  padding-top: 8px;
+.behavior-edit-form .settings-form-control {
+  min-height: var(--behavior-control-height);
+  gap: 8px;
   color: #657c8e;
   font-size: 13px;
+}
+.behavior-edit-form .shortcut-modifiers {
+  gap: 6px;
+}
+.behavior-edit-form .shortcut-manual-builder > .shortcut-modifiers {
+  gap: 8px;
+}
+.behavior-edit-form .shortcut-modifiers button,
+.behavior-edit-form .record-key-button,
+.behavior-edit-form .behavior-launch-row .reset-button {
+  min-height: var(--behavior-control-height);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.behavior-edit-form .behavior-launch-row {
+  flex-wrap: wrap;
+}
+.behavior-edit-form .behavior-launch-row .reset-button {
+  border: 1px solid #dbe4ed;
+  border-radius: 6px;
+  color: #55748e;
+  background: #fff;
+}
+.behavior-edit-form .behavior-launch-row .reset-button:hover:not(:disabled) {
+  border-color: #91b9e4;
+  color: var(--blue);
+  background: #f6faff;
+}
+.behavior-edit-form .behavior-launch-input {
+  flex: 1 1 180px;
+}
+.behavior-edit-form .behavior-launch-row:has(.reset-button) .behavior-launch-input {
+  flex-basis: 100%;
 }
 .behavior-edit-form .behavior-dialog-field .behavior-launch-error {
   grid-column: 2;
 }
 .behavior-edit-form .behavior-delay-input {
-  height: 36px;
+  height: var(--behavior-control-height);
   color: #405b72;
   font-weight: 500;
   text-align: right;
@@ -1315,6 +1378,38 @@ h1 {
   border-radius: 6px;
   color: #405b72;
   background: #fff;
+}
+.behavior-edit-form .manual-key-select:not(.modifier-side-select),
+.behavior-edit-form .behavior-launch-input,
+.behavior-edit-form .settings-number,
+.behavior-edit-form .behavior-launch-row .icon-button {
+  height: var(--behavior-control-height);
+}
+.behavior-edit-form .behavior-launch-row .icon-button {
+  flex-basis: var(--behavior-control-height);
+}
+.behavior-edit-form .behavior-dialog-field .behavior-paste-input {
+  min-height: 104px;
+  margin: 0;
+}
+.behavior-edit-form .settings-checkbox {
+  min-height: var(--behavior-control-height);
+  font-size: 13px;
+}
+@container behavior-editor (max-width: 440px) {
+  .behavior-key-capture-row .record-key-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .behavior-edit-form .behavior-key-capture-row {
+    grid-template-columns: var(--behavior-label-width) minmax(0, 1fr);
+  }
+  .behavior-edit-form .behavior-launch-input {
+    flex-basis: 100%;
+  }
+  .behavior-edit-form .shortcut-manual-builder > .shortcut-modifiers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .behavior-edit-form .manual-key-select select {
   padding-left: 10px;

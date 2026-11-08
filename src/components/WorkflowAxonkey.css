@@ -606,31 +606,16 @@ body:has(.workflow-split-layout[data-resizing]) * {
 }
 .workflow-step-inline .behavior-dialog-body {
   flex: 1;
-  padding: 4px 14px 14px;
+  padding: 6px 14px 14px;
 }
 .workflow-step-inline .behavior-dialog-actions {
   padding: 8px 14px;
 }
-.workflow-step-inline .behavior-current-value {
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 8px;
+.workflow-step-inline .behavior-dialog-field:has(.behavior-paste-input) {
+  flex: 1 0 auto;
 }
-.workflow-step-inline .shortcut-manual-builder {
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 12px 8px;
-}
-.workflow-step-inline .behavior-current-value span,
-.workflow-step-inline .behavior-base-key-label,
-.workflow-step-inline .behavior-field-title {
-  text-align: left;
-  justify-content: flex-start;
-}
-.workflow-step-inline .behavior-manual-section {
-  margin-top: 16px;
-}
-.workflow-step-inline .shortcut-modifiers button {
-  min-width: 0;
-  padding: 6px;
+.workflow-step-inline .behavior-dialog-field .behavior-paste-input {
+  height: 100%;
 }
 .workflow-inline-delete {
   display: inline-flex;
@@ -663,13 +648,6 @@ body:has(.workflow-split-layout[data-resizing]) * {
   }
   .workflow-axonkey .sqd-toolbox-item {
     padding-right: 5px;
-  }
-  .workflow-step-inline .behavior-key-capture-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .workflow-step-inline .record-key-button {
-    justify-self: start;
-    margin-left: 80px;
   }
 }
 .workflow-trigger-click {
