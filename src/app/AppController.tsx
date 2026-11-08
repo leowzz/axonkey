@@ -4,10 +4,18 @@ import { DriverMigrationFlow } from '../components/DriverMigrationDialog'
 import { VirtualAudioUpgradeDialog } from '../components/VirtualAudioUpgradeFlow'
 import { DeviceHub } from '../devices/integration/DeviceHub'
 import { useDeviceInstances } from '../devices/integration/useDeviceInstances'
+import {
+  InstanceCliError,
+  normalizeCliDeviceSelector,
+  processInstanceCliRequest,
+  resolveCliInstance,
+} from '../devices/integration/instanceCli'
+import { instanceState, instanceStatusLabel, supportPackages } from '../devices/integration/model'
 import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/cloudMetadata'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
+import { recordLibraryAdditions, useLibraryUsage } from '../cloud/libraryUsage'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
@@ -101,6 +109,8 @@ import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { HomeDashboard } from '../components/HomeDashboard'
+import { AppBottomBar, type AppBottomBarProps } from '../components/AppBottomBar'
+import { AppSettingsPanel } from '../components/AppSettingsPanel'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
 import { devices, deviceForInput } from '../devices/registry'
@@ -169,22 +179,6 @@ function cliParams(value: unknown): CliParams {
 
 function cliPlatform(platform: Platform): 'windows' | 'macos' {
   return platform === 'macos' ? 'macos' : 'windows'
-}
-
-function cliDeviceId(value: unknown, fallback: DeviceId): DeviceId {
-  if (typeof value !== 'string' || !value.trim()) return fallback
-  const normalized = value.trim().toLowerCase()
-  const aliases: Record<string, DeviceId> = {
-    remote: 'rc003',
-    rc003: 'rc003',
-    xiaomi: 'rc003',
-    cmiot: 'cmiotA15',
-    cmiota15: 'cmiotA15',
-    mouse: 'mouse',
-  }
-  const device = aliases[normalized]
-  if (!device) throw new CliOperationError('invalid_target', '不支持的设备：' + value)
-  return device
 }
 
 function cliTrigger(value: unknown): TriggerType {
@@ -337,6 +331,7 @@ function AppController({
     inputId: InputId
     trigger: TriggerType
     behavior: SwitchProfileBehavior
+    additionItemId?: string
   } | null>(null)
   const [pendingProfileSwitchDeletion, setPendingProfileSwitchDeletion] = useState<ProfileSwitchDeletion | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
@@ -350,6 +345,9 @@ function AppController({
   }, [debugMode])
   const [inputAuthorizationStale, setInputAuthorizationStale] = useState(false)
   const [activePage, setActivePage] = useState<AppPage>(initialBindingId ? 'home' : initialUiState.activePage)
+  const [workspacePage, setWorkspacePage] = useState<'home' | 'mapping'>(
+    !initialBindingId && initialUiState.activePage === 'mapping' ? 'mapping' : 'home',
+  )
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(initialBindingId)
   const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
@@ -357,14 +355,36 @@ function AppController({
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
   const navigateToPage = (page: AppPage) => {
     setDeviceSettingsOpen(false)
+    if (page === 'settings') {
+      setActivePage(page)
+      return
+    }
     setSelectedInstanceId(null)
     if (page === 'mapping') setMappingStyle('flow')
+    setWorkspacePage(page)
     setActivePage(page)
   }
+  const closeSettingsPanel = () => setActivePage(workspacePage)
   const [showRecordingOverlay, setShowRecordingOverlay] = useState(() => getStoredSettings().showRecordingOverlay)
   const [showRemoteKeyGrid, setShowRemoteKeyGrid] = useState(() => getStoredSettings().showRemoteKeyGrid)
   const [showMouseKeyGrid, setShowMouseKeyGrid] = useState(() => getStoredSettings().showMouseKeyGrid)
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(initialUiState.settingsSection)
+  const lastSettingsSection = useRef<SettingsSection>('startup')
+  if (settingsSection !== 'cloud' && settingsSection !== 'about') lastSettingsSection.current = settingsSection
+  const activePanel =
+    activePage === 'settings'
+      ? settingsSection === 'cloud' || settingsSection === 'about'
+        ? settingsSection
+        : 'settings'
+      : null
+  const openGlobalPanel = (panel: 'settings' | 'cloud' | 'about') => {
+    if (activePanel === panel) {
+      closeSettingsPanel()
+      return
+    }
+    setSettingsSection(panel === 'settings' ? lastSettingsSection.current : panel)
+    navigateToPage('settings')
+  }
   const releaseUpdate = useReleaseUpdate(activePage === 'settings' && settingsSection === 'about', debugMode)
   const [systemState, setSystemState] = useState<SystemState>(createDefaultSystemState)
   const [microphoneDriverAbnormal, setMicrophoneDriverAbnormal] = useState(false)
@@ -378,6 +398,7 @@ function AppController({
   const behaviorEditorRef = useRef<HTMLElement>(null)
   const mappingMainRef = useRef<HTMLElement>(null)
   const mainContentRef = useRef<HTMLElement>(null)
+  const settingsButtonRef = useRef<HTMLButtonElement>(null)
   const pageScrollTopRef = useRef(initialUiState.scrollTop)
   const mappingFileInputRef = useRef<HTMLInputElement>(null)
   const [pendingProfileImport, setPendingProfileImport] = useState<PendingProfileImport | null>(null)
@@ -411,7 +432,7 @@ function AppController({
   useEffect(() => {
     const mainContent = mainContentRef.current
     if (!mainContent) return
-    const page = activePage
+    const page = workspacePage
     const restoreFrame = window.requestAnimationFrame(() => {
       mainContent.scrollTop = pageScrollTopRef.current[page] ?? 0
     })
@@ -432,7 +453,7 @@ function AppController({
       persistUiState()
       mainContent.removeEventListener('scroll', handleScroll)
     }
-  }, [activePage, persistUiState])
+  }, [workspacePage, persistUiState])
 
   const {
     stretchCompensation,
@@ -646,8 +667,8 @@ function AppController({
   }
 
   const requestProfileSwitch = useCallback(
-    (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => {
-      setPendingProfileSwitch({ inputId, trigger, behavior })
+    (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior, additionItemId?: string) => {
+      setPendingProfileSwitch({ inputId, trigger, behavior, additionItemId })
     },
     [],
   )
@@ -682,22 +703,29 @@ function AppController({
       try {
         if (request.protocol !== cliSchema) throw new CliOperationError('invalid_arguments', '不支持的 CLI 协议版本')
         const params = cliParams(request.params)
-        const state = profileStateRef.current
-        const selectedDevice = selectedDeviceId
-        const deviceId = cliDeviceId(params.device, selectedDevice)
-        const device = devices.find(item => item.id === deviceId)!
         const platformName = cliPlatform(platform)
-        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
-        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
-        const profile =
-          profileValue !== '' && profileValue !== 'active'
-            ? persistedProfiles.find(
-                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
-              )
-            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
-        if (!profile && request.method !== 'keymap.get')
-          throw new CliOperationError('invalid_target', '找不到指定配置文件')
-
+        const snapshot = await deviceInstances.refresh(true)
+        const instanceContext = { platform: platformName, snapshot, update: deviceInstances.update }
+        const sharedMethod = ['capabilities', 'status', 'keymap.get'].includes(request.method)
+        const systemMouseTarget = normalizeCliDeviceSelector(params.device) === 'mouse' && params.instance === undefined
+        if (request.method === 'device.list' || (!sharedMethod && !systemMouseTarget)) {
+          const result = await processInstanceCliRequest(request.method, params, instanceContext)
+          await respond({ ok: true, result })
+          return
+        }
+        if (snapshot.error) throw new CliOperationError('app_error', snapshot.error)
+        const cliDevices = [
+          ...supportPackages.map(item => ({
+            id: item.kind,
+            name: item.name,
+            model: item.model,
+            inputKind: 'button',
+            inputIds: item.inputs.map(input => input.id),
+            buttons: item.remoteView?.buttons,
+            remoteView: item.remoteView,
+          })),
+          devices.find(item => item.id === 'mouse')!,
+        ]
         if (request.method === 'capabilities') {
           await respond({
             ok: true,
@@ -722,10 +750,16 @@ function AppController({
                 { type: 'openApp', fields: ['path'] },
                 { type: 'openPath', fields: ['path'] },
                 { type: 'openWebsite', fields: ['url'] },
-                { type: 'switchProfile', fields: ['direction', 'wrap'] },
+                {
+                  type: 'switchProfile',
+                  fields: ['direction', 'wrap'],
+                  scope: 'instanceProfiles',
+                  exclusive: true,
+                  inheritedByNewProfiles: true,
+                },
                 { type: 'disabled', fields: [] },
               ],
-              devices: devices.map(item => ({
+              devices: cliDevices.map(item => ({
                 id: item.id,
                 name: item.name,
                 model: item.model,
@@ -738,18 +772,47 @@ function AppController({
                   return { id: inputId, label: button?.label ?? inputId }
                 }),
               })),
-              profiles: Object.fromEntries(
-                devices.map(item => [
-                  item.id,
-                  persistedProfiles
-                    .filter(profileItem => profileItem.deviceId === item.id)
-                    .map(profileItem => ({
-                      id: profileItem.id,
-                      name: profileItem.name,
-                      active: profileItem.id === state.activeProfileIds[item.id],
-                    })),
+              targeting: { instance: '--instance <id>', device: '--device <kind>（必须只有一个匹配实例）' },
+              operations: [
+                'device.list',
+                'profile.list',
+                'profile.create',
+                'profile.activate',
+                'mapping.list',
+                'mapping.get',
+                'mapping.set',
+                'mapping.clear',
+                'shortcut.list',
+                'shortcut.get',
+                'shortcut.set',
+                'shortcut.clear',
+                'keymap.get',
+              ],
+              instances: (await processInstanceCliRequest('device.list', {}, instanceContext)).devices,
+              profiles: Object.fromEntries([
+                ...snapshot.store.instances.map(instance => [
+                  instance.id,
+                  instance.profiles.map(profile => ({
+                    id: profile.id,
+                    name: profile.name,
+                    active: profile.id === instance.activeProfileId,
+                  })),
                 ]),
-              ),
+                [
+                  'mouse',
+                  snapshotDeviceProfiles(
+                    profileStateRef.current.profiles,
+                    profileStateRef.current.activeProfileIds,
+                    profileStateRef.current.behaviors,
+                  )
+                    .filter(profile => profile.deviceId === 'mouse')
+                    .map(profile => ({
+                      id: profile.id,
+                      name: profile.name,
+                      active: profile.id === profileStateRef.current.activeProfileIds.mouse,
+                    })),
+                ],
+              ]),
             },
           })
           return
@@ -763,11 +826,20 @@ function AppController({
               platform: platformName,
               mappingEnabled: enabled,
               mouseEnabled,
+              revision: snapshot.store.revision,
+              instances: (await processInstanceCliRequest('device.list', {}, instanceContext)).devices,
             },
           })
           return
         }
         if (request.method === 'keymap.get') {
+          const selector = normalizeCliDeviceSelector(params.device)
+          let instance = params.instance !== undefined || !selector ? resolveCliInstance(params, snapshot) : null
+          let device = cliDevices.find(item => item.id.toLowerCase() === (instance?.kind.toLowerCase() ?? selector))
+          if (!device) {
+            instance = resolveCliInstance(params, snapshot)
+            device = cliDevices.find(item => item.id === instance!.kind)!
+          }
           const remoteView = device.remoteView
           const artwork = remoteView
             ? {
@@ -826,6 +898,7 @@ function AppController({
             result: {
               schema: cliSchema,
               device: { id: device.id, name: device.name, model: device.model, inputKind: device.inputKind },
+              instance: instance ? { id: instance.id, kind: instance.kind, name: instance.name } : null,
               artwork,
               layout: remoteView
                 ? {
@@ -844,6 +917,17 @@ function AppController({
           })
           return
         }
+        const state = profileStateRef.current
+        const deviceId: DeviceId = 'mouse'
+        const device = devices.find(item => item.id === deviceId)!
+        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
+        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
+        const profile =
+          profileValue && profileValue !== 'active'
+            ? persistedProfiles.find(
+                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
+              )
+            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
         if (!profile) throw new CliOperationError('invalid_target', '找不到指定配置文件')
         if (request.method === 'profile.list') {
           await respond({
@@ -965,7 +1049,7 @@ function AppController({
           },
         })
       } catch (error) {
-        const code = error instanceof CliOperationError ? error.code : 'app_error'
+        const code = error instanceof CliOperationError || error instanceof InstanceCliError ? error.code : 'app_error'
         const message = error instanceof Error ? error.message : String(error)
         try {
           await respond({ ok: false, error: { code, message } })
@@ -974,7 +1058,7 @@ function AppController({
         }
       }
     },
-    [enabled, mouseEnabled, nativeRuntime, platform, selectedDeviceId, setBehaviors],
+    [deviceInstances.refresh, deviceInstances.update, enabled, mouseEnabled, platform, setBehaviors],
   )
 
   useEffect(() => {
@@ -1498,6 +1582,8 @@ function AppController({
       }
     },
   })
+
+  useLibraryUsage(cloud.client, platform, nativeRuntime && platformReady)
 
   const openMappingImport = () => {
     mappingFileInputRef.current?.click()
@@ -2272,214 +2358,258 @@ function AppController({
     </div>
   )
 
+  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
+    instance => instance.id === selectedInstanceId,
+  )
+  const managedState = workspaceInstance ? instanceState(workspaceInstance, deviceInstances.snapshot) : undefined
+  const workspaceStatus: AppBottomBarProps['workspaceStatus'] = workspaceInstance
+    ? {
+        label: nativeRuntime ? instanceStatusLabel(workspaceInstance, deviceInstances.snapshot) : '预览配置',
+        tone: !nativeRuntime
+          ? 'muted'
+          : managedState === 'exclusive'
+            ? 'connected'
+            : managedState === 'error' || managedState === 'needsRebind'
+              ? 'warning'
+              : 'muted',
+      }
+    : workspacePage === 'mapping'
+      ? {
+          label: !nativeRuntime
+            ? '浏览器预览'
+            : !enabled || (isMouse && !mouseEnabled)
+              ? '已暂停'
+              : isMouse
+                ? '系统输入源'
+                : systemState.device.status === 'connected'
+                  ? '已连接'
+                  : '未连接',
+          tone:
+            nativeRuntime && enabled && !isMouse && systemState.device.status === 'connected' ? 'connected' : 'muted',
+        }
+      : undefined
+
   const appShell = (
-    <div className={`app-shell ${activePage === 'mapping' ? 'mapping-active' : ''}`}>
+    <div className={`app-shell ${workspacePage === 'mapping' ? 'mapping-active' : ''}`}>
       {nativeRuntime && platform === 'macos' && (
         <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
       )}
       <div className="app-main">
-        <main ref={mainContentRef} key={activePage} className="main-content">
-          {!enabled && (
-            <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
-              <Info size={20} aria-hidden="true" />
-              <div className="mapping-disabled-copy">
-                <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
-                <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可通过设置页左侧的总开关开启。</p>
-              </div>
-              <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
-                立即开启
-              </button>
-            </section>
-          )}
-
-          {activePage === 'mapping' ? (
-            <MappingPageComponent
-              onBackToDevices={() => navigateToPage('home')}
-              onOpenSettings={() => setDeviceSettingsOpen(true)}
-              profileControls={profileControls}
-              debugMode={debugMode}
-              selectedDeviceId={selectedDeviceId}
-              selectBehaviorTarget={selectBehaviorTarget}
-              activeId={activeId}
-              mappingMainRef={mappingMainRef}
-              deviceStatus={deviceStatus}
-              isMouse={isMouse}
-              selectedBehavior={selectedBehavior}
-              adjustPreviewBattery={adjustPreviewBattery}
-              editableButtons={editableButtons}
-              pressedId={pressedId}
-              behaviors={behaviors}
-              onWorkflowChange={updateWorkflow}
-              onRequestProfileSwitch={requestProfileSwitch}
-              platform={platform}
-              showRemoteKeyGrid={showRemoteKeyGrid}
-              showMouseKeyGrid={showMouseKeyGrid}
-              rowRefs={rowRefs}
-              toolbar={
-                <div className="key-picker-actions">
-                  <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
-                    <button
-                      type="button"
-                      className="behavior-history-button"
-                      title="撤销"
-                      aria-label="撤销行为更改"
-                      disabled={!canUndoBehavior}
-                      onClick={undoBehaviorChange}
-                    >
-                      <UndoCircle size={15} weight="Outline" />
-                    </button>
-                    <button
-                      type="button"
-                      className="behavior-history-button"
-                      title="重做"
-                      aria-label="重做行为更改"
-                      disabled={!canRedoBehavior}
-                      onClick={redoBehaviorChange}
-                    >
-                      <RedoCircle size={15} weight="Outline" />
-                    </button>
-                  </div>
-                  {mappingActions}
+        <div className="app-workspace">
+          <main ref={mainContentRef} key={workspacePage} className="main-content">
+            {!enabled && (
+              <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
+                <Info size={20} aria-hidden="true" />
+                <div className="mapping-disabled-copy">
+                  <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
+                  <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可在设置中开启软件总开关。</p>
                 </div>
-              }
-              behaviorEditorProps={{
-                editorRef: behaviorEditorRef,
-                attention: behaviorEditorAttention,
-                platform,
-                button: selectedButton,
-                trigger: selectedBehavior.trigger,
-                behaviors: behaviors[selectedBehavior.buttonId][selectedBehavior.trigger],
-                onApplyCommonBehavior: applyCommonBehavior,
-                onAddAdvancedBehavior: type => beginBehaviorDraft(type, 'append'),
-                onRemoveBehavior: removeBehavior,
-                onMoveBehavior: moveSelectedBehavior,
-                onEditBehavior: setEditingBehaviorId,
-                onReturnToMappings: returnToSelectedMapping,
-                onCopySequence: () => void copySelectedSequence(),
-                onPasteSequence: () => setSequencePasteOpen(true),
-                onClearSequence: () => {
-                  const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
-                  if (
-                    updateWorkflow(selectedBehavior.buttonId, { ...current, [selectedBehavior.trigger]: [] }) === false
-                  )
-                    return
-                  clearBehaviorEditingState()
-                  showBehaviorToast('当前序列已清除')
-                },
-              }}
-              remoteView={selectedDevice.remoteView}
-            />
-          ) : activePage === 'settings' ? (
-            <SettingsPage
-              cloudContent={
-                <CloudSyncSettings
-                  cloud={cloud}
-                  instances={deviceInstances.snapshot.store.instances}
-                  platform={platform}
-                />
-              }
-              localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
-              aboutContent={<AboutPage update={releaseUpdate} />}
-              onOpenConfigMigration={onOpenConfigMigration}
-              onOpenUserGuide={userGuide.show}
-              onOpenDevtools={openDevtools}
-              debugMode={debugMode}
-              onOpenDriverMigration={() => setDriverMigrationOpen(true)}
-              onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
-              onOpenWindowsAudioDriver={openAudioDriver}
-              onOpenVirtualAudioUpgrade={() => setVirtualAudioUpgradeOpen(true)}
-              onBack={() => navigateToPage('home')}
-              enabled={enabled}
-              onToggleEnabled={toggleEnabled}
-              backup={{
-                onCreateBackup: createBackup,
-                onRestoreBackup: restoreDataBackup,
-                onImportLegacyConfig,
-              }}
-              onOpenSignalMonitor={() => void openSignalMonitor()}
-              signalMonitorOpening={signalMonitorOpening}
-              signalMonitorError={signalMonitorError}
-              stretchCompensation={stretchCompensation}
-              stretchError={stretchError}
-              stretchUpdating={stretchUpdating}
-              onStretchCompensationChange={updateStretchCompensation}
-              section={settingsSection}
-              onSectionChange={setSettingsSection}
-              showRemoteKeyGrid={showRemoteKeyGrid}
-              onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
-              showRecordingOverlay={showRecordingOverlay}
-              onShowRecordingOverlayChange={setShowRecordingOverlay}
-              platform={platform}
-              nativeRuntime={nativeRuntime}
-              systemProbeState={systemProbeState}
-              permissions={macPermissions}
-              inputAuthorizationStale={inputAuthorizationStale}
-              inputDriver={systemState.drivers.input}
-              onRequestPermission={kind => void requestMacPermission(kind)}
-              onOpenSettings={kind => void openSystemSettings(kind)}
-              onRefresh={() => void probeSystemState(false)}
-              audioDriver={systemState.drivers.audio}
-              onAudioAction={action => void runDriverAction('audio', action)}
-              audioRestarting={audioRestarting}
-              audioRestartError={audioRestartError}
-              onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
-              onProbeAudio={() => void probeAudioState()}
-              onOpenSound={() => void openSystemSettings('sound')}
-              onOpenManagedDriverCleanup={() => setManagedDriverCleanupOpen(true)}
-            />
-          ) : (
-            <HomeDashboard
-              microphoneDriverAbnormal={microphoneDriverAbnormal}
-              microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
-              onDismissMicrophoneDriverWarning={dismissMicrophoneDriverWarning}
-              onOpenAudioDriver={openAudioDriver}
-              deviceContent={
-                <DeviceHub
-                  selectedInstanceId={selectedInstanceId}
-                  bindInstanceId={pendingBindingId}
-                  onBindingOpened={() => setPendingBindingId(null)}
-                  onSelectInstance={setSelectedInstanceId}
-                  onOpenAudioDriver={openAudioDriver}
-                  onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
-                  onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
-                  controller={deviceInstances}
-                  onBrandClick={handleBrandClick}
-                  native={nativeRuntime}
-                  platform={platform}
-                  permissions={macPermissions}
-                  mouseProfileName={profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'}
-                  onPermissions={() => {
-                    setSettingsSection('permissions')
-                    navigateToPage('settings')
-                  }}
-                  onOpenAudioCalibration={openInstanceAudioCalibration}
-                  driverAction={managedDriverAction}
-                  onInstallDriver={instanceId => void installManagedDriver(instanceId)}
-                  onUnbindDevice={unbindManagedInstance}
-                  onRemoveDevice={removeManagedInstance}
-                  onLegacy={deviceId => {
-                    setSelectedDeviceId(deviceId)
-                    const device = devices.find(d => d.id === deviceId)!
-                    selectBehaviorTarget(device.inputIds[0], 'click', false)
-                    navigateToPage('mapping')
-                  }}
-                />
-              }
-              nativeRuntime={nativeRuntime}
-              onOpenSettings={() => navigateToPage('settings')}
-              onOpenCloud={() => {
-                setSettingsSection('cloud')
-                navigateToPage('settings')
-              }}
-              onOpenLogs={() => void openLogDirectory()}
-              onOpenAbout={() => {
-                setSettingsSection('about')
-                navigateToPage('settings')
-              }}
-              hasUpdate={releaseUpdate.hasUpdate}
-            />
+                <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
+                  立即开启
+                </button>
+              </section>
+            )}
+
+            {workspacePage === 'mapping' ? (
+              <MappingPageComponent
+                onBackToDevices={() => navigateToPage('home')}
+                onOpenSettings={() => setDeviceSettingsOpen(true)}
+                profileControls={profileControls}
+                debugMode={debugMode}
+                selectedDeviceId={selectedDeviceId}
+                selectBehaviorTarget={selectBehaviorTarget}
+                activeId={activeId}
+                mappingMainRef={mappingMainRef}
+                deviceStatus={deviceStatus}
+                isMouse={isMouse}
+                selectedBehavior={selectedBehavior}
+                adjustPreviewBattery={adjustPreviewBattery}
+                editableButtons={editableButtons}
+                pressedId={pressedId}
+                behaviors={behaviors}
+                onWorkflowChange={updateWorkflow}
+                onRequestProfileSwitch={requestProfileSwitch}
+                platform={platform}
+                showRemoteKeyGrid={showRemoteKeyGrid}
+                showMouseKeyGrid={showMouseKeyGrid}
+                rowRefs={rowRefs}
+                toolbar={
+                  <div className="key-picker-actions">
+                    <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
+                      <button
+                        type="button"
+                        className="behavior-history-button"
+                        title="撤销"
+                        aria-label="撤销行为更改"
+                        disabled={!canUndoBehavior}
+                        onClick={undoBehaviorChange}
+                      >
+                        <UndoCircle size={15} weight="Outline" />
+                      </button>
+                      <button
+                        type="button"
+                        className="behavior-history-button"
+                        title="重做"
+                        aria-label="重做行为更改"
+                        disabled={!canRedoBehavior}
+                        onClick={redoBehaviorChange}
+                      >
+                        <RedoCircle size={15} weight="Outline" />
+                      </button>
+                    </div>
+                    {mappingActions}
+                  </div>
+                }
+                behaviorEditorProps={{
+                  editorRef: behaviorEditorRef,
+                  attention: behaviorEditorAttention,
+                  platform,
+                  button: selectedButton,
+                  trigger: selectedBehavior.trigger,
+                  behaviors: behaviors[selectedBehavior.buttonId][selectedBehavior.trigger],
+                  onApplyCommonBehavior: applyCommonBehavior,
+                  onAddAdvancedBehavior: type => beginBehaviorDraft(type, 'append'),
+                  onRemoveBehavior: removeBehavior,
+                  onMoveBehavior: moveSelectedBehavior,
+                  onEditBehavior: setEditingBehaviorId,
+                  onReturnToMappings: returnToSelectedMapping,
+                  onCopySequence: () => void copySelectedSequence(),
+                  onPasteSequence: () => setSequencePasteOpen(true),
+                  onClearSequence: () => {
+                    const current = profileStateRef.current.behaviors[selectedBehavior.buttonId]
+                    if (
+                      updateWorkflow(selectedBehavior.buttonId, { ...current, [selectedBehavior.trigger]: [] }) ===
+                      false
+                    )
+                      return
+                    clearBehaviorEditingState()
+                    showBehaviorToast('当前序列已清除')
+                  },
+                }}
+                remoteView={selectedDevice.remoteView}
+              />
+            ) : (
+              <HomeDashboard
+                microphoneDriverAbnormal={microphoneDriverAbnormal}
+                microphoneDriverWarningSuppressed={microphoneDriverWarningSuppressed}
+                onDismissMicrophoneDriverWarning={dismissMicrophoneDriverWarning}
+                onOpenAudioDriver={openAudioDriver}
+                deviceContent={
+                  <DeviceHub
+                    selectedInstanceId={selectedInstanceId}
+                    bindInstanceId={pendingBindingId}
+                    onBindingOpened={() => setPendingBindingId(null)}
+                    onSelectInstance={setSelectedInstanceId}
+                    onOpenAudioDriver={openAudioDriver}
+                    onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
+                    onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
+                    controller={deviceInstances}
+                    onBrandClick={handleBrandClick}
+                    native={nativeRuntime}
+                    platform={platform}
+                    permissions={macPermissions}
+                    mouseProfileName={
+                      profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'
+                    }
+                    onPermissions={() => {
+                      setSettingsSection('permissions')
+                      navigateToPage('settings')
+                    }}
+                    onOpenAudioCalibration={openInstanceAudioCalibration}
+                    driverAction={managedDriverAction}
+                    onInstallDriver={instanceId => void installManagedDriver(instanceId)}
+                    onUnbindDevice={unbindManagedInstance}
+                    onRemoveDevice={removeManagedInstance}
+                    onLegacy={deviceId => {
+                      setSelectedDeviceId(deviceId)
+                      const device = devices.find(d => d.id === deviceId)!
+                      selectBehaviorTarget(device.inputIds[0], 'click', false)
+                      navigateToPage('mapping')
+                    }}
+                  />
+                }
+                nativeRuntime={nativeRuntime}
+                settingsButtonRef={settingsButtonRef}
+              />
+            )}
+          </main>
+          {activePage === 'settings' && (
+            <AppSettingsPanel workspaceRef={mainContentRef} onClose={closeSettingsPanel}>
+              <SettingsPage
+                presentation="panel"
+                cloudContent={
+                  <CloudSyncSettings
+                    cloud={cloud}
+                    instances={deviceInstances.snapshot.store.instances}
+                    platform={platform}
+                  />
+                }
+                localDataResetContent={<LocalDataResetSettings cloud={cloud} />}
+                aboutContent={<AboutPage update={releaseUpdate} />}
+                onOpenConfigMigration={onOpenConfigMigration}
+                onOpenUserGuide={userGuide.show}
+                onOpenDevtools={openDevtools}
+                debugMode={debugMode}
+                onOpenDriverMigration={() => setDriverMigrationOpen(true)}
+                onOpenLegacyCleanup={() => setLegacyCleanupOpen(true)}
+                onOpenWindowsAudioDriver={openAudioDriver}
+                onOpenVirtualAudioUpgrade={() => setVirtualAudioUpgradeOpen(true)}
+                onBack={closeSettingsPanel}
+                enabled={enabled}
+                onToggleEnabled={toggleEnabled}
+                backup={{
+                  onCreateBackup: createBackup,
+                  onRestoreBackup: restoreDataBackup,
+                  onImportLegacyConfig,
+                }}
+                onOpenSignalMonitor={() => void openSignalMonitor()}
+                signalMonitorOpening={signalMonitorOpening}
+                signalMonitorError={signalMonitorError}
+                stretchCompensation={stretchCompensation}
+                stretchError={stretchError}
+                stretchUpdating={stretchUpdating}
+                onStretchCompensationChange={updateStretchCompensation}
+                section={settingsSection}
+                onSectionChange={setSettingsSection}
+                showRemoteKeyGrid={showRemoteKeyGrid}
+                onShowRemoteKeyGridChange={setShowRemoteKeyGrid}
+                showRecordingOverlay={showRecordingOverlay}
+                onShowRecordingOverlayChange={setShowRecordingOverlay}
+                platform={platform}
+                nativeRuntime={nativeRuntime}
+                systemProbeState={systemProbeState}
+                permissions={macPermissions}
+                inputAuthorizationStale={inputAuthorizationStale}
+                inputDriver={systemState.drivers.input}
+                onRequestPermission={kind => void requestMacPermission(kind)}
+                onOpenSettings={kind => void openSystemSettings(kind)}
+                onRefresh={() => void probeSystemState(false)}
+                audioDriver={systemState.drivers.audio}
+                onAudioAction={action => void runDriverAction('audio', action)}
+                audioRestarting={audioRestarting}
+                audioRestartError={audioRestartError}
+                onRestartAudio={() => void restartAudio().then(() => probeAudioState())}
+                onProbeAudio={() => void probeAudioState()}
+                onOpenSound={() => void openSystemSettings('sound')}
+                onOpenManagedDriverCleanup={() => setManagedDriverCleanupOpen(true)}
+              />
+            </AppSettingsPanel>
           )}
-        </main>
+        </div>
+        <AppBottomBar
+          activePanel={activePanel}
+          workspaceName={workspaceInstance?.name ?? (workspacePage === 'mapping' ? selectedDevice.name : undefined)}
+          workspaceStatus={workspaceStatus}
+          nativeRuntime={nativeRuntime}
+          hasUpdate={releaseUpdate.hasUpdate}
+          settingsButtonRef={settingsButtonRef}
+          onOpenDevices={() => navigateToPage('home')}
+          onReturnToWorkspace={closeSettingsPanel}
+          onOpenSettings={() => openGlobalPanel('settings')}
+          onOpenCloud={() => openGlobalPanel('cloud')}
+          onOpenLogs={() => void openLogDirectory()}
+          onOpenAbout={() => openGlobalPanel('about')}
+        />
       </div>
       {toast && (
         <div className="toast">
@@ -2511,6 +2641,8 @@ function AppController({
               profileStateRef.current = next
               setProfiles(next.profiles)
               dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+              if (pendingProfileSwitch.additionItemId && behavior.enabled)
+                recordLibraryAdditions([pendingProfileSwitch.additionItemId])
               setPendingProfileSwitch(null)
               setAutoSaveState('saving')
               setToast('已应用到此设备的所有配置文件')
@@ -2715,6 +2847,7 @@ function AppController({
         client: cloud.client,
         userId: cloud.user?.id ?? null,
         accountReady: cloud.accountReady,
+        debugMode,
         onLogin: () => {
           setSettingsSection('cloud')
           navigateToPage('settings')

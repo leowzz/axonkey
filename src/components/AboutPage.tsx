@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { releasesUrl } from '../releaseUpdate'
 import type { useReleaseUpdate } from '../hooks/useReleaseUpdate'
 import { openGitHub, openReleases } from '../openGitHub'
-import { AudioLines, Github, Keyboard, ShieldCheck, Terminal } from 'lucide-react'
+import { Check, Copy, Github, Terminal } from 'lucide-react'
+import { writeClipboardText } from '../clipboard'
 import appPackage from '../../package.json'
 import { WechatGroupCard } from './WechatGroupCard'
 
@@ -28,16 +30,15 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
                 : update.error
                   ? '检查更新失败'
                   : update.checkedAt
-                    ? '当前主版本已是最新版本'
+                    ? '当前主版本已是最新'
                     : '等待检查更新'
   return (
     <div className="about-page">
       <section className="about-intro" aria-labelledby="about-title">
         <img className="about-app-icon" src={appIconUrl} alt="Axonkey 应用图标" width={64} height={64} />
         <div>
-          <span className="about-version">版本 {appPackage.version}</span>
-          <h2 id="about-title">关于 Axonkey</h2>
-          <p>面向小米 RC003 蓝牙遥控器的本地控制台，让遥控器成为易于配置的快捷键控制器。</p>
+          <h2 id="about-title">Axonkey</h2>
+          <span className="about-version">{appPackage.version}</span>
         </div>
         <div className="about-github-support">
           <a
@@ -49,7 +50,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
           >
             <Github size={17} aria-hidden="true" /> GitHub
           </a>
-          <span>如果觉得好用，欢迎给个 Star ⭐</span>
+          <span>给个 Star ⭐</span>
         </div>
       </section>
       <div className="about-details">
@@ -67,7 +68,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
                     )
                   ) : (
                     <>
-                      仅检查当前主版本的更新。跨主版本请
+                      跨主版本更新需
                       <a
                         className="about-update-link"
                         href={releasesUrl}
@@ -75,7 +76,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        前往下载
+                        下载
                       </a>
                       并手动安装。
                     </>
@@ -114,35 +115,44 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
               )}
             </div>
           </section>
-          <section className="about-features" aria-label="应用功能">
-            <article>
-              <Keyboard size={22} />
-              <h3>自定义按键</h3>
-              <p>为单击、双击和长按配置按键、组合键、文本与多步操作。</p>
-            </article>
-            <article>
-              <AudioLines size={22} />
-              <h3>遥控器语音</h3>
-              <p>长按语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
-            </article>
-            <article>
-              <ShieldCheck size={22} />
-              <h3>本地运行</h3>
-              <p>映射配置与诊断信息保存在本机，支持 macOS 和 Windows。</p>
-            </article>
-            <article>
-              <Terminal size={22} />
-              <h3>Agent CLI</h3>
-              <p>
-                让 Agent 查看、预览并修改快捷键，支持快捷键、文本、鼠标和多步行为。终端运行{' '}
-                <code>axonkey-cli capabilities --json</code> 查看格式。
-              </p>
-            </article>
-          </section>
+          <AgentConfigurationCard />
         </div>
         <WechatGroupCard />
       </div>
-      <p className="about-note">首次使用请完成设备连接、权限与驱动设置，再在设置页左侧开启软件总开关。</p>
     </div>
+  )
+}
+
+function AgentConfigurationCard() {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const text = '请先了解 axonkey-cli，再按我的需求查看和调整设备按键设置。'
+
+  return (
+    <section className="about-cli" aria-labelledby="about-cli-title">
+      <div className="about-cli-header">
+        <h3 id="about-cli-title">
+          <Terminal size={22} aria-hidden="true" /> 用 Agent 配置
+        </h3>
+        <button
+          type="button"
+          aria-label="复制提示词"
+          onClick={() => {
+            void writeClipboardText(text)
+              .then(() => setCopyState('copied'))
+              .catch(() => setCopyState('error'))
+          }}
+        >
+          {copyState === 'copied' ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
+          <span role="status">{copyState === 'copied' ? '已复制' : '复制提示词'}</span>
+        </button>
+      </div>
+      <p>复制给 Agent，再描述你的需求。</p>
+      <div className="about-cli-snippet">
+        <pre>
+          <code>{text}</code>
+        </pre>
+        {copyState === 'error' && <p role="alert">复制失败，请拖选文本后使用系统复制快捷键。</p>}
+      </div>
+    </section>
   )
 }

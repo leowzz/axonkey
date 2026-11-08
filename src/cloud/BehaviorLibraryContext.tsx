@@ -5,5 +5,6 @@ export const BehaviorLibraryContext = createContext<{
   client: RelayClient
   userId: string | null
   accountReady: boolean
+  debugMode?: boolean
   onLogin: () => void
 } | null>(null)

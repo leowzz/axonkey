@@ -3,14 +3,13 @@ import {
   createEmptyBehaviorMap,
   createDefaultBehaviorMap,
   normalizeBehavior,
-  parseSequenceImport,
   triggerTypes,
 } from './behaviorModel.ts'
 import type { TriggerBehaviors } from './behaviorModel.ts'
 import { devices } from './devices/index.ts'
 import { parseStoredDeviceProfiles } from './deviceProfiles.ts'
 import { backupFilename } from './dataBackup.ts'
-import { parseSavedSequences, savedSequencesStorageKey } from './savedSequences.ts'
+import { parseSavedSequences, savedSequenceBehaviors, savedSequencesStorageKey } from './savedSequences.ts'
 import type { MappingProfile } from './appTypes.ts'
 import type { DeviceInstance } from './devices/integration/model.ts'
 
@@ -261,7 +260,7 @@ function createLegacyBackupDocument(storage: Pick<Storage, 'getItem'>, source: R
     savedBehaviors: parseSavedSequences(storage.getItem(savedSequencesStorageKey)).map(saved => ({
       id: saved.id,
       name: saved.name,
-      behaviors: parseSequenceImport(saved.sequence),
+      behaviors: savedSequenceBehaviors(saved),
     })),
     settings: {
       enabled: settings.enabled ?? true,

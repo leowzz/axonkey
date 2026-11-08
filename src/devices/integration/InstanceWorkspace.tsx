@@ -15,6 +15,7 @@ import { SettingsHelp } from '../../components/SettingsHelp'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { reportTencentEvent } from '../../telemetry'
+import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
@@ -84,6 +85,7 @@ export function InstanceWorkspace({
     inputId: string
     trigger: TriggerType
     behavior: SwitchProfileBehavior
+    additionItemId?: string
   } | null>(null)
   const [pendingDeletion, setPendingDeletion] = useState<{
     profileId: string
@@ -502,7 +504,9 @@ export function InstanceWorkspace({
             sequences={profile.behaviors[selected] ?? emptyTriggers()}
             activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
             onChange={changeSequence}
-            onRequestProfileSwitch={(inputId, trigger, behavior) => setPendingSwitch({ inputId, trigger, behavior })}
+            onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
+              setPendingSwitch({ inputId, trigger, behavior, additionItemId })
+            }
             toolboxCategory={toolboxCategory}
             onToolboxCategoryChange={setToolboxCategory}
           />
@@ -702,7 +706,15 @@ export function InstanceWorkspace({
             platform={platform}
             onCancel={() => setPendingSwitch(null)}
             onConfirm={behavior => {
-              update(item => applyInstanceProfileSwitch(item, pendingSwitch.inputId, pendingSwitch.trigger, behavior))
+              void controller
+                .update(instance.id, item =>
+                  applyInstanceProfileSwitch(item, pendingSwitch.inputId, pendingSwitch.trigger, behavior),
+                )
+                .then(() => {
+                  if (pendingSwitch.additionItemId && behavior.enabled)
+                    recordLibraryAdditions([pendingSwitch.additionItemId])
+                })
+                .catch(() => {})
               setPendingSwitch(null)
             }}
           />,

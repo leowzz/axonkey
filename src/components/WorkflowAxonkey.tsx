@@ -1,6 +1,5 @@
-import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
-import { recordLibraryAddition } from '../cloud/behaviorLibrary'
-import { useContext, useEffect, useRef, useState } from 'react'
+import { recordLibraryAdditions } from '../cloud/libraryUsage'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
@@ -25,6 +24,7 @@ import {
   workflowBranches,
   workflowSequenceSignature,
   workflowToBehaviors,
+  takeWorkflowLibraryAdditions,
 } from './workflowBehaviorBridge'
 import { createWorkflowActionIconUrls } from './workflowActionIcons'
 import { WorkflowToolbox } from './WorkflowToolbox'
@@ -62,7 +62,12 @@ type WorkflowAxonkeyProps<Id extends string> = {
   button: MappingInput<Id>
   sequences: TriggerBehaviors
   activeTrigger?: TriggerType
-  onRequestProfileSwitch: (inputId: Id, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
+  onRequestProfileSwitch: (
+    inputId: Id,
+    trigger: TriggerType,
+    behavior: SwitchProfileBehavior,
+    additionItemId?: string,
+  ) => void
   onChange: (inputId: Id, sequences: TriggerBehaviors) => void | false
   toolboxCategory: string
   onToolboxCategoryChange: (category: string) => void
@@ -85,9 +90,6 @@ export function WorkflowAxonkey<Id extends string = InputId>({
   toolboxCategory,
   onToolboxCategoryChange,
 }: WorkflowAxonkeyProps<Id>) {
-  const libraryAccount = useContext(BehaviorLibraryContext)
-  const libraryAccountRef = useRef(libraryAccount)
-  libraryAccountRef.current = libraryAccount
   const triggers = button.triggerLabel
     ? [{ id: 'click' as const, label: button.triggerLabel }]
     : activeTrigger
@@ -245,7 +247,12 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           if (!savedBehavior) return
           if (savedBehavior.type === 'switchProfile') {
             setEditingStep(null)
-            onRequestProfileSwitchRef.current(button.id, current.trigger, savedBehavior)
+            onRequestProfileSwitchRef.current(
+              button.id,
+              current.trigger,
+              savedBehavior,
+              current.step.properties.pendingLibraryAddition as string | undefined,
+            )
             return
           }
           const group = current.step.properties.draftGroup
@@ -254,9 +261,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
               if (group && node.properties.draftGroup === group) delete node.properties.draftGroup
             }
           }
-          const libraryItemId = current.step.properties.libraryItemId
+          const { libraryItemId, pendingLibraryAddition } = current.step.properties
           Object.assign(current.step, behaviorToWorkflowStep(savedBehavior, label))
           if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
+          if (pendingLibraryAddition) current.step.properties.pendingLibraryAddition = pendingLibraryAddition
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
           setEditingStep(null)
         },
@@ -462,23 +470,14 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         }
         return
       }
-      for (const branch of Object.values(current)) {
-        for (const node of branch) {
-          const itemId = node.properties.libraryItemId
-          if (typeof itemId !== 'string' || node.properties.draftGroup) continue
-          delete node.properties.libraryItemId
-          if (libraryAccountRef.current) void recordLibraryAddition(libraryAccountRef.current.client, itemId, platform)
-        }
-      }
+      recordLibraryAdditions(takeWorkflowLibraryAdditions(workflowApi!.editor.getDefinition()))
       acceptedBranches = structuredClone(current)
     }
     const normalizeInsertion = (trigger: TriggerType, index: number) => {
       const api = workflowApi!
       const branch = workflowBranches(api.editor.getDefinition())[trigger]
-      const itemId = branch[index].properties.libraryItemId
       const nodes = insertedWorkflowSteps(branch[index], platform, label)
       for (const node of nodes) {
-        delete node.properties.libraryItemId
         delete node.properties.libraryVersionId
         delete node.properties.author
       }
@@ -487,10 +486,15 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         branch.splice(index, 1)
         designer.clearSelectedStep()
         api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-        onRequestProfileSwitchRef.current(button.id, trigger, profileSwitch)
+        onRequestProfileSwitchRef.current(
+          button.id,
+          trigger,
+          profileSwitch,
+          nodes.find(node => node.properties.pendingLibraryAddition)?.properties.pendingLibraryAddition as
+            string | undefined,
+        )
         return
       }
-      if (nodes.length && typeof itemId === 'string') nodes[0].properties.libraryItemId = itemId
       if (nodes.length === 1 && nodes[0].type === 'disabled' && nodes[0].properties.enabled !== false) {
         branch.splice(0, branch.length, ...nodes)
       } else branch.splice(index, 1, ...nodes)
@@ -602,7 +606,11 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           componentType: 'task',
           type: 'savedSequence',
           name: item.name,
-          properties: { savedSequenceId: item.id, sequence: item.sequence },
+          properties: {
+            savedSequenceId: item.id,
+            sequence: item.sequence,
+            ...(item.libraryItemIds ? { libraryItemIds: item.libraryItemIds } : {}),
+          },
         })),
       },
     ],

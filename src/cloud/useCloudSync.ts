@@ -65,7 +65,7 @@ export function useCloudSync(options: {
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(20000),
+        signal: AbortSignal.timeout(path === '/v2/behavior-library/usage' ? 3000 : 20000),
       })
       return {
         status: response.status,

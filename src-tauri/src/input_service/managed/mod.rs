@@ -836,7 +836,7 @@ struct Reader {
     down: HashSet<String>,
     gestures: Gestures,
     maps: HashMap<String, TriggerBehaviors>,
-    actions: SyncSender<Vec<NativeBehavior>>,
+    actions: SyncSender<Vec<gesture::Execution>>,
     cancel: Arc<AtomicBool>,
     reports: u64,
 }
@@ -914,6 +914,7 @@ fn open_reader(
         let id = instance.id.clone();
         return remote::RemoteReader::open(
             serial,
+            &instance.id,
             settings,
             Box::new(move || actions_current(&current_shared, &expected, &current_cancel)),
             Box::new(move |direction, wrap| switch_profile(&switch_shared, &id, direction, wrap)),
@@ -1216,6 +1217,8 @@ fn run(shared: Arc<Shared>) {
     let start = Instant::now();
     let mut next_scan = Instant::now();
     let mut next_event = Instant::now();
+    let mut next_usage = Instant::now();
+    let mut voice_sessions = HashMap::<String, String>::new();
     let mut dirty = HashSet::new();
     // OS Bluetooth inventory queries can be slow. Keep them off the HID read loop.
     let (pair_tx, pair_rx) = sync_channel(1);
@@ -1566,69 +1569,90 @@ fn run(shared: Arc<Shared>) {
                             } else {
                                 active_mappings(instance)
                             };
-                            let (tx, rx) = sync_channel::<Vec<NativeBehavior>>(32);
+                            let (tx, rx) = sync_channel::<Vec<gesture::Execution>>(32);
                             let action_shared = shared.clone();
                             let action_cancel = cancel.clone();
                             let id = instance.id.clone();
                             let expected = instance.clone();
                             thread::spawn(move || {
                                 while let Ok(sequence) = rx.recv() {
-                                    for behavior in sequence {
-                                        if !actions_current(
+                                    for execution in sequence {
+                                        if actions_current(
                                             &action_shared,
                                             &expected,
                                             &action_cancel,
-                                        ) {
-                                            break;
+                                        ) && execution.behaviors.iter().any(|behavior| {
+                                            behavior.enabled()
+                                                && !matches!(
+                                                    behavior,
+                                                    NativeBehavior::Disabled { .. }
+                                                )
+                                        }) {
+                                            crate::library_usage::record_trigger(
+                                                &format!("{}:{}", id, execution.input),
+                                                &execution.sources,
+                                            );
                                         }
-                                        if !behavior.enabled() {
-                                            continue;
-                                        }
-                                        match behavior {
-                                            NativeBehavior::Delay { ms, .. } => {
-                                                let until = Instant::now()
-                                                    + Duration::from_millis(ms.min(300_000));
-                                                while Instant::now() < until
-                                                    && actions_current(
+                                        for behavior in execution.behaviors {
+                                            if !actions_current(
+                                                &action_shared,
+                                                &expected,
+                                                &action_cancel,
+                                            ) {
+                                                break;
+                                            }
+                                            if !behavior.enabled() {
+                                                continue;
+                                            }
+                                            match behavior {
+                                                NativeBehavior::Delay { ms, .. } => {
+                                                    let until = Instant::now()
+                                                        + Duration::from_millis(ms.min(300_000));
+                                                    while Instant::now() < until
+                                                        && actions_current(
+                                                            &action_shared,
+                                                            &expected,
+                                                            &action_cancel,
+                                                        )
+                                                    {
+                                                        thread::sleep(Duration::from_millis(10));
+                                                    }
+                                                }
+                                                NativeBehavior::SwitchProfile {
+                                                    direction,
+                                                    wrap,
+                                                    ..
+                                                } => {
+                                                    switch_profile(
+                                                        &action_shared,
+                                                        &id,
+                                                        direction,
+                                                        wrap,
+                                                    );
+                                                    break;
+                                                }
+                                                _ => {
+                                                    static OUTPUT: Mutex<()> = Mutex::new(());
+                                                    let _output = OUTPUT.lock().unwrap();
+                                                    if !actions_current(
                                                         &action_shared,
                                                         &expected,
                                                         &action_cancel,
-                                                    )
-                                                {
-                                                    thread::sleep(Duration::from_millis(10));
+                                                    ) {
+                                                        break;
+                                                    }
+                                                    #[cfg(target_os = "macos")]
+                                                    if super::InputService::accessibility_granted()
+                                                    {
+                                                        super::macos::execute_behaviors(&[
+                                                            behavior,
+                                                        ]);
+                                                    }
+                                                    #[cfg(windows)]
+                                                    super::windows::execute_mouse_behavior(
+                                                        &behavior, 10,
+                                                    );
                                                 }
-                                            }
-                                            NativeBehavior::SwitchProfile {
-                                                direction,
-                                                wrap,
-                                                ..
-                                            } => {
-                                                switch_profile(
-                                                    &action_shared,
-                                                    &id,
-                                                    direction,
-                                                    wrap,
-                                                );
-                                                break;
-                                            }
-                                            _ => {
-                                                static OUTPUT: Mutex<()> = Mutex::new(());
-                                                let _output = OUTPUT.lock().unwrap();
-                                                if !actions_current(
-                                                    &action_shared,
-                                                    &expected,
-                                                    &action_cancel,
-                                                ) {
-                                                    break;
-                                                }
-                                                #[cfg(target_os = "macos")]
-                                                if super::InputService::accessibility_granted() {
-                                                    super::macos::execute_behaviors(&[behavior]);
-                                                }
-                                                #[cfg(windows)]
-                                                super::windows::execute_mouse_behavior(
-                                                    &behavior, 10,
-                                                );
                                             }
                                         }
                                     }
@@ -1771,6 +1795,46 @@ fn run(shared: Arc<Shared>) {
                 let _ = reply.send(Err("当前平台不支持手动控制录音".into()));
             }
         }
+        if Instant::now() >= next_usage {
+            next_usage = Instant::now() + Duration::from_millis(40);
+            let mut recording = HashMap::new();
+            for instance in &configs {
+                let mut active = statuses
+                    .get(&instance.id)
+                    .is_some_and(|status| status.recording);
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                if instance.kind == "rc003" && enabled && instance.enabled {
+                    let app = shared.app.lock().unwrap();
+                    active = app
+                        .as_ref()
+                        .and_then(|app| {
+                            app.try_state::<crate::audio_service::AudioServiceManager>()
+                        })
+                        .is_some_and(|audio| audio.status(Some(&instance.id)).forwarding);
+                }
+                if active {
+                    let mode = match instance.cmiot_a15_recording_mode {
+                        crate::devices::cmiot_a15::recording::RecordingMode::Hold => "hold",
+                        crate::devices::cmiot_a15::recording::RecordingMode::Click => "click",
+                    };
+                    recording.insert(instance.id.clone(), mode.to_owned());
+                }
+            }
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if !configs.iter().any(|instance| {
+                instance.kind == "rc003" && instance.enabled && instance.binding.is_some()
+            }) {
+                let app = shared.app.lock().unwrap();
+                if app
+                    .as_ref()
+                    .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+                    .is_some_and(|audio| audio.status(None).forwarding)
+                {
+                    recording.insert("legacy-rc003".into(), "hold".into());
+                }
+            }
+            sync_voice_sessions(&mut voice_sessions, recording);
+        }
         {
             let mut snapshot = shared.snapshot.lock().unwrap();
             for (id, status) in &statuses {
@@ -1802,8 +1866,38 @@ fn run(shared: Arc<Shared>) {
         thread::sleep(Duration::from_millis(8));
     }
     drop(readers);
+    sync_voice_sessions(&mut voice_sessions, HashMap::new());
     (shared.legacy_remote)(false);
 }
+fn voice_session_changes(
+    previous: &HashMap<String, String>,
+    current: &HashMap<String, String>,
+) -> Vec<(String, Option<String>)> {
+    let mut changes = Vec::new();
+    for (key, mode) in previous {
+        if current.get(key) != Some(mode) {
+            changes.push((key.clone(), None));
+        }
+    }
+    for (key, mode) in current {
+        if previous.get(key) != Some(mode) {
+            changes.push((key.clone(), Some(mode.clone())));
+        }
+    }
+    changes
+}
+
+fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<String, String>) {
+    for (key, mode) in voice_session_changes(previous, &current) {
+        if let Some(mode) = mode {
+            crate::library_usage::voice_start(&key, &mode);
+        } else {
+            crate::library_usage::voice_stop(&key);
+        }
+    }
+    *previous = current;
+}
+
 fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) -> bool {
     !cancel.load(Ordering::Acquire)
         && !shared.stop.load(Ordering::Acquire)
@@ -2767,6 +2861,35 @@ mod tests {
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
     #[test]
+    fn voice_session_edges_keep_hold_and_click_independent_and_close_removed_inputs() {
+        let empty = HashMap::new();
+        let hold = HashMap::from([("one".to_owned(), "hold".to_owned())]);
+        assert_eq!(
+            voice_session_changes(&empty, &hold),
+            [("one".into(), Some("hold".into()))]
+        );
+        assert!(voice_session_changes(&hold, &hold).is_empty());
+        let click = HashMap::from([("one".to_owned(), "click".to_owned())]);
+        assert_eq!(
+            voice_session_changes(&hold, &click),
+            [("one".into(), None), ("one".into(), Some("click".into()))]
+        );
+        let both = HashMap::from([
+            ("one".to_owned(), "click".to_owned()),
+            ("two".to_owned(), "hold".to_owned()),
+        ]);
+        assert_eq!(
+            voice_session_changes(&click, &both),
+            [("two".into(), Some("hold".into()))]
+        );
+        assert_eq!(voice_session_changes(&both, &click), [("two".into(), None)]);
+        assert_eq!(
+            voice_session_changes(&click, &empty),
+            [("one".into(), None)]
+        );
+    }
+
+    #[test]
     fn same_model_has_independent_bindings_and_profiles() {
         let mut store = Store {
             instances: vec![
@@ -2793,7 +2916,10 @@ mod tests {
             save_profile_switch(shared, "one", ProfileDirection::Next, false),
             Some(("one".into(), "默认".into(), "游戏".into()))
         );
-        assert_eq!(load(&shared.path).unwrap().instances[0].active_profile_id, "game");
+        assert_eq!(
+            load(&shared.path).unwrap().instances[0].active_profile_id,
+            "game"
+        );
         assert_eq!(
             save_profile_switch(shared, "one", ProfileDirection::Next, false),
             None

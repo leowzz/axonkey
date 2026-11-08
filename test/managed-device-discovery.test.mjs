@@ -848,7 +848,11 @@ test('guide discovery filters bound devices, refreshes and only advances after a
     assert.equal(view.root.findByType('details').props.open, true)
     const cards = () => view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])
     assert.equal(cards().length, 1)
-    await act(async () => view.root.findByProps({ 'aria-label': '刷新设备' }).props.onClick())
+    const refresh = view.root.findByProps({ className: 'managed-discovered-summary' }).findByProps({ 'aria-label': '刷新设备' })
+    let prevented = false, stopped = false
+    await act(async () => refresh.props.onClick({ preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+    assert.equal(prevented && stopped, true)
+    assert.equal(view.root.findByType('details').props.open, true)
     assert.equal(refreshes, 1)
     act(() => cards()[0].props.onClick())
     assert.equal(opened, 1, 'integration uses a native modal above the guide')

@@ -124,6 +124,9 @@ struct Configuration {
 }
 
 struct Job {
+    input: &'static str,
+    sources: Vec<String>,
+    record_usage: bool,
     behaviors: Vec<NativeBehavior>,
     revision: u64,
     repeats: usize,
@@ -185,6 +188,15 @@ impl MouseService {
                     let Ok(job) = receiver.recv_timeout(Duration::from_millis(50)) else {
                         continue;
                     };
+                    if job.record_usage
+                        && job.is_current(&state)
+                        && job.behaviors.iter().any(|behavior| {
+                            behavior.enabled()
+                                && !matches!(behavior, NativeBehavior::Disabled { .. })
+                        })
+                    {
+                        crate::library_usage::record_trigger(job.input, &job.sources);
+                    }
                     for _ in 0..job.repeats {
                         for behavior in job.behaviors.iter().filter(|item| item.enabled()) {
                             if !job.is_current(&state) {
@@ -408,6 +420,14 @@ impl ScrollAccumulator {
             return true;
         }
         let job = Job {
+            input: id,
+            record_usage: true,
+            sources: config
+                .settings
+                .behaviors
+                .get(id)
+                .map(|item| item.click_sources.clone())
+                .unwrap_or_default(),
             behaviors: actions.clone(),
             revision: config.revision,
             repeats: if interval_ms > 0 { 1 } else { repeats.min(32) },
@@ -444,14 +464,24 @@ struct Press {
 }
 struct PendingClick {
     input: &'static str,
+    sources: Vec<String>,
     actions: Vec<NativeBehavior>,
     revision: u64,
     released: Instant,
     position: (f64, f64),
 }
-fn enqueue(shared: &Shared, actions: Vec<NativeBehavior>, revision: u64) {
+fn enqueue(
+    shared: &Shared,
+    actions: Vec<NativeBehavior>,
+    sources: Vec<String>,
+    input: &'static str,
+    revision: u64,
+) {
     if !actions.is_empty() && current_job(shared, revision) {
         let _ = shared.sender.try_send(Job {
+            input,
+            sources,
+            record_usage: true,
             behaviors: actions,
             revision,
             repeats: 1,
@@ -503,10 +533,19 @@ impl ButtonTracker {
                     && now.duration_since(press.started) >= LONG_PRESS
                 {
                     press.long_fired = true;
-                    enqueue(shared, press.triggers.long_press.clone(), press.revision);
+                    enqueue(
+                        shared,
+                        press.triggers.long_press.clone(),
+                        press.triggers.long_press_sources.clone(),
+                        press.input,
+                        press.revision,
+                    );
                     press.next_repeat = Some(now + LONG_REPEAT_INITIAL);
                 } else if press.next_repeat.is_some_and(|due| now >= due) {
                     let _ = shared.sender.try_send(Job {
+                        input: press.input,
+                        sources: Vec::new(),
+                        record_usage: false,
                         behaviors: press.triggers.long_press.clone(),
                         revision: press.revision,
                         repeats: 1,
@@ -519,7 +558,13 @@ impl ButtonTracker {
                 !current_job(shared, p.revision) || now.duration_since(p.released) >= DOUBLE_CLICK
             }) {
                 let pending = self.pending[index].take().unwrap();
-                enqueue(shared, pending.actions, pending.revision);
+                enqueue(
+                    shared,
+                    pending.actions,
+                    pending.sources,
+                    pending.input,
+                    pending.revision,
+                );
             }
         }
     }
@@ -554,7 +599,13 @@ impl ButtonTracker {
                     && (pending.position.0 - position.0).abs() <= 4.0
                     && (pending.position.1 - position.1).abs() <= 4.0;
                 if !matches {
-                    enqueue(shared, pending.actions, pending.revision);
+                    enqueue(
+                        shared,
+                        pending.actions,
+                        pending.sources,
+                        pending.input,
+                        pending.revision,
+                    );
                 }
                 matches
             } else {
@@ -581,7 +632,13 @@ impl ButtonTracker {
                 return true;
             }
             if press.second {
-                enqueue(shared, press.triggers.double_click, press.revision);
+                enqueue(
+                    shared,
+                    press.triggers.double_click,
+                    press.triggers.double_click_sources,
+                    press.input,
+                    press.revision,
+                );
             } else {
                 let actions = if has_actions(&press.triggers.click) {
                     press.triggers.click
@@ -594,13 +651,20 @@ impl ButtonTracker {
                 if has_actions(&press.triggers.double_click) {
                     self.pending[button] = Some(PendingClick {
                         input: press.input,
+                        sources: press.triggers.click_sources,
                         actions,
                         revision: press.revision,
                         released: now,
                         position: press.position,
                     });
                 } else {
-                    enqueue(shared, actions, press.revision);
+                    enqueue(
+                        shared,
+                        actions,
+                        press.triggers.click_sources,
+                        press.input,
+                        press.revision,
+                    );
                 }
             }
             true
@@ -719,6 +783,7 @@ mod tests {
         assert_key(receiver.try_recv().unwrap(), "L");
         buttons.tick(&shared, at(1950));
         let repeat = receiver.try_recv().unwrap();
+        assert!(!repeat.record_usage);
         assert!(repeat.is_current(&shared));
         assert!(buttons.event(&shared, 4, false, None, (50.0, 50.0), at(1960)));
         assert!(!repeat.is_current(&shared));
@@ -1291,7 +1356,9 @@ mod tests {
         buttons.tick(&shared, start + Duration::from_millis(599));
         assert!(receiver.try_recv().is_err());
         buttons.tick(&shared, start + Duration::from_millis(600));
-        assert_key(receiver.try_recv().unwrap(), "L");
+        let initial = receiver.try_recv().unwrap();
+        assert!(initial.record_usage);
+        assert_key(initial, "L");
         buttons.tick(&shared, start + Duration::from_millis(949));
         assert!(receiver.try_recv().is_err());
         buttons.tick(&shared, start + Duration::from_millis(950));

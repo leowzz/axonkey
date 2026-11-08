@@ -1,12 +1,8 @@
 import type { StepDefinition } from 'sequential-workflow-designer'
 import type { Platform } from '../appTypes.ts'
-import {
-  requiresNewBehaviorVersion,
-  normalizeBehavior,
-  parseSequenceImport,
-  serializeSequence,
-} from '../behaviorModel.ts'
+import { normalizeBehavior, serializeSequence } from '../behaviorModel.ts'
 import type { SavedSequence } from '../savedSequences.ts'
+import { savedSequenceBehaviors } from '../savedSequences.ts'
 import type { RelayClient } from './relayClient.ts'
 
 const endpoint = '/v2/behavior-library'
@@ -20,6 +16,61 @@ export type SharedSequence = {
   block_reason?: string
   published_version_id: string | null
   latest_version: { id: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; review_note?: string }
+}
+export type RecommendationItem = {
+  id: string
+  catalog_key: string | null
+  recommend_enabled: boolean
+  revision: number
+}
+
+export function recommendationCatalogKey(step: StepDefinition, platform: Platform): string {
+  return typeof step.properties.savedSequenceId === 'string'
+    ? `saved:${platform}:${step.properties.savedSequenceId}`
+    : `builtin:${platform}:${step.properties.preset}`
+}
+
+export async function fetchRecommendationItems(client: RelayClient): Promise<RecommendationItem[]> {
+  const items: RecommendationItem[] = []
+  for (let offset = 0; ; offset += 100) {
+    const page = await client.request<{ items: RecommendationItem[]; total: number }>(
+      'GET',
+      `${endpoint}/admin/items?app_id=axonkey&limit=100&offset=${offset}`,
+    )
+    items.push(...page.items)
+    if (!page.items.length || offset + page.items.length >= page.total) return items
+  }
+}
+
+export function publishRecommendation(client: RelayClient, step: StepDefinition, platform: Platform, category: string) {
+  const saved = typeof step.properties.savedSequenceId === 'string'
+  const behaviors = saved
+    ? savedSequenceBehaviors(step.properties as Pick<SavedSequence, 'sequence' | 'libraryItemIds'>)
+    : null
+  if (saved && !behaviors?.length) throw new Error('此序列无法推荐，请重新保存')
+  return client.request<RecommendationItem>('POST', `${endpoint}/admin/recommendations`, {
+    app_id: 'axonkey',
+    catalog_key: recommendationCatalogKey(step, platform),
+    snapshot: {
+      title: step.name,
+      category_code: saved ? 'composite' : category,
+      platforms: [platform],
+      content_schema_version: 1,
+      content: saved
+        ? { kind: 'sequence', behaviors: publicBehaviors(behaviors!) }
+        : { kind: 'builtin', preset: step.properties.preset },
+    },
+  })
+}
+
+export function setRecommendation(client: RelayClient, item: RecommendationItem, enabled: boolean) {
+  return client.request<RecommendationItem>(
+    'POST',
+    `${endpoint}/admin/items/${encodeURIComponent(item.id)}/recommendation`,
+    { app_id: 'axonkey', recommend_enabled: enabled },
+    true,
+    { ifMatch: `"behavior-library:${item.id}:${item.revision}"` },
+  )
 }
 
 // Decode at the cloud boundary. Never adopt only part of a sequence.
@@ -123,10 +174,8 @@ export function submitSequence(
   note: string,
   resubmit: boolean,
 ) {
-  const behaviors = parseSequenceImport(sequence.sequence)
+  const behaviors = savedSequenceBehaviors(sequence)
   if (!behaviors?.length) throw new Error('此序列无法分享，请重新保存')
-  if (requiresNewBehaviorVersion(behaviors))
-    throw new Error('云端行为库尚不支持“模拟输入文字”或“打开文件或文件夹”，请使用本地序列导出。')
   return client.request<SharedSequence>('POST', `${endpoint}/submissions`, {
     app_id: 'axonkey',
     source_sequence_key: sequence.id,
@@ -138,7 +187,7 @@ export function submitSequence(
       category_code: 'composite',
       platforms: [platform],
       content_schema_version: 1,
-      content: { kind: 'sequence', behaviors },
+      content: { kind: 'sequence', behaviors: publicBehaviors(behaviors) },
     },
   })
 }
@@ -160,15 +209,6 @@ export async function withdrawSequence(client: RelayClient, item: SharedSequence
   }
 }
 
-export async function recordLibraryAddition(client: RelayClient, itemId: string, platform: Platform) {
-  try {
-    await client.request(
-      'POST',
-      `${endpoint}/${encodeURIComponent(itemId)}/additions`,
-      { app_id: 'axonkey', platform, count: 1 },
-      false,
-    )
-  } catch {
-    // Popularity statistics must never delay or roll back a local edit.
-  }
+function publicBehaviors(behaviors: NonNullable<ReturnType<typeof savedSequenceBehaviors>>) {
+  return behaviors.map(({ libraryItemId: _source, ...behavior }) => behavior)
 }

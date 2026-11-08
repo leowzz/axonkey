@@ -8,9 +8,11 @@ import { parseBackupImport } from '../src/backupImport.ts'
 import { inspectConfigMigration, legacyProfilesKey } from '../src/configMigration.ts'
 import { registerHooks } from 'node:module'
 const assets = registerHooks({ load(url, context, next) { return url.endsWith('.svg') ? { format: 'module', source: 'export default "asset.svg"', shortCircuit: true } : next(url, context) } })
-const { createCloudSnapshot } = await import('../src/cloud/cloudData.ts')
+const { createCloudSnapshot, prepareCloudRestore } = await import('../src/cloud/cloudData.ts')
 assets.deregister()
 import { parseLibraryPage, submitSequence } from '../src/cloud/behaviorLibrary.ts'
+import { RelayClient } from '../src/cloud/relayClient.ts'
+import { readCloud, uploadCloud } from '../src/cloud/cloudSync.ts'
 import { sampleData } from './fixtures/data-backup.mjs'
 
 const sequence = () => [
@@ -19,6 +21,7 @@ const sequence = () => [
   createBehavior({ type: 'openPath', path: 'C:\\文档 & 文件夹\\test.txt', enabled: false, id: 'path' }),
 ]
 const withoutIds = entries => entries.map(({ id, ...entry }) => entry)
+const session = { access_token: 'access', refresh_token: 'refresh', expires_at: Date.now() / 1000 + 900, user: { id: 'user', email: 'user@example.invalid', phone: null } }
 
 test('new actions retain distinct JSON types through storage, workflow, sequence and mapping transfers', () => {
   const behaviors = sequence()
@@ -77,12 +80,77 @@ test('backup import and migration preserve new actions, while unknown actions re
   assert.throws(() => parseDataBackup(JSON.stringify(backup)), /不支持.*futureAction/)
 })
 
-test('cloud upload and sharing reject new actions before sending any requests; unknown sequences are skipped whole', () => {
+test('cloud upload and restore preserve new actions in legacy profiles, device instances and saved sequences', async t => {
   const data = sampleData()
+  data.behaviors.tv.click = sequence()
   data.savedSequences[0].sequence = serializeSequence(sequence())
   const backup = createDataBackup(data, '1.8.11')
-  assert.throws(() => createCloudSnapshot(backup, []), /云端尚不支持/)
-  assert.throws(() => submitSequence({ request() { assert.fail('must not send') } }, data.savedSequences[0], 'windows', '', false), /云端行为库尚不支持/)
+  const local = createDataBackup(sampleData(), '1.8.11')
+  assert.equal(backup.version, 3)
+  assert.equal(local.version, 2)
+  const instance = { id: 'device', kind: 'rc003', name: '遥控器', enabled: true, binding: null, activeProfileId: 'profile', profiles: [{ id: 'profile', name: '新行为', behaviors: { power: { click: sequence(), doubleClick: [], longPress: [] } } }] }
+  assert.deepEqual(createCloudSnapshot(local, [instance]).documents.find(doc => doc.key === instance.id).config.profiles[0].behaviors.power.click, sequence())
+  const models = ['rc003', 'cmiotA15', 'mouse'].map(code => ({ id: code, code }))
+  const documents = []
+  let settings = null
+  const client = new RelayClient(async (method, path, body) => {
+    if (method === 'GET') {
+      if (path.startsWith('/v2/device-models?')) return { status: 200, body: { items: models } }
+      if (path.startsWith('/v2/device-configs?')) return { status: 200, body: { items: documents, total: documents.length } }
+      assert.equal(path, '/v2/app-settings/axonkey')
+      return settings ? { status: 200, body: settings } : { status: 404, body: { code: 'not_found' } }
+    }
+    if (path === '/v2/device-configs') {
+      assert.equal(method, 'POST')
+      const document = { ...structuredClone(body), id: body.instance_key, revision: 1 }
+      documents.push(document)
+      return { status: 200, body: document }
+    }
+    assert.equal(method, 'PUT')
+    assert.equal(path, '/v2/app-settings/axonkey')
+    settings = { ...structuredClone(body), revision: 1 }
+    return { status: 200, body: settings }
+  }, session, () => {})
+  await uploadCloud(client, { ...createCloudSnapshot(backup, [instance]), source: { source_platform: 'windows', source_installation_id: '00000000-0000-4000-8000-000000000001', source_computer_name: null } }, {}, () => {})
+  const cloud = await readCloud(client)
+  const legacy = cloud.documents.find(doc => doc.instance_key === 'legacy-rc003')
+  const device = cloud.documents.find(doc => doc.instance_key === instance.id)
+  assert.deepEqual(legacy.config.profiles.find(profile => profile.id === data.activeProfileIds.rc003).behaviors.tv.click, sequence())
+  assert.deepEqual(device.config.profiles[0].behaviors.power.click, sequence())
+  assert.deepEqual(withoutIds(cloud.settings.settings.savedBehaviors[0].behaviors), withoutIds(sequence()))
+  const previousStorage = globalThis.localStorage
+  globalThis.localStorage = { getItem: () => null }
+  t.after(() => { globalThis.localStorage = previousStorage })
+  const restored = prepareCloudRestore(cloud, local, [], { devices: [
+    { documentId: legacy.id, profileIds: [data.activeProfileIds.rc003], targetId: 'legacy:rc003' },
+    { documentId: device.id, profileIds: ['profile'], targetId: 'new:restored' },
+  ], settings: false, savedBehaviors: true })
+  assert.equal(restored.imported, 2)
+  assert.deepEqual(restored.backup.profiles.at(-1).behaviors.tv.click, sequence())
+  assert.deepEqual(restored.instances[0].profiles[0].behaviors.power.click, sequence())
+  assert.deepEqual(withoutIds(parseSequenceImport(restored.backup.savedSequences[0].sequence)), withoutIds(sequence()))
+})
+
+test('sharing and downloading a sequence preserve new action types, contents, order and disabled state', async () => {
+  const saved = { id: 'new-actions', name: '新行为', sequence: serializeSequence(sequence()) }
+  let submission
+  const client = new RelayClient(async (method, path, body) => {
+    assert.equal(method, 'POST')
+    assert.equal(path, '/v2/behavior-library/submissions')
+    submission = structuredClone(body)
+    return { status: 200, body: { id: 'shared' } }
+  }, session, () => {})
+  await submitSequence(client, saved, 'windows', '  备注  ', false)
+  assert.equal(submission.source_sequence_key, saved.id)
+  assert.equal(submission.submission_note, '备注')
+  assert.deepEqual(withoutIds(submission.snapshot.content.behaviors), withoutIds(sequence()))
+  const page = parseLibraryPage({ items: [{ ...submission.snapshot, id: 'shared', version_id: 'v1', source: 'community' }] }, 'windows', [])
+  assert.equal(page.skipped, 0)
+  assert.equal(page.steps.length, 1)
+  assert.deepEqual(withoutIds(parseSequenceImport(page.steps[0].properties.sequence)), withoutIds(sequence()))
+})
+
+test('cloud sequences with unknown actions are skipped whole', () => {
   const page = parseLibraryPage({ items: [{ id: 'future', version_id: 'v1', title: 'future', source: 'community', content_schema_version: 1, platforms: ['windows'], content: { kind: 'sequence', behaviors: [...sequence(), { type: 'futureAction' }] } }] }, 'windows', [])
   assert.equal(page.steps.length, 0)
   assert.equal(page.skipped, 1)

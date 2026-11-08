@@ -16,10 +16,12 @@ import { SettingsHelp } from './SettingsHelp'
 import { AutostartControl } from './AutostartControl'
 import type { MacPermissionKind, MacPermissions, Platform } from '../appTypes'
 import type { DriverActionKind, DriverState } from '../systemState'
+import './SettingsPanelLayout.css'
 
 export type SettingsSection = 'startup' | 'permissions' | 'remote' | 'backup' | 'cloud' | 'about'
 
 type SettingsPageProps = {
+  presentation?: 'page' | 'panel'
   onOpenConfigMigration: () => void
   debugMode: boolean
   onOpenDriverMigration: () => void
@@ -68,6 +70,7 @@ type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  presentation = 'page',
   onOpenConfigMigration,
   debugMode,
   onOpenDriverMigration,
@@ -129,7 +132,7 @@ export function SettingsPage({
     {
       kind: 'inputMonitoring' as const,
       title: '输入监控',
-      description: '读取 RC003 遥控器的按键，让自定义映射能够响应。',
+      description: '读取设备按键，让自定义映射能够响应。',
       granted: permissions.inputMonitoring && !inputAuthorizationStale,
       stale: inputAuthorizationStale,
     },
@@ -161,13 +164,15 @@ export function SettingsPage({
     audioRestartError || audioDriver.action.error || (audioDriver.status === 'error' ? audioDriver.message : undefined)
   const grantedCount = items.filter(item => item.granted).length
   return (
-    <div className="settings-page settings-form-page">
+    <div className={`settings-page settings-form-page${presentation === 'panel' ? ' settings-side-panel' : ''}`}>
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="设置分类">
-          <button type="button" className="settings-nav-back" onClick={onBack}>
-            <ArrowLeft size={16} aria-hidden="true" />
-            <span>返回</span>
-          </button>
+          {presentation === 'page' && (
+            <button type="button" className="settings-nav-back" onClick={onBack}>
+              <ArrowLeft size={16} aria-hidden="true" />
+              <span>返回</span>
+            </button>
+          )}
           {sections.map(item => (
             <button
               key={item.id}
@@ -349,7 +354,7 @@ export function SettingsPage({
                         <ExternalLink size={14} />
                       </button>
                       <SettingsHelp id="settings-audio-help" label="虚拟麦克风">
-                        将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch
+                        将支持语音的遥控器音频转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch
                         作为麦克风。切换声音设备后若没有声音，可点击“重启驱动”重新连接虚拟麦克风和遥控器；当前语音会中断，请连接恢复后再试。
                       </SettingsHelp>
                     </div>

@@ -5,6 +5,7 @@ import { createEmptyBehaviorMap, createBehavior } from '../src/behaviorModel.ts'
 import { createDefaultDeviceProfiles } from '../src/deviceProfiles.ts'
 import { parseBackupImport } from '../src/backupImport.ts'
 import { sampleData } from './fixtures/data-backup.mjs'
+import { createSavedSequence } from '../src/savedSequences.ts'
 
 const currentKey = 'axonkey.mapping-profiles.v2'
 const settingsKey = 'axonkey.settings.v1'
@@ -84,6 +85,7 @@ test('legacy export preserves original shared, transitional and settings payload
 
 test('migration backup preserves shared profile identities, active selection, sequences and portable settings in v1 format', () => {
   const sample = sampleData()
+  sample.savedSequences.push(createSavedSequence('库来源', [createBehavior({ type: 'key', key: 'Enter', libraryItemId: '00000000-0000-4000-8000-000000000001' })]))
   const source = shared({
     power: { click: [createBehavior({ id: 'pause', type: 'delay', ms: 45, enabled: false })], doubleClick: [], longPress: [] },
     'mouse.top.up': 'Ctrl+C',

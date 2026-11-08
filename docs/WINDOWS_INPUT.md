@@ -1,18 +1,18 @@
 # Windows 输入
 
-Axonkey 在 Windows 11 x64 上使用 `QuarborUniversalKeyboardDriver` 处理 RC003 按键映射。驱动属于设备实例：添加 RC003 后，在该实例的设备工作区完成安装和状态检查。卸载时使用保存的原驱动信息恢复设备，即使设备暂时离线也会保留恢复记录。
+Axonkey 在 Windows 11 x64 上按设备实例管理输入。本文以 RC003 为例说明 `QuarborUniversalKeyboardDriver` 接入；其他型号的输入协议和准备步骤由各自的设备适配决定。添加需要驱动的设备后，在该实例的设备工作区完成安装和状态检查。卸载时使用保存的原驱动信息恢复设备，即使设备暂时离线也会保留恢复记录。
 
 [返回首页](../README.md) · [首次使用](USAGE.md#windows)
 
 ## 输入链路
 
-Quarbor Universal 只安装到 RC003 的 `BTHLEDEVICE` 父设备实例，不注册全局 Keyboard 类过滤器。驱动通过 `\\.\pipe\Quarbor.UniversalKeyboard.v1.<16 位实例哈希>` 提供 Protobuf 字节流。Rust 后端用 Tokio 双工连接管道，通过 `prost` 解码 `Hello → BasicInfo → PhysicalReport/InputResult/InputStatus`；帧使用 4 字节小端长度前缀，连接后先查询基础信息。构建使用 `protox` + `prost-build` 从 `SDK/keyboard.proto` 生成 Rust 类型，无 C++ 桥接或 nanopb 联编。
+对于 RC003，Quarbor Universal 安装到对应的 `BTHLEDEVICE` 父设备实例，不注册全局 Keyboard 类过滤器。驱动通过 `\\.\pipe\Quarbor.UniversalKeyboard.v1.<16 位实例哈希>` 提供 Protobuf 字节流。Rust 后端用 Tokio 双工连接管道，通过 `prost` 解码 `Hello → BasicInfo → PhysicalReport/InputResult/InputStatus`；帧使用 4 字节小端长度前缀，连接后先查询基础信息。构建使用 `protox` + `prost-build` 从 `SDK/keyboard.proto` 生成 Rust 类型，无 C++ 桥接或 nanopb 联编。
 
 普通键盘不会进入 RC003 映射流程。管道客户端使用 `SECURITY_IDENTIFICATION`，以读写权限连接当前设备对应的本机管道；设备重新枚举后，客户端会按新的实例 ID 重连。
 
 当前读取原始报告，按 RC003 的 Report ID 和小端 16 位 usage 槽直接解码，更新 13 个按键的按下/松开状态，支持编辑器提供的全部遥控器动作和延时序列。遥控器驱动来源的标准键盘、Consumer 媒体控制和支持的三键鼠标动作优先通过 Universal 驱动的 `keysend` / `mouse_move` 回写；驱动能力缺失或连接不可用时，回退到对应的 `SendInput` 软件实现。Windows 鼠标服务来源的映射动作（包括键盘快捷键和 XBUTTON）全部使用 `SendInput`，因此鼠标用户无需安装 Universal 驱动。打开应用／网站沿用系统启动接口及目标校验。完整调用和验证方式见 [Universal 接入说明](quarbor-v3-read.md)。
 
-Windows 支持 13 个可配置按键。RC003 已知 HID usage 包括确认 `0x28`、TV `0x35`、语音 `0x3E`、主页 `0x4A`、方向 `0x4F/0x50/0x51/0x52`、菜单 `0x65`、电源 `0x66`、返回 `0xF1` 和音量 `0x80/0x81`。驱动报告保留 Report ID 和原始字节，客户端只对已知 RC003 usage 生成按键边沿。
+RC003 在 Windows 上支持 13 个可配置按键。已知 HID usage 包括确认 `0x28`、TV `0x35`、语音 `0x3E`、主页 `0x4A`、方向 `0x4F/0x50/0x51/0x52`、菜单 `0x65`、电源 `0x66`、返回 `0xF1` 和音量 `0x80/0x81`。驱动报告保留 Report ID 和原始字节，客户端只对已知 RC003 usage 生成按键边沿。
 
 返回键和音量 `+ / -` 与其他 RC003 按键一样，由 Quarbor HID 报告直接解析，不需要单独开启功能或额外授权。映射页对这三个按键使用与其他按键相同的行为编辑器。
 

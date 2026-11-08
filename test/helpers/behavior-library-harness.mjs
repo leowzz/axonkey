@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import vm from 'node:vm'
 import ts from 'typescript'
 import * as library from '../../src/cloud/behaviorLibrary.ts'
+import * as relayClient from '../../src/cloud/relayClient.ts'
 
 const require = createRequire(import.meta.url)
 export function libraryHarness() {
@@ -25,6 +26,8 @@ export function libraryHarness() {
         if (name.endsWith('/behaviorLibrary') || name === './behaviorLibrary') return library
         if (name.endsWith('/BehaviorLibraryContext')) return load('cloud/BehaviorLibraryContext.tsx')
         if (name.endsWith('/useBehaviorLibrary')) return load('cloud/useBehaviorLibrary.ts')
+        if (name.endsWith('/useLibraryRecommendations')) return load('cloud/useLibraryRecommendations.ts')
+        if (name.endsWith('/relayClient') || name === './relayClient') return relayClient
         if (name === './BehaviorShareDialog') return load('components/BehaviorShareDialog.tsx')
         return require(name)
       },

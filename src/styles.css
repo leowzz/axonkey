@@ -3248,11 +3248,76 @@ body:has(.audio-test-dialog[open]) {
   margin-top: 0;
   flex-wrap: wrap;
 }
-.about-details .about-features {
+.about-cli {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid #dfe1e4;
+  border-radius: 8px;
+  background: #f8f8f7;
+}
+.about-cli-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+}
+.about-cli-header h3 svg {
+  color: #526f86;
+}
+.about-cli > p {
+  margin: 8px 0 12px;
+  color: #69737b;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.about-cli-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
-.about-details .about-features article {
-  padding: 20px 16px;
+.about-cli-header button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  color: #1766b5;
+  background: transparent;
+  font-size: 13px;
+}
+.about-cli-header button:hover {
+  background: #e2efff;
+}
+.about-cli-header button:focus-visible {
+  outline: 2px solid #1478e8;
+  outline-offset: 2px;
+}
+.about-cli-snippet pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgb(82 111 134 / 6%);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.about-cli-snippet pre,
+.about-cli-snippet code {
+  -webkit-user-select: text;
+  user-select: text;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.about-cli-snippet > p {
+  margin: 8px 0 0;
+  color: #b42318;
+  font-size: 13px;
 }
 .about-wechat {
   display: flex;
@@ -3274,18 +3339,12 @@ body:has(.audio-test-dialog[open]) {
 .about-wechat h3 svg {
   color: #526f86;
 }
-.about-wechat p {
-  margin: 8px 0 0;
-  color: #69737b;
-  font-size: 13px;
-  line-height: 1.8;
-}
 .about-wechat-qr {
   display: grid;
   place-items: center;
   width: 208px;
   height: 208px;
-  margin-top: 22px;
+  margin-top: 16px;
   border-radius: 4px;
   background: #fff;
 }
@@ -3305,10 +3364,6 @@ body:has(.audio-test-dialog[open]) {
 .about-wechat-status svg {
   color: #1478e8;
   animation: about-wechat-spin 1s linear infinite;
-}
-.about-wechat .about-wechat-scan {
-  margin-top: 12px;
-  font-size: 12px;
 }
 .about-wechat-refresh {
   margin-top: 12px;
@@ -3340,30 +3395,6 @@ body:has(.audio-test-dialog[open]) {
     animation: none;
   }
 }
-@container (max-width: 820px) {
-  .about-details .about-features {
-    grid-template-columns: 1fr;
-  }
-  .about-details .about-features h3 {
-    display: inline;
-    margin-left: 10px;
-    vertical-align: top;
-  }
-  .about-details .about-features p {
-    margin-bottom: 0;
-  }
-  .about-intro {
-    flex-wrap: wrap;
-  }
-  .about-intro > div:not(.about-github-support) {
-    flex: 1;
-  }
-  .about-page .about-github-support {
-    flex-basis: 100%;
-    flex-direction: row;
-    align-items: center;
-  }
-}
 @container (max-width: 560px) {
   .about-details {
     grid-template-columns: 1fr;
@@ -3372,8 +3403,8 @@ body:has(.audio-test-dialog[open]) {
 .about-intro {
   display: flex;
   align-items: center;
-  gap: 24px;
-  padding: 32px;
+  gap: 16px;
+  padding: 24px;
   border: 0;
   border-radius: 0;
   background: #f8f8f7;
@@ -3390,50 +3421,30 @@ body:has(.audio-test-dialog[open]) {
   font-variant-numeric: tabular-nums;
 }
 .about-intro h2 {
-  margin: 8px 0 12px;
+  margin: 0 0 4px;
   font-size: 28px;
 }
-.about-intro p,
-.about-features p {
-  color: #69737b;
-  font-size: 14px;
-  line-height: 1.8;
+
+.about-github-support {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  margin-left: auto;
 }
-.about-features {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 16px;
-}
-.about-features article {
-  padding: 24px;
-  border: 1px solid #dfe1e4;
-  border-radius: 8px;
-  background: #f8f8f7;
-}
-.about-features svg {
-  color: #526f86;
-}
-.about-features h3 {
-  margin: 16px 0 10px;
-  font-size: 16px;
-}
-.about-note {
-  margin: 18px 0;
+.about-github-support > span {
   color: #737b83;
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.5;
 }
-
 .about-github-button {
   display: inline-flex;
   flex-shrink: 0;
-  align-self: flex-start;
   align-items: center;
   justify-content: center;
   gap: 8px;
   min-height: 38px;
-  margin-left: auto;
   padding: 0 14px;
   border: 1px solid #cfd2d3;
   border-radius: 7px;
@@ -3451,22 +3462,6 @@ body:has(.audio-test-dialog[open]) {
 .about-github-button:focus-visible {
   outline: 2px solid #1478e8;
   outline-offset: 3px;
-}
-
-.about-github-support {
-  display: flex;
-  flex: 0 0 156px;
-  align-self: flex-start;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  margin-left: auto;
-}
-.about-github-support > span {
-  color: #737b83;
-  font-size: 12px;
-  line-height: 1.6;
-  text-align: right;
 }
 
 .battery-debug-controls {
@@ -4827,7 +4822,7 @@ html.macos-vibrancy,
 .macos-vibrancy .remote-control-hint {
   color: #596d7e;
 }
-.macos-vibrancy .about-features article,
+.macos-vibrancy .about-cli,
 .macos-vibrancy .about-update,
 .macos-vibrancy .about-wechat {
   border-color: rgb(70 80 90 / 12%);
@@ -4839,12 +4834,9 @@ html.macos-vibrancy,
   background: rgb(225 240 255 / 55%);
 }
 .macos-vibrancy .about-version,
-.macos-vibrancy .about-intro p,
-.macos-vibrancy .about-features p,
-.macos-vibrancy .about-update p,
-.macos-vibrancy .about-wechat p,
-.macos-vibrancy .about-note,
-.macos-vibrancy .about-github-support > span {
+.macos-vibrancy .about-github-support > span,
+.macos-vibrancy .about-cli > p,
+.macos-vibrancy .about-update p {
   color: #505e69;
 }
 .macos-vibrancy .about-github-button,

@@ -125,14 +125,78 @@ fn mouse_enabled_by_default() -> bool {
 }
 
 #[derive(Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(from = "SourcedTriggerBehaviors")]
 pub(super) struct TriggerBehaviors {
-    #[serde(default)]
     pub(super) click: Vec<NativeBehavior>,
-    #[serde(default)]
     pub(super) double_click: Vec<NativeBehavior>,
-    #[serde(default)]
     pub(super) long_press: Vec<NativeBehavior>,
+    pub(super) click_sources: Vec<String>,
+    pub(super) double_click_sources: Vec<String>,
+    pub(super) long_press_sources: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct SourcedBehavior {
+    #[serde(flatten)]
+    behavior: NativeBehavior,
+    #[serde(rename = "libraryItemId")]
+    library_item_id: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SourcedTriggerBehaviors {
+    #[serde(default)]
+    click: Vec<SourcedBehavior>,
+    #[serde(default)]
+    double_click: Vec<SourcedBehavior>,
+    #[serde(default)]
+    long_press: Vec<SourcedBehavior>,
+}
+
+impl From<SourcedTriggerBehaviors> for TriggerBehaviors {
+    fn from(raw: SourcedTriggerBehaviors) -> Self {
+        fn split(items: Vec<SourcedBehavior>) -> (Vec<NativeBehavior>, Vec<String>) {
+            let sources = items
+                .iter()
+                .filter(|item| {
+                    item.behavior.enabled()
+                        && !matches!(item.behavior, NativeBehavior::Disabled { .. })
+                })
+                .filter_map(|item| item.library_item_id.as_ref())
+                .filter(|id| valid_library_source(id))
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            (
+                items.into_iter().map(|item| item.behavior).collect(),
+                sources,
+            )
+        }
+        let (click, click_sources) = split(raw.click);
+        let (double_click, double_click_sources) = split(raw.double_click);
+        let (long_press, long_press_sources) = split(raw.long_press);
+        Self {
+            click,
+            double_click,
+            long_press,
+            click_sources,
+            double_click_sources,
+            long_press_sources,
+        }
+    }
+}
+
+fn valid_library_source(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| {
+            if [8, 13, 18, 23].contains(&index) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_hexdigit()
+            }
+        })
 }
 
 impl TriggerBehaviors {
@@ -369,6 +433,26 @@ pub use unsupported::InputService;
 #[cfg(test)]
 mod settings_tests {
     use super::NativeSettings;
+
+    #[test]
+    fn library_sources_are_preserved_once_per_enabled_trigger_sequence() {
+        let source = "00000000-0000-4000-8000-000000000001";
+        let inactive = "00000000-0000-4000-8000-000000000002";
+        let settings: NativeSettings =
+            serde_json::from_value(serde_json::json!({"behaviors":{"up":{"click":[
+                {"type":"key","key":"A","libraryItemId":source},
+                {"type":"delay","ms":10,"libraryItemId":source},
+                {"type":"key","key":"B","enabled":false,"libraryItemId":inactive},
+                {"type":"disabled","libraryItemId":inactive},
+                {"type":"key","key":"C","libraryItemId":"invalid"}
+            ]}}}))
+            .unwrap();
+        let triggers = &settings.behaviors["up"];
+        assert_eq!(triggers.click.len(), 5);
+        assert_eq!(triggers.click_sources, [source]);
+        assert!(triggers.double_click_sources.is_empty());
+        assert!(triggers.long_press_sources.is_empty());
+    }
 
     #[test]
     fn recording_overlay_defaults_on_without_invalidating_input_settings() {

@@ -11,20 +11,19 @@ function loadComponent(name) {
   }).outputText
   vm.runInNewContext(source, {
     module, exports: module.exports,
-    require: dependency => dependency.endsWith('.css') ? {}
-      : dependency === '../openGitHub' ? { openGitHub() {} }
-        : require(dependency),
+    require: dependency => dependency.endsWith('.css') ? {} : require(dependency),
   })
   return module.exports
 }
 export const { HomeDashboard } = loadComponent('HomeDashboard')
+export const { AppBottomBar } = loadComponent('AppBottomBar')
 export const base = {
   nativeRuntime: true,
   microphoneDriverAbnormal: false,
   microphoneDriverWarningSuppressed: false,
   onDismissMicrophoneDriverWarning() {},
   onOpenAudioDriver() {},
-  deviceContent: null, hasUpdate: false,
-  onOpenSettings() {}, onOpenCloud() {}, onOpenLogs() {}, onOpenAbout() {},
+  settingsButtonRef: { current: null },
+  deviceContent: null,
 }
 export const text = node => typeof node === 'string' ? node : (node.children ?? []).map(text).join('')

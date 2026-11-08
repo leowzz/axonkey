@@ -115,6 +115,7 @@ impl RemoteOwnership {
 }
 
 pub(super) struct RemoteInstance {
+    pub id: String,
     pub serial: CString,
     pub on_report: Box<dyn Fn(u32, &[u8]) + Send + Sync>,
     pub is_current: Box<dyn Fn() -> bool + Send + Sync>,
@@ -876,6 +877,27 @@ impl MacInputState {
                     || !hardware_modifier_mapping_usages.contains(&usage)
                 {
                     self.press_source(shared, source);
+                } else if !shared.stop.load(Ordering::Acquire)
+                    && shared
+                        .instance
+                        .as_ref()
+                        .is_none_or(|instance| (instance.is_current)())
+                {
+                    // Hardware modifier remaps bypass synthetic output entirely.
+                    if let Ok(settings) = shared.settings.read() {
+                        if let Some(triggers) = settings
+                            .behaviors
+                            .get(source.id)
+                            .filter(|_| settings.enabled)
+                        {
+                            let key = shared
+                                .instance
+                                .as_ref()
+                                .map(|instance| format!("{}:{}", instance.id, source.id))
+                                .unwrap_or_else(|| source.id.to_owned());
+                            crate::library_usage::record_trigger(&key, &triggers.click_sources);
+                        }
+                    }
                 }
             }
         }
@@ -916,6 +938,7 @@ impl MacInputState {
         {
             let pending = state.pending_click.take().unwrap();
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=next_press", source.id);
+            record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
             execute_click_or_original(shared, &triggers.click, pending.original);
         }
         if !settings.enabled || !has_custom_behavior(&triggers) {
@@ -937,6 +960,7 @@ impl MacInputState {
 
         let click_repeat = repeatable_click(&triggers);
         if let Some(action) = click_repeat {
+            record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
             execute_repeatable_click(action);
         }
         let held_outputs = continuous_click_chord(&triggers)
@@ -945,6 +969,7 @@ impl MacInputState {
                 for behavior in triggers.click.iter().filter(|behavior| behavior.enabled()) {
                     log_behavior(behavior);
                 }
+                record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
                 PressedChord::press(&keys)
             })
             .unwrap_or_else(|| PressedChord { keys: Vec::new() });
@@ -1003,6 +1028,12 @@ impl MacInputState {
         let long_enabled = has_enabled(&triggers.long_press);
         if long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=key_up", source.id);
+            record_remote_trigger(
+                shared,
+                source.id,
+                &triggers.long_press,
+                &triggers.long_press_sources,
+            );
             execute_remote_behaviors(shared, &triggers.long_press);
             return;
         }
@@ -1013,6 +1044,12 @@ impl MacInputState {
         if has_enabled(&triggers.double_click) {
             if state.pending_click.take().is_some() {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=double_click", source.id);
+                record_remote_trigger(
+                    shared,
+                    source.id,
+                    &triggers.double_click,
+                    &triggers.double_click_sources,
+                );
                 execute_remote_behaviors(shared, &triggers.double_click);
             } else {
                 log::info!(target: "axonkey::input", "RC003 click pending: button={}", source.id);
@@ -1023,6 +1060,7 @@ impl MacInputState {
             }
         } else {
             log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click", source.id);
+            record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
             execute_click_or_original(shared, &triggers.click, press.original);
         }
     }
@@ -1071,6 +1109,12 @@ impl MacInputState {
                 {
                     if has_enabled(&triggers.long_press) {
                         log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=long_press, origin=timer", source.id);
+                        record_remote_trigger(
+                            shared,
+                            source.id,
+                            &triggers.long_press,
+                            &triggers.long_press_sources,
+                        );
                         execute_remote_behaviors(shared, &triggers.long_press);
                         press.long_fired = true;
                         press.long_repeat_due_at =
@@ -1109,6 +1153,7 @@ impl MacInputState {
             if pending_click_is_due(state, now) {
                 log::info!(target: "axonkey::input", "RC003 gesture: button={}, trigger=click, origin=timer", source.id);
                 let pending = state.pending_click.take().unwrap();
+                record_remote_trigger(shared, source.id, &triggers.click, &triggers.click_sources);
                 execute_click_or_original(shared, &triggers.click, pending.original);
             }
         }
@@ -1306,6 +1351,35 @@ fn hardware_action_usages(mappings: &[HardwareModifierMapping]) -> HashSet<u16> 
         .filter(|mapping| **mapping != POWER_KEY_GUARD)
         .map(|mapping| mapping.source as u16)
         .collect()
+}
+
+fn record_remote_trigger(
+    shared: &Shared,
+    input: &str,
+    behaviors: &[NativeBehavior],
+    sources: &[String],
+) {
+    // A fresh AX permission query can delay key repeat; telemetry uses the cached result.
+    if !shared.stop.load(Ordering::Acquire)
+        && shared
+            .instance
+            .as_ref()
+            .is_none_or(|instance| (instance.is_current)())
+        && shared
+            .status
+            .try_lock()
+            .is_ok_and(|status| status.accessibility_granted != Some(false))
+        && behaviors.iter().any(|behavior| {
+            behavior.enabled() && !matches!(behavior, NativeBehavior::Disabled { .. })
+        })
+    {
+        let key = shared
+            .instance
+            .as_ref()
+            .map(|instance| format!("{}:{input}", instance.id))
+            .unwrap_or_else(|| input.to_owned());
+        crate::library_usage::record_trigger(&key, sources);
+    }
 }
 
 fn execute_remote_behaviors(shared: &Shared, behaviors: &[NativeBehavior]) {
@@ -1715,6 +1789,7 @@ mod tests {
             restart: AtomicBool::new(false),
             remote_ownership: Mutex::new(RemoteOwnership::default()),
             instance: Some(RemoteInstance {
+                id: "test-instance".into(),
                 serial: CString::new("test-remote").unwrap(),
                 is_current: Box::new(move || is_current.load(Ordering::Acquire)),
                 on_report: Box::new(move |_, bytes| {

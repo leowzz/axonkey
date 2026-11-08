@@ -4,43 +4,15 @@ import React from 'react'
 import Renderer from 'react-test-renderer'
 import { HomeDashboard, base, text } from './fixtures/home-dashboard.mjs'
 
-test('home renders the device workspace and routes footer actions independently', () => {
-  const actions = []
+test('home renders the device workspace without duplicating global navigation', () => {
   const props = {
     ...base,
     deviceContent: React.createElement('section', { 'aria-label': '设备工作区' }, '已绑定设备'),
-    onOpenSettings: () => actions.push('settings'),
-    onOpenCloud: () => actions.push('cloud'),
-    onOpenLogs: () => actions.push('logs'),
-    onOpenAbout: () => actions.push('about'),
   }
   const renderer = Renderer.create(React.createElement(HomeDashboard, props))
   try {
     assert.equal(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), '已绑定设备')
-    for (const label of ['设置', '账号与同步', '运行日志', '关于']) {
-      renderer.root.findAllByType('button').find(button => text(button) === label).props.onClick()
-    }
-    assert.deepEqual(actions, ['settings', 'cloud', 'logs', 'about'])
-  } finally { renderer.unmount() }
-})
-
-test('browser preview disables native logs while keeping settings available', () => {
-  let settings = 0, logs = 0
-  const props = {
-    ...base, nativeRuntime: false, onOpenSettings: () => settings++, onOpenLogs: () => logs++,
-  }
-  const renderer = Renderer.create(React.createElement(HomeDashboard, props))
-  try {
-    const logButton = () => renderer.root.findByProps({ 'aria-label': '运行日志' })
-    assert.equal(logButton().props.disabled, true)
-    assert.equal(logButton().props.onClick, undefined)
-    renderer.root.findByProps({ 'aria-label': '设置' }).props.onClick()
-    assert.equal(settings, 1)
-    assert.equal(logs, 0)
-    renderer.update(React.createElement(HomeDashboard, { ...props, nativeRuntime: true }))
-    assert.equal(logButton().props.disabled, false)
-    logButton().props.onClick()
-    assert.equal(logs, 1)
+    assert.equal(renderer.root.findAllByType('footer').length, 0)
   } finally { renderer.unmount() }
 })
 

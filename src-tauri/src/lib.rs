@@ -6,6 +6,7 @@ mod driver_migration;
 mod input_service;
 mod legacy_cleanup;
 mod legacy_driver;
+mod library_usage;
 mod onboarding;
 mod profile_switch_overlay;
 #[cfg(target_os = "windows")]
@@ -1726,6 +1727,7 @@ pub fn run() {
             Some(vec![AUTOSTART_ARG]),
         ))
         .setup(|app| {
+            library_usage::initialize(app.handle());
             input_service::text_output::initialize(app.handle().clone());
             use tauri::Manager;
 
@@ -1820,6 +1822,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            library_usage::axonkey_record_library_additions,
+            library_usage::axonkey_take_library_usage,
+            library_usage::axonkey_ack_library_usage,
             relay::relay_request,
             relay::load_relay_session,
             relay::save_relay_session,

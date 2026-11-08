@@ -104,10 +104,8 @@ body:has(.managed-discovery-help-dialog[open]),
 .app-shell:has(.managed-discovery-help-dialog[open]) .main-content {
   overflow: hidden;
 }
-.managed-discovered-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin: -3px 0 8px;
+.managed-discovery-refresh {
+  margin-left: auto;
 }
 .managed-device-grid {
   display: grid;
@@ -391,9 +389,6 @@ body:has(.managed-discovery-help-dialog[open]),
 .home-page:has(.managed-hub.has-workspace) {
   flex: 1 1 0;
   overflow: hidden;
-}
-.home-page:has(.managed-hub.has-workspace) > .home-footer {
-  display: none;
 }
 .managed-hub.has-workspace {
   display: flex;

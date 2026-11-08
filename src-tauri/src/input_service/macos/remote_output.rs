@@ -45,12 +45,21 @@ pub(crate) struct RemoteOutput {
 }
 
 impl RemoteOutput {
-    pub(crate) fn emit(&mut self, output: Output<MacKey>, switch: &dyn Fn(ProfileDirection, bool)) {
+    pub(crate) fn emit(
+        &mut self,
+        output: Output<MacKey>,
+        instance_id: &str,
+        switch: &dyn Fn(ProfileDirection, bool),
+    ) {
         // Always allow releases after permission loss so local state is cleared.
         if !matches!(output, Output::Key(_, false)) && !InputService::accessibility_granted() {
             return;
         }
         let behavior = match output {
+            Output::LibraryTrigger(input, sources) => {
+                crate::library_usage::record_trigger(&format!("{instance_id}:{input}"), &sources);
+                return;
+            }
             Output::Key(key, down) => {
                 if down {
                     self.held.push(key);
@@ -139,7 +148,13 @@ mod tests {
         actions.edge("cmiotA15.voice", true, &settings, now);
         actions.tick(now, |output| outputs.push(output));
         let right_option = MacKey::modifier(61, FLAG_OPTION | FLAG_DEVICE_RIGHT_OPTION);
-        assert_eq!(outputs, vec![Output::Key(right_option, true)]);
+        assert_eq!(
+            outputs,
+            vec![
+                Output::LibraryTrigger("cmiotA15.voice", vec![]),
+                Output::Key(right_option, true)
+            ]
+        );
         outputs.clear();
         actions.edge("cmiotA15.voice", false, &settings, now);
         actions.tick(now, |output| outputs.push(output));

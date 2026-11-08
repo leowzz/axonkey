@@ -281,6 +281,9 @@
 .workflow-toolbox-add:hover {
   background: #dcecff;
 }
+.workflow-recommendation[aria-pressed='true'] {
+  color: #b67b11;
+}
 .behavior-dialog.workflow-library-dialog {
   width: min(480px, calc(100vw - 48px));
   padding: 0;
@@ -619,6 +622,10 @@
 }
 .workflow-library-feedback:has(span) {
   margin-bottom: 10px;
+}
+.workflow-recommendation-feedback {
+  flex: 0 0 auto;
+  padding: 0 12px;
 }
 .workflow-library-feedback button,
 .workflow-library-more {

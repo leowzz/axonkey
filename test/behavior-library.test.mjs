@@ -2,9 +2,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
-import { serializeSequence } from '../src/behaviorModel.ts'
+import { parseSequenceImport, serializeSequence } from '../src/behaviorModel.ts'
 import { RelayClient } from '../src/cloud/relayClient.ts'
-import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence, recordLibraryAddition } from '../src/cloud/behaviorLibrary.ts'
+import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence } from '../src/cloud/behaviorLibrary.ts'
 import { insertedWorkflowSteps } from '../src/components/workflowBehaviorBridge.ts'
 import { libraryHarness } from './helpers/behavior-library-harness.mjs'
 
@@ -16,6 +16,18 @@ const shared = { id: 'abc-123', revision: 2, source_sequence_key: saved.id, stat
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
 const button = (view, name) => view.root.findAllByType('button').find(node => text(node) === name)
 const flush = () => new Promise(resolve => setImmediate(resolve))
+const recommendationButtons = view => view.root.findAllByType('button').filter(node => /^(设为推荐|取消推荐)：/.test(node.props['aria-label'] ?? ''))
+const recommendationItem = (id, catalog_key = null, recommend_enabled = false, revision = 2) => ({ id, catalog_key, recommend_enabled, revision, status: 'active', published_version_id: `version-${id}` })
+function recommendationToolbox(harness, client, account = {}, selectedCategory = 'all') {
+  const { BehaviorLibraryContext } = harness.load('cloud/BehaviorLibraryContext.tsx')
+  const { WorkflowToolbox } = harness.load('components/WorkflowToolbox.tsx')
+  return React.createElement(BehaviorLibraryContext.Provider,
+    { value: { client, userId: 'user', accountReady: true, debugMode: true, onLogin() {}, ...account } },
+    React.createElement(WorkflowToolbox, { platform: 'macos', selectedCategory, onCategoryChange() {}, palettes: [
+      { name: '常用行为', groups: [{ name: '常用行为', steps: [builtin] }] },
+      { name: '已保存', groups: [{ name: '已保存', steps: [{ componentType: 'task', type: 'savedSequence', name: saved.name, properties: { savedSequenceId: saved.id, sequence: saved.sequence } }] }] },
+    ], iconUrls: {}, api: { toolbox: { tryDrag() {} } }, onAddStep() {}, addLabel: '添加到单击', getStepPreview: () => ['Enter', '30ms'] }))
+}
 
 test('cloud decoding preserves order, skips unsupported entries whole, and inserts independent snapshots', () => {
   const source = [publicItem('b'), { ...publicItem('a'), source: 'official', content: { kind: 'builtin', preset: 'volumeControl' } },
@@ -43,7 +55,6 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
     const path = args[1]
     if (path.endsWith('/submissions')) return { status: 200, body: shared }
     if (path.includes('/withdraw?')) return { status: 200, body: { ...shared, revision: 3, latest_version: undefined } }
-    if (path.endsWith('/additions')) throw new Error('offline')
     return { status: 200, body: { items: [publicItem('a')] } }
   }, session, () => {})
   await fetchLibraryPage(client, 'macos', 'community', '音量 & 关闭', 'abc_cursor', [builtin])
@@ -60,8 +71,6 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
   const withdrawn = await withdrawSequence(client, shared, false)
   assert.equal(withdrawn.latest_version.status, 'withdrawn')
   assert.equal(requests[2][4].ifMatch, '"behavior-library:abc-123:2"')
-  await recordLibraryAddition(client, 'abc-123', 'macos')
-  assert.equal(requests[3][3], undefined)
   const anonymous = new RelayClient(async () => { throw new Error('must not send') }, null, () => {})
   await assert.rejects(submitSequence(anonymous, saved, 'macos', '', false), /请先登录/)
 })
@@ -168,5 +177,126 @@ test('share dialog confirms without a note, reports pending, and withdraws using
     await act(async () => { button(view, '撤回申请').props.onClick(); await flush() })
     assert.equal(requests[2].conditions.ifMatch, '"behavior-library:abc-123:2"')
     assert.equal(text(view.root.findByProps({ role: 'status' })), '已撤回')
+  } finally { act(() => view.unmount()) }
+})
+
+test('recommendation controls require debug mode, a ready login and confirmed administrator permission', async () => {
+  for (const account of [{ debugMode: false }, { userId: null }, { accountReady: false }, {}]) {
+    const harness = libraryHarness()
+    const requests = []
+    const client = new RelayClient(async (method, path) => {
+      requests.push({ method, path })
+      assert.equal(path, '/v2/me')
+      return { status: 200, body: { is_admin: false } }
+    }, session, () => {})
+    let view
+    await act(async () => { view = Renderer.create(recommendationToolbox(harness, client, account)); await flush() })
+    try {
+      assert.equal(recommendationButtons(view).length, 0)
+      assert.deepEqual(requests, Object.keys(account).length ? [] : [{ method: 'GET', path: '/v2/me' }])
+    } finally { act(() => view.unmount()) }
+  }
+})
+
+test('administrator recommendations publish builtins and saved sequences, toggle cloud items and refresh public results', async () => {
+  const harness = libraryHarness()
+  const requests = []
+  const cloudItem = recommendationItem('cloud')
+  const client = new RelayClient(async (method, path, body, token, conditions) => {
+    requests.push({ method, path, body, token, conditions })
+    if (path === '/v2/me') return { status: 200, body: { is_admin: true } }
+    if (method === 'GET' && path.startsWith('/v2/behavior-library/admin/items?')) return { status: 200, body: { items: [cloudItem], total: 1 } }
+    if (method === 'GET') return { status: 200, body: { items: [publicItem('cloud', '云端序列')] } }
+    if (path.endsWith('/admin/recommendations')) return { status: 200, body: recommendationItem(body.catalog_key, body.catalog_key, true, 1) }
+    if (path.includes('/admin/items/')) return { status: 200, body: recommendationItem(path.includes('/cloud/') ? 'cloud' : 'builtin:macos:volumeControl', path.includes('/cloud/') ? null : 'builtin:macos:volumeControl', body.recommend_enabled, 3) }
+    assert.fail(`unexpected request: ${method} ${path}`)
+  }, session, () => {})
+  let view
+  await act(async () => { view = Renderer.create(recommendationToolbox(harness, client)); await flush() })
+  try {
+    await act(async () => { await view.root.findByProps({ 'aria-label': '设为推荐：音量控制' }).props.onClick(); await flush() })
+    const builtinWrite = requests.find(request => request.method === 'POST')
+    assert.equal(builtinWrite.path, '/v2/behavior-library/admin/recommendations')
+    assert.equal(builtinWrite.token, 'access')
+    assert.deepEqual(builtinWrite.body, { app_id: 'axonkey', catalog_key: 'builtin:macos:volumeControl', snapshot: { title: '音量控制', category_code: 'common', platforms: ['macos'], content_schema_version: 1, content: { kind: 'builtin', preset: 'volumeControl' } } })
+    await act(async () => { await view.root.findByProps({ 'aria-label': '取消推荐：音量控制' }).props.onClick(); await flush() })
+    const cancel = requests.filter(request => request.method === 'POST').at(-1)
+    assert.equal(cancel.path, '/v2/behavior-library/admin/items/builtin%3Amacos%3AvolumeControl/recommendation')
+    assert.deepEqual(cancel.body, { app_id: 'axonkey', recommend_enabled: false })
+    assert.equal(cancel.conditions.ifMatch, '"behavior-library:builtin:macos:volumeControl:1"')
+    assert.equal(view.root.findByProps({ 'aria-label': '设为推荐：音量控制' }).props.disabled, false)
+    await act(async () => { view.update(recommendationToolbox(harness, client, {}, '已保存/已保存')); await flush() })
+    await act(async () => { await view.root.findByProps({ 'aria-label': '设为推荐：发送' }).props.onClick(); await flush() })
+    const savedWrite = requests.filter(request => request.path.endsWith('/admin/recommendations')).at(-1)
+    assert.equal(savedWrite.body.catalog_key, `saved:macos:${saved.id}`)
+    const { content, ...savedMetadata } = savedWrite.body.snapshot
+    assert.deepEqual(savedMetadata, { title: saved.name, category_code: 'composite', platforms: ['macos'], content_schema_version: 1 })
+    assert.equal(content.kind, 'sequence')
+    assert.deepEqual(content.behaviors.map(({ id, ...behavior }) => behavior), parseSequenceImport(saved.sequence).map(({ id, ...behavior }) => behavior))
+    await act(async () => { view.update(recommendationToolbox(harness, client, {}, 'community')); await flush() })
+    await act(async () => { harness.tick(); await flush() })
+    const publicReads = () => requests.filter(request => request.method === 'GET' && request.path.startsWith('/v2/behavior-library?')).length
+    const before = publicReads()
+    await act(async () => { await view.root.findByProps({ 'aria-label': '设为推荐：云端序列' }).props.onClick(); await flush() })
+    const cloudWrite = requests.filter(request => request.method === 'POST').at(-1)
+    assert.equal(cloudWrite.path, '/v2/behavior-library/admin/items/cloud/recommendation')
+    assert.deepEqual(cloudWrite.body, { app_id: 'axonkey', recommend_enabled: true })
+    assert.equal(cloudWrite.conditions.ifMatch, '"behavior-library:cloud:2"')
+    assert.ok(view.root.findByProps({ 'aria-label': '取消推荐：云端序列' }))
+    await act(async () => { harness.tick(); await flush() })
+    assert.ok(publicReads() > before)
+  } finally { act(() => view.unmount()) }
+})
+
+test('recommendation failures keep a retryable control, and a 403 removes administrator controls', async () => {
+  const harness = libraryHarness()
+  const requests = []
+  let status = 503
+  const client = new RelayClient(async (method, path) => {
+    requests.push({ method, path })
+    if (path === '/v2/me') return { status: 200, body: { is_admin: true } }
+    if (method === 'GET') return { status: 200, body: { items: [], total: 0 } }
+    return { status, body: { code: 'rejected' } }
+  }, session, () => {})
+  let view
+  await act(async () => { view = Renderer.create(recommendationToolbox(harness, client)); await flush() })
+  try {
+    await act(async () => { await view.root.findByProps({ 'aria-label': '设为推荐：音量控制' }).props.onClick(); await flush() })
+    assert.match(text(view.toJSON()), /未完成|重试/)
+    assert.equal(view.root.findByProps({ 'aria-label': '设为推荐：音量控制' }).props.disabled, false)
+    status = 403
+    await act(async () => { await view.root.findByProps({ 'aria-label': '设为推荐：音量控制' }).props.onClick(); await flush() })
+    assert.equal(recommendationButtons(view).length, 0)
+    assert.match(text(view.toJSON()), /权限已失效/)
+    assert.equal(requests.filter(request => request.method === 'POST').length, 2)
+  } finally { act(() => view.unmount()) }
+})
+
+test('turning debug off or changing users immediately hides recommendation controls and ignores old permission results', async () => {
+  const harness = libraryHarness()
+  let resolveItems
+  const requests = []
+  let user = 'first'
+  const client = new RelayClient(async (method, path) => {
+    requests.push({ method, path, user })
+    if (path === '/v2/me') return { status: 200, body: { is_admin: user === 'first' } }
+    if (method === 'GET') return new Promise(resolve => { resolveItems = resolve })
+    assert.fail('must not write')
+  }, session, () => {})
+  let view
+  await act(async () => { view = Renderer.create(recommendationToolbox(harness, client)); await flush() })
+  try {
+    user = 'second'
+    await act(async () => { view.update(recommendationToolbox(harness, client, { userId: 'second' })); await flush() })
+    assert.equal(recommendationButtons(view).length, 0)
+    await act(async () => { resolveItems({ status: 200, body: { items: [], total: 0 } }); await flush() })
+    assert.equal(recommendationButtons(view).length, 0)
+    user = 'first'
+    await act(async () => { view.update(recommendationToolbox(harness, client)); await flush() })
+    await act(async () => { resolveItems({ status: 200, body: { items: [], total: 0 } }); await flush() })
+    assert.equal(recommendationButtons(view).length, 1)
+    await act(async () => { view.update(recommendationToolbox(harness, client, { debugMode: false })); await flush() })
+    assert.equal(recommendationButtons(view).length, 0)
+    assert.equal(requests.filter(request => request.method === 'POST').length, 0)
   } finally { act(() => view.unmount()) }
 })

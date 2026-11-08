@@ -1,0 +1,49 @@
+.settings-side-panel.settings-form-page {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settings-side-panel .settings-layout {
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 170px minmax(0, 1fr);
+}
+
+.settings-side-panel .settings-panels {
+  min-width: 0;
+  min-height: 0;
+  padding: 20px 24px 28px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.settings-side-panel .settings-panels > section {
+  min-width: 0;
+}
+
+.settings-side-panel .settings-form-row {
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.settings-side-panel .cloud-settings,
+.settings-side-panel .cloud-code-field,
+.settings-side-panel .cloud-feedback-content {
+  min-width: 0;
+}
+
+.settings-side-panel .cloud-feedback-content {
+  overflow-wrap: anywhere;
+}
+
+.settings-side-panel .cloud-restore-heading {
+  flex-wrap: wrap;
+}
+
+.macos-vibrancy .settings-side-panel.settings-form-page {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}

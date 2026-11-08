@@ -1113,7 +1113,12 @@ fn process_remote_actions_inner(
         if output_error.is_some() {
             return;
         }
-        output_error = emit_remote_output(context, output).err();
+        output_error = emit_remote_output(
+            context,
+            output,
+            shared.instance_id.as_deref().unwrap_or("legacy-rc003"),
+        )
+        .err();
     });
     if let Some(error) = output_error {
         quarbor_output_error(context, error);
@@ -1125,9 +1130,13 @@ fn process_remote_actions_inner(
 fn emit_remote_output(
     context: &mut QuarborContext,
     output: super::remote_actions::Output,
+    instance_id: &str,
 ) -> std::io::Result<()> {
     use super::remote_actions::Output;
     match output {
+        Output::LibraryTrigger(input, sources) => {
+            crate::library_usage::record_trigger(&format!("{instance_id}:{input}"), &sources)
+        }
         Output::CursorMove(direction, distance) => {
             let (dx, dy) = cursor_delta(direction, distance);
             let driver_supported = context

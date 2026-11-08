@@ -6,9 +6,10 @@ use windows::{
         Graphics::Gdi::{
             BeginPaint, CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DeleteObject, DrawTextW,
             EndPaint, FillRect, GetMonitorInfoW, MonitorFromPoint, SelectObject, SetBkMode,
-            SetTextColor, ANTIALIASED_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET, DT_END_ELLIPSIS, DT_NOPREFIX,
-            DT_SINGLELINE, DT_VCENTER, FW_MEDIUM, FW_NORMAL, FW_SEMIBOLD, HDC, MONITORINFO,
-            MONITOR_DEFAULTTOPRIMARY, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+            SetTextColor, ANTIALIASED_QUALITY, CLIP_DEFAULT_PRECIS, DEFAULT_CHARSET,
+            DT_END_ELLIPSIS, DT_NOPREFIX, DT_SINGLELINE, DT_VCENTER, FW_MEDIUM, FW_NORMAL,
+            FW_SEMIBOLD, HDC, MONITORINFO, MONITOR_DEFAULTTOPRIMARY, OUT_DEFAULT_PRECIS,
+            PAINTSTRUCT,
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
@@ -49,7 +50,13 @@ pub(super) fn show_profile_switch_overlay(
         window.from = utf16(from);
         window.to = utf16(to);
         window.revision = revision;
-        PAINT_TEXT.with(|text| *text.borrow_mut() = (utf16(&format!("{device} · 配置已切换")), window.from.clone(), window.to.clone()));
+        PAINT_TEXT.with(|text| {
+            *text.borrow_mut() = (
+                utf16(&format!("{device} · 配置已切换")),
+                window.from.clone(),
+                window.to.clone(),
+            )
+        });
         window.show()
     })
 }

@@ -26,7 +26,6 @@ export function WechatGroupCard() {
       <h3 id="about-wechat-title">
         <MessageCircle size={20} aria-hidden="true" /> 微信用户群
       </h3>
-      <p>交流玩法，反馈问题</p>
       <div className="about-wechat-qr" role="status" aria-live="polite" aria-busy={state.status === 'loading'}>
         {state.status === 'ready' ? (
           <QRCodeSVG
@@ -52,7 +51,6 @@ export function WechatGroupCard() {
           </div>
         )}
       </div>
-      {state.status === 'ready' && <p className="about-wechat-scan">微信扫一扫，加入用户群</p>}
       <button
         type="button"
         className="about-wechat-refresh"

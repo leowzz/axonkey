@@ -228,18 +228,22 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
           >
             找不到设备？
           </button>
+          <button
+            type="button"
+            className="managed-icon managed-discovery-refresh"
+            aria-label="刷新设备"
+            title="刷新设备"
+            onClick={event => {
+              event.preventDefault()
+              event.stopPropagation()
+              void controller.refresh()
+            }}
+            disabled={!native}
+          >
+            <RefreshCw size={14} />
+          </button>
         </summary>
         <div className="managed-discovered-content">
-          <div className="managed-discovered-toolbar">
-            <button
-              className="managed-icon"
-              aria-label="刷新设备"
-              onClick={() => void controller.refresh()}
-              disabled={!native}
-            >
-              <RefreshCw size={14} />
-            </button>
-          </div>
           {guide && unboundDevices.length === 0 && <p className="managed-notice">暂未发现可添加的设备。</p>}
           <div className="managed-device-grid">
             {unboundDevices.map(device => (
