@@ -932,8 +932,9 @@ export function BehaviorEditDialog({
                   onClick={
                     capturing
                       ? onCancelCapture
-                      : () => {
+                      : event => {
                           setEmptyShortcut(false)
+                          event.currentTarget.focus()
                           onStartCapture()
                         }
                   }

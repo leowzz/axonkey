@@ -424,6 +424,22 @@ test('opening a key or shortcut editor starts capture once without replacing the
   }
 })
 
+test('starting inline key capture focuses the recorder before listening, even when the platform does not focus clicked buttons', () => {
+  const initial = { id: 'inline-key', enabled: true, type: 'key', key: 'Space' }
+  const calls = []
+  const dialog = renderDialog('macos', initial, false, {
+    inline: true,
+    onStartCapture() { calls.push('start') },
+  })
+  try {
+    assert.deepEqual(calls, [])
+    const recorder = dialog.view.root.findAllByType('button').find(node => text(node) === '开始录入')
+    act(() => recorder.props.onClick({ currentTarget: { focus() { calls.push('focus') } } }))
+    assert.deepEqual(calls, ['focus', 'start'])
+    assert.deepEqual(dialog.behavior(), initial, 'starting capture preserves the existing binding')
+  } finally { act(() => dialog.view.unmount()) }
+})
+
 test('non-key editors and grouped media choices do not start keyboard capture', () => {
   for (const [initial, extraProps] of [
     [{ id: 'delay', enabled: true, type: 'delay', ms: 300 }, {}],
