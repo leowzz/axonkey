@@ -1,5 +1,6 @@
 import { Check, ChevronDown, Copy, Layers, MoreHorizontal, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { SelectControl } from './SelectControl'
 import type { MappingProfile } from '../appTypes'
 
 type ProfileManagerProps = {
@@ -67,8 +68,8 @@ export function ProfileManager({
   return (
     <>
       {compact && (
-        <select
-          className="application-profile-select"
+        <SelectControl
+          containerClassName="application-profile-select"
           aria-label="配置"
           value={activeProfileId}
           onChange={event => onSwitch(event.target.value)}
@@ -78,7 +79,7 @@ export function ProfileManager({
               {profile.name}
             </option>
           ))}
-        </select>
+        </SelectControl>
       )}
       <details ref={popupRef} className={`profile-manager${compact ? ' profile-manager-compact' : ''}`}>
         <summary

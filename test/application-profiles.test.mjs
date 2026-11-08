@@ -86,13 +86,14 @@ test('adding an app creates an independent editable copy and preserves the globa
 })
 
 test('toolbar selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
-  const { ProfileManager } = compile('src/components/ProfileManager.tsx')
+  const { SelectControl } = compile('src/components/SelectControl.tsx')
+  const { ProfileManager } = compile('src/components/ProfileManager.tsx', { './SelectControl': { SelectControl } })
   const { ApplicationProfileToolbar } = compile('src/components/ApplicationProfileToolbar.tsx', {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/core': { invoke: async (command, { path }) => { assert.equal(command, 'resolve_application_path'); if (path === code.path) return code; throw new Error('请选择有效的应用') } },
     '@tauri-apps/plugin-dialog': { open: async () => code.path },
     '../devices/integration/instanceProfiles': { addApplicationForEditing },
-    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null },
+    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null }, './SelectControl': { SelectControl },
   })
   let current, selected, view
   const switched = []

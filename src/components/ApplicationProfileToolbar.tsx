@@ -9,6 +9,7 @@ import type { DeviceInstance } from '../devices/integration/model'
 import { addApplicationForEditing } from '../devices/integration/instanceProfiles'
 import { ProfileManager } from './ProfileManager'
 import { SettingsHelp } from './SettingsHelp'
+import { SelectControl } from './SelectControl'
 import './ApplicationProfileToolbar.css'
 
 export function ApplicationProfileToolbar({
@@ -67,7 +68,7 @@ export function ApplicationProfileToolbar({
     <div className="application-profile-toolbar">
       <label className="application-edit-target">
         编辑应用
-        <select
+        <SelectControl
           aria-label="编辑应用"
           value={editingApplicationId}
           disabled={pending}
@@ -103,7 +104,7 @@ export function ApplicationProfileToolbar({
             </optgroup>
           )}
           <option value="__add_application__">＋ 添加应用…</option>
-        </select>
+        </SelectControl>
       </label>
       <div className="application-edit-profile">
         <span>配置</span>
