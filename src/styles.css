@@ -1019,6 +1019,12 @@ h1 {
   justify-content: space-between;
   padding: 20px 24px 18px;
 }
+.behavior-dialog-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .behavior-dialog-head .section-kicker {
   color: #81909e;
   font-family: inherit;

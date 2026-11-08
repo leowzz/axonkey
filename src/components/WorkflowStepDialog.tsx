@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { behaviorFromCapturedKey, behaviorTypeLabels, formatCapturedKey } from '../appConfig'
 import type { Behavior, TriggerType } from '../behaviorModel'
 import type { MappingInput, Platform } from '../appTypes'
@@ -39,6 +40,8 @@ export function WorkflowStepDialog({
   const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
   const ref = useRef<HTMLDivElement>(null)
   const choiceGroup = workflowActionChoiceGroup(edit.behavior)
+
+  useEffect(() => setBehavior(edit.behavior), [edit.behavior])
 
   const updateBehavior = (next: Behavior) => {
     setBehavior(next)
@@ -113,18 +116,15 @@ export function WorkflowStepDialog({
         }
         saveLabel={saveLabel}
         saveTone={saveTone}
-        children={
+        headerActions={
           inline && edit.onDelete ? (
-            <>
-              {children}
-              <button type="button" className="workflow-inline-delete" onClick={edit.onDelete}>
-                删除行为
-              </button>
-            </>
-          ) : (
-            children
-          )
+            <button type="button" className="workflow-inline-delete" onClick={edit.onDelete}>
+              <Trash2 size={15} aria-hidden="true" />
+              删除行为
+            </button>
+          ) : undefined
         }
+        children={children}
         actionChoices={
           choiceGroup
             ? {

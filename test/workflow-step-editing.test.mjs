@@ -104,6 +104,23 @@ test('dragging switches to the designer drag behavior without opening an editor'
   assert.equal(wrapper.wrap(click, { type: ClickCommandType.selectStep, component: { step: step('enter') } }), click)
 })
 
+test('a second click on the same behavior opens its modal instead of another inline edit', () => {
+  const opened = []
+  const extension = createWorkflowStepInteraction(id => opened.push(['inline', id]), undefined, undefined, id => opened.push(['modal', id]))
+  let token = new SelectStepBehaviorEndToken('paste', 1000)
+  const wrapped = extension.clickBehaviorWrapperExtension.create().wrap({ onEnd: () => token }, {
+    type: ClickCommandType.selectStep, component: { step: step('paste') },
+  })
+  wrapped.onEnd(false, null, null)
+  const previous = token
+  token = new SelectStepBehaviorEndToken('paste', 1300)
+  assert.equal(wrapped.onEnd(false, null, previous), undefined)
+  assert.deepEqual(opened, [['inline', 'paste'], ['modal', 'paste']])
+  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('other', 1100))
+  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('paste', 500))
+  assert.deepEqual(opened.slice(2), [['inline', 'paste'], ['inline', 'paste']])
+})
+
 test('group completion runs synchronously after the designer drag ends, for editable and ordinary steps', () => {
   for (const type of ['openApp', 'enter']) {
     const calls = []

@@ -6,6 +6,7 @@ export function createWorkflowStepInteraction(
   openEditor: (stepId: string) => void,
   finishDrag?: (interrupt: boolean) => void,
   canDragStep?: (step: Step, source: Step[]) => boolean,
+  openDialog?: (stepId: string) => void,
 ): DesignerExtension {
   return {
     stepComponentViewWrapper: {
@@ -15,12 +16,13 @@ export function createWorkflowStepInteraction(
         view.g.setAttribute('role', 'button')
         view.g.setAttribute('tabindex', '0')
         view.g.setAttribute('aria-label', `编辑${context.step.name}`)
-        view.g.setAttribute('aria-description', '点击在下方编辑，也可按 Enter 或空格键编辑')
+        view.g.setAttribute('aria-description', '单击在下方编辑，双击或 Alt+Enter 打开编辑弹窗')
         view.g.addEventListener('keydown', event => {
           if (event.key !== 'Enter' && event.key !== ' ') return
           event.preventDefault()
           event.stopPropagation()
-          openEditor(context.step.id)
+          if (event.altKey && openDialog) openDialog(context.step.id)
+          else openEditor(context.step.id)
         })
         return view
       },
@@ -64,6 +66,17 @@ export function createWorkflowStepInteraction(
                 token &&
                 SelectStepBehaviorEndToken.is(token)
               ) {
+                if (
+                  openDialog &&
+                  previousToken &&
+                  SelectStepBehaviorEndToken.is(previousToken) &&
+                  token.stepId === previousToken.stepId &&
+                  token.time >= previousToken.time &&
+                  token.time - previousToken.time <= 500
+                ) {
+                  openDialog(command.component.step.id)
+                  return
+                }
                 openEditor(command.component.step.id)
               }
               return token

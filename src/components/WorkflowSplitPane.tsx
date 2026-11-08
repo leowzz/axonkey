@@ -18,7 +18,7 @@ export function WorkflowSplitPane({
   const layoutRef = useRef<HTMLDivElement>(null)
   const upperRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ y: number; height: number } | null>(null)
-  const [size, setSize] = useState({ height: 0, footer: 78 })
+  const [size, setSize] = useState({ height: 0, footer: 0 })
   const [resizing, setResizing] = useState(false)
   const layout = workflowSplitLayout(size.height, size.footer, ratio)
 

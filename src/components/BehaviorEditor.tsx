@@ -625,6 +625,7 @@ type BehaviorEditDialogProps = {
   title?: string
   delayStep?: number
   children?: ReactNode
+  headerActions?: ReactNode
   saveLabel?: string
   saveTone?: 'warning'
   actionChoices?: { label: string; options: { label: string; selected: boolean; behavior: Behavior }[] }
@@ -692,6 +693,7 @@ export function BehaviorEditDialog({
   delayStep = 10,
   actionChoices,
   children,
+  headerActions,
   saveLabel = '保存',
   saveTone,
   onStartCapture,
@@ -891,9 +893,12 @@ export function BehaviorEditDialog({
             </span>
             <h2 id={titleId}>{title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}</h2>
           </div>
-          <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}>
-            <X size={17} />
-          </button>
+          <div className="behavior-dialog-head-actions">
+            {headerActions}
+            <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}>
+              <X size={17} />
+            </button>
+          </div>
         </header>
         <div className="behavior-dialog-body">
           {actionChoices ? (

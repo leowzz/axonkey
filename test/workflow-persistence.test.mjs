@@ -120,7 +120,7 @@ const render = async (sequences = empty(), options = {}, account = null) => {
   const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))
   await act(async () => { view = Renderer.create(element(), { createNodeMock: () => {
     const handlers = new Map()
-    return { handlers, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
+    return { handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
     view, writes, requests, current: () => instances.at(-1),
@@ -877,5 +877,42 @@ test('incomplete inline values preserve the existing mapping and keep the editor
     assert.equal(app.writes.length, 0)
     assert.equal(branches(app.current()).click[0].properties.text, '原内容')
     assert.equal(app.view.root.findAllByType('workflow-dialog').length, 1)
+  } finally { await app.unmount() }
+})
+
+test('dropping a multi-selection on trash deletes the group across lanes in one write', async () => {
+  const app = await render({ click: [delay(100), { ...delay(200), id: 'keep' }], doubleClick: [{ ...delay(300), id: 'second' }], longPress: [] })
+  try {
+    const instance = app.current()
+    instance.selectStepById('wait')
+    instance.canvas.handlers.get('mousedown')({
+      button: 0, ctrlKey: true, preventDefault() {}, stopPropagation() {},
+      target: { closest: selector => selector === '.sqd-workspace' ? {} : selector === '[data-step-id]' ? { getAttribute: () => 'second' } : null },
+    })
+    await act(async () => instance.dropOnTrash('wait'))
+    assert.equal(app.writes.length, 1)
+    assert.deepEqual(app.writes[0][1].click.map(item => item.id), ['keep'])
+    assert.deepEqual(app.writes[0][1].doubleClick, [])
+  } finally { await app.unmount() }
+})
+
+test('double-click modal saves back to the inline editor and closes only the modal', async () => {
+  const app = await render({ ...empty(), click: [delay(100)] })
+  try {
+    await openContextEditor(app, 'click')
+    const instance = app.current()
+    const node = branches(instance).click[0]
+    const wrapper = instance.configuration.extensions.find(extension => extension.clickBehaviorWrapperExtension).clickBehaviorWrapperExtension.create()
+    const interaction = wrapper.wrap({ onEnd: () => new library.SelectStepBehaviorEndToken(node.id, 1200) }, {
+      type: library.ClickCommandType.selectStep, component: { step: node },
+    })
+    await act(async () => interaction.onEnd(false, null, new library.SelectStepBehaviorEndToken(node.id, 1000)))
+    const modal = app.view.root.findAllByType('workflow-dialog').find(dialog => !dialog.props.inline)
+    assert.ok(modal)
+    await act(async () => modal.props.edit.onSave({ ...modal.props.edit.behavior, ms: 751 }))
+    const editor = app.view.root.findByType('workflow-dialog')
+    assert.equal(editor.props.inline, true)
+    assert.equal(editor.props.edit.behavior.ms, 751)
+    assert.equal(app.writes.at(-1)[1].click[0].ms, 751)
   } finally { await app.unmount() }
 })
