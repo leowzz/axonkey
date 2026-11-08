@@ -1,3 +1,4 @@
+mod app_restart;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
@@ -1507,6 +1508,29 @@ async fn toggle_device_recording(
 }
 
 #[tauri::command]
+async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
+    let restart_app = app.clone();
+    app_restart::restart_after_shutdown(
+        move || shutdown_device_services(&app),
+        move || restart_app.request_restart(),
+    )
+    .await
+}
+
+fn shutdown_device_services(app: &tauri::AppHandle) {
+    if let Some(service) = app.try_state::<DeviceManager>() {
+        service.shutdown();
+    }
+    if let Some(service) = app.try_state::<MouseService>() {
+        service.shutdown();
+    }
+    #[cfg(windows)]
+    if let Some(service) = app.try_state::<InputService>() {
+        service.shutdown();
+    }
+}
+
+#[tauri::command]
 fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
@@ -1873,6 +1897,7 @@ pub fn run() {
             device_snapshot,
             refresh_device_information,
             toggle_device_recording,
+            restart_app,
             put_device_instance,
             remove_device_instance,
             write_mapping_file,
@@ -1885,12 +1910,7 @@ pub fn run() {
         .expect("error while building Axonkey")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
-                if let Some(service) = app.try_state::<DeviceManager>() { service.shutdown(); }
-                if let Some(service) = app.try_state::<MouseService>() { service.shutdown(); }
-            }
-            #[cfg(windows)]
-            if matches!(event, tauri::RunEvent::Exit) {
-                if let Some(service) = app.try_state::<InputService>() { service.shutdown(); }
+                shutdown_device_services(app);
             }
             #[cfg(not(windows))]
             let _ = (app, event);
