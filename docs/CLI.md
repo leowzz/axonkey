@@ -25,6 +25,8 @@ axonkey-cli profile application-toggle --device mouse --off --json
 
 鼠标映射命令在保存配置并完成原生设置应用后才返回成功；`--dry-run` 不保存或应用。
 
+映射修改的 `affectedProfiles` 列出实际受影响的配置及各自的 `before` / `after`。系统鼠标和设备实例均返回此字段，设置、替换或清除共享切换按键时可检查全部配置的变更。
+
 ## 在仓库里开发和测试
 
 仓库根目录提供了 Makefile 快捷目标。先启动开发版 Axonkey（另开一个终端运行 `make dev`），再调用 CLI：

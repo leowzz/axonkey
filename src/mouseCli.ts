@@ -152,7 +152,20 @@ export async function processMouseCliRequest(
             }
           : item,
       )
-    result = { ...mappingTarget, before, after: sequence.map(item => behaviorToCliBehavior(item, platform)) }
+    const affectedProfiles = next.profiles.flatMap((candidate, index) => {
+      if (candidate.deviceId !== 'mouse') return []
+      const previous = profiles[index].behaviors[input][trigger].map(item => behaviorToCliBehavior(item, platform))
+      const after = candidate.behaviors[input][trigger].map(item => behaviorToCliBehavior(item, platform))
+      return JSON.stringify(previous) === JSON.stringify(after)
+        ? []
+        : [{ id: candidate.id, name: candidate.name, before: previous, after }]
+    })
+    result = {
+      ...mappingTarget,
+      before,
+      after: sequence.map(item => behaviorToCliBehavior(item, platform)),
+      affectedProfiles,
+    }
   }
   if (dryRun) return { ...result, dryRun: true }
   await save(next)
