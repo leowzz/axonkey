@@ -1,17 +1,27 @@
 import { useContext, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Search, Share2, Trash2, X } from 'lucide-react'
+import { Plus, Search, Share2, Star, Trash2, X } from 'lucide-react'
 import { Vector } from 'sequential-workflow-designer'
 import type { DesignerApi, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
 
 import type { Platform } from '../appTypes'
 import { BehaviorLibraryContext } from '../cloud/BehaviorLibraryContext'
 import { useBehaviorLibrary } from '../cloud/useBehaviorLibrary'
+import { useLibraryRecommendations } from '../cloud/useLibraryRecommendations'
 import { BehaviorShareDialog } from './BehaviorShareDialog'
 
 export type WorkflowToolboxPalette = {
   name: string
   groups: ToolboxGroupConfiguration[]
+}
+
+const categoryCodes: Record<string, string> = {
+  控制: 'control',
+  键盘: 'keyboard',
+  鼠标: 'mouse',
+  媒体控制: 'media',
+  常用行为: 'common',
+  组合行为: 'composite',
 }
 
 export function WorkflowToolbox({
@@ -67,6 +77,12 @@ export function WorkflowToolbox({
     palettes
       .filter(palette => palette.name !== '已保存')
       .flatMap(palette => palette.groups.flatMap(group => group.steps)),
+  )
+  const recommendations = useLibraryRecommendations(
+    account?.client,
+    account?.userId,
+    !!account?.debugMode && account.accountReady,
+    platform,
   )
   const localFallback = !!cloudView && !cloud.steps.length && (cloudView === 'recommended' || !!cloud.error)
   const sourceLabel = mine ? '我的' : cloudView === 'recommended' ? '推荐' : cloudView === 'community' ? '社区' : '基础'
@@ -145,6 +161,24 @@ export function WorkflowToolbox({
           </button>
         ))}
       </nav>
+      {(recommendations.error || recommendations.notice) && (
+        <div className="workflow-library-feedback workflow-recommendation-feedback">
+          {recommendations.error ? (
+            <span role="alert">
+              {recommendations.error}{' '}
+              <button
+                type="button"
+                onClick={recommendations.retry}
+                disabled={recommendations.loading || recommendations.busy}
+              >
+                刷新
+              </button>
+            </span>
+          ) : (
+            <span role="status">{recommendations.notice}</span>
+          )}
+        </div>
+      )}
       {!mine && !cloudView && (
         <nav className="workflow-toolbox-categories" aria-label="行为分类">
           <button
@@ -199,80 +233,100 @@ export function WorkflowToolbox({
                 {!mine && !cloudView && (currentCategory === 'all' || filter) && (
                   <h3 className="sqd-toolbox-group-title">{group.name}</h3>
                 )}
-                {group.steps.map(step => (
-                  <div
-                    key={String(step.properties.libraryItemId ?? step.properties.savedSequenceId ?? step.type)}
-                    className={`sqd-toolbox-item sqd-type-${step.type}`}
-                  >
-                    <button
-                      type="button"
-                      className="workflow-toolbox-item-main"
-                      aria-label={`查看${step.name}`}
-                      onMouseDown={event => {
-                        if (event.button !== 0) return
-                        dragOrigin.current = { x: event.clientX, y: event.clientY }
-                        event.preventDefault()
-                        event.stopPropagation()
-                        api.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
-                      }}
-                      onTouchStart={event => {
-                        if (event.touches.length !== 1) return
-                        event.stopPropagation()
-                        const touch = event.touches[0]
-                        dragOrigin.current = { x: touch.clientX, y: touch.clientY }
-                        api.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
-                      }}
-                      onClick={event => {
-                        if (
-                          event.detail === 0 ||
-                          Math.hypot(event.clientX - dragOrigin.current.x, event.clientY - dragOrigin.current.y) < 5
-                        )
-                          setPreview(step)
-                      }}
+                {group.steps.map(step => {
+                  const recommended = recommendations.itemFor(step)?.recommend_enabled === true
+                  return (
+                    <div
+                      key={String(step.properties.libraryItemId ?? step.properties.savedSequenceId ?? step.type)}
+                      className={`sqd-toolbox-item sqd-type-${step.type}`}
                     >
-                      <span className="sqd-toolbox-item-icon">
-                        <img
-                          className="sqd-toolbox-item-icon-image"
-                          src={iconUrls[step.type]}
-                          alt=""
-                          draggable={false}
-                        />
-                      </span>
-                      <span className="sqd-toolbox-item-text">{step.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="workflow-toolbox-add"
-                      aria-label={`${addLabel}：${step.name}`}
-                      title={addLabel}
-                      onClick={() => onAddStep(step)}
-                    >
-                      <Plus size={15} aria-hidden="true" />
-                    </button>
-                    {account && typeof step.properties.savedSequenceId === 'string' && (
                       <button
                         type="button"
-                        className="icon-button workflow-saved-share"
-                        aria-label={`分享${step.name}`}
-                        title="分享"
-                        onClick={() => setSharing(step)}
+                        className="workflow-toolbox-item-main"
+                        aria-label={`查看${step.name}`}
+                        onMouseDown={event => {
+                          if (event.button !== 0) return
+                          dragOrigin.current = { x: event.clientX, y: event.clientY }
+                          event.preventDefault()
+                          event.stopPropagation()
+                          api.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
+                        }}
+                        onTouchStart={event => {
+                          if (event.touches.length !== 1) return
+                          event.stopPropagation()
+                          const touch = event.touches[0]
+                          dragOrigin.current = { x: touch.clientX, y: touch.clientY }
+                          api.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
+                        }}
+                        onClick={event => {
+                          if (
+                            event.detail === 0 ||
+                            Math.hypot(event.clientX - dragOrigin.current.x, event.clientY - dragOrigin.current.y) < 5
+                          )
+                            setPreview(step)
+                        }}
                       >
-                        <Share2 size={14} aria-hidden="true" />
+                        <span className="sqd-toolbox-item-icon">
+                          <img
+                            className="sqd-toolbox-item-icon-image"
+                            src={iconUrls[step.type]}
+                            alt=""
+                            draggable={false}
+                          />
+                        </span>
+                        <span className="sqd-toolbox-item-text">{step.name}</span>
                       </button>
-                    )}
-                    {typeof step.properties.savedSequenceId === 'string' && onRemoveSavedSequence && (
                       <button
                         type="button"
-                        className="icon-button workflow-saved-remove"
-                        aria-label={`删除已保存的${step.name}`}
-                        title="删除"
-                        onClick={() => onRemoveSavedSequence(step.properties.savedSequenceId as string)}
+                        className="workflow-toolbox-add"
+                        aria-label={`${addLabel}：${step.name}`}
+                        title={addLabel}
+                        onClick={() => onAddStep(step)}
                       >
-                        <Trash2 size={14} aria-hidden="true" />
+                        <Plus size={15} aria-hidden="true" />
                       </button>
-                    )}
-                  </div>
-                ))}
+                      {account && typeof step.properties.savedSequenceId === 'string' && (
+                        <button
+                          type="button"
+                          className="icon-button workflow-saved-share"
+                          aria-label={`分享${step.name}`}
+                          title="分享"
+                          onClick={() => setSharing(step)}
+                        >
+                          <Share2 size={14} aria-hidden="true" />
+                        </button>
+                      )}
+                      {recommendations.isAdmin && (
+                        <button
+                          type="button"
+                          className="icon-button workflow-recommendation"
+                          aria-label={`${recommended ? '取消推荐' : '设为推荐'}：${step.name}`}
+                          aria-pressed={recommended}
+                          title={recommended ? '取消推荐' : '设为推荐（所有用户可见）'}
+                          disabled={recommendations.busy}
+                          onClick={() => {
+                            void recommendations.toggle(step, categoryCodes[group.name] ?? 'common').then(changed => {
+                              if (changed) cloud.retry()
+                            })
+                          }}
+                        >
+                          <Star size={14} fill={recommended ? 'currentColor' : 'none'} aria-hidden="true" />
+                        </button>
+                      )}
+                      {typeof step.properties.savedSequenceId === 'string' && onRemoveSavedSequence && (
+                        <button
+                          type="button"
+                          className="icon-button workflow-saved-remove"
+                          aria-label={`删除已保存的${step.name}`}
+                          title="删除"
+                          onClick={() => onRemoveSavedSequence(step.properties.savedSequenceId as string)}
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
               </section>
             ))}
             {visibleGroups.length === 0 && (!cloudView || (!cloud.loading && !cloud.error)) && (

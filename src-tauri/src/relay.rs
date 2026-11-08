@@ -158,7 +158,7 @@ fn validate_request(method: &str, path: &str) -> Result<(), String> {
             || list
             || matches!(
                 path,
-                "/v2/device-models?app_id=axonkey" | "/v2/app-settings/axonkey"
+                "/v2/device-models?app_id=axonkey" | "/v2/app-settings/axonkey" | "/v2/me"
             )))
         || (method == "POST" && path == "/v2/device-configs")
         || (method == "PUT" && (resource_id || path == "/v2/app-settings/axonkey"))
@@ -235,6 +235,10 @@ fn valid_library_request(method: &str, path: &str) -> bool {
         ("GET", "/mine") => {
             only(&["app_id", "limit", "offset"]) && value("app_id") == Some("axonkey")
         }
+        ("GET", "/admin/items") => {
+            only(&["app_id", "limit", "offset"]) && value("app_id") == Some("axonkey")
+        }
+        ("POST", "/admin/recommendations") => pairs.is_empty(),
         ("POST", "/submissions") => pairs.is_empty(),
         ("POST", _) => {
             let parts: Vec<_> = tail.trim_start_matches('/').split('/').collect();
@@ -243,6 +247,7 @@ fn valid_library_request(method: &str, path: &str) -> bool {
                 ["mine", item, "withdraw" | "unpublish"] => {
                     id(item) && only(&["app_id"]) && value("app_id") == Some("axonkey")
                 }
+                ["admin", "items", item, "recommendation"] => id(item) && pairs.is_empty(),
                 _ => false,
             }
         }
@@ -257,6 +262,10 @@ mod tests {
     #[test]
     fn behavior_library_requests_use_the_app_routes_only() {
         for (method, path) in [
+            ("GET", "/v2/me"),
+            ("GET", "/v2/behavior-library/admin/items?app_id=axonkey&limit=100&offset=0"),
+            ("POST", "/v2/behavior-library/admin/recommendations"),
+            ("POST", "/v2/behavior-library/admin/items/019a-abcd/recommendation"),
             ("GET", "/v2/behavior-library?app_id=axonkey&platform=macos&view=recommended&limit=25"),
             ("GET", "/v2/behavior-library?app_id=axonkey&platform=windows&view=community&q=%E9%9F%B3%E9%87%8F&cursor=abc_123"),
             ("GET", "/v2/behavior-library/mine?app_id=axonkey&limit=100&offset=0"),
@@ -289,6 +298,8 @@ mod tests {
                 "/v2/behavior-library/mine/019a-abcd/review?app_id=axonkey",
             ),
             ("GET", "/console/behavior-library/items?app_id=axonkey"),
+            ("GET", "/v2/behavior-library/admin/items?app_id=other"),
+            ("POST", "/v2/behavior-library/admin/items/019a-abcd/review"),
             ("DELETE", "/v2/behavior-library/019a-abcd"),
         ] {
             assert!(validate_request(method, path).is_err(), "{method} {path}");

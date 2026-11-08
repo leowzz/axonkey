@@ -16,6 +16,57 @@ export type SharedSequence = {
   published_version_id: string | null
   latest_version: { id: string; status: 'pending' | 'approved' | 'rejected' | 'withdrawn'; review_note?: string }
 }
+export type RecommendationItem = {
+  id: string
+  catalog_key: string | null
+  recommend_enabled: boolean
+  revision: number
+}
+
+export function recommendationCatalogKey(step: StepDefinition, platform: Platform): string {
+  return typeof step.properties.savedSequenceId === 'string'
+    ? `saved:${platform}:${step.properties.savedSequenceId}`
+    : `builtin:${platform}:${step.properties.preset}`
+}
+
+export async function fetchRecommendationItems(client: RelayClient): Promise<RecommendationItem[]> {
+  const items: RecommendationItem[] = []
+  for (let offset = 0; ; offset += 100) {
+    const page = await client.request<{ items: RecommendationItem[]; total: number }>(
+      'GET',
+      `${endpoint}/admin/items?app_id=axonkey&limit=100&offset=${offset}`,
+    )
+    items.push(...page.items)
+    if (!page.items.length || offset + page.items.length >= page.total) return items
+  }
+}
+
+export function publishRecommendation(client: RelayClient, step: StepDefinition, platform: Platform, category: string) {
+  const saved = typeof step.properties.savedSequenceId === 'string'
+  const behaviors = saved ? parseSequenceImport(step.properties.sequence as string) : null
+  if (saved && !behaviors?.length) throw new Error('此序列无法推荐，请重新保存')
+  return client.request<RecommendationItem>('POST', `${endpoint}/admin/recommendations`, {
+    app_id: 'axonkey',
+    catalog_key: recommendationCatalogKey(step, platform),
+    snapshot: {
+      title: step.name,
+      category_code: saved ? 'composite' : category,
+      platforms: [platform],
+      content_schema_version: 1,
+      content: saved ? { kind: 'sequence', behaviors } : { kind: 'builtin', preset: step.properties.preset },
+    },
+  })
+}
+
+export function setRecommendation(client: RelayClient, item: RecommendationItem, enabled: boolean) {
+  return client.request<RecommendationItem>(
+    'POST',
+    `${endpoint}/admin/items/${encodeURIComponent(item.id)}/recommendation`,
+    { app_id: 'axonkey', recommend_enabled: enabled },
+    true,
+    { ifMatch: `"behavior-library:${item.id}:${item.revision}"` },
+  )
+}
 
 // Decode at the cloud boundary. Never adopt only part of a sequence.
 export function parseLibraryPage(value: unknown, platform: Platform, builtins: StepDefinition[]): LibraryPage {

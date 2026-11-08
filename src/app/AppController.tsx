@@ -2769,6 +2769,7 @@ function AppController({
         client: cloud.client,
         userId: cloud.user?.id ?? null,
         accountReady: cloud.accountReady,
+        debugMode,
         onLogin: () => {
           setSettingsSection('cloud')
           navigateToPage('settings')
