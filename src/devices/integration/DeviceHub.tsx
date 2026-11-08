@@ -92,6 +92,8 @@ export function DeviceHub(props: Props) {
   function finishDevicePointerDrag(targetId?: string) {
     const drag = pointerDragRef.current
     if (!drag) return
+    const source = document.querySelector<HTMLElement>(`[data-instance-id="${CSS.escape(drag.id)}"]`)
+    if (source?.hasPointerCapture(drag.pointerId)) source.releasePointerCapture(drag.pointerId)
     if (drag.active) {
       didDragRef.current = true
       const destinationId = targetId ?? drag.overId
@@ -106,6 +108,7 @@ export function DeviceHub(props: Props) {
   }
   function handleDevicePointerDown(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
     if (event.button !== 0) return
+    event.currentTarget.setPointerCapture(event.pointerId)
     didDragRef.current = false
     pointerDragRef.current = {
       id,
