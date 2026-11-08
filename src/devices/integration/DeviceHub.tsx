@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -63,6 +63,15 @@ export function DeviceHub(props: Props) {
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
+  const didDragRef = useRef(false)
+  const pointerDragRef = useRef<{
+    id: string
+    pointerId: number
+    startX: number
+    startY: number
+    overId: string
+    active: boolean
+  } | null>(null)
   useEffect(() => {
     if (!props.bindInstanceId) return
     const target = snapshot.store.instances.find(item => item.id === props.bindInstanceId)
@@ -80,28 +89,65 @@ export function DeviceHub(props: Props) {
     ids.splice(ids.indexOf(targetId), 0, sourceId)
     void controller.reorder(ids)
   }
-  function handleDeviceDragStart(event: DragEvent<HTMLButtonElement>, id: string) {
-    setDraggingInstanceId(id)
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', id)
-  }
-  function handleDeviceDragOver(event: DragEvent<HTMLButtonElement>, id: string) {
-    if (!draggingInstanceId || draggingInstanceId === id) return
-    event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
-    setDragOverInstanceId(id)
-  }
-  function handleDeviceDrop(event: DragEvent<HTMLButtonElement>, id: string) {
-    event.preventDefault()
-    const sourceId = event.dataTransfer.getData('text/plain') || draggingInstanceId
-    if (sourceId) reorderInstances(sourceId, id)
+  function finishDevicePointerDrag(targetId?: string) {
+    const drag = pointerDragRef.current
+    if (!drag) return
+    if (drag.active) {
+      didDragRef.current = true
+      const destinationId = targetId ?? drag.overId
+      if (destinationId && destinationId !== drag.id) reorderInstances(drag.id, destinationId)
+    }
+    pointerDragRef.current = null
     setDraggingInstanceId(null)
     setDragOverInstanceId(null)
+    window.setTimeout(() => {
+      didDragRef.current = false
+    }, 0)
   }
-  function clearDeviceDrag() {
-    setDraggingInstanceId(null)
-    setDragOverInstanceId(null)
+  function handleDevicePointerDown(event: ReactPointerEvent<HTMLButtonElement>, id: string) {
+    if (event.button !== 0) return
+    didDragRef.current = false
+    pointerDragRef.current = {
+      id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      overId: id,
+      active: false,
+    }
   }
+  useEffect(() => {
+    const trackPointer = (event: PointerEvent) => {
+      const drag = pointerDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-instance-id]')
+        ?.dataset.instanceId
+      drag.overId = target ?? ''
+      if (!drag.active) {
+        const distance = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY)
+        if (distance < 6) return
+        drag.active = true
+        didDragRef.current = true
+        setDraggingInstanceId(drag.id)
+      }
+      event.preventDefault()
+      setDragOverInstanceId(target && target !== drag.id ? target : null)
+    }
+    const finishOutsideCard = (event: PointerEvent) => {
+      if (pointerDragRef.current?.pointerId === event.pointerId) {
+        event.preventDefault()
+        finishDevicePointerDrag()
+      }
+    }
+    window.addEventListener('pointermove', trackPointer)
+    window.addEventListener('pointerup', finishOutsideCard)
+    window.addEventListener('pointercancel', finishOutsideCard)
+    return () => {
+      window.removeEventListener('pointermove', trackPointer)
+      window.removeEventListener('pointerup', finishOutsideCard)
+      window.removeEventListener('pointercancel', finishOutsideCard)
+    }
+  })
   const banner = (
     <>
       {!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
@@ -164,13 +210,16 @@ export function DeviceHub(props: Props) {
                     }
                     applicationProfileCount={item.applicationProfiles?.length ?? 0}
                     applicationProfileSwitching={item.appProfileSwitching === true}
-                    onClick={() => setSelected(item.id)}
+                    onClick={() => {
+                      if (didDragRef.current) {
+                        didDragRef.current = false
+                        return
+                      }
+                      setSelected(item.id)
+                    }}
                     dragging={draggingInstanceId === item.id}
                     dragOver={dragOverInstanceId === item.id}
-                    onDragStart={event => handleDeviceDragStart(event, item.id)}
-                    onDragOver={event => handleDeviceDragOver(event, item.id)}
-                    onDrop={event => handleDeviceDrop(event, item.id)}
-                    onDragEnd={clearDeviceDrag}
+                    onPointerDown={event => handleDevicePointerDown(event, item.id)}
                   />
                 ))}
                 <DeviceCard
@@ -439,10 +488,7 @@ function DeviceCard({
   onClick,
   dragging = false,
   dragOver = false,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDragEnd,
+  onPointerDown,
 }: {
   kind: DeviceKind | 'mouse'
   instanceId?: string
@@ -459,10 +505,7 @@ function DeviceCard({
   onClick: () => void
   dragging?: boolean
   dragOver?: boolean
-  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
-  onDragOver?: (event: DragEvent<HTMLButtonElement>) => void
-  onDrop?: (event: DragEvent<HTMLButtonElement>) => void
-  onDragEnd?: () => void
+  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void
 }) {
   const appearance = state ? deviceStatusAppearance[state] : undefined
   const StatusIcon = appearance?.icon
@@ -474,11 +517,7 @@ function DeviceCard({
       data-unbound={unbound || undefined}
       data-dragging={dragging || undefined}
       data-drag-over={dragOver || undefined}
-      draggable={Boolean(instanceId)}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onDragEnd={onDragEnd}
+      onPointerDown={onPointerDown}
       onClick={onClick}
     >
       <div className="my-devices-card-main">
