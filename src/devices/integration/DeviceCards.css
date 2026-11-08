@@ -243,17 +243,32 @@
   font-size: 10px;
   line-height: 1.7;
 }
-.my-devices-profile > strong {
+.my-devices-profile-current {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.my-devices-profile-current > strong {
+  min-width: 0;
+  overflow: hidden;
   color: #526f8c;
   font-size: 11px;
   font-weight: 600;
-  overflow-wrap: anywhere;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .my-devices-application-profiles {
+  max-width: 100%;
+  overflow: hidden;
   color: #71849a;
   font-size: 10px;
   line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .macos-vibrancy .my-devices-card {
   background: rgb(255 255 255 / 30%);

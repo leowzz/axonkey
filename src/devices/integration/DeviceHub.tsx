@@ -458,9 +458,10 @@ function DeviceCard({
         </span>
         <span className="my-devices-profile">
           {profile ? (
-            <>
-              当前配置<strong>{profile}</strong>
-            </>
+            <span className="my-devices-profile-current">
+              <span>当前配置</span>
+              <strong>{profile}</strong>
+            </span>
           ) : (
             <ChevronRight size={15} aria-hidden="true" />
           )}
