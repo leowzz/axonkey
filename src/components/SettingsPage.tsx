@@ -129,7 +129,7 @@ export function SettingsPage({
     {
       kind: 'inputMonitoring' as const,
       title: '输入监控',
-      description: '读取 RC003 遥控器的按键，让自定义映射能够响应。',
+      description: '读取设备按键，让自定义映射能够响应。',
       granted: permissions.inputMonitoring && !inputAuthorizationStale,
       stale: inputAuthorizationStale,
     },
@@ -349,7 +349,7 @@ export function SettingsPage({
                         <ExternalLink size={14} />
                       </button>
                       <SettingsHelp id="settings-audio-help" label="虚拟麦克风">
-                        将 RC003 遥控器语音转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch
+                        将支持语音的遥控器音频转发给语音输入法等应用。安装驱动后，还需在应用中选择 MiRemoteV 2ch
                         作为麦克风。切换声音设备后若没有声音，可点击“重启驱动”重新连接虚拟麦克风和遥控器；当前语音会中断，请连接恢复后再试。
                       </SettingsHelp>
                     </div>

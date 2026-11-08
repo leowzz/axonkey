@@ -37,7 +37,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
         <div>
           <span className="about-version">版本 {appPackage.version}</span>
           <h2 id="about-title">关于 Axonkey</h2>
-          <p>面向小米 RC003 蓝牙遥控器的本地控制台，让遥控器成为易于配置的快捷键控制器。</p>
+          <p>本地设备映射工具，为不同设备配置快捷键、文本与多步操作。</p>
         </div>
         <div className="about-github-support">
           <a
@@ -123,7 +123,7 @@ export function AboutPage({ update }: { update: ReturnType<typeof useReleaseUpda
             <article>
               <AudioLines size={22} />
               <h3>遥控器语音</h3>
-              <p>长按语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
+              <p>使用遥控器语音键采集音频，通过虚拟麦克风提供给语音输入应用，支持增益调整与音频测试。</p>
             </article>
             <article>
               <ShieldCheck size={22} />

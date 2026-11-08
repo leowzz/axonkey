@@ -2,17 +2,20 @@
 
 ## Purpose
 
-Axonkey gives one specific physical product, the Xiaomi RC003 Bluetooth
-remote, a predictable button-mapping experience on Windows and macOS. It is a focused
-local utility rather than a general keyboard automation platform.
+Axonkey is a local device-mapping tool for Windows and macOS. It lets users
+configure shortcuts, text input, and multi-step actions for supported remotes,
+game controllers, and system mouse inputs. Device support can grow through
+additional device integrations; available inputs and platform requirements
+depend on the selected device.
 
 ## Current features
 
-- Recognize only HID devices with Xiaomi vendor `0x2717` and product `0x32B8`.
-- Keep ordinary keyboard scan codes outside RC003 mappings; Quarbor reports are
-  matched to the current RC003 device instance.
-- Show thirteen editable RC003 buttons on Windows and macOS.
-- Read Back and Volume +/- directly from Quarbor HID reports on Windows.
+- Discover supported devices and keep each physical device's binding,
+  configuration, and runtime state separate.
+- Keep ordinary keyboard input outside device mappings; device reports are
+  matched to the bound device instance.
+- Show the selected device's editable inputs and available trigger types.
+- Configure system mouse buttons, scrolling, and screen-edge actions.
 - Configure click, double-click, and long-press actions independently.
 - Map buttons to keys, modifier keys, shortcuts, media controls, pasted text,
   or a sequence of actions and delays.
@@ -24,32 +27,26 @@ local utility rather than a general keyboard automation platform.
   main window is closed.
 - Import and export mappings as JSON, restore defaults, and undo or redo edits.
 - Store all settings and diagnostics locally.
-- Guide Windows users through Quarbor Universal per-device setup and optional Quarbor Virtual Microphone setup, and
+- Guide Windows users through required per-device input-driver setup and optional Quarbor Virtual Microphone setup, and
   macOS users through Input Monitoring, Accessibility, and optional MiRemoteV
   2ch virtual-microphone setup.
-- Forward RC003 voice to Quarbor Virtual Microphone on Windows and MiRemoteV 2ch on macOS.
-  Voice transport and decoding run inside Axonkey.
+- Forward voice from supported devices to Quarbor Virtual Microphone on Windows
+  and MiRemoteV 2ch on macOS. Voice transport and decoding run inside Axonkey.
 - Adjust voice gain from -30 dB to +30 dB and inspect live audio levels.
 - Show device connection, battery, permissions, and driver status, with setup
   actions and access to local runtime logs.
 
-The Windows backend decodes the RC003 usages `0xF1`, `0x80`, and `0x81` from the
-Quarbor report stream alongside the other ten buttons. No secondary capture
-process, preference, or administrator authorization is needed for these keys.
-
 ## Defaults
 
-| RC003 button | Default behavior |
-| --- | --- |
-| Voice / F5 | Right Alt |
-| Power / extended `0x015E` | Escape |
-| Back, Volume +/-, Home, TV, Menu, Enter and directions | Preserve original key |
+New device instances start with a blank default profile. Imported or migrated
+configurations retain their saved mappings. System mouse inputs preserve their
+original behavior until a mapping is configured.
 
 ## Usability rules
 
-- The home page shows input readiness, RC003 connection and battery, audio
-  status, and whether custom mappings are enabled. The mapping page provides
-  per-button editing.
+- The home page shows added and discovered devices, connection state, battery
+  when available, and the active profile. Each device workspace provides
+  input editing and its own runtime status.
 - Editing a mapping starts from a tabbed, directly visible list of common
   behaviors. Key and shortcut capture share one entry, and no extra add
   confirmation is required.
@@ -62,7 +59,7 @@ process, preference, or administrator authorization is needed for these keys.
 
 ## Outside the supported scope
 
-- Other remote or keyboard models.
+- Devices without a corresponding integration, and ordinary keyboard remapping.
 - Cloud accounts, configuration sync, telemetry, or remote control over a
   network.
 - Linux support.

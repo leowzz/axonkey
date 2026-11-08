@@ -1,5 +1,10 @@
 # Architecture
 
+Axonkey uses device integrations to manage supported models and independent
+physical-device instances. See [device integration](DEVICE_INTEGRATION.md) for
+discovery, binding, and runtime contracts. The detailed input and voice paths
+below describe the RC003 integration.
+
 ```text
 Windows
   RC003 BTHLEDEVICE parent
