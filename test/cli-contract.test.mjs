@@ -10,6 +10,13 @@ import {
   normalizeCliSequence,
 } from '../src/cliContract.ts'
 
+test('malformed shortcut arrays and enabled flags are rejected at the CLI boundary', () => {
+  for (const keys of [[null], [1], ['Ctrl', {}], [true]]) {
+    assert.equal(normalizeCliBehavior({ type: 'shortcut', keys }, 'windows'), null)
+  }
+  assert.equal(normalizeCliBehavior({ type: 'key', key: 'A', enabled: 'false' }, 'windows'), null)
+})
+
 test('canonicalizes platform-neutral shortcut tokens and ordering', () => {
   assert.equal(canonicalizeCliKeyToken('command'), 'Mod')
   assert.equal(canonicalizeCliKeyToken('option'), 'Alt')

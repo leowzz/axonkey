@@ -46,6 +46,9 @@ pub struct CliResponse {
 }
 
 fn root_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Some(path) = std::env::var_os("AXONKEY_CONFIG_DIR") {
+        return Ok(PathBuf::from(path).join(ROOT_DIR));
+    }
     app.path()
         .app_config_dir()
         .map(|path| path.join(ROOT_DIR))
@@ -115,8 +118,24 @@ pub fn cli_poll_requests(app: AppHandle) -> Result<Vec<CliRequest>, String> {
             Ok(request) if request.id == id && request.protocol == CLI_PROTOCOL => {
                 result.push(request)
             }
-            Ok(_) | Err(_) => {
-                let _ = fs::remove_file(&claimed);
+            invalid => {
+                let message = match invalid {
+                    Ok(_) => "CLI request ID or protocol does not match".to_string(),
+                    Err(error) => error,
+                };
+                cli_write_response(
+                    app.clone(),
+                    CliResponse {
+                        protocol: CLI_PROTOCOL.into(),
+                        id: id.into(),
+                        ok: false,
+                        result: None,
+                        error: Some(CliError {
+                            code: "invalid_arguments".into(),
+                            message,
+                        }),
+                    },
+                )?;
             }
         }
     }

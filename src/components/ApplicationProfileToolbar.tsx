@@ -164,7 +164,7 @@ export function ApplicationProfileToolbar({
   )
 }
 
-function AddApplicationDialog({
+export function AddApplicationDialog({
   native,
   platform,
   onAdd,

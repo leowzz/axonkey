@@ -74,10 +74,25 @@ export async function processInstanceCliRequest(
         state: instanceState(instance, snapshot) ?? 'unbound',
         error: snapshot.runtime[instance.id]?.error ?? null,
         activeProfile: profileIdentity(instance, resolveProfile(instance, '')),
+        effectiveProfile: profileIdentity(
+          instance,
+          resolveProfile(instance, snapshot.runtime[instance.id]?.effectiveProfileId ?? ''),
+        ),
       })),
     }
   }
-  if (!['profile.list', 'profile.create', 'profile.activate', 'profile.application-list', 'profile.application-set', 'profile.application-remove', 'profile.application-toggle', ...mappingMethods].includes(method))
+  if (
+    ![
+      'profile.list',
+      'profile.create',
+      'profile.activate',
+      'profile.application-list',
+      'profile.application-set',
+      'profile.application-remove',
+      'profile.application-toggle',
+      ...mappingMethods,
+    ].includes(method)
+  )
     throw new InstanceCliError('invalid_arguments', '不支持的 CLI 操作：' + method)
   const instance = resolveCliInstance(params, snapshot)
   const target = { device: instance.kind, instance: instanceIdentity(instance), revision: snapshot.store.revision }
@@ -104,15 +119,13 @@ export async function processInstanceCliRequest(
     }
   }
   if (method === 'profile.application-set') {
-    const application = applicationParam(params)
+    const application = applicationParam(params, instance)
     const profileValue = stringParam(params.profile, 'profile')
     if (!profileValue) throw new InstanceCliError('invalid_arguments', '应用配置绑定需要 --profile')
     const profile = resolveProfile(instance, profileValue)
-    const change = (current: DeviceInstance) =>
-      setApplicationProfile(current, application, profile.id)
+    const change = (current: DeviceInstance) => setApplicationProfile(current, application, profile.id)
 
-    if (dryRun)
-      return { ...target, dryRun: true, application, profile: profileIdentity(instance, profile) }
+    if (dryRun) return { ...target, dryRun: true, application, profile: profileIdentity(instance, profile) }
     const saved = await update(instance.id, change)
     const next = saved.store.instances.find(item => item.id === instance.id)!
     return {
@@ -126,9 +139,14 @@ export async function processInstanceCliRequest(
   }
   if (method === 'profile.application-remove') {
     const applicationId = stringParam(params.application, 'application')
+    if (!applicationId) throw new InstanceCliError('invalid_arguments', '移除应用绑定需要 --application')
+    if (!instance.applicationProfiles?.some(binding => binding.application.id === applicationId))
+      throw new InstanceCliError('invalid_target', '找不到指定的应用绑定')
     const change = (current: DeviceInstance) => ({
       ...current,
-      applicationProfiles: (current.applicationProfiles ?? []).filter(binding => binding.application.id !== applicationId),
+      applicationProfiles: (current.applicationProfiles ?? []).filter(
+        binding => binding.application.id !== applicationId,
+      ),
     })
     if (dryRun) return { ...target, dryRun: true, application: applicationId }
     const saved = await update(instance.id, change)
@@ -312,9 +330,16 @@ function publicSequence(sequence: Behavior[], platform: CliPlatform) {
   return sequence.map(behavior => behaviorToCliBehavior(behavior, platform))
 }
 
-function applicationParam(params: Record<string, unknown>): Application {
+function applicationParam(params: Record<string, unknown>, instance: DeviceInstance): Application {
   const id = stringParam(params.application, 'application')
-  const name = stringParam(params.applicationName, 'application-name') || id
-  const path = stringParam(params.applicationPath, 'application-path') || id
+  if (!id) throw new InstanceCliError('invalid_arguments', '应用配置绑定需要 --application')
+  const existing = instance.applicationProfiles?.find(binding => binding.application.id === id)?.application
+  const path = stringParam(params.applicationPath, 'application-path') || existing?.path || id
+  const name = stringParam(params.applicationName, 'application-name') || existing?.name || id.split(/[\\/]/).pop()!
+  const bytes = new TextEncoder()
+  if (bytes.encode(id).length > 4096 || bytes.encode(name).length > 200 || bytes.encode(path).length > 32768)
+    throw new InstanceCliError('invalid_arguments', '应用 ID、名称或路径过长')
+  if (!existing && (instance.applicationProfiles?.length ?? 0) >= 128)
+    throw new InstanceCliError('invalid_arguments', '每台设备最多关联 128 个应用')
   return { id, name, path }
 }

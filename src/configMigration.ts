@@ -170,6 +170,7 @@ export async function migrateConfig(
         migrationReviewed: true,
         profiles,
         activeProfileIds: { ...current.activeProfileIds, mouse: plan.mouseActiveId },
+        applicationProfileSwitching: current.applicationProfileSwitching,
       }),
     )
   }
@@ -293,7 +294,16 @@ export function discardLegacyConfig(storage: StorageAccess, plan: MigrationPlan,
       delete activeProfileIds.rc003
       if (!migrated) delete activeProfileIds.mouse
     }
-    storage.setItem(profilesKey, JSON.stringify({ version: 2, migrationReviewed: true, profiles, activeProfileIds }))
+    storage.setItem(
+      profilesKey,
+      JSON.stringify({
+        version: 2,
+        migrationReviewed: true,
+        profiles,
+        activeProfileIds,
+        applicationProfileSwitching: current.applicationProfileSwitching,
+      }),
+    )
   }
   // Settings share a key with the current app: remove mapping payloads, not preferences.
   const settings = storage.getItem(settingsKey)

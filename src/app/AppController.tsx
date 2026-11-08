@@ -38,7 +38,11 @@ import {
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProfiles } from '../deviceProfiles'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
+import type { Application } from '../applications'
+import { processMouseCliRequest } from '../mouseCli'
+import { useCliRequests } from '../useCliRequests'
 import { useForegroundApplications } from '../useForegroundApplications'
+import { bindMouseApplication, effectiveMouseProfileId, mouseApplicationProfile } from '../mouseProfiles'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -147,9 +151,19 @@ import { managedDriverInstallMessage } from '../systemState'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { save } from '@tauri-apps/plugin-dialog'
-import { ChangeEvent, KeyboardEvent, SetStateAction, useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import {
+  ChangeEvent,
+  KeyboardEvent,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react'
 import { reportTencentEvent } from '../telemetry'
-import { behaviorToCliBehavior, cliBehaviorToBehavior, cliSchema, normalizeCliSequence } from '../cliContract'
+import { cliSchema } from '../cliContract'
 import type { CliRequest } from '../cliContract'
 
 type PendingProfileImport = ImportedMapping & {
@@ -176,44 +190,14 @@ async function loadCliKeymapSvg(url: string) {
 }
 
 function cliParams(value: unknown): CliParams {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  if (value === null || value === undefined) return {}
+  if (typeof value !== 'object' || Array.isArray(value))
+    throw new CliOperationError('invalid_arguments', 'params 必须是对象')
   return value as CliParams
 }
 
 function cliPlatform(platform: Platform): 'windows' | 'macos' {
   return platform === 'macos' ? 'macos' : 'windows'
-}
-
-function cliTrigger(value: unknown): TriggerType {
-  if (value === undefined || value === null || value === '') return 'click'
-  if (value === 'click' || value === 'doubleClick' || value === 'longPress') return value
-  if (value === 'double-click') return 'doubleClick'
-  if (value === 'long-press') return 'longPress'
-  throw new CliOperationError('invalid_target', '不支持的触发方式：' + String(value))
-}
-
-function cliInputId(value: unknown, deviceId: DeviceId): InputId {
-  if (typeof value !== 'string' || !value.trim()) {
-    throw new CliOperationError('invalid_target', '必须指定 button 或 input')
-  }
-  const input = value.trim() as InputId
-  const device = devices.find(item => item.id === deviceId)!
-  if (device.inputIds.includes(input)) return input
-  const aliases: Record<string, string> = {
-    voice: 'voice',
-    power: 'power',
-    back: 'back',
-    home: 'home',
-    menu: 'menu',
-    enter: 'enter',
-  }
-  const alias = aliases[input.toLowerCase()]
-  if (alias && device.inputIds.includes(alias as InputId)) return alias as InputId
-  throw new CliOperationError('invalid_target', '设备 ' + deviceId + ' 没有按键：' + value)
-}
-
-function cliPublicSequence(list: Behavior[], platform: Platform) {
-  return list.map(behavior => behaviorToCliBehavior(behavior, cliPlatform(platform)))
 }
 
 function AppController({
@@ -263,6 +247,9 @@ function AppController({
   const [storedProfiles] = useState(getStoredProfiles)
   const [profiles, setProfiles] = useState<MappingProfile[]>(storedProfiles.profiles)
   const [activeProfileIds, setActiveProfileIds] = useState(storedProfiles.activeProfileIds)
+  const [mouseGlobalProfileId, setMouseGlobalProfileId] = useState(storedProfiles.activeProfileIds.mouse)
+  const mouseGlobalProfileRef = useRef(mouseGlobalProfileId)
+  mouseGlobalProfileRef.current = mouseGlobalProfileId
   const [mouseApplicationProfileSwitching, setMouseApplicationProfileSwitching] = useState(
     () => storedProfiles.applicationProfileSwitching?.mouse === true,
   )
@@ -271,24 +258,31 @@ function AppController({
   const activeProfileId = activeProfileIds[selectedDeviceId]
   const deviceProfiles = profiles.filter(profile => profile.deviceId === selectedDeviceId)
   useEffect(() => {
-    const appId = foregroundApplications.current?.id
-    if (!appId || !mouseApplicationProfileSwitching) return
-    const target = profiles.find(profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(appId))
-    if (!target || activeProfileIds.mouse === target.id) return
-    switchMappingProfile(target.id)
-  }, [foregroundApplications.current?.id, mouseApplicationProfileSwitching, profiles, activeProfileIds])
-  useEffect(() => {
     if (
       mouseEditingApplicationId &&
-      !profiles.some(profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(mouseEditingApplicationId))
+      !profiles.some(
+        profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(mouseEditingApplicationId),
+      )
     ) {
       setMouseEditingApplicationId('')
+      switchMappingProfile(mouseGlobalProfileId)
     }
   }, [mouseEditingApplicationId, profiles])
   const [behaviorHistory, dispatchBehaviorHistory] = useReducer(behaviorHistoryReducer, null, () =>
     createBehaviorHistory(composeActiveProfileBehaviors(storedProfiles.profiles, storedProfiles.activeProfileIds)),
   )
   const behaviors = behaviorHistory.present
+  const runtimeMouseProfileId = effectiveMouseProfileId(
+    profiles,
+    mouseGlobalProfileId,
+    mouseApplicationProfileSwitching,
+    foregroundApplications.current?.id,
+  )
+  const runtimeBehaviors = useMemo(() => {
+    const saved = snapshotDeviceProfiles(profiles, activeProfileIds, behaviors)
+    const mouse = saved.find(profile => profile.id === runtimeMouseProfileId)!
+    return mergeDeviceBehaviors(behaviors, 'mouse', mouse.behaviors)
+  }, [profiles, activeProfileIds, behaviors, runtimeMouseProfileId])
   const profileStateRef = useRef({ profiles, activeProfileIds, behaviors })
   profileStateRef.current = { profiles, activeProfileIds, behaviors }
   const setBehaviors = useCallback((update: SetStateAction<BehaviorMap>) => {
@@ -569,7 +563,28 @@ function AppController({
   profileSwitchRef.current = request => {
     const current = profileStateRef.current
     if (request.deviceId !== 'rc003' && request.deviceId !== 'cmiotA15' && request.deviceId !== 'mouse') return
-    const id = adjacentProfileId(current.profiles, current.activeProfileIds[request.deviceId], request)
+    const fromId = request.deviceId === 'mouse' ? runtimeMouseProfileId : current.activeProfileIds[request.deviceId]
+    const id = adjacentProfileId(current.profiles, fromId, request)
+    if (id && request.deviceId === 'mouse') {
+      const app = mouseApplicationProfile(current.profiles, foregroundApplications.current?.id)
+      if (mouseApplicationProfileSwitching && app) {
+        const nextProfiles = bindMouseApplication(current.profiles, foregroundApplications.current!.id, id)
+        profileStateRef.current = { ...current, profiles: nextProfiles }
+        setProfiles(nextProfiles)
+        if (mouseEditingApplicationId === foregroundApplications.current!.id) switchMappingProfile(id)
+      } else {
+        mouseGlobalProfileRef.current = id
+        setMouseGlobalProfileId(id)
+        if (!mouseEditingApplicationId) switchMappingProfile(id)
+      }
+      if (nativeRuntime)
+        void invoke('show_profile_switch_overlay', {
+          device: '鼠标',
+          from: current.profiles.find(profile => profile.id === fromId)!.name,
+          to: current.profiles.find(profile => profile.id === id)!.name,
+        }).catch(error => logError('Failed to show profile switch notification', error))
+      return
+    }
     if (id) switchMappingProfile(id, true)
   }
   useEffect(() => {
@@ -592,10 +607,24 @@ function AppController({
 
   const activateNewProfile = (profile: MappingProfile) => {
     const current = profileStateRef.current
+    for (const input of devices.find(device => device.id === profile.deviceId)!.inputIds) {
+      for (const trigger of ['click', 'doubleClick', 'longPress'] as const) {
+        const shared = current.behaviors[input][trigger].find(behavior => behavior.type === 'switchProfile')
+        if (shared) profile.behaviors[input][trigger] = [createBehavior({ ...shared, id: undefined })]
+      }
+    }
     const next = {
       profiles: [...snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors), profile],
       activeProfileIds: { ...current.activeProfileIds, [profile.deviceId]: profile.id },
       behaviors: mergeDeviceBehaviors(current.behaviors, profile.deviceId, profile.behaviors),
+    }
+    if (profile.deviceId === 'mouse') {
+      if (mouseEditingApplicationId)
+        next.profiles = bindMouseApplication(next.profiles, mouseEditingApplicationId, profile.id)
+      else {
+        mouseGlobalProfileRef.current = profile.id
+        setMouseGlobalProfileId(profile.id)
+      }
     }
     profileStateRef.current = next
     setProfiles(next.profiles)
@@ -672,6 +701,10 @@ function AppController({
       profile => profile.id !== activeProfileId,
     )
     const next = remaining.find(profile => profile.deviceId === selectedDeviceId)!
+    if (current.id === mouseGlobalProfileId) {
+      mouseGlobalProfileRef.current = next.id
+      setMouseGlobalProfileId(next.id)
+    }
     const nextState = {
       profiles: remaining,
       activeProfileIds: { ...activeProfileIds, [selectedDeviceId]: next.id },
@@ -711,6 +744,33 @@ function AppController({
     setBehaviors(current => updateWorkflowInput(current, inputId, sequences))
     setAutoSaveState('saving')
   }, [])
+
+  const inputSettingsRef = useRef({
+    showRecordingOverlay,
+    cmiotA15RecordingMode,
+    behaviors: runtimeBehaviors,
+    enabled,
+    mouseEnabled,
+    mouseKeyHoldMs,
+    mouseScrollSensitivity,
+    mouseIgnoreScrollAcceleration,
+    mouseVerticalScrollIntervalMs,
+    mouseHorizontalScrollIntervalMs,
+    mouseEdgeWidth,
+  })
+  inputSettingsRef.current = {
+    showRecordingOverlay,
+    cmiotA15RecordingMode,
+    behaviors: runtimeBehaviors,
+    enabled,
+    mouseEnabled,
+    mouseKeyHoldMs,
+    mouseScrollSensitivity,
+    mouseIgnoreScrollAcceleration,
+    mouseVerticalScrollIntervalMs,
+    mouseHorizontalScrollIntervalMs,
+    mouseEdgeWidth,
+  }
 
   const processCliRequest = useCallback(
     async (request: CliRequest) => {
@@ -754,6 +814,7 @@ function AppController({
             ok: true,
             result: {
               schema: cliSchema,
+              applications: foregroundApplications,
               platform: platformName,
               appVersion: appPackage.version,
               triggers: ['click', 'doubleClick', 'longPress'],
@@ -836,7 +897,7 @@ function AppController({
                     .map(profile => ({
                       id: profile.id,
                       name: profile.name,
-                      active: profile.id === profileStateRef.current.activeProfileIds.mouse,
+                      active: profile.id === mouseGlobalProfileRef.current,
                     })),
                 ],
               ]),
@@ -944,137 +1005,51 @@ function AppController({
           })
           return
         }
-        const state = profileStateRef.current
-        const deviceId: DeviceId = 'mouse'
-        const device = devices.find(item => item.id === deviceId)!
-        const persistedProfiles = snapshotDeviceProfiles(state.profiles, state.activeProfileIds, state.behaviors)
-        const profileValue = typeof params.profile === 'string' ? params.profile.trim() : ''
-        const profile =
-          profileValue && profileValue !== 'active'
-            ? persistedProfiles.find(
-                item => item.deviceId === deviceId && (item.id === profileValue || item.name === profileValue),
-              )
-            : persistedProfiles.find(item => item.deviceId === deviceId && item.id === state.activeProfileIds[deviceId])
-        if (!profile) throw new CliOperationError('invalid_target', '找不到指定配置文件')
-        if (request.method === 'profile.list') {
-          await respond({
-            ok: true,
-            result: {
-              device: deviceId,
-              profiles: persistedProfiles
-                .filter(item => item.deviceId === deviceId)
-                .map(item => ({ id: item.id, name: item.name, active: item.id === state.activeProfileIds[deviceId] })),
-            },
-          })
-          return
-        }
-
-        if (!['mapping', 'shortcut'].some(prefix => request.method.startsWith(prefix + '.'))) {
-          throw new CliOperationError('invalid_arguments', '不支持的 CLI 操作：' + request.method)
-        }
-        const action = request.method.split('.')[1]
-        const inputValue = params.button ?? params.input
-        const inputId = action === 'list' && inputValue === undefined ? null : cliInputId(inputValue, deviceId)
-        const trigger = cliTrigger(params.trigger)
-        const targetSequence = inputId ? profile.behaviors[inputId][trigger] : null
-        const publicTarget = inputId ? cliPublicSequence(targetSequence!, platform) : null
-
-        if (action === 'list') {
-          await respond({
-            ok: true,
-            result: {
-              device: deviceId,
-              profile: { id: profile.id, name: profile.name, active: profile.id === state.activeProfileIds[deviceId] },
-              mappings: device.inputIds.flatMap(input =>
-                (['click', 'doubleClick', 'longPress'] as TriggerType[]).map(triggerName => ({
-                  button: input,
-                  trigger: triggerName,
-                  actions: cliPublicSequence(profile.behaviors[input][triggerName], platform),
-                })),
-              ),
-            },
-          })
-          return
-        }
-        if (!inputId || !targetSequence || !publicTarget) {
-          throw new CliOperationError('invalid_target', 'get、set、clear 必须指定 button 或 input')
-        }
-        if (action === 'get') {
-          await respond({
-            ok: true,
-            result: {
-              device: deviceId,
-              profile: { id: profile.id, name: profile.name },
-              button: inputId,
-              trigger,
-              actions: publicTarget,
-            },
-          })
-          return
-        }
-        if (action !== 'set' && action !== 'clear') {
-          throw new CliOperationError('invalid_arguments', '不支持的映射操作：' + action)
-        }
-        if (action === 'clear' && params.yes !== true) {
-          throw new CliOperationError('invalid_arguments', '清除映射需要 --yes')
-        }
-        const rawSequence =
-          action === 'clear'
-            ? []
-            : request.method.startsWith('shortcut.')
-              ? [{ type: 'shortcut', keys: params.keys }]
-              : (params.sequence ?? params.actions ?? (params.action === undefined ? undefined : [params.action]))
-        const normalized = normalizeCliSequence(rawSequence, platformName)
-        if (!normalized) throw new CliOperationError('invalid_behavior', '行为序列格式不正确，请参考 capabilities')
-        const nextSequence = normalized.map((item, index) => {
-          const behavior = cliBehaviorToBehavior(item, platformName, inputId + '-' + trigger + '-' + (index + 1))
-          if (!behavior) throw new CliOperationError('invalid_behavior', '行为格式不正确，请参考 capabilities')
-          return behavior
-        })
-        const before = publicTarget
-        const after = cliPublicSequence(nextSequence, platform)
-        if (params.dryRun === true) {
-          await respond({
-            ok: true,
-            result: {
-              dryRun: true,
-              device: deviceId,
-              profile: { id: profile.id, name: profile.name },
-              button: inputId,
-              trigger,
-              before,
-              after,
-            },
-          })
-          return
-        }
-        const nextProfile = {
-          ...profile,
-          behaviors: updateBehaviorList(profile.behaviors, inputId, trigger, () => nextSequence),
-        }
-        const nextProfiles = persistedProfiles.map(item => (item.id === profile.id ? nextProfile : item))
-        const isActive = profile.id === state.activeProfileIds[deviceId]
-        const nextBehaviors = isActive
-          ? mergeDeviceBehaviors(state.behaviors, deviceId, nextProfile.behaviors)
-          : state.behaviors
-        const nextState = { profiles: nextProfiles, activeProfileIds: state.activeProfileIds, behaviors: nextBehaviors }
-        profileStateRef.current = nextState
-        setProfiles(nextProfiles)
-        if (isActive) setBehaviors(nextBehaviors)
-        setAutoSaveState('saving')
-        if (isActive) await new Promise<void>(resolve => window.setTimeout(resolve, 0))
-        await respond({
-          ok: true,
-          result: {
-            applied: true,
-            device: deviceId,
-            profile: { id: profile.id, name: profile.name },
-            button: inputId,
-            trigger,
-            before,
-            after,
+        const result = await processMouseCliRequest(
+          request.method,
+          params,
+          {
+            ...profileStateRef.current,
+            globalProfileId: mouseGlobalProfileRef.current,
+            autoSwitching: mouseApplicationProfileSwitching,
           },
-        })
+          platformName,
+          async next => {
+            const edited = mouseApplicationProfile(next.profiles, mouseEditingApplicationId)?.id ?? next.globalProfileId
+            const editorIds = { ...next.activeProfileIds, mouse: edited }
+            const editorBehaviors = composeActiveProfileBehaviors(next.profiles, editorIds)
+            const runtimeId = effectiveMouseProfileId(
+              next.profiles,
+              next.globalProfileId,
+              next.autoSwitching,
+              foregroundApplications.current?.id,
+            )
+            const runtime = composeActiveProfileBehaviors(next.profiles, { ...editorIds, mouse: runtimeId })
+            window.localStorage.setItem(
+              profilesStorageKey,
+              JSON.stringify({
+                version: 2,
+                migrationReviewed: true,
+                profiles: next.profiles,
+                activeProfileIds: { ...editorIds, mouse: next.globalProfileId },
+                applicationProfileSwitching: { mouse: next.autoSwitching },
+              }),
+            )
+            profileStateRef.current = {
+              profiles: next.profiles,
+              activeProfileIds: editorIds,
+              behaviors: editorBehaviors,
+            }
+            mouseGlobalProfileRef.current = next.globalProfileId
+            setProfiles(next.profiles)
+            setActiveProfileIds(editorIds)
+            setMouseGlobalProfileId(next.globalProfileId)
+            setMouseApplicationProfileSwitching(next.autoSwitching)
+            dispatchBehaviorHistory({ type: 'replace', present: editorBehaviors })
+            await invoke('update_input_settings', { settings: { ...inputSettingsRef.current, behaviors: runtime } })
+          },
+        )
+        await respond({ ok: true, result })
       } catch (error) {
         const code = error instanceof CliOperationError || error instanceof InstanceCliError ? error.code : 'app_error'
         const message = error instanceof Error ? error.message : String(error)
@@ -1085,35 +1060,19 @@ function AppController({
         }
       }
     },
-    [deviceInstances.refresh, deviceInstances.update, enabled, mouseEnabled, platform, setBehaviors],
+    [
+      deviceInstances.refresh,
+      deviceInstances.update,
+      enabled,
+      mouseEnabled,
+      platform,
+      mouseApplicationProfileSwitching,
+      mouseEditingApplicationId,
+      foregroundApplications.current?.id,
+    ],
   )
 
-  useEffect(() => {
-    if (!nativeRuntime || !platformReady) return
-    let active = true
-    let polling = false
-    const poll = async () => {
-      if (!active || polling) return
-      polling = true
-      try {
-        const requests = await invoke<CliRequest[]>('cli_poll_requests')
-        for (const request of requests) {
-          if (!active) break
-          await processCliRequest(request)
-        }
-      } catch (error) {
-        logError('Failed to poll CLI requests', error)
-      } finally {
-        polling = false
-      }
-    }
-    void poll()
-    const timer = window.setInterval(() => void poll(), 120)
-    return () => {
-      active = false
-      window.clearInterval(timer)
-    }
-  }, [nativeRuntime, platformReady, processCliRequest])
+  useCliRequests(nativeRuntime && platformReady, processCliRequest)
 
   useEffect(() => {
     // Discard legacy coordinates so shipped artwork positions always take effect.
@@ -1177,7 +1136,7 @@ function AppController({
             settings: {
               showRecordingOverlay,
               cmiotA15RecordingMode,
-              behaviors,
+              behaviors: runtimeBehaviors,
               enabled,
               mouseEnabled,
               mouseKeyHoldMs,
@@ -1205,7 +1164,7 @@ function AppController({
     showRecordingOverlay,
     showRemoteKeyGrid,
     showMouseKeyGrid,
-    behaviors,
+    runtimeBehaviors,
     enabled,
     mouseEnabled,
     mouseKeyHoldMs,
@@ -1225,7 +1184,7 @@ function AppController({
         JSON.stringify({
           version: 2,
           migrationReviewed: true,
-          activeProfileIds,
+          activeProfileIds: { ...activeProfileIds, mouse: mouseGlobalProfileId },
           profiles: persistedProfiles,
           applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
         }),
@@ -1233,7 +1192,7 @@ function AppController({
     } catch (error) {
       logError('Failed to save mapping profiles', error)
     }
-  }, [profiles, activeProfileIds, behaviors, mouseApplicationProfileSwitching])
+  }, [profiles, activeProfileIds, behaviors, mouseApplicationProfileSwitching, mouseGlobalProfileId])
 
   useEffect(
     () => () => {
@@ -1505,10 +1464,16 @@ function AppController({
     showBehaviorToast('映射规则已导出')
   }
 
-  const createBackup = () =>
-    createDataBackup(
+  const createBackup = () => {
+    const current = profileStateRef.current
+    const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
+    const globalIds = { ...current.activeProfileIds, mouse: mouseGlobalProfileRef.current }
+    return createDataBackup(
       {
-        ...profileStateRef.current,
+        profiles: saved,
+        activeProfileIds: globalIds,
+        behaviors: composeActiveProfileBehaviors(saved, globalIds),
+        applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
         savedSequences: parseSavedSequences(window.localStorage.getItem(savedSequencesStorageKey)),
         settings: {
           showRecordingOverlay,
@@ -1529,6 +1494,7 @@ function AppController({
       },
       appPackage.version,
     )
+  }
 
   const restoreDataBackup = (backup: ParsedBackup) => {
     restoreBackupStorage(
@@ -2332,12 +2298,15 @@ function AppController({
 
   const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
   const selectMouseApplication = (applicationId: string) => {
-    setMouseEditingApplicationId(applicationId)
-    if (!applicationId) return
-    const bound = profiles.find(
-      profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(applicationId),
-    )
+    if (!applicationId) {
+      setMouseEditingApplicationId('')
+      switchMappingProfile(mouseGlobalProfileRef.current)
+      return
+    }
+    const current = profileStateRef.current
+    const bound = mouseApplicationProfile(current.profiles, applicationId)
     if (bound) {
+      setMouseEditingApplicationId(applicationId)
       switchMappingProfile(bound.id)
       return
     }
@@ -2346,27 +2315,40 @@ function AppController({
       ...foregroundApplications.recent.map(entry => entry.application),
     ].find(item => item?.id === applicationId)
     if (!application) return
-    setProfiles(items =>
-      items.map(item =>
-        item.id === activeProfileIds.mouse
-          ? { ...item, applicationIds: [...new Set([...(item.applicationIds ?? []), application.id])] }
-          : item,
-      ),
+    addMouseApplication(application)
+  }
+  const addMouseApplication = (application: Application) => {
+    const current = profileStateRef.current
+    const applicationId = application.id
+    const existing = mouseApplicationProfile(current.profiles, applicationId)
+    if (existing) {
+      setMouseEditingApplicationId(applicationId)
+      switchMappingProfile(existing.id)
+      return
+    }
+    const saved = snapshotDeviceProfiles(current.profiles, current.activeProfileIds, current.behaviors)
+    const global = saved.find(profile => profile.id === mouseGlobalProfileRef.current)!
+    const profile = createMappingProfile(
+      profileName(`${application.name} 配置`, deviceProfiles),
+      global.behaviors,
+      'mouse',
     )
+    const nextProfiles = bindMouseApplication([...saved, profile], applicationId, profile.id)
+    profileStateRef.current = { ...current, profiles: nextProfiles }
+    setProfiles(nextProfiles)
+    setMouseEditingApplicationId(applicationId)
+    if (!saved.some(item => item.deviceId === 'mouse' && item.applicationIds?.length))
+      setMouseApplicationProfileSwitching(true)
+    switchMappingProfile(profile.id)
   }
   const switchMouseProfile = (id: string) => {
     if (mouseEditingApplicationId) {
-      setProfiles(items =>
-        items.map(item => {
-          if (item.deviceId !== 'mouse') return item
-          const applicationIds = (item.applicationIds ?? []).filter(
-            applicationId => applicationId !== mouseEditingApplicationId,
-          )
-          return item.id === id
-            ? { ...item, applicationIds: [...applicationIds, mouseEditingApplicationId] }
-            : { ...item, applicationIds }
-        }),
-      )
+      const nextProfiles = bindMouseApplication(profileStateRef.current.profiles, mouseEditingApplicationId, id)
+      profileStateRef.current = { ...profileStateRef.current, profiles: nextProfiles }
+      setProfiles(nextProfiles)
+    } else {
+      mouseGlobalProfileRef.current = id
+      setMouseGlobalProfileId(id)
     }
     switchMappingProfile(id)
   }
@@ -2379,6 +2361,9 @@ function AppController({
           applications={foregroundApplications}
           editingApplicationId={mouseEditingApplicationId}
           autoSwitching={mouseApplicationProfileSwitching}
+          native={nativeRuntime}
+          platform={platform}
+          onAddApplication={addMouseApplication}
           onSelectApplication={selectMouseApplication}
           onSwitchProfile={switchMouseProfile}
           onToggle={() => setMouseApplicationProfileSwitching(value => !value)}
@@ -2386,6 +2371,21 @@ function AppController({
           onDuplicate={duplicateMappingProfile}
           onRename={renameMappingProfile}
           onDelete={deleteMappingProfile}
+          onRemoveApplication={
+            mouseEditingApplicationId
+              ? () => {
+                  const nextProfiles = bindMouseApplication(
+                    profileStateRef.current.profiles,
+                    mouseEditingApplicationId,
+                    null,
+                  )
+                  profileStateRef.current = { ...profileStateRef.current, profiles: nextProfiles }
+                  setProfiles(nextProfiles)
+                  setMouseEditingApplicationId('')
+                  switchMappingProfile(mouseGlobalProfileRef.current)
+                }
+              : undefined
+          }
         />
       )}
       {!isMouse && (
@@ -2413,7 +2413,7 @@ function AppController({
   }
   const mappingActions = (
     <div className="mapping-context-actions">
-      <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
+      <div className="mapping-history-actions" role="group" aria-label="行为编辑历史">
         <button
           type="button"
           className="behavior-history-button"
@@ -2548,11 +2548,7 @@ function AppController({
                 showRemoteKeyGrid={showRemoteKeyGrid}
                 showMouseKeyGrid={showMouseKeyGrid}
                 rowRefs={rowRefs}
-                toolbar={
-                  <div className="key-picker-actions">
-                    {mappingActions}
-                  </div>
-                }
+                toolbar={<div className="key-picker-actions">{mappingActions}</div>}
                 behaviorEditorProps={{
                   editorRef: behaviorEditorRef,
                   attention: behaviorEditorAttention,
@@ -2602,7 +2598,7 @@ function AppController({
                     platform={platform}
                     permissions={macPermissions}
                     mouseProfileName={
-                      profiles.find(profile => profile.id === activeProfileIds.mouse)?.name ?? '默认配置'
+                      profiles.find(profile => profile.id === runtimeMouseProfileId)?.name ?? '默认配置'
                     }
                     onPermissions={() => {
                       setSettingsSection('permissions')

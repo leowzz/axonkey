@@ -91,42 +91,74 @@ fn run(args: Vec<String>) -> Result<String, CliFailure> {
         "params": params,
     });
     let request_path = request_path(&id)?;
-    write_json_atomically(&request_path, &request)?;
-    launch_app(&request_path)?;
     let response_path = response_path(&id)?;
-    let response = wait_for_response(&response_path)?;
+    write_json_atomically(&request_path, &request)?;
+    let result = (|| {
+        launch_app(&request_path)?;
+        format_response(wait_for_response(&response_path)?)
+    })();
     let _ = fs::remove_file(&request_path);
     let _ = fs::remove_file(&response_path);
-    format_response(response)
+    result
 }
 
 fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
     let command = args.first().map(String::as_str).unwrap_or_default();
-    if command == "capabilities" {
-        return Ok(("capabilities".into(), Value::Object(Map::new())));
-    }
-    if command == "status" {
-        return Ok(("status".into(), Value::Object(Map::new())));
-    }
-    if !["shortcut", "mapping", "profile", "keymap", "device"].contains(&command) {
+    let standalone = command == "capabilities" || command == "status";
+    if !standalone && !["shortcut", "mapping", "profile", "keymap", "device"].contains(&command) {
         return Err(CliFailure::usage(format!(
             "未知命令“{command}”，可用命令：capabilities、status、device、keymap、shortcut、mapping、profile"
         )));
     }
-    let action = args
-        .get(1)
-        .ok_or_else(|| CliFailure::usage(format!("缺少 {command} 子命令")))?;
-    let operation = format!("{command}.{action}");
+    let action = if standalone {
+        ""
+    } else {
+        args.get(1)
+            .ok_or_else(|| CliFailure::usage(format!("缺少 {command} 子命令")))?
+            .as_str()
+    };
+    let valid_action = match command {
+        "shortcut" | "mapping" => ["list", "get", "set", "clear"].contains(&action),
+        "profile" => [
+            "list",
+            "create",
+            "activate",
+            "application-list",
+            "application-set",
+            "application-remove",
+            "application-toggle",
+        ]
+        .contains(&action),
+        "keymap" => action == "get",
+        "device" => action == "list",
+        _ => standalone,
+    };
+    if !valid_action {
+        return Err(CliFailure::usage(format!(
+            "不支持的子命令：{command} {action}"
+        )));
+    }
+    let operation = if standalone {
+        command.into()
+    } else {
+        format!("{command}.{action}")
+    };
     let mut params = Map::new();
-    let mut index = 2;
+    let mut index = if standalone { 1 } else { 2 };
     while index < args.len() {
         let flag = &args[index];
         if !flag.starts_with("--") {
             return Err(CliFailure::usage(format!("无法识别参数“{flag}”")));
         }
         let name = flag.trim_start_matches('-');
+        if standalone && name != "json" {
+            return Err(CliFailure::usage(format!("{command} 不支持参数“{flag}”")));
+        }
         if name == "yes" || name == "dry-run" || name == "json" || name == "on" || name == "off" {
             if name == "on" || name == "off" {
+                if params.contains_key("enabled") {
+                    return Err(CliFailure::usage("--on 和 --off 不能重复或同时使用"));
+                }
                 params.insert("enabled".into(), Value::Bool(name == "on"));
                 index += 1;
                 continue;
@@ -284,7 +316,13 @@ fn wait_for_response(path: &Path) -> Result<Value, CliFailure> {
 }
 
 fn format_response(response: Value) -> Result<String, CliFailure> {
-    let ok = response.get("ok").and_then(Value::as_bool).unwrap_or(true);
+    if response.get("protocol").and_then(Value::as_str) != Some(SCHEMA) {
+        return Err(CliFailure::runtime("CLI 响应协议无效"));
+    }
+    let ok = response
+        .get("ok")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| CliFailure::runtime("CLI 响应缺少有效的 ok 字段"))?;
     let output = serde_json::to_string_pretty(&response)
         .map_err(|error| CliFailure::runtime(format!("无法格式化 CLI 响应：{error}")))?;
     if ok {
@@ -438,6 +476,34 @@ mod tests {
                 .exit_code,
             2
         );
+    }
+
+    #[test]
+    fn rejects_unknown_subcommands_standalone_arguments_and_conflicting_toggles() {
+        for values in [
+            vec!["status", "--device", "mouse"],
+            vec!["capabilities", "garbage"],
+            vec!["profile", "delete"],
+            vec!["profile", "application-toggle", "--on", "--off"],
+        ] {
+            assert_eq!(parse_operation(&args(&values)).unwrap_err().exit_code, 2);
+        }
+        assert_eq!(
+            parse_operation(&args(&["status", "--json"])).unwrap().0,
+            "status"
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_response_instead_of_reporting_success() {
+        for response in [
+            serde_json::json!({}),
+            serde_json::json!({"protocol": SCHEMA}),
+            serde_json::json!({"protocol": "other", "ok": true}),
+            serde_json::json!({"protocol": SCHEMA, "ok": "false"}),
+        ] {
+            assert_eq!(format_response(response).unwrap_err().exit_code, 3);
+        }
     }
 
     #[test]

@@ -2374,7 +2374,7 @@ body.permission-helper-mode #root {
   margin: 0;
   accent-color: #176fcf;
 }
-.behavior-history-actions {
+.mapping-history-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;

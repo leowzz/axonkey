@@ -62,6 +62,28 @@ function workspace(instances = [initial()]) {
 
 const isError = code => error => error.code === code
 
+test('application CLI bindings validate required IDs, preserve metadata and support pause/remove', async () => {
+  const work = workspace()
+  for (const method of ['profile.application-set', 'profile.application-remove']) {
+    await assert.rejects(work.command(method, { profile: 'default', dryRun: true }), isError('invalid_arguments'))
+  }
+  const application = 'windows:c:\\apps\\example.exe'
+  await work.command('profile.application-set', {
+    application, applicationName: 'Example', applicationPath: 'C:\\Apps\\Example.exe', profile: 'default',
+  })
+  await work.command('profile.application-toggle', { enabled: false })
+  const created = await work.command('profile.create', { name: '第二套' })
+  await work.command('profile.application-set', { application, profile: created.profile.id })
+  const result = await work.command('profile.application-list')
+  assert.equal(result.applicationProfileSwitching, false)
+  assert.equal(result.applications[0].name, 'Example')
+  assert.equal(result.applications[0].path, 'C:\\Apps\\Example.exe')
+  assert.equal(result.applications[0].profile.id, created.profile.id)
+  await assert.rejects(work.command('profile.application-remove', { application: 'missing' }), isError('invalid_target'))
+  await work.command('profile.application-remove', { application })
+  assert.deepEqual((await work.command('profile.application-list')).applications, [])
+})
+
 test('lists actual instances, physical connection, runtime and active profile', async () => {
   const work = workspace([initial(), initial('remote-two')])
   const result = await work.command('device.list')
@@ -73,6 +95,16 @@ test('lists actual instances, physical connection, runtime and active profile', 
   assert.deepEqual(result.devices[0].activeProfile, { id: 'default', name: '默认配置', active: true })
   assert.equal(result.devices[1].connected, false)
   assert.equal(result.devices[1].state, 'disconnected')
+})
+
+test('device status exposes the effective application profile separately from the global selection', async () => {
+  const work = workspace()
+  const created = await work.command('profile.create', { name: '应用配置' })
+  await work.command('profile.activate', { profile: 'default' })
+  work.snapshot.runtime['remote-one'].effectiveProfileId = created.profile.id
+  const result = await work.command('device.list')
+  assert.equal(result.devices[0].activeProfile.id, 'default')
+  assert.equal(result.devices[0].effectiveProfile.id, created.profile.id)
 })
 
 test('requires an unambiguous instance and validates instance/kind selectors', () => {

@@ -17,6 +17,7 @@ export type BackupSettings = Omit<StoredSettings, 'behaviors'>
 export type BackupData = {
   profiles: MappingProfile[]
   activeProfileIds: Record<DeviceId, string>
+  applicationProfileSwitching?: { mouse: boolean }
   savedSequences: SavedSequence[]
   settings: BackupSettings
   audio: { gain: number; stretchCompensation: boolean }
@@ -29,7 +30,14 @@ export type BackupDocument = {
   exportedAt: string
   appVersion: string
   activeProfileIds: Record<DeviceId, string>
-  profiles: { id: string; name: string; deviceId: DeviceId; keys: Record<string, TriggerBehaviors> }[]
+  applicationProfileSwitching?: { mouse: boolean }
+  profiles: {
+    id: string
+    name: string
+    deviceId: DeviceId
+    keys: Record<string, TriggerBehaviors>
+    applicationIds?: string[]
+  }[]
   savedBehaviors: { id: string; name: string; behaviors: Behavior[] }[]
   settings: BackupSettings
   audio: BackupData['audio']
@@ -84,12 +92,16 @@ export function createDataBackup(
     exportedAt: date.toISOString(),
     appVersion,
     activeProfileIds: { ...data.activeProfileIds },
+    ...(data.applicationProfileSwitching
+      ? { applicationProfileSwitching: { ...data.applicationProfileSwitching } }
+      : {}),
     profiles: snapshotDeviceProfiles(data.profiles, data.activeProfileIds, data.behaviors).map(profile => {
       const device = devices.find(device => device.id === profile.deviceId)!
       return {
         id: profile.id,
         name: profile.name,
         deviceId: device.id,
+        ...(profile.applicationIds ? { applicationIds: [...profile.applicationIds] } : {}),
         keys: Object.fromEntries(
           device.inputIds.map(id => [device.id === 'mouse' ? id.replace(/^mouse\./, '') : id, profile.behaviors[id]]),
         ),
@@ -168,7 +180,8 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
         })
       }
     }
-    return { id, name, behaviors: map, deviceId: device.id }
+    const applicationIds = raw.applicationIds === undefined ? undefined : parseApplicationIds(raw.applicationIds)
+    return { id, name, behaviors: map, deviceId: device.id, ...(applicationIds ? { applicationIds } : {}) }
   })
   const activeIds = record(root.activeProfileIds)
   if (Object.keys(activeIds).some(id => !devices.some(device => device.id === id)))
@@ -207,6 +220,13 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
   return {
     profiles,
     activeProfileIds,
+    ...(root.applicationProfileSwitching === undefined
+      ? {}
+      : {
+          applicationProfileSwitching: {
+            mouse: boolean(record(root.applicationProfileSwitching).mouse, '应用自动切换'),
+          },
+        }),
     savedSequences,
     exportedAt,
     appVersion: string(root.appVersion, '应用版本'),
@@ -265,6 +285,9 @@ export function restoreBackupStorage(
       migrationReviewed: true,
       activeProfileIds: backup.activeProfileIds,
       profiles: backup.profiles,
+      ...(backup.applicationProfileSwitching
+        ? { applicationProfileSwitching: backup.applicationProfileSwitching }
+        : {}),
     }),
     [keys.settings]: JSON.stringify({ ...backup.settings, behaviors }),
     [keys.savedSequences]: JSON.stringify(backup.savedSequences),
@@ -276,4 +299,9 @@ export function restoreBackupStorage(
       settingsSection: 'backup',
     }),
   })
+}
+
+function parseApplicationIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 100) return invalid('应用关联列表不正确')
+  return value.map(id => string(id, '应用 ID'))
 }

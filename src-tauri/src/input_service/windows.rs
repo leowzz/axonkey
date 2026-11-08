@@ -2620,6 +2620,7 @@ mod tests {
                     super::super::super::ProfileDirection::Next,
                     true,
                 ),
+                "test-instance",
             )
             .unwrap();
             assert_eq!(switches.lock().unwrap().len(), 1);
@@ -2883,6 +2884,7 @@ mod tests {
                 super::super::ProfileDirection::Next,
                 true,
             ),
+            "test-instance",
         )
         .unwrap();
 
@@ -2985,16 +2987,28 @@ mod tests {
         MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
         MOUSE_BUTTON_EVENTS.with(|events| events.borrow_mut().clear());
 
-        emit_remote_output(&mut context, Output::Wheel(WheelDirection::Up)).unwrap();
-        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        emit_remote_output(
+            &mut context,
+            Output::Wheel(WheelDirection::Up),
+            "test-instance",
+        )
+        .unwrap();
+        emit_remote_output(
+            &mut context,
+            Output::CursorMove(WheelDirection::Right, 37),
+            "test-instance",
+        )
+        .unwrap();
         emit_remote_output(
             &mut context,
             Output::MouseClick(super::super::MouseButton::Left),
+            "test-instance",
         )
         .unwrap();
         emit_remote_output(
             &mut context,
             Output::MouseClick(super::super::MouseButton::Middle),
+            "test-instance",
         )
         .unwrap();
 
@@ -3014,6 +3028,7 @@ mod tests {
         emit_remote_output(
             &mut context,
             Output::MouseClick(super::super::MouseButton::Right),
+            "test-instance",
         )
         .unwrap();
         MOUSE_BUTTON_EVENTS.with(|events| assert_eq!(*events.borrow(), [(8, 0), (16, 0)]));
@@ -3026,7 +3041,12 @@ mod tests {
 
         let mut context = QuarborContext::default();
         MOUSE_MOVES.with(|moves| moves.borrow_mut().clear());
-        emit_remote_output(&mut context, Output::CursorMove(WheelDirection::Right, 37)).unwrap();
+        emit_remote_output(
+            &mut context,
+            Output::CursorMove(WheelDirection::Right, 37),
+            "test-instance",
+        )
+        .unwrap();
         MOUSE_MOVES.with(|moves| assert_eq!(*moves.borrow(), [(37, 0)]));
     }
 
@@ -3667,6 +3687,7 @@ mod tests {
                 super::super::ProfileDirection::Next,
                 true,
             ),
+            "test-instance",
         )
         .unwrap();
         super::super::profile_switch::REQUESTS.with(|requests| {

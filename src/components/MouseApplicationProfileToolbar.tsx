@@ -1,5 +1,7 @@
-import type { ForegroundApplications } from '../applications'
+import { useState } from 'react'
+import type { Application, ForegroundApplications } from '../applications'
 import type { MappingProfile } from '../appTypes'
+import { AddApplicationDialog } from './ApplicationProfileToolbar'
 import { ProfileManager } from './ProfileManager'
 import { SelectControl } from './SelectControl'
 import { SettingsHelp } from './SettingsHelp'
@@ -11,27 +13,36 @@ export function MouseApplicationProfileToolbar({
   applications,
   editingApplicationId,
   autoSwitching,
+  native,
+  platform,
   onSelectApplication,
+  onAddApplication,
   onSwitchProfile,
   onToggle,
   onCreate,
   onDuplicate,
   onRename,
   onDelete,
+  onRemoveApplication,
 }: {
   profiles: MappingProfile[]
   activeProfileId: string
   applications: ForegroundApplications
   editingApplicationId: string
   autoSwitching: boolean
+  native: boolean
+  platform: 'windows' | 'macos' | 'unsupported'
   onSelectApplication: (id: string) => void
+  onAddApplication: (application: Application) => void
   onSwitchProfile: (id: string) => void
   onToggle: () => void
   onCreate: () => void
   onDuplicate: () => void
   onRename: (name: string) => void
   onDelete: () => void
+  onRemoveApplication?: () => void
 }) {
+  const [adding, setAdding] = useState(false)
   const bindings = profiles.flatMap(profile =>
     (profile.applicationIds ?? []).map(applicationId => ({ profile, applicationId })),
   )
@@ -45,7 +56,14 @@ export function MouseApplicationProfileToolbar({
         <SelectControl
           aria-label="编辑应用"
           value={editingApplicationId}
-          onChange={event => onSelectApplication(event.target.value)}
+          onChange={event => {
+            const id = event.target.value
+            if (id === '__add_application__') {
+              setAdding(true)
+              return
+            }
+            onSelectApplication(id)
+          }}
         >
           <option value="">全局</option>
           {bindings.length > 0 && (
@@ -69,6 +87,7 @@ export function MouseApplicationProfileToolbar({
               ))}
             </optgroup>
           )}
+          <option value="__add_application__">＋ 添加应用…</option>
         </SelectControl>
       </label>
       <div className="application-edit-profile">
@@ -82,6 +101,7 @@ export function MouseApplicationProfileToolbar({
           onDuplicate={onDuplicate}
           onRename={onRename}
           onDelete={onDelete}
+          onRemoveApplication={onRemoveApplication}
         />
       </div>
       <div className="application-auto-switch">
@@ -92,6 +112,7 @@ export function MouseApplicationProfileToolbar({
           className={`switch ${autoSwitching ? 'on' : ''}`}
           aria-label="按前台应用自动切换配置"
           aria-checked={autoSwitching}
+          disabled={!applications.supported}
           onClick={onToggle}
         >
           <span />
@@ -100,6 +121,22 @@ export function MouseApplicationProfileToolbar({
           未关联的应用使用设备全局配置。已关联的应用中，按键切换会使用对应配置；关闭自动切换后不会删除应用关联。
         </SettingsHelp>
       </div>
+      {applications.error && (
+        <p className="application-profile-error" role="alert">
+          {applications.error}
+        </p>
+      )}
+      {adding && (
+        <AddApplicationDialog
+          native={native}
+          platform={platform}
+          onAdd={async application => {
+            onAddApplication(application)
+            setAdding(false)
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </div>
   )
 }

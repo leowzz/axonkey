@@ -6,6 +6,18 @@ import { parseBackupImport, migrateBackupImport } from '../src/backupImport.ts'
 import { createLegacyConfigExport, legacyProfilesKey } from '../src/configMigration.ts'
 import { composeActiveProfileBehaviors } from '../src/deviceProfiles.ts'
 
+test('backup round-trip retains mouse application bindings and a paused switch', () => {
+  const data = sampleData()
+  data.profiles.find(profile => profile.deviceId === 'mouse').applicationIds = ['windows:c:\\apps\\editor.exe']
+  data.applicationProfileSwitching = { mouse: false }
+  const restored = parseDataBackup(JSON.stringify(createDataBackup(data, '1.8.20')))
+  assert.deepEqual(restored.applicationProfileSwitching, { mouse: false })
+  assert.deepEqual(restored.profiles.find(profile => profile.deviceId === 'mouse').applicationIds, ['windows:c:\\apps\\editor.exe'])
+  const values = new Map()
+  restoreBackupStorage({ getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }, restored,
+    { profiles: 'profiles', settings: 'settings', savedSequences: 'saved', audio: 'audio', uiState: 'ui' }, {})
+  assert.deepEqual(JSON.parse(values.get('profiles')).applicationProfileSwitching, { mouse: false })
+})
 
 test('backup round-trip preserves ordered profiles, active live edits, saved behaviors and all portable settings with a device-first structure', () => {
   const original = sampleData()

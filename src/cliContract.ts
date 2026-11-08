@@ -221,6 +221,7 @@ export function canonicalizeCliKeyToken(value: unknown): string | null {
  */
 export function canonicalizeCliShortcutKeys(value: string | readonly string[]): string[] | null {
   if (typeof value !== 'string' && !Array.isArray(value)) return null
+  if (Array.isArray(value) && value.some(token => typeof token !== 'string')) return null
   const keys = splitKeys(value)
   if (!keys.length) return null
   const normalized = keys.map(canonicalizeCliKeyToken)
@@ -265,6 +266,7 @@ function enabled(value: Record<string, unknown>) {
 export function normalizeCliBehavior(value: unknown, platform: CliPlatform): CliBehavior | null {
   if (!isRecord(value) || typeof value.type !== 'string' || !cliBehaviorTypes.includes(value.type as CliBehaviorType))
     return null
+  if (value.enabled !== undefined && typeof value.enabled !== 'boolean') return null
   const isEnabled = enabled(value)
   switch (value.type as CliBehaviorType) {
     case 'key': {

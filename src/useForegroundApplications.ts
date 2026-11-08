@@ -18,7 +18,8 @@ export function useForegroundApplications(native: boolean) {
         const snapshot = await invoke<ForegroundApplications>('foreground_applications')
         if (active) setSnapshot(snapshot)
       } catch (error) {
-        if (active) setSnapshot(snapshot => ({ ...snapshot, error: `无法读取前台应用：${String(error)}` }))
+        if (active)
+          setSnapshot(snapshot => ({ ...snapshot, current: null, error: `无法读取前台应用：${String(error)}` }))
       }
       if (active) timer = setTimeout(() => void refresh(), 1000)
     }

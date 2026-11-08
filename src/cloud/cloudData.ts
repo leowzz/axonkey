@@ -41,8 +41,12 @@ export function createCloudSnapshot(
               .map(profile => ({
                 id: profile.id,
                 name: profile.name,
+                ...(profile.applicationIds ? { applicationIds: [...profile.applicationIds] } : {}),
                 behaviors: profile.keys,
               })),
+            ...(kind === 'mouse' && backup.applicationProfileSwitching
+              ? { appProfileSwitching: backup.applicationProfileSwitching.mouse }
+              : {}),
             ...(kind === 'rc003' ? { audioGainDb: backup.audio.gain } : {}),
             ...(kind === 'cmiotA15' ? { cmiotA15RecordingMode: backup.settings.cmiotA15RecordingMode } : {}),
           },
@@ -85,6 +89,8 @@ function portableInstance(instance: DeviceInstance): Record<string, unknown> {
     enabled: instance.enabled,
     profiles: instance.profiles,
     activeProfileId: instance.activeProfileId,
+    ...(instance.appProfileSwitching === undefined ? {} : { appProfileSwitching: instance.appProfileSwitching }),
+    ...(instance.applicationProfiles === undefined ? {} : { applicationProfiles: instance.applicationProfiles }),
     ...(instance.audioGainDb === undefined ? {} : { audioGainDb: instance.audioGainDb }),
     ...(instance.cmiotA15RecordingMode === undefined ? {} : { cmiotA15RecordingMode: instance.cmiotA15RecordingMode }),
   }
@@ -185,7 +191,13 @@ export function prepareCloudRestore(
       profiles.push(restored)
       imported++
       if (legacyKind)
-        backup.profiles.push({ id: restored.id, name: restored.name, deviceId: legacyKind, keys: restored.behaviors })
+        backup.profiles.push({
+          id: restored.id,
+          name: restored.name,
+          deviceId: legacyKind,
+          ...(restored.applicationIds ? { applicationIds: [...restored.applicationIds] } : {}),
+          keys: restored.behaviors,
+        })
     }
     if (target) {
       if (!target.activeProfileId) target.activeProfileId = target.profiles[0].id
@@ -217,6 +229,8 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
     !value.profiles.length
   )
     return fail()
+  if (value.appProfileSwitching !== undefined && typeof value.appProfileSwitching !== 'boolean') return fail()
+  if (value.applicationProfiles !== undefined && !Array.isArray(value.applicationProfiles)) return fail()
   if (
     value.audioGainDb !== undefined &&
     (!Number.isInteger(value.audioGainDb) || (value.audioGainDb as number) < -30 || (value.audioGainDb as number) > 30)
@@ -229,6 +243,7 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
   )
     return fail()
   const profileIds = new Set<string>()
+  const applicationIds = new Set<string>()
   for (const profile of value.profiles) {
     if (
       !profile ||
@@ -240,6 +255,11 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
       !profile.behaviors ||
       typeof profile.behaviors !== 'object' ||
       Array.isArray(profile.behaviors)
+    )
+      return fail()
+    if (
+      profile.applicationIds !== undefined &&
+      (!Array.isArray(profile.applicationIds) || profile.applicationIds.some((id: unknown) => typeof id !== 'string'))
     )
       return fail()
     profileIds.add(profile.id)
@@ -264,8 +284,20 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
     }
   }
   if (typeof value.activeProfileId !== 'string' || !profileIds.has(value.activeProfileId)) return fail()
+  if (Array.isArray(value.applicationProfiles)) {
+    if (value.applicationProfiles.length > 128) return fail()
+    for (const binding of value.applicationProfiles) {
+      if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return fail()
+      const application = (binding as Record<string, unknown>).application
+      const profileId = (binding as Record<string, unknown>).profileId
+      if (!application || typeof application !== 'object' || Array.isArray(application) || typeof profileId !== 'string' || !profileIds.has(profileId)) return fail()
+      const app = application as Record<string, unknown>
+      if (typeof app.id !== 'string' || !app.id || typeof app.name !== 'string' || !app.name.trim() || typeof app.path !== 'string' || !app.path.trim() || applicationIds.has(app.id)) return fail()
+      applicationIds.add(app.id)
+    }
+  }
   return portableInstance(value as DeviceInstance) as Pick<
     DeviceInstance,
-    'name' | 'enabled' | 'profiles' | 'activeProfileId' | 'audioGainDb' | 'cmiotA15RecordingMode'
+    'name' | 'enabled' | 'profiles' | 'activeProfileId' | 'appProfileSwitching' | 'applicationProfiles' | 'audioGainDb' | 'cmiotA15RecordingMode'
   >
 }
