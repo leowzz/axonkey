@@ -77,23 +77,16 @@ test('saving validates targets and rejects incomplete or mismatched edits', () =
   assert.equal(workflowBehaviorProperties(step('openWebsite'), behavior('openWebsite', { url: 'example.com' })).url, 'https://example.com/')
 })
 
-test('only a double click on the same node opens an editor', () => {
+test('clicking a behavior opens the inline editor while interrupted clicks do not', () => {
   const opened = []
-  const extension = createWorkflowStepInteraction((id) => opened.push(id))
-  let token = new SelectStepBehaviorEndToken('paste', 1000)
+  const extension = createWorkflowStepInteraction(id => opened.push(id))
+  const token = new SelectStepBehaviorEndToken('paste', 1000)
   const behavior = { onStart() {}, onMove() {}, onEnd() { return token } }
   const wrapped = extension.clickBehaviorWrapperExtension.create().wrap(behavior, {
     type: ClickCommandType.selectStep, component: { step: step('paste') },
   })
   assert.equal(wrapped.onEnd(false, null, null), token)
-  assert.deepEqual(opened, [])
-  const previous = token
-  token = new SelectStepBehaviorEndToken('paste', 1250)
-  assert.equal(wrapped.onEnd(false, null, previous), undefined)
   assert.deepEqual(opened, ['paste'])
-  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('openApp', 1200))
-  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('paste', 500))
-  wrapped.onEnd(false, null, new SelectStepBehaviorEndToken('paste', 1500))
   wrapped.onEnd(true, null, null)
   assert.deepEqual(opened, ['paste'])
 })

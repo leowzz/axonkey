@@ -76,7 +76,7 @@ test('A15 recording mode restores the saved choice and defaults legacy or invali
   }
 })
 
-test('device workspace header returns to devices and keeps the current profile controls beside it', () => {
+test('device workspace header groups back with the device name and keeps profile controls accessible', () => {
   let view, returns = 0, profileOpens = 0
   function Harness({ device }) {
     return React.createElement('main', null,
@@ -93,7 +93,8 @@ test('device workspace header returns to devices and keeps the current profile c
   assert.equal(view.root.findAllByType('select').length, 0)
   assert.equal(view.root.findAllByType('button').length, 2)
   assert.equal(view.root.findByType('h1').children.join(''), '小米遥控器')
-  assert.equal(back().parent, profile().parent)
+  assert.equal(back().parent.props.className, 'device-workspace-title')
+  assert.equal(profile().parent.props.className, 'device-workspace-controls')
   assert.equal(text(profile()), '遥控器配置')
   act(() => profile().props.onClick())
   assert.equal(profileOpens, 1)

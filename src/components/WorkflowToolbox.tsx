@@ -120,21 +120,23 @@ export function WorkflowToolbox({
 
   return (
     <>
-      <h2 className="workflow-toolbox-title">行为库</h2>
-      <div className="workflow-toolbox-search sqd-toolbox-filter">
-        <label className="workflow-toolbox-search-field">
-          <Search size={16} strokeWidth={1.8} aria-hidden="true" />
-          <input
-            className="sqd-toolbox-filter-input"
-            type="search"
-            aria-label={`搜索${sourceLabel}行为`}
-            placeholder={`搜索${sourceLabel}行为`}
-            maxLength={64}
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-          />
-        </label>
-      </div>
+      <header className="workflow-toolbox-heading">
+        <h2 className="workflow-toolbox-title">行为库</h2>
+        <div className="workflow-toolbox-search sqd-toolbox-filter">
+          <label className="workflow-toolbox-search-field">
+            <Search size={16} strokeWidth={1.8} aria-hidden="true" />
+            <input
+              className="sqd-toolbox-filter-input"
+              type="search"
+              aria-label={`搜索${sourceLabel}行为`}
+              placeholder={`搜索${sourceLabel}行为`}
+              maxLength={64}
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+            />
+          </label>
+        </div>
+      </header>
       <nav className="workflow-toolbox-tabs" aria-label="行为来源">
         {(account
           ? [

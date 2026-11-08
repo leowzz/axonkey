@@ -1930,12 +1930,13 @@ body.permission-helper-mode #root {
   z-index: 4;
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 16px;
   min-width: 0;
   padding: 10px 16px;
 }
+.device-workspace-title,
 .device-workspace-controls {
   display: flex;
   align-items: center;
@@ -1943,6 +1944,7 @@ body.permission-helper-mode #root {
   min-width: 0;
 }
 .device-workspace-controls > .profile-manager {
+  width: 240px;
   flex: 0 1 240px;
 }
 .device-workspace-controls .profile-manager > summary > svg {

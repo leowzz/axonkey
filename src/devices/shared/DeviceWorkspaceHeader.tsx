@@ -16,14 +16,14 @@ export function DeviceWorkspaceHeader({
 }: DeviceWorkspaceHeaderProps) {
   return (
     <header className="device-workspace-header">
-      <div className="device-workspace-controls">
+      <div className="device-workspace-title">
         <button type="button" className="device-workspace-back" aria-label="返回我的设备" onClick={onBackToDevices}>
           <ArrowLeft size={15} />
           我的设备
         </button>
-        {profileControls}
+        <h1>{deviceName}</h1>
       </div>
-      <h1>{deviceName}</h1>
+      <div className="device-workspace-controls">{profileControls}</div>
       {onOpenSettings ? (
         <button
           type="button"

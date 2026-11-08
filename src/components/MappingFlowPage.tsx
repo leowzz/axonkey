@@ -4,9 +4,9 @@ import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
 import { DeviceStatusCard } from './DeviceRail'
 import { DeviceWorkspaceHeader } from '../devices/shared/DeviceWorkspaceHeader'
-import { MappingKeyGrid } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './MouseMapping'
 import type { MappingPageProps } from './MappingPage'
+import { defaultWorkflowSplitRatio } from './workflowSplitLayout'
 import { WorkflowAxonkey } from './WorkflowAxonkey'
 
 export function MappingFlowPage({
@@ -29,12 +29,11 @@ export function MappingFlowPage({
   onRequestProfileSwitch,
   platform,
   toolbar,
-  showRemoteKeyGrid,
   showMouseKeyGrid,
-  rowRefs,
   behaviorEditorProps,
   remoteView,
 }: MappingPageProps) {
+  const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
   return (
     <div className="mapping-page mapping-flow-page">
@@ -79,44 +78,40 @@ export function MappingFlowPage({
         </aside>
 
         <section ref={mappingMainRef} className="mapping-main" aria-label="设备映射流程图工作区">
-          <section className="key-picker" aria-labelledby="key-picker-title">
-            <div className="key-picker-head">
-              <div className="key-picker-heading">
-                <h2 id="key-picker-title">{isMouse ? behaviorEditorProps.button.label : '按键'}</h2>
-                {!isMouse && showRemoteKeyGrid && (
-                  <MappingKeyGrid
-                    platform={platform}
-                    buttons={editableButtons}
-                    behaviors={behaviors}
-                    activeId={activeId}
-                    pressedId={pressedId}
-                    rowRefs={rowRefs}
-                    onSelect={buttonId => selectBehaviorTarget(buttonId, 'click')}
-                  />
-                )}
-              </div>
-              {toolbar}
-            </div>
-            {isMouse && showMouseKeyGrid && (
-              <MouseControlPicker
-                activeId={selectedBehavior.buttonId}
-                onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)}
-              />
-            )}
-          </section>
-          {isMouse && (
-            <div className="mouse-flow-context">
-              <MouseScopeSelector
-                behaviors={behaviors}
-                activeId={selectedBehavior.buttonId}
-                onSelect={id => selectBehaviorTarget(id, 'click', false)}
-              />
-              {behaviorEditorProps.button.inheritDefault && (
-                <span className="mouse-flow-inheritance">未配置的触发方式沿用任意位置</span>
-              )}
-            </div>
-          )}
           <WorkflowAxonkey
+            header={
+              <>
+                {' '}
+                <section className="key-picker" aria-labelledby="key-picker-title">
+                  <div className="key-picker-head">
+                    <div className="key-picker-heading">
+                      <h2 id="key-picker-title">{behaviorEditorProps.button.label}</h2>
+                    </div>
+                    {toolbar}
+                  </div>
+                  {isMouse && showMouseKeyGrid && (
+                    <MouseControlPicker
+                      activeId={selectedBehavior.buttonId}
+                      onSelect={(id, trigger) => selectBehaviorTarget(id, trigger, false)}
+                    />
+                  )}
+                </section>
+                {isMouse && (
+                  <div className="mouse-flow-context">
+                    <MouseScopeSelector
+                      behaviors={behaviors}
+                      activeId={selectedBehavior.buttonId}
+                      onSelect={id => selectBehaviorTarget(id, 'click', false)}
+                    />
+                    {behaviorEditorProps.button.inheritDefault && (
+                      <span className="mouse-flow-inheritance">未配置的触发方式沿用任意位置</span>
+                    )}
+                  </div>
+                )}{' '}
+              </>
+            }
+            splitRatio={splitRatio}
+            onSplitRatioChange={setSplitRatio}
             key={selectedBehavior.buttonId}
             platform={platform}
             button={behaviorEditorProps.button}

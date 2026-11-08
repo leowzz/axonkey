@@ -55,7 +55,7 @@ import {
 } from '../appConfig'
 import type { AdvancedBehaviorType, CommonBehaviorPreset, Platform, MappingInput } from '../appTypes'
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 
 function mappingTriggerLabel(button: MappingInput<string>, trigger: TriggerType) {
   return [button.contextLabel, button.triggerLabel ?? triggerLabels[trigger]].filter(Boolean).join(' · ')
@@ -621,6 +621,7 @@ type BehaviorEditDialogProps = {
   behavior: Behavior
   capturing: boolean
   draft?: boolean
+  inline?: boolean
   title?: string
   delayStep?: number
   children?: ReactNode
@@ -686,6 +687,7 @@ export function BehaviorEditDialog({
   behavior: savedBehavior,
   capturing,
   draft = false,
+  inline = false,
   title,
   delayStep = 10,
   actionChoices,
@@ -699,6 +701,7 @@ export function BehaviorEditDialog({
   onClose,
   onSave,
 }: BehaviorEditDialogProps) {
+  const titleId = useId()
   // Existing behaviors autosave; keep an incomplete manual selection local.
   const [emptyShortcut, setEmptyShortcut] = useState(false)
   const [launchTarget, setLaunchTarget] = useState(
@@ -713,6 +716,7 @@ export function BehaviorEditDialog({
   const [applicationDragOver, setApplicationDragOver] = useState(false)
   const dialogRef = useRef<HTMLElement>(null)
   useEffect(() => {
+    if (inline) return
     if (actionChoices || (savedBehavior.type !== 'key' && savedBehavior.type !== 'shortcut')) return
     onStartCapture()
     dialogRef.current?.querySelector<HTMLButtonElement>('.record-key-button')?.focus()
@@ -864,18 +868,18 @@ export function BehaviorEditDialog({
           : true
   return (
     <div
-      className="behavior-dialog-backdrop"
+      className={inline ? 'behavior-inline-container' : 'behavior-dialog-backdrop'}
       role="presentation"
       onMouseDown={event => {
-        if (event.target === event.currentTarget) onClose()
+        if (!inline && event.target === event.currentTarget) onClose()
       }}
     >
       <section
         ref={dialogRef}
         className={`behavior-dialog behavior-edit-form${applicationDragOver ? ' application-drag-over' : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="behavior-dialog-title"
+        role={inline ? 'region' : 'dialog'}
+        aria-modal={inline ? undefined : true}
+        aria-labelledby={titleId}
         onKeyDown={event => {
           if (capturing) onCaptureKey(behavior, event)
         }}
@@ -885,9 +889,7 @@ export function BehaviorEditDialog({
             <span className="section-kicker">
               {button.label} · {mappingTriggerLabel(button, trigger)}
             </span>
-            <h2 id="behavior-dialog-title">
-              {title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}
-            </h2>
+            <h2 id={titleId}>{title ?? `${draft ? '添加' : '编辑'}${behaviorTypeLabels[behavior.type]}行为`}</h2>
           </div>
           <button type="button" className="dialog-close" aria-label="关闭编辑" onClick={onClose}>
             <X size={17} />
@@ -920,7 +922,7 @@ export function BehaviorEditDialog({
                 </div>
                 <button
                   type="button"
-                  autoFocus={draft && capturing}
+                  autoFocus={(draft || inline) && capturing}
                   className={`record-key-button ${capturing ? 'capturing' : ''}`}
                   onClick={
                     capturing
@@ -1303,32 +1305,39 @@ export function BehaviorEditDialog({
           )}
           {children}
         </div>
-        <footer className="behavior-dialog-actions">
-          {((launchBehavior && !draft && !normalizedTarget) || emptyShortcut || !draft) && (
-            <span>
-              <Check size={13} />{' '}
-              {launchBehavior && !normalizedTarget
-                ? '地址未完成，关闭保留原配置'
-                : emptyShortcut
-                  ? '请选择至少一个按键，关闭保留原配置'
-                  : '更改会自动保存'}
-            </span>
-          )}
-          {draft ? (
-            <div className="behavior-dialog-buttons">
-              <button type="button" className="dialog-secondary" onClick={onClose}>
-                取消
+        {(!inline || emptyShortcut || (launchBehavior && !normalizedTarget)) && (
+          <footer className="behavior-dialog-actions">
+            {((launchBehavior && !draft && !normalizedTarget) || emptyShortcut || !draft) && (
+              <span>
+                <Check size={13} />{' '}
+                {launchBehavior && !normalizedTarget
+                  ? '地址未完成，关闭保留原配置'
+                  : emptyShortcut
+                    ? '请选择至少一个按键，关闭保留原配置'
+                    : '更改会自动保存'}
+              </span>
+            )}
+            {draft ? (
+              <div className="behavior-dialog-buttons">
+                <button type="button" className="dialog-secondary" onClick={onClose}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className={`button ${saveTone ?? 'primary'}`}
+                  disabled={!canSave}
+                  onClick={onSave}
+                >
+                  {saveLabel}
+                </button>
+              </div>
+            ) : !inline ? (
+              <button type="button" className="button primary" onClick={onClose}>
+                关闭
               </button>
-              <button type="button" className={`button ${saveTone ?? 'primary'}`} disabled={!canSave} onClick={onSave}>
-                {saveLabel}
-              </button>
-            </div>
-          ) : (
-            <button type="button" className="button primary" onClick={onClose}>
-              关闭
-            </button>
-          )}
-        </footer>
+            ) : null}
+          </footer>
+        )}
       </section>
     </div>
   )

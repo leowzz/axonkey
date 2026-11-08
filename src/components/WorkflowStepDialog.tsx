@@ -11,6 +11,7 @@ export type WorkflowStepEdit = {
   trigger: TriggerType
   behavior: Behavior
   onSave: (behavior: Behavior) => void
+  onDelete?: () => void
 }
 
 export function WorkflowStepDialog({
@@ -22,6 +23,7 @@ export function WorkflowStepDialog({
   title,
   saveLabel,
   saveTone,
+  inline = false,
 }: {
   edit: WorkflowStepEdit
   platform: Platform
@@ -31,13 +33,20 @@ export function WorkflowStepDialog({
   title?: string
   saveLabel?: string
   saveTone?: 'warning'
+  inline?: boolean
 }) {
   const [behavior, setBehavior] = useState(edit.behavior)
   const [capturing, setCapturing] = useState(edit.behavior.type === 'shortcut' && edit.behavior.keys.length === 0)
   const ref = useRef<HTMLDivElement>(null)
   const choiceGroup = workflowActionChoiceGroup(edit.behavior)
 
+  const updateBehavior = (next: Behavior) => {
+    setBehavior(next)
+    if (inline) edit.onSave(next)
+  }
+
   useEffect(() => {
+    if (inline) return
     const app = document.getElementById('root')
     const wasInert = app?.inert ?? false
     const previousFocus = document.activeElement
@@ -58,12 +67,12 @@ export function WorkflowStepDialog({
       )
         previousFocus.focus()
     }
-  }, [edit.stepId])
+  }, [edit.stepId, inline])
 
   return (
     <div
       ref={ref}
-      className="mapping-active workflow-step-editor"
+      className={`mapping-active workflow-step-editor${inline ? ' workflow-step-inline' : ''}`}
       onKeyDownCapture={event => {
         if (capturing) return
         if (event.key === 'Escape') {
@@ -71,7 +80,7 @@ export function WorkflowStepDialog({
           event.stopPropagation()
           onClose()
         }
-        if (event.key !== 'Tab') return
+        if (inline || event.key !== 'Tab') return
         const elements = Array.from(
           ref.current?.querySelectorAll<HTMLElement>(
             'button:not(:disabled), input:not(:disabled), textarea, select:not(:disabled), [tabindex="0"]',
@@ -93,12 +102,29 @@ export function WorkflowStepDialog({
         button={button}
         trigger={edit.trigger}
         behavior={behavior}
-        draft
+        draft={!inline}
+        inline={inline}
         delayStep={1}
-        title={title ?? `编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
+        title={
+          title ??
+          (inline
+            ? (choiceGroup?.title ?? behaviorTypeLabels[behavior.type])
+            : `编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`)
+        }
         saveLabel={saveLabel}
         saveTone={saveTone}
-        children={children}
+        children={
+          inline && edit.onDelete ? (
+            <>
+              {children}
+              <button type="button" className="workflow-inline-delete" onClick={edit.onDelete}>
+                删除行为
+              </button>
+            </>
+          ) : (
+            children
+          )
+        }
         actionChoices={
           choiceGroup
             ? {
@@ -124,19 +150,17 @@ export function WorkflowStepDialog({
           event.stopPropagation()
           const captured = formatCapturedKey(event)
           if (!captured) return
-          setBehavior({
+          updateBehavior({
             ...behaviorFromCapturedKey(captured, behavior.id),
             enabled: behavior.enabled,
             ...(behavior.libraryItemId ? { libraryItemId: behavior.libraryItemId } : {}),
           })
           setCapturing(false)
         }}
-        onUpdate={update =>
-          setBehavior(current => {
-            const next = update(current)
-            return next.type === 'delay' ? { ...next, ms: Math.round(next.ms) } : next
-          })
-        }
+        onUpdate={update => {
+          const next = update(behavior)
+          updateBehavior(next.type === 'delay' ? { ...next, ms: Math.round(next.ms) } : next)
+        }}
         onClose={onClose}
         onSave={() => edit.onSave(behavior)}
       />

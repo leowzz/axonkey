@@ -1,5 +1,6 @@
 import { recordLibraryAdditions } from '../cloud/libraryUsage'
 import { useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
 import type { DesignerApi, Step, StepDefinition, ToolboxGroupConfiguration } from 'sequential-workflow-designer'
@@ -45,6 +46,7 @@ import { bindWorkflowSelection } from './workflowSelection'
 import { createWorkflowDraggedSteps } from './WorkflowDraggedSteps'
 import { bindWorkflowTrash } from './workflowTrash'
 import { workflowLaneLayout } from './workflowLaneLayout'
+import { WorkflowSplitPane } from './WorkflowSplitPane'
 import 'sequential-workflow-designer/css/designer.css'
 import 'sequential-workflow-designer/css/designer-light.css'
 import './WorkflowAxonkey.css'
@@ -58,6 +60,9 @@ const translations: Record<string, string> = {
 }
 
 type WorkflowAxonkeyProps<Id extends string> = {
+  header?: ReactNode
+  splitRatio: number
+  onSplitRatioChange: (ratio: number) => void
   platform: Platform
   button: MappingInput<Id>
   sequences: TriggerBehaviors
@@ -81,6 +86,9 @@ type WorkflowAction = {
 }
 
 export function WorkflowAxonkey<Id extends string = InputId>({
+  header,
+  splitRatio,
+  onSplitRatioChange,
   platform,
   button,
   sequences,
@@ -237,6 +245,16 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         stepId,
         trigger: editor.trigger,
         behavior: editor.behavior,
+        onDelete: () => {
+          const current = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
+          if (!active || !current || api.editor.isReadonly()) return
+          const branch = workflowBranches(api.editor.getDefinition())[current.trigger]
+          if (isWorkflowStepLocked(current.step, branch)) return
+          branch.splice(branch.indexOf(current.step), 1)
+          designer.clearSelectedStep()
+          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+          setEditingStep(null)
+        },
         onSave: behavior => {
           if (!active) return
           const current = findWorkflowStepEditor(api.editor.getDefinition(), stepId)
@@ -266,7 +284,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           if (libraryItemId) current.step.properties.libraryItemId = libraryItemId
           if (pendingLibraryAddition) current.step.properties.pendingLibraryAddition = pendingLibraryAddition
           api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-          setEditingStep(null)
+          setEditingStep(current => (current?.stepId === stepId ? { ...current, behavior: savedBehavior } : current))
         },
       })
     }
@@ -447,6 +465,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
     let ready = false
     designer.onReady.subscribe(() => {
       ready = true
+      const first = triggersRef.current
+        .flatMap(trigger => workflowBranches(designer.getDefinition())[trigger.id])
+        .find(isEditableWorkflowStep)
+      if (first) {
+        designer.selectStepById(first.id)
+        openEditor(first.id)
+      }
     })
     const persist = (next: TriggerBehaviors) => {
       const signature = workflowSequenceSignature(next)
@@ -499,6 +524,11 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         branch.splice(0, branch.length, ...nodes)
       } else branch.splice(index, 1, ...nodes)
       api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+      const first = nodes.find(isEditableWorkflowStep)
+      if (first) {
+        designer.selectStepById(first.id)
+        openEditor(first.id)
+      }
     }
     designer.onDefinitionChanged.subscribe(event => {
       if (!active) return
@@ -516,6 +546,12 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       }
       const next = workflowToBehaviors(current)
       if (next) persist(next)
+      setEditingStep(edit => {
+        if (!edit) return null
+        const currentEdit = findWorkflowStepEditor(current, edit.stepId)
+        if (!currentEdit || isWorkflowLaneDisabled(workflowBranches(current)[currentEdit.trigger])) return null
+        return currentEdit.trigger === edit.trigger ? edit : { ...edit, trigger: currentEdit.trigger }
+      })
     })
     addStepRef.current = (step, trigger) => {
       const api = workflowApi
@@ -621,31 +657,55 @@ export function WorkflowAxonkey<Id extends string = InputId>({
     // explicit delete action, so an accidental click on the close icon cannot
     // discard the node from the workflow.
     setEditingStep(null)
+    if (editingStep) {
+      canvasRef.current?.querySelector<SVGElement>(`[data-step-id="${CSS.escape(editingStep.stepId)}"]`)?.focus()
+    }
   }
 
   return (
     <section ref={workflowRef} className="workflow-axonkey" aria-label={`${inputLabel} · 行为流程图`}>
-      <div className="workflow-canvas-panel">
-        <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
-        <div className="workflow-canvas-footer">
-          {button.icon === 'mic' && (
-            <div className="workflow-voice-guidance">
-              <p>要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。</p>
-              <p>这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。</p>
+      <WorkflowSplitPane
+        header={header}
+        ratio={splitRatio}
+        onRatioChange={onSplitRatioChange}
+        canvas={
+          <>
+            <div ref={canvasRef} className="workflow-axonkey-canvas" tabIndex={-1} aria-label="行为流程图画布" />
+            <div className="workflow-canvas-footer">
+              {button.icon === 'mic' && (
+                <div className="workflow-voice-guidance">
+                  <p>要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。</p>
+                  <p>这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。</p>
+                </div>
+              )}
+              <button
+                ref={trashRef}
+                type="button"
+                className="workflow-trash"
+                aria-label="垃圾桶，拖入行为即可删除"
+                tabIndex={-1}
+              >
+                <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
+                <span>拖入删除</span>
+              </button>
             </div>
-          )}
-          <button
-            ref={trashRef}
-            type="button"
-            className="workflow-trash"
-            aria-label="垃圾桶，拖入行为即可删除"
-            tabIndex={-1}
-          >
-            <Trash2 size={21} strokeWidth={1.8} aria-hidden="true" />
-            <span>拖入删除</span>
-          </button>
-        </div>
-      </div>
+          </>
+        }
+        editor={
+          editingStep ? (
+            <WorkflowStepDialog
+              key={editingStep.stepId}
+              edit={editingStep}
+              platform={platform}
+              button={button}
+              onClose={closeEditor}
+              inline
+            />
+          ) : (
+            <p className="workflow-editor-empty">选择泳道中的行为进行编辑</p>
+          )
+        }
+      />
       {toolbox &&
         createPortal(
           <WorkflowToolbox
@@ -728,17 +788,6 @@ export function WorkflowAxonkey<Id extends string = InputId>({
               setSequenceDialog(null)
               setLaneStatus('当前泳道序列已替换，可撤销')
             }}
-          />,
-          document.body,
-        )}
-      {editingStep &&
-        createPortal(
-          <WorkflowStepDialog
-            key={editingStep.stepId}
-            edit={editingStep}
-            platform={platform}
-            button={button}
-            onClose={closeEditor}
           />,
           document.body,
         )}

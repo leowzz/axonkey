@@ -39,6 +39,7 @@ const Designer = {
       onReady: { subscribe() {} }, onDefinitionChanged: { subscribe(callback) { listeners.push(callback) } },
       onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
       onIsDraggingChanged: new library.SimpleEvent(),
+      selectStepById(id) { this.onSelectedStepIdChanged.emit(id) },
       getDefinition: () => definition,
       isDragging: () => false, clearSelectedStep() { this.onSelectedStepIdChanged.emit(null) }, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
     }
@@ -75,6 +76,7 @@ function load(file) {
     } }
     if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
+    if (name === './WorkflowSplitPane') return { WorkflowSplitPane: props => React.createElement(React.Fragment, null, props.header, props.canvas, props.editor) }
     if (name === './WorkflowToolbox') return { WorkflowToolbox: MockToolbox }
     if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
@@ -90,7 +92,7 @@ function load(file) {
     return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
   }
   vm.runInNewContext(source, {
-    module, exports: module.exports, require: localRequire, URL, console, crypto: globalThis.crypto, structuredClone,
+    module, exports: module.exports, require: localRequire, URL, console, CSS: { escape: value => value }, crypto: globalThis.crypto, structuredClone,
     window: { __TAURI_INTERNALS__: {}, addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
       getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
@@ -118,7 +120,7 @@ const render = async (sequences = empty(), options = {}, account = null) => {
   const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))
   await act(async () => { view = Renderer.create(element(), { createNodeMock: () => {
     const handlers = new Map()
-    return { handlers, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
+    return { handlers, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
     view, writes, requests, current: () => instances.at(-1),
@@ -152,7 +154,7 @@ test('switching mouse edges flushes pending edits to the original edge and resto
       }))
   }
   await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({
-    querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} },
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} },
   }) }) })
   const switchEdge = async scope => act(async () => view.root.findByProps({ className: `mouse-scope-option mouse-scope-${scope}` }).props.onClick())
   try {
@@ -242,7 +244,8 @@ test('workflow changes autosave once, and the save echo retains the designer and
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'tv')
     assert.equal(app.writes[0][1].click[0].ms, 300)
-    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 0)
+    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 1, 'new behavior opens in the inline editor')
+    assert.equal(app.view.root.findByType('workflow-dialog').props.inline, true)
     await app.update({ sequences: app.writes.at(-1)[1] })
     assert.equal(app.current(), instance)
     assert.equal(instance.destroyed, false)
@@ -847,4 +850,32 @@ test('addition increments preserve duplicate IDs and stay within the native comm
   assert.deepEqual(libraryAdditions.slice(before).map(items => items.length), [100, 100, 5])
   assert.equal(libraryAdditions.slice(before).flat().length, 205)
   assert.ok(libraryAdditions.slice(before).flat().every(item => item === source))
+})
+
+
+test('inline edits autosave without closing and explicit deletion removes the behavior', async () => {
+  const app = await render({ ...empty(), click: [delay(100)] })
+  try {
+    let editor = await openContextEditor(app, 'click')
+    assert.equal(editor.props.inline, true)
+    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, ms: 401 }))
+    editor = app.view.root.findByType('workflow-dialog')
+    assert.equal(editor.props.edit.behavior.ms, 401)
+    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, ms: 402 }))
+    assert.equal(app.writes.at(-1)[1].click[0].ms, 402)
+    await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onDelete())
+    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 0)
+    assert.deepEqual(app.writes.at(-1)[1].click, [])
+  } finally { await app.unmount() }
+})
+
+test('incomplete inline values preserve the existing mapping and keep the editor open', async () => {
+  const app = await render({ ...empty(), click: [{ id: 'text', type: 'paste', enabled: true, text: '原内容' }] })
+  try {
+    const editor = await openContextEditor(app, 'click')
+    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, text: ' ' }))
+    assert.equal(app.writes.length, 0)
+    assert.equal(branches(app.current()).click[0].properties.text, '原内容')
+    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 1)
+  } finally { await app.unmount() }
 })

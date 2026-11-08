@@ -17,6 +17,7 @@ import { BatteryIndicator } from '../../components/BatteryIndicator'
 import { DeviceRecordingStatus } from '../../components/DeviceRail'
 import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
+import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
@@ -67,6 +68,7 @@ export function InstanceWorkspace({
   batteryLevel,
 }: Props) {
   const pkg = packageFor(instance.kind)
+  const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [selected, setSelected] = useState<string>(() =>
     getStoredDeviceInput(
       instance.id,
@@ -380,21 +382,6 @@ export function InstanceWorkspace({
             </div>
           )}
         <aside className="mapping-device-rail panel-surface">
-          {(instance.kind === 'rc003' ||
-            instance.kind === 'cmiotA15' ||
-            instance.kind === 'xmBt29' ||
-            instance.kind === 'rc313' ||
-            instance.kind === 'obeRcuR5') && (
-            <DeviceRecordingStatus
-              recording={native && !!status?.recording}
-              onToggle={
-                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
-                  ? () => void toggleRecording()
-                  : undefined
-              }
-              disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
-            />
-          )}
           <section className="managed-instance-status" aria-label="设备状态">
             <div>
               <span className={ready ? 'ready' : status?.error ? 'warning' : ''}>
@@ -441,6 +428,21 @@ export function InstanceWorkspace({
             </div>
           </div>
           {(instance.kind === 'rc003' ||
+            instance.kind === 'cmiotA15' ||
+            instance.kind === 'xmBt29' ||
+            instance.kind === 'rc313' ||
+            instance.kind === 'obeRcuR5') && (
+            <DeviceRecordingStatus
+              recording={native && !!status?.recording}
+              onToggle={
+                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
+                  ? () => void toggleRecording()
+                  : undefined
+              }
+              disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
+            />
+          )}
+          {(instance.kind === 'rc003' ||
             ((instance.kind === 'cmiotA15' ||
               instance.kind === 'xmBt29' ||
               instance.kind === 'rc313' ||
@@ -486,28 +488,32 @@ export function InstanceWorkspace({
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
           )}
-          <section className="key-picker">
-            <div className="key-picker-head">
-              <h2>{selectedInput.label}</h2>
-            </div>
-            {instance.kind === 'xboxBluetooth' && (
-              <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
-                {triggerTypes.map(trigger => (
-                  <button
-                    type="button"
-                    key={trigger}
-                    className={`workflow-trigger-${trigger}`}
-                    aria-pressed={controllerTrigger === trigger}
-                    onClick={() => setControllerTrigger(trigger)}
-                  >
-                    {triggerLabels[trigger]}
-                    <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
           <WorkflowAxonkey
+            header={
+              <section className="key-picker">
+                <div className="key-picker-head">
+                  <h2>{selectedInput.label}</h2>
+                </div>
+                {instance.kind === 'xboxBluetooth' && (
+                  <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
+                    {triggerTypes.map(trigger => (
+                      <button
+                        type="button"
+                        key={trigger}
+                        className={`workflow-trigger-${trigger}`}
+                        aria-pressed={controllerTrigger === trigger}
+                        onClick={() => setControllerTrigger(trigger)}
+                      >
+                        {triggerLabels[trigger]}
+                        <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </section>
+            }
+            splitRatio={splitRatio}
+            onSplitRatioChange={setSplitRatio}
             key={profile.id + selected}
             platform={platform}
             button={selectedInput}
