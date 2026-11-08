@@ -12,6 +12,19 @@ axonkey-cli capabilities --json
 
 Windows 和 macOS 使用同一套命令。应用未启动时，CLI 会启动一个后台实例处理请求。
 
+`capabilities` 的 `applications` 返回前台及最近使用应用的真实 ID。应用绑定命令的 `--application` 使用这些 ID。`device list` 中的 `activeProfile` 是设备全局配置，`effectiveProfile` 是当前前台应用实际使用的配置；省略 `--profile` 时修改全局选中的配置。
+
+系统鼠标使用 `--device mouse`，支持配置创建、激活及应用关联：
+
+```bash
+axonkey-cli profile create --device mouse --name "浏览器" --json
+axonkey-cli profile application-set --device mouse --application "<应用 ID>" --profile "浏览器" --json
+axonkey-cli profile application-list --device mouse --json
+axonkey-cli profile application-toggle --device mouse --off --json
+```
+
+鼠标映射命令在保存配置并完成原生设置应用后才返回成功；`--dry-run` 不保存或应用。
+
 ## 在仓库里开发和测试
 
 仓库根目录提供了 Makefile 快捷目标。先启动开发版 Axonkey（另开一个终端运行 `make dev`），再调用 CLI：

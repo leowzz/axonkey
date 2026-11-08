@@ -418,6 +418,8 @@ test('selective restore preserves bindings and active profiles, skips repeats an
     binding: 'physical-id',
     audioGainDb: 6,
     activeProfileId: 'default',
+    appProfileSwitching: true,
+    applicationProfiles: [{ application: { id: 'editor', name: 'Editor', path: 'C:\\Editor.exe' }, profileId: 'default' }],
     profiles: [{ id: 'default', name: 'Default', behaviors }],
   }
   const data = createCloudSnapshot(backup, [instance])
@@ -441,6 +443,7 @@ test('selective restore preserves bindings and active profiles, skips repeats an
   const restored = prepareCloudRestore(cloud, backup, [instance], selection)
   assert.equal(restored.instances[0].binding, 'physical-id')
   assert.equal(restored.instances[0].activeProfileId, 'default')
+  assert.equal(restored.instances[0].applicationProfiles[0].profileId, 'default')
   assert.equal(restored.instances[0].profiles.length, 2)
   assert.equal(restored.backup.settings.enabled, backup.settings.enabled)
   assert.equal(restored.instances[0].profiles[1].app_version, '1.7.15')
@@ -456,6 +459,8 @@ test('selective restore preserves bindings and active profiles, skips repeats an
   assert.equal(created.instances[0].binding, null)
   assert.equal(created.instances[0].enabled, false)
   assert.equal(created.instances[0].profiles.length, 1)
+  assert.equal(created.instances[0].applicationProfiles[0].profileId, created.instances[0].profiles[0].id)
+  assert.notEqual(created.instances[0].applicationProfiles[0].profileId, 'default')
   assert.throws(() => prepareCloudRestore(cloud, backup, [{ ...instance, kind: 'cmiotA15' }], selection), /同型号/)
   cloud.documents[0].config.profiles[0].behaviors.unknownInput = { click: [], doubleClick: [], longPress: [] }
   assert.throws(

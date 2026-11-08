@@ -147,6 +147,7 @@ export function prepareCloudRestore(
             enabled: false,
             profiles: [],
             activeProfileId: '',
+            applicationProfiles: [],
           }
     }
     const targetKey = legacyKind ? legacyKeys[legacyKind] : target!.id
@@ -157,7 +158,7 @@ export function prepareCloudRestore(
       : target!.profiles
     for (const id of selected.profileIds) {
       const profile = config.profiles.find(item => item.id === id) as
-        (DeviceInstance['profiles'][number] & { app_version?: string | null }) | undefined
+        (DeviceInstance['profiles'][number] & { app_version?: string | null; applicationIds?: string[] }) | undefined
       if (!profile) throw new Error('所选云端方案已不存在，请刷新后重试')
       const already = profiles.some(item => {
         const prior = metadata[profileMetadataKey(targetKey, item.id)]
@@ -189,6 +190,19 @@ export function prepareCloudRestore(
       metadata[profileMetadataKey(targetKey, restored.id)].content = profileContent(restored)
       metadata[profileMetadataKey(targetKey, restored.id)].restored_content = profileContent(restored)
       profiles.push(restored)
+      if (target) {
+        const bindings = target.applicationProfiles ?? []
+        target.applicationProfiles = [
+          ...bindings,
+          ...(config.applicationProfiles ?? [])
+            .filter(
+              binding =>
+                binding.profileId === profile.id &&
+                !bindings.some(item => item.application.id === binding.application.id),
+            )
+            .map(binding => ({ ...binding, profileId: restored.id })),
+        ]
+      }
       imported++
       if (legacyKind)
         backup.profiles.push({
@@ -290,14 +304,37 @@ function parseInstanceConfig(value: Record<string, unknown>, inputs: string[]) {
       if (!binding || typeof binding !== 'object' || Array.isArray(binding)) return fail()
       const application = (binding as Record<string, unknown>).application
       const profileId = (binding as Record<string, unknown>).profileId
-      if (!application || typeof application !== 'object' || Array.isArray(application) || typeof profileId !== 'string' || !profileIds.has(profileId)) return fail()
+      if (
+        !application ||
+        typeof application !== 'object' ||
+        Array.isArray(application) ||
+        typeof profileId !== 'string' ||
+        !profileIds.has(profileId)
+      )
+        return fail()
       const app = application as Record<string, unknown>
-      if (typeof app.id !== 'string' || !app.id || typeof app.name !== 'string' || !app.name.trim() || typeof app.path !== 'string' || !app.path.trim() || applicationIds.has(app.id)) return fail()
+      if (
+        typeof app.id !== 'string' ||
+        !app.id ||
+        typeof app.name !== 'string' ||
+        !app.name.trim() ||
+        typeof app.path !== 'string' ||
+        !app.path.trim() ||
+        applicationIds.has(app.id)
+      )
+        return fail()
       applicationIds.add(app.id)
     }
   }
   return portableInstance(value as DeviceInstance) as Pick<
     DeviceInstance,
-    'name' | 'enabled' | 'profiles' | 'activeProfileId' | 'appProfileSwitching' | 'applicationProfiles' | 'audioGainDb' | 'cmiotA15RecordingMode'
+    | 'name'
+    | 'enabled'
+    | 'profiles'
+    | 'activeProfileId'
+    | 'appProfileSwitching'
+    | 'applicationProfiles'
+    | 'audioGainDb'
+    | 'cmiotA15RecordingMode'
   >
 }
