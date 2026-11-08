@@ -103,9 +103,24 @@
   background: #fff;
   box-shadow: 0 2px 4px rgb(53 75 99 / 2%);
   text-align: left;
+  cursor: grab;
   transition:
     border-color 0.16s,
     box-shadow 0.16s;
+}
+.my-devices-card[data-dragging='true'] {
+  cursor: grabbing;
+  opacity: 0.58;
+}
+.my-devices-card[data-drag-over='true'] {
+  border-color: #3f8ed2;
+  box-shadow: 0 0 0 3px rgb(63 142 210 / 18%);
+}
+.my-devices-card.managed-system-mouse {
+  cursor: pointer;
+}
+.my-devices-card:active {
+  cursor: grabbing;
 }
 .my-devices-card:hover {
   border-color: #89abc9;

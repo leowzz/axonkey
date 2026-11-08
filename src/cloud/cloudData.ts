@@ -23,7 +23,8 @@ export function createCloudSnapshot(
         .filter(
           instance =>
             memory[`${instance.kind}/${instance.id}`] ||
-            instance.profiles.some(profile => hasBehaviors(profile.behaviors)),
+            instance.profiles.some(profile => hasBehaviors(profile.behaviors)) ||
+            instance.applicationProfiles?.length,
         )
         .map(instance => ({ key: instance.id, kind: instance.kind, config: portableInstance(instance) })),
       // Keep previously synced documents so clearing a mapping still reaches the cloud.
@@ -63,7 +64,8 @@ export function createCloudSnapshot(
 
 function hasLegacyData(backup: BackupDocument, kind: keyof typeof legacyKeys): boolean {
   const profiles = backup.profiles.filter(profile => profile.deviceId === kind)
-  if (!profiles.some(profile => hasBehaviors(profile.keys))) return false
+  const hasApplicationMappings = profiles.some(profile => profile.applicationIds?.length)
+  if (!profiles.some(profile => hasBehaviors(profile.keys)) && !hasApplicationMappings) return false
   const defaults: Record<string, TriggerBehaviors> = createDefaultBehaviorMap()
   return (
     profiles.length > 1 ||
@@ -71,6 +73,7 @@ function hasLegacyData(backup: BackupDocument, kind: keyof typeof legacyKeys): b
       profile =>
         profile.id !== `${kind}:default` ||
         profile.name !== '默认配置' ||
+        Boolean(profile.applicationIds?.length) ||
         Object.entries(profile.keys).some(
           ([input, behaviors]) =>
             fingerprint(behaviors) !== fingerprint(defaults[kind === 'mouse' ? `mouse.${input}` : input]),
@@ -154,8 +157,19 @@ export function prepareCloudRestore(
     const profiles = legacyKind
       ? backup.profiles
           .filter(item => item.deviceId === legacyKind)
-          .map(item => ({ id: item.id, name: item.name, behaviors: item.keys }))
+          .map(item => ({
+            id: item.id,
+            name: item.name,
+            ...(item.applicationIds ? { applicationIds: [...item.applicationIds] } : {}),
+            behaviors: item.keys,
+          }))
       : target!.profiles
+    if (legacyKind === 'mouse' && config.appProfileSwitching !== undefined) {
+      backup.applicationProfileSwitching = {
+        ...backup.applicationProfileSwitching,
+        mouse: config.appProfileSwitching,
+      }
+    }
     for (const id of selected.profileIds) {
       const profile = config.profiles.find(item => item.id === id) as
         (DeviceInstance['profiles'][number] & { app_version?: string | null; applicationIds?: string[] }) | undefined
@@ -192,6 +206,8 @@ export function prepareCloudRestore(
       profiles.push(restored)
       if (target) {
         const bindings = target.applicationProfiles ?? []
+        if (config.appProfileSwitching !== undefined && config.applicationProfiles?.some(binding => binding.profileId === profile.id))
+          target.appProfileSwitching = config.appProfileSwitching
         target.applicationProfiles = [
           ...bindings,
           ...(config.applicationProfiles ?? [])

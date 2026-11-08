@@ -1573,6 +1573,18 @@ fn remove_device_instance(
 }
 
 #[tauri::command]
+fn reorder_device_instances(
+    revision: u64,
+    ids: Vec<String>,
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> Result<DeviceSnapshot, String> {
+    let snapshot = manager.reorder(revision, &ids)?;
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    Ok(snapshot)
+}
+
+#[tauri::command]
 fn update_input_settings(
     settings: NativeSettings,
     input_service: tauri::State<'_, InputService>,
@@ -1906,6 +1918,7 @@ pub fn run() {
             restart_app,
             put_device_instance,
             remove_device_instance,
+            reorder_device_instances,
             write_mapping_file,
             backup_files::open_backup_location,
             cli_ipc::cli_poll_requests,

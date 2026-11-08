@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -61,6 +61,8 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
+  const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   useEffect(() => {
     if (!props.bindInstanceId) return
     const target = snapshot.store.instances.find(item => item.id === props.bindInstanceId)
@@ -69,6 +71,37 @@ export function DeviceHub(props: Props) {
     props.onBindingOpened?.()
   }, [props.bindInstanceId, props.onBindingOpened, snapshot.store.instances])
   const instance = snapshot.store.instances.find(i => i.id === selected)
+  function reorderInstances(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return
+    const ids = snapshot.store.instances.map(item => item.id)
+    const sourceIndex = ids.indexOf(sourceId)
+    if (sourceIndex < 0 || ids.indexOf(targetId) < 0) return
+    ids.splice(sourceIndex, 1)
+    ids.splice(ids.indexOf(targetId), 0, sourceId)
+    void controller.reorder(ids)
+  }
+  function handleDeviceDragStart(event: DragEvent<HTMLButtonElement>, id: string) {
+    setDraggingInstanceId(id)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', id)
+  }
+  function handleDeviceDragOver(event: DragEvent<HTMLButtonElement>, id: string) {
+    if (!draggingInstanceId || draggingInstanceId === id) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setDragOverInstanceId(id)
+  }
+  function handleDeviceDrop(event: DragEvent<HTMLButtonElement>, id: string) {
+    event.preventDefault()
+    const sourceId = event.dataTransfer.getData('text/plain') || draggingInstanceId
+    if (sourceId) reorderInstances(sourceId, id)
+    setDraggingInstanceId(null)
+    setDragOverInstanceId(null)
+  }
+  function clearDeviceDrag() {
+    setDraggingInstanceId(null)
+    setDragOverInstanceId(null)
+  }
   const banner = (
     <>
       {!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
@@ -115,6 +148,7 @@ export function DeviceHub(props: Props) {
                 {snapshot.store.instances.map(item => (
                   <DeviceCard
                     key={item.id}
+                    instanceId={item.id}
                     kind={item.kind}
                     title={item.name}
                     subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
@@ -131,6 +165,12 @@ export function DeviceHub(props: Props) {
                     applicationProfileCount={item.applicationProfiles?.length ?? 0}
                     applicationProfileSwitching={item.appProfileSwitching === true}
                     onClick={() => setSelected(item.id)}
+                    dragging={draggingInstanceId === item.id}
+                    dragOver={dragOverInstanceId === item.id}
+                    onDragStart={event => handleDeviceDragStart(event, item.id)}
+                    onDragOver={event => handleDeviceDragOver(event, item.id)}
+                    onDrop={event => handleDeviceDrop(event, item.id)}
+                    onDragEnd={clearDeviceDrag}
                   />
                 ))}
                 <DeviceCard
@@ -385,6 +425,7 @@ const deviceStatusAppearance: Record<
 
 function DeviceCard({
   kind,
+  instanceId,
   discovered = false,
   unbound = false,
   title,
@@ -396,8 +437,15 @@ function DeviceCard({
   applicationProfileSwitching = false,
   batteryLevel = null,
   onClick,
+  dragging = false,
+  dragOver = false,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
 }: {
   kind: DeviceKind | 'mouse'
+  instanceId?: string
   discovered?: boolean
   unbound?: boolean
   title: string
@@ -409,14 +457,28 @@ function DeviceCard({
   applicationProfileSwitching?: boolean
   batteryLevel?: number | null
   onClick: () => void
+  dragging?: boolean
+  dragOver?: boolean
+  onDragStart?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragOver?: (event: DragEvent<HTMLButtonElement>) => void
+  onDrop?: (event: DragEvent<HTMLButtonElement>) => void
+  onDragEnd?: () => void
 }) {
   const appearance = state ? deviceStatusAppearance[state] : undefined
   const StatusIcon = appearance?.icon
   return (
     <button
       className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`}
+      data-instance-id={instanceId}
       data-discovered={discovered || undefined}
       data-unbound={unbound || undefined}
+      data-dragging={dragging || undefined}
+      data-drag-over={dragOver || undefined}
+      draggable={Boolean(instanceId)}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       onClick={onClick}
     >
       <div className="my-devices-card-main">

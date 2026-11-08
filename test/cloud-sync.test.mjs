@@ -378,6 +378,40 @@ test('only configured legacy devices upload, including disabled and inactive map
   assert.equal(server.writes[0].body.instance_key, 'system-mouse')
 })
 
+test('application mappings upload even when their profiles have no actions', () => {
+  const backup = initialBackup(createEmptyBehaviorMap())
+  const mouse = backup.profiles.find(profile => profile.deviceId === 'mouse')
+  mouse.applicationIds = ['windows:c:\\apps\\editor.exe']
+  backup.applicationProfileSwitching = { mouse: false }
+  const legacy = createCloudSnapshot(backup, []).documents.find(item => item.kind === 'mouse')
+  assert.equal(legacy.config.appProfileSwitching, false)
+  assert.deepEqual(legacy.config.profiles.find(profile => profile.id === mouse.id).applicationIds, ['windows:c:\\apps\\editor.exe'])
+
+  const instance = {
+    id: 'remote-with-app',
+    kind: 'rc003',
+    name: '应用遥控器',
+    binding: null,
+    enabled: true,
+    activeProfileId: 'default',
+    profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],
+    appProfileSwitching: true,
+    applicationProfiles: [{ application: { id: 'editor', name: 'Editor', path: 'C:\\Editor.exe' }, profileId: 'default' }],
+  }
+  const managed = createCloudSnapshot(initialBackup(createEmptyBehaviorMap()), [instance]).documents.find(item => item.key === instance.id)
+  assert.deepEqual(managed.config.applicationProfiles, instance.applicationProfiles)
+})
+
+test('legacy mouse cloud documents retain application mappings and switch state', () => {
+  const backup = createDataBackup(sampleData(), '1.8.20')
+  const mouseProfiles = backup.profiles.filter(profile => profile.deviceId === 'mouse')
+  mouseProfiles[0].applicationIds = ['windows:c:\\apps\\editor.exe']
+  backup.applicationProfileSwitching = { mouse: false }
+  const document = createCloudSnapshot(backup, []).documents.find(item => item.kind === 'mouse')
+  assert.deepEqual(document.config.profiles.find(profile => profile.id === mouseProfiles[0].id).applicationIds, ['windows:c:\\apps\\editor.exe'])
+  assert.equal(document.config.appProfileSwitching, false)
+})
+
 test('clearing a previously synced mapping updates its cloud document without creating empty devices', async () => {
   const behaviors = createEmptyBehaviorMap()
   behaviors.power.click = [createBehavior({ type: 'key', key: 'Enter', id: 'custom' })]
@@ -662,4 +696,25 @@ test('mouse restore appends only the selected profile without switching or repla
   assert.equal(result.instances.length, 0)
   assert.equal(result.backup.profiles.length, backup.profiles.length + 1)
   assert.deepEqual(result.backup.activeProfileIds, backup.activeProfileIds)
+})
+
+test('mouse application mappings restore with the selected profile and switch state', () => {
+  const backup = initialBackup(createEmptyBehaviorMap())
+  const mouse = backup.profiles.find(profile => profile.deviceId === 'mouse')
+  mouse.applicationIds = ['windows:c:\\apps\\editor.exe']
+  backup.applicationProfileSwitching = { mouse: false }
+  const doc = createCloudSnapshot(backup, []).documents.find(item => item.kind === 'mouse')
+  const cloud = {
+    models: [{ id: 'mouse', code: 'mouse' }],
+    documents: [{ ...remote(), model_id: 'mouse', config: doc.config }],
+    settings: null,
+  }
+  const result = prepareCloudRestore(cloud, backup, [], {
+    devices: [{ documentId: 'remote', profileIds: [mouse.id], targetId: 'legacy:mouse' }],
+    settings: false,
+    savedBehaviors: false,
+  })
+  const restored = result.backup.profiles.at(-1)
+  assert.deepEqual(restored.applicationIds, mouse.applicationIds)
+  assert.deepEqual(result.backup.applicationProfileSwitching, { mouse: false })
 })

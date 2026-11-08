@@ -839,6 +839,42 @@ impl DeviceManager {
         snapshot.store = next;
         Ok(snapshot.clone())
     }
+    pub fn reorder(&self, revision: u64, ids: &[String]) -> Result<Snapshot, String> {
+        let mut snapshot = self.shared.snapshot.lock().unwrap();
+        if snapshot.error.is_some() || revision != snapshot.store.revision {
+            return Err("配置已变化或无法读取，请刷新后重试".into());
+        }
+        if ids.len() != snapshot.store.instances.len()
+            || ids.iter().collect::<HashSet<_>>().len() != ids.len()
+            || ids.iter().any(|id| {
+                !snapshot
+                    .store
+                    .instances
+                    .iter()
+                    .any(|instance| &instance.id == id)
+            })
+        {
+            return Err("设备顺序无效".into());
+        }
+        let instances = snapshot.store.instances.clone();
+        let mut next = snapshot.store.clone();
+        next.instances = ids
+            .iter()
+            .filter_map(|id| {
+                instances
+                    .iter()
+                    .find(|instance| &instance.id == id)
+                    .cloned()
+            })
+            .collect();
+        if next.instances == snapshot.store.instances {
+            return Ok(snapshot.clone());
+        }
+        next.revision += 1;
+        save(&self.shared.path, &next)?;
+        snapshot.store = next;
+        Ok(snapshot.clone())
+    }
 }
 impl Drop for DeviceManager {
     fn drop(&mut self) {
@@ -2073,6 +2109,44 @@ mod tests {
             app_profile_switching: false,
             application_profiles: vec![],
         }
+    }
+    #[test]
+    fn reorder_instances_persists_the_requested_order() {
+        let path = std::env::temp_dir().join(format!("axonkey-reorder-{}.json", unique_id()));
+        let manager = DeviceManager::start_with_emitter(path.clone(), Box::new(|_| {}));
+        let mut first = instance("one", "");
+        first.binding = None;
+        let mut second = instance("two", "");
+        second.binding = None;
+        let mut third = instance("three", "");
+        third.binding = None;
+        let saved = manager.put(0, first).unwrap();
+        let saved = manager.put(saved.store.revision, second).unwrap();
+        let saved = manager.put(saved.store.revision, third).unwrap();
+        let reordered = manager
+            .reorder(
+                saved.store.revision,
+                &["three".into(), "one".into(), "two".into()],
+            )
+            .unwrap();
+        assert_eq!(
+            reordered
+                .store
+                .instances
+                .iter()
+                .map(|instance| instance.id.as_str())
+                .collect::<Vec<_>>(),
+            ["three", "one", "two"]
+        );
+        assert!(manager
+            .reorder(
+                reordered.store.revision,
+                &["three".into(), "three".into(), "two".into()]
+            )
+            .is_err());
+        manager.shutdown();
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
     }
     #[test]
     #[cfg(target_os = "macos")]

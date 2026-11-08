@@ -162,6 +162,30 @@ export function useDeviceInstances(native: boolean) {
       }),
     [native, transact],
   )
-  return { snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove }
+  const reorder = useCallback(
+    (ids: string[]) =>
+      transact(async latest => {
+        if (native)
+          return invoke<DeviceSnapshot>('reorder_device_instances', {
+            revision: latest.store.revision,
+            ids,
+          })
+        const byId = new Map(latest.store.instances.map(instance => [instance.id, instance]))
+        const instances = ids
+          .map(id => byId.get(id))
+          .filter((instance): instance is DeviceInstance => Boolean(instance))
+        if (instances.length !== latest.store.instances.length) throw new Error('设备顺序无效')
+        return {
+          ...latest,
+          store: {
+            ...latest.store,
+            revision: latest.store.revision + 1,
+            instances,
+          },
+        }
+      }),
+    [native, transact],
+  )
+  return { snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove, reorder }
 }
 export type DeviceController = ReturnType<typeof useDeviceInstances>
