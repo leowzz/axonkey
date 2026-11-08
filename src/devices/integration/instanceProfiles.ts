@@ -92,10 +92,14 @@ export function addApplicationForEditing(instance: DeviceInstance, application: 
 export function deleteInstanceProfile(instance: DeviceInstance, profileId: string): DeviceInstance {
   if (instance.profiles.length <= 1) return instance
   const profiles = instance.profiles.filter(profile => profile.id !== profileId)
+  const fallbackProfileId =
+    instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId
   return {
     ...instance,
     profiles,
-    activeProfileId: instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId,
-    applicationProfiles: instance.applicationProfiles?.filter(binding => binding.profileId !== profileId),
+    activeProfileId: fallbackProfileId,
+    applicationProfiles: instance.applicationProfiles?.map(binding =>
+      binding.profileId === profileId ? { ...binding, profileId: fallbackProfileId } : binding,
+    ),
   }
 }
