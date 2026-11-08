@@ -3,12 +3,14 @@ import { behaviorToCliBehavior, cliBehaviorToBehavior } from '../../cliContract.
 import type { CliPlatform } from '../../cliContract.ts'
 import { emptyTriggers, instanceState, packageFor } from './model.ts'
 import type { DeviceInstance, DeviceSnapshot, InstanceProfile } from './model.ts'
+import type { Application } from '../../applications.ts'
 import {
   addInstanceProfile,
   applyInstanceProfileSwitch,
   removeInstanceProfileSwitch,
   updateInstanceSequence,
 } from './instanceProfiles.ts'
+import { setApplicationProfile } from './applicationProfiles.ts'
 
 export class InstanceCliError extends Error {
   code: string
@@ -75,12 +77,76 @@ export async function processInstanceCliRequest(
       })),
     }
   }
-  if (!['profile.list', 'profile.create', 'profile.activate', ...mappingMethods].includes(method))
+  if (!['profile.list', 'profile.create', 'profile.activate', 'profile.application-list', 'profile.application-set', 'profile.application-remove', 'profile.application-toggle', ...mappingMethods].includes(method))
     throw new InstanceCliError('invalid_arguments', '不支持的 CLI 操作：' + method)
   const instance = resolveCliInstance(params, snapshot)
   const target = { device: instance.kind, instance: instanceIdentity(instance), revision: snapshot.store.revision }
   if (method === 'profile.list') {
-    return { ...target, profiles: instance.profiles.map(profile => profileIdentity(instance, profile)) }
+    return {
+      ...target,
+      profiles: instance.profiles.map(profile => ({
+        ...profileIdentity(instance, profile),
+        applications: (instance.applicationProfiles ?? [])
+          .filter(binding => binding.profileId === profile.id)
+          .map(binding => binding.application),
+      })),
+      applicationProfileSwitching: instance.appProfileSwitching === true,
+    }
+  }
+  if (method === 'profile.application-list') {
+    return {
+      ...target,
+      applicationProfileSwitching: instance.appProfileSwitching === true,
+      applications: (instance.applicationProfiles ?? []).map(binding => ({
+        ...binding.application,
+        profile: profileIdentity(instance, resolveProfile(instance, binding.profileId)),
+      })),
+    }
+  }
+  if (method === 'profile.application-set') {
+    const application = applicationParam(params)
+    const profileValue = stringParam(params.profile, 'profile')
+    if (!profileValue) throw new InstanceCliError('invalid_arguments', '应用配置绑定需要 --profile')
+    const profile = resolveProfile(instance, profileValue)
+    const change = (current: DeviceInstance) =>
+      setApplicationProfile(current, application, profile.id)
+
+    if (dryRun)
+      return { ...target, dryRun: true, application, profile: profileIdentity(instance, profile) }
+    const saved = await update(instance.id, change)
+    const next = saved.store.instances.find(item => item.id === instance.id)!
+    return {
+      ...target,
+      revision: saved.store.revision,
+      applied: true,
+      saved: true,
+      application,
+      profile: profileIdentity(next, resolveProfile(next, profile.id)),
+    }
+  }
+  if (method === 'profile.application-remove') {
+    const applicationId = stringParam(params.application, 'application')
+    const change = (current: DeviceInstance) => ({
+      ...current,
+      applicationProfiles: (current.applicationProfiles ?? []).filter(binding => binding.application.id !== applicationId),
+    })
+    if (dryRun) return { ...target, dryRun: true, application: applicationId }
+    const saved = await update(instance.id, change)
+    return { ...target, revision: saved.store.revision, applied: true, saved: true, application: applicationId }
+  }
+  if (method === 'profile.application-toggle') {
+    if (typeof params.enabled !== 'boolean')
+      throw new InstanceCliError('invalid_arguments', '应用自动切换需要 --on 或 --off')
+    const change = (current: DeviceInstance) => ({ ...current, appProfileSwitching: params.enabled === true })
+    if (dryRun) return { ...target, dryRun: true, applicationProfileSwitching: params.enabled === true }
+    const saved = await update(instance.id, change)
+    return {
+      ...target,
+      revision: saved.store.revision,
+      applied: true,
+      saved: true,
+      applicationProfileSwitching: params.enabled === true,
+    }
   }
   const profileValue = stringParam(params.profile, 'profile')
   if (method === 'profile.create') {
@@ -244,4 +310,11 @@ function profileIdentity(instance: DeviceInstance, profile: InstanceProfile) {
 
 function publicSequence(sequence: Behavior[], platform: CliPlatform) {
   return sequence.map(behavior => behaviorToCliBehavior(behavior, platform))
+}
+
+function applicationParam(params: Record<string, unknown>): Application {
+  const id = stringParam(params.application, 'application')
+  const name = stringParam(params.applicationName, 'application-name') || id
+  const path = stringParam(params.applicationPath, 'application-path') || id
+  return { id, name, path }
 }

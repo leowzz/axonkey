@@ -128,6 +128,8 @@ export function DeviceHub(props: Props) {
                           p.id === (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
                       )?.name
                     }
+                    applicationProfileCount={item.applicationProfiles?.length ?? 0}
+                    applicationProfileSwitching={item.appProfileSwitching === true}
                     onClick={() => setSelected(item.id)}
                   />
                 ))}
@@ -390,6 +392,8 @@ function DeviceCard({
   status,
   state,
   profile,
+  applicationProfileCount = 0,
+  applicationProfileSwitching = false,
   batteryLevel = null,
   onClick,
 }: {
@@ -401,6 +405,8 @@ function DeviceCard({
   status: string
   state?: string
   profile?: string
+  applicationProfileCount?: number
+  applicationProfileSwitching?: boolean
   batteryLevel?: number | null
   onClick: () => void
 }) {
@@ -457,6 +463,11 @@ function DeviceCard({
             </>
           ) : (
             <ChevronRight size={15} aria-hidden="true" />
+          )}
+          {applicationProfileCount > 0 && (
+            <small className="my-devices-application-profiles">
+              {applicationProfileCount} 个应用配置{applicationProfileSwitching ? ' · 自动切换' : ' · 已暂停'}
+            </small>
           )}
         </span>
       </span>

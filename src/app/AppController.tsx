@@ -38,6 +38,7 @@ import {
 import type { ProfileSwitchRequest, ProfileSwitchDeletion } from '../profileNavigation'
 import { composeActiveProfileBehaviors, mergeDeviceBehaviors, snapshotDeviceProfiles } from '../deviceProfiles'
 import { useReleaseUpdate } from '../hooks/useReleaseUpdate'
+import { useForegroundApplications } from '../useForegroundApplications'
 // @refresh reset
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
@@ -109,6 +110,7 @@ import { AboutPage } from '../components/AboutPage'
 import { BatteryIndicator } from '../components/BatteryIndicator'
 import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
+import { MouseApplicationProfileToolbar } from '../components/MouseApplicationProfileToolbar'
 import { HomeDashboard } from '../components/HomeDashboard'
 import { AppBottomBar, type AppBottomBarProps } from '../components/AppBottomBar'
 import { AppSettingsPanel } from '../components/AppSettingsPanel'
@@ -261,8 +263,28 @@ function AppController({
   const [storedProfiles] = useState(getStoredProfiles)
   const [profiles, setProfiles] = useState<MappingProfile[]>(storedProfiles.profiles)
   const [activeProfileIds, setActiveProfileIds] = useState(storedProfiles.activeProfileIds)
+  const [mouseApplicationProfileSwitching, setMouseApplicationProfileSwitching] = useState(
+    () => storedProfiles.applicationProfileSwitching?.mouse === true,
+  )
+  const [mouseEditingApplicationId, setMouseEditingApplicationId] = useState('')
+  const foregroundApplications = useForegroundApplications(nativeRuntime)
   const activeProfileId = activeProfileIds[selectedDeviceId]
   const deviceProfiles = profiles.filter(profile => profile.deviceId === selectedDeviceId)
+  useEffect(() => {
+    const appId = foregroundApplications.current?.id
+    if (!appId || !mouseApplicationProfileSwitching) return
+    const target = profiles.find(profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(appId))
+    if (!target || activeProfileIds.mouse === target.id) return
+    switchMappingProfile(target.id)
+  }, [foregroundApplications.current?.id, mouseApplicationProfileSwitching, profiles, activeProfileIds])
+  useEffect(() => {
+    if (
+      mouseEditingApplicationId &&
+      !profiles.some(profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(mouseEditingApplicationId))
+    ) {
+      setMouseEditingApplicationId('')
+    }
+  }, [mouseEditingApplicationId, profiles])
   const [behaviorHistory, dispatchBehaviorHistory] = useReducer(behaviorHistoryReducer, null, () =>
     createBehaviorHistory(composeActiveProfileBehaviors(storedProfiles.profiles, storedProfiles.activeProfileIds)),
   )
@@ -779,6 +801,10 @@ function AppController({
                 'profile.list',
                 'profile.create',
                 'profile.activate',
+                'profile.application-list',
+                'profile.application-set',
+                'profile.application-remove',
+                'profile.application-toggle',
                 'mapping.list',
                 'mapping.get',
                 'mapping.set',
@@ -1196,12 +1222,18 @@ function AppController({
     try {
       window.localStorage.setItem(
         profilesStorageKey,
-        JSON.stringify({ version: 2, migrationReviewed: true, activeProfileIds, profiles: persistedProfiles }),
+        JSON.stringify({
+          version: 2,
+          migrationReviewed: true,
+          activeProfileIds,
+          profiles: persistedProfiles,
+          applicationProfileSwitching: { mouse: mouseApplicationProfileSwitching },
+        }),
       )
     } catch (error) {
       logError('Failed to save mapping profiles', error)
     }
-  }, [profiles, activeProfileIds, behaviors])
+  }, [profiles, activeProfileIds, behaviors, mouseApplicationProfileSwitching])
 
   useEffect(
     () => () => {
@@ -2299,16 +2331,75 @@ function AppController({
   }
 
   const MappingPageComponent = mappingStyle === 'flow' ? MappingFlowPage : MappingPage
+  const selectMouseApplication = (applicationId: string) => {
+    setMouseEditingApplicationId(applicationId)
+    if (!applicationId) return
+    const bound = profiles.find(
+      profile => profile.deviceId === 'mouse' && profile.applicationIds?.includes(applicationId),
+    )
+    if (bound) {
+      switchMappingProfile(bound.id)
+      return
+    }
+    const application = [
+      foregroundApplications.current,
+      ...foregroundApplications.recent.map(entry => entry.application),
+    ].find(item => item?.id === applicationId)
+    if (!application) return
+    setProfiles(items =>
+      items.map(item =>
+        item.id === activeProfileIds.mouse
+          ? { ...item, applicationIds: [...new Set([...(item.applicationIds ?? []), application.id])] }
+          : item,
+      ),
+    )
+  }
+  const switchMouseProfile = (id: string) => {
+    if (mouseEditingApplicationId) {
+      setProfiles(items =>
+        items.map(item => {
+          if (item.deviceId !== 'mouse') return item
+          const applicationIds = (item.applicationIds ?? []).filter(
+            applicationId => applicationId !== mouseEditingApplicationId,
+          )
+          return item.id === id
+            ? { ...item, applicationIds: [...applicationIds, mouseEditingApplicationId] }
+            : { ...item, applicationIds }
+        }),
+      )
+    }
+    switchMappingProfile(id)
+  }
   const profileControls = (
-    <ProfileManager
-      profiles={deviceProfiles}
-      activeProfileId={activeProfileId}
-      onSwitch={switchMappingProfile}
-      onCreate={createMappingProfileFromScratch}
-      onDuplicate={duplicateMappingProfile}
-      onRename={renameMappingProfile}
-      onDelete={deleteMappingProfile}
-    />
+    <>
+      {isMouse && (
+        <MouseApplicationProfileToolbar
+          profiles={deviceProfiles}
+          activeProfileId={activeProfileId}
+          applications={foregroundApplications}
+          editingApplicationId={mouseEditingApplicationId}
+          autoSwitching={mouseApplicationProfileSwitching}
+          onSelectApplication={selectMouseApplication}
+          onSwitchProfile={switchMouseProfile}
+          onToggle={() => setMouseApplicationProfileSwitching(value => !value)}
+          onCreate={createMappingProfileFromScratch}
+          onDuplicate={duplicateMappingProfile}
+          onRename={renameMappingProfile}
+          onDelete={deleteMappingProfile}
+        />
+      )}
+      {!isMouse && (
+        <ProfileManager
+          profiles={deviceProfiles}
+          activeProfileId={activeProfileId}
+          onSwitch={switchMappingProfile}
+          onCreate={createMappingProfileFromScratch}
+          onDuplicate={duplicateMappingProfile}
+          onRename={renameMappingProfile}
+          onDelete={deleteMappingProfile}
+        />
+      )}
+    </>
   )
   const DeviceSettingsComponent = deviceSettingsPages[selectedDevice.id]
   const openAudioDriver = () => {
@@ -2322,6 +2413,28 @@ function AppController({
   }
   const mappingActions = (
     <div className="mapping-context-actions">
+      <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
+        <button
+          type="button"
+          className="behavior-history-button"
+          title="撤销"
+          aria-label="撤销行为更改"
+          disabled={!canUndoBehavior}
+          onClick={undoBehaviorChange}
+        >
+          <UndoCircle size={15} weight="Outline" />
+        </button>
+        <button
+          type="button"
+          className="behavior-history-button"
+          title="重做"
+          aria-label="重做行为更改"
+          disabled={!canRedoBehavior}
+          onClick={redoBehaviorChange}
+        >
+          <RedoCircle size={15} weight="Outline" />
+        </button>
+      </div>
       <span role="status" className={`auto-save-state ${autoSaveState}`}>
         {autoSaveState === 'error'
           ? '应用失败'
@@ -2437,28 +2550,6 @@ function AppController({
                 rowRefs={rowRefs}
                 toolbar={
                   <div className="key-picker-actions">
-                    <div className="behavior-history-actions" role="group" aria-label="行为编辑历史">
-                      <button
-                        type="button"
-                        className="behavior-history-button"
-                        title="撤销"
-                        aria-label="撤销行为更改"
-                        disabled={!canUndoBehavior}
-                        onClick={undoBehaviorChange}
-                      >
-                        <UndoCircle size={15} weight="Outline" />
-                      </button>
-                      <button
-                        type="button"
-                        className="behavior-history-button"
-                        title="重做"
-                        aria-label="重做行为更改"
-                        disabled={!canRedoBehavior}
-                        onClick={redoBehaviorChange}
-                      >
-                        <RedoCircle size={15} weight="Outline" />
-                      </button>
-                    </div>
                     {mappingActions}
                   </div>
                 }

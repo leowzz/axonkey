@@ -250,6 +250,11 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.my-devices-application-profiles {
+  color: #71849a;
+  font-size: 10px;
+  line-height: 1.4;
+}
 .macos-vibrancy .my-devices-card {
   background: rgb(255 255 255 / 30%);
   border-color: rgb(70 80 90 / 13%);

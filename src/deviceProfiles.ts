@@ -68,6 +68,7 @@ export function createDefaultDeviceProfiles(behaviors: BehaviorMap): StoredProfi
       DeviceId,
       string
     >,
+    applicationProfileSwitching: { mouse: false },
   }
 }
 
@@ -117,10 +118,16 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
         name: profileName(raw.name, index),
         deviceId: raw.deviceId,
         behaviors: extractDeviceBehaviors(parseStoredBehaviors(raw.behaviors), raw.deviceId),
+        ...(Array.isArray(raw.applicationIds)
+          ? { applicationIds: raw.applicationIds.filter((id): id is string => typeof id === 'string').slice(0, 100) }
+          : {}),
       },
     ]
   })
   const requested = record(parsed.activeProfileIds) ? parsed.activeProfileIds : {}
+  const applicationProfileSwitching = record(parsed.applicationProfileSwitching)
+    ? { mouse: parsed.applicationProfileSwitching.mouse === true }
+    : { mouse: profiles.some(profile => profile.deviceId === 'mouse' && (profile.applicationIds?.length ?? 0) > 0) }
   const activeProfileIds = { ...fallback.activeProfileIds }
   for (const device of devices) {
     if (!profiles.some(profile => profile.deviceId === device.id)) {
@@ -131,5 +138,5 @@ export function parseStoredDeviceProfiles(value: unknown, fallbackBehaviors: Beh
     activeProfileIds[device.id] =
       deviceProfiles.find(profile => profile.id === requested[device.id])?.id ?? deviceProfiles[0].id
   }
-  return { profiles, activeProfileIds }
+  return { profiles, activeProfileIds, applicationProfileSwitching }
 }

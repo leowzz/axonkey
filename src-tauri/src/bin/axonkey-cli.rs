@@ -125,7 +125,12 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
             return Err(CliFailure::usage(format!("无法识别参数“{flag}”")));
         }
         let name = flag.trim_start_matches('-');
-        if name == "yes" || name == "dry-run" || name == "json" {
+        if name == "yes" || name == "dry-run" || name == "json" || name == "on" || name == "off" {
+            if name == "on" || name == "off" {
+                params.insert("enabled".into(), Value::Bool(name == "on"));
+                index += 1;
+                continue;
+            }
             let key = if name == "dry-run" { "dryRun" } else { name };
             params.insert(key.into(), Value::Bool(true));
             index += 1;
@@ -139,7 +144,12 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
         }
         let key = match name {
             "profile" | "device" | "instance" | "name" | "button" | "input" | "trigger"
-            | "keys" | "sequence" | "actions" | "action" | "file" => name,
+            | "keys" | "sequence" | "actions" | "action" | "file" | "application"
+            | "application-name" | "application-path" => match name {
+                "application-name" => "applicationName",
+                "application-path" => "applicationPath",
+                _ => name,
+            },
             _ => return Err(CliFailure::usage(format!("无法识别参数“{flag}”"))),
         };
         let parsed = if key == "sequence" || key == "actions" || key == "action" {
@@ -322,7 +332,11 @@ fn print_help() {
   axonkey-cli mapping <list|get|set|clear> [参数]
   axonkey-cli profile list --instance <id>
   axonkey-cli profile create --instance <id> --name <名称>
-  axonkey-cli profile activate --instance <id> --profile <配置 ID 或名称>
+    axonkey-cli profile activate --instance <id> --profile <配置 ID 或名称>
+    axonkey-cli profile application-list --instance <id>
+    axonkey-cli profile application-set --instance <id> --application <应用 ID> --profile <配置 ID 或名称>
+    axonkey-cli profile application-remove --instance <id> --application <应用 ID>
+    axonkey-cli profile application-toggle --instance <id> --on|--off
 
 常用参数：
   --instance <id>            明确指定 device list 返回的设备实例

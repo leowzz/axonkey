@@ -200,9 +200,11 @@ export type MappingProfile = {
   name: string
   deviceId: DeviceId
   behaviors: BehaviorMap
+  applicationIds?: string[]
 }
 
 export type StoredProfiles = {
   activeProfileIds: Record<DeviceId, string>
   profiles: MappingProfile[]
+  applicationProfileSwitching?: Partial<Record<DeviceId, boolean>>
 }

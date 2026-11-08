@@ -109,9 +109,15 @@ axonkey-cli profile list --instance "<实例 ID>" --json
 axonkey-cli profile create --instance "<实例 ID>" --name "鼠标操作" --dry-run --json
 axonkey-cli profile create --instance "<实例 ID>" --name "鼠标操作" --json
 axonkey-cli profile activate --instance "<实例 ID>" --profile "鼠标操作" --json
+axonkey-cli profile application-list --instance "<实例 ID>" --json
+axonkey-cli profile application-set --instance "<实例 ID>" --application "com.example.editor" --profile "编辑配置" --json
+axonkey-cli profile application-remove --instance "<实例 ID>" --application "com.example.editor" --json
+axonkey-cli profile application-toggle --instance "<实例 ID>" --on --json
 ```
 
 新配置只保留跨配置的切换按键，其余映射为空；创建后会立即激活，与界面新建配置的行为一致。创建结果返回新配置 ID；后续 `--profile` 可以使用 ID 或名称，省略或填写 `active` 则使用当前激活配置。重名时使用 ID。`profile create`、`profile activate` 和映射修改均支持 `--dry-run`，预览不会保存修改。
+
+设备实例还支持按前台应用使用独立配置：`profile application-list` 查看绑定，`profile application-set` 将应用 ID 绑定到指定配置，`profile application-remove` 删除绑定。`--application` 应与前台应用检测返回的应用 ID 一致；设置绑定不会改变设备的全局激活配置。使用 `profile application-toggle --on` 或 `--off` 控制该实例是否跟随前台应用切换。
 
 实例映射与界面使用同一份配置。写入结果在保存完成后返回，包含实例、配置及 revision，可用 `mapping get/list` 回读。设备未连接时也可以保存配置，实际输入效果需要连接后确认。
 
