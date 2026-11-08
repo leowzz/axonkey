@@ -17,6 +17,7 @@ pub(super) struct RemoteReader {
 impl RemoteReader {
     pub fn open(
         serial: &str,
+        instance_id: &str,
         settings: NativeSettings,
         is_current: Box<dyn Fn() -> bool + Send + Sync>,
         switch_profile: Box<dyn Fn(ProfileDirection, bool) + Send + Sync>,
@@ -26,6 +27,7 @@ impl RemoteReader {
         let service = InputService::start_bound(
             settings,
             RemoteInstance {
+                id: instance_id.to_owned(),
                 serial,
                 is_current,
                 switch_profile,

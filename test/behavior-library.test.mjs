@@ -4,7 +4,7 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import { parseSequenceImport, serializeSequence } from '../src/behaviorModel.ts'
 import { RelayClient } from '../src/cloud/relayClient.ts'
-import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence, recordLibraryAddition } from '../src/cloud/behaviorLibrary.ts'
+import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence } from '../src/cloud/behaviorLibrary.ts'
 import { insertedWorkflowSteps } from '../src/components/workflowBehaviorBridge.ts'
 import { libraryHarness } from './helpers/behavior-library-harness.mjs'
 
@@ -55,7 +55,6 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
     const path = args[1]
     if (path.endsWith('/submissions')) return { status: 200, body: shared }
     if (path.includes('/withdraw?')) return { status: 200, body: { ...shared, revision: 3, latest_version: undefined } }
-    if (path.endsWith('/additions')) throw new Error('offline')
     return { status: 200, body: { items: [publicItem('a')] } }
   }, session, () => {})
   await fetchLibraryPage(client, 'macos', 'community', '音量 & 关闭', 'abc_cursor', [builtin])
@@ -72,8 +71,6 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
   const withdrawn = await withdrawSequence(client, shared, false)
   assert.equal(withdrawn.latest_version.status, 'withdrawn')
   assert.equal(requests[2][4].ifMatch, '"behavior-library:abc-123:2"')
-  await recordLibraryAddition(client, 'abc-123', 'macos')
-  assert.equal(requests[3][3], undefined)
   const anonymous = new RelayClient(async () => { throw new Error('must not send') }, null, () => {})
   await assert.rejects(submitSequence(anonymous, saved, 'macos', '', false), /请先登录/)
 })

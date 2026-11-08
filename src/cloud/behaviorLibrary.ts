@@ -1,7 +1,8 @@
 import type { StepDefinition } from 'sequential-workflow-designer'
 import type { Platform } from '../appTypes.ts'
-import { normalizeBehavior, parseSequenceImport, serializeSequence } from '../behaviorModel.ts'
+import { normalizeBehavior, serializeSequence } from '../behaviorModel.ts'
 import type { SavedSequence } from '../savedSequences.ts'
+import { savedSequenceBehaviors } from '../savedSequences.ts'
 import type { RelayClient } from './relayClient.ts'
 
 const endpoint = '/v2/behavior-library'
@@ -43,7 +44,9 @@ export async function fetchRecommendationItems(client: RelayClient): Promise<Rec
 
 export function publishRecommendation(client: RelayClient, step: StepDefinition, platform: Platform, category: string) {
   const saved = typeof step.properties.savedSequenceId === 'string'
-  const behaviors = saved ? parseSequenceImport(step.properties.sequence as string) : null
+  const behaviors = saved
+    ? savedSequenceBehaviors(step.properties as Pick<SavedSequence, 'sequence' | 'libraryItemIds'>)
+    : null
   if (saved && !behaviors?.length) throw new Error('此序列无法推荐，请重新保存')
   return client.request<RecommendationItem>('POST', `${endpoint}/admin/recommendations`, {
     app_id: 'axonkey',
@@ -53,7 +56,9 @@ export function publishRecommendation(client: RelayClient, step: StepDefinition,
       category_code: saved ? 'composite' : category,
       platforms: [platform],
       content_schema_version: 1,
-      content: saved ? { kind: 'sequence', behaviors } : { kind: 'builtin', preset: step.properties.preset },
+      content: saved
+        ? { kind: 'sequence', behaviors: publicBehaviors(behaviors!) }
+        : { kind: 'builtin', preset: step.properties.preset },
     },
   })
 }
@@ -169,7 +174,7 @@ export function submitSequence(
   note: string,
   resubmit: boolean,
 ) {
-  const behaviors = parseSequenceImport(sequence.sequence)
+  const behaviors = savedSequenceBehaviors(sequence)
   if (!behaviors?.length) throw new Error('此序列无法分享，请重新保存')
   return client.request<SharedSequence>('POST', `${endpoint}/submissions`, {
     app_id: 'axonkey',
@@ -182,7 +187,7 @@ export function submitSequence(
       category_code: 'composite',
       platforms: [platform],
       content_schema_version: 1,
-      content: { kind: 'sequence', behaviors },
+      content: { kind: 'sequence', behaviors: publicBehaviors(behaviors) },
     },
   })
 }
@@ -204,15 +209,6 @@ export async function withdrawSequence(client: RelayClient, item: SharedSequence
   }
 }
 
-export async function recordLibraryAddition(client: RelayClient, itemId: string, platform: Platform) {
-  try {
-    await client.request(
-      'POST',
-      `${endpoint}/${encodeURIComponent(itemId)}/additions`,
-      { app_id: 'axonkey', platform, count: 1 },
-      false,
-    )
-  } catch {
-    // Popularity statistics must never delay or roll back a local edit.
-  }
+function publicBehaviors(behaviors: NonNullable<ReturnType<typeof savedSequenceBehaviors>>) {
+  return behaviors.map(({ libraryItemId: _source, ...behavior }) => behavior)
 }

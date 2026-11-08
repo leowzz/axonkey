@@ -108,7 +108,7 @@ impl A15Reader {
         }
         self.actions.tick(Instant::now(), |output| {
             if (self.is_current)() {
-                self.output.emit(output, &*self.switch);
+                self.output.emit(output, &self.instance_id, &*self.switch);
             }
         });
         self.output.tick();
@@ -147,7 +147,7 @@ impl Drop for A15Reader {
         }
         self.actions.cancel();
         self.actions.tick(Instant::now(), |output| {
-            self.output.emit(output, &*self.switch)
+            self.output.emit(output, &self.instance_id, &*self.switch)
         });
         if let Some(app) = &self.app {
             app.state::<AudioServiceManager>().set_a15_input_state(

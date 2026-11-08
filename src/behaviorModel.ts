@@ -37,6 +37,13 @@ export const maxCursorDistance = 500
 type BehaviorBase = {
   id: string
   enabled: boolean
+  libraryItemId?: string
+}
+
+export function libraryItemId(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i.test(value)
+    ? value
+    : undefined
 }
 
 export type KeyBehavior = BehaviorBase & {
@@ -112,7 +119,7 @@ export type ImportedMapping = {
   profileName?: string
 }
 
-export type CreateBehaviorOptions =
+export type CreateBehaviorOptions = { libraryItemId?: string } & (
   | { type: 'wheel'; direction: 'up' | 'down' | 'left' | 'right'; enabled?: boolean; id?: string }
   | { type: 'mouse'; button: 'left' | 'right' | 'back' | 'forward'; enabled?: boolean; id?: string }
   | { type: 'cursorMove'; direction: CursorDirection; distance?: number; enabled?: boolean; id?: string }
@@ -126,6 +133,7 @@ export type CreateBehaviorOptions =
   | { type: 'openWebsite'; url?: string; enabled?: boolean; id?: string }
   | { type: 'switchProfile'; direction?: ProfileDirection; wrap?: boolean; enabled?: boolean; id?: string }
   | { type: 'disabled'; enabled?: boolean; id?: string }
+)
 
 const maxDelayMs = 300_000
 
@@ -207,47 +215,47 @@ function cleanKeys(value: unknown) {
 export function createBehavior(options: CreateBehaviorOptions): Behavior {
   const id = options.id?.trim() || createBehaviorId()
   const enabled = options.enabled !== false
+  const source = libraryItemId(options.libraryItemId)
+  const base = { id, enabled, ...(source ? { libraryItemId: source } : {}) }
 
   switch (options.type) {
     case 'wheel':
-      return { id, enabled, type: 'wheel', direction: options.direction }
+      return { ...base, type: 'wheel', direction: options.direction }
     case 'mouse':
-      return { id, enabled, type: 'mouse', button: options.button }
+      return { ...base, type: 'mouse', button: options.button }
     case 'cursorMove':
       return {
-        id,
-        enabled,
+        ...base,
         type: 'cursorMove',
         direction: options.direction,
         distance: finiteCursorDistance(options.distance),
       }
     case 'key':
-      return { id, enabled, type: 'key', key: cleanKey(options.key) || 'Enter' }
+      return { ...base, type: 'key', key: cleanKey(options.key) || 'Enter' }
     case 'shortcut': {
       const keys = cleanKeys(options.keys)
-      return { id, enabled, type: 'shortcut', keys: keys.length > 0 ? keys : ['Ctrl', 'C'] }
+      return { ...base, type: 'shortcut', keys: keys.length > 0 ? keys : ['Ctrl', 'C'] }
     }
     case 'typeText':
     case 'paste':
-      return { id, enabled, type: options.type, text: typeof options.text === 'string' ? options.text : '' }
+      return { ...base, type: options.type, text: typeof options.text === 'string' ? options.text : '' }
     case 'delay':
-      return { id, enabled, type: 'delay', ms: finiteDelay(options.ms) }
+      return { ...base, type: 'delay', ms: finiteDelay(options.ms) }
     case 'openPath':
-      return { id, enabled, type: 'openPath', path: normalizeFilePath(options.path) ?? '' }
+      return { ...base, type: 'openPath', path: normalizeFilePath(options.path) ?? '' }
     case 'openApp':
-      return { id, enabled, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
+      return { ...base, type: 'openApp', path: normalizeApplicationPath(options.path) ?? '' }
     case 'openWebsite':
-      return { id, enabled, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
+      return { ...base, type: 'openWebsite', url: normalizeWebsiteUrl(options.url) ?? '' }
     case 'switchProfile':
       return {
-        id,
-        enabled,
+        ...base,
         type: 'switchProfile',
         direction: options.direction ?? 'next',
         wrap: options.wrap !== false,
       }
     case 'disabled':
-      return { id, enabled, type: 'disabled' }
+      return { ...base, type: 'disabled' }
   }
 }
 
@@ -308,21 +316,23 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
   if (typeof type !== 'string' || !(behaviorTypes as readonly string[]).includes(type)) return null
   const id = typeof value.id === 'string' && value.id.trim() ? value.id.trim() : fallbackId || createBehaviorId()
   const enabled = value.enabled !== false
+  const source = libraryItemId(value.libraryItemId)
+  if (value.libraryItemId !== undefined && !source) return null
+  const base = { id, enabled, ...(source ? { libraryItemId: source } : {}) }
 
   switch (type) {
     case 'wheel':
       return ['up', 'down', 'left', 'right'].includes(String(value.direction))
-        ? { id, enabled, type, direction: value.direction as WheelBehavior['direction'] }
+        ? { ...base, type, direction: value.direction as WheelBehavior['direction'] }
         : null
     case 'mouse':
       return ['left', 'right', 'back', 'forward'].includes(String(value.button))
-        ? { id, enabled, type, button: value.button as MouseBehavior['button'] }
+        ? { ...base, type, button: value.button as MouseBehavior['button'] }
         : null
     case 'cursorMove':
       return (cursorDirections as readonly string[]).includes(String(value.direction))
         ? {
-            id,
-            enabled,
+            ...base,
             type,
             direction: value.direction as CursorDirection,
             distance: finiteCursorDistance(value.distance),
@@ -330,36 +340,36 @@ export function normalizeBehavior(value: unknown, fallbackId?: string): Behavior
         : null
     case 'key': {
       const key = cleanKey(value.key)
-      return key ? { id, enabled, type, key } : null
+      return key ? { ...base, type, key } : null
     }
     case 'shortcut': {
       const keys = cleanKeys(value.keys)
-      return keys.length > 0 ? { id, enabled, type, keys } : null
+      return keys.length > 0 ? { ...base, type, keys } : null
     }
     case 'typeText':
     case 'paste':
-      return typeof value.text === 'string' ? { id, enabled, type, text: value.text } : null
+      return typeof value.text === 'string' ? { ...base, type, text: value.text } : null
     case 'delay':
-      return { id, enabled, type, ms: finiteDelay(value.ms) }
+      return { ...base, type, ms: finiteDelay(value.ms) }
     case 'openPath': {
       const path = normalizeFilePath(value.path)
-      return path ? { id, enabled, type, path } : null
+      return path ? { ...base, type, path } : null
     }
     case 'openApp': {
       const path = normalizeApplicationPath(value.path)
-      return path ? { id, enabled, type, path } : null
+      return path ? { ...base, type, path } : null
     }
     case 'openWebsite': {
       const url = normalizeWebsiteUrl(value.url)
-      return url ? { id, enabled, type, url } : null
+      return url ? { ...base, type, url } : null
     }
     case 'switchProfile':
       return (value.direction === 'previous' || value.direction === 'next') &&
         (value.wrap === undefined || typeof value.wrap === 'boolean')
-        ? { id, enabled, type, direction: value.direction, wrap: value.wrap !== false }
+        ? { ...base, type, direction: value.direction, wrap: value.wrap !== false }
         : null
     case 'disabled':
-      return { id, enabled, type }
+      return { ...base, type }
   }
   return null
 }

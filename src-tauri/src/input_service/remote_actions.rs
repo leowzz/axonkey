@@ -23,7 +23,7 @@ struct Press<K> {
 #[derive(Default)]
 struct Button<K> {
     press: Option<Press<K>>,
-    pending: Option<(Instant, Vec<NativeBehavior>)>,
+    pending: Option<(Instant, Vec<NativeBehavior>, Vec<String>)>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -34,6 +34,7 @@ pub(super) struct HidKey {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Output<K = HidKey> {
+    LibraryTrigger(&'static str, Vec<String>),
     CursorMove(WheelDirection, u32),
     MouseClick(MouseButton),
     Wheel(WheelDirection),
@@ -76,14 +77,32 @@ fn enabled(actions: &[NativeBehavior]) -> bool {
     actions.iter().any(NativeBehavior::enabled)
 }
 
+fn queued_actions<K>(queue: &[(Instant, Output<K>)]) -> usize {
+    queue
+        .iter()
+        .filter(|(_, output)| !matches!(output, Output::LibraryTrigger(..)))
+        .count()
+}
+
 fn schedule<K: RemoteKey>(
     queue: &mut Vec<(Instant, Output<K>)>,
     actions: &[NativeBehavior],
+    sources: Option<&[String]>,
+    input: &'static str,
     now: Instant,
 ) {
+    if let Some(sources) = sources.filter(|_| {
+        actions
+            .iter()
+            .any(|action| action.enabled() && !matches!(action, NativeBehavior::Disabled { .. }))
+    }) {
+        if queued_actions(queue) < 256 {
+            queue.push((now, Output::LibraryTrigger(input, sources.to_vec())));
+        }
+    }
     let mut due = now;
     for action in actions.iter().filter(|action| action.enabled()) {
-        if queue.len() >= 256 {
+        if queued_actions(queue) >= 256 {
             break;
         }
         match action {
@@ -114,7 +133,7 @@ fn schedule<K: RemoteKey>(
             }
             NativeBehavior::Key { .. } | NativeBehavior::Shortcut { .. } => {
                 if let Some(keys) = K::chord(action) {
-                    if queue.len() + keys.len() * 2 <= 256 {
+                    if queued_actions(queue) + keys.len() * 2 <= 256 {
                         queue.extend(keys.iter().map(|key| (due, Output::Key(*key, true))));
                         queue.extend(keys.iter().rev().map(|key| (due, Output::Key(*key, false))));
                     }
@@ -143,12 +162,13 @@ fn repeat_output<K>(action: RepeatableClick) -> Output<K> {
 fn schedule_click<K: RemoteKey>(
     queue: &mut Vec<(Instant, Output<K>)>,
     actions: &[NativeBehavior],
-    button: &str,
+    button: &'static str,
+    sources: &[String],
     now: Instant,
 ) {
     if enabled(actions) {
-        schedule(queue, actions, now);
-    } else if queue.len() + 2 <= 256 {
+        schedule(queue, actions, Some(sources), button, now);
+    } else if queued_actions(queue) + 2 <= 256 {
         // Configuring only double/long press must preserve an ordinary click.
         // An explicitly enabled Disabled action suppresses this fallback.
         if let Some(key) = K::original(button) {
@@ -217,6 +237,12 @@ impl<K: RemoteKey> RemoteActions<K> {
                 return;
             }
             if !held.is_empty() {
+                if settings.enabled && custom {
+                    self.scheduled.push((
+                        now,
+                        Output::LibraryTrigger(button, triggers.click_sources.clone()),
+                    ));
+                }
                 self.scheduled
                     .extend(held.iter().map(|key| (now, Output::Key(*key, true))));
                 state.press = Some(Press {
@@ -231,8 +257,8 @@ impl<K: RemoteKey> RemoteActions<K> {
                 return;
             }
             let second = match state.pending.take() {
-                Some((due, actions)) if now >= due => {
-                    schedule_click(&mut self.scheduled, &actions, button, now);
+                Some((due, actions, sources)) if now >= due => {
+                    schedule_click(&mut self.scheduled, &actions, button, &sources, now);
                     false
                 }
                 Some(_) => true,
@@ -240,6 +266,12 @@ impl<K: RemoteKey> RemoteActions<K> {
             };
             let repeat = super::repeatable_click(triggers);
             if let Some(action) = repeat {
+                {
+                    self.scheduled.push((
+                        now,
+                        Output::LibraryTrigger(button, triggers.click_sources.clone()),
+                    ));
+                }
                 self.scheduled.push((now, repeat_output(action)));
             }
             state.press = Some(Press {
@@ -269,13 +301,35 @@ impl<K: RemoteKey> RemoteActions<K> {
             if enabled(&press.triggers.long_press)
                 && now.duration_since(press.started) >= LONG_PRESS
             {
-                schedule(&mut self.scheduled, &press.triggers.long_press, now);
+                schedule(
+                    &mut self.scheduled,
+                    &press.triggers.long_press,
+                    Some(&press.triggers.long_press_sources),
+                    button,
+                    now,
+                );
             } else if press.second {
-                schedule(&mut self.scheduled, &press.triggers.double_click, now);
+                schedule(
+                    &mut self.scheduled,
+                    &press.triggers.double_click,
+                    Some(&press.triggers.double_click_sources),
+                    button,
+                    now,
+                );
             } else if enabled(&press.triggers.double_click) {
-                state.pending = Some((now + DOUBLE_CLICK, press.triggers.click));
+                state.pending = Some((
+                    now + DOUBLE_CLICK,
+                    press.triggers.click,
+                    press.triggers.click_sources,
+                ));
             } else {
-                schedule_click(&mut self.scheduled, &press.triggers.click, button, now);
+                schedule_click(
+                    &mut self.scheduled,
+                    &press.triggers.click,
+                    button,
+                    &press.triggers.click_sources,
+                    now,
+                );
             }
         }
     }
@@ -293,18 +347,34 @@ impl<K: RemoteKey> RemoteActions<K> {
                     }
                 } else if enabled(&press.triggers.long_press) {
                     if !press.long_fired && now.duration_since(press.started) >= LONG_PRESS {
-                        schedule(&mut self.scheduled, &press.triggers.long_press, now);
+                        schedule(
+                            &mut self.scheduled,
+                            &press.triggers.long_press,
+                            Some(&press.triggers.long_press_sources),
+                            button,
+                            now,
+                        );
                         press.long_fired = true;
                         press.next_repeat = now + Duration::from_millis(350);
                     } else if press.long_fired && now >= press.next_repeat {
-                        schedule(&mut self.scheduled, &press.triggers.long_press, now);
+                        schedule(
+                            &mut self.scheduled,
+                            &press.triggers.long_press,
+                            None,
+                            button,
+                            now,
+                        );
                         press.next_repeat = now + Duration::from_millis(100);
                     }
                 }
             }
-            if state.pending.as_ref().is_some_and(|(due, _)| now >= *due) {
-                let (_, actions) = state.pending.take().unwrap();
-                schedule_click(&mut self.scheduled, &actions, button, now);
+            if state
+                .pending
+                .as_ref()
+                .is_some_and(|(due, _, _)| now >= *due)
+            {
+                let (_, actions, sources) = state.pending.take().unwrap();
+                schedule_click(&mut self.scheduled, &actions, button, &sources, now);
             }
         }
         for release in self.releases.drain(..) {
@@ -392,8 +462,61 @@ mod tests {
 
     fn outputs(actions: &mut RemoteActions, now: Instant) -> Vec<Output> {
         let mut output = Vec::new();
-        actions.tick(now, |event| output.push(event));
+        actions.tick(now, |event| {
+            if !matches!(event, Output::LibraryTrigger(..)) {
+                output.push(event);
+            }
+        });
         output
+    }
+
+    #[test]
+    fn library_sequence_counts_once_and_long_repeat_never_counts_again() {
+        let source = "00000000-0000-4000-8000-000000000001";
+        let config = settings(json!({"longPress":[
+            {"type":"key","key":"A","libraryItemId":source},
+            {"type":"key","key":"B","libraryItemId":source}
+        ]}));
+        let now = Instant::now();
+        let mut actions = RemoteActions::<HidKey>::default();
+        actions.edge("up", true, &config, now);
+        let mut markers = vec![];
+        actions.tick(now + LONG_PRESS, |event| {
+            if let Output::LibraryTrigger(input, sources) = event {
+                markers.push((input, sources));
+            }
+        });
+        assert_eq!(markers, vec![("up", vec![source.to_owned()])]);
+        markers.clear();
+        for offset in [950, 1050, 1200] {
+            actions.tick(now + Duration::from_millis(offset), |event| {
+                if let Output::LibraryTrigger(input, sources) = event {
+                    markers.push((input, sources));
+                }
+            });
+        }
+        assert!(markers.is_empty());
+        actions.edge("up", false, &config, now + Duration::from_secs(2));
+        actions.edge("up", true, &config, now + Duration::from_secs(3));
+        actions.tick(now + Duration::from_millis(3600), |event| {
+            if let Output::LibraryTrigger(input, sources) = event {
+                markers.push((input, sources));
+            }
+        });
+        assert_eq!(markers.len(), 1);
+    }
+
+    #[test]
+    fn usage_markers_do_not_reduce_the_output_queue_capacity() {
+        let now = Instant::now();
+        let mut queue = vec![(now, Output::<HidKey>::Wheel(WheelDirection::Up)); 254];
+        let actions = vec![NativeBehavior::Key {
+            enabled: true,
+            key: "A".into(),
+        }];
+        schedule(&mut queue, &actions, Some(&[]), "up", now);
+        assert_eq!(queued_actions(&queue), 256);
+        assert_eq!(queue.len(), 257);
     }
 
     #[test]
@@ -535,7 +658,11 @@ mod tests {
         let mut actions = RemoteActions::default();
         let output = |actions: &mut RemoteActions, now| {
             let mut events = Vec::new();
-            actions.tick(now, |event| events.push(event));
+            actions.tick(now, |event| {
+                if !matches!(event, Output::LibraryTrigger(..)) {
+                    events.push(event);
+                }
+            });
             events
         };
         actions.edge("up", true, &config, now);

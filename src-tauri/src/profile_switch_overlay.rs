@@ -100,9 +100,18 @@ pub async fn show_profile_switch_overlay(
     show(&app, device, from, to)
 }
 
-pub(crate) fn show(app: &tauri::AppHandle, device: String, from: String, to: String) -> Result<(), String> {
+pub(crate) fn show(
+    app: &tauri::AppHandle,
+    device: String,
+    from: String,
+    to: String,
+) -> Result<(), String> {
     let state = app.state::<OverlayState>();
-    let notification = state.0.lock().map_err(|e| e.to_string())?.replace(device, from, to);
+    let notification = state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .replace(device, from, to);
     log::info!(
         target: "axonkey::profile_overlay",
         "Profile notification requested: revision={} device={:?} from={:?} to={:?}",

@@ -15,6 +15,7 @@ import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/clo
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
 import { useCloudSync } from '../cloud/useCloudSync'
+import { recordLibraryAdditions, useLibraryUsage } from '../cloud/libraryUsage'
 import { createCloudSnapshot, prepareCloudRestore } from '../cloud/cloudData'
 import { createPortal } from 'react-dom'
 import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDialog'
@@ -330,6 +331,7 @@ function AppController({
     inputId: InputId
     trigger: TriggerType
     behavior: SwitchProfileBehavior
+    additionItemId?: string
   } | null>(null)
   const [pendingProfileSwitchDeletion, setPendingProfileSwitchDeletion] = useState<ProfileSwitchDeletion | null>(null)
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null)
@@ -665,8 +667,8 @@ function AppController({
   }
 
   const requestProfileSwitch = useCallback(
-    (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => {
-      setPendingProfileSwitch({ inputId, trigger, behavior })
+    (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior, additionItemId?: string) => {
+      setPendingProfileSwitch({ inputId, trigger, behavior, additionItemId })
     },
     [],
   )
@@ -1580,6 +1582,8 @@ function AppController({
       }
     },
   })
+
+  useLibraryUsage(cloud.client, platform, nativeRuntime && platformReady)
 
   const openMappingImport = () => {
     mappingFileInputRef.current?.click()
@@ -2637,6 +2641,8 @@ function AppController({
               profileStateRef.current = next
               setProfiles(next.profiles)
               dispatchBehaviorHistory({ type: 'replace', present: next.behaviors })
+              if (pendingProfileSwitch.additionItemId && behavior.enabled)
+                recordLibraryAdditions([pendingProfileSwitch.additionItemId])
               setPendingProfileSwitch(null)
               setAutoSaveState('saving')
               setToast('已应用到此设备的所有配置文件')

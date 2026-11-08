@@ -14,6 +14,7 @@ const instances = []
 const storage = new Map()
 let storageFailure = false
 const copiedSequences = []
+const libraryAdditions = []
 function MockSaveDialog(props) { return React.createElement('sequence-save-dialog', props) }
 function MockPasteDialog(props) { return React.createElement('sequence-paste-dialog', props) }
 function MockToolbox() { return null }
@@ -68,6 +69,10 @@ function load(file) {
     if (name.endsWith('.css')) return {}
     if (name === 'sequential-workflow-designer') return { ...library, Designer }
     if (name === 'react-dom') return { createPortal: node => node }
+    if (name === '@tauri-apps/api/core') return { invoke: async (command, args) => {
+      assert.equal(command, 'axonkey_record_library_additions')
+      libraryAdditions.push(copy(args.itemIds))
+    } }
     if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
     if (name === './WorkflowToolbox') return { WorkflowToolbox: MockToolbox }
@@ -86,7 +91,7 @@ function load(file) {
   }
   vm.runInNewContext(source, {
     module, exports: module.exports, require: localRequire, URL, console, crypto: globalThis.crypto, structuredClone,
-    window: { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
+    window: { __TAURI_INTERNALS__: {}, addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
       getItem: key => storage.get(key) ?? null,
       setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
     } },
@@ -756,28 +761,90 @@ test('library add buttons reuse disabled-lane and profile-switch rules', async (
 })
 
 
-test('cloud additions count saved copies once, exclude canceled drafts, and survive failed statistics', async () => {
-  const additions = []
-  const app = await render(empty(), {}, { client: { request: async (...args) => { additions.push(args); throw new Error('offline') } } })
+test('anonymous cloud additions count accepted copies once, preserve provenance and exclude canceled drafts', async () => {
+  const additions = libraryAdditions.length
+  const first = '00000000-0000-4000-8000-000000000001'
+  const second = '00000000-0000-4000-8000-000000000002'
+  const app = await render()
   try {
     const toolbox = app.view.root.findByType(MockToolbox)
-    const action = { ...palette('delay'), properties: { ms: 20, libraryItemId: 'abc-123' } }
+    const action = { ...palette('delay'), properties: { ms: 20, libraryItemId: first } }
     await act(async () => toolbox.props.onAddStep(action))
-    assert.equal(additions.length, 1)
-    assert.equal(additions[0][1], '/v2/behavior-library/abc-123/additions')
+    assert.equal(libraryAdditions.length, additions + 1)
+    assert.deepEqual(libraryAdditions.at(-1), [first])
     assert.equal(app.writes.at(-1)[1].click.length, 1)
-    assert.equal(branches(app.current()).click[0].properties.libraryItemId, undefined)
+    assert.equal(branches(app.current()).click[0].properties.libraryItemId, first)
+    assert.equal(app.writes.at(-1)[1].click[0].libraryItemId, first)
     await act(async () => app.current().emit(library.DefinitionChangeType.stepChildrenChanged))
-    assert.equal(additions.length, 1)
-    const draft = { ...palette('paste'), properties: { libraryItemId: 'def-456' } }
+    assert.equal(libraryAdditions.length, additions + 1)
+    const draft = { ...palette('paste'), properties: { libraryItemId: second } }
     await act(async () => toolbox.props.onAddStep(draft))
-    assert.equal(additions.length, 1)
+    assert.equal(libraryAdditions.length, additions + 1)
     const canceled = await openContextEditor(app, 'click', 1)
     await act(async () => canceled.props.onClose())
-    assert.equal(additions.length, 1)
+    assert.equal(libraryAdditions.length, additions + 1)
     const dialog = await openContextEditor(app, 'click', 1)
     await act(async () => dialog.props.edit.onSave({ ...dialog.props.edit.behavior, text: 'ready' }))
-    assert.equal(additions.length, 2)
+    assert.equal(libraryAdditions.length, additions + 2)
+    assert.deepEqual(libraryAdditions.at(-1), [second])
     assert.equal(app.writes.at(-1)[1].click.at(-1).text, 'ready')
   } finally { await app.unmount() }
+})
+
+test('cloud sequence drops and fast cleanup count once after acceptance; rejected edits and shared switches wait', async () => {
+  const itemId = '00000000-0000-4000-8000-000000000003'
+  const action = () => ({ ...palette('savedSequence'), properties: { sequence: 'axonkey/1\nkey Enter\nwait 30ms\noff text "停用"\nend', libraryItemId: itemId } })
+  for (const route of ['drop', 'cleanup', 'reject', 'switch']) {
+    const before = libraryAdditions.length
+    const app = await render(empty(), route === 'reject' ? { onChange: () => false } : {})
+    try {
+      const node = action()
+      if (route === 'switch') node.properties.sequence = 'axonkey/1\nprofile next wrap\nend'
+      branches(app.current()).click.push(node)
+      if (route === 'cleanup') await app.unmount()
+      else await act(async () => app.current().emit(library.DefinitionChangeType.stepInserted, node.id))
+      if (route === 'reject' || route === 'switch') {
+        assert.equal(libraryAdditions.length, before)
+        assert.equal(app.writes.length, 0)
+        if (route === 'switch') {
+          assert.equal(app.requests[0][2].libraryItemId, itemId)
+          assert.equal(app.requests[0][3], itemId)
+        }
+      } else {
+        assert.equal(libraryAdditions.length, before + 1)
+        assert.deepEqual(libraryAdditions.at(-1), [itemId])
+        assert.deepEqual(app.writes.at(-1)[1].click.map(behavior => behavior.libraryItemId), [itemId, itemId, itemId])
+      }
+    } finally { await app.unmount() }
+  }
+})
+
+test('inserting a saved copy counts each known active library source once while local and disabled sources stay uncounted', async () => {
+  const first = '00000000-0000-4000-8000-000000000004'
+  const second = '00000000-0000-4000-8000-000000000005'
+  const disabled = '00000000-0000-4000-8000-000000000006'
+  const before = libraryAdditions.length
+  const app = await render()
+  try {
+    const toolbox = app.view.root.findByType(MockToolbox)
+    const action = { ...palette('savedSequence'), properties: { sequence: 'axonkey/1\nkey Enter\nwait 30ms\nkey Esc\noff text "停用"\nkey Space\nend', libraryItemIds: [first, first, second, disabled, null] } }
+    await act(async () => toolbox.props.onAddStep(action))
+    assert.equal(libraryAdditions.length, before + 1)
+    assert.deepEqual(libraryAdditions.at(-1), [first, second])
+    assert.deepEqual(app.writes.at(-1)[1].click.map(behavior => behavior.libraryItemId ?? null), [first, first, second, disabled, null])
+    await act(async () => app.current().emit(library.DefinitionChangeType.stepPropertyChanged))
+    assert.equal(libraryAdditions.length, before + 1)
+    await act(async () => toolbox.props.onAddStep({ ...palette('delay'), properties: { ms: 30 } }))
+    assert.equal(libraryAdditions.length, before + 1)
+  } finally { await app.unmount() }
+})
+
+test('addition increments preserve duplicate IDs and stay within the native command batch limit', () => {
+  const source = '00000000-0000-4000-8000-000000000007'
+  const before = libraryAdditions.length
+  const { recordLibraryAdditions } = load('src/cloud/libraryUsage.ts')
+  recordLibraryAdditions(Array(205).fill(source))
+  assert.deepEqual(libraryAdditions.slice(before).map(items => items.length), [100, 100, 5])
+  assert.equal(libraryAdditions.slice(before).flat().length, 205)
+  assert.ok(libraryAdditions.slice(before).flat().every(item => item === source))
 })

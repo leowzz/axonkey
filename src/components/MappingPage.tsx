@@ -35,7 +35,12 @@ export type MappingPageProps = {
   editableButtons: RemoteButton[]
   pressedId: ButtonId | null
   behaviors: BehaviorMap
-  onRequestProfileSwitch: (inputId: InputId, trigger: TriggerType, behavior: SwitchProfileBehavior) => void
+  onRequestProfileSwitch: (
+    inputId: InputId,
+    trigger: TriggerType,
+    behavior: SwitchProfileBehavior,
+    additionItemId?: string,
+  ) => void
   onWorkflowChange: (inputId: InputId, sequences: TriggerBehaviors) => void | false
   platform: Platform
   toolbar: ReactNode

@@ -1,20 +1,52 @@
 import type { BranchedStep, Definition, Step } from 'sequential-workflow-designer'
 import type { Behavior, BehaviorMap, InputId, TriggerBehaviors, TriggerType } from '../behaviorModel.ts'
-import { createBehavior, defaultCursorDistance, normalizeBehavior, parseSequenceImport, triggerTypes } from '../behaviorModel.ts'
+import {
+  createBehavior,
+  defaultCursorDistance,
+  libraryItemId,
+  normalizeBehavior,
+  triggerTypes,
+} from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
 import { createTriggerDefinition } from './WorkflowTriggerRoot.ts'
 export { isWorkflowLaneDisabled, isWorkflowStepLocked } from './WorkflowTriggerRoot.ts'
 import { workflowStepBehavior } from './workflowStepEditing.ts'
-import { isWorkflowActionChoiceSelected, workflowActionChoiceGroup, workflowActionChoiceStep } from './workflowActionChoices.ts'
+import { savedSequenceBehaviors } from '../savedSequences.ts'
+import type { SavedSequence } from '../savedSequences.ts'
+import {
+  isWorkflowActionChoiceSelected,
+  workflowActionChoiceGroup,
+  workflowActionChoiceStep,
+} from './workflowActionChoices.ts'
 
 type Label = (behavior: Behavior) => string
 const directions = { up: 'Up', down: 'Down', left: 'Left', right: 'Right' } as const
 const presetKeys: Record<string, string> = {
-  escape: 'Esc', enter: 'Enter', customKey: 'Enter', space: 'Space', tab: 'Tab', backspace: 'Backspace', delete: 'Delete',
-  rightCtrl: 'RCtrl', rightAlt: 'RAlt', rightCommand: 'RWin', keyHome: 'Home', keyEnd: 'End',
-  pageUp: 'PageUp', pageDown: 'PageDown', arrowUp: 'Up', arrowDown: 'Down', arrowLeft: 'Left', arrowRight: 'Right',
-  volumeUp: 'VolumeUp', volumeDown: 'VolumeDown', volumeMute: 'VolumeMute', mediaPlayPause: 'MediaPlayPause',
-  mediaPrevious: 'MediaPrevious', mediaNext: 'MediaNext', mediaStop: 'MediaStop',
+  escape: 'Esc',
+  enter: 'Enter',
+  customKey: 'Enter',
+  space: 'Space',
+  tab: 'Tab',
+  backspace: 'Backspace',
+  delete: 'Delete',
+  rightCtrl: 'RCtrl',
+  rightAlt: 'RAlt',
+  rightCommand: 'RWin',
+  keyHome: 'Home',
+  keyEnd: 'End',
+  pageUp: 'PageUp',
+  pageDown: 'PageDown',
+  arrowUp: 'Up',
+  arrowDown: 'Down',
+  arrowLeft: 'Left',
+  arrowRight: 'Right',
+  volumeUp: 'VolumeUp',
+  volumeDown: 'VolumeDown',
+  volumeMute: 'VolumeMute',
+  mediaPlayPause: 'MediaPlayPause',
+  mediaPrevious: 'MediaPrevious',
+  mediaNext: 'MediaNext',
+  mediaStop: 'MediaStop',
 }
 
 export function behaviorToWorkflowStep(behavior: Behavior, label: Label): Step {
@@ -23,11 +55,16 @@ export function behaviorToWorkflowStep(behavior: Behavior, label: Label): Step {
   if (behavior.type === 'wheel') type = `wheel${directions[behavior.direction]}`
   if (behavior.type === 'cursorMove') type = `cursor${directions[behavior.direction]}`
   if (behavior.type === 'mouse') type = `mouse${behavior.button[0].toUpperCase()}${behavior.button.slice(1)}`
-  const choice = workflowActionChoiceGroup(behavior)?.options.find((option) => isWorkflowActionChoiceSelected(behavior, option))
+  const choice = workflowActionChoiceGroup(behavior)?.options.find(option =>
+    isWorkflowActionChoiceSelected(behavior, option),
+  )
   if (choice) type = choice.stepType
   const { id, type: behaviorType, ...properties } = behavior
   return {
-    id, componentType: 'task', type, name: `${behavior.enabled ? '' : '已停用 · '}${label(behavior)}`,
+    id,
+    componentType: 'task',
+    type,
+    name: `${behavior.enabled ? '' : '已停用 · '}${label(behavior)}`,
     properties: { ...properties, ...(behavior.type === 'shortcut' ? { keys: [...behavior.keys] } : {}), behaviorType },
   }
 }
@@ -46,7 +83,8 @@ export function clearWorkflowLane(definition: Definition, trigger: TriggerType) 
 export function behaviorsToWorkflow(sequences: TriggerBehaviors, label: Label): Definition {
   const definition = createTriggerDefinition()
   const branches = workflowBranches(definition)
-  for (const trigger of triggerTypes) branches[trigger] = sequences[trigger].map((behavior) => behaviorToWorkflowStep(behavior, label))
+  for (const trigger of triggerTypes)
+    branches[trigger] = sequences[trigger].map(behavior => behaviorToWorkflowStep(behavior, label))
   return definition
 }
 
@@ -66,50 +104,136 @@ export function workflowToBehaviors(definition: Definition): TriggerBehaviors | 
 }
 
 export function insertedWorkflowSteps(step: Step, platform: Platform, label: Label): Step[] {
+  const steps = expandedWorkflowSteps(step, platform, label)
+  const source = libraryItemId(step.properties.libraryItemId)
+  if (step.properties.behaviorType) return steps
+  const counted = new Set<string>()
+  for (const node of steps) {
+    if (source) node.properties.libraryItemId = source
+    const itemId = libraryItemId(node.properties.libraryItemId)
+    if (!itemId || counted.has(itemId) || node.properties.enabled === false || node.type === 'disabled') continue
+    node.properties.pendingLibraryAddition = itemId
+    counted.add(itemId)
+  }
+  return steps
+}
+
+function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): Step[] {
   // Duplicates already contain canonical behavior fields and keep their parameters.
   if (step.properties.behaviorType) return [step]
   if (step.type === 'savedSequence') {
-    const behaviors = parseSequenceImport(step.properties.sequence)
-    return behaviors?.map((behavior, index) => behaviorToWorkflowStep({ ...behavior, id: index === 0 ? step.id : behavior.id }, label)) ?? []
+    const behaviors = savedSequenceBehaviors(step.properties as Pick<SavedSequence, 'sequence' | 'libraryItemIds'>)
+    return (
+      behaviors?.map((behavior, index) =>
+        behaviorToWorkflowStep({ ...behavior, id: index === 0 ? step.id : behavior.id }, label),
+      ) ?? []
+    )
   }
   const preset = step.type
-  if (preset === 'switchProfile') return [{ ...step, properties: { ...step.properties, behaviorType: 'switchProfile', enabled: true, direction: 'next', wrap: true, draftGroup: step.id } }]
+  if (preset === 'switchProfile')
+    return [
+      {
+        ...step,
+        properties: {
+          ...step.properties,
+          behaviorType: 'switchProfile',
+          enabled: true,
+          direction: 'next',
+          wrap: true,
+          draftGroup: step.id,
+        },
+      },
+    ]
   const choices = workflowActionChoiceStep(preset)
-  if (choices?.preset === preset) return [{ ...step, properties: {
-    ...step.properties, behaviorType: choices.options[0].behavior.type, enabled: true, choice: choices.options[0].stepType, draftGroup: step.id,
-  } }]
-  if (preset === 'wheel' || preset === 'cursorMove') return [{ ...step, properties: {
-    ...step.properties, behaviorType: preset, enabled: true, direction: 'up', draftGroup: step.id,
-    ...(preset === 'cursorMove' ? { distance: defaultCursorDistance } : {}),
-  } }]
+  if (choices?.preset === preset)
+    return [
+      {
+        ...step,
+        properties: {
+          ...step.properties,
+          behaviorType: choices.options[0].behavior.type,
+          enabled: true,
+          choice: choices.options[0].stepType,
+          draftGroup: step.id,
+        },
+      },
+    ]
+  if (preset === 'wheel' || preset === 'cursorMove')
+    return [
+      {
+        ...step,
+        properties: {
+          ...step.properties,
+          behaviorType: preset,
+          enabled: true,
+          direction: 'up',
+          draftGroup: step.id,
+          ...(preset === 'cursorMove' ? { distance: defaultCursorDistance } : {}),
+        },
+      },
+    ]
   let behaviors: Behavior[]
   if (presetKeys[preset]) behaviors = [createBehavior({ type: 'key', key: presetKeys[preset], id: step.id })]
-  else if (preset === 'previousTab' || preset === 'nextTab') behaviors = [createBehavior({ type: 'shortcut', keys: preset === 'previousTab' ? ['Ctrl', 'Shift', 'Tab'] : ['Ctrl', 'Tab'], id: step.id })]
+  else if (preset === 'previousTab' || preset === 'nextTab')
+    behaviors = [
+      createBehavior({
+        type: 'shortcut',
+        keys: preset === 'previousTab' ? ['Ctrl', 'Shift', 'Tab'] : ['Ctrl', 'Tab'],
+        id: step.id,
+      }),
+    ]
   else if (preset === 'deleteAllText') {
     const modifier = platform === 'macos' ? 'Win' : 'Ctrl'
-    behaviors = [createBehavior({ type: 'shortcut', keys: [modifier, 'A'], id: step.id }), createBehavior({ type: 'delay', ms: 30 }), createBehavior({ type: 'shortcut', keys: [modifier, 'X'] })]
+    behaviors = [
+      createBehavior({ type: 'shortcut', keys: [modifier, 'A'], id: step.id }),
+      createBehavior({ type: 'delay', ms: 30 }),
+      createBehavior({ type: 'shortcut', keys: [modifier, 'X'] }),
+    ]
   } else if (preset === 'textAndEnter') {
-    behaviors = [createBehavior({ type: 'paste', text: '', id: step.id }), createBehavior({ type: 'delay', ms: 30 }), createBehavior({ type: 'key', key: 'Enter' })]
+    behaviors = [
+      createBehavior({ type: 'paste', text: '', id: step.id }),
+      createBehavior({ type: 'delay', ms: 30 }),
+      createBehavior({ type: 'key', key: 'Enter' }),
+    ]
   } else {
     const behavior = workflowStepBehavior(step)
     if (!behavior) throw new Error(`Unsupported workflow action: ${preset}`)
     behaviors = [behavior]
   }
-  const steps = behaviors.map((behavior) => behaviorToWorkflowStep(behavior, label))
+  const steps = behaviors.map(behavior => behaviorToWorkflowStep(behavior, label))
   if (['paste', 'typeText', 'openPath', 'openApp', 'openWebsite', 'textAndEnter'].includes(preset)) {
     for (const node of steps) node.properties.draftGroup = step.id
   }
   return steps
 }
 
+export function takeWorkflowLibraryAdditions(definition: Definition): string[] {
+  const items: string[] = []
+  for (const branch of Object.values(workflowBranches(definition))) {
+    for (const node of branch) {
+      const itemId = libraryItemId(node.properties.pendingLibraryAddition)
+      if (!itemId || node.properties.draftGroup) continue
+      delete node.properties.pendingLibraryAddition
+      if (node.properties.enabled !== false && node.type !== 'disabled') items.push(itemId)
+    }
+  }
+  return items
+}
+
 export function updateWorkflowInput(current: BehaviorMap, inputId: InputId, sequences: TriggerBehaviors): BehaviorMap {
   if (workflowSequenceSignature(current[inputId]) === workflowSequenceSignature(sequences)) return current
-  const copy = Object.fromEntries(triggerTypes.map((trigger) => [trigger, sequences[trigger].map((behavior) =>
-    behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior })])) as TriggerBehaviors
+  const copy = Object.fromEntries(
+    triggerTypes.map(trigger => [
+      trigger,
+      sequences[trigger].map(behavior =>
+        behavior.type === 'shortcut' ? { ...behavior, keys: [...behavior.keys] } : { ...behavior },
+      ),
+    ]),
+  ) as TriggerBehaviors
   return { ...current, [inputId]: copy }
 }
 
 export function workflowSequenceSignature(sequences: TriggerBehaviors) {
   // Stored/imported objects may use different property orders for the same action.
-  return JSON.stringify(triggerTypes.map((trigger) => sequences[trigger].map((behavior) => normalizeBehavior(behavior))))
+  return JSON.stringify(triggerTypes.map(trigger => sequences[trigger].map(behavior => normalizeBehavior(behavior))))
 }

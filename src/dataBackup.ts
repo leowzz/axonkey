@@ -3,15 +3,13 @@ import {
   requiresNewBehaviorVersion,
   newBehaviorMinAppVersion,
   normalizeBehavior,
-  parseSequenceImport,
-  serializeSequence,
   triggerTypes,
 } from './behaviorModel.ts'
 import type { Behavior, BehaviorMap, TriggerBehaviors } from './behaviorModel.ts'
 import { devices } from './devices/index.ts'
 import type { DeviceId } from './devices/index.ts'
 import type { MappingProfile, StoredSettings } from './appTypes.ts'
-import { parseSavedSequences } from './savedSequences.ts'
+import { parseSavedSequences, savedSequenceBehaviors, savedSequenceContent } from './savedSequences.ts'
 import type { SavedSequence } from './savedSequences.ts'
 import { composeActiveProfileBehaviors, snapshotDeviceProfiles } from './deviceProfiles.ts'
 
@@ -98,7 +96,7 @@ export function createDataBackup(
       }
     }),
     savedBehaviors: data.savedSequences.map(saved => {
-      const behaviors = parseSequenceImport(saved.sequence)
+      const behaviors = savedSequenceBehaviors(saved)
       if (!behaviors?.length) return invalid(`已保存的行为“${saved.name}”无法读取`)
       return { id: saved.id, name: saved.name, behaviors }
     }),
@@ -194,7 +192,7 @@ export function parseDataBackupDocument(decoded: unknown): ParsedBackup {
           return {
             id: string(raw.id, '行为 ID'),
             name: string(raw.name, '行为名称'),
-            sequence: serializeSequence(raw.behaviors.map(behavior)),
+            ...savedSequenceContent(raw.behaviors.map(behavior)),
           }
         }),
       ),

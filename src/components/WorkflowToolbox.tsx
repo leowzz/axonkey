@@ -360,6 +360,7 @@ export function WorkflowToolbox({
               id: sharing.properties.savedSequenceId as string,
               name: sharing.name,
               sequence: sharing.properties.sequence as string,
+              libraryItemIds: sharing.properties.libraryItemIds as (string | null)[] | undefined,
             }}
             platform={platform}
             preview={getStepPreview(sharing)}

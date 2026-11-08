@@ -79,7 +79,13 @@ pub(crate) async fn relay_request(
 ) -> Result<RelayResponse, String> {
     validate_request(&method, &path)?;
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(20))
+        .timeout(Duration::from_secs(
+            if path == "/v2/behavior-library/usage" {
+                3
+            } else {
+                20
+            },
+        ))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(user_agent)
         .build()
@@ -239,7 +245,7 @@ fn valid_library_request(method: &str, path: &str) -> bool {
             only(&["app_id", "limit", "offset"]) && value("app_id") == Some("axonkey")
         }
         ("POST", "/admin/recommendations") => pairs.is_empty(),
-        ("POST", "/submissions") => pairs.is_empty(),
+        ("POST", "/submissions" | "/usage") => pairs.is_empty(),
         ("POST", _) => {
             let parts: Vec<_> = tail.trim_start_matches('/').split('/').collect();
             match parts.as_slice() {
@@ -265,6 +271,7 @@ mod tests {
             ("GET", "/v2/me"),
             ("GET", "/v2/behavior-library/admin/items?app_id=axonkey&limit=100&offset=0"),
             ("POST", "/v2/behavior-library/admin/recommendations"),
+            ("POST", "/v2/behavior-library/usage"),
             ("POST", "/v2/behavior-library/admin/items/019a-abcd/recommendation"),
             ("GET", "/v2/behavior-library?app_id=axonkey&platform=macos&view=recommended&limit=25"),
             ("GET", "/v2/behavior-library?app_id=axonkey&platform=windows&view=community&q=%E9%9F%B3%E9%87%8F&cursor=abc_123"),

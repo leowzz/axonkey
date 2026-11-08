@@ -13,7 +13,16 @@ export type WorkflowStepEdit = {
   onSave: (behavior: Behavior) => void
 }
 
-export function WorkflowStepDialog({ edit, platform, button, onClose, children, title, saveLabel, saveTone }: {
+export function WorkflowStepDialog({
+  edit,
+  platform,
+  button,
+  onClose,
+  children,
+  title,
+  saveLabel,
+  saveTone,
+}: {
   edit: WorkflowStepEdit
   platform: Platform
   button: MappingInput<string>
@@ -39,62 +48,98 @@ export function WorkflowStepDialog({ edit, platform, button, onClose, children, 
     return () => {
       if (app) app.inert = wasInert
       document.body.style.overflow = overflow
-      const node = document.querySelector<SVGElement>(`.workflow-axonkey-canvas [data-step-id="${CSS.escape(edit.stepId)}"]`)
+      const node = document.querySelector<SVGElement>(
+        `.workflow-axonkey-canvas [data-step-id="${CSS.escape(edit.stepId)}"]`,
+      )
       if (node) node.focus()
-      else if ((previousFocus instanceof HTMLElement || previousFocus instanceof SVGElement) && previousFocus.isConnected) previousFocus.focus()
+      else if (
+        (previousFocus instanceof HTMLElement || previousFocus instanceof SVGElement) &&
+        previousFocus.isConnected
+      )
+        previousFocus.focus()
     }
   }, [edit.stepId])
 
-  return <div ref={ref} className="mapping-active workflow-step-editor" onKeyDownCapture={(event) => {
-    if (capturing) return
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      onClose()
-    }
-    if (event.key !== 'Tab') return
-    const elements = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea, select:not(:disabled), [tabindex="0"]') ?? [])
-    const first = elements[0]
-    const last = elements[elements.length - 1]
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-  }}>
-    <BehaviorEditDialog
-      platform={platform}
-      button={button}
-      trigger={edit.trigger}
-      behavior={behavior}
-      draft
-      delayStep={1}
-      title={title ?? `编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
-      saveLabel={saveLabel}
-      saveTone={saveTone}
-      children={children}
-      actionChoices={choiceGroup ? {
-        label: choiceGroup.label,
-        options: choiceGroup.options.map((option) => ({
-          label: option.label,
-          selected: isWorkflowActionChoiceSelected(behavior, option),
-          behavior: { id: behavior.id, enabled: behavior.enabled, ...option.behavior },
-        })),
-      } : undefined}
-      capturing={capturing}
-      onStartCapture={() => setCapturing(true)}
-      onCancelCapture={() => setCapturing(false)}
-      onCaptureKey={(_current, event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        const captured = formatCapturedKey(event)
-        if (!captured) return
-        setBehavior({ ...behaviorFromCapturedKey(captured, behavior.id), enabled: behavior.enabled })
-        setCapturing(false)
+  return (
+    <div
+      ref={ref}
+      className="mapping-active workflow-step-editor"
+      onKeyDownCapture={event => {
+        if (capturing) return
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onClose()
+        }
+        if (event.key !== 'Tab') return
+        const elements = Array.from(
+          ref.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), input:not(:disabled), textarea, select:not(:disabled), [tabindex="0"]',
+          ) ?? [],
+        )
+        const first = elements[0]
+        const last = elements[elements.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last?.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first?.focus()
+        }
       }}
-      onUpdate={(update) => setBehavior((current) => {
-        const next = update(current)
-        return next.type === 'delay' ? { ...next, ms: Math.round(next.ms) } : next
-      })}
-      onClose={onClose}
-      onSave={() => edit.onSave(behavior)}
-    />
-  </div>
+    >
+      <BehaviorEditDialog
+        platform={platform}
+        button={button}
+        trigger={edit.trigger}
+        behavior={behavior}
+        draft
+        delayStep={1}
+        title={title ?? `编辑${choiceGroup?.title ?? behaviorTypeLabels[behavior.type]}行为`}
+        saveLabel={saveLabel}
+        saveTone={saveTone}
+        children={children}
+        actionChoices={
+          choiceGroup
+            ? {
+                label: choiceGroup.label,
+                options: choiceGroup.options.map(option => ({
+                  label: option.label,
+                  selected: isWorkflowActionChoiceSelected(behavior, option),
+                  behavior: {
+                    id: behavior.id,
+                    enabled: behavior.enabled,
+                    ...(behavior.libraryItemId ? { libraryItemId: behavior.libraryItemId } : {}),
+                    ...option.behavior,
+                  },
+                })),
+              }
+            : undefined
+        }
+        capturing={capturing}
+        onStartCapture={() => setCapturing(true)}
+        onCancelCapture={() => setCapturing(false)}
+        onCaptureKey={(_current, event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          const captured = formatCapturedKey(event)
+          if (!captured) return
+          setBehavior({
+            ...behaviorFromCapturedKey(captured, behavior.id),
+            enabled: behavior.enabled,
+            ...(behavior.libraryItemId ? { libraryItemId: behavior.libraryItemId } : {}),
+          })
+          setCapturing(false)
+        }}
+        onUpdate={update =>
+          setBehavior(current => {
+            const next = update(current)
+            return next.type === 'delay' ? { ...next, ms: Math.round(next.ms) } : next
+          })
+        }
+        onClose={onClose}
+        onSave={() => edit.onSave(behavior)}
+      />
+    </div>
+  )
 }
