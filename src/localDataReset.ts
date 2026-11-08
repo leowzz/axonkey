@@ -1,4 +1,5 @@
 import type { DeviceSnapshot } from './devices/integration/model.ts'
+import { deviceInputSelectionStorageKey } from './deviceInputSelection.ts'
 
 const personalDataKeys = [
   'axonkey.settings.v1',
@@ -11,6 +12,7 @@ const personalDataKeys = [
   'axonkey.device-instances.preview.v1',
   'axonkey.remote-interaction-hint.v1',
   'axonkey.device-hub-discovered-expanded.v1',
+  deviceInputSelectionStorageKey,
 ]
 
 export async function clearLocalData(

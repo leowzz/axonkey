@@ -6,6 +6,7 @@ import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
+import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
 import { removedProfileSwitchTriggers } from '../../profileNavigation'
 import { RemoteControl } from '../shared/RemoteControl'
 import { ProfileManager } from '../../components/ProfileManager'
@@ -66,7 +67,16 @@ export function InstanceWorkspace({
   batteryLevel,
 }: Props) {
   const pkg = packageFor(instance.kind)
-  const [selected, setSelected] = useState(pkg.inputs[0].id as string)
+  const [selected, setSelected] = useState<string>(() =>
+    getStoredDeviceInput(
+      instance.id,
+      pkg.inputs.map(input => input.id),
+    ),
+  )
+  const selectInput = (inputId: string) => {
+    setSelected(inputId)
+    storeDeviceInput(instance.id, inputId)
+  }
   const [settings, setSettings] = useState(false)
   const [recordingPending, setRecordingPending] = useState(false)
   const [driverNoticeDismissed, setDriverNoticeDismissed] = useState(false)
@@ -417,14 +427,14 @@ export function InstanceWorkspace({
           <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
             <div className="remote-art">
               {instance.kind === 'xboxBluetooth' ? (
-                <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={setSelected} />
+                <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={selectInput} />
               ) : (
                 <RemoteControl
                   buttons={[...pkg.inputs] as { id: ButtonId; label: string }[]}
                   activeId={selected as ButtonId}
                   pressedId={(input.pressed[0] ?? null) as ButtonId | null}
                   mappedIds={mapped as ButtonId[]}
-                  onSelect={setSelected}
+                  onSelect={selectInput}
                   remoteView={pkg.remoteView}
                 />
               )}

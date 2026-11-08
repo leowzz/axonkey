@@ -22,6 +22,7 @@ import { ProfileSwitchConfirmDialog } from '../components/ProfileSwitchConfirmDi
 import { ProfileSwitchDeleteDialog } from '../components/ProfileSwitchDeleteDialog'
 import { createDataBackup, restoreBackupStorage } from '../dataBackup'
 import { clearLocalData } from '../localDataReset'
+import { getStoredDeviceInput, storeDeviceInput } from '../deviceInputSelection'
 import type { ParsedBackup } from '../dataBackup'
 import type { LegacyBackupImport } from '../backupImport'
 import { parseSavedSequences, savedSequencesStorageKey } from '../savedSequences'
@@ -1355,6 +1356,7 @@ function AppController({
     setSelectedDeviceId(device.id)
     if (device.inputKind === 'button') setActiveId(buttonId as ButtonId)
     setSelectedBehavior({ buttonId, trigger })
+    storeDeviceInput(device.id, buttonId)
     setCapturingBehaviorId(null)
     setEditingBehaviorId(null)
     setDraftBehavior(null)
@@ -2523,7 +2525,7 @@ function AppController({
                     onLegacy={deviceId => {
                       setSelectedDeviceId(deviceId)
                       const device = devices.find(d => d.id === deviceId)!
-                      selectBehaviorTarget(device.inputIds[0], 'click', false)
+                      selectBehaviorTarget(getStoredDeviceInput(device.id, device.inputIds), 'click', false)
                       navigateToPage('mapping')
                     }}
                   />

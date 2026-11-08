@@ -13,6 +13,7 @@ test('reset removes saved device instances and personal data while retaining log
     'axonkey.device-instances.preview.v1': 'preview devices',
     'axonkey.remote-interaction-hint.v1': 'dismissed',
     'axonkey.device-hub-discovered-expanded.v1': 'collapsed',
+    'axonkey.device-input-selection.v1': '{"remote":"voice"}',
     'axonkey.relay.v1': 'account',
     'axonkey.onboarding-completed.v1': 'true',
     unrelated: 'untouched',
