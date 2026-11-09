@@ -46,6 +46,8 @@ const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/
   '../../components/SettingsHelp': { SettingsHelp: () => null },
   '../../components/BatteryIndicator': battery,
   './model': model,
+}, {
+  window: new EventTarget(),
 })
 function DeviceHub(props) {
   const [selectedInstanceId, onSelectInstance] = React.useState(null)
