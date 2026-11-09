@@ -1,5 +1,8 @@
 # Architecture
 
+See the [architecture decision records](adr/README.md) for the trade-offs behind
+long-lived design choices.
+
 Axonkey uses device integrations to manage supported models and independent
 physical-device instances. See [device integration](DEVICE_INTEGRATION.md) for
 discovery, binding, and runtime contracts. The detailed input and voice paths
