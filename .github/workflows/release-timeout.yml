@@ -8,11 +8,11 @@ on:
 jobs:
   enforce-timeout:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     permissions:
       actions: write
     steps:
-      - name: Cancel releases that exceed 20 minutes
+      - name: Cancel releases that exceed 40 minutes
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -22,7 +22,7 @@ jobs:
         run: |
           run_endpoint="repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID"
           started_at=$(date -u -d "$RELEASE_STARTED_AT" +%s)
-          deadline=$(( started_at + 20 * 60 ))
+          deadline=$(( started_at + 40 * 60 ))
 
           while true; do
             run=$(gh api "$run_endpoint" --jq '[.run_attempt, .status] | @tsv')
@@ -38,5 +38,5 @@ jobs:
             sleep "$(( remaining < 15 ? remaining : 15 ))"
           done
 
-          echo "::warning::Release run $RELEASE_RUN_ID exceeded its 20-minute time limit."
+          echo "::warning::Release run $RELEASE_RUN_ID exceeded its 40-minute time limit."
           gh api --method POST "$run_endpoint/cancel"
