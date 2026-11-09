@@ -7,10 +7,6 @@ const previews = {
     source: new URL('../docs/images/axonkey-mapping.webp', import.meta.url).href,
     alt: 'Axonkey 按键映射界面，可选择实体按键并编辑触发行为',
   },
-  overview: {
-    source: new URL('../docs/images/axonkey-overview.webp', import.meta.url).href,
-    alt: 'Axonkey 总览，展示遥控器各按键的映射行为与触发方式',
-  },
 };
 
 const screenshot = document.querySelector('#app-screenshot');

@@ -25,15 +25,6 @@
 </tr>
 </table>
 
-<details>
-<summary>查看总览界面</summary>
-
-<p align="center">
-<img src="./docs/images/axonkey-overview.webp" width="960" alt="Axonkey 总览，展示遥控器各按键的映射行为与触发方式">
-</p>
-
-</details>
-
 ## 主要功能
 
 - **设备按键映射**：为遥控器、手柄等受支持设备的单击、双击和长按设置不同操作。
