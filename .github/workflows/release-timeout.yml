@@ -1,0 +1,42 @@
+name: Enforce release timeout
+
+on:
+  workflow_run:
+    workflows: [Build tagged app]
+    types: [in_progress]
+
+jobs:
+  enforce-timeout:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      actions: write
+    steps:
+      - name: Cancel releases that exceed 20 minutes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ github.event.workflow_run.id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RELEASE_STARTED_AT: ${{ github.event.workflow_run.run_started_at }}
+        run: |
+          run_endpoint="repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID"
+          started_at=$(date -u -d "$RELEASE_STARTED_AT" +%s)
+          deadline=$(( started_at + 20 * 60 ))
+
+          while true; do
+            run=$(gh api "$run_endpoint" --jq '[.run_attempt, .status] | @tsv')
+            read -r attempt status <<< "$run"
+            if [[ "$attempt" != "$RELEASE_RUN_ATTEMPT" || "$status" == completed ]]; then
+              exit 0
+            fi
+
+            remaining=$(( deadline - $(date -u +%s) ))
+            if (( remaining <= 0 )); then
+              break
+            fi
+            sleep "$(( remaining < 15 ? remaining : 15 ))"
+          done
+
+          echo "::warning::Release run $RELEASE_RUN_ID exceeded its 20-minute time limit."
+          gh api --method POST "$run_endpoint/cancel"
