@@ -1,0 +1,4 @@
+/.pio/
+
+# Exported firmware and flash backups
+*.bin
