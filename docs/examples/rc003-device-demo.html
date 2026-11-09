@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RC003 SVG 热区交互演示</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #20282d;
+      --muted: #6d777c;
+      --line: #d9dfe1;
+      --paper: #f4f6f6;
+      --panel: rgba(255, 255, 255, .9);
+      --accent: #2e8cf6;
+      --accent-soft: rgba(46, 140, 246, .12);
+      --shadow: 0 24px 70px rgba(33, 47, 55, .12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(255, 255, 255, .96), transparent 34%),
+        linear-gradient(145deg, #eef2f3 0%, #f8f9f9 52%, #e9edef 100%);
+      color: var(--ink);
+      font: 15px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    button { font: inherit; }
+    .app-shell { max-width: 1360px; margin: 0 auto; padding: 28px clamp(18px, 4vw, 54px) 42px; }
+    .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; margin-bottom: 22px; }
+    .eyebrow { margin: 0 0 8px; color: var(--accent); font: 700 11px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 0; font-size: clamp(26px, 3vw, 40px); letter-spacing: -.04em; line-height: 1.08; }
+    .intro { max-width: 620px; margin: 10px 0 0; color: var(--muted); }
+    .schema-chip { flex: none; border: 1px solid rgba(46, 140, 246, .25); border-radius: 999px; padding: 8px 12px; color: #1d69bb; background: rgba(255,255,255,.7); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 18px; align-items: stretch; }
+    .panel { min-width: 0; border: 1px solid rgba(180, 192, 197, .55); border-radius: 22px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(12px); }
+    .preview-panel { padding: 20px; }
+    .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 16px; }
+    .panel-kicker { margin: 0 0 4px; color: var(--muted); font: 700 11px ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 20px; letter-spacing: -.025em; }
+    .panel-head p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .tool-button { border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; color: var(--muted); background: #fff; cursor: pointer; transition: .18s ease; }
+    .tool-button:hover, .tool-button:focus-visible { border-color: rgba(46,140,246,.5); color: #1769bd; outline: none; }
+    .tool-button[aria-pressed="true"] { border-color: rgba(46,140,246,.35); color: #1769bd; background: var(--accent-soft); }
+    .tool-button.reset { color: #606b70; }
+
+    .stage { position: relative; min-height: 720px; height: min(78vh, 880px); display: grid; place-items: center; overflow: auto; border: 1px solid #e1e6e8; border-radius: 16px; background: radial-gradient(circle at 50% 35%, #fff 0, #f5f7f7 54%, #e9edef 100%); }
+    .stage::before { content: ""; position: absolute; inset: 18px; pointer-events: none; border: 1px solid rgba(108, 123, 130, .13); border-radius: 12px; }
+    #svg-mount { position: relative; z-index: 1; display: grid; place-items: center; height: 100%; padding: 22px 42px; }
+    #svg-mount > svg { display: block; width: auto; height: min(82vh, 820px); max-width: min(100%, 516px); overflow: visible; }
+    #svg-mount svg [data-ak-role="input"] { cursor: pointer; transition: filter .16s ease; }
+    #svg-mount svg [data-ak-role="input"]:hover, #svg-mount svg [data-ak-role="input"].is-selected { filter: drop-shadow(0 0 7px rgba(46, 140, 246, .82)); }
+    #svg-mount svg [data-ak-role="input"]:focus { outline: none; filter: drop-shadow(0 0 8px rgba(46, 140, 246, .9)); }
+    .show-hotzones #svg-mount svg [data-ak-role="input"] { filter: drop-shadow(0 0 5px rgba(46, 140, 246, .62)); }
+    .show-hotzones #svg-mount svg [data-ak-role="input"] path[fill-opacity="0"] { fill: #2e8cf6 !important; fill-opacity: .16 !important; stroke: #2e8cf6 !important; stroke-width: 2 !important; stroke-dasharray: 7 6; }
+    .show-hotzones #svg-mount svg [data-ak-role="input"].is-selected { filter: drop-shadow(0 0 9px rgba(46, 140, 246, .96)); }
+    #svg-mount svg [data-ak-role="input"].is-selected path[fill-opacity="0"] { fill: #2e8cf6 !important; fill-opacity: .3 !important; stroke-width: 3 !important; }
+    .stage-note { position: absolute; z-index: 2; left: 22px; bottom: 18px; color: #879196; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .inspector { display: flex; flex-direction: column; padding: 20px; }
+    .inspector-head { display:flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .inspector-head h2 { font-size: 18px; }
+    .count { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .selection-card { min-height: 188px; margin-bottom: 18px; padding: 16px; border: 1px solid #e1e6e8; border-radius: 15px; background: linear-gradient(145deg, rgba(255,255,255,.96), rgba(242,246,247,.88)); }
+    .empty-state { display: grid; place-items: center; min-height: 154px; text-align: center; color: var(--muted); }
+    .empty-mark { display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto 10px; border: 1px dashed #aab6bb; border-radius: 50%; color: #7d8b91; font: 18px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .selected-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+    .selected-title h3 { margin: 0; font-size: 20px; }
+    .selected-title p { margin: 4px 0 0; color: var(--muted); }
+    .selected-badge { color: #1769bd; background: var(--accent-soft); border-radius: 999px; padding: 5px 8px; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
+    .detail { min-width: 0; }
+    .detail-label { display: block; margin-bottom: 2px; color: #8a9599; font-size: 11px; }
+    .detail-value { display: block; overflow: hidden; color: #263238; text-overflow: ellipsis; white-space: nowrap; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .key-list { min-height: 0; flex: 1; overflow: auto; padding-right: 3px; }
+    .key-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 9px; border: 1px solid transparent; border-radius: 11px; color: var(--ink); background: transparent; text-align: left; cursor: pointer; transition: .16s ease; }
+    .key-row:hover, .key-row:focus-visible { border-color: #cfe2f7; background: #f5f9fd; outline: none; }
+    .key-row.is-selected { border-color: #b8d8fb; background: var(--accent-soft); }
+    .key-dot { flex: none; width: 8px; height: 8px; border: 1px solid #91a2ab; border-radius: 50%; background: #fff; }
+    .key-row.is-selected .key-dot { border-color: var(--accent); background: var(--accent); box-shadow: 0 0 0 4px rgba(46,140,246,.12); }
+    .key-name { min-width: 0; flex: 1; font-size: 13px; }
+    .key-name strong { display: block; font-weight: 650; }
+    .key-name small { display: block; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .key-usage { flex: none; color: #78858a; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .error { padding: 16px; border: 1px solid #efc4c4; border-radius: 12px; color: #a03b3b; background: #fff4f4; }
+
+    @media (max-width: 900px) {
+      .workspace { grid-template-columns: 1fr; }
+      .stage { height: 76vh; min-height: 600px; }
+      .inspector { min-height: 520px; }
+    }
+    @media (max-width: 560px) {
+      .app-shell { padding: 20px 12px 28px; }
+      .topbar, .panel-head { display: block; }
+      .schema-chip { display: inline-block; margin-top: 14px; }
+      .tools { justify-content: flex-start; margin-top: 14px; }
+      .preview-panel, .inspector { padding: 14px; }
+      .stage { min-height: 570px; }
+      #svg-mount { padding: 18px 14px; }
+      #svg-mount > svg { height: min(76vh, 700px); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Axonkey / Descriptor Lab</p>
+        <h1>RC003 热区交互演示</h1>
+        <p class="intro">点击或用 Tab 聚焦遥控器按键，检查规范化 SVG 的交互区域、选中态和 HID 映射。</p>
+      </div>
+      <div class="schema-chip">axonkey.device/1 · xiaomi.rc003</div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel preview-panel" aria-label="RC003 预览">
+        <div class="panel-head">
+          <div>
+            <p class="panel-kicker">Interaction surface</p>
+            <h2>真实设备图稿</h2>
+            <p>蓝色虚线表示由 SVG 热区生成的可交互范围。</p>
+          </div>
+          <div class="tools">
+            <button id="hotzone-toggle" class="tool-button" type="button" aria-pressed="false">显示热区</button>
+            <button id="reset-button" class="tool-button reset" type="button">清除选择</button>
+          </div>
+        </div>
+        <div id="stage" class="stage">
+          <div id="svg-mount"><div class="error">正在加载 RC003 SVG…</div></div>
+          <div class="stage-note">click / enter / space · focus ring follows the same target</div>
+        </div>
+      </section>
+
+      <aside class="panel inspector" aria-label="输入检查器">
+        <div class="inspector-head">
+          <h2>输入检查器</h2>
+          <span id="count" class="count">0 keys</span>
+        </div>
+        <div id="selection-card" class="selection-card">
+          <div id="empty-state" class="empty-state">
+            <div><div class="empty-mark">+</div><div>选择一个按键查看 HID 细节</div></div>
+          </div>
+          <div id="selected-state" hidden>
+            <div class="selected-title"><div><h3 id="selected-label">—</h3><p id="selected-key">—</p></div><span class="selected-badge">SELECTED</span></div>
+            <div class="detail-grid">
+              <div class="detail"><span class="detail-label">HID page</span><span id="selected-page" class="detail-value">—</span></div>
+              <div class="detail"><span class="detail-label">Usage</span><span id="selected-usage" class="detail-value">—</span></div>
+              <div class="detail"><span class="detail-label">Report</span><span id="selected-report" class="detail-value">—</span></div>
+              <div class="detail"><span class="detail-label">Target</span><span id="selected-target" class="detail-value">—</span></div>
+            </div>
+          </div>
+        </div>
+        <div id="key-list" class="key-list" aria-label="所有输入"></div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const mount = document.getElementById('svg-mount');
+      const stage = document.getElementById('stage');
+      const list = document.getElementById('key-list');
+      const count = document.getElementById('count');
+      const emptyState = document.getElementById('empty-state');
+      const selectedState = document.getElementById('selected-state');
+      const selectedLabel = document.getElementById('selected-label');
+      const selectedKey = document.getElementById('selected-key');
+      const selectedPage = document.getElementById('selected-page');
+      const selectedUsage = document.getElementById('selected-usage');
+      const selectedReport = document.getElementById('selected-report');
+      const selectedTarget = document.getElementById('selected-target');
+      let svg;
+      let inputs = [];
+      let metadata = new Map();
+      let selected = null;
+
+      function isInput(element) { return element && element.getAttribute('data-ak-role') === 'input'; }
+      function select(key) {
+        selected = key;
+        inputs.forEach(node => node.classList.toggle('is-selected', node.dataset.akKey === key));
+        document.querySelectorAll('.key-row').forEach(row => row.classList.toggle('is-selected', row.dataset.key === key));
+        const meta = metadata.get(key);
+        if (!meta) { emptyState.hidden = false; selectedState.hidden = true; return; }
+        emptyState.hidden = true;
+        selectedState.hidden = false;
+        selectedLabel.textContent = meta.label || key;
+        selectedKey.textContent = key;
+        selectedPage.textContent = meta.page || '—';
+        selectedUsage.textContent = meta.usage || '—';
+        selectedReport.textContent = meta.report || '—';
+        selectedTarget.textContent = meta.target || '—';
+      }
+      function makeListRow(meta) {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'key-row';
+        row.dataset.key = meta.id;
+        row.innerHTML = '<span class="key-dot" aria-hidden="true"></span><span class="key-name"><strong></strong><small></small></span><span class="key-usage"></span>';
+        row.querySelector('strong').textContent = meta.label || meta.id;
+        row.querySelector('small').textContent = meta.id;
+        row.querySelector('.key-usage').textContent = meta.usage || '—';
+        row.addEventListener('click', () => select(meta.id));
+        return row;
+      }
+      function bindInput(node) {
+        node.addEventListener('click', () => select(node.dataset.akKey));
+        node.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(node.dataset.akKey); }
+        });
+      }
+      async function init() {
+        try {
+          const response = await fetch('rc003-device.svg', { cache: 'no-store' });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          mount.innerHTML = await response.text();
+          svg = mount.querySelector('svg');
+          svg.removeAttribute('width');
+          svg.removeAttribute('height');
+          inputs = [...svg.querySelectorAll('[data-ak-role="input"]')];
+          const metaNodes = [...svg.querySelectorAll('*')].filter(node => node.tagName === 'ak:input');
+          metaNodes.forEach(node => metadata.set(node.getAttribute('id'), Object.fromEntries([...node.attributes].map(attribute => [attribute.name, attribute.value]))));
+          inputs.forEach(bindInput);
+          count.textContent = inputs.length + ' keys';
+          metadata.forEach(meta => list.appendChild(makeListRow(meta)));
+        } catch (error) {
+          mount.innerHTML = '<div class="error">无法加载 rc003-device.svg。请从仓库根目录启动本地静态服务器后打开此页面。<br><small>' + error.message + '</small></div>';
+        }
+      }
+      document.getElementById('hotzone-toggle').addEventListener('click', event => {
+        const pressed = event.currentTarget.getAttribute('aria-pressed') === 'true';
+        event.currentTarget.setAttribute('aria-pressed', String(!pressed));
+        stage.classList.toggle('show-hotzones', !pressed);
+      });
+      document.getElementById('reset-button').addEventListener('click', () => select(null));
+      init();
+    })();
+  </script>
+</body>
+</html>

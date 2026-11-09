@@ -231,10 +231,12 @@
     </g>
     <rect x="-77.5" y="-165.5" width="155" height="331" rx="77.5" stroke="url(#direction-rim)" stroke-width="1.8"/>
     <g id="volume-up" data-ak-key="xiaomi.rc003.volumeUp" data-ak-role="input" aria-label="音量加" role="button" tabindex="0" stroke-linecap="square">
+      <path d="M-80.5 0 V-87 A80.5 80.5 0 0 1 80.5-87 V0 Z" fill="#000" fill-opacity="0" stroke="none"/>
       <path d="M-16-90 H16 M0-106 V-74" stroke="#131515" stroke-width="7.3"/>
       <path d="M-16-90 H16 M0-106 V-74" stroke="#fafbf8" stroke-width="4.6"/>
     </g>
     <g id="volume-down" data-ak-key="xiaomi.rc003.volumeDown" data-ak-role="input" aria-label="音量减" role="button" tabindex="0" stroke-linecap="square">
+      <path d="M-80.5 0 H80.5 V87 A80.5 80.5 0 0 1-80.5 87 Z" fill="#000" fill-opacity="0" stroke="none"/>
       <path d="M-16 90 H16" stroke="#131515" stroke-width="7.3"/>
       <path d="M-16 90 H16" stroke="#fafbf8" stroke-width="4.6"/>
     </g>
