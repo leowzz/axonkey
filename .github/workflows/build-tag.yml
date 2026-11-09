@@ -144,15 +144,18 @@ jobs:
           $config = Get-Content -LiteralPath $env:WINDOWS_SIGNING_CONFIG -Raw | ConvertFrom-Json
           $thumbprint = $config.bundle.windows.certificateThumbprint
           $certificate = Get-Item "Cert:\CurrentUser\My\$thumbprint"
+          $installer = "src-tauri/target/release/bundle/nsis/Axonkey_$($env:APP_VERSION)_x64-setup.exe"
+          $extractDir = Join-Path $env:RUNNER_TEMP 'axonkey-signature-check'
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          # Tauri restores the unsigned build binary after embedding the signed copy in NSIS.
+          & $sevenZip e -tNsis $installer axonkey.exe "-o$extractDir" -y
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract axonkey.exe from the NSIS installer.' }
           # CurrentUser\Root prompts for confirmation. The disposable hosted runner is an administrator.
           $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
           $store.Open('ReadWrite')
           try {
             $store.Add($certificate)
-            $files = @(
-              'src-tauri/target/release/axonkey.exe',
-              "src-tauri/target/release/bundle/nsis/Axonkey_$($env:APP_VERSION)_x64-setup.exe"
-            )
+            $files = @((Join-Path $extractDir 'axonkey.exe'), $installer)
             foreach ($file in $files) {
               $signature = Get-AuthenticodeSignature -LiteralPath $file
               if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Thumbprint -ne $thumbprint) {
