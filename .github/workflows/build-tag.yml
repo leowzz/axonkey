@@ -139,12 +139,13 @@ jobs:
 
       - name: Verify Windows signatures
         shell: pwsh
+        timeout-minutes: 2
         run: |
           $config = Get-Content -LiteralPath $env:WINDOWS_SIGNING_CONFIG -Raw | ConvertFrom-Json
           $thumbprint = $config.bundle.windows.certificateThumbprint
           $certificate = Get-Item "Cert:\CurrentUser\My\$thumbprint"
-          # Trust only on this disposable runner to verify the self-signed chain.
-          $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
+          # CurrentUser\Root prompts for confirmation. The disposable hosted runner is an administrator.
+          $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'LocalMachine')
           $store.Open('ReadWrite')
           try {
             $store.Add($certificate)
