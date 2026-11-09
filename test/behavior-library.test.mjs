@@ -48,7 +48,7 @@ test('cloud decoding preserves order, skips unsupported entries whole, and inser
   assert.throws(() => parseLibraryPage({ items: null }, 'macos', []), /响应/)
 })
 
-test('public requests remain anonymous; confirmed share reuses auth and empty note; withdrawal keeps version status', async () => {
+test('library lists authenticate only with a session; confirmed share and withdrawal require auth', async () => {
   const requests = []
   const client = new RelayClient(async (...args) => {
     requests.push(args)
@@ -61,7 +61,7 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
   const url = new URL('https://relay.invalid' + requests[0][1])
   assert.equal(url.searchParams.get('q'), '音量 & 关闭')
   assert.equal(url.searchParams.get('cursor'), 'abc_cursor')
-  assert.equal(requests[0][3], undefined)
+  assert.equal(requests[0][3], 'access')
   await submitSequence(client, saved, 'macos', '', false)
   assert.equal(requests[1][3], 'access')
   assert.equal(requests[1][2].confirmed, true)
@@ -71,7 +71,14 @@ test('public requests remain anonymous; confirmed share reuses auth and empty no
   const withdrawn = await withdrawSequence(client, shared, false)
   assert.equal(withdrawn.latest_version.status, 'withdrawn')
   assert.equal(requests[2][4].ifMatch, '"behavior-library:abc-123:2"')
-  const anonymous = new RelayClient(async () => { throw new Error('must not send') }, null, () => {})
+  const anonymous = new RelayClient(async (method, path, _body, token) => {
+    assert.equal(method, 'GET')
+    assert.match(path, /view=recommended/)
+    assert.equal(token, undefined)
+    return { status: 200, body: { items: [publicItem('a')] } }
+  }, null, () => {})
+  const page = await fetchLibraryPage(anonymous, 'macos', 'recommended', '', '', [builtin])
+  assert.equal(page.steps.length, 1)
   await assert.rejects(submitSequence(anonymous, saved, 'macos', '', false), /请先登录/)
 })
 

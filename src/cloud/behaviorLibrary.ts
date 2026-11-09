@@ -152,7 +152,11 @@ export async function fetchLibraryPage(
   const params = new URLSearchParams({ app_id: 'axonkey', platform, view, limit: '25' })
   if (query) params.set('q', query)
   if (cursor) params.set('cursor', cursor)
-  return parseLibraryPage(await client.request('GET', `${endpoint}?${params}`, undefined, false), platform, builtins)
+  return parseLibraryPage(
+    await client.request('GET', `${endpoint}?${params}`, undefined, !!client.session),
+    platform,
+    builtins,
+  )
 }
 
 export async function findSharedSequence(client: RelayClient, sequenceId: string): Promise<SharedSequence | null> {
