@@ -25,7 +25,7 @@ import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
-import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
+import { deviceMatchesKind, emptyTriggers, instanceStatusLabel, packageFor } from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
@@ -144,7 +144,7 @@ export function InstanceWorkspace({
   }, [instance.id, status?.recording])
   const availableDevices = controller.snapshot.discovered.filter(
     device =>
-      device.kind === instance.kind &&
+      deviceMatchesKind(device, instance.kind) &&
       !controller.snapshot.store.instances.some(item => item.id !== instance.id && item.binding === device.id),
   )
   const update = (change: (item: DeviceInstance) => DeviceInstance) => {
@@ -249,7 +249,16 @@ export function InstanceWorkspace({
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'rc313', 'obeRcuR5', 'xboxBluetooth'].includes(instance.kind)
+  const supportsDriver = [
+    'rc003',
+    'cmiotA15',
+    'xmBt29',
+    'rc313',
+    'obeRcuR5',
+    'tclRc802a',
+    'tclRc902n',
+    'xboxBluetooth',
+  ].includes(instance.kind)
   const ready = status?.state === 'exclusive'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
@@ -421,7 +430,9 @@ export function InstanceWorkspace({
               instance.kind === 'cmiotA15' ||
               instance.kind === 'xmBt29' ||
               instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5') && (
+              instance.kind === 'obeRcuR5' ||
+              instance.kind === 'tclRc802a' ||
+              instance.kind === 'tclRc902n') && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -450,11 +461,17 @@ export function InstanceWorkspace({
             instance.kind === 'cmiotA15' ||
             instance.kind === 'xmBt29' ||
             instance.kind === 'rc313' ||
-            instance.kind === 'obeRcuR5') && (
+            instance.kind === 'obeRcuR5' ||
+            instance.kind === 'tclRc802a' ||
+            instance.kind === 'tclRc902n') && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
               onToggle={
-                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
+                instance.kind === 'cmiotA15' ||
+                instance.kind === 'xmBt29' ||
+                instance.kind === 'rc313' ||
+                instance.kind === 'tclRc802a' ||
+                instance.kind === 'tclRc902n'
                   ? () => void toggleRecording()
                   : undefined
               }
@@ -465,7 +482,9 @@ export function InstanceWorkspace({
             ((instance.kind === 'cmiotA15' ||
               instance.kind === 'xmBt29' ||
               instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5') &&
+              instance.kind === 'obeRcuR5' ||
+              instance.kind === 'tclRc802a' ||
+              instance.kind === 'tclRc902n') &&
               (platform === 'windows' || platform === 'macos'))) && (
             <button
               type="button"
@@ -645,28 +664,29 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
-                    <label className="settings-form-row">
-                      <span className="settings-form-label">语音录制：</span>
-                      <span className="settings-form-control">
-                        <span className="manual-key-select cmiot-recording-select">
-                          <select
-                            value={instance.cmiotA15RecordingMode ?? 'click'}
-                            onChange={event => {
-                              const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                              update(item => ({ ...item, cmiotA15RecordingMode }))
-                            }}
-                          >
-                            <option value="hold">按住录音，松开停止</option>
-                            <option value="click">点击开始，再次点击停止</option>
-                          </select>
-                          <span className="manual-key-select-icon" aria-hidden="true">
-                            <ChevronDown size={14} />
+                  {(instance.kind === 'cmiotA15' || instance.kind === 'tclRc802a' || instance.kind === 'tclRc902n') &&
+                    (platform === 'windows' || platform === 'macos') && (
+                      <label className="settings-form-row">
+                        <span className="settings-form-label">语音录制：</span>
+                        <span className="settings-form-control">
+                          <span className="manual-key-select cmiot-recording-select">
+                            <select
+                              value={instance.cmiotA15RecordingMode ?? 'click'}
+                              onChange={event => {
+                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                update(item => ({ ...item, cmiotA15RecordingMode }))
+                              }}
+                            >
+                              <option value="hold">按住录音，松开停止</option>
+                              <option value="click">点击开始，再次点击停止</option>
+                            </select>
+                            <span className="manual-key-select-icon" aria-hidden="true">
+                              <ChevronDown size={14} />
+                            </span>
                           </span>
                         </span>
-                      </span>
-                    </label>
-                  )}
+                      </label>
+                    )}
                   <label className="settings-form-row">
                     <span className="settings-form-label">设备名称：</span>
                     <input
@@ -856,6 +876,7 @@ function DeviceInformationPanel({
         unavailable
       ),
     ],
+    ['型号', value(info?.modelNumber)],
     ['制造商', value(info?.manufacturer)],
     ['序列号', value(info?.serialNumber)],
     ['硬件版本', value(info?.hardwareRevision)],

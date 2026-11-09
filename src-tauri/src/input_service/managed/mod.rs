@@ -38,6 +38,21 @@ fn is_mobile_remote_hardware(device: &Discovered) -> bool {
 }
 
 fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
+    if kind == "tclRc802a" {
+        return crate::devices::tcl_rc802a::matches_information(
+            device.vendor_id,
+            device.product_id,
+            device.device_info.model_number.as_deref(),
+            device.device_info.manufacturer.as_deref(),
+        );
+    }
+    if kind == "tclRc902n" {
+        return crate::devices::tcl_rc902n::matches_information(
+            device.vendor_id,
+            device.product_id,
+            device.device_info.software_revision.as_deref(),
+        );
+    }
     device.kind == kind
         || (is_mobile_remote_hardware(device) && matches!(kind, "cmiotA15" | "xmBt29" | "rc313"))
 }
@@ -351,6 +366,8 @@ fn validate(store: &Store) -> Result<(), String> {
             "xmBt29",
             "rc313",
             "obeRcuR5",
+            "tclRc802a",
+            "tclRc902n",
         ]
         .contains(&instance.kind.as_str())
         {
@@ -659,9 +676,9 @@ impl DeviceManager {
             .ok_or("设备已被移除")?;
         if !matches!(
             instance.kind.as_str(),
-            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
         ) {
-            return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 支持手动控制录音".into());
+            return Err("此设备不支持手动控制录音".into());
         }
         if !self.shared.enabled.load(Ordering::Acquire)
             || !instance.enabled
@@ -671,7 +688,7 @@ impl DeviceManager {
                 .get(instance_id)
                 .is_some_and(|status| status.state == "exclusive")
         {
-            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 设备".into());
+            return Err("请先连接并启用此设备".into());
         }
         Ok(())
     }
@@ -791,7 +808,14 @@ impl DeviceManager {
             .ok_or("未找到要更新驱动状态的设备实例")?;
         if !matches!(
             instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
+            "rc003"
+                | "cmiotA15"
+                | "xmBt29"
+                | "rc313"
+                | "obeRcuR5"
+                | "tclRc802a"
+                | "tclRc902n"
+                | "xboxBluetooth"
         ) {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
@@ -986,7 +1010,7 @@ fn open_reader(
     #[cfg(target_os = "macos")]
     if matches!(
         instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
     ) && !super::InputService::input_monitoring_granted()
     {
         return Err("请先授予输入监控权限，再连接 A15".into());
@@ -996,7 +1020,7 @@ fn open_reader(
     #[cfg(target_os = "macos")]
     if matches!(
         instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
     ) {
         return Ok(InputReader::A15(a15::A15Reader::open(
             device, instance, shared, cancel,
@@ -1039,6 +1063,10 @@ fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
         (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
         #[cfg(target_os = "macos")]
         (0x1d5a, 0xc081, 1, 6) => Some("obeRcuR5"),
+        #[cfg(target_os = "macos")]
+        (0x0416, 0x0301, 1, 6) => Some("tclRc802a"),
+        #[cfg(target_os = "macos")]
+        (0x0417, 0x0304, 1, 6) => Some("tclRc902n"),
         _ => None,
     }
 }
@@ -1091,7 +1119,7 @@ fn remember_pairing_ids(
         }
         if matches!(
             instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
         ) && instance.voice_target.is_none()
         {
             if let Some(device) = discovered.iter().find(|d| {
@@ -1140,6 +1168,15 @@ pub(crate) fn driver_target(
     devices: &[crate::quarbor_installer::Device],
 ) -> Option<(String, bool)> {
     if instance.binding.is_none() {
+        return None;
+    }
+    if matches!(instance.kind.as_str(), "tclRc802a" | "tclRc902n")
+        && !discovered.iter().any(|device| {
+            Some(&device.id) == instance.binding.as_ref()
+                && device.identity_quality != "ambiguous"
+                && device_kind_matches(device, &instance.kind)
+        })
+    {
         return None;
     }
     if let Some(device) = instance.quarbor_target.as_ref().and_then(|target| {
@@ -1204,6 +1241,10 @@ fn merge_driver_devices(
             ("cmiotA15", 0x0416, 0x0300)
         } else if device.matches_kind("obeRcuR5") {
             ("obeRcuR5", 0x1d5a, 0xc081)
+        } else if device.matches_kind("tclRc802a") {
+            ("tclRc802a", 0x0416, 0x0301)
+        } else if device.matches_kind("tclRc902n") {
+            ("tclRc902n", 0x0417, 0x0304)
         } else if device.matches_kind("xboxBluetooth") {
             ("xboxBluetooth", 0x045e, 0x02e0)
         } else if device.is_rc003() {
@@ -1468,7 +1509,14 @@ fn run(shared: Arc<Shared>) {
             for instance in &configs {
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
+                    "rc003"
+                        | "cmiotA15"
+                        | "xmBt29"
+                        | "rc313"
+                        | "obeRcuR5"
+                        | "tclRc802a"
+                        | "tclRc902n"
+                        | "xboxBluetooth"
                 ) {
                     continue;
                 }
@@ -1491,7 +1539,14 @@ fn run(shared: Arc<Shared>) {
                 };
                 if !matches!(
                     instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
+                    "rc003"
+                        | "cmiotA15"
+                        | "xmBt29"
+                        | "rc313"
+                        | "obeRcuR5"
+                        | "tclRc802a"
+                        | "tclRc902n"
+                        | "xboxBluetooth"
                 ) || instance.binding.is_none()
                     || !instance.enabled
                     || !enabled
@@ -1520,6 +1575,9 @@ fn run(shared: Arc<Shared>) {
                     i == &reader.config
                         && i.enabled
                         && i.binding.as_ref().is_some_and(|b| paths.contains_key(b))
+                        && shared.snapshot.lock().unwrap().discovered.iter().any(|d| {
+                            Some(&d.id) == i.binding.as_ref() && device_kind_matches(d, &i.kind)
+                        })
                 });
             if !keep {
                 emit(&shared, id, BTreeMap::new(), vec![]);
@@ -1534,12 +1592,22 @@ fn run(shared: Arc<Shared>) {
         let mut statuses = BTreeMap::new();
         for instance in &configs {
             let mut status = RuntimeStatus::default();
-            let path = instance.binding.as_ref().and_then(|id| paths.get(id));
+            let path = instance.binding.as_ref().and_then(|id| {
+                shared
+                    .snapshot
+                    .lock()
+                    .unwrap()
+                    .discovered
+                    .iter()
+                    .any(|d| &d.id == id && device_kind_matches(d, &instance.kind))
+                    .then(|| paths.get(id))
+                    .flatten()
+            });
             status.state = if !enabled || !instance.enabled {
                 "paused"
             } else if matches!(
                 instance.kind.as_str(),
-                "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
             ) && !cfg!(any(windows, target_os = "macos"))
             {
                 "unsupported"
@@ -1558,7 +1626,14 @@ fn run(shared: Arc<Shared>) {
             #[cfg(all(windows, not(test)))]
             if matches!(
                 instance.kind.as_str(),
-                "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
+                "rc003"
+                    | "cmiotA15"
+                    | "xmBt29"
+                    | "rc313"
+                    | "obeRcuR5"
+                    | "tclRc802a"
+                    | "tclRc902n"
+                    | "xboxBluetooth"
             ) {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
@@ -1625,7 +1700,13 @@ fn run(shared: Arc<Shared>) {
                             let maps = if cfg!(target_os = "macos")
                                 && matches!(
                                     instance.kind.as_str(),
-                                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                                    "rc003"
+                                        | "cmiotA15"
+                                        | "xmBt29"
+                                        | "rc313"
+                                        | "obeRcuR5"
+                                        | "tclRc802a"
+                                        | "tclRc902n"
                                 ) {
                                 HashMap::new()
                             } else {
@@ -2554,6 +2635,94 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn tcl_binding_and_driver_resolution_require_device_information() {
+        for (kind, vendor, product, instance_id, info) in [
+            (
+                "tclRc802a",
+                0x0416,
+                0x0301,
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0301_REV&0000_AABBCCDDEEFF\8&1234&0&001F",
+                device_info::DeviceInformation {
+                    model_number: Some("BT_RC802A_1.0".into()),
+                    manufacturer: Some("TCL Electronics".into()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "tclRc902n",
+                0x0417,
+                0x0304,
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010417_PID&0304_REV&0000_AABBCCDDEEFF\8&1234&0&001F",
+                device_info::DeviceInformation {
+                    software_revision: Some("TCL_RC902N_1.0".into()),
+                    ..Default::default()
+                },
+            ),
+        ] {
+            let devices = vec![crate::quarbor_installer::Device {
+                instance_id: instance_id.into(),
+                hardware_id: String::new(),
+                bluetooth_address: None,
+                name: kind.into(),
+                present: true,
+                bound: true,
+                recovery_active: false,
+                inf: String::new(),
+                section: String::new(),
+            }];
+            let mut discovered = vec![];
+            paired::merge(
+                &mut discovered,
+                &[paired::Device {
+                    address: "AABBCCDDEEFF".into(),
+                    name: kind.into(),
+                    vendor_id: vendor,
+                    product_id: product,
+                }],
+                &HashSet::new(),
+                &HashMap::new(),
+            );
+            merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+            assert_eq!(discovered.len(), 1);
+            assert_eq!(discovered[0].kind, kind);
+            assert!(discovered[0].connected);
+
+            let manager = offline_manager(vec![]);
+            let mut remote = instance("tcl", &discovered[0].id);
+            remote.kind = kind.into();
+            remote.quarbor_target = Some(instance_id.into());
+            remote.voice_target = discovered[0].bluetooth_address.clone();
+            manager.shared.snapshot.lock().unwrap().discovered = discovered.clone();
+            assert!(manager.put(0, remote.clone()).is_err());
+            assert!(driver_target(&remote, &[remote.clone()], &discovered, &devices).is_none());
+
+            device_info::apply_information(&manager.shared, &discovered[0], info);
+            let snapshot = manager.put(0, remote.clone()).unwrap();
+            assert_eq!(
+                snapshot.discovered[0].device_info.detected_kind.as_deref(),
+                Some(kind)
+            );
+            assert_eq!(
+                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices),
+                Some((instance_id.into(), true))
+            );
+
+            device_info::apply_information(
+                &manager.shared,
+                &snapshot.discovered[0],
+                Default::default(),
+            );
+            let snapshot = manager.snapshot();
+            assert!(
+                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices).is_none()
+            );
+            let _ = std::fs::remove_file(&manager.shared.path);
+            let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn obe_pairing_and_driver_resolution_do_not_match_mobile_remotes() {
         let devices = vec![crate::quarbor_installer::Device {
             instance_id: r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&011D5A_PID&C081_REV&0000_C9B5965E4F92\8&30D338AA&0&001F".into(),
@@ -2812,7 +2981,7 @@ mod tests {
         assert!(manager
             .toggle_recording("controller")
             .unwrap_err()
-            .contains("仅 CMIOT A15"));
+            .contains("不支持手动控制录音"));
         assert!(manager.toggle_recording("a15").is_err());
         manager.set_enabled(true);
         manager.shared.snapshot.lock().unwrap().runtime.insert(
@@ -2822,7 +2991,10 @@ mod tests {
                 ..Default::default()
             },
         );
-        assert!(manager.validate_recording_target("a15").is_ok());
+        for kind in ["cmiotA15", "tclRc802a", "tclRc902n"] {
+            manager.shared.snapshot.lock().unwrap().store.instances[0].kind = kind.into();
+            assert!(manager.validate_recording_target("a15").is_ok());
+        }
         manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = false;
         assert!(manager.toggle_recording("a15").is_err());
         manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = true;

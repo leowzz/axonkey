@@ -12,10 +12,16 @@ pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>>
         });
     } else if kind == "rc003" {
         return crate::devices::xiaomi_remote::input::decode(report);
-    } else if matches!(kind, "cmiotA15" | "obeRcuR5") {
+    } else if matches!(kind, "cmiotA15" | "obeRcuR5" | "tclRc802a" | "tclRc902n") {
         let (report_id, down, buttons) = if kind == "obeRcuR5" {
             let (id, down) = crate::devices::obe_rcu_r5::decode(report)?;
             (id, down, crate::devices::obe_rcu_r5::BUTTONS)
+        } else if kind == "tclRc802a" {
+            let (id, down) = crate::devices::tcl_rc802a::decode(report)?;
+            (id, down, crate::devices::tcl_rc802a::BUTTONS)
+        } else if kind == "tclRc902n" {
+            let (id, down) = crate::devices::tcl_rc902n::decode(report)?;
+            (id, down, crate::devices::tcl_rc902n::BUTTONS)
         } else {
             let (id, down) = crate::devices::cmiot_a15::decode(report)?;
             (id, down, crate::devices::cmiot_a15::BUTTONS)

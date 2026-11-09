@@ -176,7 +176,12 @@ impl AudioServiceManager {
                         #[cfg(any(windows, target_os = "macos"))]
                         if matches!(
                             target.kind.as_str(),
-                            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                            "cmiotA15"
+                                | "xmBt29"
+                                | "rc313"
+                                | "obeRcuR5"
+                                | "tclRc802a"
+                                | "tclRc902n"
                         ) {
                             return Arc::new(PlatformAudioService::start_a15());
                         }

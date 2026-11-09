@@ -271,6 +271,8 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 }
             } else if context.device_id.as_deref().is_some_and(|id| {
                 crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::tcl_rc802a::matches_instance(id)
+                    || crate::devices::tcl_rc902n::matches_instance(id)
                     || crate::devices::obe_rcu_r5::matches_instance(id)
             }) {
                 context.usage_error = None;
@@ -372,6 +374,8 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             // local state without writing FB 00 to an idle physical device.
             if context.device_id.as_deref().is_some_and(|id| {
                 crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::tcl_rc802a::matches_instance(id)
+                    || crate::devices::tcl_rc902n::matches_instance(id)
                     || crate::devices::obe_rcu_r5::matches_instance(id)
             }) {
                 context.a15_recording.reset();
@@ -761,6 +765,10 @@ impl ManagedQuarborChannel {
             crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::obe_rcu_r5::decode)
         } else if kind == "xmBt29" {
             crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::xm_bt_29::decode)
+        } else if kind == "tclRc802a" {
+            crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::tcl_rc802a::decode)
+        } else if kind == "tclRc902n" {
+            crate::devices::cmiot_a15::ReportState::with_decoder(crate::devices::tcl_rc902n::decode)
         } else {
             Default::default()
         };
@@ -876,6 +884,8 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     quarbor_release_active_usages(context, ReleaseReason::Shutdown);
     if context.device_id.as_deref().is_some_and(|id| {
         crate::devices::cmiot_a15::matches_instance(id)
+            || crate::devices::tcl_rc802a::matches_instance(id)
+            || crate::devices::tcl_rc902n::matches_instance(id)
             || crate::devices::obe_rcu_r5::matches_instance(id)
     }) {
         shared.status.lock().unwrap().capture_active = false;
@@ -1016,6 +1026,8 @@ fn process_remote_actions(
     }
     if context.device_id.as_deref().is_some_and(|id| {
         crate::devices::cmiot_a15::matches_instance(id)
+            || crate::devices::tcl_rc802a::matches_instance(id)
+            || crate::devices::tcl_rc902n::matches_instance(id)
             || crate::devices::obe_rcu_r5::matches_instance(id)
     }) {
         publish_a15_recording(shared, context.a15_recording.is_recording());
@@ -1215,6 +1227,8 @@ fn emit_remote_output(
             }
             let device = if context.device_id.as_deref().is_some_and(|id| {
                 crate::devices::cmiot_a15::matches_instance(id)
+                    || crate::devices::tcl_rc802a::matches_instance(id)
+                    || crate::devices::tcl_rc902n::matches_instance(id)
                     || crate::devices::obe_rcu_r5::matches_instance(id)
             }) {
                 super::profile_switch::DeviceId::CmiotA15
@@ -1248,6 +1262,8 @@ fn emit_remote_output(
                 && virtual_key_for_hid(key).is_none()
                 && context.device_id.as_deref().is_some_and(|id| {
                     crate::devices::cmiot_a15::matches_instance(id)
+                        || crate::devices::tcl_rc802a::matches_instance(id)
+                        || crate::devices::tcl_rc902n::matches_instance(id)
                         || crate::devices::obe_rcu_r5::matches_instance(id)
                 })
             {

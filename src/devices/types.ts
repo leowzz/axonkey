@@ -22,7 +22,8 @@ export type RemoteButtonId =
   XiaomiRemoteButtonId | CmiotA15RemoteButtonId | XmBt29RemoteButtonId | ObeRcuR5RemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313' | 'obeRcuR5'
+export type DeviceKind =
+  'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313' | 'obeRcuR5' | 'tclRc802a' | 'tclRc902n'
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

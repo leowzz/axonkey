@@ -8,12 +8,14 @@ int main(void) {
         [first acceptValue:Bytes(pnp, 7) UUID:@"2A50"];
         assert(first.identified && first.vendor == 0x0416 && first.product == 0x0300);
         [first acceptValue:[@"Maker" dataUsingEncoding:NSUTF8StringEncoding] UUID:@"2A29"];
+        [first acceptValue:[@" BT_RC802A\0" dataUsingEncoding:NSUTF8StringEncoding] UUID:@"2A24"];
         [first acceptValue:[@"1.0" dataUsingEncoding:NSUTF8StringEncoding] UUID:@"2A26"];
         uint8_t battery[] = {0};
         [first acceptValue:Bytes(battery, 1) UUID:@"2A19"];
         assert([first.values[@"batteryLevel"] intValue] == 0);
         NSDictionary *result = AKSelectDeviceInformation(@[first], @"AA:BB:CC:DD:EE:FF", 0x0416, 0x0300, YES);
         assert(result[@"error"] == nil && [result[@"manufacturer"] isEqual:@"Maker"]);
+        assert([result[@"modelNumber"] isEqual:@"BT_RC802A"]);
         assert(result[@"softwareRevision"] == nil);
         assert(AKSelectDeviceInformation(@[first], @"AA:BB:CC:DD:EE:FF", 0x0416, 0x0300, NO)[@"error"] != nil);
         AKDeviceInformation *second = [AKDeviceInformation new];

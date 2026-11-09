@@ -36,6 +36,10 @@ impl A15Reader {
             HidSession::with_obe_decoder(crate::devices::obe_rcu_r5::decode)
         } else if instance.kind == "xmBt29" {
             HidSession::with_decoder(crate::devices::xm_bt_29::decode)
+        } else if instance.kind == "tclRc802a" {
+            HidSession::with_decoder(crate::devices::tcl_rc802a::decode)
+        } else if instance.kind == "tclRc902n" {
+            HidSession::with_decoder(crate::devices::tcl_rc902n::decode)
         } else {
             HidSession::default()
         };

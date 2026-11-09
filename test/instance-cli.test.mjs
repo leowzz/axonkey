@@ -322,6 +322,10 @@ test('normalizes device selectors for shared instance and keymap lookup', () => 
   assert.equal(normalizeCliDeviceSelector('CMIOT'), 'cmiota15')
   assert.equal(normalizeCliDeviceSelector('XM-BT-29'), 'xmbt29')
   assert.equal(normalizeCliDeviceSelector('RC-313'), 'rc313')
+  for (const [selector, kind] of [['TCL-RC802A', 'tclRc802a'], ['TCL-RC902N', 'tclRc902n']]) {
+    const instance = initial('tcl-one', kind)
+    assert.equal(resolveCliInstance({ device: selector }, workspace([instance]).snapshot).kind, kind)
+  }
   assert.equal(normalizeCliDeviceSelector('RCU-R5'), 'obercur5')
   assert.equal(normalizeCliDeviceSelector('Xbox'), 'xboxbluetooth')
   assert.throws(() => normalizeCliDeviceSelector({}), isError('invalid_arguments'))

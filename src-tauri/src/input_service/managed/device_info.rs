@@ -33,6 +33,7 @@ pub struct DeviceInformation {
     pub bluetooth_name: Option<String>,
     pub battery_level: Option<u8>,
     pub manufacturer: Option<String>,
+    pub model_number: Option<String>,
     pub serial_number: Option<String>,
     pub hardware_revision: Option<String>,
     pub firmware_revision: Option<String>,
@@ -48,6 +49,7 @@ impl Default for DeviceInformation {
             bluetooth_name: None,
             battery_level: None,
             manufacturer: None,
+            model_number: None,
             serial_number: None,
             hardware_revision: None,
             firmware_revision: None,
@@ -68,7 +70,7 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .ok_or("未找到绑定设备")?;
     if !matches!(
         device.kind.as_str(),
-        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
     ) || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
@@ -118,7 +120,13 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .filter(|d| {
                     matches!(
                         d.kind.as_str(),
-                        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                        "rc003"
+                            | "cmiotA15"
+                            | "xmBt29"
+                            | "rc313"
+                            | "obeRcuR5"
+                            | "tclRc802a"
+                            | "tclRc902n"
                     ) && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
@@ -187,9 +195,27 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: 
     }) else {
         return;
     };
-    info.detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
-        .map(str::to_owned);
+    info.detected_kind = kind_for_information(device, &info).map(str::to_owned);
     device.device_info = info;
+}
+
+fn kind_for_information(device: &Discovered, info: &DeviceInformation) -> Option<&'static str> {
+    match device.kind.as_str() {
+        "tclRc802a" => crate::devices::tcl_rc802a::matches_information(
+            device.vendor_id,
+            device.product_id,
+            info.model_number.as_deref(),
+            info.manufacturer.as_deref(),
+        )
+        .then_some("tclRc802a"),
+        "tclRc902n" => crate::devices::tcl_rc902n::matches_information(
+            device.vendor_id,
+            device.product_id,
+            info.software_revision.as_deref(),
+        )
+        .then_some("tclRc902n"),
+        kind => kind_for_software(kind, info.software_revision.as_deref()),
+    }
 }
 
 pub(super) fn retain_readings(discovered: &mut [Discovered], previous: &[Discovered]) {
@@ -254,7 +280,10 @@ fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
         let mut errors = Vec::new();
         for (service_id, characteristics) in [
             (0x180f, &[0x2a19][..]),
-            (0x180a, &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..]),
+            (
+                0x180a,
+                &[0x2a29, 0x2a24, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..],
+            ),
         ] {
             if let Err(error) = read_service(&device, service_id, characteristics, &mut info) {
                 errors.push(error);
@@ -340,6 +369,7 @@ fn read_service(
                 match id {
                     0x2a19 => info.battery_level = Some(percent(&bytes)?),
                     0x2a29 => info.manufacturer = text(&bytes)?,
+                    0x2a24 => info.model_number = text(&bytes)?,
                     0x2a25 => info.serial_number = text(&bytes)?,
                     0x2a27 => info.hardware_revision = text(&bytes)?,
                     0x2a26 => info.firmware_revision = text(&bytes)?,
@@ -349,10 +379,9 @@ fn read_service(
                 Ok(())
             })();
             if let Err(error) = read {
-                // Software Version is optional in the Device Information Service.
-                // A missing or unreadable 2A28 must leave the field empty without
-                // making the rest of the device information look unavailable.
-                if id == 0x2a28 {
+                // Optional identity fields stay empty when absent or unreadable;
+                // models requiring these markers remain unmatched.
+                if matches!(id, 0x2a24 | 0x2a28) {
                     continue;
                 }
                 errors.push(error);
@@ -431,6 +460,52 @@ fn read_batch(targets: &[Discovered], all_targets: &[Discovered]) -> Vec<DeviceI
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tcl_detection_requires_the_hardware_pair_and_all_model_markers() {
+        let mut device = Discovered {
+            id: "tcl".into(),
+            kind: "tclRc802a".into(),
+            name: "TCL".into(),
+            transport: "Bluetooth".into(),
+            identity_quality: "serial".into(),
+            vendor_id: 0x0416,
+            product_id: 0x0301,
+            connected: true,
+            paired: true,
+            pairing_id: None,
+            hid_instance_id: None,
+            bluetooth_address: Some("AA:BB:CC:DD:EE:FF".into()),
+            device_info: DeviceInformation::default(),
+        };
+        let mut info = DeviceInformation {
+            model_number: Some("BT_RC802A_1.0".into()),
+            manufacturer: Some("TCL Electronics".into()),
+            software_revision: Some("RC902N".into()),
+            ..Default::default()
+        };
+        assert_eq!(kind_for_information(&device, &info), Some("tclRc802a"));
+        info.manufacturer = None;
+        assert_eq!(kind_for_information(&device, &info), None);
+        info.manufacturer = Some("TCL".into());
+        info.model_number = None;
+        assert_eq!(kind_for_information(&device, &info), None);
+        info.model_number = Some("BT_RC802A".into());
+        device.product_id = 0x0300;
+        assert_eq!(kind_for_information(&device, &info), None);
+
+        device.kind = "tclRc902n".into();
+        device.vendor_id = 0x0417;
+        device.product_id = 0x0304;
+        assert_eq!(kind_for_information(&device, &info), Some("tclRc902n"));
+        for software in [None, Some("CMIOT3_B311"), Some("unknown")] {
+            info.software_revision = software.map(str::to_owned);
+            assert_eq!(kind_for_information(&device, &info), None);
+        }
+        info.software_revision = Some("RC902N".into());
+        device.vendor_id = 0x0416;
+        assert_eq!(kind_for_information(&device, &info), None);
+    }
 
     #[test]
     fn obe_model_does_not_depend_on_software_revision() {

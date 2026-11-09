@@ -11,6 +11,7 @@ import {
   instanceStatusLabel,
   instanceState,
   isMobileRemoteDevice,
+  deviceMatchesKind,
   isMobileRemoteKind,
   mobileRemoteKindForSoftware,
   mobileRemoteKinds,
@@ -338,7 +339,9 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
   const [discoveredExpanded, setDiscoveredExpanded] = useState(() => guide || getDiscoveredDevicesExpanded())
-  const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
+  const unboundDevices = snapshot.discovered.filter(
+    d => deviceMatchesKind(d, d.kind) && !snapshot.store.instances.some(i => i.binding === d.id),
+  )
   useEffect(() => {
     if (guide || typeof window === 'undefined') return
     try {
@@ -619,7 +622,9 @@ function DeviceCard({
               kind === 'cmiotA15' ||
               kind === 'xmBt29' ||
               kind === 'rc313' ||
-              kind === 'obeRcuR5') && (
+              kind === 'obeRcuR5' ||
+              kind === 'tclRc802a' ||
+              kind === 'tclRc902n') && (
               <span className="my-devices-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -682,7 +687,7 @@ function IntegrationDialog({
   }, [])
   const candidates = controller.snapshot.discovered.filter(
     d =>
-      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : d.kind === kind) &&
+      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : deviceMatchesKind(d, kind)) &&
       !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
@@ -770,7 +775,9 @@ function IntegrationDialog({
                       {(pkg.kind === 'cmiotA15' ||
                         pkg.kind === 'xmBt29' ||
                         pkg.kind === 'rc313' ||
-                        pkg.kind === 'obeRcuR5') &&
+                        pkg.kind === 'obeRcuR5' ||
+                        pkg.kind === 'tclRc802a' ||
+                        pkg.kind === 'tclRc902n') &&
                       platform !== 'windows' &&
                       platform !== 'macos'
                         ? ' · 仅配置'
@@ -875,7 +882,12 @@ function IntegrationDialog({
                   </button>
                 </div>
               )}
-              {(kind === 'cmiotA15' || kind === 'xmBt29' || kind === 'rc313' || kind === 'obeRcuR5') &&
+              {(kind === 'cmiotA15' ||
+                kind === 'xmBt29' ||
+                kind === 'rc313' ||
+                kind === 'obeRcuR5' ||
+                kind === 'tclRc802a' ||
+                kind === 'tclRc902n') &&
                 platform !== 'windows' &&
                 platform !== 'macos' && <p className="integration-attention">此设备暂不支持输入监听。</p>}
               {platform === 'windows' &&
@@ -883,7 +895,9 @@ function IntegrationDialog({
                   kind === 'cmiotA15' ||
                   kind === 'xmBt29' ||
                   kind === 'rc313' ||
-                  kind === 'obeRcuR5') && (
+                  kind === 'obeRcuR5' ||
+                  kind === 'tclRc802a' ||
+                  kind === 'tclRc902n') && (
                   <p className="integration-attention">
                     添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
                   </p>

@@ -6,6 +6,8 @@ import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
 import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
 import { obeRcuR5SupportPackage } from '../obe-rcu-r5-remote/definition.ts'
 import { rc313SupportPackage } from '../rc-313-remote/definition.ts'
+import { tclRc802aSupportPackage } from '../tcl-rc802a-remote/definition.ts'
+import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
 import { xboxSupportPackage } from '../xbox-controller/index.ts'
 
 export type { DeviceKind } from '../types.ts'
@@ -31,6 +33,7 @@ export type DeviceInformation = {
   status: 'pending' | 'ready' | 'retrying' | 'error' | 'disconnected'
   bluetoothName?: string | null
   batteryLevel?: number | null
+  modelNumber?: string | null
   manufacturer?: string | null
   serialNumber?: string | null
   hardwareRevision?: string | null
@@ -87,6 +90,24 @@ export function mobileRemoteKindForSoftware(software: string | null | undefined)
   if (software.includes('CMIOT18_B302')) return 'rc313'
   return null
 }
+export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind | undefined): boolean {
+  if (kind === 'tclRc802a') {
+    return (
+      device.vendorId === 0x0416 &&
+      device.productId === 0x0301 &&
+      !!device.deviceInfo?.modelNumber?.includes('BT_RC802A') &&
+      !!device.deviceInfo?.manufacturer?.includes('TCL')
+    )
+  }
+  if (kind === 'tclRc902n') {
+    return (
+      device.vendorId === 0x0417 &&
+      device.productId === 0x0304 &&
+      !!device.deviceInfo?.softwareRevision?.includes('RC902N')
+    )
+  }
+  return device.kind === kind
+}
 export const emptySnapshot = (): DeviceSnapshot => ({
   store: { version: 1, revision: 0, instances: [] },
   discovered: [],
@@ -102,6 +123,8 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   xmBt29SupportPackage,
   rc313SupportPackage,
   obeRcuR5SupportPackage,
+  tclRc802aSupportPackage,
+  tclRc902nSupportPackage,
 ]
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })

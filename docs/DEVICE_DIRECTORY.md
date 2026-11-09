@@ -45,6 +45,21 @@ src/devices/
 设备图片仍保留在 `public/`，保持现有资源 URL 与截图/测试引用稳定。
 全局配置和跨设备映射编辑仍在现有位置；它们不属于单一设备型号。
 
+TCL RC802A 和 RC902N 的初始支持包分别位于 `tcl-rc802a-remote/`、
+`tcl-rc902n-remote/`，各自拥有按键、区域、视图、定义和 SVG。当前按用户要求复制
+CMIOT-A15 布局和 `cmiotA15.*` 输入 ID，默认单击录音；实际按键 HID 与语音协议仍待实机适配。
+Rust 入口为 `devices/tcl_rc802a/mod.rs` 和 `devices/tcl_rc902n/mod.rs`，各自维护按键表，
+复用 A15 报告解析与语音链路。
+
+两款设备均要求硬件标识和 GATT 信息同时匹配后才能绑定或启动输入：
+
+| 型号 | Windows HID 标识 | Device Information Service 附加条件 |
+| --- | --- | --- |
+| TCL RC802A | `DEV_VID&010416_PID&0301` | 2A24 包含 `BT_RC802A`，且 2A29 包含 `TCL` |
+| TCL RC902N | `DEV_VID&010417_PID&0304` | 2A28 包含 `RC902N` |
+
+字段缺失或不符时不按设备名称、单独 VID/PID 或 `detectedKind` 回退匹配。
+
 ## Rust 与 macOS 桥接
 
 ```text

@@ -34,6 +34,8 @@ const model = compile('src/devices/integration/model.ts', {
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
   '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
   '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
+  '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
+  '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 })
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
@@ -476,6 +478,66 @@ test('OBE_RCU_R5 integrates directly by hardware model without software recognit
   } finally { act(() => view.unmount()) }
 })
 
+test('TCL discovery requires each model’s VID/PID and Device Information markers before binding', async () => {
+  for (const [kind, vendorId, productId, information, invalidInformation] of [
+    ['tclRc802a', 0x0416, 0x0301, { modelNumber: 'prefix_BT_RC802A_suffix', manufacturer: 'TCL Electronics' },
+      [{ manufacturer: 'TCL' }, { modelNumber: 'BT_RC802A' }, { modelNumber: 'BT_RC802A', manufacturer: 'Other' }, { modelNumber: 'BT_RC802B', manufacturer: 'TCL' }]],
+    ['tclRc902n', 0x0417, 0x0304, { softwareRevision: 'TCL_RC902N_1.0' },
+      [{}, { softwareRevision: 'RC902M' }]],
+  ]) {
+    const remote = { ...device, id: 'tcl-one', kind, vendorId, productId, connected: true,
+      deviceInfo: { status: 'ready', ...information } }
+    const rejected = invalidInformation.map((info, index) => ({ ...remote, id: `rejected-${index}`,
+      deviceInfo: { status: 'ready', detectedKind: kind, ...info } }))
+    rejected.push({ ...remote, id: 'wrong-vendor', vendorId: vendorId + 1 }, { ...remote, id: 'wrong-product', productId: productId + 1 })
+    const snapshot = { ...model.emptySnapshot(), discovered: [...rejected, remote] }
+    const saved = []
+    const controller = { snapshot, error: '', busy: false, put: async instance => {
+      saved.push(instance)
+      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-tcl' }] } }
+    } }
+    let view
+    act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
+      controller, native: true, platform: 'windows', permissions: {}, onIntegrated() {},
+    })) })
+    try {
+      const cards = view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])
+      assert.equal(cards.length, 1, 'VID/PID candidates with missing or contradictory DIS data are not offered as recognized devices')
+      act(() => cards[0].props.onClick())
+      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.devices.length, 1)
+      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, remote.id)
+      assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 0)
+      await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+      assert.equal(saved[0].kind, kind)
+      assert.equal(saved[0].binding, remote.id)
+      assert.equal(saved[0].cmiotA15RecordingMode, 'click')
+    } finally { act(() => view.unmount()) }
+  }
+})
+
+test('both TCL scaffolds can be added as previews with independent artwork and A15 inputs', async () => {
+  for (const kind of ['tclRc802a', 'tclRc902n']) {
+    const snapshot = model.emptySnapshot(), saved = []
+    const controller = { snapshot, error: '', busy: false, put: async instance => {
+      saved.push(instance)
+      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-preview' }] } }
+    } }
+    const pkg = model.packageFor(kind)
+    assert.notEqual(pkg.artwork, model.packageFor('cmiotA15').artwork)
+    assert.deepEqual(pkg.inputs.map(input => input.id), model.packageFor('cmiotA15').inputs.map(input => input.id))
+    assert.ok(readFileSync(new URL(`../public${pkg.artwork}`, import.meta.url), 'utf8').includes('<svg'))
+    let view
+    act(() => { view = Renderer.create(React.createElement(DeviceHub, { controller, native: false, platform: 'windows', permissions: {} })) })
+    try {
+      act(() => view.root.findByProps({ className: 'my-devices-integrate' }).props.onClick())
+      act(() => view.root.findAllByProps({ className: 'managed-package' }).find(node => text(node).includes(pkg.name)).props.onClick())
+      await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+      assert.equal(saved[0].kind, kind)
+      assert.equal(saved[0].binding, null)
+    } finally { act(() => view.unmount()) }
+  }
+})
+
 test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
@@ -799,7 +861,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       act(() => { info.status = 'retrying'; info.error = '读取超时'; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
       assert.ok(text(panel()).includes('正在重试'))
       act(() => { instances[0] = { ...instances[0], binding: null }; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
-      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 8)
+      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 9)
       assert.ok(!text(panel()).includes('REMOTE_NATIVE'))
       assert.equal(refreshButton().props.disabled, true)
     }

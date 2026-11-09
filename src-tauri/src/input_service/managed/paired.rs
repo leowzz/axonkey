@@ -28,6 +28,8 @@ pub(super) fn kind(vendor: u16, product: u16) -> Option<&'static str> {
         (0x2717, 0x32b8) => Some("rc003"),
         (0x0416, 0x0300) => Some("cmiotA15"),
         (0x1d5a, 0xc081) => Some("obeRcuR5"),
+        (0x0416, 0x0301) => Some("tclRc802a"),
+        (0x0417, 0x0304) => Some("tclRc902n"),
         _ => None,
     }
 }

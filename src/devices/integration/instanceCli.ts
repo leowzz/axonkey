@@ -35,6 +35,8 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     cmiot: 'cmiota15',
     'xm-bt-29': 'xmbt29',
     'rc-313': 'rc313',
+    'tcl-rc802a': 'tclrc802a',
+    'tcl-rc902n': 'tclrc902n',
     'rcu-r5': 'obercur5',
     xbox: 'xboxbluetooth',
   }

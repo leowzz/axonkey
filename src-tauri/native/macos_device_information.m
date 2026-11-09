@@ -42,13 +42,13 @@ static NSString *AKCompactAddress(NSString *value) {
         else [self.errors addObject:@"电量数据格式无效"];
         return;
     }
-    NSDictionary *keys = @{@"2A29": @"manufacturer", @"2A25": @"serialNumber", @"2A27": @"hardwareRevision",
+    NSDictionary *keys = @{@"2A29": @"manufacturer", @"2A24": @"modelNumber", @"2A25": @"serialNumber", @"2A27": @"hardwareRevision",
         @"2A26": @"firmwareRevision", @"2A28": @"softwareRevision"};
     NSString *key = keys[uuid];
     if (key == nil) return;
     NSString *value = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     if (value == nil) {
-        if (![uuid isEqualToString:@"2A28"]) [self.errors addObject:@"设备信息不是有效 UTF-8 文本"];
+        if (![uuid isEqualToString:@"2A24"] && ![uuid isEqualToString:@"2A28"]) [self.errors addObject:@"设备信息不是有效 UTF-8 文本"];
         return;
     }
     NSMutableCharacterSet *trim = [NSMutableCharacterSet whitespaceAndNewlineCharacterSet];
@@ -158,7 +158,7 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     AKDeviceInformation *device = self.devices[peripheral.identifier];
     if (error) { [device.errors addObject:error.localizedDescription]; device.done = YES; [self checkCompletion]; return; }
     NSArray *wanted = @[[CBUUID UUIDWithString:@"2A50"], [CBUUID UUIDWithString:@"2A19"],
-        [CBUUID UUIDWithString:@"2A29"], [CBUUID UUIDWithString:@"2A25"], [CBUUID UUIDWithString:@"2A27"],
+        [CBUUID UUIDWithString:@"2A29"], [CBUUID UUIDWithString:@"2A24"], [CBUUID UUIDWithString:@"2A25"], [CBUUID UUIDWithString:@"2A27"],
         [CBUUID UUIDWithString:@"2A26"], [CBUUID UUIDWithString:@"2A28"]];
     for (CBService *service in peripheral.services) {
         if (![service.UUID isEqual:[CBUUID UUIDWithString:@"180A"]] && ![service.UUID isEqual:[CBUUID UUIDWithString:@"180F"]]) continue;
@@ -184,7 +184,7 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     AKDeviceInformation *device = self.devices[peripheral.identifier];
     device.pending -= 1;
     if (error) {
-        if (![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
+        if (![characteristic.UUID.UUIDString isEqualToString:@"2A24"] && ![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
             [device.errors addObject:error.localizedDescription];
         }
     } else {

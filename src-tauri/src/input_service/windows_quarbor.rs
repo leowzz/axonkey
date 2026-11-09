@@ -624,6 +624,8 @@ impl Client {
                 };
                 let usages = if crate::devices::xbox::matches_instance(&self.instance_id)
                     || crate::devices::cmiot_a15::matches_instance(&self.instance_id)
+                    || crate::devices::tcl_rc802a::matches_instance(&self.instance_id)
+                    || crate::devices::tcl_rc902n::matches_instance(&self.instance_id)
                     || crate::devices::obe_rcu_r5::matches_instance(&self.instance_id)
                 {
                     Err(ERROR_NOT_SUPPORTED)

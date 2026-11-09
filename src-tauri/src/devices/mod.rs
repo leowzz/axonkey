@@ -2,6 +2,8 @@ pub(crate) mod cmiot_a15;
 pub(crate) mod obe_rcu_r5;
 pub(crate) mod rc_313;
 pub(crate) mod shared;
+pub(crate) mod tcl_rc802a;
+pub(crate) mod tcl_rc902n;
 pub(crate) mod xbox;
 pub(crate) mod xiaomi_remote;
 pub(crate) mod xm_bt_29;

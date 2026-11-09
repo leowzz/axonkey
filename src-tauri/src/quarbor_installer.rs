@@ -36,6 +36,8 @@ impl Device {
             "xboxBluetooth" => crate::devices::xbox::matches_instance(&self.instance_id),
             "rc003" => self.is_rc003(),
             "obeRcuR5" => crate::devices::obe_rcu_r5::matches_instance(&self.instance_id),
+            "tclRc802a" => crate::devices::tcl_rc802a::matches_instance(&self.instance_id),
+            "tclRc902n" => crate::devices::tcl_rc902n::matches_instance(&self.instance_id),
             "cmiotA15" | "xmBt29" | "rc313" => {
                 crate::devices::cmiot_a15::matches_instance(&self.instance_id)
             }
