@@ -9,6 +9,6 @@ export const cmiotA15RemoteView: RemoteView = {
   buttons: cmiotA15RemoteButtons,
   viewBox: cmiotA15RemoteViewBox,
   keyRegions: cmiotA15RemoteKeyRegions,
-  artworkUrl: '/cmiot-a15-remote-keymap.svg',
+  artworkUrl: '/device-descriptors/cmiot-a15.svg',
   ariaLabel: '移动遥控器 CMIOT-A15 按键',
 }

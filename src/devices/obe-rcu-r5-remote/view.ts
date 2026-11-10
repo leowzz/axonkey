@@ -9,6 +9,6 @@ export const obeRcuR5RemoteView: RemoteView = {
   buttons: obeRcuR5RemoteButtons,
   viewBox: obeRcuR5RemoteViewBox,
   keyRegions: obeRcuR5RemoteKeyRegions,
-  artworkUrl: '/obe-rcu-r5-remote-keymap.svg',
+  artworkUrl: '/device-descriptors/obe-rcu-r5.svg',
   ariaLabel: '投影仪语音遥控器 OBE_RCU_R5 按键',
 }

@@ -9,6 +9,6 @@ export const xmBt29RemoteView: RemoteView = {
   buttons: xmBt29RemoteButtons,
   viewBox: xmBt29RemoteViewBox,
   keyRegions: xmBt29RemoteKeyRegions,
-  artworkUrl: '/xm-bt-29-remote-keymap.svg',
+  artworkUrl: '/device-descriptors/xm-bt-29.svg',
   ariaLabel: '移动遥控器 XM-BT-29 按键',
 }

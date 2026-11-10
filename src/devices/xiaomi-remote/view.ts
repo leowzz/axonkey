@@ -9,6 +9,6 @@ export const xiaomiRemoteView: RemoteView = {
   buttons: xiaomiRemoteButtons,
   viewBox: xiaomiRemoteViewBox,
   keyRegions: xiaomiRemoteKeyRegions,
-  artworkUrl: '/rc003-remote-keymap.svg',
+  artworkUrl: '/device-descriptors/rc003.svg',
   ariaLabel: '小米 RC003 遥控器按键',
 }
