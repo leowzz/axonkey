@@ -1,8 +1,8 @@
 # SVG 设备描述协议
 
-状态：`proposed`，对应 [Issue #58](https://github.com/leowzz/axonkey/issues/58)。
+状态：`implemented-incrementally`，对应 [Issue #58](https://github.com/leowzz/axonkey/issues/58)。
 
-本文定义 `axonkey.device/1`。它把设备图形、设备身份、输入区域、实际输入报告和能力声明放在同一个 SVG 中，供发现层、映射页和通用驱动引擎读取。当前实现仍以内置支持包为运行入口；本文是迁移目标和文件格式约定。
+本文定义 `axonkey.device/1`。它把设备图形、设备身份、输入区域、实际输入报告和能力声明放在同一个 SVG 中，供发现层、映射页和通用驱动引擎读取。解析器、报告引擎和六种内置设备描述符已经接入；发现、映射页面和平台语音后端仍按迁移计划逐步切换。
 
 ## 1. 边界
 
@@ -254,6 +254,8 @@ Report 1 的 bit 顺序为 `A、B、X、Y、LB、RB、View、Menu、LS、RS`。�
 SVG 更新不得改变已保存 Key 的含义。删除 Key、重用 Key 或修改 alias 指向时必须递增 revision，并提供显式迁移表；旧 revision 的配置可以回退到原定义。
 
 ## 6. 接入顺序和验证
+
+当前内置描述符位于 `public/device-descriptors/`，Rust 通过 `include_str!` 固定打包并在首次使用时解析一次。管理输入入口先通过 `descriptor_registry` 查找描述符，旧 Key 由 `legacy-key` 映射保持兼容；描述符解析或报告布局不支持时才保留原设备解码器作为迁移期回退。
 
 通用引擎按以下边界接入现有代码：
 

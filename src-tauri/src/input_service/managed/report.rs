@@ -2,6 +2,9 @@ use std::collections::BTreeMap;
 
 /// Values are normalized before gesture handling; separate reports update only their own controls.
 pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>> {
+    if let Some(values) = decode_bundled(kind, report) {
+        return Some(values);
+    }
     let mut values = BTreeMap::new();
     if kind == "xboxBluetooth" {
         return crate::devices::xbox::decode(report).map(|values| {
@@ -47,9 +50,39 @@ pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>>
     Some(values)
 }
 
+/// Keep the managed reader's existing key contract while the bundled SVG
+/// descriptors become the source of report decoding. `legacy-key` is only a
+/// compatibility alias; the generic engine itself returns stable descriptor
+/// IDs.
+fn decode_bundled(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>> {
+    let descriptor = crate::devices::descriptor_registry::descriptor_for_kind(kind)?;
+    let values = crate::devices::engine::decode_descriptor(descriptor, report)?;
+    Some(
+        values
+            .into_iter()
+            .map(|(id, value)| {
+                let key = descriptor
+                    .inputs
+                    .iter()
+                    .find(|input| input.id == id)
+                    .and_then(|input| input.legacy_key.as_deref())
+                    .unwrap_or(&id)
+                    .to_string();
+                (key, value)
+            })
+            .collect(),
+    )
+}
+
 pub(super) fn pressed(value: f64, was_pressed: bool) -> bool {
     // Fixed hysteresis: crossing 55% presses; dropping below 35% releases.
     value >= if was_pressed { 0.35 } else { 0.55 }
+}
+
+pub(super) fn pressed_for_kind(kind: &str, key: &str, value: f64, was_pressed: bool) -> bool {
+    crate::devices::descriptor_registry::descriptor_for_kind(kind)
+        .map(|descriptor| crate::devices::engine::pressed(descriptor, key, value, was_pressed))
+        .unwrap_or_else(|| pressed(value, was_pressed))
 }
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 # SVG 设备描述作为设备类型协议
 
-状态 `proposed`
+状态 `accepted`（分阶段实施）
 
 对应 [Issue #58](https://github.com/leowzz/axonkey/issues/58)。
 
@@ -25,4 +25,8 @@
 优点是设备定义可以随图形一起分发，通用引擎可在不改 UI 按钮表的情况下发现输入；报告 ID、usage page、端序、槽位和 vendor state 也能被准确表达。代价是需要安全 XML 校验器、source union 和白名单 engine 注册表，且旧设备必须通过 alias/适配器迁移。纯 SVG 不能替代平台 HID/GATT 权限和驱动能力，因此“文件可解析”不等于“设备可运行”。
 
 该决定保留 `docs/adr/0001-windows-rc003-input-by-device-instance.md`：SVG 的 identity 只识别支持包候选，Windows RC003 仍按绑定的设备实例安装和连接 Quarbor 驱动。
+
+## 实施进度
+
+`src-tauri/src/devices/device_descriptor.rs` 和 `engine.rs` 已提供安全解析与通用报告解码；`descriptor_registry.rs` 将六种现有设备的协议化 SVG 固定打包，并由 managed 报告入口优先使用。旧设备解码器暂时保留为兼容回退，发现、映射页面、平台语音和配置迁移按 Issue #58 的后续阶段切换。
 

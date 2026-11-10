@@ -1761,7 +1761,12 @@ fn run(shared: Arc<Shared>) {
                             if let Some(values) = report::decode(&instance.kind, &buffer[..len]) {
                                 for (id, value) in values {
                                     let was_down = reader.down.contains(&id);
-                                    let down = report::pressed(value, was_down);
+                                    let down = report::pressed_for_kind(
+                                        &instance.kind,
+                                        &id,
+                                        value,
+                                        was_down,
+                                    );
                                     if reader
                                         .values
                                         .get(&id)
