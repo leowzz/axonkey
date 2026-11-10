@@ -2,6 +2,8 @@
 
 本约定面向后续遥控器、手柄、旋钮和自定义固件设备。设备首页是统一入口；每个实物设备拥有独立身份、配置和运行状态。编辑页面选中哪个设备，不决定后台监听哪个设备。
 
+新接入型号从[新设备接入流程](#新设备接入流程)开始。当前正式设备使用内置 `axonkey.device/1` SVG；网络设备、连续触摸和独立音频输入仍是[后续设计](DEVICE_INPUT_SOURCES.md)，不是已经可用的接入方式。协议字段见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)，代码职责见[设备目录](DEVICE_DIRECTORY.md)。
+
 ## 用户流程
 
 1. 安装并启动 Axonkey，首页自动展示内置支持包能够识别的在线设备和系统已配对设备。已配对的设备休眠、关机或断开后仍显示，状态为“未连接”；在系统中取消配对后移出发现列表。扫描不代替系统蓝牙配对。
@@ -186,31 +188,119 @@ RC003 实例工作区直接复用 `WorkflowAxonkey` 的单击、双击、长按�
 - 不因外观相同就复用协议。其他 PID、USB 模式、更新固件布局需要新增匹配与协议样本。
 - 编辑页仅从 SVG 选择输入，不增加手柄按键列表；图中无 Xbox 品牌图标，标准按键字母保留。
 
-## 新设备接入清单
+## 新设备接入流程
 
-1. 收集真实枚举信息、身份特征、接口结构、报告描述和按下/释放/中立样本，注明连接方式和固件。
-2. 定义严格匹配的支持包及能力；未知型号不能直接套用相似设备的解码器。
-3. 提供设备卡片资源与交互视图，映射区域绑定稳定的输入 ID，保留键盘操作与状态反馈。按“映射工作区布局”选择默认多泳道或大型、密集设备的单泳道方案。
-4. 接入原生发现和协议解码，事件必须携带实例 ID；输出复用动作执行层。
-5. 声明每个平台的驱动、权限、独占和透传能力；不可支持的功能直接标注。
-6. 测试两只同型号设备同时输入、配置隔离、身份冲突、重复绑定、断开重连、重启、权限失败、取消延迟动作和退出清理。
-7. 在真实目标系统验证完整流程。浏览器只能验收界面，macOS 通过不能代替 Windows 驱动实测。
-8. 验证已配对离线列表、重启后读取系统配对记录、同型号去重、取消配对和查询失败；离线状态不能被“映射已暂停”掩盖。系统未提供型号身份的配对记录不得冒充已支持的设备。
-9. 在受支持的最小窗口及常用窗口尺寸验收设备选键、行为库拖入、泳道内排序、动作编辑、删除和长内容滚动。单泳道额外检查触发按钮切换后的序列独立性与保存；设备区、泳道和行为库不得相互挤压到难以点击或阅读。
+按“图稿 → 热区 → 实际输入 → 正式注册 → 实机验收”推进。图稿与硬件协议可分开交接；照片制作和热区检查通过，不代表设备已经受支持。
 
-代码入口：`src/devices/integration/`、`src/devices/xbox-controller/`、`src-tauri/src/input_service/managed/`。现有型号目录说明见 [DEVICE_DIRECTORY.md](DEVICE_DIRECTORY.md)。
+| 阶段 | 交付物 | 完成条件 |
+| --- | --- | --- |
+| 外观草稿 | `docs/device-drafts/<device-id>.svg` 与同名 `.md` | 输入清单、图形和热区完整，未知键值保持待采集 |
+| 协议采集 | 带连接方式、固件与操作说明的真实报告样本 | 身份、按下、释放、中立及特殊输入有证据 |
+| 内置接入 | 正式 SVG、双端注册及回归测试 | 运行时解析、生成、发现、绑定、映射链路通过 |
+| 实机验收 | 各目标平台的验证记录 | 实际输入、输出、断连释放与实例隔离通过 |
+
+### 1. 确认身份并制作 SVG 草稿
+
+给 Agent 提供设备正面照片；有侧键时补侧面照片，并说明品牌、型号和已知枚举信息。使用仓库 [axonkey-device-svg skill](../.agents/skills/axonkey-device-svg/SKILL.md)，例如：
+
+> 使用 axonkey-device-svg，根据这些照片制作新设备 SVG 草稿。品牌 TCL，型号 RC802A；保留完整匹配条件，实际按键值与音频协议待后续采集。
+
+型号优先查看电池盖内或背面；只有品牌也可以继续，使用一次生成的“品牌-6 位随机十六进制值”作为临时设备 ID。后续得知型号时保留已交付的稳定 ID，不因改展示名而重建用户映射。
+
+图稿还原按键区域的形状、比例和排列，不绘制光影、纹理与品牌 Logo；软件 Logo 换成简单字母。侧键在同一 SVG 旁用扁平矩形底板示意，按实际高度排列，不复刻机身厚度或坡度。方向环和双向摇杆按真实可按方向拆分热区，指示灯、定位凸点不建输入。
+
+每个可配置输入建立稳定的 `ak:input id`、对应 `data-ak-key`、精确 `data-ak-region` 路径与根画布坐标锚点。草稿采用[图稿草稿格式](../.agents/skills/axonkey-device-svg/references/draft-format.md)：标为 `draft` / `binding="pending"`，省略未知 identity、report、source、usage 和语音能力，不借用其他型号值。
+
+在仓库根目录验证草稿，替换为实际文件名：
+
+```sh
+python -X utf8 .agents/skills/axonkey-device-svg/scripts/validate_draft.py docs/device-drafts/tcl-rc802a.svg
+```
+
+验证器只检查制作结构与引用，不证明外观、热区几何或硬件协议正确。[TCL RC802A 交接记录](device-drafts/tcl-rc802a.md)提供了输入清单、完整联合匹配条件和未确定项的示例。
+
+### 2. 用通用模板检查热区
+
+使用 [device-hotzones.html](device-drafts/device-hotzones.html?svg=tcl-rc802a.svg)，不要为每个设备复制图稿到独立 Demo。可双击 HTML 后“打开 SVG”、拖入 SVG，或“扫描目录”选择包含图稿的目录，再从列表切换文件。
+
+需要相对路径自动加载时，在仓库根目录启动静态服务：
+
+```sh
+python -m http.server 8766 --bind 127.0.0.1
+```
+
+打开 `http://127.0.0.1:8766/docs/device-drafts/device-hotzones.html?svg=tcl-rc802a.svg`。`svg` 相对于 HTML 所在目录解析；例如测试正式 RC003 时改为 `?svg=../../public/device-descriptors/rc003.svg`。HTTP 服务提供目录列表时，页面还会自动列出模板同目录的 SVG；双击文件模式下用文件或目录选择器加载。
+
+- 打开“显示热区”，核对轮廓贴合键帽、方向扇区和摇杆分区，逐一检查中心、边缘、间隙和交界；装饰区域不能命中。
+- 点击图形与右侧列表，核对选中项一致；蓝色表示选中，按住时为绿色，松开恢复。用 Enter / Space 操作，Esc 清除选中。
+- 检查正面与侧面输入各出现一次，锚点位于对应热区内。修改 SVG 后重新加载，模板会读取同一文件中的实际区域路径。
+
+正式 SVG 的 `viewBox` 从 `0 0` 开始。热区优先直接写根坐标，`data-ak-regions` 父组不放 `transform`；如需变换，写在 region 的 `path` 自身，锚点仍为根坐标。当前测试页能累计父级变换，正式索引生成器只提取 path 自身的变换，不能仅凭测试页位置正确就认定正式渲染正确。
+
+测试页不监听设备；这里的绿色按住反馈由鼠标、触摸或键盘模拟。图稿通过后仍留在 `docs/device-drafts/`，无需更改应用代码。
+
+### 3. 采集真实身份、报告与能力
+
+后续采集工作沿用草稿的稳定输入 ID，逐个关联真实信号，记录连接方式、固件、接口/collection、报告描述、原始字节、report ID 是否在包内、长度、端序、偏移、usage page / usage 或厂商字段。样本覆盖按下、释放、中立、组合、长按/重复、轴或摇杆边界，以及断连时的状态释放。
+
+身份规则保留所有 AND/OR 条件，并验证能命中目标和排除相近型号。以 RC802A 为例，用户给出的 VID/PID、`0x2A24` 包含 `BT_RC802A`、`0x2A29` 包含 `TCL` 必须同时满足；当前运行时尚未实现该组 GATT 联合匹配，不能只填 VID/PID 就启用，也不能把 `ak:pending-identity` 当作可执行规则。
+
+按 [v1 协议](DEVICE_DESCRIPTOR_SVG.md)补全 `ak:identity`、`ak:reports`、每个输入的 source、原始转发策略及已验证的平台要求。只有确实存在旧配置时才填写 `legacy-key`；没有旧配置的新设备直接使用稳定 ID。
+
+麦克风图标只表示有一个按键。语音须另采集触发、控制与音频报告，确认格式、分片、采样率和平台链路后才声明 `ak:voice`。标准报告使用通用引擎现有编码；确需新厂商解码时扩展共享编码或内置白名单 engine，并用真实样本测试，不新建型号专用按键表或回退到相似设备。平台传输、权限、驱动和音频输出仍由应用实现。
+
+### 4. 转为正式描述符并注册
+
+完成实际协议与匹配规则后，把草稿整理成完整 v1 描述符，移入 `public/device-descriptors/<name>.svg`；清除制作状态和待接入记录，保留稳定 ID、图形与区域。草稿校验器不用于正式描述符，且当前运行时不是依靠 `draft` 标记隔离草稿；仅删除标记不能完成接入。
+
+当前内置流程仍需以下登记，不支持用户随意放入 SVG 后自动启用：
+
+| 入口 | 新型号需要做的事 |
+| --- | --- |
+| `src-tauri/src/devices/descriptor_registry.rs` | 在 `KINDS`、`descriptor_for_kind` 及 `include_str!` 加载入口注册，使通用引擎读取该正式 SVG |
+| `src/devices/<model>/` | 参考 [RC-313 定义](../src/devices/rc-313-remote/definition.ts)与[视图](../src/devices/rc-313-remote/view.ts)，通过 `createDescriptorView('<SVG 文件名，不含扩展名>')` 取得图形、输入与热区，提供薄的支持包定义和公开出口 |
+| `src/devices/types.ts`、`src/devices/integration/model.ts` | 增加 `DeviceKind`，把支持包加入 `supportPackages`；实例 `kind`、SVG 内 device ID 和文件名职责不同，明确对应关系 |
+| `src-tauri/src/input_service/managed/` 与对应平台入口 | 核对发现、身份细分、绑定、驱动/权限、打开设备、报告传入通用引擎及输出链路；已有路径可覆盖时直接复用 |
+
+前端旧型号级 `registry.ts` / `pages.ts` 用于历史配置与设置页，不是所有新实例型号都要添加的新注册入口。只有对应能力确实需要时才扩展，避免把设备接入重新做成一套专用页面。
+
+运行生成命令，再让支持包引用生成结果：
+
+```sh
+npm run generate:devices
+node scripts/generate-device-descriptors.mjs --check
+```
+
+生成器扫描正式目录中的 SVG，输出 `src/devices/generatedDescriptors.ts`；不要手改生成文件，也不要维护第二份 TS 热区或 HID 值表。生成成功只证明前端索引可生成，还必须用 Rust 解析器和真实报告测试完整定义。图形复用 `RemoteControl`，映射复用 `WorkflowAxonkey`，按上文布局规则选择多泳道或单泳道。
+
+### 5. 回归与实机验收
+
+为新描述符补实际解析/报告回归：身份正反例、每个输入的按下/释放、组合及多 report 状态互不误清、阈值和无效包；有厂商状态或音频时覆盖其真实样本。扩展现有内置设备测试的预期清单或数量，不能因新增型号而删掉已有覆盖。常规命令见下方[验证命令](#验证命令)。
+
+- 从发现到绑定、启用、图上选键、保存/恢复配置、实际 report 触发、动作输出逐项验收。热区测试页只能验收图形，不能代替应用内真实输入反馈。
+- 验证同型号双实例输入和配置隔离、身份冲突、重复绑定、断开重连、重启、权限/驱动失败、停用、延迟动作取消和退出清理。
+- 验证已配对离线列表、取消配对和查询失败；无型号身份的配对记录不能按名字冒充已支持设备，离线也不能被暂停状态掩盖。
+- 在最小与常用窗口尺寸检查选键、拖入、排序、编辑、删除、长内容滚动和触发方式切换后的独立保存。
+- 按目标系统分别记录驱动、权限、独占、原始转发与语音实测结果；macOS 通过不能代替 Windows 验收。尚未支持或尚未实测的能力如实注明。
+
+保留同名交接记录，更新正式 SVG 地址、已完成项、测试结果和剩余事项。RC802A 当前仍处于图稿与热区阶段，不能因示例图完整而标记为已集成设备。
 
 ## 验证命令
 
+以下常规检查在仓库根目录运行；标注硬件的命令针对现有蓝牙手柄，新型号另用自身的协议样本与实机测试验收。
+
 ```sh
+npm run generate:devices
+node scripts/generate-device-descriptors.mjs --check
+node --test test/remote-control-descriptors.test.mjs test/remote-control.test.mjs test/device-profiles.test.mjs test/device-mapping.test.mjs test/managed-device-discovery.test.mjs
 npm run build
+cargo test --manifest-path src-tauri/Cargo.toml --lib devices
 cargo test --manifest-path src-tauri/Cargo.toml --lib input_service
 # 接上并唤醒 045e:02e0 蓝牙手柄；以下使用临时空映射，不注入动作。
 cargo test --manifest-path src-tauri/Cargo.toml --lib connected_controller_exclusive_read -- --ignored --nocapture
 cargo test --manifest-path src-tauri/Cargo.toml --lib connected_controller_binding_lifecycle -- --ignored --nocapture
 # 已配对设备可保持休眠；只读取配对列表，不连接或注入动作。
 cargo test --manifest-path src-tauri/Cargo.toml --lib paired_devices_in_native_snapshot -- --ignored --nocapture
-node --test test/managed-device-discovery.test.mjs
 ```
 
 ## 本次验证记录（2026-10-25）

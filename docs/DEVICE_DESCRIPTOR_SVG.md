@@ -8,6 +8,8 @@
 
 从实拍照片准备尚未采集键值的设备，使用仓库 [axonkey-device-svg skill](../.agents/skills/axonkey-device-svg/SKILL.md)。这类图稿存放在 `docs/device-drafts/`，只复用本文的图形、稳定 ID 和热区格式；标记为 `draft`，省略实际 report/source，不是当前运行时可启用的完整 v1 描述符。示例见 [TCL RC802A](device-drafts/tcl-rc802a.md)。
 
+完整操作步骤见[新设备接入流程](DEVICE_INTEGRATION.md#新设备接入流程)；用通用[热区测试页](device-drafts/device-hotzones.html?svg=tcl-rc802a.svg)检查草稿或正式 SVG 的命中、选中与按住反馈。测试页只检查图形交互，不连接硬件，也不代替运行时校验。
+
 ## 1. 边界
 
 SVG 描述的是**设备类型**，不是某一只实物，也不是用户的映射配置。
