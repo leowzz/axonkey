@@ -111,6 +111,24 @@ SVG 描述的是**设备类型**，不是某一只实物，也不是用户的映
 
 同一物理状态的不同线格式应声明相同的 `state-group`，例如 RC003 的带 ID、无 ID、boot 和三字节头变体，或 XM 的 4/9 字节键盘包。新报告替换该组状态；不同组互不清空，多 source 的值取最大值，再应用进入/释放阈值。未识别或格式错误的包保持已有状态，断连和报告丢失由会话显式释放。
 
+#### 原始 HID 采集与编辑
+
+使用 [`device-drafts/device-hotzones.html`](device-drafts/device-hotzones.html) 打开 SVG，在图形或按键列表中选键，分别填写「按下」「抬起」原始 hex，例如 `03 3A 00` / `03 00 00`，再点击「导出 SVG」。页面也接受连续 hex、逐字节 `0x` 前缀及逗号分隔；导出统一为大写、空格分隔。修改保留在当前页面中，切换按键或已加载的目录条目不会丢失；刷新或关闭前需导出保存。格式错误的输入会阻止导出。
+
+采集证据以可选元数据保存在对应的 `ak:input` 内，重新打开导出的 SVG 可继续编辑：
+
+```xml
+<ak:hid-capture version="1"
+                press="03 3A 00" press-length="3"
+                release="03 00 00" release-length="3" />
+```
+
+`press`、`release` 是包含设备提供的 Report ID（若有）的完整原始报文，长度单位为字节；任一方向可单独采集，清空两个输入框会在导出时移除采集记录。`ak:hid-capture` 是采集证据，运行时忽略它，仍以 `ak:report` / `ak:source` 为准。
+
+编辑器按 SVG 已声明的长度、Report ID 和前缀匹配报告，并解码 `boot-keyboard`、`le-u16-slots`、`le-u16-single`。按下与抬起匹配同一状态组（`state-group`，默认是报告 ID）及 Usage Page，且只有一个新增 Usage、没有其他 Usage 被移除时，可在导出中更新该按键对应按下报告的标准 page/usage source；其他报告变体保持原值。未声明该 source 时会添加一个。厂商、位域、轴或同一报告含多个 source 的复杂绑定只保存原始采集，不由本页重写。
+
+草稿及 `binding="pending"` 的输入只添加采集记录，保留待接入状态。没有报告定义时，`03 3A 00` 本身无法确定首字节是否为 Report ID 或 Usage Page，页面不会据此猜测协议或注册设备。SVG 的图形、精确热区、设备身份、能力及未编辑输入均保留；XML 格式可能经浏览器序列化调整。
+
 ### 3.3 输入 Key 和图形区域
 
 每个可配置输入都有一个稳定、设备命名空间内唯一的 `id`。建议使用 `<厂商>.<型号>.<语义>`，例如 `xiaomi.rc003.voice`；历史 ID 放到 `legacy-key`，只用于迁移和读取旧配置。

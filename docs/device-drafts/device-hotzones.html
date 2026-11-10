@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>SVG 按键热区测试</title>
+  <title>SVG 按键与 HID 编辑</title>
   <style>
     :root { color-scheme: light; --ink: #263238; --muted: #758087; --line: #dce2e5; --blue: #287ed5; --green: #22865c; }
     * { box-sizing: border-box; }
@@ -14,6 +14,9 @@
     button, input, select { min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
     button { padding: 7px 12px; white-space: nowrap; }
     button:hover { border-color: #aebfc9; background: #f9fbfc; }
+    button:disabled { cursor: default; opacity: .45; }
+    .primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .primary:hover { background: #216db9; border-color: #216db9; }
     :focus-visible { outline: 2px solid #78b5ee; outline-offset: 3px; }
     button[aria-pressed="true"] { border-color: #a9ccef; color: #1767b1; background: #edf5ff; }
     .app { display: flex; flex-direction: column; gap: 16px; height: 100dvh; min-height: 540px; max-width: 1440px; margin: auto; padding: 20px 24px; }
@@ -25,7 +28,7 @@
     .path-form { display: flex; gap: 8px; flex: 1; min-width: 240px; }
     .path-form input { flex: 1; min-width: 0; padding: 7px 10px; font: 12px/1.5 ui-monospace, Consolas, monospace; }
     .source-select { max-width: 260px; padding: 7px 28px 7px 10px; }
-    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; min-height: 0; flex: 1; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; min-height: 0; flex: 1; }
     .preview, .inspector { min-width: 0; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
     .preview { display: flex; flex-direction: column; padding: 16px; min-height: 0; }
     .preview-head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding-bottom: 12px; }
@@ -44,7 +47,7 @@
     .hotspot:hover, .hotspot:focus-visible { fill: #287ed52e; stroke: var(--blue); stroke-width: 2; }
     .hotspot.is-selected { fill: #287ed540; stroke: var(--blue); stroke-width: 2; }
     .hotspot.is-pressed { fill: #24946855; stroke: var(--green); stroke-width: 2.5; }
-    .inspector { display: flex; flex-direction: column; min-height: 0; padding: 16px; }
+    .inspector { display: flex; flex-direction: column; min-height: 0; padding: 16px; overflow: auto; }
     .inspector-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
     .inspector-head h2 { margin: 0; font-size: 15px; }
     .count { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; }
@@ -55,10 +58,21 @@
     dl { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 5px 8px; margin: 0; font-size: 12px; }
     dt { color: var(--muted); }
     dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
-    .key-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding-right: 3px; }
+    #selected-source { white-space: pre-line; max-height: 70px; overflow: auto; }
+    .hid-editor { display: grid; gap: 5px; margin-top: 14px; }
+    .hid-editor label { font-size: 12px; }
+    .hid-editor input { width: 100%; min-width: 0; padding: 7px 9px; font: 13px/1.5 ui-monospace, Consolas, monospace; }
+    .hid-editor input[aria-invalid="true"] { border-color: #c54d46; }
+    .hid-result, .capture-result { margin: 0; color: var(--muted); overflow-wrap: anywhere; font-size: 11px; }
+    .hid-result { min-height: 17px; margin-bottom: 5px; }
+    .hid-result.error { color: #ac3d39; }
+    .capture-result { color: #42708e; }
+    .key-list { flex: 1; min-height: 100px; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding-right: 3px; }
     .key-row { display: flex; flex: none; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 7px 9px; border-color: transparent; background: transparent; text-align: left; }
     .key-row::before { content: ""; width: 7px; height: 7px; flex: none; border: 1px solid #a5b2ba; border-radius: 50%; }
     .key-row small { color: var(--muted); font-size: 11px; margin-left: auto; }
+    .key-row .capture-badge { margin-left: 0; color: var(--green); }
+    .key-row .capture-badge.error { color: #ac3d39; }
     .key-row.is-selected { color: #1767b1; border-color: #c6dff5; background: #edf5ff; }
     .key-row.is-selected::before { background: var(--blue); border-color: var(--blue); }
     .key-row.is-pressed { color: #196342; border-color: #a8d9c0; background: #e8f6ee; }
@@ -69,7 +83,8 @@
       .status { width: 100%; margin-left: 0; text-align: left; }
       .workspace { grid-template-columns: 1fr; }
       .preview { height: max(570px, 75dvh); }
-      .inspector { max-height: 560px; }
+      .inspector { overflow: visible; }
+      .key-list { max-height: 320px; flex: auto; }
       .source-select { flex: 1; max-width: none; min-width: 140px; }
     }
     @media (prefers-reduced-motion: no-preference) { button { transition: background .12s, border-color .12s; } }
@@ -78,7 +93,7 @@
 <body data-default-svg="tcl-rc802a.svg">
   <main class="app">
     <header class="header">
-      <h1>SVG 按键热区测试</h1>
+      <h1>SVG 按键与 HID 编辑</h1>
       <div id="status" class="status" role="status">正在加载…</div>
     </header>
     <div class="toolbar">
@@ -89,6 +104,7 @@
       <button id="open-file" type="button">打开 SVG</button>
       <button id="scan-folder" type="button">扫描目录</button>
       <select id="source-select" class="source-select" aria-label="选择 SVG 文件" hidden></select>
+      <button id="export-svg" class="primary" type="button" disabled>导出 SVG</button>
       <input id="file-input" type="file" accept=".svg,image/svg+xml" multiple hidden />
       <input id="folder-input" type="file" webkitdirectory multiple hidden />
     </div>
@@ -111,12 +127,107 @@
           <div id="selected-info" hidden>
             <h3 id="selected-label"></h3><p id="selected-key" class="stable-key"></p>
             <dl><dt>视图</dt><dd id="selected-view"></dd><dt>锚点</dt><dd id="selected-anchor"></dd><dt>输入</dt><dd id="selected-source"></dd></dl>
+            <div class="hid-editor">
+              <label for="hid-press">按下</label>
+              <input id="hid-press" type="text" placeholder="03 3A 00" spellcheck="false" autocomplete="off" aria-describedby="press-result" />
+              <p id="press-result" class="hid-result"></p>
+              <label for="hid-release">抬起</label>
+              <input id="hid-release" type="text" placeholder="03 00 00" spellcheck="false" autocomplete="off" aria-describedby="release-result" />
+              <p id="release-result" class="hid-result"></p>
+              <p id="capture-result" class="capture-result" role="status"></p>
+            </div>
           </div>
         </div>
         <div id="key-list" class="key-list"></div>
       </aside>
     </div>
   </main>
+  <script id="hid-codec">
+    const HidCapture = (() => {
+      function parseHex(value) {
+        const text = value.trim();
+        if (!text) return null;
+        const tokens = /^(?:[0-9a-f]{2})+$/i.test(text)
+          ? text.match(/../g) : text.split(/[\s,]+/);
+        if (!tokens.every(token => /^(?:0x)?[0-9a-f]{2}$/i.test(token))) {
+          throw new Error('每个字节需为两位 hex，例如 03 3A 00');
+        }
+        const bytes = tokens.map(token => parseInt(token.replace(/^0x/i, ''), 16));
+        return { bytes, hex: bytes.map(byte => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ') };
+      }
+
+      function readReport(attrs) {
+        const number = (key, fallback = null) => attrs[key] === undefined ? fallback : Number(attrs[key]);
+        const report = {
+          id: attrs.id, stateGroup: attrs['state-group'] || attrs.id, direction: attrs.direction, encoding: attrs.encoding,
+          reportId: number('report-id'), length: number('length'), page: number('usage-page'),
+          offset: number('payload-offset', (attrs['report-id'] === undefined ? 0 : 1) + (attrs.encoding === 'boot-keyboard' ? 2 : 0)),
+          width: number('slot-width', 2), count: number('slot-count', attrs.encoding === 'boot-keyboard' ? 6 : attrs.encoding === 'le-u16-single' ? 1 : null),
+          prefix: parseHex(attrs.prefix || '')?.bytes,
+          prefixNot: parseHex(attrs['prefix-not'] || '')?.bytes,
+        };
+        if (['boot-keyboard', 'le-u16-slots', 'le-u16-single'].includes(report.encoding)) {
+          if (![report.page, report.offset, report.count, report.width].every(Number.isInteger)
+              || report.page < 0 || report.page > 0xffff || report.offset < 0 || report.count < 1
+              || (report.encoding === 'le-u16-slots' && report.width !== 2)) {
+            throw new Error('报告布局无效：' + report.id);
+          }
+        }
+        return report;
+      }
+
+      function decode(reports, sample) {
+        if (!sample) return null;
+        const bytes = sample.bytes;
+        const prefixMatches = prefix => prefix.every((byte, index) => bytes[index] === byte);
+        const matches = reports.filter(report => report.direction === 'input' && report.encoding !== 'gatt-stream'
+          && (report.length === null || report.length === bytes.length)
+          && (report.reportId === null || report.reportId === bytes[0])
+          && (!report.prefix || prefixMatches(report.prefix))
+          && (!report.prefixNot || !prefixMatches(report.prefixNot)));
+        if (matches.length !== 1) return { message: bytes.length + ' 字节 · ' + (matches.length ? '报告布局有歧义' : '未声明匹配的报告布局') };
+        const report = matches[0];
+        const width = report.encoding === 'boot-keyboard' ? 1 : 2;
+        const count = report.encoding === 'le-u16-single' ? 1 : report.count;
+        if (!['boot-keyboard', 'le-u16-slots', 'le-u16-single'].includes(report.encoding)) {
+          return { message: bytes.length + ' 字节 · ' + report.id + ' · ' + report.encoding + '（仅采集）' };
+        }
+        if (report.offset + count * width > bytes.length) return { message: '报文不足以读取 ' + report.id + ' 的全部槽位' };
+        const usages = [];
+        for (let index = 0; index < count; index++) {
+          const offset = report.offset + index * width;
+          const usage = bytes[offset] + (width === 2 ? bytes[offset + 1] * 256 : 0);
+          if (report.encoding === 'boot-keyboard' && usage >= 1 && usage <= 3) return { message: 'Boot Keyboard 报文含错误槽位，仅保存原始数据' };
+          if (usage && !usages.includes(usage)) usages.push(usage);
+        }
+        return { report, usages, message: bytes.length + ' 字节 · ' + report.id + ' · Page ' + hex(report.page, 2)
+          + ' · Usage ' + (usages.length ? usages.map(value => hex(value, 4)).join(', ') : '无') };
+      }
+
+      function analyze(pressText, releaseText, reports) {
+        const fields = {};
+        for (const [event, value] of Object.entries({ press: pressText, release: releaseText })) {
+          try {
+            const sample = parseHex(value);
+            fields[event] = { sample, decoded: decode(reports, sample) };
+          } catch (error) { fields[event] = { error: error.message }; }
+        }
+        const valid = !fields.press.error && !fields.release.error;
+        const press = fields.press.decoded;
+        const release = fields.release.decoded;
+        let binding = null;
+        if (press?.report && release?.report && press.report.stateGroup === release.report.stateGroup && press.report.page === release.report.page) {
+          const added = press.usages.filter(usage => !release.usages.includes(usage));
+          const removed = release.usages.filter(usage => !press.usages.includes(usage));
+          if (added.length === 1 && !removed.length) binding = { report: press.report.id, page: press.report.page, usage: added[0] };
+        }
+        return { ...fields, valid, binding };
+      }
+
+      function hex(value, width) { return '0x' + value.toString(16).toUpperCase().padStart(width, '0'); }
+      return { parseHex, readReport, analyze, hex };
+    })();
+  </script>
   <script>
     (() => {
       const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -130,6 +241,8 @@
       let selected = null;
       let pressed = null;
       let artworkUrl = null;
+      let current = null;
+      const sessions = new Map();
 
       async function init() {
         const requested = new URLSearchParams(location.search).get('svg');
@@ -155,6 +268,12 @@
         });
         byId('open-file').addEventListener('click', () => byId('file-input').click());
         byId('scan-folder').addEventListener('click', () => byId('folder-input').click());
+        byId('export-svg').addEventListener('click', exportSvg);
+        for (const event of ['press', 'release']) byId('hid-' + event).addEventListener('input', () => {
+          const input = inputs.find(item => item.id === selected);
+          input.capture[event] = byId('hid-' + event).value;
+          refreshCapture();
+        });
         for (const id of ['file-input', 'folder-input']) {
           byId(id).addEventListener('change', event => {
             openFiles(event.target.files);
@@ -194,7 +313,7 @@
           const href = new URL(value, location.href).href;
           const response = await fetch(href, { cache: 'no-store' });
           if (!response.ok) throw new Error('HTTP ' + response.status);
-          render(await response.text(), value);
+          render(await response.text(), value, href);
           pathInput.value = value;
           const index = catalog.findIndex(entry => entry.href === href);
           sourceSelect.value = index < 0 ? '' : String(index);
@@ -205,7 +324,7 @@
         if (entry.href) return loadUrl(entry.href);
         startLoading();
         try {
-          render(await entry.file.text(), entry.label);
+          render(await entry.file.text(), entry.label, entry.file);
           pathInput.value = entry.label;
           sourceSelect.value = String(catalog.indexOf(entry));
         } catch (error) { showError(error); }
@@ -243,8 +362,11 @@
         } catch { return []; }
       }
 
-      function render(source, label) {
-        const descriptor = parseSvg(source);
+      function render(source, label, sessionKey) {
+        const descriptor = sessions.get(sessionKey) || parseSvg(source);
+        descriptor.label = label;
+        sessions.set(sessionKey, descriptor);
+        current = descriptor;
         inputs = descriptor.inputs;
         controls = new Map();
         const svg = document.createElementNS(SVG_NS, 'svg');
@@ -274,7 +396,9 @@
           name.textContent = input.label;
           const view = document.createElement('small');
           view.textContent = viewLabel(input.view);
-          row.append(name, view);
+          const badge = document.createElement('small');
+          badge.className = 'capture-badge';
+          row.append(name, view, badge);
           bindControl(path, input.id);
           bindControl(row, input.id);
           controls.set(input.id, [path, row]);
@@ -292,6 +416,7 @@
         byId('count').textContent = inputs.length + ' 个';
         status(label);
         select(null);
+        refreshCapture();
       }
 
       function bindControl(node, key) {
@@ -331,6 +456,8 @@
         byId('selected-view').textContent = viewLabel(input.view);
         byId('selected-anchor').textContent = input.anchor.join(', ');
         byId('selected-source').textContent = input.source;
+        for (const event of ['press', 'release']) byId('hid-' + event).value = input.capture[event];
+        refreshCapture();
         const list = byId('key-list');
         const row = controls.get(key)[1].getBoundingClientRect();
         const bounds = list.getBoundingClientRect();
@@ -339,6 +466,92 @@
       }
 
       function setPressed(key) { pressed = key; refreshControls(); }
+
+      function refreshCapture() {
+        let invalid = false;
+        let modified = 0;
+        for (const input of inputs) {
+          const result = HidCapture.analyze(input.capture.press, input.capture.release, current.reports);
+          input.analysis = result;
+          input.binding = editableBinding(input, result.binding);
+          invalid ||= !result.valid;
+          if (input.capture.press !== input.originalCapture.press || input.capture.release !== input.originalCapture.release) modified++;
+          const badge = controls.get(input.id)[1].querySelector('.capture-badge');
+          badge.textContent = !result.valid ? '格式错误' : result.press.sample || result.release.sample ? '已采集' : '';
+          badge.classList.toggle('error', !result.valid);
+          if (input.id !== selected) continue;
+          for (const event of ['press', 'release']) {
+            const field = result[event];
+            const message = byId(event + '-result');
+            message.textContent = field.error || field.decoded?.message || '';
+            message.classList.toggle('error', Boolean(field.error));
+            byId('hid-' + event).setAttribute('aria-invalid', String(Boolean(field.error)));
+          }
+          byId('capture-result').textContent = !result.valid ? '修正格式后可导出。'
+            : input.binding ? '导出时更新 ' + input.binding.report + ' → Page ' + HidCapture.hex(input.binding.page, 2) + ' / Usage ' + HidCapture.hex(input.binding.usage, 4)
+            : result.press.sample || result.release.sample ? '原始报文随 SVG 保存；确定报告布局后可接入。' : '填写原始 hex，修改随 SVG 导出。';
+        }
+        byId('export-svg').disabled = !current || invalid;
+        if (current) status(current.label + (invalid ? ' · HID 格式错误' : modified ? ' · ' + modified + ' 个按键已修改，待导出' : ''), invalid);
+      }
+
+      function editableBinding(input, binding) {
+        if (!binding || current.draft || input.node.getAttribute('binding') === 'pending' || input.node.getAttribute('kind') !== 'button') return null;
+        const sources = [input.node, ...input.node.children].filter(node => node.namespaceURI === current.namespace
+          && ['input', 'source'].includes(node.localName) && node.getAttribute('report') === binding.report);
+        if (sources.length > 1) return null;
+        const source = sources[0];
+        if (source && (!source.hasAttribute('page') || !source.hasAttribute('usage')
+            || ['engine', 'field', 'bit', 'offset', 'direction-map'].some(name => source.hasAttribute(name)))) return null;
+        return binding;
+      }
+
+      function exportSvg() {
+        const xml = serializeSvg();
+        const url = URL.createObjectURL(new Blob([xml], { type: 'image/svg+xml;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = decodeURIComponent(current.label.split(/[\\/]/).pop().split(/[?#]/)[0]).replace(/\.svg$/i, '') + '-hid.svg';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        status('已导出 ' + link.download);
+      }
+
+      function serializeSvg() {
+        const document = current.document.cloneNode(true);
+        const nodes = [...document.getElementsByTagNameNS(current.namespace, 'input')];
+        for (const input of inputs) {
+          const result = input.analysis;
+          require(result.valid, input.label + ' HID 格式错误');
+          if (input.capture.press === input.originalCapture.press && input.capture.release === input.originalCapture.release) continue;
+          const node = nodes.find(node => node.getAttribute('id') === input.id);
+          for (const child of [...node.children]) if (child.namespaceURI === current.namespace && child.localName === 'hid-capture') child.remove();
+          if (result.press.sample || result.release.sample) {
+            const capture = document.createElementNS(current.namespace, node.prefix ? node.prefix + ':hid-capture' : 'hid-capture');
+            capture.setAttribute('version', '1');
+            for (const event of ['press', 'release']) if (result[event].sample) {
+              capture.setAttribute(event, result[event].sample.hex);
+              capture.setAttribute(event + '-length', String(result[event].sample.bytes.length));
+            }
+            node.appendChild(capture);
+          }
+          if (input.binding) {
+            const binding = input.binding;
+            let source = [node, ...node.children].find(child => child.namespaceURI === current.namespace
+              && ['input', 'source'].includes(child.localName) && child.getAttribute('report') === binding.report);
+            if (!source) {
+              source = document.createElementNS(current.namespace, node.prefix ? node.prefix + ':source' : 'source');
+              source.setAttribute('report', binding.report);
+              node.appendChild(source);
+            }
+            source.setAttribute('page', HidCapture.hex(binding.page, 2));
+            source.setAttribute('usage', HidCapture.hex(binding.usage, 4));
+          }
+        }
+        return new XMLSerializer().serializeToString(document);
+      }
       function refreshControls() {
         for (const [key, nodes] of controls) for (const node of nodes) {
           node.classList.toggle('is-selected', key === selected);
@@ -359,6 +572,7 @@
       function clearDevice() {
         if (artworkUrl) URL.revokeObjectURL(artworkUrl);
         artworkUrl = null;
+        current = null;
         inputs = [];
         controls = new Map();
         pressed = null;
@@ -367,6 +581,7 @@
         byId('count').textContent = '0';
         byId('device-name').textContent = '选择 SVG';
         byId('coordinates').textContent = 'x — · y —';
+        byId('export-svg').disabled = true;
       }
 
       function showError(error) {
@@ -399,6 +614,10 @@
           regions.set(id, node);
         }
         const metadata = nodes.find(node => node.localName === 'device' && node.namespaceURI?.startsWith('urn:axonkey:device:'));
+        require(metadata, '缺少设备 metadata');
+        const namespace = metadata.namespaceURI;
+        const reports = nodes.filter(node => node.localName === 'report' && node.namespaceURI === namespace)
+          .map(node => HidCapture.readReport(Object.fromEntries([...node.attributes].map(attribute => [attribute.name, attribute.value]))));
         const inputNodes = nodes.filter(node => node.localName === 'input' && node.namespaceURI?.startsWith('urn:axonkey:device:'));
         const seen = new Set();
         const inputs = inputNodes.flatMap((node, index) => {
@@ -411,17 +630,22 @@
           if (!target && !region) return [];
           require(region, '缺少精确热区：' + id);
           const graphic = target ? ids.get(target.slice(1)) : nodes.find(item => item.namespaceURI === SVG_NS && item.getAttribute('data-ak-key') === id);
+          const captures = [...node.children].filter(child => child.localName === 'hid-capture' && child.namespaceURI === namespace);
+          require(captures.length <= 1, '重复 HID 采集：' + id);
+          const capture = Object.fromEntries(['press', 'release'].map(event => [event, HidCapture.parseHex(captures[0]?.getAttribute(event) || '')?.hex || '']));
           return [{
-            id, label: node.getAttribute('label') || id,
+            id, node, label: node.getAttribute('label') || id,
             order: Number(node.getAttribute('order') ?? index),
             path: region.getAttribute('d'), transform: regionTransform(region, root),
             anchor: parseNumbers(region.getAttribute('data-ak-anchor'), 2, id + ' 锚点'),
             view: graphic?.closest('[data-ak-view]')?.getAttribute('data-ak-view') || 'main',
             source: sourceLabel(node),
+            capture, originalCapture: { ...capture },
           }];
         }).sort((a, b) => a.order - b.order);
         require(inputs.length && inputs.length === regions.size, '输入与热区需要一一对应');
-        return { viewBox, inputs, name: metadata?.getAttribute('display-name') || metadata?.getAttribute('model') || root.getAttribute('data-ak-device') || '设备 SVG' };
+        return { document, namespace, reports, draft: root.getAttribute('data-ak-status') === 'draft' || metadata.getAttribute('status') === 'draft',
+          viewBox, inputs, name: metadata.getAttribute('display-name') || metadata.getAttribute('model') || root.getAttribute('data-ak-device') || '设备 SVG' };
       }
 
       function validateContent(root) {
