@@ -134,31 +134,28 @@
   </g>
 
   <g id="side-view" data-ak-view="side" aria-label="侧面按键区">
-    <path d="M 353 20 H 376 Q 385 20 388 41 C 401 185 410 485 416 868 Q 416 892 400 892 H 353 Z" fill="#22272b" stroke="#171c1f" stroke-width="2" />
-    <path d="M 353 20 H 370 V 892 H 353 Z" fill="#353a3e" />
-    <path d="M 370 23 V 889" fill="none" stroke="#161b1f" stroke-width="1.4" />
+    <rect x="344" y="20" width="72" height="872" rx="12" fill="#353a3e" stroke="#181c1f" stroke-width="2" />
 
-    <g fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+    <g transform="translate(19 0)" fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
       <circle cx="361" cy="279" r="4.6" />
       <path d="M 361 269 V 271 M 361 287 V 289 M 351 279 H 353 M 369 279 H 371 M 354 272 L 355.5 273.5 M 366.5 284.5 L 368 286 M 354 286 L 355.5 284.5 M 366.5 273.5 L 368 272" />
       <circle cx="361" cy="485" r="3.1" />
       <path d="M 361 478 V 479 M 361 491 V 492 M 354 485 H 355 M 367 485 H 368 M 356 480 L 357 481 M 365 489 L 366 490 M 356 490 L 357 489 M 365 481 L 366 480" />
     </g>
-    <rect x="352" y="299" width="18" height="164" rx="9" fill="#12181c" stroke="#080d10" stroke-width="1.4" />
+    <rect x="366" y="299" width="28" height="164" rx="14" fill="#202529" stroke="#111619" stroke-width="1.4" />
     <g id="key-side-upper" data-ak-key="tcl-rc802a.sideUpper" data-ak-role="input" role="button" tabindex="0" aria-label="侧边上键">
-      <path d="M 352 381 V 308 A 9 9 0 0 1 370 308 V 381 Z" fill="transparent" />
+      <path d="M 366 381 V 313 A 14 14 0 0 1 394 313 V 381 Z" fill="transparent" />
     </g>
     <g id="key-side-lower" data-ak-key="tcl-rc802a.sideLower" data-ak-role="input" role="button" tabindex="0" aria-label="侧边下键">
-      <path d="M 352 381 H 370 V 454 A 9 9 0 0 1 352 454 Z" fill="transparent" />
+      <path d="M 366 381 H 394 V 449 A 14 14 0 0 1 366 449 Z" fill="transparent" />
     </g>
 
-    <g fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <g transform="translate(19 0)" fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M 353 550 H 369 V 566 H 353 Z M 355 563 L 360 558 L 363 561 L 367 557" />
       <circle cx="358" cy="554" r="1.1" fill="#c3cbcf" stroke="none" />
     </g>
     <g id="key-side-function" data-ak-key="tcl-rc802a.sideFunction" data-ak-role="input" role="button" tabindex="0" aria-label="侧边功能键">
-      <rect x="352" y="583" width="18" height="44" rx="9" fill="#12181c" stroke="#080d10" stroke-width="1.4" />
-      <path d="M 357 592 V 617" fill="none" stroke="#343d43" stroke-width="1.4" />
+      <rect x="366" y="583" width="28" height="44" rx="14" fill="#202529" stroke="#111619" stroke-width="1.4" />
     </g>
   </g>
 
@@ -183,8 +180,8 @@
     <path data-ak-region="tcl-rc802a.appB" data-ak-anchor="100 723" d="M 72 694 H 128 A 28 28 0 0 1 156 722 V 724 A 28 28 0 0 1 128 752 H 72 A 28 28 0 0 1 44 724 V 722 A 28 28 0 0 1 72 694 Z" />
     <path data-ak-region="tcl-rc802a.appK" data-ak-anchor="230 723" d="M 202 694 H 258 A 28 28 0 0 1 286 722 V 724 A 28 28 0 0 1 258 752 H 202 A 28 28 0 0 1 174 724 V 722 A 28 28 0 0 1 202 694 Z" />
     <path data-ak-region="tcl-rc802a.voice" data-ak-anchor="164 803" d="M 130 803 A 34 34 0 1 0 198 803 A 34 34 0 1 0 130 803 Z" />
-    <path data-ak-region="tcl-rc802a.sideUpper" data-ak-anchor="361 340" d="M 352 381 V 308 A 9 9 0 0 1 370 308 V 381 Z" />
-    <path data-ak-region="tcl-rc802a.sideLower" data-ak-anchor="361 422" d="M 352 381 H 370 V 454 A 9 9 0 0 1 352 454 Z" />
-    <path data-ak-region="tcl-rc802a.sideFunction" data-ak-anchor="361 605" d="M 352 592 A 9 9 0 0 1 370 592 V 618 A 9 9 0 0 1 352 618 Z" />
+    <path data-ak-region="tcl-rc802a.sideUpper" data-ak-anchor="380 340" d="M 366 381 V 313 A 14 14 0 0 1 394 313 V 381 Z" />
+    <path data-ak-region="tcl-rc802a.sideLower" data-ak-anchor="380 422" d="M 366 381 H 394 V 449 A 14 14 0 0 1 366 449 Z" />
+    <path data-ak-region="tcl-rc802a.sideFunction" data-ak-anchor="380 605" d="M 366 597 A 14 14 0 0 1 394 597 V 613 A 14 14 0 0 1 366 613 Z" />
   </g>
 </svg>
