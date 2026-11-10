@@ -1,5 +1,5 @@
 import { recordLibraryAdditions } from '../cloud/libraryUsage'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2 } from 'lucide-react'
@@ -144,7 +144,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
     iconUrls: Record<string, string>
   } | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!canvasRef.current) return
 
     const commonActions: WorkflowAction[] = [

@@ -485,16 +485,19 @@ h1 {
   stroke: transparent;
   pointer-events: fill;
 }
+.remote-key.mapped .remote-key-outline {
+  stroke: rgb(145 174 200 / 22%);
+  stroke-width: 0.7px;
+}
+.remote-key.mapped .remote-key-surface {
+  fill: rgb(105 162 211 / 10%);
+}
 .remote-key:hover .remote-key-outline {
   stroke: #a3c3e5;
   stroke-width: 1.4px;
 }
 .remote-key:hover .remote-key-surface {
   fill: #65a5e72b;
-}
-.remote-key.mapped .remote-key-outline {
-  stroke: #579bd5;
-  stroke-width: 1.5px;
 }
 .remote-key.selected .remote-key-halo {
   stroke: #3088e24d;

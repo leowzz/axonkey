@@ -526,7 +526,6 @@ export function InstanceWorkspace({
             }
             splitRatio={splitRatio}
             onSplitRatioChange={setSplitRatio}
-            key={profile.id + selected}
             platform={platform}
             button={selectedInput}
             sequences={profile.behaviors[selected] ?? emptyTriggers()}
