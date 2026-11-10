@@ -56,7 +56,7 @@ export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, mes
 }
 
 /** RC003 is kept as the historical export used by integrations and tests. */
-export const buttons: RemoteButton[] = xiaomiRemoteButtons
+export const buttons: RemoteButton[] = [...xiaomiRemoteButtons]
 export const allRemoteButtons: RemoteButton[] = [...xiaomiRemoteButtons, ...cmiotA15RemoteButtons]
 
 export const settingsStorageKey = 'axonkey.settings.v1'

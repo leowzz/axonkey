@@ -7,6 +7,7 @@ mod gesture;
 mod paired;
 #[cfg(target_os = "macos")]
 mod remote;
+#[cfg(test)]
 mod report;
 #[cfg(all(windows, not(test)))]
 use super::windows::ManagedQuarborChannel;
@@ -33,13 +34,22 @@ use tauri::Emitter;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
-fn is_mobile_remote_hardware(device: &Discovered) -> bool {
-    device.vendor_id == 0x0416 && device.product_id == 0x0300
-}
-
 fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
     device.kind == kind
-        || (is_mobile_remote_hardware(device) && matches!(kind, "cmiotA15" | "xmBt29" | "rc313"))
+        || crate::devices::descriptor_registry::matches_hardware(
+            kind,
+            device.vendor_id,
+            device.product_id,
+            None,
+            None,
+        )
+}
+
+fn uses_hid_voice(kind: &str) -> bool {
+    matches!(
+        crate::devices::descriptor_registry::voice_engine(kind),
+        Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+    )
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -292,12 +302,29 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     }
     validate(&store)?;
     for instance in &mut store.instances {
-        normalize_recording_mode(instance);
+        normalize_instance(instance);
     }
     Ok(store)
 }
-fn normalize_recording_mode(instance: &mut Instance) {
-    if matches!(instance.kind.as_str(), "xmBt29" | "rc313" | "obeRcuR5") {
+fn normalize_instance(instance: &mut Instance) {
+    for profile in &mut instance.profiles {
+        let behaviors = profile
+            .behaviors
+            .as_object_mut()
+            .expect("validated profile is an object");
+        *behaviors = std::mem::take(behaviors)
+            .into_iter()
+            .map(|(input, behavior)| {
+                let key = crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
+                    .expect("validated profile input has a descriptor key");
+                (if key == input { input } else { key.to_string() }, behavior)
+            })
+            .collect();
+    }
+    let modes = crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
+        .and_then(|descriptor| descriptor.voices.first())
+        .and_then(|voice| voice.attributes.get("trigger-modes"));
+    if modes.is_some_and(|modes| !modes.split_whitespace().any(|mode| mode == "click")) {
         instance.cmiot_a15_recording_mode =
             crate::devices::cmiot_a15::recording::RecordingMode::Hold;
     }
@@ -344,16 +371,7 @@ fn validate(store: &Store) -> Result<(), String> {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
         }
-        if ![
-            "xboxBluetooth",
-            "rc003",
-            "cmiotA15",
-            "xmBt29",
-            "rc313",
-            "obeRcuR5",
-        ]
-        .contains(&instance.kind.as_str())
-        {
+        if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_none() {
             return Err("未知设备支持包".into());
         }
         if instance.name.trim().is_empty() || instance.name.len() > 200 {
@@ -400,73 +418,23 @@ fn validate(store: &Store) -> Result<(), String> {
                 behaviors: maps.clone(),
                 ..Default::default()
             })?;
+            let mut inputs = HashSet::new();
             for (input, mapping) in &maps {
-                let valid = if instance.kind == "xboxBluetooth" {
-                    super_input_ids().contains(&input.as_str())
-                } else if instance.kind == "rc003" {
-                    [
-                        "power",
-                        "voice",
-                        "up",
-                        "down",
-                        "left",
-                        "right",
-                        "confirm",
-                        "home",
-                        "menu",
-                        "tv",
-                        "back",
-                        "volumeUp",
-                        "volumeDown",
-                    ]
-                    .contains(&input.as_str())
-                } else if instance.kind == "obeRcuR5" {
-                    crate::devices::obe_rcu_r5::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else if instance.kind == "xmBt29" {
-                    crate::devices::xm_bt_29::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else {
-                    input.starts_with("cmiotA15.")
-                };
-                if !valid || mapping.iter().count() > 256 {
+                let Some(key) =
+                    crate::devices::descriptor_registry::profile_key(&instance.kind, input)
+                else {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
+                };
+                if mapping.iter().count() > 256 {
+                    return Err(format!("设备不支持此输入或序列过长：{input}"));
+                }
+                if !inputs.insert(key) {
+                    return Err(format!("同一输入重复配置：{input}"));
                 }
             }
         }
     }
     Ok(())
-}
-fn super_input_ids() -> &'static [&'static str] {
-    &[
-        "xbox.a",
-        "xbox.b",
-        "xbox.x",
-        "xbox.y",
-        "xbox.lb",
-        "xbox.rb",
-        "xbox.lt",
-        "xbox.rt",
-        "xbox.view",
-        "xbox.menu",
-        "xbox.guide",
-        "xbox.ls",
-        "xbox.rs",
-        "xbox.dpad.up",
-        "xbox.dpad.down",
-        "xbox.dpad.left",
-        "xbox.dpad.right",
-        "xbox.ls.up",
-        "xbox.ls.down",
-        "xbox.ls.left",
-        "xbox.ls.right",
-        "xbox.rs.up",
-        "xbox.rs.down",
-        "xbox.rs.left",
-        "xbox.rs.right",
-    ]
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
@@ -657,10 +625,7 @@ impl DeviceManager {
             .iter()
             .find(|item| item.id == instance_id)
             .ok_or("设备已被移除")?;
-        if !matches!(
-            instance.kind.as_str(),
-            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-        ) {
+        if !uses_hid_voice(&instance.kind) {
             return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 支持手动控制录音".into());
         }
         if !self.shared.enabled.load(Ordering::Acquire)
@@ -755,7 +720,6 @@ impl DeviceManager {
                 }
             }
         }
-        normalize_recording_mode(&mut instance);
         if instance.binding.is_none() {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
@@ -766,12 +730,20 @@ impl DeviceManager {
             instance.id = unique_id();
         }
         let mut next = snapshot.store.clone();
-        if let Some(current) = next.instances.iter_mut().find(|i| i.id == instance.id) {
+        let index = if let Some((index, current)) = next
+            .instances
+            .iter_mut()
+            .enumerate()
+            .find(|(_, i)| i.id == instance.id)
+        {
             *current = instance;
+            index
         } else {
             next.instances.push(instance);
-        }
+            next.instances.len() - 1
+        };
         validate(&next)?;
+        normalize_instance(&mut next.instances[index]);
         next.revision += 1;
         save(&self.shared.path, &next)?;
         snapshot.store = next;
@@ -789,10 +761,7 @@ impl DeviceManager {
             .iter_mut()
             .find(|instance| instance.id == instance_id)
             .ok_or("未找到要更新驱动状态的设备实例")?;
-        if !matches!(
-            instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-        ) {
+        if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_none() {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
         if instance.quarbor_target.as_deref() != Some(target) {
@@ -888,8 +857,8 @@ impl Drop for DeviceManager {
 struct Reader {
     config: Instance,
     device: InputReader,
-    values: BTreeMap<String, f64>,
-    down: HashSet<String>,
+    descriptor: &'static crate::devices::device_descriptor::DeviceDescriptor,
+    engine: crate::devices::engine::DescriptorEngine,
     gestures: Gestures,
     maps: HashMap<String, TriggerBehaviors>,
     actions: SyncSender<Vec<gesture::Execution>>,
@@ -984,20 +953,13 @@ fn open_reader(
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
     }
     #[cfg(target_os = "macos")]
-    if matches!(
-        instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-    ) && !super::InputService::input_monitoring_granted()
-    {
+    if uses_hid_voice(&instance.kind) && !super::InputService::input_monitoring_granted() {
         return Err("请先授予输入监控权限，再连接 A15".into());
     }
     let device = open(api, path)?;
     device.set_blocking_mode(false).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if matches!(
-        instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-    ) {
+    if uses_hid_voice(&instance.kind) {
         return Ok(InputReader::A15(a15::A15Reader::open(
             device, instance, shared, cancel,
         )));
@@ -1027,20 +989,19 @@ fn open(api: &HidApi, path: &std::ffi::CStr) -> Result<HidDevice, String> {
     result
 }
 fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
-    match (
-        info.vendor_id(),
-        info.product_id(),
-        info.usage_page(),
-        info.usage(),
-    ) {
-        (0x045e, 0x02e0, 1, 5) => Some("xboxBluetooth"),
-        (0x2717, 0x32b8, 1, 6) => Some("rc003"),
-        #[cfg(target_os = "macos")]
-        (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
-        #[cfg(target_os = "macos")]
-        (0x1d5a, 0xc081, 1, 6) => Some("obeRcuR5"),
-        _ => None,
-    }
+    crate::devices::descriptor_registry::KINDS
+        .iter()
+        .copied()
+        .filter(|kind| cfg!(target_os = "macos") || !uses_hid_voice(kind))
+        .find(|kind| {
+            crate::devices::descriptor_registry::matches_hardware(
+                kind,
+                info.vendor_id(),
+                info.product_id(),
+                Some(info.usage_page()),
+                Some(info.usage()),
+            )
+        })
 }
 // hidapi's macOS manager is process-global and is scheduled on its creator's
 // CFRunLoop. Close it before that worker thread exits, otherwise a later manager
@@ -1089,10 +1050,8 @@ fn remember_pairing_ids(
                 changed = true;
             }
         }
-        if matches!(
-            instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-        ) && instance.voice_target.is_none()
+        if crate::devices::descriptor_registry::voice_engine(&instance.kind).is_some()
+            && instance.voice_target.is_none()
         {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
@@ -1200,15 +1159,16 @@ fn merge_driver_devices(
     pairing_bindings: &HashMap<String, String>,
 ) {
     for device in devices {
-        let (kind, vendor_id, product_id) = if device.matches_kind("cmiotA15") {
-            ("cmiotA15", 0x0416, 0x0300)
-        } else if device.matches_kind("obeRcuR5") {
-            ("obeRcuR5", 0x1d5a, 0xc081)
-        } else if device.matches_kind("xboxBluetooth") {
-            ("xboxBluetooth", 0x045e, 0x02e0)
-        } else if device.is_rc003() {
-            ("rc003", 0x2717, 0x32b8)
-        } else {
+        let Some(kind) = crate::devices::descriptor_registry::KINDS
+            .iter()
+            .copied()
+            .find(|kind| device.matches_kind(kind))
+        else {
+            continue;
+        };
+        let Some((vendor_id, product_id)) =
+            crate::devices::descriptor_registry::primary_hardware(kind)
+        else {
             continue;
         };
         let Some(address) = device
@@ -1275,7 +1235,6 @@ fn run(shared: Arc<Shared>) {
     let mut next_event = Instant::now();
     let mut next_usage = Instant::now();
     let mut voice_sessions = HashMap::<String, String>::new();
-    let mut dirty = HashSet::new();
     // OS Bluetooth inventory queries can be slow. Keep them off the HID read loop.
     let (pair_tx, pair_rx) = sync_channel(1);
     let pair_shared = shared.clone();
@@ -1466,10 +1425,9 @@ fn run(shared: Arc<Shared>) {
         if shared.quarbor.is_some() {
             let snapshot = shared.snapshot.lock().unwrap();
             for instance in &configs {
-                if !matches!(
-                    instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-                ) {
+                if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
+                    .is_none()
+                {
                     continue;
                 }
                 let matched =
@@ -1489,13 +1447,7 @@ fn run(shared: Arc<Shared>) {
                 let Some((Some(target), true)) = driver_matches.get(&instance.id) else {
                     continue;
                 };
-                if !matches!(
-                    instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-                ) || instance.binding.is_none()
-                    || !instance.enabled
-                    || !enabled
-                {
+                if instance.binding.is_none() || !instance.enabled || !enabled {
                     continue;
                 }
                 registrations.insert(
@@ -1537,11 +1489,7 @@ fn run(shared: Arc<Shared>) {
             let path = instance.binding.as_ref().and_then(|id| paths.get(id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if matches!(
-                instance.kind.as_str(),
-                "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-            ) && !cfg!(any(windows, target_os = "macos"))
-            {
+            } else if uses_hid_voice(&instance.kind) && !cfg!(any(windows, target_os = "macos")) {
                 "unsupported"
             } else if instance.binding.is_none() {
                 "unbound"
@@ -1556,10 +1504,7 @@ fn run(shared: Arc<Shared>) {
             }
             .into();
             #[cfg(all(windows, not(test)))]
-            if matches!(
-                instance.kind.as_str(),
-                "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-            ) {
+            if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_some() {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
                     .cloned()
@@ -1623,10 +1568,8 @@ fn run(shared: Arc<Shared>) {
                             // macOS remote adapters execute their own actions; reports here
                             // only update the instance UI.
                             let maps = if cfg!(target_os = "macos")
-                                && matches!(
-                                    instance.kind.as_str(),
-                                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-                                ) {
+                                && (instance.kind == "rc003" || uses_hid_voice(&instance.kind))
+                            {
                                 HashMap::new()
                             } else {
                                 active_mappings(instance)
@@ -1725,8 +1668,12 @@ fn run(shared: Arc<Shared>) {
                                 Reader {
                                     config: instance.clone(),
                                     device,
-                                    values: BTreeMap::new(),
-                                    down: HashSet::new(),
+                                    descriptor:
+                                        crate::devices::descriptor_registry::descriptor_for_kind(
+                                            &instance.kind,
+                                        )
+                                        .expect("validated device kind has a descriptor"),
+                                    engine: Default::default(),
                                     gestures: Gestures::default(),
                                     maps,
                                     actions: tx,
@@ -1758,38 +1705,22 @@ fn run(shared: Arc<Shared>) {
                         Ok(0) => break,
                         Ok(len) => {
                             reader.reports += 1;
-                            if let Some(values) = report::decode(&instance.kind, &buffer[..len]) {
-                                for (id, value) in values {
-                                    let was_down = reader.down.contains(&id);
-                                    let down = report::pressed(value, was_down);
-                                    if reader
-                                        .values
-                                        .get(&id)
-                                        .is_none_or(|v| (v - value).abs() > 0.005)
-                                    {
-                                        dirty.insert(instance.id.clone());
-                                    }
-                                    reader.values.insert(id.clone(), value);
-                                    if down != was_down {
-                                        if down {
-                                            reader.down.insert(id.clone());
-                                        } else {
-                                            reader.down.remove(&id);
-                                        }
-                                        sequence.extend(
-                                            reader.gestures.edge(
-                                                &id,
-                                                down,
-                                                now,
-                                                reader
-                                                    .maps
-                                                    .get(&id)
-                                                    .unwrap_or(&TriggerBehaviors::default()),
-                                            ),
-                                        );
-                                        dirty.insert(instance.id.clone());
-                                    }
-                                }
+                            for (id, down) in
+                                reader.engine.accept(reader.descriptor, &buffer[..len])
+                            {
+                                let key = reader
+                                    .descriptor
+                                    .inputs
+                                    .iter()
+                                    .find(|input| input.id == id)
+                                    .map(crate::devices::descriptor_registry::input_key)
+                                    .unwrap_or(&id);
+                                sequence.extend(reader.gestures.edge(
+                                    key,
+                                    down,
+                                    now,
+                                    reader.maps.get(key).unwrap_or(&TriggerBehaviors::default()),
+                                ));
                             }
                         }
                         Err(error) => {
@@ -1914,13 +1845,26 @@ fn run(shared: Arc<Shared>) {
         }
         if Instant::now() >= next_event {
             next_event = Instant::now() + Duration::from_millis(40);
-            for id in dirty.drain() {
-                if let Some(reader) = readers.get(&id) {
+            for (id, reader) in &mut readers {
+                if let Some((values, down)) = reader.engine.take_update() {
+                    let key = |id: String| {
+                        reader
+                            .descriptor
+                            .inputs
+                            .iter()
+                            .find(|input| input.id == id)
+                            .map(crate::devices::descriptor_registry::input_key)
+                            .unwrap_or(&id)
+                            .to_string()
+                    };
                     emit(
                         &shared,
-                        &id,
-                        reader.values.clone(),
-                        reader.down.iter().cloned().collect(),
+                        id,
+                        values
+                            .into_iter()
+                            .map(|(id, value)| (key(id), value))
+                            .collect(),
+                        down.into_iter().map(key).collect(),
                     );
                 }
             }
@@ -2109,6 +2053,113 @@ mod tests {
             app_profile_switching: false,
             application_profiles: vec![],
         }
+    }
+
+    #[test]
+    fn stable_profile_ids_use_existing_aliases_and_duplicate_inputs_are_rejected() {
+        let mut remote = instance("remote", "physical");
+        remote.kind = "rc003".into();
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"id": "keep-action", "type": "key", "key": "A", "enabled": false}],
+            "metadata": {"label": "keep", "values": [1, true, null]}
+        });
+        let back =
+            serde_json::json!({"click": [{"type": "key", "key": "B"}], "extra": "unchanged"});
+        remote.profiles[0].behaviors = serde_json::json!({
+            (up.id.clone()): payload.clone(),
+            "back": back.clone()
+        });
+        let mut store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        validate(&store).unwrap();
+        normalize_instance(&mut store.instances[0]);
+        let behaviors = &store.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert_eq!(behaviors["back"], back);
+        assert!(behaviors.get(&up.id).is_none());
+        let mappings = active_mappings(&store.instances[0]);
+        assert!(mappings.contains_key("up"));
+        assert!(mappings.contains_key("back"));
+        assert!(!mappings.contains_key(&up.id));
+        store.instances[0].profiles[0].behaviors = serde_json::json!({
+            (up.id.clone()): {"click": [{"type": "key", "key": "A"}]},
+            "up": {"click": [{"type": "key", "key": "B"}]}
+        });
+        let duplicate = store.instances[0].profiles[0].behaviors.clone();
+        assert!(validate(&store).unwrap_err().contains("同一输入重复配置"));
+        assert_eq!(store.instances[0].profiles[0].behaviors, duplicate);
+    }
+
+    #[test]
+    fn load_normalizes_profile_keys_and_preserves_behavior_values_when_saved() {
+        let path = std::env::temp_dir().join(format!("axonkey-profile-keys-{}.json", unique_id()));
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"type": "key", "key": "A", "libraryItemId": "00000000-0000-0000-0000-000000000001"}],
+            "metadata": {"keep": [1, false, "text"]}
+        });
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        std::fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let loaded = load(&path).unwrap();
+        let behaviors = &loaded.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert!(behaviors.get(&up.id).is_none());
+        save(&path, &loaded).unwrap();
+        let saved: Store = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.instances[0].profiles[0].behaviors, *behaviors);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("bak")).unwrap();
+    }
+
+    #[test]
+    fn put_returns_and_persists_normalized_profile_keys() {
+        let manager = offline_manager(vec![]);
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload =
+            serde_json::json!({"click": [{"type": "key", "key": "A"}], "metadata": [1, true]});
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let saved = manager.put(0, remote).unwrap();
+        assert_eq!(
+            saved.store.instances[0].profiles[0].behaviors,
+            serde_json::json!({"up": payload})
+        );
+        assert_eq!(
+            load(&manager.shared.path).unwrap().instances[0].profiles[0].behaviors,
+            saved.store.instances[0].profiles[0].behaviors
+        );
+        std::fs::remove_file(&manager.shared.path).unwrap();
+        std::fs::remove_file(manager.shared.path.with_extension("bak")).ok();
     }
     #[test]
     fn reorder_instances_persists_the_requested_order() {

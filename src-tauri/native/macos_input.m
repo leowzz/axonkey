@@ -33,6 +33,8 @@ enum {
     AXONKEY_CAPTURE_HARDWARE_MODIFIER_MAPPINGS = 4,
     AXONKEY_NATIVE_EVENT_KEYBOARD = 1,
     AXONKEY_NATIVE_EVENT_SYSTEM = 2,
+    AXONKEY_SOURCE_FILTER_FN = 1,
+    AXONKEY_SOURCE_FILTER_ESCAPE = 2,
     AXONKEY_MAX_PENDING_EVENTS = 32,
     AXONKEY_MAX_HELD_EVENTS = 16,
     AXONKEY_MAX_ACTIVE_USAGES = 32,
@@ -53,16 +55,33 @@ typedef void (*AxonkeyEventCallback)(
     int code
 );
 
+typedef size_t (*AxonkeyDecodeReportCallback)(
+    void *context,
+    uint32_t report_id,
+    const uint8_t *bytes,
+    size_t length,
+    uint64_t *usages,
+    size_t capacity
+);
+
 typedef struct {
     void *context;
     AxonkeyStopCallback should_stop;
     AxonkeyEventCallback on_event;
+    AxonkeyDecodeReportCallback decode_report;
 } AxonkeyCallbacks;
 
 typedef struct {
     uint64_t source;
     uint64_t destination;
 } AxonkeyHardwareModifierMapping;
+
+typedef struct {
+    uint64_t usage;
+    int kind;
+    int code;
+    uint32_t flags;
+} AxonkeyNativeSource;
 
 typedef struct {
     int kind;
@@ -80,6 +99,10 @@ typedef struct {
 typedef struct {
     const AxonkeyCallbacks *callbacks;
     bool capture;
+    uint16_t vendor_id;
+    uint16_t product_id;
+    const AxonkeyNativeSource *sources;
+    size_t source_count;
     CFStringRef target_serial;
     CFMutableSetRef devices;
     CFMutableSetRef seized_devices;
@@ -90,7 +113,7 @@ typedef struct {
     size_t pending_event_count;
     AxonkeyHeldEvent held_events[AXONKEY_MAX_HELD_EVENTS];
     size_t held_event_count;
-    uint16_t active_usages[AXONKEY_MAX_ACTIVE_USAGES];
+    uint64_t active_usages[AXONKEY_MAX_ACTIVE_USAGES];
     size_t active_usage_count;
     const AxonkeyHardwareModifierMapping *modifier_mappings;
     size_t modifier_mapping_count;
@@ -118,7 +141,7 @@ static void axonkey_mapping_diagnostic(
     }
     char message[384];
     snprintf(message, sizeof(message),
-        "RC003 hardware mappings: attempt=%u reason=%s registry_id=0x%llx mappings=%zu retry_delay_ms=%.0f",
+        "HID hardware mappings: attempt=%u reason=%s registry_id=0x%llx mappings=%zu retry_delay_ms=%.0f",
         state->modifier_mapping_attempt, reason, (unsigned long long)registry,
         state->modifier_mapping_count, state->modifier_mapping_retry_delay * 1000);
     axonkey_emit(state, AXONKEY_EVENT_MODIFIER_MAPPING_DIAGNOSTIC, 0,
@@ -132,7 +155,7 @@ static bool axonkey_cf_number_get_u64(CFTypeRef value, uint64_t *result) {
     return CFNumberGetValue((CFNumberRef)value, kCFNumberSInt64Type, result);
 }
 
-static bool axonkey_service_is_rc003(AxonkeyInputState *state, IOHIDServiceClientRef service) {
+static bool axonkey_service_matches_device(AxonkeyInputState *state, IOHIDServiceClientRef service) {
     if (service == NULL) {
         return false;
     }
@@ -142,11 +165,11 @@ static bool axonkey_service_is_rc003(AxonkeyInputState *state, IOHIDServiceClien
     uint64_t product_id = 0;
     bool matches = axonkey_cf_number_get_u64(vendor, &vendor_id) &&
         axonkey_cf_number_get_u64(product, &product_id) &&
-        vendor_id == 0x2717 && product_id == 0x32B8;
+        vendor_id == state->vendor_id && product_id == state->product_id;
     if (vendor != NULL) CFRelease(vendor);
     if (product != NULL) CFRelease(product);
     if (matches && state->target_serial != NULL) {
-        // Event services omit SerialNumber from CopyProperty on Bluetooth RC003;
+        // Bluetooth event services can omit SerialNumber from CopyProperty;
         // the same service's registry entry retains the physical identity.
         CFTypeRef serial = IOHIDServiceClientCopyProperty(service, CFSTR(kIOHIDSerialNumberKey));
         if (serial == NULL) {
@@ -349,7 +372,7 @@ static void axonkey_restore_modifier_mappings(AxonkeyInputState *state, bool for
                 services,
                 index
             );
-            if (!axonkey_service_is_rc003(state, service)) {
+            if (!axonkey_service_matches_device(state, service)) {
                 continue;
             }
             CFTypeRef registry_id = IOHIDServiceClientGetRegistryID(service);
@@ -406,7 +429,7 @@ static void axonkey_remove_unconfigured_modifier_mappings(AxonkeyInputState *sta
             services,
             index
         );
-        if (!axonkey_service_is_rc003(state, service)) {
+        if (!axonkey_service_matches_device(state, service)) {
             continue;
         }
         CFMutableArrayRef current = axonkey_copy_service_mappings(service);
@@ -461,7 +484,7 @@ static bool axonkey_apply_modifier_mappings(AxonkeyInputState *state) {
             services,
             index
         );
-        if (!axonkey_service_is_rc003(state, service)) {
+        if (!axonkey_service_matches_device(state, service)) {
             continue;
         }
         target_count += 1;
@@ -637,55 +660,27 @@ static void axonkey_arm_native_event(AxonkeyInputState *state, int kind, int cod
     axonkey_append_pending_event(state, kind, code, down, now);
 }
 
-static bool axonkey_native_event_for_usage(uint16_t usage, int *kind, int *code) {
-    if (kind == NULL || code == NULL) {
-        return false;
-    }
-    *kind = AXONKEY_NATIVE_EVENT_KEYBOARD;
-    switch (usage) {
-        case 0x3e: *code = 96; return true;
-        case 0x66: *code = 90; return true;
-        case 0x4a: *code = 115; return true;
-        case 0x35: *code = 50; return true;
-        case 0x65: *code = 110; return true;
-        case 0x28: *code = 36; return true;
-        case 0x52: *code = 126; return true;
-        case 0x51: *code = 125; return true;
-        case 0x50: *code = 123; return true;
-        case 0x4f: *code = 124; return true;
-        case 0xf1: *code = 51; return true;
-        case 0x80:
-            *kind = AXONKEY_NATIVE_EVENT_SYSTEM;
-            *code = 0;
-            return true;
-        case 0x81:
-            *kind = AXONKEY_NATIVE_EVENT_SYSTEM;
-            *code = 1;
-            return true;
-        default:
-            return false;
+static void axonkey_arm_usage_events(AxonkeyInputState *state, uint64_t usage, bool down) {
+    for (size_t index = 0; index < state->source_count; index += 1) {
+        AxonkeyNativeSource source = state->sources[index];
+        if (source.usage != usage) {
+            continue;
+        }
+        axonkey_arm_native_event(state, source.kind, source.code, down);
+        if ((source.flags & AXONKEY_SOURCE_FILTER_FN) != 0 &&
+            !axonkey_modifier_mapping_has_source(state, usage)) {
+            // UserKeyMapping can translate a configured source to Fn.
+            axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 63, down);
+        }
+        if ((source.flags & AXONKEY_SOURCE_FILTER_ESCAPE) != 0) {
+            // Also suppress a pre-existing Escape mapping during setup.
+            axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 53, down);
+        }
+        return;
     }
 }
 
-static void axonkey_arm_usage_events(AxonkeyInputState *state, uint16_t usage, bool down) {
-    int kind = 0;
-    int code = 0;
-    if (axonkey_native_event_for_usage(usage, &kind, &code)) {
-        axonkey_arm_native_event(state, kind, code, down);
-    }
-    uint64_t source = 0x0000000700000000 | (uint64_t)usage;
-    if (usage == 0x3e && !axonkey_modifier_mapping_has_source(state, source)) {
-        // A per-device UserKeyMapping may translate the RC003 voice key to Fn.
-        axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 63, down);
-    }
-    if (usage == 0x66) {
-        // Capture uses a device-scoped Power -> F20 mapping to prevent system
-        // sleep. Also filter Escape from a pre-existing mapping during setup.
-        axonkey_arm_native_event(state, AXONKEY_NATIVE_EVENT_KEYBOARD, 53, down);
-    }
-}
-
-static bool axonkey_usage_contains(const uint16_t *usages, size_t count, uint16_t usage) {
+static bool axonkey_usage_contains(const uint64_t *usages, size_t count, uint64_t usage) {
     for (size_t index = 0; index < count; index += 1) {
         if (usages[index] == usage) {
             return true;
@@ -700,24 +695,16 @@ static void axonkey_arm_report_events(
     const uint8_t *report,
     size_t report_length
 ) {
-    if (state == NULL || state->event_tap == NULL || report_id != 1 || report == NULL) {
+    if (state == NULL) {
         return;
     }
-    if (report_length == 7 && report[0] == (uint8_t)report_id) {
-        report += 1;
-        report_length -= 1;
-    }
-    if (report_length == 0 || report_length % 2 != 0) {
+    uint64_t usages[AXONKEY_MAX_ACTIVE_USAGES] = {0};
+    size_t usage_count = state->callbacks->decode_report(
+        state->callbacks->context, report_id, report, report_length,
+        usages, AXONKEY_MAX_ACTIVE_USAGES
+    );
+    if (usage_count > AXONKEY_MAX_ACTIVE_USAGES || state->event_tap == NULL) {
         return;
-    }
-    uint16_t usages[AXONKEY_MAX_ACTIVE_USAGES] = {0};
-    size_t usage_count = 0;
-    for (size_t offset = 0; offset + 1 < report_length; offset += 2) {
-        uint16_t usage = (uint16_t)report[offset] | ((uint16_t)report[offset + 1] << 8);
-        if (usage != 0 && usage_count < AXONKEY_MAX_ACTIVE_USAGES &&
-            !axonkey_usage_contains(usages, usage_count, usage)) {
-            usages[usage_count++] = usage;
-        }
     }
     for (size_t index = 0; index < usage_count; index += 1) {
         if (!axonkey_usage_contains(state->active_usages, state->active_usage_count, usages[index])) {
@@ -729,7 +716,7 @@ static void axonkey_arm_report_events(
             axonkey_arm_usage_events(state, state->active_usages[index], false);
         }
     }
-    memcpy(state->active_usages, usages, usage_count * sizeof(uint16_t));
+    memcpy(state->active_usages, usages, usage_count * sizeof(uint64_t));
     state->active_usage_count = usage_count;
 }
 
@@ -1106,7 +1093,7 @@ static void axonkey_input_report(
     if (state->capture && !seized && !monitored) {
         return;
     }
-    if (state->capture && monitored) {
+    if (state->capture) {
         axonkey_arm_report_events(state, report_id, report, (size_t)report_length);
     }
     axonkey_emit(
@@ -1131,9 +1118,14 @@ int axonkey_macos_input_run(
     size_t modifier_mapping_count,
     const uint64_t *cleanup_modifier_mapping_sources,
     size_t cleanup_modifier_mapping_source_count,
-    const char *target_serial
+    const char *target_serial,
+    uint16_t vendor_id,
+    uint16_t product_id,
+    const AxonkeyNativeSource *sources,
+    size_t source_count
 ) {
     if (callbacks == NULL || callbacks->should_stop == NULL || callbacks->on_event == NULL ||
+        callbacks->decode_report == NULL || (source_count > 0 && sources == NULL) ||
         (modifier_mapping_count > 0 && modifier_mappings == NULL) ||
         (cleanup_modifier_mapping_source_count > 0 && cleanup_modifier_mapping_sources == NULL)) {
         return kIOReturnBadArgument;
@@ -1165,6 +1157,10 @@ int axonkey_macos_input_run(
     AxonkeyInputState state = {
         .callbacks = callbacks,
         .capture = capture,
+        .vendor_id = vendor_id,
+        .product_id = product_id,
+        .sources = sources,
+        .source_count = source_count,
         .devices = devices,
         .seized_devices = seized_devices,
         .monitored_devices = monitored_devices,
@@ -1174,10 +1170,10 @@ int axonkey_macos_input_run(
         .cleanup_modifier_mapping_source_count = cleanup_modifier_mapping_source_count,
     };
 
-    int vendor_id = 0x2717;
-    int product_id = 0x32b8;
-    CFNumberRef vendor = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendor_id);
-    CFNumberRef product = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &product_id);
+    int vendor_value = vendor_id;
+    int product_value = product_id;
+    CFNumberRef vendor = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &vendor_value);
+    CFNumberRef product = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &product_value);
     if (vendor == NULL || product == NULL) {
         if (vendor != NULL) CFRelease(vendor);
         if (product != NULL) CFRelease(product);

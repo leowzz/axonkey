@@ -995,6 +995,7 @@ function AppController({
                     }
                   : null,
               regionPath: region?.path ?? null,
+              regionTransform: region?.transform ?? null,
               context: mouseInput?.contextLabel ?? null,
             }
           })

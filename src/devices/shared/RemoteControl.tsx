@@ -1,30 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ButtonId } from '../../behaviorModel'
-import type { RemoteButton } from '../../appTypes'
 import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
 import type { RemoteView } from '../types.ts'
 
 type Props = {
-  buttons: Pick<RemoteButton, 'id' | 'label'>[]
-  activeId: ButtonId
-  pressedId: ButtonId | null
-  mappedIds: ButtonId[]
-  onSelect: (id: ButtonId) => void
+  activeId: string
+  pressedId?: string | null
+  pressedIds?: readonly string[]
+  mappedIds: readonly string[]
+  onSelect: (id: string) => void
   remoteView?: RemoteView
 }
 
 const hintDismissedKey = 'axonkey.remote-interaction-hint.v1'
 
 export function RemoteControl({
-  buttons,
   activeId,
   pressedId,
+  pressedIds = [],
   mappedIds,
   onSelect,
   remoteView = xiaomiRemoteView,
 }: Props) {
-  const [keyboardPressedId, setKeyboardPressedId] = useState<ButtonId | null>(null)
-  const [pointerPressedId, setPointerPressedId] = useState<ButtonId | null>(null)
+  const [keyboardPressedId, setKeyboardPressedId] = useState<string | null>(null)
+  const [pointerPressedId, setPointerPressedId] = useState<string | null>(null)
   const [hintDismissed, setHintDismissed] = useState(() => {
     try {
       return window.localStorage.getItem(hintDismissedKey) === '1'
@@ -32,7 +30,7 @@ export function RemoteControl({
       return false
     }
   })
-  const spaceKeyRef = useRef<ButtonId | null>(null)
+  const spaceKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -57,7 +55,7 @@ export function RemoteControl({
     }
   }, [])
 
-  const selectKey = (id: ButtonId) => {
+  const selectKey = (id: string) => {
     setHintDismissed(true)
     try {
       window.localStorage.setItem(hintDismissedKey, '1')
@@ -82,7 +80,7 @@ export function RemoteControl({
           aria-hidden="true"
           pointerEvents="none"
         />
-        {buttons.map(button => (
+        {remoteView.buttons.map(button => (
           <g
             key={button.id}
             data-remote-key={button.id}
@@ -90,7 +88,7 @@ export function RemoteControl({
             tabIndex={0}
             aria-label={button.label}
             aria-pressed={activeId === button.id}
-            className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
+            className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id || pressedIds.includes(button.id) ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
             onClick={() => selectKey(button.id)}
             onPointerDown={event => {
               if (event.button === 0 && event.isPrimary) setPointerPressedId(button.id)
@@ -124,9 +122,24 @@ export function RemoteControl({
             }}
           >
             <title>{button.label}</title>
-            <path className="remote-key-halo" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
-            <path className="remote-key-outline" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
-            <path className="remote-key-surface" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
+            <path
+              className="remote-key-halo"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
+            <path
+              className="remote-key-outline"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
+            <path
+              className="remote-key-surface"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
           </g>
         ))}
       </svg>

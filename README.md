@@ -78,7 +78,7 @@
 - [Agent CLI](docs/CLI.md)：让 Agent 通过终端查看和配置快捷键与行为序列。
 - [行为格式](docs/BEHAVIORS.md)：文字输入、路径打开、序列导入导出与版本兼容约定。
 - [常见问题](docs/TROUBLESHOOTING.md)：启动、授权、设备连接和日志排查。
-- [设备集成约定](docs/DEVICE_INTEGRATION.md)：扫描、实物绑定、同型号多实例与新设备接入。
+- [设备集成指南](docs/DEVICE_INTEGRATION.md#新设备接入流程)：从照片制作 SVG、检查热区、采集实际输入，到注册设备和实机验收；含扫描、绑定和多实例约定。
 - [开发与发布](docs/DEVELOPMENT.md)：源码运行、构建、签名与发布流程。
 - [第三方说明](THIRD_PARTY_NOTICES.md)：驱动来源与许可。
 

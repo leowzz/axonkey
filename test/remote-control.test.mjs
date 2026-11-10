@@ -10,6 +10,8 @@ import { xiaomiRemoteView } from '../src/devices/xiaomi-remote/view.ts'
 import { cmiotA15RemoteView } from '../src/devices/cmiot-a15-remote/view.ts'
 import { xmBt29RemoteView } from '../src/devices/xm-bt-29-remote/view.ts'
 import { obeRcuR5RemoteView } from '../src/devices/obe-rcu-r5-remote/view.ts'
+import { rc313RemoteView } from '../src/devices/rc-313-remote/view.ts'
+import { xboxRemoteView } from '../src/devices/xbox-controller/inputs.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -27,21 +29,21 @@ vm.runInNewContext(source, {
   require: name => name === '../xiaomi-remote/view.ts' ? { xiaomiRemoteView } : require(name),
 })
 const { RemoteControl } = module.exports
-const buttons = Object.keys(xiaomiRemoteView.keyRegions).map(id => ({ id, label: id }))
+const buttons = xiaomiRemoteView.buttons
 const keyboardEvent = (key, repeat = false) => ({ key, repeat, preventDefault() {}, stopPropagation() {} })
 
 function mount(props = {}) {
   const selected = []
   let view
   act(() => { view = Renderer.create(React.createElement(RemoteControl, {
-    buttons, activeId: 'confirm', pressedId: null, mappedIds: [], onSelect: id => selected.push(id), ...props,
+    activeId: 'confirm', pressedId: null, mappedIds: [], onSelect: id => selected.push(id), ...props,
   })) })
   const key = id => view.root.findByProps({ 'data-remote-key': id })
   return { view, key, selected }
 }
 
 test('A15 added keys have independent selectable SVG regions', () => {
-  const { view, key, selected } = mount({ buttons: cmiotA15RemoteView.buttons, remoteView: cmiotA15RemoteView })
+  const { view, key, selected } = mount({ remoteView: cmiotA15RemoteView })
   const ids = ['cmiotA15.mute', 'cmiotA15.settings', 'cmiotA15.channelUp', 'cmiotA15.channelDown', 'cmiotA15.m']
   for (const id of ids) {
     assert.ok(key(id).findByProps({ className: 'remote-key-surface' }).props.d)
@@ -53,9 +55,9 @@ test('A15 added keys have independent selectable SVG regions', () => {
 })
 
 test('OBE projector buttons select and show physical input feedback using the updated artwork', () => {
-  const props = { buttons: obeRcuR5RemoteView.buttons, remoteView: obeRcuR5RemoteView }
+  const props = { remoteView: obeRcuR5RemoteView }
   const { view, key, selected } = mount(props)
-  assert.equal(view.root.findByType('image').props.href, '/obe-rcu-r5-remote-keymap.svg')
+  assert.equal(view.root.findByType('image').props.href, '/device-descriptors/obe-rcu-r5.svg')
   assert.equal(view.root.findAllByProps({ role: 'button' }).length, 12)
   assert.equal(key('obeRcuR5.locate').props['aria-label'], '定位键')
   assert.equal(key('obeRcuR5.voice').props['aria-label'], '语音键（菜单按钮）')
@@ -78,9 +80,9 @@ test('OBE projector buttons select and show physical input feedback using the up
 
 test('XM-BT-29 numeric and delete keys select and highlight independently', () => {
   const ids = [...Array.from({ length: 10 }, (_, digit) => `xmBt29.digit${digit}`), 'xmBt29.delete']
-  const props = { buttons: xmBt29RemoteView.buttons, remoteView: xmBt29RemoteView }
+  const props = { remoteView: xmBt29RemoteView }
   const { view, key, selected } = mount(props)
-  assert.equal(view.root.findByType('image').props.href, '/xm-bt-29-remote-keymap.svg')
+  assert.equal(view.root.findByType('image').props.href, '/device-descriptors/xm-bt-29.svg')
   assert.equal(view.root.findByType('svg').props.viewBox, '0 0 420 1560')
   assert.equal(new Set(ids.map(id => key(id).findByProps({ className: 'remote-key-surface' }).props.d)).size, 11)
   for (const id of ids) {
@@ -106,6 +108,37 @@ test('each accessible SVG key selects its own input without activating its neigh
     act(() => key(button.id).props.onClick())
   }
   assert.deepEqual(selected, buttons.map(button => button.id))
+  act(() => view.unmount())
+})
+
+test('every bundled device renders its descriptor inputs through the common SVG control', () => {
+  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView]) {
+    const { view, key, selected } = mount({ remoteView })
+    assert.equal(view.root.findByType('image').props.href, remoteView.artworkUrl)
+    assert.equal(view.root.findAllByProps({ role: 'button' }).length, remoteView.buttons.length)
+    for (const button of remoteView.buttons) {
+      assert.equal(key(button.id).props['aria-label'], button.label)
+      assert.equal(key(button.id).findByProps({ className: 'remote-key-surface' }).props.d, remoteView.keyRegions[button.id].path)
+      act(() => key(button.id).props.onClick())
+    }
+    assert.deepEqual(selected, remoteView.buttons.map(button => button.id))
+    act(() => view.unmount())
+  }
+  assert.equal(rc313RemoteView.artworkUrl, '/device-descriptors/rc313.svg')
+})
+
+test('Xbox preserves independent simultaneous presses and translated stick regions', () => {
+  const props = { remoteView: xboxRemoteView, activeId: 'xbox.a', pressedIds: ['xbox.lb', 'xbox.rs.up'], mappedIds: ['xbox.x'], onSelect() {} }
+  const { view, key } = mount(props)
+  const originalKey = key('xbox.a')
+  assert.match(key('xbox.lb').props.className, /\bpressed\b/)
+  assert.match(key('xbox.rs.up').props.className, /\bpressed\b/)
+  assert.match(key('xbox.x').props.className, /\bmapped\b/)
+  assert.equal(key('xbox.rs.up').findByProps({ className: 'remote-key-surface' }).props.transform, 'translate(424 346)')
+  act(() => view.update(React.createElement(RemoteControl, { ...props, activeId: 'xbox.b', pressedIds: [] })))
+  assert.equal(key('xbox.a'), originalKey)
+  assert.doesNotMatch(key('xbox.lb').props.className, /\bpressed\b/)
+  assert.equal(key('xbox.b').props['aria-pressed'], true)
   act(() => view.unmount())
 })
 

@@ -4,7 +4,15 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import { parseSequenceImport, serializeSequence } from '../src/behaviorModel.ts'
 import { RelayClient } from '../src/cloud/relayClient.ts'
-import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence } from '../src/cloud/behaviorLibrary.ts'
+import {
+  behaviorLibraryCacheTtlMs,
+  parseLibraryPage,
+  fetchLibraryPage,
+  readCachedLibraryPage,
+  submitSequence,
+  withdrawSequence,
+  writeCachedLibraryPage,
+} from '../src/cloud/behaviorLibrary.ts'
 import { insertedWorkflowSteps } from '../src/components/workflowBehaviorBridge.ts'
 import { libraryHarness } from './helpers/behavior-library-harness.mjs'
 
@@ -36,7 +44,7 @@ test('cloud decoding preserves order, skips unsupported entries whole, and inser
     { ...publicItem('shared-mix'), content: { kind: 'sequence', behaviors: [{type: 'switchProfile', direction: 'next'}, {type: 'key', key: 'Enter'}] } },
     { ...publicItem('partial'), content: { kind: 'sequence', behaviors: [{ type: 'key', key: 'Enter' }, { type: 'future' }] } }]
   const page = parseLibraryPage({ items: source, next_cursor: 'next' }, 'macos', [builtin])
-  assert.deepEqual(page.steps.map(s => s.name), ['b', 'a'])
+  assert.deepEqual(page.steps.map(s => s.name), ['b', builtin.name])
   assert.equal(page.skipped, 5)
   assert.equal(page.nextCursor, 'next')
   const add = id => insertedWorkflowSteps({ ...page.steps[0], id }, 'macos', b => b.type)
@@ -46,6 +54,27 @@ test('cloud decoding preserves order, skips unsupported entries whole, and inser
   source[0].content.behaviors[0].key = 'Esc'
   assert.equal(first[0].properties.key, 'Enter')
   assert.throws(() => parseLibraryPage({ items: null }, 'macos', []), /响应/)
+})
+
+test('recommended builtins retain platform names instead of cloud titles', () => {
+  for (const [platform, names, cloudTitles] of [
+    ['windows', ['右 Win', '右 Alt'], ['右 Cmd', '右 Opt']],
+    ['macos', ['右 Cmd', '右 Opt'], ['右 Win', '右 Alt']],
+  ]) {
+    const presets = ['rightCommand', 'rightAlt']
+    const builtins = presets.map((preset, index) => ({
+      componentType: 'task', type: preset, name: names[index], properties: { preset },
+    }))
+    const items = presets.map((preset, index) => ({
+      ...publicItem(preset, cloudTitles[index]), source: 'official', platforms: [platform],
+      content: { kind: 'builtin', preset },
+    }))
+    const page = parseLibraryPage({ items }, platform, builtins)
+    assert.deepEqual(page.steps.map(step => step.name), names)
+    assert.deepEqual(page.steps.map(step => step.properties.libraryItemId), presets)
+    assert.deepEqual(page.steps.map(step => step.properties.preset), presets)
+    assert.equal(builtins[0].properties.libraryItemId, undefined)
+  }
 })
 
 test('library lists authenticate only with a session; confirmed share and withdrawal require auth', async () => {
@@ -113,6 +142,51 @@ test('public hook handles pagination deduplication, stale searches, and failure 
     await act(async () => { harness.tick(); await flush() })
     await act(async () => { pendingResolve({ status: 200, body: { items: [publicItem('old')] } }); await flush() })
     assert.equal(value.steps[0].name, 'new')
+  } finally { act(() => view.unmount()) }
+})
+
+test('public library pages use a ten-minute local cache and retry bypasses it', async () => {
+  const values = new Map()
+  const storage = {
+    get length() { return values.size },
+    key(index) { return [...values.keys()][index] ?? null },
+    getItem(key) { return values.get(key) ?? null },
+    setItem(key, value) { values.set(key, value) },
+    removeItem(key) { values.delete(key) },
+  }
+  const harness = libraryHarness({ localStorage: storage })
+  const { useBehaviorLibrary } = harness.load('cloud/useBehaviorLibrary.ts')
+  let requests = 0, value
+  const client = new RelayClient(async () => {
+    requests++
+    return { status: 200, body: { items: [publicItem(`item-${requests}`)] } }
+  }, null, () => {})
+  function App() { value = useBehaviorLibrary(client, 'macos', 'community', '', []); return null }
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(App)) })
+  try {
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 1)
+    assert.equal(value.steps[0].name, 'item-1')
+    act(() => view.unmount())
+    await act(async () => {
+      view = Renderer.create(React.createElement(App))
+      assert.equal(value.loading, false)
+      assert.equal(value.steps[0].name, 'item-1')
+    })
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 1)
+    assert.equal(value.steps[0].name, 'item-1')
+    await act(async () => value.retry())
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 2)
+    const page = readCachedLibraryPage('macos', 'community', '', '', storage, Date.now())
+    assert.ok(page)
+    writeCachedLibraryPage('macos', 'community', '', '', page, storage, 1000)
+    const key = [...values.keys()][0]
+    assert.equal(JSON.parse(values.get(key)).expiresAt, 1000 + behaviorLibraryCacheTtlMs)
+    assert.ok(readCachedLibraryPage('macos', 'community', '', '', storage, 1000 + behaviorLibraryCacheTtlMs - 1))
+    assert.equal(readCachedLibraryPage('macos', 'community', '', '', storage, 1000 + behaviorLibraryCacheTtlMs), null)
   } finally { act(() => view.unmount()) }
 })
 

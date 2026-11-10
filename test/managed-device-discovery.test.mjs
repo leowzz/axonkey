@@ -6,6 +6,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import { parseDescriptorSvg } from '../scripts/generate-device-descriptors.mjs'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
@@ -28,14 +29,15 @@ const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
   './xbox-controller.svg': { default: 'controller.svg' },
   './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
 })
-const model = compile('src/devices/integration/model.ts', {
+const modelImports = {
   '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
   '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
   '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
-})
+}
+const model = compile('src/devices/integration/model.ts', modelImports)
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
@@ -392,10 +394,79 @@ test('integration saves devices without an input mode on every platform', async 
   }
 })
 
-test('mobile integration selects name and physical device before model and preserves both through recognition', async () => {
-  for (const identify of [false, true]) {
+test('mobile model identity matching retains captured software and hardware behavior', () => {
+  assert.deepEqual(Array.from(model.mobileRemoteKinds), ['cmiotA15', 'xmBt29', 'rc313'])
+  assert.equal(model.mobileRemoteFallbackKind, 'rc313')
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x0416, productId: 0x0300 }), true)
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x0416, productId: 0x0301 }), false)
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x1d5a, productId: 0xc081 }), false)
+  for (const [software, kind] of [
+    ['CMIOT3_B311_debug', 'cmiotA15'],
+    ['XFRSD0D_M_R01_761_debug', 'xmBt29'],
+    ['CMIOT18_B302_1601', 'rc313'],
+    ['unknown', null],
+    [null, null],
+  ]) assert.equal(model.mobileRemoteKindForSoftware(software), kind)
+})
+
+test('bundled capabilities retain recording defaults and platform support for all six devices', () => {
+  for (const [kind, mode, hidVoice] of [
+    ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
+    ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
+  ]) {
+    assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
+    assert.equal(model.usesHidVoice(kind), hidVoice)
+    assert.equal(model.supportsWindowsDriver(kind), true)
+  }
+})
+
+test('recording defaults and driver support follow changed SVG declarations for the same model', () => {
+  const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
+  const descriptor = parseDescriptorSvg(source
+    .replace('trigger-modes="hold click"', 'trigger-modes="hold"')
+    .replaceAll('windows-prefix="BTHLEDEVICE"', ''), '/test.svg')
+  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const variant = compile('src/devices/integration/model.ts', {
+    ...modelImports,
+    '../cmiot-a15-remote/definition.ts': { ...definition,
+      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
+        remoteView: { ...definition.cmiotA15SupportPackage.remoteView, voice: descriptor.voice, identities: descriptor.identities },
+      },
+    },
+  })
+  assert.equal(variant.newInstance('cmiotA15', null).cmiotA15RecordingMode, 'hold')
+  assert.equal(variant.supportsWindowsDriver('cmiotA15'), false)
+})
+
+test('mobile model recognizes any software marker declared in the SVG identity', () => {
+  const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
+  const descriptor = parseDescriptorSvg(source.replaceAll('CMIOT3_B311', 'unused|CMIOT3_B311|alternate')
+    .replace('software-contains="unused|CMIOT3_B311|alternate"', ''), '/test.svg')
+  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const variant = compile('src/devices/integration/model.ts', {
+    ...modelImports,
+    '../cmiot-a15-remote/definition.ts': { ...definition,
+      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
+        remoteView: { ...definition.cmiotA15SupportPackage.remoteView, identities: descriptor.identities },
+      },
+    },
+  })
+  assert.equal(variant.mobileRemoteKindForSoftware('CMIOT3_B311_debug'), 'cmiotA15')
+  assert.equal(variant.mobileRemoteKindForSoftware('alternate_debug'), 'cmiotA15')
+  assert.equal(variant.mobileRemoteKindForSoftware('unrelated'), null)
+})
+
+test('mobile integration preserves selection and recognizes native, old and unknown software snapshots', async () => {
+  for (const recognition of [null, 'native', 'software', 'unknown', 'missing']) {
+    const identify = recognition !== null
+    const recognizedKind = recognition === 'unknown' || recognition === 'missing' ? 'rc313' : 'xmBt29'
+    const expectedKind = identify ? recognizedKind : 'cmiotA15'
+    const expectedName = identify ? (recognizedKind === 'rc313' ? 'RC-313' : 'XM-BT-29') : 'CMIOT-A15'
     const remote = { ...device, id: 'mobile-one', kind: 'cmiotA15', vendorId: 0x0416, productId: 0x0300, connected: true,
-      deviceInfo: { status: 'ready', softwareRevision: 'XFRSD0D_M_R01_761', detectedKind: 'xmBt29' } }
+      deviceInfo: { status: 'ready',
+        softwareRevision: recognition === 'native' ? 'CMIOT3_B311' : recognition === 'unknown' ? 'unknown' : recognition === 'missing' ? null : 'XFRSD0D_M_R01_761',
+        ...(recognition === 'native' ? { detectedKind: 'xmBt29' } : {}),
+      } }
     const second = { ...remote, id: 'mobile-two' }
     const snapshot = { ...model.emptySnapshot(), discovered: [remote, second] }
     const saved = [], refreshed = []
@@ -427,7 +498,7 @@ test('mobile integration selects name and physical device before model and prese
       if (identify) {
         await act(async () => button('一键识别').props.onClick())
         assert.deepEqual(refreshed, [second.id])
-        assert.ok(text(selectedModel()).includes('XM-BT-29'))
+        assert.ok(text(selectedModel()).includes(expectedName))
         assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 1, 'recognition selects a model without returning to the details page')
       } else {
         act(() => view.root.findAllByProps({ role: 'radio' }).find(node => text(node).includes('CMIOT-A15')).props.onClick())
@@ -436,13 +507,13 @@ test('mobile integration selects name and physical device before model and prese
       assert.equal(view.root.findByType('input').props.value, '客厅遥控器')
       assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, second.id)
       act(() => button('下一步').props.onClick())
-      assert.ok(text(selectedModel()).includes(identify ? 'XM-BT-29' : 'CMIOT-A15'))
+      assert.ok(text(selectedModel()).includes(expectedName))
       assert.equal(saved.length, 0)
       await act(async () => button('集成设备').props.onClick())
       assert.equal(saved.length, 1)
       assert.equal(saved[0].name, '客厅遥控器')
       assert.equal(saved[0].binding, second.id)
-      assert.equal(saved[0].kind, identify ? 'xmBt29' : 'cmiotA15')
+      assert.equal(saved[0].kind, expectedKind)
       assert.equal(saved[0].cmiotA15RecordingMode, identify ? 'hold' : 'click')
       assert.equal(integrated, 'saved-mobile')
     } finally { act(() => view.unmount()) }
@@ -508,7 +579,6 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       'react-dom': { createPortal: node => node },
     }),
     './IntegrationControls': controls,
-    '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
     './model': model,
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })
@@ -691,8 +761,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
 
     act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
-    assert.equal(views[0].root.findByType(RemoteControl).props.pressedId, null)
-    assert.equal(views[1].root.findByType(RemoteControl).props.pressedId, 'cmiotA15.up')
+    assert.deepEqual(Array.from(views[0].root.findByType(RemoteControl).props.pressedIds), [])
+    assert.deepEqual(Array.from(views[1].root.findByType(RemoteControl).props.pressedIds), ['cmiotA15.up'])
 
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
@@ -728,11 +798,29 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
     assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
+    for (const [kind, battery, manualRecording, recordingModes] of [
+      ['rc003', true, false, false], ['cmiotA15', true, true, true], ['xmBt29', true, true, false],
+      ['rc313', true, true, false], ['obeRcuR5', true, false, false], ['xboxBluetooth', false, false, false],
+    ]) {
+      act(() => {
+        instances[1] = { ...instances[1], kind }
+        views[1].update(React.createElement(InstanceWorkspace, props(1)))
+      })
+      assert.equal(views[1].root.findAllByProps({ className: 'managed-instance-power' }).length, Number(battery))
+      assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, Number(manualRecording))
+      act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+      assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
+      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
+      act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    }
     act(() => {
       instances[1] = { ...instances[1], kind: 'xboxBluetooth' }
       views[1].update(React.createElement(InstanceWorkspace, props(1)))
     })
     assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
+    act(() => listeners[1]({ payload: { instanceId: 'two', pressed: [], values: { 'xbox.lt': 0.6, 'xbox.rt': 0.3 } } }))
+    assert.deepEqual(views[1].root.findAllByType('meter').map(meter => meter.props.value), [0.6, 0.3])
+    assert.deepEqual(views[1].root.findByProps({ className: 'managed-analog' }).findAllByType('label').map(text), ['LT ', 'RT '])
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     act(() => views[1].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
     for (const [driverState, driverInstalled, label] of [['missing', false, '未安装'], ['connecting', true, '连接中'], ['connected', true, '已连接'], ['offline', false, '设备不在线']]) {

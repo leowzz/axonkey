@@ -152,8 +152,7 @@ body:has(.managed-discovery-help-dialog[open]),
   font: inherit;
 }
 .managed-hub button:focus-visible,
-.managed-integration-dialog button:focus-visible,
-.managed-controller-diagram [data-key]:focus-visible {
+.managed-integration-dialog button:focus-visible {
   outline: 2px solid #3784ce;
   outline-offset: 3px;
 }
@@ -204,14 +203,6 @@ body:has(.managed-discovery-help-dialog[open]),
   background: #fff;
   color: #405f7d;
   min-width: 0;
-}
-.managed-controller-diagram svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.managed-controller-diagram [data-key] {
-  cursor: pointer;
 }
 .managed-analog {
   display: flex;
@@ -654,10 +645,10 @@ body:has(.managed-discovery-help-dialog[open]),
   height: 100%;
   min-height: 0;
 }
-.managed-instance-workspace.is-controller .managed-controller-diagram {
+.managed-instance-workspace.is-controller .remote-control-view {
   height: 100%;
 }
-.managed-instance-workspace.is-controller .managed-controller-diagram svg {
+.managed-instance-workspace.is-controller .remote-control {
   height: 100%;
 }
 .managed-instance-workspace.is-controller .managed-analog {

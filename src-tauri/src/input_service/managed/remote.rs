@@ -31,13 +31,8 @@ impl RemoteReader {
                 serial,
                 is_current,
                 switch_profile,
-                on_report: Box::new(move |report_id, bytes| {
-                    let mut report = Vec::with_capacity(7);
-                    if bytes.len() == 6 {
-                        report.push(report_id as u8);
-                    }
-                    report.extend_from_slice(bytes);
-                    let _ = tx.send(report);
+                on_report: Box::new(move |_, bytes| {
+                    let _ = tx.send(bytes.to_vec());
                 }),
             },
         );

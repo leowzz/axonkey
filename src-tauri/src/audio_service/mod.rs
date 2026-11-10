@@ -103,7 +103,7 @@ pub struct AudioTarget {
     pub enabled: bool,
 }
 
-/// Owns one platform audio service per configured RC003/A15 instance.
+/// Owns one platform audio service per configured voice-capable instance.
 ///
 /// The legacy service remains available for the old global setup page and the
 /// unscoped commands. Instance UI and commands address a service
@@ -175,8 +175,8 @@ impl AudioServiceManager {
                     .or_insert_with(|| {
                         #[cfg(any(windows, target_os = "macos"))]
                         if matches!(
-                            target.kind.as_str(),
-                            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
+                            crate::devices::descriptor_registry::voice_engine(&target.kind),
+                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
                         ) {
                             return Arc::new(PlatformAudioService::start_a15());
                         }

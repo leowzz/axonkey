@@ -1,7 +1,71 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="516" height="1255" viewBox="0 0 516 1255" fill="none" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="516" height="1255" viewBox="0 0 516 1255" fill="none"
+     role="img" aria-labelledby="title description"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="xiaomi.rc003"
+     data-ak-revision="1">
   <title id="title">小米 RC003 遥控器示意图</title>
   <desc id="description">银色遥控器正面，透明背景。按键从上至下为电源、语音、方向与确认、返回、音量、主页、菜单及 TV。画布、裁切范围与按键位置对应项目中的 rc003-remote-keymap.png。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="xiaomi.rc003" vendor="Xiaomi" model="RC003"
+               revision="1" display-name="小米 RC003">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="0x2717" pid="0x32B8"
+                  service="00001812-0000-1000-8000-00805F9B34FB"
+                  serial-policy="reject-ambiguous" required="true" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="keyboard" direction="input" report-id="0x01"
+                   length="7" encoding="le-u16-slots" usage-page="0x07"
+                   payload-offset="1" slot-width="2" slot-count="3"
+                   endian="little" />
+        <ak:report id="voice-audio" direction="input"
+                   encoding="gatt-stream" transport="bluetooth-gatt"
+                   engine="rc003-atvv" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="xiaomi.rc003.voice" label="语音键" kind="button"
+                  target="#voice" legacy-key="voice" report="keyboard"
+                  page="0x07" usage="0x003E" original="true" />
+        <ak:input id="xiaomi.rc003.power" label="电源键" kind="button"
+                  target="#power" legacy-key="power" report="keyboard"
+                  page="0x07" usage="0x0066" original="true" />
+        <ak:input id="xiaomi.rc003.up" label="方向上" kind="button"
+                  target="#up" legacy-key="up" report="keyboard" page="0x07" usage="0x0052" />
+        <ak:input id="xiaomi.rc003.left" label="方向左" kind="button"
+                  target="#left" legacy-key="left" report="keyboard" page="0x07" usage="0x0050" />
+        <ak:input id="xiaomi.rc003.confirm" label="确认键" kind="button"
+                  target="#confirm" legacy-key="confirm" report="keyboard" page="0x07" usage="0x0028" />
+        <ak:input id="xiaomi.rc003.right" label="方向右" kind="button"
+                  target="#right" legacy-key="right" report="keyboard" page="0x07" usage="0x004F" />
+        <ak:input id="xiaomi.rc003.down" label="方向下" kind="button"
+                  target="#down" legacy-key="down" report="keyboard" page="0x07" usage="0x0051" />
+        <ak:input id="xiaomi.rc003.back" label="返回键" kind="button"
+                  target="#back" legacy-key="back" report="keyboard" page="0x07" usage="0x00F1" />
+        <ak:input id="xiaomi.rc003.home" label="主页键" kind="button"
+                  target="#home" legacy-key="home" report="keyboard" page="0x07" usage="0x004A" />
+        <ak:input id="xiaomi.rc003.menu" label="菜单键" kind="button"
+                  target="#menu" legacy-key="menu" report="keyboard" page="0x07" usage="0x0065" />
+        <ak:input id="xiaomi.rc003.tv" label="TV 键" kind="button"
+                  target="#tv" legacy-key="tv" report="keyboard" page="0x07" usage="0x0035" />
+        <ak:input id="xiaomi.rc003.volumeUp" label="音量加" kind="button"
+                  target="#volume-up" legacy-key="volumeUp" report="keyboard" page="0x07" usage="0x0080" />
+        <ak:input id="xiaomi.rc003.volumeDown" label="音量减" kind="button"
+                  target="#volume-down" legacy-key="volumeDown" report="keyboard" page="0x07" usage="0x0081" />
+      </ak:inputs>
+      <ak:capabilities>
+        <ak:voice id="voice" trigger-key="xiaomi.rc003.voice"
+                  transport="gatt"
+                  service="AB5E0001-5A21-4F05-BC7D-AF01F617B664"
+                  transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
+                  audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
+                  control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
+                  engine="rc003-atvv" sample-rate="16000" required="false" />
+      </ak:capabilities>
+    </ak:device>
+  </metadata>
   <defs>
     <linearGradient id="shell" x1="17" y1="0" x2="494" y2="0" gradientUnits="userSpaceOnUse">
       <stop stop-color="#818383"/>
@@ -96,14 +160,14 @@
     <path d="M488 43 V1222" stroke="#4e5151" stroke-opacity=".38" stroke-width="1.1"/>
   </g>
 
-  <g id="power" transform="translate(132 162)">
+  <g id="power" transform="translate(132 162)" data-ak-key="xiaomi.rc003.power" data-ak-role="input" aria-label="电源键" role="button" tabindex="0">
     <circle r="55.1" fill="#f8f9f9"/>
     <circle r="53.5" fill="#202222"/>
     <circle r="50.5" fill="url(#silver-button)" stroke="#fbfcfc" stroke-width="1.7"/>
     <path d="M-10.2-14.5 A18.4 18.4 0 1 0 10.2-14.5 M0-20 V1" stroke="#f4f5f5" stroke-width="7.6" stroke-linecap="round"/>
     <path d="M-10.2-14.5 A18.4 18.4 0 1 0 10.2-14.5 M0-20 V1" stroke="#282b2b" stroke-width="5" stroke-linecap="round"/>
   </g>
-  <g id="voice" transform="translate(378 162)">
+  <g id="voice" transform="translate(378 162)" data-ak-key="xiaomi.rc003.voice" data-ak-role="input" aria-label="语音键" role="button" tabindex="0">
     <circle r="55.1" fill="#e3e5e5"/>
     <circle r="53.5" fill="#202222"/>
     <circle r="50.5" fill="url(#silver-mic)" stroke="#e9ebeb" stroke-width="1.7"/>
@@ -123,23 +187,35 @@
     <ellipse cy=".7" rx="199.3" ry="193.4" fill="#e1e3e3"/>
     <ellipse rx="197.5" ry="192" fill="#0b0d0d"/>
     <ellipse cy="-.4" rx="193.3" ry="187.8" fill="url(#direction)" stroke="url(#direction-rim)" stroke-width="2"/>
-    <g id="confirm">
+    <g id="up" data-ak-key="xiaomi.rc003.up" data-ak-role="input" aria-label="方向上" role="button" tabindex="0">
+      <path d="M-139.65-135.76 A197.5 192 0 0 1 139.65-135.76 L74.60-74.60 A105.5 105.5 0 0 0-74.60-74.60 Z" fill="#000" fill-opacity="0" stroke="none"/>
+    </g>
+    <g id="right" data-ak-key="xiaomi.rc003.right" data-ak-role="input" aria-label="方向右" role="button" tabindex="0">
+      <path d="M139.65-135.76 A197.5 192 0 0 1 139.65 135.76 L74.60 74.60 A105.5 105.5 0 0 0 74.60-74.60 Z" fill="#000" fill-opacity="0" stroke="none"/>
+    </g>
+    <g id="down" data-ak-key="xiaomi.rc003.down" data-ak-role="input" aria-label="方向下" role="button" tabindex="0">
+      <path d="M139.65 135.76 A197.5 192 0 0 1-139.65 135.76 L-74.60 74.60 A105.5 105.5 0 0 0 74.60 74.60 Z" fill="#000" fill-opacity="0" stroke="none"/>
+    </g>
+    <g id="left" data-ak-key="xiaomi.rc003.left" data-ak-role="input" aria-label="方向左" role="button" tabindex="0">
+      <path d="M-139.65 135.76 A197.5 192 0 0 1-139.65-135.76 L-74.60-74.60 A105.5 105.5 0 0 0-74.60 74.60 Z" fill="#000" fill-opacity="0" stroke="none"/>
+    </g>
+    <g id="confirm" data-ak-key="xiaomi.rc003.confirm" data-ak-role="input" aria-label="确认键" role="button" tabindex="0">
       <circle cy="1" r="105.2" fill="#090b0b"/>
       <circle cy=".4" r="101" fill="url(#center)" stroke="url(#direction-rim)" stroke-width="1.8"/>
     </g>
   </g>
 
-  <g id="back" transform="translate(154 747)">
+  <g id="back" transform="translate(154 747)" data-ak-key="xiaomi.rc003.back" data-ak-role="input" aria-label="返回键" role="button" tabindex="0">
     <use href="#black-round-button"/>
     <path d="M4-18-14 0 4 18" stroke="#141616" stroke-width="7.3" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M4-18-14 0 4 18" stroke="#fafbf8" stroke-width="4.7" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
-  <g id="home" transform="translate(154 926)">
+  <g id="home" transform="translate(154 926)" data-ak-key="xiaomi.rc003.home" data-ak-role="input" aria-label="主页键" role="button" tabindex="0">
     <use href="#black-round-button"/>
     <path d="M-15 14 V-6 L0-19 15-6 V14Z" stroke="#141616" stroke-width="7" stroke-linejoin="round"/>
     <path d="M-15 14 V-6 L0-19 15-6 V14Z" stroke="#fafbf8" stroke-width="4.4" stroke-linejoin="round"/>
   </g>
-  <g id="menu" transform="translate(154 1104)">
+  <g id="menu" transform="translate(154 1104)" data-ak-key="xiaomi.rc003.menu" data-ak-role="input" aria-label="菜单键" role="button" tabindex="0">
     <use href="#black-round-button"/>
     <path d="M-15-12 H15 M-15 0 H15 M-15 12 H15" stroke="#141616" stroke-width="7.3" stroke-linecap="round"/>
     <path d="M-15-12 H15 M-15 0 H15 M-15 12 H15" stroke="#fafbf8" stroke-width="4.7" stroke-linecap="round"/>
@@ -154,16 +230,18 @@
       <circle cy="94" r="77.5" fill="url(#volume-minus)"/>
     </g>
     <rect x="-77.5" y="-165.5" width="155" height="331" rx="77.5" stroke="url(#direction-rim)" stroke-width="1.8"/>
-    <g id="volume-up" stroke-linecap="square">
+    <g id="volume-up" data-ak-key="xiaomi.rc003.volumeUp" data-ak-role="input" aria-label="音量加" role="button" tabindex="0" stroke-linecap="square">
+      <path d="M-80.5 0 V-87 A80.5 80.5 0 0 1 80.5-87 V0 Z" fill="#000" fill-opacity="0" stroke="none"/>
       <path d="M-16-90 H16 M0-106 V-74" stroke="#131515" stroke-width="7.3"/>
       <path d="M-16-90 H16 M0-106 V-74" stroke="#fafbf8" stroke-width="4.6"/>
     </g>
-    <g id="volume-down" stroke-linecap="square">
+    <g id="volume-down" data-ak-key="xiaomi.rc003.volumeDown" data-ak-role="input" aria-label="音量减" role="button" tabindex="0" stroke-linecap="square">
+      <path d="M-80.5 0 H80.5 V87 A80.5 80.5 0 0 1-80.5 87 Z" fill="#000" fill-opacity="0" stroke="none"/>
       <path d="M-16 90 H16" stroke="#131515" stroke-width="7.3"/>
       <path d="M-16 90 H16" stroke="#fafbf8" stroke-width="4.6"/>
     </g>
   </g>
-  <g id="tv" transform="translate(354 1105)">
+  <g id="tv" transform="translate(354 1105)" data-ak-key="xiaomi.rc003.tv" data-ak-role="input" aria-label="TV 键" role="button" tabindex="0">
     <use href="#black-round-button"/>
     <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#131515" stroke-width="7.2"/>
     <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#fafbf8" stroke-width="4.6"/>

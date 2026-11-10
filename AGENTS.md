@@ -2,6 +2,8 @@
 
 新增或修改 Axonkey 桌面应用的页面、设置项、交互功能或 UI 布局，以及更新 README 界面截图时，使用 [axonkey-ui](.agents/skills/axonkey-ui/SKILL.md)。官网 `website/` 和独立诊断 Demo 不默认套用此 skill。
 
+根据设备实拍图片创建或修正设备 SVG、按键区与侧视图，为新设备准备待采集键值的图稿时，使用 [axonkey-device-svg](.agents/skills/axonkey-device-svg/SKILL.md)。实际输入协议与设备启用另行接入。
+
 ## Issue 与 PR
 
 Issue 跟踪和 ADR 流程只适用于大型结构性重构或实质功能变更，例如重划模块或平台边界、新增主要功能、改变核心使用流程或兼容承诺。按任务的实际影响判断。文案、样式微调、局部修复和小范围整理直接实施并按影响验证，跳过查票、建票、阶段回写和 ADR。

@@ -9,7 +9,7 @@ use std::{
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex, RwLock,
+        Arc, Mutex, OnceLock, RwLock,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -28,12 +28,6 @@ const CAPTURE_MODE_MASK: i32 = 0x03;
 const CAPTURE_HARDWARE_MODIFIER_MAPPINGS: i32 = 0x04;
 const HID_KEYBOARD_USAGE_PAGE: u64 = 0x0000_0007_0000_0000;
 const HID_FUNCTION_USAGE: u64 = 0x0000_00ff_0000_0003;
-// Neutralize Power before loginwindow sees it; Quartz filtering is too late
-// for the system sleep/shutdown path. Raw HID reports still drive our gestures.
-const POWER_KEY_GUARD: HardwareModifierMapping = HardwareModifierMapping {
-    source: HID_KEYBOARD_USAGE_PAGE | 0x66,
-    destination: HID_KEYBOARD_USAGE_PAGE | 0x6f, // F20 (macOS keycode 90)
-};
 const LONG_PRESS_MS: u64 = 600;
 const LONG_PRESS_REPEAT_INITIAL_MS: u64 = 350;
 const LONG_PRESS_REPEAT_INTERVAL_MS: u64 = 100;
@@ -50,12 +44,23 @@ const MODIFIER_MAPPING_ERROR: &str = "RC003 modifier hardware mappings could not
 
 type StopCallback = unsafe extern "C" fn(*mut c_void) -> bool;
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, u32, *const u8, usize, i32);
+type DecodeReportCallback =
+    unsafe extern "C" fn(*mut c_void, u32, *const u8, usize, *mut u64, usize) -> usize;
 
 #[repr(C)]
 struct NativeCallbacks {
     context: *mut c_void,
     should_stop: StopCallback,
     on_event: EventCallback,
+    decode_report: DecodeReportCallback,
+}
+
+#[repr(C)]
+struct NativeSource {
+    usage: u64,
+    kind: i32,
+    code: i32,
+    flags: u32,
 }
 
 #[repr(C)]
@@ -63,6 +68,18 @@ struct NativeCallbacks {
 struct HardwareModifierMapping {
     source: u64,
     destination: u64,
+}
+
+fn power_key_guard() -> HardwareModifierMapping {
+    let source = source_keys()
+        .iter()
+        .find(|source| source.id == "power")
+        .expect("bundled RC003 descriptor defines the Power source");
+    // Neutralize Power before loginwindow sees it; Quartz filtering is too late.
+    HardwareModifierMapping {
+        source: (u64::from(source.page) << 32) | u64::from(source.usage),
+        destination: HID_KEYBOARD_USAGE_PAGE | 0x6f, // F20 (macOS keycode 90)
+    }
 }
 
 extern "C" {
@@ -74,6 +91,10 @@ extern "C" {
         cleanup_modifier_mapping_sources: *const u64,
         cleanup_modifier_mapping_source_count: usize,
         target_serial: *const std::ffi::c_char,
+        vendor_id: u16,
+        product_id: u16,
+        sources: *const NativeSource,
+        source_count: usize,
     ) -> i32;
     fn axonkey_macos_input_monitoring_granted() -> bool;
     fn axonkey_macos_accessibility_granted() -> bool;
@@ -354,6 +375,7 @@ struct WorkerContext {
     device_seen: bool,
     input: MacInputState,
     next_permission_check: Instant,
+    decoded_usages: Option<HashSet<u16>>,
 }
 
 fn worker_loop(shared: Arc<Shared>) {
@@ -383,10 +405,14 @@ fn worker_loop(shared: Arc<Shared>) {
             Vec::new()
         };
         let hardware_modifier_mapping_usages = hardware_action_usages(&hardware_modifier_mappings);
-        let cleanup_modifier_mapping_sources = SOURCE_KEYS
+        let cleanup_modifier_mapping_sources = source_keys()
             .iter()
-            .map(|source| HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage))
+            .map(|source| (u64::from(source.page) << 32) | u64::from(source.usage))
             .collect::<Vec<_>>();
+        let native_sources = native_sources();
+        let (vendor_id, product_id) =
+            crate::devices::descriptor_registry::primary_hardware("rc003")
+                .expect("bundled RC003 descriptor defines its hardware identity");
         log::info!(target: "axonkey::input", "macOS capture configuration: capture={capture}, hardware_modifier_mappings={hardware_modifier_mappings:?}");
         let mut context = WorkerContext {
             shared: Arc::clone(&shared),
@@ -396,11 +422,13 @@ fn worker_loop(shared: Arc<Shared>) {
             device_seen: false,
             input: MacInputState::default(),
             next_permission_check: Instant::now() + Duration::from_millis(250),
+            decoded_usages: None,
         };
         let callbacks = NativeCallbacks {
             context: (&mut context as *mut WorkerContext).cast(),
             should_stop: should_stop_callback,
             on_event: event_callback,
+            decode_report: decode_report_callback,
         };
         let result = unsafe {
             axonkey_macos_input_run(
@@ -414,6 +442,10 @@ fn worker_loop(shared: Arc<Shared>) {
                     .instance
                     .as_ref()
                     .map_or(std::ptr::null(), |instance| instance.serial.as_ptr()),
+                vendor_id,
+                product_id,
+                native_sources.as_ptr(),
+                native_sources.len(),
             )
         };
         if result != 0 {
@@ -506,7 +538,8 @@ unsafe extern "C" fn event_callback(
                     status.input_monitoring_open_denied = false;
                 }
                 status.device_connected = true;
-                status.hardware_id = Some("HID\\VID_2717&PID_32B8".into());
+                status.hardware_id = crate::devices::descriptor_registry::primary_hardware("rc003")
+                    .map(|(vendor, product)| format!("HID\\VID_{vendor:04X}&PID_{product:04X}"));
                 status.capture_active = context.capture && capture_mode != 0;
                 if context.capture && capture_mode == 0 {
                     status.error = Some("RC003 could not be captured or filtered on macOS".into());
@@ -549,7 +582,7 @@ unsafe extern "C" fn event_callback(
         }
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
             let report = std::slice::from_raw_parts(bytes, length);
-            if let Some(usages) = parse_hid_report(report_id, report) {
+            if let Some(usages) = context.decoded_usages.take() {
                 if let Some(instance) = &context.shared.instance {
                     if !(instance.is_current)() {
                         return;
@@ -580,6 +613,40 @@ unsafe extern "C" fn event_callback(
         }
         context.shared.restart.store(true, Ordering::Release);
     }
+}
+
+unsafe extern "C" fn decode_report_callback(
+    context: *mut c_void,
+    report_id: u32,
+    bytes: *const u8,
+    length: usize,
+    output: *mut u64,
+    capacity: usize,
+) -> usize {
+    if context.is_null() || bytes.is_null() || output.is_null() {
+        return usize::MAX;
+    }
+    let context = &mut *(context.cast::<WorkerContext>());
+    context.decoded_usages = None;
+    catch_unwind(AssertUnwindSafe(|| {
+        let Some(usages) = parse_hid_report(report_id, std::slice::from_raw_parts(bytes, length))
+        else {
+            return usize::MAX;
+        };
+        if usages.len() > capacity {
+            return usize::MAX;
+        }
+        for (index, usage) in usages.iter().enumerate() {
+            let Some(source) = source_for_usage(*usage) else {
+                return usize::MAX;
+            };
+            *output.add(index) = (u64::from(source.page) << 32) | u64::from(source.usage);
+        }
+        let count = usages.len();
+        context.decoded_usages = Some(usages);
+        count
+    }))
+    .unwrap_or(usize::MAX)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -651,76 +718,114 @@ const FLAG_DEVICE_RIGHT_OPTION: u64 = 0x0000_0040;
 #[derive(Clone, Copy)]
 struct SourceKey {
     id: &'static str,
+    page: u16,
     usage: u16,
     original: MacKey,
+    preserve_original: bool,
     repeat_initial_ms: u64,
     repeat_interval_ms: u64,
 }
 
-impl SourceKey {
-    const fn new(id: &'static str, usage: u16, original: MacKey) -> Self {
-        Self {
-            id,
-            usage,
-            original,
-            repeat_initial_ms: REPEAT_INITIAL_MS,
-            repeat_interval_ms: REPEAT_INTERVAL_MS,
-        }
-    }
-
-    const fn with_repeat(
-        id: &'static str,
-        usage: u16,
-        original: MacKey,
-        repeat_initial_ms: u64,
-        repeat_interval_ms: u64,
-    ) -> Self {
-        Self {
-            id,
-            usage,
-            original,
-            repeat_initial_ms,
-            repeat_interval_ms,
-        }
-    }
+fn source_keys() -> &'static [SourceKey] {
+    static KEYS: OnceLock<Vec<SourceKey>> = OnceLock::new();
+    KEYS.get_or_init(|| {
+        crate::devices::descriptor_registry::descriptor_for_kind("rc003")
+            .into_iter()
+            .flat_map(|descriptor| &descriptor.inputs)
+            .filter_map(|input| {
+                let (page, usage) = input
+                    .sources
+                    .iter()
+                    .find_map(|source| Some((source.page?, source.usage?)))?;
+                let original = mac_key_for_hid_usage(page, usage)?;
+                let media = matches!(original, MacKey::System { .. });
+                Some(SourceKey {
+                    id: crate::devices::descriptor_registry::input_key(input),
+                    page,
+                    usage,
+                    original,
+                    preserve_original: input.original,
+                    repeat_initial_ms: if media || usage == 0xf1 {
+                        MEDIA_REPEAT_INITIAL_MS
+                    } else {
+                        REPEAT_INITIAL_MS
+                    },
+                    repeat_interval_ms: if media {
+                        MEDIA_REPEAT_INTERVAL_MS
+                    } else {
+                        REPEAT_INTERVAL_MS
+                    },
+                })
+            })
+            .collect()
+    })
 }
 
-const SOURCE_KEYS: [SourceKey; 13] = [
-    SourceKey::new("voice", 0x3e, MacKey::keyboard(96)),
-    SourceKey::new("power", 0x66, MacKey::keyboard(90)),
-    SourceKey::new("home", 0x4a, MacKey::keyboard(115)),
-    SourceKey::new("tv", 0x35, MacKey::keyboard(50)),
-    SourceKey::new("menu", 0x65, MacKey::keyboard(110)),
-    SourceKey::new("confirm", 0x28, MacKey::keyboard(36)),
-    SourceKey::new("up", 0x52, MacKey::keyboard(126)),
-    SourceKey::new("down", 0x51, MacKey::keyboard(125)),
-    SourceKey::new("left", 0x50, MacKey::keyboard(123)),
-    SourceKey::new("right", 0x4f, MacKey::keyboard(124)),
-    SourceKey::with_repeat(
-        "back",
-        0xf1,
-        MacKey::keyboard(51),
-        MEDIA_REPEAT_INITIAL_MS,
-        REPEAT_INTERVAL_MS,
-    ),
-    SourceKey::with_repeat(
-        "volumeUp",
-        0x80,
-        MacKey::system(0),
-        MEDIA_REPEAT_INITIAL_MS,
-        MEDIA_REPEAT_INTERVAL_MS,
-    ),
-    SourceKey::with_repeat(
-        "volumeDown",
-        0x81,
-        MacKey::system(1),
-        MEDIA_REPEAT_INITIAL_MS,
-        MEDIA_REPEAT_INTERVAL_MS,
-    ),
-];
+fn native_sources() -> Vec<NativeSource> {
+    let voice = crate::devices::descriptor_registry::voice_key("rc003");
+    let power = power_key_guard().source;
+    source_keys()
+        .iter()
+        .map(|source| {
+            let (kind, code) = match source.original {
+                MacKey::Keyboard { code, .. } => (1, i32::from(code)),
+                MacKey::System { kind } => (2, kind),
+            };
+            let usage = (u64::from(source.page) << 32) | u64::from(source.usage);
+            NativeSource {
+                usage,
+                kind,
+                code,
+                flags: u32::from(voice == Some(source.id)) | (u32::from(usage == power) << 1),
+            }
+        })
+        .collect()
+}
+
+fn mac_key_for_hid_usage(page: u16, usage: u16) -> Option<MacKey> {
+    if page == 12 {
+        return Some(match usage {
+            0x41 => MacKey::keyboard(36),
+            0xe2 => MacKey::system(7),
+            0xe9 => MacKey::system(0),
+            0xea => MacKey::system(1),
+            0xfc | 0x224 => MacKey::keyboard(51),
+            0x223 => MacKey::keyboard(115),
+            _ => return None,
+        });
+    }
+    if page != 7 {
+        return None;
+    }
+    Some(match usage {
+        0x1e..=0x27 => {
+            return mac_key_for_name(
+                ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"][usize::from(usage - 0x1e)],
+            )
+        }
+        0x28 => MacKey::keyboard(36),
+        0x29 => MacKey::keyboard(53),
+        0x35 => MacKey::keyboard(50),
+        0x3e => MacKey::keyboard(96),
+        0x4a => MacKey::keyboard(115),
+        0x4b => MacKey::keyboard(116),
+        0x4e => MacKey::keyboard(121),
+        0x4f => MacKey::keyboard(124),
+        0x50 => MacKey::keyboard(123),
+        0x51 => MacKey::keyboard(125),
+        0x52 => MacKey::keyboard(126),
+        0x65 => MacKey::keyboard(110),
+        // The platform adapter preserves RC003's raw Power/Back/volume output.
+        0x66 => MacKey::keyboard(90),
+        0xf1 => MacKey::keyboard(51),
+        0x80 => MacKey::system(0),
+        0x81 => MacKey::system(1),
+        _ => return None,
+    })
+}
 
 fn source_for_usage(usage: u16) -> Option<SourceKey> {
-    SOURCE_KEYS
+    source_keys()
         .iter()
         .copied()
         .find(|source| source.usage == usage)
@@ -823,7 +928,7 @@ fn tap_key(key: MacKey) {
 
 struct PressState {
     started_at: Instant,
-    original: MacKey,
+    original: Option<MacKey>,
     long_fired: bool,
     long_repeat_due_at: Option<Instant>,
     passthrough: bool,
@@ -835,7 +940,7 @@ struct PressState {
 
 struct PendingClick {
     due_at: Instant,
-    original: MacKey,
+    original: Option<MacKey>,
 }
 
 #[derive(Default)]
@@ -943,10 +1048,12 @@ impl MacInputState {
         }
         if !settings.enabled || !has_custom_behavior(&triggers) {
             log::info!(target: "axonkey::input", "RC003 passthrough: button={}, mapping_enabled={}", source.id, settings.enabled);
-            post_key(source.original, true, 0, false);
+            if source.preserve_original {
+                post_key(source.original, true, 0, false);
+            }
             state.pressed = Some(PressState {
                 started_at: now,
-                original: source.original,
+                original: source.preserve_original.then_some(source.original),
                 long_fired: false,
                 long_repeat_due_at: None,
                 passthrough: true,
@@ -975,7 +1082,7 @@ impl MacInputState {
             .unwrap_or_else(|| PressedChord { keys: Vec::new() });
         state.pressed = Some(PressState {
             started_at: now,
-            original: source.original,
+            original: source.preserve_original.then_some(source.original),
             long_fired: false,
             long_repeat_due_at: None,
             passthrough: false,
@@ -1019,7 +1126,9 @@ impl MacInputState {
             return;
         }
         if press.passthrough {
-            post_key(press.original, false, 0, false);
+            if let Some(original) = press.original {
+                post_key(original, false, 0, false);
+            }
             return;
         }
         if press.long_fired {
@@ -1038,7 +1147,9 @@ impl MacInputState {
             return;
         }
         if !long_enabled && press.started_at.elapsed() >= Duration::from_millis(LONG_PRESS_MS) {
-            tap_key(press.original);
+            if let Some(original) = press.original {
+                tap_key(original);
+            }
             return;
         }
         if has_enabled(&triggers.double_click) {
@@ -1076,7 +1187,7 @@ impl MacInputState {
             return;
         }
         let now = Instant::now();
-        for source in SOURCE_KEYS {
+        for source in source_keys().iter().copied() {
             let Some(state) = self.button_states.get_mut(source.id) else {
                 continue;
             };
@@ -1121,7 +1232,9 @@ impl MacInputState {
                             Some(now + Duration::from_millis(LONG_PRESS_REPEAT_INITIAL_MS));
                     } else {
                         log::info!(target: "axonkey::input", "RC003 long-press passthrough: button={}", source.id);
-                        post_key(press.original, true, 0, false);
+                        if let Some(original) = press.original {
+                            post_key(original, true, 0, false);
+                        }
                         press.passthrough = true;
                         press.next_repeat_at =
                             now + Duration::from_millis(press.repeat_interval_ms);
@@ -1145,7 +1258,9 @@ impl MacInputState {
                     if !press.held_outputs.is_empty() {
                         press.held_outputs.repeat();
                     } else if press.passthrough {
-                        post_key(press.original, true, 0, true);
+                        if let Some(original) = press.original {
+                            post_key(original, true, 0, true);
+                        }
                     }
                     press.next_repeat_at = now + Duration::from_millis(press.repeat_interval_ms);
                 }
@@ -1167,7 +1282,9 @@ impl MacInputState {
                     press.held_outputs.release();
                 }
                 if press.passthrough {
-                    post_key(press.original, false, 0, false);
+                    if let Some(original) = press.original {
+                        post_key(original, false, 0, false);
+                    }
                 }
             }
             state.pending_click = None;
@@ -1203,22 +1320,21 @@ fn pending_click_is_due(state: &ButtonState, now: Instant) -> bool {
 }
 
 fn parse_hid_report(report_id: u32, report: &[u8]) -> Option<HashSet<u16>> {
-    if report_id != 1 {
+    let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("rc003")?;
+    if !descriptor
+        .reports
+        .values()
+        .any(|candidate| candidate.report_id.map(u32::from) == Some(report_id))
+    {
         return None;
     }
-    let bytes = if report.len() == 7 && report.first().copied() == Some(report_id as u8) {
-        &report[1..]
-    } else {
-        report
-    };
-    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
-        return None;
-    }
+    let values = crate::devices::engine::decode_descriptor(descriptor, report)?;
     Some(
-        bytes
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .filter(|usage| *usage != 0)
+        descriptor
+            .inputs
+            .iter()
+            .filter(|input| values.get(&input.id).is_some_and(|value| *value > 0.0))
+            .filter_map(|input| input.sources.iter().find_map(|source| source.usage))
             .collect(),
     )
 }
@@ -1316,7 +1432,7 @@ fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifier
     if !settings.enabled {
         return Vec::new();
     }
-    SOURCE_KEYS
+    source_keys()
         .iter()
         .filter(|source| supports_hardware_modifier_remap(source))
         .filter_map(|source| {
@@ -1325,7 +1441,7 @@ fn hardware_modifier_mappings(settings: &NativeSettings) -> Vec<HardwareModifier
                 return None;
             }
             Some(HardwareModifierMapping {
-                source: HID_KEYBOARD_USAGE_PAGE | u64::from(source.usage),
+                source: (u64::from(source.page) << 32) | u64::from(source.usage),
                 destination: keys[0].hardware_modifier_usage()?,
             })
         })
@@ -1337,9 +1453,9 @@ fn hardware_capture_mappings(settings: &NativeSettings) -> Vec<HardwareModifierM
     if settings.enabled
         && !mappings
             .iter()
-            .any(|mapping| mapping.source == POWER_KEY_GUARD.source)
+            .any(|mapping| mapping.source == power_key_guard().source)
     {
-        mappings.push(POWER_KEY_GUARD);
+        mappings.push(power_key_guard());
     }
     mappings
 }
@@ -1348,7 +1464,7 @@ fn hardware_action_usages(mappings: &[HardwareModifierMapping]) -> HashSet<u16> 
     // F20 only neutralizes Power; its configured gestures still run in software.
     mappings
         .iter()
-        .filter(|mapping| **mapping != POWER_KEY_GUARD)
+        .filter(|mapping| **mapping != power_key_guard())
         .map(|mapping| mapping.source as u16)
         .collect()
 }
@@ -1411,10 +1527,14 @@ fn execute_remote_behaviors(shared: &Shared, behaviors: &[NativeBehavior]) {
     }
 }
 
-fn execute_click_or_original(shared: &Shared, behaviors: &[NativeBehavior], original: MacKey) {
+fn execute_click_or_original(
+    shared: &Shared,
+    behaviors: &[NativeBehavior],
+    original: Option<MacKey>,
+) {
     if has_enabled(behaviors) {
         execute_remote_behaviors(shared, behaviors);
-    } else {
+    } else if let Some(original) = original {
         tap_key(original);
     }
 }
@@ -1764,6 +1884,23 @@ pub(super) fn validate_settings(settings: &NativeSettings) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     #[test]
+    fn native_filter_sources_come_from_the_descriptor() {
+        let sources = native_sources();
+        assert_eq!(sources.len(), source_keys().len());
+        let voice = sources
+            .iter()
+            .find(|source| source.usage == (7u64 << 32) | 0x3e)
+            .unwrap();
+        assert_eq!((voice.kind, voice.code, voice.flags), (1, 96, 1));
+        let power = sources
+            .iter()
+            .find(|source| source.usage == (7u64 << 32) | 0x66)
+            .unwrap();
+        assert_eq!((power.kind, power.code, power.flags), (1, 90, 2));
+        assert_eq!(std::mem::size_of::<NativeSource>(), 24);
+    }
+
+    #[test]
     fn bound_remote_keeps_legacy_repeat_and_routes_profile_switch_to_its_instance() {
         let reports = Arc::new(Mutex::new(Vec::new()));
         let switches = Arc::new(Mutex::new(Vec::new()));
@@ -1808,10 +1945,24 @@ mod tests {
             device_seen: true,
             input: MacInputState::default(),
             next_permission_check: Instant::now() + Duration::from_secs(1),
+            decoded_usages: None,
         };
         let send = |context: &mut WorkerContext, usage: u8| {
             let report = [1, usage, 0, 0, 0, 0, 0];
             unsafe {
+                let mut decoded = [0u64; 32];
+                let count = decode_report_callback(
+                    (context as *mut WorkerContext).cast(),
+                    1,
+                    report.as_ptr(),
+                    report.len(),
+                    decoded.as_mut_ptr(),
+                    decoded.len(),
+                );
+                assert_eq!(count, usize::from(usage != 0));
+                if usage != 0 {
+                    assert_eq!(decoded[0], (7u64 << 32) | u64::from(usage));
+                }
                 event_callback(
                     (context as *mut WorkerContext).cast(),
                     EVENT_INPUT_REPORT,
@@ -2433,7 +2584,10 @@ mod tests {
             enabled: true,
             ..NativeSettings::default()
         };
-        assert_eq!(hardware_capture_mappings(&settings), vec![POWER_KEY_GUARD]);
+        assert_eq!(
+            hardware_capture_mappings(&settings),
+            vec![power_key_guard()]
+        );
         assert!(hardware_action_usages(&hardware_capture_mappings(&settings)).is_empty());
 
         settings.behaviors.insert(
@@ -2457,7 +2611,7 @@ mod tests {
             },
         );
         let mappings = hardware_capture_mappings(&settings);
-        assert!(mappings.contains(&POWER_KEY_GUARD));
+        assert!(mappings.contains(&power_key_guard()));
         let hardware_actions = hardware_action_usages(&mappings);
         assert_eq!(hardware_actions, HashSet::from([0x3e]));
         let shared = Shared {
@@ -2499,11 +2653,11 @@ mod tests {
         assert_eq!(
             mappings
                 .iter()
-                .filter(|mapping| mapping.source == POWER_KEY_GUARD.source)
+                .filter(|mapping| mapping.source == power_key_guard().source)
                 .count(),
             1
         );
-        assert!(!mappings.contains(&POWER_KEY_GUARD));
+        assert!(!mappings.contains(&power_key_guard()));
         assert!(hardware_action_usages(&mappings).contains(&0x66));
         settings.enabled = false;
         assert!(hardware_capture_mappings(&settings).is_empty());
@@ -2522,7 +2676,7 @@ mod tests {
             ("Win", 0xe3),
             ("RWin", 0xe7),
         ];
-        for source in SOURCE_KEYS {
+        for source in source_keys().iter().copied() {
             for (modifier, destination_usage) in modifiers {
                 let mut settings = NativeSettings {
                     enabled: true,
@@ -2664,7 +2818,7 @@ mod tests {
         let mut state = ButtonState {
             pending_click: Some(PendingClick {
                 due_at: now,
-                original: MacKey::keyboard(53),
+                original: Some(MacKey::keyboard(53)),
             }),
             ..ButtonState::default()
         };
@@ -2672,7 +2826,7 @@ mod tests {
 
         state.pressed = Some(PressState {
             started_at: now,
-            original: MacKey::keyboard(53),
+            original: Some(MacKey::keyboard(53)),
             long_fired: false,
             long_repeat_due_at: None,
             passthrough: false,
@@ -2708,6 +2862,7 @@ mod tests {
             device_seen: true,
             input: MacInputState::default(),
             next_permission_check: Instant::now(),
+            decoded_usages: None,
         };
         let context_ptr = (&mut context as *mut WorkerContext).cast();
         unsafe {

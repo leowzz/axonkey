@@ -7,23 +7,49 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const CMIOT_A15_SOFTWARE_MARKER: &str = "CMIOT3_B311";
-const XM_BT_29_SOFTWARE_MARKER: &str = "XFRSD0D_M_R01_761";
-const RC_313_SOFTWARE_MARKER: &str = "CMIOT18_B302";
-
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
-    if kind == "obeRcuR5" {
-        return Some("obeRcuR5");
-    }
-    if !matches!(kind, "cmiotA15" | "xmBt29" | "rc313") {
+    use crate::devices::descriptor_registry::{
+        descriptor_for_kind, matches_hardware, primary_hardware, KINDS,
+    };
+    if !super::uses_hid_voice(kind) {
         return None;
     }
-    Some(match software {
-        Some(version) if version.contains(CMIOT_A15_SOFTWARE_MARKER) => "cmiotA15",
-        Some(version) if version.contains(XM_BT_29_SOFTWARE_MARKER) => "xmBt29",
-        Some(version) if version.contains(RC_313_SOFTWARE_MARKER) => "rc313",
-        _ => "rc313",
-    })
+    let (vendor, product) = primary_hardware(kind)?;
+    let candidates = KINDS
+        .iter()
+        .copied()
+        .filter(|candidate| matches_hardware(candidate, vendor, product, None, None))
+        .collect::<Vec<_>>();
+    candidates
+        .iter()
+        .copied()
+        .find(|candidate| {
+            descriptor_for_kind(candidate).is_some_and(|descriptor| {
+                descriptor.identities.iter().any(|identity| {
+                    identity
+                        .attributes
+                        .get("software-contains")
+                        .is_some_and(|marker| {
+                            software.is_some_and(|software| {
+                                marker.split('|').any(|marker| software.contains(marker))
+                            })
+                        })
+                })
+            })
+        })
+        .or_else(|| {
+            candidates.iter().copied().find(|candidate| {
+                descriptor_for_kind(candidate).is_some_and(|descriptor| {
+                    descriptor.identities.iter().any(|identity| {
+                        identity
+                            .attributes
+                            .get("software-fallback")
+                            .is_some_and(|value| value == "true")
+                    })
+                })
+            })
+        })
+        .or_else(|| (candidates.len() == 1).then(|| candidates[0]))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -66,10 +92,8 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .iter_mut()
         .find(|device| device.id == binding)
         .ok_or("未找到绑定设备")?;
-    if !matches!(
-        device.kind.as_str(),
-        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-    ) || !device.connected
+    if crate::devices::descriptor_registry::voice_engine(&device.kind).is_none()
+        || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
     {
@@ -126,10 +150,8 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .discovered
                 .iter()
                 .filter(|d| {
-                    matches!(
-                        d.kind.as_str(),
-                        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-                    ) && d.connected
+                    crate::devices::descriptor_registry::voice_engine(&d.kind).is_some()
+                        && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
                 })

@@ -1,0 +1,179 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1"
+     width="440" height="904" viewBox="0 0 440 904"
+     data-ak-schema="axonkey.device/1" data-ak-device="tcl-rc902n"
+     data-ak-revision="1" data-ak-status="draft" role="img"
+     aria-labelledby="device-title device-description">
+  <title id="device-title">TCL RC902N 按键区：正面与侧面</title>
+  <desc id="device-description">根据用户正面与侧面照片绘制，正面二十个输入，侧面音量加、音量减和静音三个输入。软件标志以字母代替，机身下端按可见按键区裁切。图稿与精确热区为待采集草稿，尚不能启用设备。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="tcl-rc902n" vendor="TCL" model="RC902N"
+               revision="1" display-name="TCL RC902N" status="draft">
+      <ak:pending-identity hardware-id="DEV_VID&amp;010417_PID&amp;0304" operator="and" evidence="user-provided">
+        <ak:condition characteristic="0x2A28" field="SoftwareRevision" contains="RC902N" />
+      </ak:pending-identity>
+      <ak:inputs>
+        <ak:input id="tcl-rc902n.menu" label="菜单" short="菜单" icon="menu" kind="button" order="1" target="#key-menu" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.power" label="电源" short="电源" icon="power" kind="button" order="2" target="#key-power" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.assistant" label="助手图标键" short="助手" icon="mic" kind="button" order="4" target="#key-assistant" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.settings" label="设置" short="设置" icon="settings" kind="button" order="5" target="#key-settings" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.up" label="上" short="上" icon="up" kind="button" order="6" target="#key-up" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.right" label="右" short="右" icon="right" kind="button" order="7" target="#key-right" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.down" label="下" short="下" icon="down" kind="button" order="8" target="#key-down" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.left" label="左" short="左" icon="left" kind="button" order="9" target="#key-left" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.confirm" label="确认" short="确认" icon="center" kind="button" order="10" target="#key-confirm" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.back" label="返回" short="返回" icon="back" kind="button" order="11" target="#key-back" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.home" label="主页" short="主页" icon="home" kind="button" order="12" target="#key-home" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.tv" label="电视图标键" short="电视" icon="tv" kind="button" order="13" target="#key-tv" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.keypad" label="键盘与四色点图标键" short="键盘" icon="number" kind="button" order="14" target="#key-keypad" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.layers" label="双层菱形图标键" short="菱形" icon="center" kind="button" order="15" target="#key-layers" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.tiles" label="方块图标键" short="方块" icon="center" kind="button" order="16" target="#key-tiles" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.appN" label="应用 N（Netflix）" short="N" icon="tv" kind="button" order="17" target="#key-app-n" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.appY" label="应用 Y（YouTube）" short="Y" icon="tv" kind="button" order="18" target="#key-app-y" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.appT" label="应用 T（TCL Channel）" short="T" icon="tv" kind="button" order="19" target="#key-app-t" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.appP" label="应用 P（Prime Video）" short="P" icon="tv" kind="button" order="20" target="#key-app-p" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.volumeUp" label="音量加" short="音量＋" icon="volumeUp" kind="button" order="21" target="#key-volume-up" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.volumeDown" label="音量减" short="音量－" icon="volumeDown" kind="button" order="22" target="#key-volume-down" original="false" binding="pending" />
+        <ak:input id="tcl-rc902n.mute" label="静音" short="静音" icon="mute" kind="button" order="23" target="#key-mute" original="false" binding="pending" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+
+  <g data-ak-view="front" aria-label="正面按键区">
+    <path d="M 20 884 V 105 Q 20 20 100 20 H 228 Q 308 20 308 105 V 884 Z" fill="#292c30" stroke="#181a1e" stroke-width="2" />
+    <path d="M 308 286 h 3 q 3 0 3 5 v 188 q 0 5 -3 5 h -3 Z M 308 528 h 4 v 48 h -4 Z" fill="#171a1d" aria-hidden="true" />
+    <circle cx="164" cy="102" r="4" fill="#101215" aria-label="中央小孔，非按键" />
+
+    <g id="key-menu" data-ak-key="tcl-rc902n.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单">
+      <circle cx="76" cy="102" r="35" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 66 91 H 86 M 66 97 H 86 M 66 103 H 86 M 66 109 H 86" fill="none" stroke="#c8d0d3" stroke-width="3" />
+    </g>
+    <g id="key-power" data-ak-key="tcl-rc902n.power" data-ak-role="input" role="button" tabindex="0" aria-label="电源">
+      <circle cx="252" cy="102" r="35" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 243 92 A 13 13 0 1 0 261 92 M 252 85 V 101" fill="none" stroke="#c74250" stroke-width="3" stroke-linecap="round" />
+    </g>
+    <g id="key-bookmark" data-ak-key="tcl-rc902n.bookmark" data-ak-role="input" role="button" tabindex="0" aria-label="书签图标键">
+      <circle cx="76" cy="190" r="35" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 67 176 H 85 V 204 L 76 198 L 67 204 Z" fill="#c8d0d3" />
+    </g>
+    <g id="key-assistant" data-ak-key="tcl-rc902n.assistant" data-ak-role="input" role="button" tabindex="0" aria-label="助手图标键">
+      <circle cx="164" cy="190" r="35" fill="#bdc5c8" stroke="#111316" stroke-width="2" />
+      <text x="164" y="200" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="600" fill="#3899ce">A</text>
+    </g>
+    <g id="key-settings" data-ak-key="tcl-rc902n.settings" data-ak-role="input" role="button" tabindex="0" aria-label="设置">
+      <circle cx="252" cy="190" r="35" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 248 175 H 256 L 257 180 L 261 182 L 265 180 L 269 187 L 265 190 L 265 194 L 268 197 L 264 204 L 259 202 L 256 204 L 255 208 H 248 L 247 203 L 243 201 L 239 203 L 235 196 L 239 193 V 189 L 235 186 L 239 179 L 244 181 L 247 179 Z" fill="#c8d0d3" />
+      <circle cx="252" cy="191" r="6" fill="#191c20" />
+    </g>
+
+    <circle cx="164" cy="370" r="124" fill="#bdc5c8" stroke="#111316" stroke-width="2" />
+    <g id="key-up" data-ak-key="tcl-rc902n.up" data-ak-role="input" role="button" tabindex="0" aria-label="上">
+      <path d="M 76.318759 282.318759 A 124 124 0 0 1 251.681241 282.318759 L 202.183766 331.816234 A 54 54 0 0 0 125.816234 331.816234 Z" fill="transparent" />
+    </g>
+    <g id="key-right" data-ak-key="tcl-rc902n.right" data-ak-role="input" role="button" tabindex="0" aria-label="右">
+      <path d="M 251.681241 282.318759 A 124 124 0 0 1 251.681241 457.681241 L 202.183766 408.183766 A 54 54 0 0 0 202.183766 331.816234 Z" fill="transparent" />
+    </g>
+    <g id="key-down" data-ak-key="tcl-rc902n.down" data-ak-role="input" role="button" tabindex="0" aria-label="下">
+      <path d="M 251.681241 457.681241 A 124 124 0 0 1 76.318759 457.681241 L 125.816234 408.183766 A 54 54 0 0 0 202.183766 408.183766 Z" fill="transparent" />
+    </g>
+    <g id="key-left" data-ak-key="tcl-rc902n.left" data-ak-role="input" role="button" tabindex="0" aria-label="左">
+      <path d="M 76.318759 457.681241 A 124 124 0 0 1 76.318759 282.318759 L 125.816234 331.816234 A 54 54 0 0 0 125.816234 408.183766 Z" fill="transparent" />
+    </g>
+    <g id="key-confirm" data-ak-key="tcl-rc902n.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认">
+      <circle cx="164" cy="370" r="54" fill="#24272b" stroke="#111316" stroke-width="2" />
+    </g>
+
+    <g id="key-back" data-ak-key="tcl-rc902n.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回">
+      <circle cx="76" cy="552" r="36" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 88 552 H 65 L 74 543 M 65 552 L 74 561" fill="none" stroke="#c8d0d3" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+    </g>
+    <g id="key-home" data-ak-key="tcl-rc902n.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页">
+      <circle cx="164" cy="552" r="36" fill="#bdc5c8" stroke="#111316" stroke-width="2" />
+      <path d="M 153 549 L 164 538 L 175 549 V 564 H 167 V 555 H 161 V 564 H 153 Z" fill="#15191c" />
+    </g>
+    <g id="key-tv" data-ak-key="tcl-rc902n.tv" data-ak-role="input" role="button" tabindex="0" aria-label="电视图标键">
+      <circle cx="252" cy="552" r="36" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 240 547 H 264 V 563 H 240 Z M 246 539 L 252 545 L 258 539" fill="none" stroke="#c8d0d3" stroke-width="3" stroke-linejoin="round" />
+    </g>
+    <g id="key-keypad" data-ak-key="tcl-rc902n.keypad" data-ak-role="input" role="button" tabindex="0" aria-label="键盘与四色点图标键">
+      <circle cx="76" cy="646" r="36" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 63 633 H 89 V 653 H 63 Z M 68 638 H 69 M 75 638 H 76 M 82 638 H 83 M 68 644 H 69 M 75 644 H 76 M 82 644 H 83 M 71 649 H 81" fill="none" stroke="#c8d0d3" stroke-width="2" />
+      <circle cx="64" cy="662" r="2.4" fill="#c84252" />
+      <circle cx="72" cy="662" r="2.4" fill="#309b72" />
+      <circle cx="80" cy="662" r="2.4" fill="#d9ba45" />
+      <circle cx="88" cy="662" r="2.4" fill="#3899ce" />
+    </g>
+    <g id="key-layers" data-ak-key="tcl-rc902n.layers" data-ak-role="input" role="button" tabindex="0" aria-label="双层菱形图标键">
+      <circle cx="164" cy="646" r="36" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 164 634 L 178 641 L 164 649 L 150 641 Z" fill="none" stroke="#3899ce" stroke-width="2.4" stroke-linejoin="round" />
+      <path d="M 155 649 L 150 652 L 164 660 L 178 652 L 173 649" fill="none" stroke="#c8d0d3" stroke-width="2.4" stroke-linejoin="round" />
+    </g>
+    <g id="key-tiles" data-ak-key="tcl-rc902n.tiles" data-ak-role="input" role="button" tabindex="0" aria-label="方块图标键">
+      <circle cx="252" cy="646" r="36" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 241 633 H 250 V 643 H 241 Z M 256 633 H 265 V 643 H 256 Z M 241 649 H 250 V 659 H 241 Z" fill="none" stroke="#c95a67" stroke-width="2" />
+      <path d="M 255 650 H 266 M 255 655 H 262" fill="none" stroke="#d9ba45" stroke-width="2" />
+    </g>
+
+    <rect x="38" y="706" width="252" height="68" rx="34" fill="#e4e4d6" stroke="#111316" stroke-width="2" />
+    <g id="key-app-n" data-ak-key="tcl-rc902n.appN" data-ak-role="input" role="button" tabindex="0" aria-label="应用 N（Netflix）">
+      <path d="M 164 706 V 774 H 72 A 34 34 0 0 1 72 706 Z" fill="transparent" />
+      <text x="101" y="750" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="700" fill="#d22331">N</text>
+    </g>
+    <g id="key-app-y" data-ak-key="tcl-rc902n.appY" data-ak-role="input" role="button" tabindex="0" aria-label="应用 Y（YouTube）">
+      <path d="M 164 706 H 256 A 34 34 0 0 1 256 774 H 164 Z" fill="transparent" />
+      <text x="227" y="750" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="700" fill="#171b1e">Y</text>
+    </g>
+    <rect x="38" y="794" width="252" height="68" rx="34" fill="#e4e4d6" stroke="#111316" stroke-width="2" />
+    <g id="key-app-t" data-ak-key="tcl-rc902n.appT" data-ak-role="input" role="button" tabindex="0" aria-label="应用 T（TCL Channel）">
+      <path d="M 164 794 V 862 H 72 A 34 34 0 0 1 72 794 Z" fill="transparent" />
+      <text x="101" y="838" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="700" fill="#d22331">T</text>
+    </g>
+    <g id="key-app-p" data-ak-key="tcl-rc902n.appP" data-ak-role="input" role="button" tabindex="0" aria-label="应用 P（Prime Video）">
+      <path d="M 164 794 H 256 A 34 34 0 0 1 256 862 H 164 Z" fill="transparent" />
+      <text x="227" y="838" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="700" fill="#171b1e">P</text>
+    </g>
+  </g>
+
+  <g data-ak-view="side" aria-label="侧面按键区">
+    <rect x="344" y="20" width="72" height="864" fill="#292c30" stroke="#181a1e" stroke-width="2" />
+    <rect x="358" y="286" width="44" height="198" rx="22" fill="#191c20" stroke="#111316" stroke-width="2" />
+    <g id="key-volume-up" data-ak-key="tcl-rc902n.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 358 385 V 308 A 22 22 0 0 1 402 308 V 385 Z" fill="transparent" />
+      <path d="M 372 310 H 388 M 380 302 V 318" fill="none" stroke="#c8d0d3" stroke-width="2.7" stroke-linecap="round" />
+    </g>
+    <g id="key-volume-down" data-ak-key="tcl-rc902n.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 358 385 H 402 V 462 A 22 22 0 0 1 358 462 Z" fill="transparent" />
+      <path d="M 372 461 H 388" fill="none" stroke="#c8d0d3" stroke-width="2.7" stroke-linecap="round" />
+    </g>
+    <g id="key-mute" data-ak-key="tcl-rc902n.mute" data-ak-role="input" role="button" tabindex="0" aria-label="静音">
+      <circle cx="380" cy="552" r="24" fill="#191c20" stroke="#111316" stroke-width="2" />
+      <path d="M 368 548 H 373 L 379 543 V 561 L 373 556 H 368 Z M 384 547 L 391 557 M 391 547 L 384 557" fill="none" stroke="#c8d0d3" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+    </g>
+  </g>
+
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="tcl-rc902n.menu" data-ak-anchor="76 102" d="M 41 102 A 35 35 0 1 0 111 102 A 35 35 0 1 0 41 102 Z" />
+    <path data-ak-region="tcl-rc902n.power" data-ak-anchor="252 102" d="M 217 102 A 35 35 0 1 0 287 102 A 35 35 0 1 0 217 102 Z" />
+    <path data-ak-region="tcl-rc902n.bookmark" data-ak-anchor="76 190" d="M 41 190 A 35 35 0 1 0 111 190 A 35 35 0 1 0 41 190 Z" />
+    <path data-ak-region="tcl-rc902n.assistant" data-ak-anchor="164 190" d="M 129 190 A 35 35 0 1 0 199 190 A 35 35 0 1 0 129 190 Z" />
+    <path data-ak-region="tcl-rc902n.settings" data-ak-anchor="252 190" d="M 217 190 A 35 35 0 1 0 287 190 A 35 35 0 1 0 217 190 Z" />
+    <path data-ak-region="tcl-rc902n.up" data-ak-anchor="164 281" d="M 76.318759 282.318759 A 124 124 0 0 1 251.681241 282.318759 L 202.183766 331.816234 A 54 54 0 0 0 125.816234 331.816234 Z" />
+    <path data-ak-region="tcl-rc902n.right" data-ak-anchor="253 370" d="M 251.681241 282.318759 A 124 124 0 0 1 251.681241 457.681241 L 202.183766 408.183766 A 54 54 0 0 0 202.183766 331.816234 Z" />
+    <path data-ak-region="tcl-rc902n.down" data-ak-anchor="164 459" d="M 251.681241 457.681241 A 124 124 0 0 1 76.318759 457.681241 L 125.816234 408.183766 A 54 54 0 0 0 202.183766 408.183766 Z" />
+    <path data-ak-region="tcl-rc902n.left" data-ak-anchor="75 370" d="M 76.318759 457.681241 A 124 124 0 0 1 76.318759 282.318759 L 125.816234 331.816234 A 54 54 0 0 0 125.816234 408.183766 Z" />
+    <path data-ak-region="tcl-rc902n.confirm" data-ak-anchor="164 370" d="M 125.816234 331.816234 A 54 54 0 0 1 202.183766 331.816234 A 54 54 0 0 1 202.183766 408.183766 A 54 54 0 0 1 125.816234 408.183766 A 54 54 0 0 1 125.816234 331.816234 Z" />
+    <path data-ak-region="tcl-rc902n.back" data-ak-anchor="76 552" d="M 40 552 A 36 36 0 1 0 112 552 A 36 36 0 1 0 40 552 Z" />
+    <path data-ak-region="tcl-rc902n.home" data-ak-anchor="164 552" d="M 128 552 A 36 36 0 1 0 200 552 A 36 36 0 1 0 128 552 Z" />
+    <path data-ak-region="tcl-rc902n.tv" data-ak-anchor="252 552" d="M 216 552 A 36 36 0 1 0 288 552 A 36 36 0 1 0 216 552 Z" />
+    <path data-ak-region="tcl-rc902n.keypad" data-ak-anchor="76 646" d="M 40 646 A 36 36 0 1 0 112 646 A 36 36 0 1 0 40 646 Z" />
+    <path data-ak-region="tcl-rc902n.layers" data-ak-anchor="164 646" d="M 128 646 A 36 36 0 1 0 200 646 A 36 36 0 1 0 128 646 Z" />
+    <path data-ak-region="tcl-rc902n.tiles" data-ak-anchor="252 646" d="M 216 646 A 36 36 0 1 0 288 646 A 36 36 0 1 0 216 646 Z" />
+    <path data-ak-region="tcl-rc902n.appN" data-ak-anchor="101 740" d="M 164 706 V 774 H 72 A 34 34 0 0 1 72 706 Z" />
+    <path data-ak-region="tcl-rc902n.appY" data-ak-anchor="227 740" d="M 164 706 H 256 A 34 34 0 0 1 256 774 H 164 Z" />
+    <path data-ak-region="tcl-rc902n.appT" data-ak-anchor="101 828" d="M 164 794 V 862 H 72 A 34 34 0 0 1 72 794 Z" />
+    <path data-ak-region="tcl-rc902n.appP" data-ak-anchor="227 828" d="M 164 794 H 256 A 34 34 0 0 1 256 862 H 164 Z" />
+    <path data-ak-region="tcl-rc902n.volumeUp" data-ak-anchor="380 335" d="M 358 385 V 308 A 22 22 0 0 1 402 308 V 385 Z" />
+    <path data-ak-region="tcl-rc902n.volumeDown" data-ak-anchor="380 435" d="M 358 385 H 402 V 462 A 22 22 0 0 1 358 462 Z" />
+    <path data-ak-region="tcl-rc902n.mute" data-ak-anchor="380 552" d="M 356 552 A 24 24 0 1 0 404 552 A 24 24 0 1 0 356 552 Z" />
+  </g>
+</svg>

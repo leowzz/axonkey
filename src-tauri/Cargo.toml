@@ -21,6 +21,7 @@ protox = "0.10"
 tauri = { version = "2.12.4", features = ["macos-private-api", "tray-icon", "devtools"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+quick-xml = "0.41"
 semver = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 tauri-plugin-dialog = "2.8.3"

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="520" viewBox="0 0 680 520" class="controller" role="img" aria-labelledby="xbox-keymap-title xbox-keymap-description">
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" data-ak-schema="axonkey.device/1" data-ak-device="xbox.wireless" data-ak-revision="1" width="680" height="520" viewBox="0 0 680 520" class="controller" role="img" aria-labelledby="xbox-keymap-title xbox-keymap-description">
   <title id="xbox-keymap-title">无线手柄按键示意图</title>
   <desc id="xbox-keymap-description">正面按键、顶部肩键与扳机、左右摇杆和方向区域。中心使用通用主键图标。分享键为可选区域，默认隐藏。</desc>
   <style>
@@ -44,6 +44,43 @@ svg.controller {
   .controller .key .hit, .controller .key .halo { transition: none; }
 }
 </style>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="xbox.wireless" vendor="Microsoft" model="Xbox Wireless Controller" revision="1" display-name="Xbox Wireless Controller">
+      <ak:identity><ak:match transport="bluetooth-hid" vid="0x045E" pid="0x02E0" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x05" windows-prefix="HID\" />
+        <ak:match transport="bluetooth-hid" vid="0x0002045E" pid="0x02E0" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x05" windows-prefix="HID\" /></ak:identity>
+      <ak:reports>
+        <ak:report id="controller" direction="input" report-id="0x01" length="16" encoding="bit-field" payload-offset="0" />
+        <ak:report id="guide" direction="input" report-id="0x02" length="2" encoding="bit-field" payload-offset="0" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="xbox.a" label="A 键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="0" target="#region-xbox-a" short="A" icon="center" />
+        <ak:input id="xbox.b" label="B 键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="1" target="#region-xbox-b" short="B" icon="center" />
+        <ak:input id="xbox.x" label="X 键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="2" target="#region-xbox-x" short="X" icon="center" />
+        <ak:input id="xbox.y" label="Y 键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="3" target="#region-xbox-y" short="Y" icon="center" />
+        <ak:input id="xbox.lb" label="LB 左肩键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="4" target="#region-xbox-lb" short="LB" icon="center" />
+        <ak:input id="xbox.rb" label="RB 右肩键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="5" target="#region-xbox-rb" short="RB" icon="center" />
+        <ak:input id="xbox.view" label="View 视图键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="6" target="#region-xbox-view" short="VIEW" icon="center" />
+        <ak:input id="xbox.menu" label="Menu 菜单键" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="7" target="#region-xbox-menu" short="MENU" icon="center" />
+        <ak:input id="xbox.ls" label="LS 左摇杆按下" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="8" target="#region-xbox-ls" short="LS" icon="center" />
+        <ak:input id="xbox.rs" label="RS 右摇杆按下" kind="button" report="controller" engine="xbox.bit-field" field="button" offset="14" bit="9" target="#region-xbox-rs" short="RS" icon="center" />
+        <ak:input id="xbox.guide" label="主键" kind="button" report="guide" engine="xbox.bit-field" field="button" offset="1" bit="0" target="#region-xbox-guide" short="GUIDE" icon="center" />
+        <ak:input id="xbox.ls.left" label="左摇杆向左" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="1" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="negative" target="#region-xbox-ls-left" short="LS.LEFT" icon="center" />
+        <ak:input id="xbox.ls.right" label="左摇杆向右" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="1" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="positive" target="#region-xbox-ls-right" short="LS.RIGHT" icon="center" />
+        <ak:input id="xbox.ls.up" label="左摇杆向上" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="3" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="negative" target="#region-xbox-ls-up" short="LS.UP" icon="center" />
+        <ak:input id="xbox.ls.down" label="左摇杆向下" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="3" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="positive" target="#region-xbox-ls-down" short="LS.DOWN" icon="center" />
+        <ak:input id="xbox.rs.left" label="右摇杆向左" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="5" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="negative" target="#region-xbox-rs-left" short="RS.LEFT" icon="center" />
+        <ak:input id="xbox.rs.right" label="右摇杆向右" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="5" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="positive" target="#region-xbox-rs-right" short="RS.RIGHT" icon="center" />
+        <ak:input id="xbox.rs.up" label="右摇杆向上" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="7" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="negative" target="#region-xbox-rs-up" short="RS.UP" icon="center" />
+        <ak:input id="xbox.rs.down" label="右摇杆向下" kind="axis" report="controller" engine="xbox.axis-u16" field="axis" offset="7" min="0" max="65535" deadzone="0.05" threshold="0.55" release-threshold="0.35" direction="positive" target="#region-xbox-rs-down" short="RS.DOWN" icon="center" />
+        <ak:input id="xbox.lt" label="LT 左扳机" kind="trigger" report="controller" engine="xbox.axis-u16" field="axis" offset="9" min="0" max="1023" deadzone="0.02" threshold="0.55" release-threshold="0.35" target="#region-xbox-lt" short="LT" icon="center" />
+        <ak:input id="xbox.rt" label="RT 右扳机" kind="trigger" report="controller" engine="xbox.axis-u16" field="axis" offset="11" min="0" max="1023" deadzone="0.02" threshold="0.55" release-threshold="0.35" target="#region-xbox-rt" short="RT" icon="center" />
+        <ak:input id="xbox.dpad.up" label="方向键向上" kind="hat" report="controller" engine="xbox.hat-8" field="hat" offset="13" neutral="0" direction="up" direction-map="8,1,2" target="#region-xbox-dpad-up" short="DPAD.UP" icon="center" />
+        <ak:input id="xbox.dpad.right" label="方向键向右" kind="hat" report="controller" engine="xbox.hat-8" field="hat" offset="13" neutral="0" direction="right" direction-map="2,3,4" target="#region-xbox-dpad-right" short="DPAD.RIGHT" icon="center" />
+        <ak:input id="xbox.dpad.down" label="方向键向下" kind="hat" report="controller" engine="xbox.hat-8" field="hat" offset="13" neutral="0" direction="down" direction-map="4,5,6" target="#region-xbox-dpad-down" short="DPAD.DOWN" icon="center" />
+        <ak:input id="xbox.dpad.left" label="方向键向左" kind="hat" report="controller" engine="xbox.hat-8" field="hat" offset="13" neutral="0" direction="left" direction-map="6,7,8" target="#region-xbox-dpad-left" short="DPAD.LEFT" icon="center" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
   <defs>
     <linearGradient id="xbox-keymap-body-fill" x1="0" y1="0" x2="0" y2="1">
       <stop stop-color="#fafcfd" />
@@ -233,4 +270,31 @@ svg.controller {
   <text class="callout" x="296" y="293" text-anchor="middle" style="font-size:9px">View</text>
   <text class="callout" x="384" y="293" text-anchor="middle" style="font-size:9px">Menu</text>
   <circle class="port" cx="340" cy="374" r="4" />
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path id="region-xbox-a" data-ak-region="xbox.a" d="M 480 292 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0" data-ak-anchor="500 292" />
+    <path id="region-xbox-b" data-ak-region="xbox.b" d="M 520 252 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0" data-ak-anchor="540 252" />
+    <path id="region-xbox-x" data-ak-region="xbox.x" d="M 440 252 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0" data-ak-anchor="460 252" />
+    <path id="region-xbox-y" data-ak-region="xbox.y" d="M 480 212 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0" data-ak-anchor="500 212" />
+    <path id="region-xbox-lb" data-ak-region="xbox.lb" d="M151 115Q194 104 243 114L241 136H147Z" data-ak-anchor="196 124" />
+    <path id="region-xbox-rb" data-ak-region="xbox.rb" d="M437 114Q486 104 529 115L533 136H439Z" data-ak-anchor="484 124" />
+    <path id="region-xbox-view" data-ak-region="xbox.view" d="M 281 263 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0" data-ak-anchor="296 263" />
+    <path id="region-xbox-menu" data-ak-region="xbox.menu" d="M 369 263 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0" data-ak-anchor="384 263" />
+    <path id="region-xbox-ls" data-ak-region="xbox.ls" d="M -32 0 a 32 32 0 1 0 64 0 a 32 32 0 1 0 -64 0" transform="translate(198 252)" data-ak-anchor="198 252" />
+    <path id="region-xbox-rs" data-ak-region="xbox.rs" d="M -32 0 a 32 32 0 1 0 64 0 a 32 32 0 1 0 -64 0" transform="translate(424 346)" data-ak-anchor="424 346" />
+    <path id="region-xbox-guide" data-ak-region="xbox.guide" d="M 320 201 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0" data-ak-anchor="340 201" />
+    <path id="region-xbox-ls-left" data-ak-region="xbox.ls.left" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z" transform="translate(198 252)" data-ak-anchor="150 252" />
+    <path id="region-xbox-ls-right" data-ak-region="xbox.ls.right" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z" transform="translate(198 252)" data-ak-anchor="246 252" />
+    <path id="region-xbox-ls-up" data-ak-region="xbox.ls.up" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z" transform="translate(198 252)" data-ak-anchor="198 204" />
+    <path id="region-xbox-ls-down" data-ak-region="xbox.ls.down" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z" transform="translate(198 252)" data-ak-anchor="198 300" />
+    <path id="region-xbox-rs-left" data-ak-region="xbox.rs.left" d="M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z" transform="translate(424 346)" data-ak-anchor="376 346" />
+    <path id="region-xbox-rs-right" data-ak-region="xbox.rs.right" d="M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z" transform="translate(424 346)" data-ak-anchor="472 346" />
+    <path id="region-xbox-rs-up" data-ak-region="xbox.rs.up" d="M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z" transform="translate(424 346)" data-ak-anchor="424 298" />
+    <path id="region-xbox-rs-down" data-ak-region="xbox.rs.down" d="M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z" transform="translate(424 346)" data-ak-anchor="424 394" />
+    <path id="region-xbox-lt" data-ak-region="xbox.lt" d="M161 56Q201 43 243 57L236 103H153Z" data-ak-anchor="198 78" />
+    <path id="region-xbox-rt" data-ak-region="xbox.rt" d="M437 57Q479 43 519 56L527 103H444Z" data-ak-anchor="482 78" />
+    <path id="region-xbox-dpad-up" data-ak-region="xbox.dpad.up" d="M-16-44H16V-17L0-3-16-17Z" transform="translate(265 352)" data-ak-anchor="265 304" />
+    <path id="region-xbox-dpad-right" data-ak-region="xbox.dpad.right" d="M44-16V16H17L3 0 17-16Z" transform="translate(265 352)" data-ak-anchor="313 352" />
+    <path id="region-xbox-dpad-down" data-ak-region="xbox.dpad.down" d="M16 44H-16V17L0 3 16 17Z" transform="translate(265 352)" data-ak-anchor="265 400" />
+    <path id="region-xbox-dpad-left" data-ak-region="xbox.dpad.left" d="M-44 16V-16H-17L-3 0-17 16Z" transform="translate(265 352)" data-ak-anchor="217 352" />
+  </g>
 </svg>

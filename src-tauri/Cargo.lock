@@ -275,6 +275,7 @@ dependencies = [
  "prost",
  "prost-build",
  "protox",
+ "quick-xml",
  "reqwest",
  "rubato",
  "rusqlite",

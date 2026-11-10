@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SVG 按键热区测试</title>
+  <style>
+    :root { color-scheme: light; --ink: #263238; --muted: #758087; --line: #dce2e5; --blue: #287ed5; --green: #22865c; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-width: 320px; background: #f3f5f6; color: var(--ink); font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    button, input, select { min-height: 36px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--ink); }
+    button { padding: 7px 12px; white-space: nowrap; }
+    button:hover { border-color: #aebfc9; background: #f9fbfc; }
+    :focus-visible { outline: 2px solid #78b5ee; outline-offset: 3px; }
+    button[aria-pressed="true"] { border-color: #a9ccef; color: #1767b1; background: #edf5ff; }
+    .app { display: flex; flex-direction: column; gap: 16px; height: 100dvh; min-height: 540px; max-width: 1440px; margin: auto; padding: 20px 24px; }
+    .header { display: flex; align-items: baseline; gap: 16px; }
+    h1 { margin: 0; font-size: 22px; line-height: 1.25; letter-spacing: -.03em; }
+    .status { margin-left: auto; color: var(--muted); font-size: 12px; text-align: right; overflow-wrap: anywhere; }
+    .status.error { color: #ac3d39; }
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .path-form { display: flex; gap: 8px; flex: 1; min-width: 240px; }
+    .path-form input { flex: 1; min-width: 0; padding: 7px 10px; font: 12px/1.5 ui-monospace, Consolas, monospace; }
+    .source-select { max-width: 260px; padding: 7px 28px 7px 10px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; min-height: 0; flex: 1; }
+    .preview, .inspector { min-width: 0; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+    .preview { display: flex; flex-direction: column; padding: 16px; min-height: 0; }
+    .preview-head { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding-bottom: 12px; }
+    .device-name { margin: 0; min-width: 0; font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
+    .tools { display: flex; gap: 8px; margin-left: auto; }
+    .tools button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
+    .stage { position: relative; display: grid; place-items: center; min-height: 0; flex: 1; overflow: hidden; border-radius: 9px; border: 1px solid #e5e9ec; background: #f4f6f7; }
+    .stage.dragging { border-color: var(--blue); background: #eaf3fc; }
+    .stage svg { display: block; width: 100%; height: 100%; min-height: 0; padding: 16px; }
+    .message { max-width: 420px; margin: 24px; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+    .message.error { color: #ac3d39; }
+    .preview-foot { display: flex; justify-content: space-between; gap: 16px; margin-top: 9px; color: var(--muted); font-size: 11px; }
+    .coordinates { font-family: ui-monospace, Consolas, monospace; }
+    .hotspot { fill: transparent; stroke: transparent; stroke-width: 1.5; vector-effect: non-scaling-stroke; cursor: pointer; outline: none; touch-action: none; }
+    .show-hotzones .hotspot { fill: #287ed51c; stroke: #287ed590; }
+    .hotspot:hover, .hotspot:focus-visible { fill: #287ed52e; stroke: var(--blue); stroke-width: 2; }
+    .hotspot.is-selected { fill: #287ed540; stroke: var(--blue); stroke-width: 2; }
+    .hotspot.is-pressed { fill: #24946855; stroke: var(--green); stroke-width: 2.5; }
+    .inspector { display: flex; flex-direction: column; min-height: 0; padding: 16px; }
+    .inspector-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .inspector-head h2 { margin: 0; font-size: 15px; }
+    .count { color: var(--muted); font: 12px ui-monospace, Consolas, monospace; }
+    .selection { flex: none; padding: 13px; margin-bottom: 12px; border: 1px solid #e3e8ec; border-radius: 9px; background: #f8fafb; }
+    .empty-selection { margin: 0; color: var(--muted); font-size: 13px; }
+    .selection h3 { margin: 0 0 5px; font-size: 16px; }
+    .stable-key { margin: 0 0 12px; color: #42708e; overflow-wrap: anywhere; font: 11px/1.6 ui-monospace, Consolas, monospace; }
+    dl { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 5px 8px; margin: 0; font-size: 12px; }
+    dt { color: var(--muted); }
+    dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+    .key-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 3px; padding-right: 3px; }
+    .key-row { display: flex; flex: none; align-items: center; gap: 9px; width: 100%; min-height: 37px; padding: 7px 9px; border-color: transparent; background: transparent; text-align: left; }
+    .key-row::before { content: ""; width: 7px; height: 7px; flex: none; border: 1px solid #a5b2ba; border-radius: 50%; }
+    .key-row small { color: var(--muted); font-size: 11px; margin-left: auto; }
+    .key-row.is-selected { color: #1767b1; border-color: #c6dff5; background: #edf5ff; }
+    .key-row.is-selected::before { background: var(--blue); border-color: var(--blue); }
+    .key-row.is-pressed { color: #196342; border-color: #a8d9c0; background: #e8f6ee; }
+    .key-row.is-pressed::before { background: var(--green); border-color: var(--green); }
+    @media (max-width: 760px) {
+      .app { height: auto; min-height: 100dvh; padding: 16px; }
+      .header { align-items: flex-start; flex-wrap: wrap; gap: 6px; }
+      .status { width: 100%; margin-left: 0; text-align: left; }
+      .workspace { grid-template-columns: 1fr; }
+      .preview { height: max(570px, 75dvh); }
+      .inspector { max-height: 560px; }
+      .source-select { flex: 1; max-width: none; min-width: 140px; }
+    }
+    @media (prefers-reduced-motion: no-preference) { button { transition: background .12s, border-color .12s; } }
+  </style>
+</head>
+<body data-default-svg="tcl-rc802a.svg">
+  <main class="app">
+    <header class="header">
+      <h1>SVG 按键热区测试</h1>
+      <div id="status" class="status" role="status">正在加载…</div>
+    </header>
+    <div class="toolbar">
+      <form id="path-form" class="path-form">
+        <input id="svg-path" type="text" aria-label="SVG 相对路径或 URL" placeholder="同目录的 device.svg 或相对路径" spellcheck="false" />
+        <button type="submit">加载</button>
+      </form>
+      <button id="open-file" type="button">打开 SVG</button>
+      <button id="scan-folder" type="button">扫描目录</button>
+      <select id="source-select" class="source-select" aria-label="选择 SVG 文件" hidden></select>
+      <input id="file-input" type="file" accept=".svg,image/svg+xml" multiple hidden />
+      <input id="folder-input" type="file" webkitdirectory multiple hidden />
+    </div>
+    <div class="workspace">
+      <section class="preview" aria-label="设备热区预览">
+        <div class="preview-head">
+          <h2 id="device-name" class="device-name">选择 SVG</h2>
+          <div class="tools">
+            <button id="hotzone-toggle" type="button" aria-pressed="false">显示热区</button>
+            <button id="clear-selection" type="button">清除选中</button>
+          </div>
+        </div>
+        <div id="stage" class="stage"><p class="message">拖入 SVG，或打开文件 / 扫描目录</p></div>
+        <footer class="preview-foot"><span>点击 / Enter / Space · Esc 清除</span><span id="coordinates" class="coordinates">x — · y —</span></footer>
+      </section>
+      <aside class="inspector" aria-label="按键检查器">
+        <div class="inspector-head"><h2>按键</h2><span id="count" class="count">0</span></div>
+        <div class="selection" aria-live="polite">
+          <p id="empty-selection" class="empty-selection">选择一个按键查看</p>
+          <div id="selected-info" hidden>
+            <h3 id="selected-label"></h3><p id="selected-key" class="stable-key"></p>
+            <dl><dt>视图</dt><dd id="selected-view"></dd><dt>锚点</dt><dd id="selected-anchor"></dd><dt>输入</dt><dd id="selected-source"></dd></dl>
+          </div>
+        </div>
+        <div id="key-list" class="key-list"></div>
+      </aside>
+    </div>
+  </main>
+  <script>
+    (() => {
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const byId = id => document.getElementById(id);
+      const stage = byId('stage');
+      const pathInput = byId('svg-path');
+      const sourceSelect = byId('source-select');
+      let catalog = [];
+      let inputs = [];
+      let controls = new Map();
+      let selected = null;
+      let pressed = null;
+      let artworkUrl = null;
+
+      async function init() {
+        const requested = new URLSearchParams(location.search).get('svg');
+        pathInput.value = requested || document.body.dataset.defaultSvg || '';
+        bindPage();
+        if (location.protocol === 'file:') {
+          status('本地文件模式：打开 SVG 或扫描目录');
+          return;
+        }
+        const discovered = await discoverDirectory();
+        if (discovered.length) setCatalog(discovered);
+        const initial = requested || discovered[0]?.href || pathInput.value;
+        if (initial) await loadUrl(initial);
+        else status('输入 SVG 相对路径，或选择文件');
+      }
+
+      function bindPage() {
+        byId('path-form').addEventListener('submit', event => {
+          event.preventDefault();
+          const file = catalog.find(entry => entry.file && entry.label === pathInput.value);
+          if (file) loadEntry(file);
+          else loadUrl(pathInput.value);
+        });
+        byId('open-file').addEventListener('click', () => byId('file-input').click());
+        byId('scan-folder').addEventListener('click', () => byId('folder-input').click());
+        for (const id of ['file-input', 'folder-input']) {
+          byId(id).addEventListener('change', event => {
+            openFiles(event.target.files);
+            event.target.value = '';
+          });
+        }
+        sourceSelect.addEventListener('change', () => loadEntry(catalog[Number(sourceSelect.value)]));
+        byId('hotzone-toggle').addEventListener('click', event => {
+          const show = event.currentTarget.getAttribute('aria-pressed') !== 'true';
+          event.currentTarget.setAttribute('aria-pressed', String(show));
+          stage.classList.toggle('show-hotzones', show);
+        });
+        byId('clear-selection').addEventListener('click', () => select(null));
+        document.addEventListener('keydown', event => { if (event.key === 'Escape') { setPressed(null); select(null); } });
+        window.addEventListener('pointerup', () => setPressed(null));
+        window.addEventListener('pointercancel', () => setPressed(null));
+        window.addEventListener('blur', () => setPressed(null));
+        document.addEventListener('visibilitychange', () => { if (document.hidden) setPressed(null); });
+        stage.addEventListener('dragover', event => { event.preventDefault(); stage.classList.add('dragging'); });
+        stage.addEventListener('dragleave', () => stage.classList.remove('dragging'));
+        stage.addEventListener('drop', event => {
+          event.preventDefault();
+          stage.classList.remove('dragging');
+          openFiles(event.dataTransfer.files);
+        });
+        window.addEventListener('beforeunload', () => { if (artworkUrl) URL.revokeObjectURL(artworkUrl); });
+      }
+
+      async function loadUrl(value) {
+        if (!value.trim()) { status('请输入 SVG 路径', true); return; }
+        if (location.protocol === 'file:') {
+          status('双击打开时，请使用“打开 SVG”或“扫描目录”', true);
+          return;
+        }
+        startLoading();
+        try {
+          const href = new URL(value, location.href).href;
+          const response = await fetch(href, { cache: 'no-store' });
+          if (!response.ok) throw new Error('HTTP ' + response.status);
+          render(await response.text(), value);
+          pathInput.value = value;
+          const index = catalog.findIndex(entry => entry.href === href);
+          sourceSelect.value = index < 0 ? '' : String(index);
+        } catch (error) { showError(error); }
+      }
+
+      async function loadEntry(entry) {
+        if (entry.href) return loadUrl(entry.href);
+        startLoading();
+        try {
+          render(await entry.file.text(), entry.label);
+          pathInput.value = entry.label;
+          sourceSelect.value = String(catalog.indexOf(entry));
+        } catch (error) { showError(error); }
+      }
+
+      function openFiles(files) {
+        const entries = [...files].filter(file => /\.svg$/i.test(file.name))
+          .map(file => ({ label: file.webkitRelativePath || file.name, file }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        if (!entries.length) { status('没有找到 SVG 文件', true); return; }
+        setCatalog(entries);
+        loadEntry(entries[0]);
+      }
+
+      function setCatalog(entries) {
+        catalog = entries;
+        sourceSelect.replaceChildren(...entries.map((entry, index) => new Option(entry.label, String(index))));
+        sourceSelect.hidden = entries.length < 2;
+      }
+
+      async function discoverDirectory() {
+        try {
+          const directory = new URL('.', location.href);
+          const response = await fetch(directory, { cache: 'no-store' });
+          if (!response.ok) return [];
+          const listing = new DOMParser().parseFromString(await response.text(), 'text/html');
+          const entries = new Map();
+          for (const link of listing.querySelectorAll('a[href]')) {
+            const href = new URL(link.getAttribute('href'), directory);
+            if (href.origin === directory.origin && href.pathname.startsWith(directory.pathname) && /\.svg$/i.test(href.pathname)) {
+              entries.set(href.href, { label: decodeURIComponent(href.pathname.slice(directory.pathname.length)), href: href.href });
+            }
+          }
+          return [...entries.values()].sort((a, b) => a.label.localeCompare(b.label));
+        } catch { return []; }
+      }
+
+      function render(source, label) {
+        const descriptor = parseSvg(source);
+        inputs = descriptor.inputs;
+        controls = new Map();
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', descriptor.viewBox.join(' '));
+        svg.setAttribute('role', 'group');
+        svg.setAttribute('aria-label', descriptor.name + ' 按键');
+        artworkUrl = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml' }));
+        const image = document.createElementNS(SVG_NS, 'image');
+        const [x, y, width, height] = descriptor.viewBox;
+        for (const [name, value] of Object.entries({ x, y, width, height, href: artworkUrl, 'pointer-events': 'none', 'aria-hidden': 'true' })) image.setAttribute(name, value);
+        svg.appendChild(image);
+        const rows = [];
+        for (const input of inputs) {
+          const path = document.createElementNS(SVG_NS, 'path');
+          for (const [name, value] of Object.entries({ d: input.path, transform: input.transform, class: 'hotspot', role: 'button', tabindex: '0', 'aria-label': input.label, 'aria-pressed': 'false', 'data-key': input.id })) {
+            if (value) path.setAttribute(name, value);
+          }
+          const title = document.createElementNS(SVG_NS, 'title');
+          title.textContent = input.label;
+          path.appendChild(title);
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'key-row';
+          row.dataset.key = input.id;
+          row.setAttribute('aria-pressed', 'false');
+          const name = document.createElement('span');
+          name.textContent = input.label;
+          const view = document.createElement('small');
+          view.textContent = viewLabel(input.view);
+          row.append(name, view);
+          bindControl(path, input.id);
+          bindControl(row, input.id);
+          controls.set(input.id, [path, row]);
+          svg.appendChild(path);
+          rows.push(row);
+        }
+        svg.addEventListener('pointermove', event => {
+          const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+          byId('coordinates').textContent = 'x ' + point.x.toFixed(1) + ' · y ' + point.y.toFixed(1);
+        });
+        svg.addEventListener('pointerleave', () => { byId('coordinates').textContent = 'x — · y —'; });
+        stage.replaceChildren(svg);
+        byId('key-list').replaceChildren(...rows);
+        byId('device-name').textContent = descriptor.name;
+        byId('count').textContent = inputs.length + ' 个';
+        status(label);
+        select(null);
+      }
+
+      function bindControl(node, key) {
+        node.addEventListener('click', () => select(key));
+        node.addEventListener('pointerdown', event => {
+          if (event.button !== 0 || !event.isPrimary) return;
+          node.focus({ preventScroll: true });
+          setPressed(key);
+        });
+        node.addEventListener('pointerleave', () => setPressed(null));
+        node.addEventListener('blur', () => setPressed(null));
+        node.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          if (event.repeat) return;
+          setPressed(key);
+          if (event.key === 'Enter') select(key);
+        });
+        node.addEventListener('keyup', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          const activate = pressed === key;
+          setPressed(null);
+          if (event.key === ' ' && activate) select(key);
+        });
+      }
+
+      function select(key) {
+        selected = key;
+        refreshControls();
+        const input = inputs.find(item => item.id === key);
+        byId('empty-selection').hidden = Boolean(input);
+        byId('selected-info').hidden = !input;
+        if (!input) return;
+        byId('selected-label').textContent = input.label;
+        byId('selected-key').textContent = input.id;
+        byId('selected-view').textContent = viewLabel(input.view);
+        byId('selected-anchor').textContent = input.anchor.join(', ');
+        byId('selected-source').textContent = input.source;
+        const list = byId('key-list');
+        const row = controls.get(key)[1].getBoundingClientRect();
+        const bounds = list.getBoundingClientRect();
+        if (row.top < bounds.top) list.scrollTop += row.top - bounds.top;
+        else if (row.bottom > bounds.bottom) list.scrollTop += row.bottom - bounds.bottom;
+      }
+
+      function setPressed(key) { pressed = key; refreshControls(); }
+      function refreshControls() {
+        for (const [key, nodes] of controls) for (const node of nodes) {
+          node.classList.toggle('is-selected', key === selected);
+          node.classList.toggle('is-pressed', key === pressed);
+          node.setAttribute('aria-pressed', String(key === selected));
+        }
+      }
+
+      function startLoading() {
+        clearDevice();
+        const message = document.createElement('p');
+        message.className = 'message';
+        message.textContent = '正在加载 SVG…';
+        stage.replaceChildren(message);
+        status('正在加载…');
+      }
+
+      function clearDevice() {
+        if (artworkUrl) URL.revokeObjectURL(artworkUrl);
+        artworkUrl = null;
+        inputs = [];
+        controls = new Map();
+        pressed = null;
+        select(null);
+        byId('key-list').replaceChildren();
+        byId('count').textContent = '0';
+        byId('device-name').textContent = '选择 SVG';
+        byId('coordinates').textContent = 'x — · y —';
+      }
+
+      function showError(error) {
+        clearDevice();
+        const message = document.createElement('p');
+        message.className = 'message error';
+        message.textContent = error.message + '。可改用“打开 SVG”或“扫描目录”。';
+        stage.replaceChildren(message);
+        status('加载失败', true);
+      }
+
+      function parseSvg(source) {
+        require(!/<!\s*(DOCTYPE|ENTITY)\b/i.test(source), '不支持 DOCTYPE 或实体声明');
+        const document = new DOMParser().parseFromString(source, 'image/svg+xml');
+        const root = document.documentElement;
+        require(!document.querySelector('parsererror') && root.localName === 'svg' && root.namespaceURI === SVG_NS, 'SVG XML 无效');
+        validateContent(root);
+        const viewBox = parseNumbers(root.getAttribute('viewBox'), 4, 'viewBox');
+        require(viewBox[2] > 0 && viewBox[3] > 0, 'viewBox 尺寸必须大于零');
+        const nodes = [...root.querySelectorAll('*')];
+        const ids = new Map();
+        for (const node of nodes) if (node.namespaceURI === SVG_NS && node.hasAttribute('id')) {
+          const id = node.getAttribute('id');
+          if (id && !ids.has(id)) ids.set(id, node);
+        }
+        const regions = new Map();
+        for (const node of root.querySelectorAll('[data-ak-region]')) {
+          const id = node.getAttribute('data-ak-region');
+          require(node.localName === 'path' && node.getAttribute('d') && !regions.has(id), '无效或重复热区：' + id);
+          regions.set(id, node);
+        }
+        const metadata = nodes.find(node => node.localName === 'device' && node.namespaceURI?.startsWith('urn:axonkey:device:'));
+        const inputNodes = nodes.filter(node => node.localName === 'input' && node.namespaceURI?.startsWith('urn:axonkey:device:'));
+        const seen = new Set();
+        const inputs = inputNodes.flatMap((node, index) => {
+          const id = node.getAttribute('id');
+          require(id && !seen.has(id), '重复或空输入 ID：' + id);
+          seen.add(id);
+          const target = node.getAttribute('target');
+          const region = regions.get(id);
+          if (target !== null) require(target.startsWith('#') && ids.has(target.slice(1)), '图形 target 不存在：' + id);
+          if (!target && !region) return [];
+          require(region, '缺少精确热区：' + id);
+          const graphic = target ? ids.get(target.slice(1)) : nodes.find(item => item.namespaceURI === SVG_NS && item.getAttribute('data-ak-key') === id);
+          return [{
+            id, label: node.getAttribute('label') || id,
+            order: Number(node.getAttribute('order') ?? index),
+            path: region.getAttribute('d'), transform: regionTransform(region, root),
+            anchor: parseNumbers(region.getAttribute('data-ak-anchor'), 2, id + ' 锚点'),
+            view: graphic?.closest('[data-ak-view]')?.getAttribute('data-ak-view') || 'main',
+            source: sourceLabel(node),
+          }];
+        }).sort((a, b) => a.order - b.order);
+        require(inputs.length && inputs.length === regions.size, '输入与热区需要一一对应');
+        return { viewBox, inputs, name: metadata?.getAttribute('display-name') || metadata?.getAttribute('model') || root.getAttribute('data-ak-device') || '设备 SVG' };
+      }
+
+      function validateContent(root) {
+        for (const node of [root, ...root.querySelectorAll('*')]) {
+          require(!['script', 'foreignObject', 'iframe', 'object', 'embed', 'image'].includes(node.localName), 'SVG 包含不支持的内容：' + node.localName);
+          for (const attribute of node.attributes) {
+            require(!/^on/i.test(attribute.localName), 'SVG 不能包含事件处理代码');
+            if (attribute.localName === 'href') require(attribute.value.startsWith('#'), 'SVG 不能引用外部资源');
+            validateResourceReferences(attribute.value);
+          }
+          if (node.localName === 'style') {
+            require(!/@import/i.test(node.textContent), 'SVG 样式不能加载外部资源');
+            validateResourceReferences(node.textContent);
+          }
+        }
+      }
+
+      function validateResourceReferences(value) {
+        for (const match of value.matchAll(/url\(\s*['"]?([^)'"\s]+)/gi)) require(match[1].startsWith('#'), 'SVG 不能引用外部资源');
+      }
+
+      function regionTransform(region, root) {
+        const transforms = [];
+        for (let node = region; node && node !== root; node = node.parentElement) {
+          const transform = node.getAttribute('transform');
+          if (transform) transforms.unshift(transform);
+        }
+        return transforms.join(' ');
+      }
+
+      function sourceLabel(input) {
+        const sources = [input, ...input.children].filter(node => node.hasAttribute('report') || node.hasAttribute('engine') || node.hasAttribute('connection'));
+        if (input.getAttribute('binding') === 'pending' || !sources.length) return '待采集';
+        return sources.map(node => ['report', 'page', 'usage', 'field', 'engine', 'connection', 'group']
+          .filter(name => node.hasAttribute(name)).map(name => name + '=' + node.getAttribute(name)).join(' · ')).join('\n');
+      }
+
+      function parseNumbers(value, length, label) {
+        const numbers = (value || '').trim().split(/[\s,]+/).map(Number);
+        require(numbers.length === length && numbers.every(Number.isFinite), label + ' 坐标无效');
+        return numbers;
+      }
+      function viewLabel(view) { return ({ front: '正面', side: '侧面', back: '背面', main: '主视图' })[view] || view; }
+      function require(condition, message) { if (!condition) throw new Error(message); }
+      function status(message, error = false) { byId('status').textContent = message; byId('status').classList.toggle('error', error); }
+      init();
+    })();
+  </script>
+</body>
+</html>
