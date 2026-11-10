@@ -10,3 +10,4 @@
 | --- | --- | --- |
 | [0001](0001-windows-rc003-input-by-device-instance.md) | Windows RC003 输入按设备实例绑定 | `accepted` |
 | [0002](0002-svg-device-descriptor.md) | SVG 设备描述作为设备类型协议 | `accepted` |
+| [0003](0003-transport-independent-device-input.md) | 传输无关的设备输入与会话 | `proposed` |

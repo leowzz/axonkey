@@ -11,6 +11,9 @@ below describe the RC003 integration.
 Issue #58 的内置设备描述实现见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。SVG
 描述设备类型、报告布局和能力；实例绑定、平台权限、驱动句柄、用户映射及语音后端仍由应用管理。
 
+手机等网络来源、连续触摸和独立音频流的拟议边界见[设备输入源设计](DEVICE_INPUT_SOURCES.md)
+及 [ADR 0003](adr/0003-transport-independent-device-input.md)。它们尚未实施；下面仍描述现有运行链路。
+
 ```text
 Windows
   RC003 BTHLEDEVICE parent
