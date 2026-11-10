@@ -8,6 +8,107 @@ import type { RelayClient } from './relayClient.ts'
 const endpoint = '/v2/behavior-library'
 export type LibraryView = 'recommended' | 'community'
 export type LibraryPage = { steps: StepDefinition[]; nextCursor: string; skipped: number }
+export type LibraryCacheStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> &
+  Partial<Pick<Storage, 'key' | 'length'>>
+
+export const behaviorLibraryCacheTtlMs = 10 * 60 * 1000
+
+type LibraryCacheEntry = { expiresAt: number; page: LibraryPage }
+const libraryCachePrefix = 'axonkey.behavior-library.cache.v1:'
+
+function libraryCacheKey(platform: Platform, view: LibraryView, query: string, cursor: string) {
+  return `${libraryCachePrefix}${encodeURIComponent(JSON.stringify([platform, view, query, cursor]))}`
+}
+
+export function readCachedLibraryPage(
+  platform: Platform,
+  view: LibraryView,
+  query: string,
+  cursor: string,
+  storage: LibraryCacheStorage | undefined,
+  now = Date.now(),
+): LibraryPage | null {
+  if (!storage) return null
+  try {
+    const raw = storage.getItem(libraryCacheKey(platform, view, query, cursor))
+    if (!raw) return null
+    const entry = JSON.parse(raw) as Partial<LibraryCacheEntry>
+    if (
+      typeof entry.expiresAt !== 'number' ||
+      !Number.isFinite(entry.expiresAt) ||
+      entry.expiresAt <= now ||
+      !isLibraryPage(entry.page)
+    ) {
+      storage.removeItem(libraryCacheKey(platform, view, query, cursor))
+      return null
+    }
+    return entry.page
+  } catch {
+    return null
+  }
+}
+
+export function writeCachedLibraryPage(
+  platform: Platform,
+  view: LibraryView,
+  query: string,
+  cursor: string,
+  page: LibraryPage,
+  storage: LibraryCacheStorage | undefined,
+  now = Date.now(),
+) {
+  if (!storage) return
+  try {
+    const entry: LibraryCacheEntry = { expiresAt: now + behaviorLibraryCacheTtlMs, page }
+    storage.setItem(libraryCacheKey(platform, view, query, cursor), JSON.stringify(entry))
+  } catch {
+    // Local storage can be unavailable or full; the cloud result remains usable.
+  }
+}
+
+export function clearCachedLibraryPages(
+  platform: Platform,
+  view: LibraryView,
+  query: string,
+  storage: LibraryCacheStorage | undefined,
+) {
+  if (!storage || typeof storage.length !== 'number' || typeof storage.key !== 'function') return
+  try {
+    const keys: string[] = []
+    for (let index = 0; index < storage.length; index++) {
+      const key = storage.key(index)
+      if (!key?.startsWith(libraryCachePrefix)) continue
+      const values = JSON.parse(decodeURIComponent(key.slice(libraryCachePrefix.length)))
+      if (values[0] === platform && values[1] === view && values[2] === query) keys.push(key)
+    }
+    keys.forEach(key => storage.removeItem(key))
+  } catch {
+    // A storage failure should not block a fresh cloud request.
+  }
+}
+
+function isLibraryPage(value: unknown): value is LibraryPage {
+  if (!value || typeof value !== 'object') return false
+  const page = value as Partial<LibraryPage>
+  return (
+    Array.isArray(page.steps) &&
+    typeof page.nextCursor === 'string' &&
+    typeof page.skipped === 'number' &&
+    Number.isFinite(page.skipped) &&
+    page.steps.every(step => {
+      if (!step || typeof step !== 'object') return false
+      const candidate = step as Partial<StepDefinition>
+      return (
+        candidate.componentType === 'task' &&
+        typeof candidate.type === 'string' &&
+        typeof candidate.name === 'string' &&
+        !!candidate.properties &&
+        typeof candidate.properties === 'object'
+      )
+    })
+  )
+}
+
 export type SharedSequence = {
   id: string
   revision: number

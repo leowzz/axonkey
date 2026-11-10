@@ -6,13 +6,14 @@ import * as library from '../../src/cloud/behaviorLibrary.ts'
 import * as relayClient from '../../src/cloud/relayClient.ts'
 
 const require = createRequire(import.meta.url)
-export function libraryHarness() {
+export function libraryHarness({ localStorage } = {}) {
   const modules = new Map()
   const timers = new Map()
   let timer = 0
   const window = {
     setTimeout(fn) { timers.set(++timer, fn); return timer },
     clearTimeout(id) { timers.delete(id) },
+    ...(localStorage ? { localStorage } : {}),
   }
   function load(file) {
     if (modules.has(file)) return modules.get(file)

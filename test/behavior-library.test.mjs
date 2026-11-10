@@ -4,7 +4,15 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 import { parseSequenceImport, serializeSequence } from '../src/behaviorModel.ts'
 import { RelayClient } from '../src/cloud/relayClient.ts'
-import { parseLibraryPage, fetchLibraryPage, submitSequence, withdrawSequence } from '../src/cloud/behaviorLibrary.ts'
+import {
+  behaviorLibraryCacheTtlMs,
+  parseLibraryPage,
+  fetchLibraryPage,
+  readCachedLibraryPage,
+  submitSequence,
+  withdrawSequence,
+  writeCachedLibraryPage,
+} from '../src/cloud/behaviorLibrary.ts'
 import { insertedWorkflowSteps } from '../src/components/workflowBehaviorBridge.ts'
 import { libraryHarness } from './helpers/behavior-library-harness.mjs'
 
@@ -134,6 +142,47 @@ test('public hook handles pagination deduplication, stale searches, and failure 
     await act(async () => { harness.tick(); await flush() })
     await act(async () => { pendingResolve({ status: 200, body: { items: [publicItem('old')] } }); await flush() })
     assert.equal(value.steps[0].name, 'new')
+  } finally { act(() => view.unmount()) }
+})
+
+test('public library pages use a ten-minute local cache and retry bypasses it', async () => {
+  const values = new Map()
+  const storage = {
+    get length() { return values.size },
+    key(index) { return [...values.keys()][index] ?? null },
+    getItem(key) { return values.get(key) ?? null },
+    setItem(key, value) { values.set(key, value) },
+    removeItem(key) { values.delete(key) },
+  }
+  const harness = libraryHarness({ localStorage: storage })
+  const { useBehaviorLibrary } = harness.load('cloud/useBehaviorLibrary.ts')
+  let requests = 0, value
+  const client = new RelayClient(async () => {
+    requests++
+    return { status: 200, body: { items: [publicItem(`item-${requests}`)] } }
+  }, null, () => {})
+  function App() { value = useBehaviorLibrary(client, 'macos', 'community', '', []); return null }
+  let view
+  await act(async () => { view = Renderer.create(React.createElement(App)) })
+  try {
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 1)
+    assert.equal(value.steps[0].name, 'item-1')
+    act(() => view.unmount())
+    await act(async () => { view = Renderer.create(React.createElement(App)) })
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 1)
+    assert.equal(value.steps[0].name, 'item-1')
+    await act(async () => value.retry())
+    await act(async () => { harness.tick(); await flush() })
+    assert.equal(requests, 2)
+    const page = readCachedLibraryPage('macos', 'community', '', '', storage, Date.now())
+    assert.ok(page)
+    writeCachedLibraryPage('macos', 'community', '', '', page, storage, 1000)
+    const key = [...values.keys()][0]
+    assert.equal(JSON.parse(values.get(key)).expiresAt, 1000 + behaviorLibraryCacheTtlMs)
+    assert.ok(readCachedLibraryPage('macos', 'community', '', '', storage, 1000 + behaviorLibraryCacheTtlMs - 1))
+    assert.equal(readCachedLibraryPage('macos', 'community', '', '', storage, 1000 + behaviorLibraryCacheTtlMs), null)
   } finally { act(() => view.unmount()) }
 })
 
