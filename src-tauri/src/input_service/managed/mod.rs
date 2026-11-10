@@ -302,11 +302,25 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     }
     validate(&store)?;
     for instance in &mut store.instances {
-        normalize_recording_mode(instance);
+        normalize_instance(instance);
     }
     Ok(store)
 }
-fn normalize_recording_mode(instance: &mut Instance) {
+fn normalize_instance(instance: &mut Instance) {
+    for profile in &mut instance.profiles {
+        let behaviors = profile
+            .behaviors
+            .as_object_mut()
+            .expect("validated profile is an object");
+        *behaviors = std::mem::take(behaviors)
+            .into_iter()
+            .map(|(input, behavior)| {
+                let key = crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
+                    .expect("validated profile input has a descriptor key");
+                (if key == input { input } else { key.to_string() }, behavior)
+            })
+            .collect();
+    }
     let modes = crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
         .and_then(|descriptor| descriptor.voices.first())
         .and_then(|voice| voice.attributes.get("trigger-modes"));
@@ -706,7 +720,6 @@ impl DeviceManager {
                 }
             }
         }
-        normalize_recording_mode(&mut instance);
         if instance.binding.is_none() {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
@@ -717,12 +730,20 @@ impl DeviceManager {
             instance.id = unique_id();
         }
         let mut next = snapshot.store.clone();
-        if let Some(current) = next.instances.iter_mut().find(|i| i.id == instance.id) {
+        let index = if let Some((index, current)) = next
+            .instances
+            .iter_mut()
+            .enumerate()
+            .find(|(_, i)| i.id == instance.id)
+        {
             *current = instance;
+            index
         } else {
             next.instances.push(instance);
-        }
+            next.instances.len() - 1
+        };
         validate(&next)?;
+        normalize_instance(&mut next.instances[index]);
         next.revision += 1;
         save(&self.shared.path, &next)?;
         snapshot.store = next;
@@ -883,20 +904,12 @@ impl InputReader {
     }
 }
 fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
-    let mappings: HashMap<String, TriggerBehaviors> = instance
+    instance
         .profiles
         .iter()
         .find(|p| p.id == instance.active_profile_id)
         .and_then(|p| serde_json::from_value(p.behaviors.clone()).ok())
-        .unwrap_or_default();
-    mappings
-        .into_iter()
-        .map(|(input, behavior)| {
-            let key = crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
-                .expect("validated profile input has a descriptor key");
-            (key.to_string(), behavior)
-        })
-        .collect()
+        .unwrap_or_default()
 }
 
 fn open_reader(
@@ -2053,15 +2066,26 @@ mod tests {
             .iter()
             .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
             .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"id": "keep-action", "type": "key", "key": "A", "enabled": false}],
+            "metadata": {"label": "keep", "values": [1, true, null]}
+        });
+        let back =
+            serde_json::json!({"click": [{"type": "key", "key": "B"}], "extra": "unchanged"});
         remote.profiles[0].behaviors = serde_json::json!({
-            (up.id.clone()): {"click": [{"type": "key", "key": "A"}]},
-            "back": {"click": [{"type": "key", "key": "B"}]}
+            (up.id.clone()): payload.clone(),
+            "back": back.clone()
         });
         let mut store = Store {
             instances: vec![remote],
             ..Default::default()
         };
         validate(&store).unwrap();
+        normalize_instance(&mut store.instances[0]);
+        let behaviors = &store.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert_eq!(behaviors["back"], back);
+        assert!(behaviors.get(&up.id).is_none());
         let mappings = active_mappings(&store.instances[0]);
         assert!(mappings.contains_key("up"));
         assert!(mappings.contains_key("back"));
@@ -2070,7 +2094,72 @@ mod tests {
             (up.id.clone()): {"click": [{"type": "key", "key": "A"}]},
             "up": {"click": [{"type": "key", "key": "B"}]}
         });
+        let duplicate = store.instances[0].profiles[0].behaviors.clone();
         assert!(validate(&store).unwrap_err().contains("同一输入重复配置"));
+        assert_eq!(store.instances[0].profiles[0].behaviors, duplicate);
+    }
+
+    #[test]
+    fn load_normalizes_profile_keys_and_preserves_behavior_values_when_saved() {
+        let path = std::env::temp_dir().join(format!("axonkey-profile-keys-{}.json", unique_id()));
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"type": "key", "key": "A", "libraryItemId": "00000000-0000-0000-0000-000000000001"}],
+            "metadata": {"keep": [1, false, "text"]}
+        });
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        std::fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let loaded = load(&path).unwrap();
+        let behaviors = &loaded.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert!(behaviors.get(&up.id).is_none());
+        save(&path, &loaded).unwrap();
+        let saved: Store = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.instances[0].profiles[0].behaviors, *behaviors);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("bak")).unwrap();
+    }
+
+    #[test]
+    fn put_returns_and_persists_normalized_profile_keys() {
+        let manager = offline_manager(vec![]);
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload =
+            serde_json::json!({"click": [{"type": "key", "key": "A"}], "metadata": [1, true]});
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let saved = manager.put(0, remote).unwrap();
+        assert_eq!(
+            saved.store.instances[0].profiles[0].behaviors,
+            serde_json::json!({"up": payload})
+        );
+        assert_eq!(
+            load(&manager.shared.path).unwrap().instances[0].profiles[0].behaviors,
+            saved.store.instances[0].profiles[0].behaviors
+        );
+        std::fs::remove_file(&manager.shared.path).unwrap();
+        std::fs::remove_file(manager.shared.path.with_extension("bak")).ok();
     }
     #[test]
     fn reorder_instances_persists_the_requested_order() {
