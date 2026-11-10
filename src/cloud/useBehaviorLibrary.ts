@@ -34,7 +34,13 @@ export function useBehaviorLibrary(
   builtinsRef.current = builtins
   const [attempt, retry] = useState(0)
   const [state, setState] = useState({ ...empty, key: '', loading: false, error: '' })
-  const current = state.key === key ? state : { ...empty, key, loading: !!view, error: '' }
+  const cached = view ? readCachedLibraryPage(platform, view, query, '', localStorageOrUndefined()) : null
+  const current =
+    state.key === key
+      ? state
+      : cached
+        ? { ...cached, key, loading: false, error: '' }
+        : { ...empty, key, loading: !!view, error: '' }
   const generation = useRef(0)
   const forceRefreshKey = useRef<string | null>(null)
 
@@ -43,16 +49,16 @@ export function useBehaviorLibrary(
     if (!client || !view) return
     const forceRefresh = forceRefreshKey.current === key
     if (forceRefresh) forceRefreshKey.current = null
+    const storage = localStorageOrUndefined()
+    const cached = forceRefresh ? null : readCachedLibraryPage(platform, view, query, '', storage)
+    if (cached) {
+      setState({ ...cached, key, loading: false, error: '' })
+      return
+    }
     setState(previous => ({ ...(previous.key === key ? previous : empty), key, loading: true, error: '' }))
     const timer = window.setTimeout(
       () => {
-        const storage = localStorageOrUndefined()
         if (forceRefresh) clearCachedLibraryPages(platform, view, query, storage)
-        const cached = forceRefresh ? null : readCachedLibraryPage(platform, view, query, '', storage)
-        if (cached) {
-          if (generation.current === request) setState({ ...cached, key, loading: false, error: '' })
-          return
-        }
         void fetchLibraryPage(client, platform, view, query, '', builtinsRef.current)
           .then(page => {
             writeCachedLibraryPage(platform, view, query, '', page, storage)

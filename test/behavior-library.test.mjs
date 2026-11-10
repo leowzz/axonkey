@@ -169,7 +169,11 @@ test('public library pages use a ten-minute local cache and retry bypasses it', 
     assert.equal(requests, 1)
     assert.equal(value.steps[0].name, 'item-1')
     act(() => view.unmount())
-    await act(async () => { view = Renderer.create(React.createElement(App)) })
+    await act(async () => {
+      view = Renderer.create(React.createElement(App))
+      assert.equal(value.loading, false)
+      assert.equal(value.steps[0].name, 'item-1')
+    })
     await act(async () => { harness.tick(); await flush() })
     assert.equal(requests, 1)
     assert.equal(value.steps[0].name, 'item-1')
