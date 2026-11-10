@@ -112,7 +112,6 @@ export function MappingFlowPage({
             }
             splitRatio={splitRatio}
             onSplitRatioChange={setSplitRatio}
-            key={selectedBehavior.buttonId}
             platform={platform}
             button={behaviorEditorProps.button}
             sequences={behaviors[selectedBehavior.buttonId]}
