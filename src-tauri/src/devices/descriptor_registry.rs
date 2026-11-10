@@ -91,16 +91,18 @@ pub(crate) fn input_key(input: &super::device_descriptor::InputDescriptor) -> &s
         .unwrap_or(&input.id)
 }
 
-pub(crate) fn supports_key(kind: &str, key: &str) -> bool {
-    descriptor_for_kind(kind).is_some_and(|descriptor| {
-        descriptor.inputs.iter().any(|input| {
+pub(crate) fn profile_key(kind: &str, key: &str) -> Option<&'static str> {
+    descriptor_for_kind(kind)?
+        .inputs
+        .iter()
+        .find(|input| {
             input.id == key
                 || input
                     .legacy_key
                     .as_deref()
                     .is_some_and(|aliases| aliases.split_whitespace().any(|alias| alias == key))
         })
-    })
+        .map(input_key)
 }
 
 pub(crate) fn primary_hardware(kind: &str) -> Option<(u16, u16)> {
@@ -122,6 +124,9 @@ pub(crate) fn original_usage(kind: &str, key: &str) -> Option<(u16, u16)> {
                 .as_deref()
                 .is_some_and(|aliases| aliases.split_whitespace().any(|alias| alias == key))
     })?;
+    if !input.original {
+        return None;
+    }
     input
         .sources
         .iter()
@@ -284,9 +289,9 @@ mod tests {
 
     #[test]
     fn saved_keys_original_output_and_voice_trigger_share_the_descriptor() {
-        assert!(supports_key("rc003", "power"));
-        assert!(supports_key("rc003", "xiaomi.rc003.power"));
-        assert!(!supports_key("rc003", "cmiotA15.power"));
+        assert_eq!(profile_key("rc003", "power"), Some("power"));
+        assert_eq!(profile_key("rc003", "xiaomi.rc003.power"), Some("power"));
+        assert_eq!(profile_key("rc003", "cmiotA15.power"), None);
         assert_eq!(original_usage("rc003", "volumeUp"), Some((7, 0x80)));
         assert_eq!(
             original_usage("cmiotA15", "cmiotA15.back"),

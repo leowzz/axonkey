@@ -438,7 +438,7 @@ fn descriptor_event_key(
     id: &str,
 ) -> Option<&'static str> {
     let input = descriptor.inputs.iter().find(|input| input.id == id)?;
-    Some(input.legacy_key.as_deref().unwrap_or(&input.id))
+    Some(crate::devices::descriptor_registry::input_key(input))
 }
 
 #[cfg(all(windows, test))]
@@ -470,27 +470,15 @@ fn rc003_button_for_usage(usage: u16) -> Option<&'static str> {
             .sources
             .iter()
             .any(|source| source.page == Some(7) && source.usage == Some(usage))
-            .then(|| input.legacy_key.as_deref().unwrap_or(&input.id))
+            .then(|| crate::devices::descriptor_registry::input_key(input))
     })
 }
 
 pub(super) fn original_key_for_button(button: &str) -> Option<super::remote_actions::HidKey> {
-    [
-        "rc003",
-        "cmiotA15",
-        "xmBt29",
-        "rc313",
-        "obeRcuR5",
-        "xboxBluetooth",
-    ]
-    .into_iter()
-    .find_map(|kind| crate::devices::descriptor_registry::original_usage(kind, button))
-    .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
-}
-
-pub(super) fn rc003_usage_for_button(button: &str) -> Option<u16> {
-    crate::devices::descriptor_registry::original_usage("rc003", button)
-        .and_then(|(page, usage)| (page == 7).then_some(usage))
+    crate::devices::descriptor_registry::KINDS
+        .iter()
+        .find_map(|kind| crate::devices::descriptor_registry::original_usage(kind, button))
+        .map(|(page, usage)| super::remote_actions::HidKey { page, usage })
 }
 
 #[cfg(windows)]

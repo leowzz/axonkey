@@ -204,18 +204,27 @@ fn matches_report(report: &ReportDescriptor, bytes: &[u8]) -> bool {
         && report
             .report_id
             .is_none_or(|report_id| bytes.first() == Some(&report_id))
+        && report
+            .attributes
+            .get("prefix")
+            .is_none_or(|prefix| matches_prefix(prefix, bytes))
+        && report
+            .attributes
+            .get("prefix-not")
+            .is_none_or(|prefix| !matches_prefix(prefix, bytes))
+}
+
+fn matches_prefix(prefix: &str, bytes: &[u8]) -> bool {
+    prefix
+        .split_whitespace()
+        .enumerate()
+        .all(|(index, expected)| {
+            bytes.get(index).copied()
+                == parse_u16(expected).and_then(|value| u8::try_from(value).ok())
+        })
 }
 
 fn decode_report_values(report: &ReportDescriptor, bytes: &[u8]) -> Option<ReportValues> {
-    if let Some(prefix) = report.attributes.get("prefix") {
-        for (index, expected) in prefix.split_whitespace().enumerate() {
-            if bytes.get(index).copied()
-                != parse_u16(expected).and_then(|value| u8::try_from(value).ok())
-            {
-                return None;
-            }
-        }
-    }
     let payload_offset = report
         .attributes
         .get("payload-offset")
@@ -779,6 +788,21 @@ mod tests {
             [("xiaomi.rc003.voice".into(), false)]
         );
         assert!(engine.release_all().is_empty());
+
+        assert_eq!(
+            engine.accept(rc003, &[1, 0x52, 0, 0x28, 0, 0, 0, 0, 0]),
+            [
+                ("xiaomi.rc003.confirm".into(), true),
+                ("xiaomi.rc003.up".into(), true)
+            ]
+        );
+        assert_eq!(
+            engine.accept(rc003, &[1, 0, 0, 0, 0, 0, 0]),
+            [
+                ("xiaomi.rc003.confirm".into(), false),
+                ("xiaomi.rc003.up".into(), false)
+            ]
+        );
 
         let xm = crate::devices::descriptor_registry::descriptor_for_kind("xmBt29").unwrap();
         let mut engine = DescriptorEngine::default();

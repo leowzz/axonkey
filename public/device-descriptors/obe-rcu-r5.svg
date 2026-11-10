@@ -17,37 +17,37 @@
         <ak:input id="obeRcuR5.power" label="电源键" kind="button" target="#power" legacy-key="obeRcuR5.power" original="true" short="电源" icon="power" order="0">
           <ak:source report="keyboard" page="0x07" usage="0x0066" />
         </ak:input>
-        <ak:input id="obeRcuR5.locate" label="定位键" kind="button" target="#function" legacy-key="obeRcuR5.locate" short="定位" icon="locate" order="1">
+        <ak:input original="true" id="obeRcuR5.locate" label="定位键" kind="button" target="#function" legacy-key="obeRcuR5.locate" short="定位" icon="locate" order="1">
           <ak:source report="keyboard" page="0x07" usage="0x0072" />
         </ak:input>
-        <ak:input id="obeRcuR5.up" label="方向上" kind="button" target="#up" legacy-key="obeRcuR5.up" short="上" icon="up" order="2">
+        <ak:input original="true" id="obeRcuR5.up" label="方向上" kind="button" target="#up" legacy-key="obeRcuR5.up" short="上" icon="up" order="2">
           <ak:source report="keyboard" page="0x07" usage="0x0052" />
         </ak:input>
-        <ak:input id="obeRcuR5.left" label="方向左" kind="button" target="#left" legacy-key="obeRcuR5.left" short="左" icon="left" order="3">
+        <ak:input original="true" id="obeRcuR5.left" label="方向左" kind="button" target="#left" legacy-key="obeRcuR5.left" short="左" icon="left" order="3">
           <ak:source report="keyboard" page="0x07" usage="0x0050" />
         </ak:input>
-        <ak:input id="obeRcuR5.confirm" label="确认键" kind="button" target="#direction-pad" legacy-key="obeRcuR5.confirm" short="确认" icon="center" order="4">
+        <ak:input original="true" id="obeRcuR5.confirm" label="确认键" kind="button" target="#direction-pad" legacy-key="obeRcuR5.confirm" short="确认" icon="center" order="4">
           <ak:source report="keyboard" page="0x07" usage="0x0028" />
         </ak:input>
-        <ak:input id="obeRcuR5.right" label="方向右" kind="button" target="#right" legacy-key="obeRcuR5.right" short="右" icon="right" order="5">
+        <ak:input original="true" id="obeRcuR5.right" label="方向右" kind="button" target="#right" legacy-key="obeRcuR5.right" short="右" icon="right" order="5">
           <ak:source report="keyboard" page="0x07" usage="0x004F" />
         </ak:input>
-        <ak:input id="obeRcuR5.down" label="方向下" kind="button" target="#down" legacy-key="obeRcuR5.down" short="下" icon="down" order="6">
+        <ak:input original="true" id="obeRcuR5.down" label="方向下" kind="button" target="#down" legacy-key="obeRcuR5.down" short="下" icon="down" order="6">
           <ak:source report="keyboard" page="0x07" usage="0x0051" />
         </ak:input>
-        <ak:input id="obeRcuR5.home" label="主页键" kind="button" target="#home" legacy-key="obeRcuR5.home" short="主页" icon="home" order="7">
+        <ak:input original="true" id="obeRcuR5.home" label="主页键" kind="button" target="#home" legacy-key="obeRcuR5.home" short="主页" icon="home" order="7">
           <ak:source report="keyboard" page="0x07" usage="0x004A" />
         </ak:input>
-        <ak:input id="obeRcuR5.back" label="返回键" kind="button" target="#back" legacy-key="obeRcuR5.back" short="返回" icon="back" order="8">
+        <ak:input original="true" id="obeRcuR5.back" label="返回键" kind="button" target="#back" legacy-key="obeRcuR5.back" short="返回" icon="back" order="8">
           <ak:source report="keyboard" page="0x07" usage="0x0029" />
         </ak:input>
-        <ak:input id="obeRcuR5.voice" label="语音键（菜单按钮）" kind="button" target="#menu" legacy-key="obeRcuR5.voice" short="语音" icon="mic" order="9">
+        <ak:input original="true" id="obeRcuR5.voice" label="语音键（菜单按钮）" kind="button" target="#menu" legacy-key="obeRcuR5.voice" short="语音" icon="mic" order="9">
           <ak:source report="keyboard" page="0x07" usage="0x0073" />
         </ak:input>
-        <ak:input id="obeRcuR5.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="obeRcuR5.volumeDown" short="音量 -" icon="volumeDown" order="10">
+        <ak:input original="true" id="obeRcuR5.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="obeRcuR5.volumeDown" short="音量 -" icon="volumeDown" order="10">
           <ak:source report="keyboard" page="0x07" usage="0x0081" />
         </ak:input>
-        <ak:input id="obeRcuR5.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="obeRcuR5.volumeUp" short="音量 +" icon="volumeUp" order="11">
+        <ak:input original="true" id="obeRcuR5.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="obeRcuR5.volumeUp" short="音量 +" icon="volumeUp" order="11">
           <ak:source report="keyboard" page="0x07" usage="0x0080" />
         </ak:input>
       </ak:inputs>

@@ -22,49 +22,49 @@
         <ak:input id="cmiotA15.voice" label="语音键" kind="button" target="#microphone" legacy-key="cmiotA15.voice" original="true" short="语音" icon="mic" order="1">
           <ak:source report="voice-edge" engine="cmiot-a15.voice-edge" field="state" equals="1" />
         </ak:input>
-        <ak:input id="cmiotA15.up" label="方向上" kind="button" target="#up" legacy-key="cmiotA15.up" short="上" icon="up" order="2">
+        <ak:input original="true" id="cmiotA15.up" label="方向上" kind="button" target="#up" legacy-key="cmiotA15.up" short="上" icon="up" order="2">
           <ak:source report="keyboard" page="0x07" usage="0x0052" />
         </ak:input>
-        <ak:input id="cmiotA15.left" label="方向左" kind="button" target="#left" legacy-key="cmiotA15.left" short="左" icon="left" order="3">
+        <ak:input original="true" id="cmiotA15.left" label="方向左" kind="button" target="#left" legacy-key="cmiotA15.left" short="左" icon="left" order="3">
           <ak:source report="keyboard" page="0x07" usage="0x0050" />
         </ak:input>
-        <ak:input id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" legacy-key="cmiotA15.confirm" short="确认" icon="center" order="4">
+        <ak:input original="true" id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" legacy-key="cmiotA15.confirm" short="确认" icon="center" order="4">
           <ak:source report="consumer" page="0x0C" usage="0x0041" />
         </ak:input>
-        <ak:input id="cmiotA15.right" label="方向右" kind="button" target="#right" legacy-key="cmiotA15.right" short="右" icon="right" order="5">
+        <ak:input original="true" id="cmiotA15.right" label="方向右" kind="button" target="#right" legacy-key="cmiotA15.right" short="右" icon="right" order="5">
           <ak:source report="keyboard" page="0x07" usage="0x004F" />
         </ak:input>
-        <ak:input id="cmiotA15.down" label="方向下" kind="button" target="#down" legacy-key="cmiotA15.down" short="下" icon="down" order="6">
+        <ak:input original="true" id="cmiotA15.down" label="方向下" kind="button" target="#down" legacy-key="cmiotA15.down" short="下" icon="down" order="6">
           <ak:source report="keyboard" page="0x07" usage="0x0051" />
         </ak:input>
-        <ak:input id="cmiotA15.back" label="返回键" kind="button" target="#back" legacy-key="cmiotA15.back" short="返回" icon="back" order="7">
+        <ak:input original="true" id="cmiotA15.back" label="返回键" kind="button" target="#back" legacy-key="cmiotA15.back" short="返回" icon="back" order="7">
           <ak:source report="consumer" page="0x0C" usage="0x0224" />
         </ak:input>
-        <ak:input id="cmiotA15.home" label="主页键" kind="button" target="#home" legacy-key="cmiotA15.home" short="主页" icon="home" order="9">
+        <ak:input original="true" id="cmiotA15.home" label="主页键" kind="button" target="#home" legacy-key="cmiotA15.home" short="主页" icon="home" order="9">
           <ak:source report="consumer" page="0x0C" usage="0x0223" />
         </ak:input>
-        <ak:input id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="cmiotA15.volumeUp" short="音量 +" icon="volumeUp" order="8">
+        <ak:input original="true" id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="cmiotA15.volumeUp" short="音量 +" icon="volumeUp" order="8">
           <ak:source report="consumer" page="0x0C" usage="0x00E9" />
         </ak:input>
-        <ak:input id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="cmiotA15.volumeDown" short="音量 -" icon="volumeDown" order="10">
+        <ak:input original="true" id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="cmiotA15.volumeDown" short="音量 -" icon="volumeDown" order="10">
           <ak:source report="consumer" page="0x0C" usage="0x00EA" />
         </ak:input>
-        <ak:input id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" legacy-key="cmiotA15.menu" short="功能" icon="menu" order="11">
+        <ak:input original="true" id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" legacy-key="cmiotA15.menu" short="功能" icon="menu" order="11">
           <ak:source report="keyboard" page="0x07" usage="0x0065" />
         </ak:input>
-        <ak:input id="cmiotA15.mute" label="静音键" kind="button" target="#mute" legacy-key="cmiotA15.mute" short="静音" icon="mute" order="12">
+        <ak:input original="true" id="cmiotA15.mute" label="静音键" kind="button" target="#mute" legacy-key="cmiotA15.mute" short="静音" icon="mute" order="12">
           <ak:source report="consumer" page="0x0C" usage="0x00E2" />
         </ak:input>
-        <ak:input id="cmiotA15.settings" label="设置键" kind="button" target="#settings" legacy-key="cmiotA15.settings" short="设置" icon="settings" order="13">
+        <ak:input original="true" id="cmiotA15.settings" label="设置键" kind="button" target="#settings" legacy-key="cmiotA15.settings" short="设置" icon="settings" order="13">
           <ak:source report="consumer" page="0x0C" usage="0x00EB" />
         </ak:input>
-        <ak:input id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" legacy-key="cmiotA15.channelUp" short="频道 +" icon="up" order="14">
+        <ak:input original="true" id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" legacy-key="cmiotA15.channelUp" short="频道 +" icon="up" order="14">
           <ak:source report="keyboard" page="0x07" usage="0x004B" />
         </ak:input>
-        <ak:input id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" legacy-key="cmiotA15.channelDown" short="频道 -" icon="down" order="15">
+        <ak:input original="true" id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" legacy-key="cmiotA15.channelDown" short="频道 -" icon="down" order="15">
           <ak:source report="keyboard" page="0x07" usage="0x004E" />
         </ak:input>
-        <ak:input id="cmiotA15.m" label="M 键" kind="button" target="#m" legacy-key="cmiotA15.m" short="M" icon="m" order="16">
+        <ak:input original="true" id="cmiotA15.m" label="M 键" kind="button" target="#m" legacy-key="cmiotA15.m" short="M" icon="m" order="16">
           <ak:source report="consumer" page="0x0C" usage="0x00F0" />
         </ak:input>
       </ak:inputs>

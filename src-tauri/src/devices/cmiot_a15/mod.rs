@@ -3,139 +3,64 @@ pub(crate) mod recording;
 mod siren;
 pub(crate) mod voice;
 
-use std::collections::{HashMap, HashSet};
-
-pub(crate) fn matches_instance(id: &str) -> bool {
-    let id = id.to_ascii_uppercase();
-    let tokens: Vec<_> = id.split(['&', '_', '\\', ' ']).collect();
-    super::shared::bluetooth_hid_service(&id).is_some()
-        && tokens
-            .windows(2)
-            .any(|p| p[0] == "VID" && matches!(p[1], "0416" | "010416" | "050416"))
-        && tokens.windows(2).any(|p| p[0] == "PID" && p[1] == "0300")
-}
-
-// Report ID, usage (or vendor state), device-scoped input ID.
-pub(crate) const BUTTONS: &[(u8, u16, &str)] = &[
-    (1, 0x66, "cmiotA15.power"),
-    (0xf8, 1, "cmiotA15.voice"),
-    (1, 0x52, "cmiotA15.up"),
-    (1, 0x50, "cmiotA15.left"),
-    (3, 0x41, "cmiotA15.confirm"),
-    (1, 0x4f, "cmiotA15.right"),
-    (1, 0x51, "cmiotA15.down"),
-    (3, 0x224, "cmiotA15.back"),
-    (3, 0xe9, "cmiotA15.volumeUp"),
-    (3, 0x223, "cmiotA15.home"),
-    (3, 0xea, "cmiotA15.volumeDown"),
-    (1, 0x65, "cmiotA15.menu"),
-    (3, 0xe2, "cmiotA15.mute"),
-    (3, 0xeb, "cmiotA15.settings"),
-    (1, 0x4b, "cmiotA15.channelUp"),
-    (1, 0x4e, "cmiotA15.channelDown"),
-    (3, 0xf0, "cmiotA15.m"),
-];
-
-pub(crate) fn original_usage(button: &str) -> Option<(u16, u16)> {
-    BUTTONS.iter().find_map(|&(report, usage, id)| {
-        (id == button && report != 0xf8).then_some((if report == 1 { 7 } else { 12 }, usage))
-    })
-}
-
-pub(crate) fn decode(bytes: &[u8]) -> Option<(u8, HashSet<&'static str>)> {
-    decode_with_buttons(bytes, BUTTONS)
-}
-
-pub(super) fn decode_with_buttons(
-    bytes: &[u8],
-    buttons: &[(u8, u16, &'static str)],
-) -> Option<(u8, HashSet<&'static str>)> {
-    let report = *bytes.first()?;
-    let usages: Vec<u16> = match report {
-        1 if bytes.len() == 9 && bytes[1..3] == [0, 0] => {
-            // Boot keyboard slots are bytes, not little-endian u16 pairs.
-            if bytes[3..].iter().any(|u| (1..=3).contains(u)) {
-                return None;
-            }
-            bytes[3..].iter().map(|&u| u16::from(u)).collect()
-        }
-        3 if bytes.len() == 3 => vec![u16::from_le_bytes([bytes[1], bytes[2]])],
-        0xf8 if bytes.len() == 21
-            && bytes[1..3] == [0x82, 3]
-            && bytes[3] <= 1
-            && bytes[4..].iter().all(|b| *b == 0) =>
-        {
-            vec![u16::from(bytes[3])]
-        }
-        _ => return None,
-    };
-    Some((
-        report,
-        buttons
-            .iter()
-            .filter_map(|&(r, usage, id)| (r == report && usages.contains(&usage)).then_some(id))
-            .collect(),
-    ))
-}
-
+#[cfg(any(target_os = "macos", test))]
 pub(crate) struct ReportState {
-    active: HashMap<u8, HashSet<&'static str>>,
-    decode: ReportDecoder,
+    descriptor: &'static super::device_descriptor::DeviceDescriptor,
+    engine: super::engine::DescriptorEngine,
 }
 
-pub(crate) type ReportDecoder = fn(&[u8]) -> Option<(u8, HashSet<&'static str>)>;
-
+#[cfg(any(target_os = "macos", test))]
 impl Default for ReportState {
     fn default() -> Self {
-        Self::with_decoder(decode)
+        Self::for_kind("cmiotA15")
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl ReportState {
-    pub(crate) fn with_decoder(decode: ReportDecoder) -> Self {
+    pub(crate) fn for_kind(kind: &str) -> Self {
         Self {
-            active: HashMap::new(),
-            decode,
+            descriptor: super::descriptor_registry::descriptor_for_kind(kind)
+                .expect("audio session requires a bundled descriptor"),
+            engine: Default::default(),
         }
     }
 
     /// Unrelated and malformed vendor packets do not release held keys.
     pub(crate) fn accept(&mut self, bytes: &[u8]) -> Vec<(&'static str, bool)> {
-        let Some((report, current)) = (self.decode)(bytes) else {
-            return Vec::new();
-        };
-        let previous = self.active.entry(report).or_default();
-        let mut edges: Vec<_> = previous
-            .difference(&current)
-            .map(|id| (*id, false))
-            .collect();
-        edges.extend(current.difference(previous).map(|id| (*id, true)));
-        *previous = current;
-        edges
+        let edges = self.engine.accept(self.descriptor, bytes);
+        self.compatibility_edges(edges)
     }
 
     pub(crate) fn release_all(&mut self) -> Vec<(&'static str, bool)> {
-        self.active
-            .drain()
-            .flat_map(|(_, keys)| keys.into_iter().map(|id| (id, false)))
-            .collect()
+        let edges = self.engine.release_all();
+        self.compatibility_edges(edges)
     }
 
     // Keep physical voice state so repeated down reports cannot become a new click.
+    #[cfg(test)]
     pub(crate) fn release_non_voice(&mut self) -> Vec<(&'static str, bool)> {
-        let mut released = Vec::new();
-        self.active.retain(|_, keys| {
-            keys.retain(|&id| {
-                if matches!(id, "cmiotA15.voice" | "obeRcuR5.voice") {
-                    true
-                } else {
-                    released.push((id, false));
-                    false
-                }
-            });
-            !keys.is_empty()
-        });
-        released
+        let voice = self
+            .descriptor
+            .voices
+            .iter()
+            .map(|voice| voice.trigger_key.as_str())
+            .collect::<Vec<_>>();
+        let edges = self.engine.release_except(&voice);
+        self.compatibility_edges(edges)
+    }
+
+    fn compatibility_edges(&self, edges: Vec<(String, bool)>) -> Vec<(&'static str, bool)> {
+        edges
+            .into_iter()
+            .filter_map(|(key, pressed)| {
+                self.descriptor
+                    .inputs
+                    .iter()
+                    .find(|input| input.id == key)
+                    .map(|input| (super::descriptor_registry::input_key(input), pressed))
+            })
+            .collect()
     }
 }
 
@@ -145,13 +70,7 @@ impl ReportState {
 enum VoiceDecoder {
     A15(voice::VoiceStream),
     Obe(crate::devices::obe_rcu_r5::voice::VoiceStream),
-}
-
-#[cfg(any(target_os = "macos", test))]
-impl Default for VoiceDecoder {
-    fn default() -> Self {
-        Self::A15(voice::VoiceStream::default())
-    }
+    None,
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -160,6 +79,7 @@ impl VoiceDecoder {
         match self {
             Self::A15(stream) => stream.synchronize(active),
             Self::Obe(stream) => stream.synchronize(active),
+            Self::None => {}
         }
     }
 
@@ -167,6 +87,7 @@ impl VoiceDecoder {
         match self {
             Self::A15(stream) => stream.reset(),
             Self::Obe(stream) => stream.reset(),
+            Self::None => {}
         }
     }
 
@@ -176,32 +97,38 @@ impl VoiceDecoder {
             Self::Obe(stream) => stream
                 .feed(report)
                 .map(|samples| samples.map(voice::PcmFrame::from_samples)),
+            Self::None => Ok(None),
         }
     }
 }
 
 #[cfg(any(target_os = "macos", test))]
-#[derive(Default)]
 pub(crate) struct HidSession {
     reports: ReportState,
     recording: recording::RecordingControl,
     voice: VoiceDecoder,
+    voice_key: Option<&'static str>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl Default for HidSession {
+    fn default() -> Self {
+        Self::for_kind("cmiotA15")
+    }
 }
 
 #[cfg(any(target_os = "macos", test))]
 impl HidSession {
-    pub(crate) fn with_decoder(decode: ReportDecoder) -> Self {
+    pub(crate) fn for_kind(kind: &str) -> Self {
         Self {
-            reports: ReportState::with_decoder(decode),
-            ..Default::default()
-        }
-    }
-
-    pub(crate) fn with_obe_decoder(decode: ReportDecoder) -> Self {
-        Self {
-            reports: ReportState::with_decoder(decode),
-            voice: VoiceDecoder::Obe(Default::default()),
-            ..Default::default()
+            reports: ReportState::for_kind(kind),
+            recording: Default::default(),
+            voice: match super::descriptor_registry::voice_engine(kind) {
+                Some("cmiot-a15.g7221") => VoiceDecoder::A15(Default::default()),
+                Some("obe-rcu-r5.sbc") => VoiceDecoder::Obe(Default::default()),
+                _ => VoiceDecoder::None,
+            },
+            voice_key: super::descriptor_registry::voice_key(kind),
         }
     }
 
@@ -231,11 +158,12 @@ impl HidSession {
     ) -> Result<(Vec<(&'static str, bool)>, Option<voice::PcmFrame>), String> {
         let edges = self.reports.accept(report);
         for &(button, pressed) in &edges {
-            if button == "cmiotA15.voice" {
-                self.recording.edge(pressed, &mut send)?;
-                self.voice.synchronize(self.recording());
-            } else if button == "obeRcuR5.voice" {
-                self.recording.edge(pressed, |_| Ok::<_, String>(()))?;
+            if Some(button) == self.voice_key {
+                if matches!(self.voice, VoiceDecoder::A15(_)) {
+                    self.recording.edge(pressed, &mut send)?;
+                } else {
+                    self.recording.edge(pressed, |_| Ok::<_, String>(()))?;
+                }
                 self.voice.synchronize(self.recording());
             }
         }
@@ -270,6 +198,26 @@ impl HidSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BUTTON_SAMPLES: &[(u8, u16, &str)] = &[
+        (1, 0x66, "cmiotA15.power"),
+        (0xf8, 1, "cmiotA15.voice"),
+        (1, 0x52, "cmiotA15.up"),
+        (1, 0x50, "cmiotA15.left"),
+        (3, 0x41, "cmiotA15.confirm"),
+        (1, 0x4f, "cmiotA15.right"),
+        (1, 0x51, "cmiotA15.down"),
+        (3, 0x224, "cmiotA15.back"),
+        (3, 0xe9, "cmiotA15.volumeUp"),
+        (3, 0x223, "cmiotA15.home"),
+        (3, 0xea, "cmiotA15.volumeDown"),
+        (1, 0x65, "cmiotA15.menu"),
+        (3, 0xe2, "cmiotA15.mute"),
+        (3, 0xeb, "cmiotA15.settings"),
+        (1, 0x4b, "cmiotA15.channelUp"),
+        (1, 0x4e, "cmiotA15.channelDown"),
+        (3, 0xf0, "cmiotA15.m"),
+    ];
 
     #[test]
     fn manual_stop_is_idempotent_preserves_held_keys_and_can_retry() {
@@ -363,7 +311,7 @@ mod tests {
             0xf7, 0x9d, 0x00, 0x8d, 0xa1, 0xa3, 0xfe, 0x9c, 0xf3, 0x9c, 0xf2, 0xc1, 0x8a, 0xe4,
             0xa2, 0x9b, 0xe5, 0x9e, 0xe4,
         ];
-        let mut session = HidSession::with_obe_decoder(super::super::obe_rcu_r5::decode);
+        let mut session = HidSession::for_kind("obeRcuR5");
         session.start(super::recording::RecordingMode::Hold);
         session.toggle_recording(|_| Ok(())).unwrap();
         let (_, pcm) = session.accept(&report, |_| Ok(())).unwrap();
@@ -421,7 +369,7 @@ mod tests {
 
     #[test]
     fn every_documented_key_presses_and_releases_without_repeat_edges() {
-        for &(report, usage, id) in BUTTONS {
+        for &(report, usage, id) in BUTTON_SAMPLES {
             let (down, up) = match report {
                 1 => (
                     vec![1, 0, 0, usage as u8, 0, 0, 0, 0, 0],
@@ -488,16 +436,27 @@ mod tests {
                 let id = id
                     .replace("010416", vendor)
                     .replace("BTHLEDEVICE\\", prefix);
-                assert!(matches_instance(&id), "{id}");
-                assert!(matches_instance(&id.to_ascii_lowercase()));
-                assert!(!matches_instance(&id.replace("0300", "03000")));
-                assert!(!matches_instance(&id.replace("00001812", "0000180F")));
-                assert!(!matches_instance(&id.replace(vendor, "012717")));
-                assert!(!matches_instance(&id.replace(vendor, "0504160")));
-                assert!(!matches_instance(&id.replace("BTHLEDEVICE", "USB")));
+                use crate::devices::descriptor_registry::matches_instance;
+                assert!(matches_instance("cmiotA15", &id), "{id}");
+                assert!(matches_instance("cmiotA15", &id.to_ascii_lowercase()));
+                assert!(!matches_instance("cmiotA15", &id.replace("0300", "03000")));
+                assert!(!matches_instance(
+                    "cmiotA15",
+                    &id.replace("00001812", "0000180F")
+                ));
+                assert!(!matches_instance("cmiotA15", &id.replace(vendor, "012717")));
+                assert!(!matches_instance(
+                    "cmiotA15",
+                    &id.replace(vendor, "0504160")
+                ));
+                assert!(!matches_instance(
+                    "cmiotA15",
+                    &id.replace("BTHLEDEVICE", "USB")
+                ));
             }
         }
-        assert!(matches_instance(
+        assert!(crate::devices::descriptor_registry::matches_instance(
+            "cmiotA15",
             r"BTHLEDEVICE{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&050416_PID&0300_REV&0505_0CF3CE7F241E\8&11237C06&0&0025"
         ));
     }

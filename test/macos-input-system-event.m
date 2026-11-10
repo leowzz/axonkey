@@ -13,6 +13,42 @@ static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event);
 #import "../src-tauri/native/macos_input.m"
 #undef CGEventPost
 
+typedef struct {
+    const uint64_t *usages;
+    size_t count;
+    size_t calls;
+    bool valid;
+} ReportFixture;
+
+static size_t DecodeReportFixture(
+    void *context, uint32_t report_id, const uint8_t *bytes, size_t length,
+    uint64_t *usages, size_t capacity
+) {
+    (void)report_id;
+    (void)bytes;
+    (void)length;
+    ReportFixture *fixture = context;
+    fixture->calls++;
+    if (!fixture->valid || fixture->count > capacity) return SIZE_MAX;
+    if (fixture->count > 0) memcpy(usages, fixture->usages, fixture->count * sizeof(uint64_t));
+    return fixture->count;
+}
+
+static const AxonkeyNativeSource report_sources[] = {
+    {0x000000070000003e, AXONKEY_NATIVE_EVENT_KEYBOARD, 96, AXONKEY_SOURCE_FILTER_FN},
+    {0x0000000700000035, AXONKEY_NATIVE_EVENT_KEYBOARD, 50, 0},
+    {0x0000000700000066, AXONKEY_NATIVE_EVENT_KEYBOARD, 90, AXONKEY_SOURCE_FILTER_ESCAPE},
+};
+
+static AxonkeyInputState NewReportState(const AxonkeyCallbacks *callbacks) {
+    return (AxonkeyInputState){
+        .callbacks = callbacks,
+        .event_tap = (CFMachPortRef)1,
+        .sources = report_sources,
+        .source_count = sizeof(report_sources) / sizeof(report_sources[0]),
+    };
+}
+
 static void CaptureEventPost(CGEventTapLocation tap, CGEventRef event) {
     posted_event_count++;
     if (previous_posted_event != NULL) CFRelease(previous_posted_event);
@@ -268,17 +304,18 @@ static int CheckModifierMappingReplacementAndRestore(void) {
 }
 
 static int CheckHardwareMappedFnPassThrough(void) {
+    const uint64_t voice = 0x000000070000003e;
+    ReportFixture fixture = {.usages = &voice, .count = 1, .valid = true};
+    const AxonkeyCallbacks callbacks = {.context = &fixture, .decode_report = DecodeReportFixture};
     const AxonkeyHardwareModifierMapping requested[] = {
         {
             .source = 0x000000070000003E,
             .destination = 0x000000FF00000003,
         },
     };
-    AxonkeyInputState state = {
-        .event_tap = (CFMachPortRef)1,
-        .modifier_mappings = requested,
-        .modifier_mapping_count = 1,
-    };
+    AxonkeyInputState state = NewReportState(&callbacks);
+    state.modifier_mappings = requested;
+    state.modifier_mapping_count = 1;
     const uint8_t pressed_report[] = {0x3e, 0x00};
     axonkey_arm_report_events(&state, 1, pressed_report, sizeof(pressed_report));
 
@@ -312,9 +349,10 @@ static int CheckHardwareMappedFnPassThrough(void) {
 }
 
 static int CheckTelevisionPassThroughFiltered(void) {
-    AxonkeyInputState state = {
-        .event_tap = (CFMachPortRef)1,
-    };
+    const uint64_t television = 0x0000000700000035;
+    ReportFixture fixture = {.usages = &television, .count = 1, .valid = true};
+    const AxonkeyCallbacks callbacks = {.context = &fixture, .decode_report = DecodeReportFixture};
+    AxonkeyInputState state = NewReportState(&callbacks);
     const uint8_t pressed_report[] = {0x35, 0x00};
     axonkey_arm_report_events(&state, 1, pressed_report, sizeof(pressed_report));
 
@@ -332,6 +370,7 @@ static int CheckTelevisionPassThroughFiltered(void) {
     }
 
     const uint8_t released_report[] = {0x00, 0x00};
+    fixture.count = 0;
     axonkey_arm_report_events(&state, 1, released_report, sizeof(released_report));
     CGEventRef up_event = CGEventCreateKeyboardEvent(NULL, 50, false);
     CGEventRef filtered_up = axonkey_event_tap_callback(
@@ -349,10 +388,17 @@ static int CheckTelevisionPassThroughFiltered(void) {
 }
 
 static int CheckPowerGuardFiltered(void) {
-    AxonkeyInputState state = {.event_tap = (CFMachPortRef)1};
+    const uint64_t power = 0x0000000700000066;
+    ReportFixture fixture = {.usages = &power, .count = 1, .valid = true};
+    const AxonkeyCallbacks callbacks = {.context = &fixture, .decode_report = DecodeReportFixture};
+    AxonkeyInputState state = NewReportState(&callbacks);
     const uint8_t down_report[] = {0x66, 0x00};
     const uint8_t up_report[] = {0x00, 0x00};
     axonkey_arm_report_events(&state, 1, down_report, sizeof(down_report));
+    CGEventRef escape = CGEventCreateKeyboardEvent(NULL, 53, true);
+    bool escape_filtered = axonkey_event_tap_callback(NULL, kCGEventKeyDown, escape, &state) == NULL;
+    CFRelease(escape);
+    if (!escape_filtered) { fputs("pre-existing Power to Escape mapping leaked\n", stderr); return 1; }
     // Only this remote's remapped F20 is swallowed, including held repeats.
     for (int repeat = 0; repeat < 2; repeat++) {
         CGEventRef event = CGEventCreateKeyboardEvent(NULL, 90, true);
@@ -366,6 +412,7 @@ static int CheckPowerGuardFiltered(void) {
     if (axonkey_event_tap_callback(NULL, kCGEventKeyDown, captured_posted_event, &state) == NULL) {
         fputs("configured synthetic output was swallowed\n", stderr); return 1;
     }
+    fixture.count = 0;
     axonkey_arm_report_events(&state, 1, up_report, sizeof(up_report));
     CGEventRef event = CGEventCreateKeyboardEvent(NULL, 90, false);
     bool filtered = axonkey_event_tap_callback(NULL, kCGEventKeyUp, event, &state) == NULL;
@@ -375,6 +422,51 @@ static int CheckPowerGuardFiltered(void) {
     bool passed = axonkey_event_tap_callback(NULL, kCGEventKeyDown, event, &state) == event;
     CFRelease(event);
     if (!passed) { fputs("unrelated F20 key was swallowed\n", stderr); return 1; }
+    return 0;
+}
+
+static int CheckDescriptorReportBoundary(void) {
+    const uint64_t voice = 0x000000070000003e;
+    ReportFixture fixture = {.usages = &voice, .count = 1, .valid = true};
+    const AxonkeyCallbacks callbacks = {.context = &fixture, .decode_report = DecodeReportFixture};
+    AxonkeyInputState state = NewReportState(&callbacks);
+    const uint8_t opaque_report[] = {0xab};
+    state.event_tap = NULL;
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    if (fixture.calls != 1 || state.pending_event_count != 0) {
+        fputs("seized input did not call the descriptor decoder\n", stderr); return 1;
+    }
+    state.event_tap = (CFMachPortRef)1;
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    size_t armed = state.pending_event_count;
+    if (state.active_usage_count != 1 || state.active_usages[0] != voice || armed != 2) {
+        fputs("descriptor source did not arm its native and Fn events\n", stderr); return 1;
+    }
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    fixture.valid = false;
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    if (state.pending_event_count != armed || state.active_usage_count != 1) {
+        fputs("repeated or invalid descriptor report changed held state\n", stderr); return 1;
+    }
+    fixture.valid = true;
+    fixture.count = 0;
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    if (state.active_usage_count != 0 || state.held_event_count != 0 ||
+        state.pending_event_count != 2 || state.pending_events[0].down || state.pending_events[1].down) {
+        fputs("descriptor release did not clear native and Fn held events\n", stderr); return 1;
+    }
+    const uint64_t consumer = 0x0000000c00000035;
+    const AxonkeyNativeSource consumer_source = {consumer, AXONKEY_NATIVE_EVENT_KEYBOARD, 115, 0};
+    state = NewReportState(&callbacks);
+    state.sources = &consumer_source;
+    state.source_count = 1;
+    fixture.usages = &consumer;
+    fixture.count = 1;
+    axonkey_arm_report_events(&state, 42, opaque_report, sizeof(opaque_report));
+    if (state.active_usages[0] != consumer || state.pending_event_count != 1 ||
+        state.pending_events[0].code != 115) {
+        fputs("native source lookup lost the HID usage page\n", stderr); return 1;
+    }
     return 0;
 }
 
@@ -493,6 +585,7 @@ int main(void) {
             CheckControlRightArrowEvent(true) ||
             CheckControlRightArrowEvent(false) ||
             CheckModifierMappingReplacementAndRestore() ||
+            CheckDescriptorReportBoundary() ||
             CheckHardwareMappedFnPassThrough() ||
             CheckTelevisionPassThroughFiltered() ||
             CheckPowerGuardFiltered() ||

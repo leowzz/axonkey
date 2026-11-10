@@ -15,70 +15,70 @@
         <ak:report id="voice-audio" direction="input" report-id="0xFC" length="21" encoding="gatt-stream" engine="cmiot-a15.g7221" />
       </ak:reports>
       <ak:inputs>
-        <ak:input id="cmiotA15.power" label="电源键" kind="button" target="#power" report="keyboard" page="0x07" usage="0x66" short="电源" icon="power" order="0">
+        <ak:input original="true" id="cmiotA15.power" label="电源键" kind="button" target="#power" report="keyboard" page="0x07" usage="0x66" short="电源" icon="power" order="0">
           <ak:source report="keyboard-short" page="0x07" usage="0x66" />
         </ak:input>
-        <ak:input id="cmiotA15.up" label="方向上" kind="button" target="#up" report="keyboard" page="0x07" usage="0x52" short="上" icon="up" order="2">
+        <ak:input original="true" id="cmiotA15.up" label="方向上" kind="button" target="#up" report="keyboard" page="0x07" usage="0x52" short="上" icon="up" order="2">
           <ak:source report="keyboard-short" page="0x07" usage="0x52" />
         </ak:input>
-        <ak:input id="cmiotA15.left" label="方向左" kind="button" target="#left" report="keyboard" page="0x07" usage="0x50" short="左" icon="left" order="3">
+        <ak:input original="true" id="cmiotA15.left" label="方向左" kind="button" target="#left" report="keyboard" page="0x07" usage="0x50" short="左" icon="left" order="3">
           <ak:source report="keyboard-short" page="0x07" usage="0x50" />
         </ak:input>
-        <ak:input id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" report="consumer" page="0x0C" usage="0x41" short="确认" icon="center" order="4" />
-        <ak:input id="cmiotA15.right" label="方向右" kind="button" target="#right" report="keyboard" page="0x07" usage="0x4F" short="右" icon="right" order="5">
+        <ak:input original="true" id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" report="consumer" page="0x0C" usage="0x41" short="确认" icon="center" order="4" />
+        <ak:input original="true" id="cmiotA15.right" label="方向右" kind="button" target="#right" report="keyboard" page="0x07" usage="0x4F" short="右" icon="right" order="5">
           <ak:source report="keyboard-short" page="0x07" usage="0x4F" />
         </ak:input>
-        <ak:input id="cmiotA15.down" label="方向下" kind="button" target="#down" report="keyboard" page="0x07" usage="0x51" short="下" icon="down" order="6">
+        <ak:input original="true" id="cmiotA15.down" label="方向下" kind="button" target="#down" report="keyboard" page="0x07" usage="0x51" short="下" icon="down" order="6">
           <ak:source report="keyboard-short" page="0x07" usage="0x51" />
         </ak:input>
-        <ak:input id="cmiotA15.back" label="返回键" kind="button" target="#back" report="consumer" page="0x0C" usage="0x224" short="返回" icon="back" order="7" />
-        <ak:input id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" report="consumer" page="0x0C" usage="0xE9" short="音量 +" icon="volumeUp" order="8" />
-        <ak:input id="cmiotA15.home" label="主页键" kind="button" target="#home" report="consumer" page="0x0C" usage="0x223" short="主页" icon="home" order="9" />
-        <ak:input id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" report="consumer" page="0x0C" usage="0xEA" short="音量 -" icon="volumeDown" order="10" />
-        <ak:input id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" report="keyboard" page="0x07" usage="0x65" short="菜单" icon="menu" order="11">
+        <ak:input original="true" id="cmiotA15.back" label="返回键" kind="button" target="#back" report="consumer" page="0x0C" usage="0x224" short="返回" icon="back" order="7" />
+        <ak:input original="true" id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" report="consumer" page="0x0C" usage="0xE9" short="音量 +" icon="volumeUp" order="8" />
+        <ak:input original="true" id="cmiotA15.home" label="主页键" kind="button" target="#home" report="consumer" page="0x0C" usage="0x223" short="主页" icon="home" order="9" />
+        <ak:input original="true" id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" report="consumer" page="0x0C" usage="0xEA" short="音量 -" icon="volumeDown" order="10" />
+        <ak:input original="true" id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" report="keyboard" page="0x07" usage="0x65" short="菜单" icon="menu" order="11">
           <ak:source report="keyboard-short" page="0x07" usage="0x65" />
         </ak:input>
-        <ak:input id="cmiotA15.mute" label="静音键" kind="button" target="#mute" report="consumer" page="0x0C" usage="0xE2" short="静音" icon="mute" order="12" />
-        <ak:input id="cmiotA15.settings" label="设置键" kind="button" target="#settings" report="consumer" page="0x0C" usage="0xEB" short="设置" icon="settings" order="13" />
-        <ak:input id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" report="keyboard" page="0x07" usage="0x4B" short="频道 +" icon="up" order="14">
+        <ak:input original="true" id="cmiotA15.mute" label="静音键" kind="button" target="#mute" report="consumer" page="0x0C" usage="0xE2" short="静音" icon="mute" order="12" />
+        <ak:input original="true" id="cmiotA15.settings" label="设置键" kind="button" target="#settings" report="consumer" page="0x0C" usage="0xEB" short="设置" icon="settings" order="13" />
+        <ak:input original="true" id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" report="keyboard" page="0x07" usage="0x4B" short="频道 +" icon="up" order="14">
           <ak:source report="keyboard-short" page="0x07" usage="0x4B" />
         </ak:input>
-        <ak:input id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" report="keyboard" page="0x07" usage="0x4E" short="频道 -" icon="down" order="15">
+        <ak:input original="true" id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" report="keyboard" page="0x07" usage="0x4E" short="频道 -" icon="down" order="15">
           <ak:source report="keyboard-short" page="0x07" usage="0x4E" />
         </ak:input>
-        <ak:input id="cmiotA15.m" label="M 键" kind="button" target="#m" report="consumer" page="0x0C" usage="0xF0" short="M" icon="m" order="16" />
+        <ak:input original="true" id="cmiotA15.m" label="M 键" kind="button" target="#m" report="consumer" page="0x0C" usage="0xF0" short="M" icon="m" order="16" />
         <ak:input id="cmiotA15.voice" label="语音键" kind="button" target="#microphone" report="voice-edge" engine="cmiot-a15.voice-edge" field="state" equals="1" short="语音" icon="mic" order="1" />
-        <ak:input id="xmBt29.digit0" label="数字 0" target="#number-0" kind="button" report="keyboard" page="0x07" usage="0x27" short="0" icon="number" order="17">
+        <ak:input original="true" id="xmBt29.digit0" label="数字 0" target="#number-0" kind="button" report="keyboard" page="0x07" usage="0x27" short="0" icon="number" order="17">
           <ak:source report="keyboard-short" page="0x07" usage="0x27" />
         </ak:input>
-        <ak:input id="xmBt29.digit1" label="数字 1" target="#number-1" kind="button" report="keyboard" page="0x07" usage="0x1e" short="1" icon="number" order="18">
+        <ak:input original="true" id="xmBt29.digit1" label="数字 1" target="#number-1" kind="button" report="keyboard" page="0x07" usage="0x1e" short="1" icon="number" order="18">
           <ak:source report="keyboard-short" page="0x07" usage="0x1e" />
         </ak:input>
-        <ak:input id="xmBt29.digit2" label="数字 2" target="#number-2" kind="button" report="keyboard" page="0x07" usage="0x1f" short="2" icon="number" order="19">
+        <ak:input original="true" id="xmBt29.digit2" label="数字 2" target="#number-2" kind="button" report="keyboard" page="0x07" usage="0x1f" short="2" icon="number" order="19">
           <ak:source report="keyboard-short" page="0x07" usage="0x1f" />
         </ak:input>
-        <ak:input id="xmBt29.digit3" label="数字 3" target="#number-3" kind="button" report="keyboard" page="0x07" usage="0x20" short="3" icon="number" order="20">
+        <ak:input original="true" id="xmBt29.digit3" label="数字 3" target="#number-3" kind="button" report="keyboard" page="0x07" usage="0x20" short="3" icon="number" order="20">
           <ak:source report="keyboard-short" page="0x07" usage="0x20" />
         </ak:input>
-        <ak:input id="xmBt29.digit4" label="数字 4" target="#number-4" kind="button" report="keyboard" page="0x07" usage="0x21" short="4" icon="number" order="21">
+        <ak:input original="true" id="xmBt29.digit4" label="数字 4" target="#number-4" kind="button" report="keyboard" page="0x07" usage="0x21" short="4" icon="number" order="21">
           <ak:source report="keyboard-short" page="0x07" usage="0x21" />
         </ak:input>
-        <ak:input id="xmBt29.digit5" label="数字 5" target="#number-5" kind="button" report="keyboard" page="0x07" usage="0x22" short="5" icon="number" order="22">
+        <ak:input original="true" id="xmBt29.digit5" label="数字 5" target="#number-5" kind="button" report="keyboard" page="0x07" usage="0x22" short="5" icon="number" order="22">
           <ak:source report="keyboard-short" page="0x07" usage="0x22" />
         </ak:input>
-        <ak:input id="xmBt29.digit6" label="数字 6" target="#number-6" kind="button" report="keyboard" page="0x07" usage="0x23" short="6" icon="number" order="23">
+        <ak:input original="true" id="xmBt29.digit6" label="数字 6" target="#number-6" kind="button" report="keyboard" page="0x07" usage="0x23" short="6" icon="number" order="23">
           <ak:source report="keyboard-short" page="0x07" usage="0x23" />
         </ak:input>
-        <ak:input id="xmBt29.digit7" label="数字 7" target="#number-7" kind="button" report="keyboard" page="0x07" usage="0x24" short="7" icon="number" order="24">
+        <ak:input original="true" id="xmBt29.digit7" label="数字 7" target="#number-7" kind="button" report="keyboard" page="0x07" usage="0x24" short="7" icon="number" order="24">
           <ak:source report="keyboard-short" page="0x07" usage="0x24" />
         </ak:input>
-        <ak:input id="xmBt29.digit8" label="数字 8" target="#number-8" kind="button" report="keyboard" page="0x07" usage="0x25" short="8" icon="number" order="25">
+        <ak:input original="true" id="xmBt29.digit8" label="数字 8" target="#number-8" kind="button" report="keyboard" page="0x07" usage="0x25" short="8" icon="number" order="25">
           <ak:source report="keyboard-short" page="0x07" usage="0x25" />
         </ak:input>
-        <ak:input id="xmBt29.digit9" label="数字 9" target="#number-9" kind="button" report="keyboard" page="0x07" usage="0x26" short="9" icon="number" order="26">
+        <ak:input original="true" id="xmBt29.digit9" label="数字 9" target="#number-9" kind="button" report="keyboard" page="0x07" usage="0x26" short="9" icon="number" order="26">
           <ak:source report="keyboard-short" page="0x07" usage="0x26" />
         </ak:input>
-        <ak:input id="xmBt29.delete" label="删除键" target="#delete" kind="button" report="consumer" page="0x0C" usage="0xFC" short="删除" icon="delete" order="27" />
+        <ak:input original="true" id="xmBt29.delete" label="删除键" target="#delete" kind="button" report="consumer" page="0x0C" usage="0xFC" short="删除" icon="delete" order="27" />
       </ak:inputs>
       <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>

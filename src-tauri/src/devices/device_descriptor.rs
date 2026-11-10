@@ -480,7 +480,10 @@ fn source_has_layout(source: &SourceDescriptor) -> bool {
 
 fn validate_reports(reports: &BTreeMap<String, ReportDescriptor>) -> Result<(), DescriptorError> {
     for report in reports.values() {
-        if let Some(prefix) = report.attributes.get("prefix") {
+        for prefix in ["prefix", "prefix-not"]
+            .into_iter()
+            .filter_map(|key| report.attributes.get(key))
+        {
             for byte in prefix.split_whitespace() {
                 parse_u8(byte, "prefix")?;
             }

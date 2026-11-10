@@ -73,6 +73,14 @@ static IOReturn MockDeviceClose(IOHIDDeviceRef device, IOOptionBits options) {
 
 static bool ShouldStop(void *context) { return false; }
 
+static size_t NoInputReport(
+    void *context, uint32_t report_id, const uint8_t *bytes, size_t length,
+    uint64_t *usages, size_t capacity
+) {
+    (void)context; (void)report_id; (void)bytes; (void)length; (void)usages; (void)capacity;
+    return SIZE_MAX;
+}
+
 static void CaptureEvent(void *context, int event, uint32_t report_id,
     const uint8_t *bytes, size_t length, int code) {
     if (event == AXONKEY_EVENT_MODIFIER_MAPPINGS_CHANGED) {
@@ -94,7 +102,9 @@ static void SetNumber(CFStringRef key, int64_t value) {
 
 static const AxonkeyHardwareModifierMapping mapping = {0x70000003e, 0x7000000e4};
 static const AxonkeyHardwareModifierMapping power_guard = {0x700000066, 0x70000006f};
-static const AxonkeyCallbacks callbacks = {.should_stop = ShouldStop, .on_event = CaptureEvent};
+static const AxonkeyCallbacks callbacks = {
+    .should_stop = ShouldStop, .on_event = CaptureEvent, .decode_report = NoInputReport,
+};
 
 static AxonkeyInputState NewState(void) {
     service_available = false;
@@ -108,6 +118,7 @@ static AxonkeyInputState NewState(void) {
     SetNumber(CFSTR("registry"), 123);
     return (AxonkeyInputState){
         .callbacks = &callbacks, .capture = true,
+        .vendor_id = 0x2717, .product_id = 0x32b8,
         .devices = CFSetCreateMutable(NULL, 0, &kCFTypeSetCallBacks),
         .seized_devices = CFSetCreateMutable(NULL, 0, &kCFTypeSetCallBacks),
         .monitored_devices = CFSetCreateMutable(NULL, 0, &kCFTypeSetCallBacks),
@@ -128,6 +139,19 @@ static void FreeState(AxonkeyInputState *state) {
 
 static void Connect(AxonkeyInputState *state) {
     axonkey_device_matched(state, kIOReturnSuccess, NULL, (IOHIDDeviceRef)service_properties);
+}
+
+static void CheckConfiguredDeviceIdentity(void) {
+    AxonkeyInputState state = NewState();
+    state.vendor_id = 0x1234;
+    state.product_id = 0x5678;
+    assert(!axonkey_service_matches_device(&state, (IOHIDServiceClientRef)service_properties));
+    SetNumber(CFSTR(kIOHIDVendorIDKey), state.vendor_id);
+    SetNumber(CFSTR(kIOHIDProductIDKey), state.product_id);
+    assert(axonkey_service_matches_device(&state, (IOHIDServiceClientRef)service_properties));
+    SetNumber(CFSTR(kIOHIDProductIDKey), state.product_id + 1);
+    assert(!axonkey_service_matches_device(&state, (IOHIDServiceClientRef)service_properties));
+    FreeState(&state);
 }
 
 static void CheckDelayedService(AxonkeyHardwareModifierMapping requested) {
@@ -259,6 +283,7 @@ static void CheckRestoresOnlyManagedMappings(AxonkeyHardwareModifierMapping requ
 
 int main(void) {
     @autoreleasepool {
+        CheckConfiguredDeviceIdentity();
         CheckDelayedService(mapping);
         CheckDelayedService(power_guard);
         CheckWriteRejectionAndHeldKey();

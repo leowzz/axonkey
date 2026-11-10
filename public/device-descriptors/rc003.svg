@@ -23,7 +23,8 @@
                    endian="little" state-group="keyboard" />
         <ak:report id="keyboard-no-id" direction="input" length="6" encoding="le-u16-slots" usage-page="0x07" payload-offset="0" slot-width="2" slot-count="3" endian="little" state-group="keyboard" />
         <ak:report id="keyboard-boot" direction="input" length="8" encoding="boot-keyboard" usage-page="0x07" payload-offset="2" slot-count="6" state-group="keyboard" />
-        <ak:report id="keyboard-header" direction="input" report-id="0x01" length="9" encoding="le-u16-slots" usage-page="0x07" payload-offset="3" slot-width="2" slot-count="3" endian="little" state-group="keyboard" />
+        <ak:report id="keyboard-header" direction="input" report-id="0x01" length="9" prefix="0x01 0x00 0x00" encoding="le-u16-slots" usage-page="0x07" payload-offset="3" slot-width="2" slot-count="3" endian="little" state-group="keyboard" />
+        <ak:report id="keyboard-four-slots" direction="input" report-id="0x01" length="9" prefix-not="0x01 0x00 0x00" encoding="le-u16-slots" usage-page="0x07" payload-offset="1" slot-width="2" slot-count="4" endian="little" state-group="keyboard" />
         <ak:report id="voice-audio" direction="input"
                    encoding="gatt-stream" transport="bluetooth-gatt"
                    engine="rc003-atvv" />
@@ -35,6 +36,7 @@
           <ak:source report="keyboard-no-id" page="0x07" usage="0x003E" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x003E" />
           <ak:source report="keyboard-header" page="0x07" usage="0x003E" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x003E" />
         </ak:input>
         <ak:input id="xiaomi.rc003.power" short="电源" icon="power" order="0" label="电源键" kind="button"
                   target="#power" legacy-key="power" report="keyboard"
@@ -42,72 +44,84 @@
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0066" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0066" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0066" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0066" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.up" short="上" icon="up" order="2" label="方向上" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.up" short="上" icon="up" order="2" label="方向上" kind="button"
                   target="#up" legacy-key="up" report="keyboard" page="0x07" usage="0x0052">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0052" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0052" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0052" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0052" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.left" short="左" icon="left" order="3" label="方向左" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.left" short="左" icon="left" order="3" label="方向左" kind="button"
                   target="#left" legacy-key="left" report="keyboard" page="0x07" usage="0x0050">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0050" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0050" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0050" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0050" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.confirm" short="确认" icon="center" order="4" label="确认键" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.confirm" short="确认" icon="center" order="4" label="确认键" kind="button"
                   target="#confirm" legacy-key="confirm" report="keyboard" page="0x07" usage="0x0028">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0028" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0028" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0028" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0028" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.right" short="右" icon="right" order="5" label="方向右" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.right" short="右" icon="right" order="5" label="方向右" kind="button"
                   target="#right" legacy-key="right" report="keyboard" page="0x07" usage="0x004F">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x004F" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x004F" />
           <ak:source report="keyboard-header" page="0x07" usage="0x004F" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x004F" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.down" short="下" icon="down" order="6" label="方向下" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.down" short="下" icon="down" order="6" label="方向下" kind="button"
                   target="#down" legacy-key="down" report="keyboard" page="0x07" usage="0x0051">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0051" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0051" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0051" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0051" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.back" short="返回" icon="back" order="7" label="返回键" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.back" short="返回" icon="back" order="7" label="返回键" kind="button"
                   target="#back" legacy-key="back" report="keyboard" page="0x07" usage="0x00F1">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x00F1" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x00F1" />
           <ak:source report="keyboard-header" page="0x07" usage="0x00F1" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x00F1" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.home" short="主页" icon="home" order="9" label="主页键" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.home" short="主页" icon="home" order="9" label="主页键" kind="button"
                   target="#home" legacy-key="home" report="keyboard" page="0x07" usage="0x004A">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x004A" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x004A" />
           <ak:source report="keyboard-header" page="0x07" usage="0x004A" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x004A" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.menu" short="功能" icon="menu" order="11" label="菜单键" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.menu" short="功能" icon="menu" order="11" label="菜单键" kind="button"
                   target="#menu" legacy-key="menu" report="keyboard" page="0x07" usage="0x0065">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0065" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0065" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0065" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0065" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.tv" short="电视" icon="tv" order="12" label="TV 键" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.tv" short="电视" icon="tv" order="12" label="TV 键" kind="button"
                   target="#tv" legacy-key="tv" report="keyboard" page="0x07" usage="0x0035">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0035" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0035" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0035" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0035" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.volumeUp" short="音量 +" icon="volumeUp" order="8" label="音量加" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.volumeUp" short="音量 +" icon="volumeUp" order="8" label="音量加" kind="button"
                   target="#volume-up" legacy-key="volumeUp" report="keyboard" page="0x07" usage="0x0080">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0080" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0080" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0080" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0080" />
         </ak:input>
-        <ak:input id="xiaomi.rc003.volumeDown" short="音量 -" icon="volumeDown" order="10" label="音量减" kind="button"
+        <ak:input original="true" id="xiaomi.rc003.volumeDown" short="音量 -" icon="volumeDown" order="10" label="音量减" kind="button"
                   target="#volume-down" legacy-key="volumeDown" report="keyboard" page="0x07" usage="0x0081">
           <ak:source report="keyboard-no-id" page="0x07" usage="0x0081" />
           <ak:source report="keyboard-boot" page="0x07" usage="0x0081" />
           <ak:source report="keyboard-header" page="0x07" usage="0x0081" />
+          <ak:source report="keyboard-four-slots" page="0x07" usage="0x0081" />
         </ak:input>
       </ak:inputs>
       <ak:capabilities>

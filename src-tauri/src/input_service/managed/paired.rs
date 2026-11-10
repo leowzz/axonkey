@@ -23,13 +23,12 @@ pub(super) fn address(value: &str) -> Option<String> {
 }
 
 pub(super) fn kind(vendor: u16, product: u16) -> Option<&'static str> {
-    match (vendor, product) {
-        (0x045e, 0x02e0) => Some("xboxBluetooth"),
-        (0x2717, 0x32b8) => Some("rc003"),
-        (0x0416, 0x0300) => Some("cmiotA15"),
-        (0x1d5a, 0xc081) => Some("obeRcuR5"),
-        _ => None,
-    }
+    crate::devices::descriptor_registry::KINDS
+        .iter()
+        .copied()
+        .find(|kind| {
+            crate::devices::descriptor_registry::matches_hardware(kind, vendor, product, None, None)
+        })
 }
 
 pub(super) fn hid_address(info: &hidapi::DeviceInfo) -> Option<String> {
@@ -288,12 +287,10 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 ) else {
                     continue;
                 };
-                if source != Some(2)
-                    && !matches!((vendor_id, product_id), (0x0416, 0x0300) | (0x1d5a, 0xc081))
-                {
+                let Some(kind) = kind(vendor_id, product_id) else {
                     continue;
-                }
-                if kind(vendor_id, product_id).is_none() {
+                };
+                if source != Some(2) && !super::uses_hid_voice(kind) {
                     continue;
                 }
                 let address = if let Some(address) = property("System.Devices.Aep.DeviceAddress")
