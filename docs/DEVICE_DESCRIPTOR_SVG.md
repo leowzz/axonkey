@@ -1,8 +1,8 @@
 # SVG 设备描述协议
 
-状态：`implemented-incrementally`，对应 [Issue #58](https://github.com/leowzz/axonkey/issues/58)。
+状态：`implemented-bundled`，对应 [Issue #58](https://github.com/leowzz/axonkey/issues/58)。
 
-本文定义 `axonkey.device/1`。它把设备图形、设备身份、输入区域、实际输入报告和能力声明放在同一个 SVG 中，供发现层、映射页和通用驱动引擎读取。解析器、报告引擎和六种内置设备描述符已经接入；发现、映射页面和平台语音后端仍按迁移计划逐步切换。
+本文定义 `axonkey.device/1`。它把设备图形、设备身份、输入区域、实际输入报告和能力声明放在同一个 SVG 中，供发现层、映射页和通用驱动引擎读取。六种已支持设备已通过内置 SVG 提供身份、报告、输入和热区；前端和各输入入口共用这些定义。平台驱动、系统事件与语音编解码仍由应用提供。
 
 ## 1. 边界
 
@@ -63,9 +63,11 @@ SVG 描述的是**设备类型**，不是某一只实物，也不是用户的映
 | 属性 | 说明 |
 | --- | --- |
 | `transport` | `usb-hid`、`bluetooth-hid`、`bluetooth-gatt`、`quarbor-universal` |
-| `vid`、`pid` | 十六进制整数；必须写成 `0x` 加大小写不敏感的数字 |
+| `vid`、`pid` | `0x` 十六进制整数；`|` 分隔同一字段的多个等价值 |
 | `service`、`interface`、`collection` | 具体 HID/GATT 服务、接口或 collection 标识 |
 | `usage-page`、`usage` | 用于区分复合 HID 接口，不能单独代替 VID/PID |
+| `windows-prefix` | Windows 实例节点类型前缀，例如 `BTHLEDEVICE` 或 `HID\` |
+| `software-contains`、`software-fallback` | 相同硬件 ID 的设备用 Device Information 软件版本细分；未识别时只采用明确声明的兼容默认型号 |
 | `revision` | 仅当设备报告的固件/硬件版本必须参与匹配时使用 |
 | `serial-policy` | `stable`、`temporary`、`reject-ambiguous`；默认 `reject-ambiguous` |
 
@@ -97,9 +99,13 @@ SVG 描述的是**设备类型**，不是某一只实物，也不是用户的映
 - `axis-u16`：小端/大端无符号轴值，配合 `min`、`max`、`deadzone` 和 `threshold`。
 - `hat-8`：8 方向帽开关，配合 `neutral` 和 `direction-map`。
 - `vendor-state`：只能与白名单 `engine` 一起使用；不接受脚本或表达式。
-- `gatt-stream`：不带 HID report ID 的 GATT 音频/数据流，只能与白名单 `engine` 一起使用。
+- `gatt-stream`：交给白名单 `engine` 的不透明音频/数据流，可由 GATT 承载，也可声明 HID `report-id`。
 
 报告必须写清 `report-id` 是否占据首字节、有效载荷偏移、长度、端序、槽数或位域。不能只写一个 usage 数字，也不能假设所有设备的同名 report 布局相同。
+
+`prefix` 可声明从首字节开始的固定前缀（空格分隔的 `0xNN`），`prefix-not` 排除该前缀以区分相同长度的报告，`state-max` 限制厂商状态上界，`zero-tail-offset` 声明该偏移到包尾必须为零。A15 的 F8 包因此无需设备专用判断。
+
+同一物理状态的不同线格式应声明相同的 `state-group`，例如 RC003 的带 ID、无 ID、boot 和三字节头变体，或 XM 的 4/9 字节键盘包。新报告替换该组状态；不同组互不清空，多 source 的值取最大值，再应用进入/释放阈值。未识别或格式错误的包保持已有状态，断连和报告丢失由会话显式释放。
 
 ### 3.3 输入 Key 和图形区域
 
@@ -131,7 +137,19 @@ SVG 描述的是**设备类型**，不是某一只实物，也不是用户的映
 </g>
 ```
 
-交互区域必须有 `aria-label`；缺少时渲染器从对应 `ak:input label` 注入，不把 SVG `id` 当作可访问名称。一个 Key 可以有一个主区域和多个 `data-ak-role="input"` 子区域，但解析后必须合并为一个输入。没有图形的输入仍可存在于元数据中（例如系统鼠标或隐藏的报告按键）。
+生产内置 SVG 同时保存一份透明的精确配置热区，避免图形的装饰描边或图标影响命中：
+
+```xml
+<g data-ak-regions="true" fill="transparent" pointer-events="none">
+  <path data-ak-region="xiaomi.rc003.power"
+        data-ak-anchor="132 162"
+        d="M 78.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0" />
+</g>
+```
+
+`data-ak-region` 对应 stable input ID，`d` 为实际热区；可带 SVG `transform`，锚点始终使用根画布坐标。`ak:input` 的 `short`、`icon`、`order` 提供现有映射页面所需的简称、应用图标 ID 和显示顺序。构建脚本从 SVG 生成 TypeScript 索引，通用渲染器用原路径绘制透明命中面、选中轮廓和按下反馈；不手写另一份设备几何数据。
+
+交互区域必须有 `aria-label`；渲染器从对应 `ak:input label` 注入，不把 SVG `id` 当作可访问名称。一个 Key 可以有一个主区域和多个 `data-ak-role="input"` 子区域，但解析后必须合并为一个输入。没有图形的输入仍可存在于元数据中（例如系统鼠标或隐藏的报告按键）。没有 `target` 和 `data-ak-region` 的隐藏输入不生成映射图热区，完整输入仍由 Rust 解析器保留。
 
 ### 3.4 标准 HID、厂商值和输出
 
@@ -172,6 +190,8 @@ SVG 不内嵌用户行为序列。`key`、`shortcut`、鼠标和文本行为继�
           required="false" />
 ```
 
+`trigger-modes` 以空格分隔允许的录音模式：`hold` 或 `click`。当前 A15 支持两者，XM/RC313/OBE 保持 `hold`。
+
 `transport` 为 `gatt`、`hid-report` 或 `none`。GATT 声明应给出服务和控制、发送、音频 characteristic；HID 语音则给出 report 布局和 edge source。`required="true"` 时平台没有对应后端，设备不可启用；可选语音则只显示“语音不可用”，按键映射仍可使用。语音转文字不属于设备协议，由系统输入法或调用方负责。
 
 ## 4. 现有设备的物理输入登记
@@ -180,7 +200,7 @@ SVG 不内嵌用户行为序列。`key`、`shortcut`、鼠标和文本行为继�
 
 ### RC003
 
-匹配：`bluetooth-hid`，VID `0x2717`，PID `0x32B8`，HID service `0x1812`。键盘输入是 report ID `0x01` 的小端 16 位 usage 槽；Windows Universal 还接受无 ID 偶数 payload、8 字节 boot keyboard 和带三字节头的 9 字节变体。
+匹配：`bluetooth-hid`，VID `0x2717`，PID `0x32B8`，HID service `0x1812`。键盘输入是 report ID `0x01` 的小端 16 位 usage 槽；Windows Universal 还接受无 ID 的 6 字节 payload、8 字节 boot keyboard、带三字节头的 9 字节变体和带 ID 的 9 字节四槽报告；最后两种由前缀条件区分。
 
 | Key（迁移别名） | Page | Usage | Report | 原始转发/备注 |
 | --- | ---: | ---: | ---: | --- |
@@ -255,7 +275,11 @@ SVG 更新不得改变已保存 Key 的含义。删除 Key、重用 Key 或修�
 
 ## 6. 接入顺序和验证
 
-当前内置描述符位于 `public/device-descriptors/`，Rust 通过 `include_str!` 固定打包并在首次使用时解析一次。管理输入入口先通过 `descriptor_registry` 查找描述符，旧 Key 由 `legacy-key` 映射保持兼容；描述符解析或报告布局不支持时才保留原设备解码器作为迁移期回退。
+当前内置描述符位于 `public/device-descriptors/`，Rust 通过 `include_str!` 固定打包并在首次使用时解析一次。所有报告入口使用共享报告引擎；旧设备专用按键表和解码回退已删除。旧 Key 由 `legacy-key` 映射保持兼容，描述符解析失败时不启动相似设备解码器。
+
+前端运行 `npm run generate:devices`，由 `scripts/generate-device-descriptors.mjs` 生成 `src/devices/generatedDescriptors.ts`。`dev`、`dev:tauri` 和 `build` 自动执行生成，测试检查索引是否与 SVG 一致。不要手改生成文件。六种设备都通过同一个 `RemoteControl` 渲染，RC313 使用自己的描述符，Xbox 的多键、轴和帽输入复用同一状态反馈。型号识别、语音控件、录音模式和扳机读数也读取生成的身份、能力与输入声明，不再维护型号判断表。
+
+当前已有配置继续保存原有兼容 Key，不重写用户映射；引擎内部使用 stable ID，在既有配置和事件边界转换为兼容 Key。配置入口接受 stable ID 或任一别名，执行前统一为首个兼容别名；同一输入同时配置多个名称时拒绝保存，避免动作被静默覆盖。上文第 5 节的定义版本持久化、云端下载和动态更新属于后续分发流程，不是本轮内置迁移的前提。
 
 通用引擎按以下边界接入现有代码：
 

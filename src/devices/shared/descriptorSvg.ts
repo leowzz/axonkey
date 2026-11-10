@@ -12,12 +12,17 @@ export function createDescriptorView<Name extends DescriptorName>(name: Name): R
     label: input.label,
     short: input.short,
     icon: input.icon as RemoteButton['icon'],
+    kind: input.kind,
+    threshold: input.threshold,
+    releaseThreshold: input.releaseThreshold,
     side: input.anchor.x < descriptor.viewBox.width / 2 ? ('left' as const) : ('right' as const),
     x: (input.anchor.x / descriptor.viewBox.width) * 100,
     y: (input.anchor.y / descriptor.viewBox.height) * 100,
   }))
   return {
     buttons,
+    identities: descriptor.identities,
+    voice: descriptor.voice,
     viewBox: descriptor.viewBox,
     keyRegions: Object.fromEntries(
       descriptor.inputs.map(input => [

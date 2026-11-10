@@ -5,6 +5,49 @@ export const deviceDescriptors = {
     "id": "cmiot.a15",
     "ariaLabel": "移动遥控器 CMIOT-A15",
     "artworkUrl": "/device-descriptors/cmiot-a15.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT3_B311",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT3_B311",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT3_B311",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      }
+    ],
+    "voice": {
+      "engine": "cmiot-a15.g7221",
+      "transport": "hid-report",
+      "triggerModes": [
+        "hold",
+        "click"
+      ]
+    },
     "viewBox": {
       "width": 420,
       "height": 1320
@@ -16,6 +59,9 @@ export const deviceDescriptors = {
         "label": "电源键",
         "short": "电源",
         "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 47.2 101 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -29,6 +75,9 @@ export const deviceDescriptors = {
         "label": "语音键",
         "short": "语音",
         "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 162 889 a 48 48 0 1 0 96 0 a 48 48 0 1 0 -96 0",
         "anchor": {
@@ -42,6 +91,9 @@ export const deviceDescriptors = {
         "label": "方向上",
         "short": "上",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 92.05458889808388 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 330.05458889808386 L 260.91168824543144 397.08831175456856 A 72 72 0 0 0 159.08831175456856 397.08831175456856 Z",
         "anchor": {
@@ -55,6 +107,9 @@ export const deviceDescriptors = {
         "label": "方向左",
         "short": "左",
         "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 92.05458889808388 565.9454111019162 A 166.8 166.8 0 0 1 92.05458889808384 330.05458889808386 L 159.08831175456856 397.08831175456856 A 72 72 0 0 0 159.08831175456856 498.91168824543144 Z",
         "anchor": {
@@ -68,6 +123,9 @@ export const deviceDescriptors = {
         "label": "确认键",
         "short": "确认",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M 138 448 a 72 72 0 1 0 144 0 a 72 72 0 1 0 -144 0",
         "anchor": {
@@ -81,6 +139,9 @@ export const deviceDescriptors = {
         "label": "方向右",
         "short": "右",
         "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M 327.94541110191614 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 565.9454111019161 L 260.91168824543144 498.91168824543144 A 72 72 0 0 0 260.91168824543144 397.08831175456856 Z",
         "anchor": {
@@ -94,6 +155,9 @@ export const deviceDescriptors = {
         "label": "方向下",
         "short": "下",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 327.94541110191614 565.9454111019161 A 166.8 166.8 0 0 1 92.05458889808388 565.9454111019162 L 159.08831175456856 498.91168824543144 A 72 72 0 0 0 260.91168824543144 498.91168824543144 Z",
         "anchor": {
@@ -107,6 +171,9 @@ export const deviceDescriptors = {
         "label": "返回键",
         "short": "返回",
         "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 291.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -120,6 +187,9 @@ export const deviceDescriptors = {
         "label": "音量加",
         "short": "音量 +",
         "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z",
         "anchor": {
@@ -133,6 +203,9 @@ export const deviceDescriptors = {
         "label": "主页键",
         "short": "主页",
         "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M 47.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -146,6 +219,9 @@ export const deviceDescriptors = {
         "label": "音量减",
         "short": "音量 -",
         "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z",
         "anchor": {
@@ -159,6 +235,9 @@ export const deviceDescriptors = {
         "label": "菜单键",
         "short": "功能",
         "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M 169.2 213 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -172,6 +251,9 @@ export const deviceDescriptors = {
         "label": "静音键",
         "short": "静音",
         "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 12,
         "path": "M 47.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -185,6 +267,9 @@ export const deviceDescriptors = {
         "label": "设置键",
         "short": "设置",
         "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 13,
         "path": "M 291.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -198,6 +283,9 @@ export const deviceDescriptors = {
         "label": "频道加",
         "short": "频道 +",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 14,
         "path": "M 290.7 889 V 819.3 A 41.3 41.3 0 0 1 373.3 819.3 V 889 Z",
         "anchor": {
@@ -211,6 +299,9 @@ export const deviceDescriptors = {
         "label": "频道减",
         "short": "频道 -",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 15,
         "path": "M 290.7 889 H 373.3 V 958.7 A 41.3 41.3 0 0 1 290.7 958.7 Z",
         "anchor": {
@@ -224,6 +315,9 @@ export const deviceDescriptors = {
         "label": "M 键",
         "short": "M",
         "icon": "m",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 16,
         "path": "M 169.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -237,6 +331,48 @@ export const deviceDescriptors = {
     "id": "obe.rcu-r5",
     "ariaLabel": "OBE RCU R5 投影仪遥控器",
     "artworkUrl": "/device-descriptors/obe-rcu-r5.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          7514
+        ],
+        "productIds": [
+          49281
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          7514
+        ],
+        "productIds": [
+          49281
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          7514
+        ],
+        "productIds": [
+          49281
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      }
+    ],
+    "voice": {
+      "engine": "obe-rcu-r5.sbc",
+      "transport": "hid-report",
+      "triggerModes": [
+        "hold"
+      ]
+    },
     "viewBox": {
       "width": 420,
       "height": 1320
@@ -248,6 +384,9 @@ export const deviceDescriptors = {
         "label": "电源键",
         "short": "电源",
         "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 47.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -261,6 +400,9 @@ export const deviceDescriptors = {
         "label": "定位键",
         "short": "定位",
         "icon": "locate",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 291.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -274,6 +416,9 @@ export const deviceDescriptors = {
         "label": "方向上",
         "short": "上",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 106.90383130300137 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 250.90383130300137 L 256.6690475583121 307.3309524416879 A 66 66 0 0 0 163.33095244168788 307.3309524416879 Z",
         "anchor": {
@@ -287,6 +432,9 @@ export const deviceDescriptors = {
         "label": "方向左",
         "short": "左",
         "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 106.90383130300137 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300134 250.90383130300137 L 163.33095244168786 307.3309524416879 A 66 66 0 0 0 163.33095244168788 400.6690475583121 Z",
         "anchor": {
@@ -300,6 +448,9 @@ export const deviceDescriptors = {
         "label": "确认键",
         "short": "确认",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M 144 354 a 66 66 0 1 0 132 0 a 66 66 0 1 0 -132 0",
         "anchor": {
@@ -313,6 +464,9 @@ export const deviceDescriptors = {
         "label": "方向右",
         "short": "右",
         "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M 313.09616869699863 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 457.09616869699863 L 256.6690475583121 400.6690475583121 A 66 66 0 0 0 256.6690475583121 307.3309524416879 Z",
         "anchor": {
@@ -326,6 +480,9 @@ export const deviceDescriptors = {
         "label": "方向下",
         "short": "下",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 313.09616869699863 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300137 457.09616869699863 L 163.33095244168788 400.6690475583121 A 66 66 0 0 0 256.6690475583121 400.6690475583121 Z",
         "anchor": {
@@ -339,6 +496,9 @@ export const deviceDescriptors = {
         "label": "主页键",
         "short": "主页",
         "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 47.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -352,6 +512,9 @@ export const deviceDescriptors = {
         "label": "返回键",
         "short": "返回",
         "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M 169.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -365,6 +528,9 @@ export const deviceDescriptors = {
         "label": "语音键（菜单按钮）",
         "short": "语音",
         "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M 291.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -378,6 +544,9 @@ export const deviceDescriptors = {
         "label": "音量减",
         "short": "音量 -",
         "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 47.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -391,6 +560,9 @@ export const deviceDescriptors = {
         "label": "音量加",
         "short": "音量 +",
         "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M 291.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -404,6 +576,25 @@ export const deviceDescriptors = {
     "id": "xiaomi.rc003",
     "ariaLabel": "小米 RC003",
     "artworkUrl": "/device-descriptors/rc003.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          10007,
+          10007
+        ],
+        "productIds": [
+          12984
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      }
+    ],
+    "voice": {
+      "engine": "rc003-atvv",
+      "transport": "gatt",
+      "triggerModes": []
+    },
     "viewBox": {
       "width": 516,
       "height": 1255
@@ -415,6 +606,9 @@ export const deviceDescriptors = {
         "label": "电源键",
         "short": "电源",
         "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 78.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0",
         "anchor": {
@@ -428,6 +622,9 @@ export const deviceDescriptors = {
         "label": "语音键",
         "short": "语音",
         "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 324.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0",
         "anchor": {
@@ -441,6 +638,9 @@ export const deviceDescriptors = {
         "label": "方向上",
         "short": "上",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 115.34641071565687 318.23549801218286 A 197.5 192 0 0 1 394.6535892843432 318.2354980121829 L 329.59976541518074 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 379.40023458481926 Z",
         "anchor": {
@@ -454,6 +654,9 @@ export const deviceDescriptors = {
         "label": "方向左",
         "short": "左",
         "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 115.34641071565687 589.7645019878171 A 197.5 192 0 0 1 115.34641071565684 318.2354980121829 L 180.4002345848192 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 528.5997654151807 Z",
         "anchor": {
@@ -467,6 +670,9 @@ export const deviceDescriptors = {
         "label": "确认键",
         "short": "确认",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M 149.8 455 a 105.2 105.2 0 1 0 210.4 0 a 105.2 105.2 0 1 0 -210.4 0",
         "anchor": {
@@ -480,6 +686,9 @@ export const deviceDescriptors = {
         "label": "方向右",
         "short": "右",
         "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M 394.6535892843432 318.2354980121829 A 197.5 192 0 0 1 394.6535892843432 589.7645019878171 L 329.59976541518074 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 379.40023458481926 Z",
         "anchor": {
@@ -493,6 +702,9 @@ export const deviceDescriptors = {
         "label": "方向下",
         "short": "下",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 394.6535892843432 589.7645019878171 A 197.5 192 0 0 1 115.34641071565687 589.7645019878171 L 180.40023458481926 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 528.5997654151807 Z",
         "anchor": {
@@ -506,6 +718,9 @@ export const deviceDescriptors = {
         "label": "返回键",
         "short": "返回",
         "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 74.3 747 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
         "anchor": {
@@ -519,6 +734,9 @@ export const deviceDescriptors = {
         "label": "音量加",
         "short": "音量 +",
         "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M 273.5 837 V 750 A 80.5 80.5 0 0 1 434.5 750 V 837 Z",
         "anchor": {
@@ -532,6 +750,9 @@ export const deviceDescriptors = {
         "label": "主页键",
         "short": "主页",
         "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M 74.3 926 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
         "anchor": {
@@ -545,6 +766,9 @@ export const deviceDescriptors = {
         "label": "音量减",
         "short": "音量 -",
         "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 273.5 837 H 434.5 V 924 A 80.5 80.5 0 0 1 273.5 924 Z",
         "anchor": {
@@ -558,6 +782,9 @@ export const deviceDescriptors = {
         "label": "菜单键",
         "short": "功能",
         "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M 74.3 1104 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
         "anchor": {
@@ -571,6 +798,9 @@ export const deviceDescriptors = {
         "label": "TV 键",
         "short": "电视",
         "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 12,
         "path": "M 274.3 1105 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0",
         "anchor": {
@@ -584,6 +814,48 @@ export const deviceDescriptors = {
     "id": "cmiot.rc313",
     "ariaLabel": "小米 RC-313",
     "artworkUrl": "/device-descriptors/rc313.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT18_B302",
+        "softwareFallback": true,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT18_B302",
+        "softwareFallback": true,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "CMIOT18_B302",
+        "softwareFallback": true,
+        "windowsPrefix": "BTHLEDEVICE"
+      }
+    ],
+    "voice": {
+      "engine": "cmiot-a15.g7221",
+      "transport": "hid-report",
+      "triggerModes": [
+        "hold"
+      ]
+    },
     "viewBox": {
       "width": 420,
       "height": 1320
@@ -595,6 +867,9 @@ export const deviceDescriptors = {
         "label": "电源键",
         "short": "电源",
         "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 47.2 101 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -608,6 +883,9 @@ export const deviceDescriptors = {
         "label": "语音键",
         "short": "语音",
         "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 162 889 a 48 48 0 1 0 96 0 a 48 48 0 1 0 -96 0",
         "anchor": {
@@ -621,6 +899,9 @@ export const deviceDescriptors = {
         "label": "方向上",
         "short": "上",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 92.05458889808388 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 330.05458889808386 L 260.91168824543144 397.08831175456856 A 72 72 0 0 0 159.08831175456856 397.08831175456856 Z",
         "anchor": {
@@ -634,6 +915,9 @@ export const deviceDescriptors = {
         "label": "方向左",
         "short": "左",
         "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 92.05458889808388 565.9454111019162 A 166.8 166.8 0 0 1 92.05458889808384 330.05458889808386 L 159.08831175456856 397.08831175456856 A 72 72 0 0 0 159.08831175456856 498.91168824543144 Z",
         "anchor": {
@@ -647,6 +931,9 @@ export const deviceDescriptors = {
         "label": "确认键",
         "short": "确认",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M 138 448 a 72 72 0 1 0 144 0 a 72 72 0 1 0 -144 0",
         "anchor": {
@@ -660,6 +947,9 @@ export const deviceDescriptors = {
         "label": "方向右",
         "short": "右",
         "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M 327.94541110191614 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 565.9454111019161 L 260.91168824543144 498.91168824543144 A 72 72 0 0 0 260.91168824543144 397.08831175456856 Z",
         "anchor": {
@@ -673,6 +963,9 @@ export const deviceDescriptors = {
         "label": "方向下",
         "short": "下",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 327.94541110191614 565.9454111019161 A 166.8 166.8 0 0 1 92.05458889808388 565.9454111019162 L 159.08831175456856 498.91168824543144 A 72 72 0 0 0 260.91168824543144 498.91168824543144 Z",
         "anchor": {
@@ -686,6 +979,9 @@ export const deviceDescriptors = {
         "label": "返回键",
         "short": "返回",
         "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 291.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -699,6 +995,9 @@ export const deviceDescriptors = {
         "label": "音量加",
         "short": "音量 +",
         "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z",
         "anchor": {
@@ -712,6 +1011,9 @@ export const deviceDescriptors = {
         "label": "主页键",
         "short": "主页",
         "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M 47.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -725,6 +1027,9 @@ export const deviceDescriptors = {
         "label": "音量减",
         "short": "音量 -",
         "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z",
         "anchor": {
@@ -738,6 +1043,9 @@ export const deviceDescriptors = {
         "label": "菜单键",
         "short": "功能",
         "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M 169.2 213 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -751,6 +1059,9 @@ export const deviceDescriptors = {
         "label": "静音键",
         "short": "静音",
         "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 12,
         "path": "M 47.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -764,6 +1075,9 @@ export const deviceDescriptors = {
         "label": "设置键",
         "short": "设置",
         "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 13,
         "path": "M 291.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -777,6 +1091,9 @@ export const deviceDescriptors = {
         "label": "频道加",
         "short": "频道 +",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 14,
         "path": "M 290.7 889 V 819.3 A 41.3 41.3 0 0 1 373.3 819.3 V 889 Z",
         "anchor": {
@@ -790,6 +1107,9 @@ export const deviceDescriptors = {
         "label": "频道减",
         "short": "频道 -",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 15,
         "path": "M 290.7 889 H 373.3 V 958.7 A 41.3 41.3 0 0 1 290.7 958.7 Z",
         "anchor": {
@@ -803,6 +1123,9 @@ export const deviceDescriptors = {
         "label": "M 键",
         "short": "M",
         "icon": "m",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 16,
         "path": "M 169.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -816,6 +1139,31 @@ export const deviceDescriptors = {
     "id": "xbox.wireless",
     "ariaLabel": "Xbox Wireless Controller",
     "artworkUrl": "/device-descriptors/xbox.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1118
+        ],
+        "productIds": [
+          736
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "HID\\"
+      },
+      {
+        "vendorIds": [
+          1118
+        ],
+        "productIds": [
+          736
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "HID\\"
+      }
+    ],
+    "voice": null,
     "viewBox": {
       "width": 680,
       "height": 520
@@ -827,6 +1175,9 @@ export const deviceDescriptors = {
         "label": "A 键",
         "short": "A",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 480 292 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0",
         "anchor": {
@@ -840,6 +1191,9 @@ export const deviceDescriptors = {
         "label": "B 键",
         "short": "B",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 520 252 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0",
         "anchor": {
@@ -853,6 +1207,9 @@ export const deviceDescriptors = {
         "label": "X 键",
         "short": "X",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 440 252 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0",
         "anchor": {
@@ -866,6 +1223,9 @@ export const deviceDescriptors = {
         "label": "Y 键",
         "short": "Y",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 480 212 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0",
         "anchor": {
@@ -879,6 +1239,9 @@ export const deviceDescriptors = {
         "label": "LB 左肩键",
         "short": "LB",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M151 115Q194 104 243 114L241 136H147Z",
         "anchor": {
@@ -892,6 +1255,9 @@ export const deviceDescriptors = {
         "label": "RB 右肩键",
         "short": "RB",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M437 114Q486 104 529 115L533 136H439Z",
         "anchor": {
@@ -905,6 +1271,9 @@ export const deviceDescriptors = {
         "label": "View 视图键",
         "short": "VIEW",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 281 263 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0",
         "anchor": {
@@ -918,6 +1287,9 @@ export const deviceDescriptors = {
         "label": "Menu 菜单键",
         "short": "MENU",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 369 263 a 15 15 0 1 0 30 0 a 15 15 0 1 0 -30 0",
         "anchor": {
@@ -931,6 +1303,9 @@ export const deviceDescriptors = {
         "label": "LS 左摇杆按下",
         "short": "LS",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M -32 0 a 32 32 0 1 0 64 0 a 32 32 0 1 0 -64 0",
         "anchor": {
@@ -945,6 +1320,9 @@ export const deviceDescriptors = {
         "label": "RS 右摇杆按下",
         "short": "RS",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M -32 0 a 32 32 0 1 0 64 0 a 32 32 0 1 0 -64 0",
         "anchor": {
@@ -959,6 +1337,9 @@ export const deviceDescriptors = {
         "label": "主键",
         "short": "GUIDE",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 320 201 a 20 20 0 1 0 40 0 a 20 20 0 1 0 -40 0",
         "anchor": {
@@ -972,6 +1353,9 @@ export const deviceDescriptors = {
         "label": "左摇杆向左",
         "short": "LS.LEFT",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z",
         "anchor": {
@@ -986,6 +1370,9 @@ export const deviceDescriptors = {
         "label": "左摇杆向右",
         "short": "LS.RIGHT",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 12,
         "path": "M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z",
         "anchor": {
@@ -1000,6 +1387,9 @@ export const deviceDescriptors = {
         "label": "左摇杆向上",
         "short": "LS.UP",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 13,
         "path": "M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z",
         "anchor": {
@@ -1014,6 +1404,9 @@ export const deviceDescriptors = {
         "label": "左摇杆向下",
         "short": "LS.DOWN",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 14,
         "path": "M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z",
         "anchor": {
@@ -1028,6 +1421,9 @@ export const deviceDescriptors = {
         "label": "右摇杆向左",
         "short": "RS.LEFT",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 15,
         "path": "M-45 36A58 58 0 0 1-45-36L-31-22A38 38 0 0 0-31 22Z",
         "anchor": {
@@ -1042,6 +1438,9 @@ export const deviceDescriptors = {
         "label": "右摇杆向右",
         "short": "RS.RIGHT",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 16,
         "path": "M45-36A58 58 0 0 1 45 36L31 22A38 38 0 0 0 31-22Z",
         "anchor": {
@@ -1056,6 +1455,9 @@ export const deviceDescriptors = {
         "label": "右摇杆向上",
         "short": "RS.UP",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 17,
         "path": "M-36-45A58 58 0 0 1 36-45L22-31A38 38 0 0 0-22-31Z",
         "anchor": {
@@ -1070,6 +1472,9 @@ export const deviceDescriptors = {
         "label": "右摇杆向下",
         "short": "RS.DOWN",
         "icon": "center",
+        "kind": "axis",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 18,
         "path": "M36 45A58 58 0 0 1-36 45L-22 31A38 38 0 0 0 22 31Z",
         "anchor": {
@@ -1084,6 +1489,9 @@ export const deviceDescriptors = {
         "label": "LT 左扳机",
         "short": "LT",
         "icon": "center",
+        "kind": "trigger",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 19,
         "path": "M161 56Q201 43 243 57L236 103H153Z",
         "anchor": {
@@ -1097,6 +1505,9 @@ export const deviceDescriptors = {
         "label": "RT 右扳机",
         "short": "RT",
         "icon": "center",
+        "kind": "trigger",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 20,
         "path": "M437 57Q479 43 519 56L527 103H444Z",
         "anchor": {
@@ -1110,6 +1521,9 @@ export const deviceDescriptors = {
         "label": "方向键向上",
         "short": "DPAD.UP",
         "icon": "center",
+        "kind": "hat",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 21,
         "path": "M-16-44H16V-17L0-3-16-17Z",
         "anchor": {
@@ -1124,6 +1538,9 @@ export const deviceDescriptors = {
         "label": "方向键向右",
         "short": "DPAD.RIGHT",
         "icon": "center",
+        "kind": "hat",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 22,
         "path": "M44-16V16H17L3 0 17-16Z",
         "anchor": {
@@ -1138,6 +1555,9 @@ export const deviceDescriptors = {
         "label": "方向键向下",
         "short": "DPAD.DOWN",
         "icon": "center",
+        "kind": "hat",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 23,
         "path": "M16 44H-16V17L0 3 16 17Z",
         "anchor": {
@@ -1152,6 +1572,9 @@ export const deviceDescriptors = {
         "label": "方向键向左",
         "short": "DPAD.LEFT",
         "icon": "center",
+        "kind": "hat",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 24,
         "path": "M-44 16V-16H-17L-3 0-17 16Z",
         "anchor": {
@@ -1166,6 +1589,48 @@ export const deviceDescriptors = {
     "id": "xiaomi.xm-bt-29",
     "ariaLabel": "XM-BT-29 移动高清语音遥控器",
     "artworkUrl": "/device-descriptors/xm-bt-29.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "XFRSD0D_M_R01_761",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "XFRSD0D_M_R01_761",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      },
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          768
+        ],
+        "softwareContains": "XFRSD0D_M_R01_761",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE"
+      }
+    ],
+    "voice": {
+      "engine": "cmiot-a15.g7221",
+      "transport": "hid-report",
+      "triggerModes": [
+        "hold"
+      ]
+    },
     "viewBox": {
       "width": 420,
       "height": 1560
@@ -1177,6 +1642,9 @@ export const deviceDescriptors = {
         "label": "电源键",
         "short": "电源",
         "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 0,
         "path": "M 291.2 84 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0",
         "anchor": {
@@ -1190,6 +1658,9 @@ export const deviceDescriptors = {
         "label": "语音键",
         "short": "语音",
         "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 1,
         "path": "M 146 748 a 64 64 0 1 0 128 0 a 64 64 0 1 0 -128 0",
         "anchor": {
@@ -1203,6 +1674,9 @@ export const deviceDescriptors = {
         "label": "方向上",
         "short": "上",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 2,
         "path": "M 106.90383130300137 266.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 266.90383130300137 L 255.25483399593904 324.74516600406093 A 64 64 0 0 0 164.74516600406096 324.74516600406093 Z",
         "anchor": {
@@ -1216,6 +1690,9 @@ export const deviceDescriptors = {
         "label": "方向左",
         "short": "左",
         "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 3,
         "path": "M 106.90383130300137 473.09616869699863 A 145.8 145.8 0 0 1 106.90383130300134 266.90383130300137 L 164.74516600406093 324.74516600406093 A 64 64 0 0 0 164.74516600406096 415.25483399593907 Z",
         "anchor": {
@@ -1229,6 +1706,9 @@ export const deviceDescriptors = {
         "label": "确认键",
         "short": "确认",
         "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 4,
         "path": "M 146 370 a 64 64 0 1 0 128 0 a 64 64 0 1 0 -128 0",
         "anchor": {
@@ -1242,6 +1722,9 @@ export const deviceDescriptors = {
         "label": "方向右",
         "short": "右",
         "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 5,
         "path": "M 313.09616869699863 266.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 473.09616869699863 L 255.25483399593904 415.25483399593907 A 64 64 0 0 0 255.25483399593904 324.74516600406093 Z",
         "anchor": {
@@ -1255,6 +1738,9 @@ export const deviceDescriptors = {
         "label": "方向下",
         "short": "下",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 6,
         "path": "M 313.09616869699863 473.09616869699863 A 145.8 145.8 0 0 1 106.90383130300137 473.09616869699863 L 164.74516600406096 415.25483399593907 A 64 64 0 0 0 255.25483399593904 415.25483399593907 Z",
         "anchor": {
@@ -1268,6 +1754,9 @@ export const deviceDescriptors = {
         "label": "返回键",
         "short": "返回",
         "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 7,
         "path": "M 313.5 553 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1281,6 +1770,9 @@ export const deviceDescriptors = {
         "label": "音量加",
         "short": "音量 +",
         "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 8,
         "path": "M 54.5 748 V 682.5 a 33.5 33.5 0 0 1 67 0 V 748 Z",
         "anchor": {
@@ -1294,6 +1786,9 @@ export const deviceDescriptors = {
         "label": "主页键",
         "short": "主页",
         "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 9,
         "path": "M 69.5 553 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1307,6 +1802,9 @@ export const deviceDescriptors = {
         "label": "音量减",
         "short": "音量 -",
         "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 10,
         "path": "M 54.5 748 H 121.5 V 813.5 a 33.5 33.5 0 0 1 -67 0 Z",
         "anchor": {
@@ -1320,6 +1818,9 @@ export const deviceDescriptors = {
         "label": "菜单键",
         "short": "菜单",
         "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 11,
         "path": "M 69.5 155 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1333,6 +1834,9 @@ export const deviceDescriptors = {
         "label": "静音键",
         "short": "静音",
         "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 12,
         "path": "M 69.5 1163 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1346,6 +1850,9 @@ export const deviceDescriptors = {
         "label": "设置键",
         "short": "设置",
         "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 13,
         "path": "M 313.5 155 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1359,6 +1866,9 @@ export const deviceDescriptors = {
         "label": "频道加",
         "short": "频道 +",
         "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 14,
         "path": "M 298.5 748 V 682.5 a 33.5 33.5 0 0 1 67 0 V 748 Z",
         "anchor": {
@@ -1372,6 +1882,9 @@ export const deviceDescriptors = {
         "label": "频道减",
         "short": "频道 -",
         "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 15,
         "path": "M 298.5 748 H 365.5 V 813.5 a 33.5 33.5 0 0 1 -67 0 Z",
         "anchor": {
@@ -1385,6 +1898,9 @@ export const deviceDescriptors = {
         "label": "M 键",
         "short": "M",
         "icon": "m",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 16,
         "path": "M 191.5 553 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1398,6 +1914,9 @@ export const deviceDescriptors = {
         "label": "数字 0",
         "short": "0",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 17,
         "path": "M 191.5 1163 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1411,6 +1930,9 @@ export const deviceDescriptors = {
         "label": "数字 1",
         "short": "1",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 18,
         "path": "M 69.5 887 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1424,6 +1946,9 @@ export const deviceDescriptors = {
         "label": "数字 2",
         "short": "2",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 19,
         "path": "M 191.5 887 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1437,6 +1962,9 @@ export const deviceDescriptors = {
         "label": "数字 3",
         "short": "3",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 20,
         "path": "M 313.5 887 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1450,6 +1978,9 @@ export const deviceDescriptors = {
         "label": "数字 4",
         "short": "4",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 21,
         "path": "M 69.5 979 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1463,6 +1994,9 @@ export const deviceDescriptors = {
         "label": "数字 5",
         "short": "5",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 22,
         "path": "M 191.5 979 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1476,6 +2010,9 @@ export const deviceDescriptors = {
         "label": "数字 6",
         "short": "6",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 23,
         "path": "M 313.5 979 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1489,6 +2026,9 @@ export const deviceDescriptors = {
         "label": "数字 7",
         "short": "7",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 24,
         "path": "M 69.5 1071 H 106.5 a 31 31 0 0 1 0 62 H 69.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1502,6 +2042,9 @@ export const deviceDescriptors = {
         "label": "数字 8",
         "short": "8",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 25,
         "path": "M 191.5 1071 H 228.5 a 31 31 0 0 1 0 62 H 191.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1515,6 +2058,9 @@ export const deviceDescriptors = {
         "label": "数字 9",
         "short": "9",
         "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 26,
         "path": "M 313.5 1071 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {
@@ -1528,6 +2074,9 @@ export const deviceDescriptors = {
         "label": "删除键",
         "short": "删除",
         "icon": "delete",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
         "order": 27,
         "path": "M 313.5 1163 H 350.5 a 31 31 0 0 1 0 62 H 313.5 a 31 31 0 0 1 0 -62 Z",
         "anchor": {

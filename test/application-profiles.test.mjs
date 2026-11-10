@@ -186,8 +186,8 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
-    './IntegrationControls': { DeviceBindingPicker: nullComponent }, '../xbox-controller/ControllerDiagram': { ControllerDiagram: nullComponent },
-    './model': { packageFor: () => ({ inputs: [{ id: 'voice', label: '语音键', icon: 'mic' }] }), emptyTriggers: () => ({ click: [], doubleClick: [], longPress: [] }), instanceStatusLabel: () => 'preview' },
+    './IntegrationControls': { DeviceBindingPicker: nullComponent },
+    './model': require('../src/devices/integration/model.ts'),
   })
   let current, view
   function Harness() {

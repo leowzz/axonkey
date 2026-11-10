@@ -12,7 +12,15 @@ export type RemoteKeyRegion = {
 }
 
 export type RemoteView<Id extends string = string> = {
-  buttons: readonly RemoteButton<Id>[]
+  buttons: readonly (RemoteButton<Id> & { kind: string; threshold: number; releaseThreshold: number })[]
+  identities: readonly {
+    vendorIds: readonly number[]
+    productIds: readonly number[]
+    softwareContains: string
+    softwareFallback: boolean
+    windowsPrefix: string
+  }[]
+  voice: { engine: string; transport: string; triggerModes: readonly string[] } | null
   viewBox: { width: number; height: number }
   keyRegions: Record<string, RemoteKeyRegion>
   artworkUrl: string

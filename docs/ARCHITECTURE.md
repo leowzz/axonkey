@@ -8,7 +8,7 @@ physical-device instances. See [device integration](DEVICE_INTEGRATION.md) for
 discovery, binding, and runtime contracts. The detailed input and voice paths
 below describe the RC003 integration.
 
-Issue #58 的设备描述迁移目标见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。SVG
+Issue #58 的内置设备描述实现见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。SVG
 描述设备类型、报告布局和能力；实例绑定、平台权限、驱动句柄、用户映射及语音后端仍由应用管理。
 
 ```text
@@ -17,7 +17,7 @@ Windows
     -> QuarborUniversalKeyboardDriver per-device binding
     -> duplex per-instance Universal v1 pipe (Tokio + prost)
     -> exact VID/PID device selection
-    -> RC003 BTHLE report decoding (Report ID + little-endian usage slots)
+    -> bundled SVG descriptor + shared report/state engine
     -> mapping snapshot, gesture state and shared held-key counts
     -> driver-supported standard keys -> keysend -> independent synthetic HID output
     -> media / unsupported keys and connected chords -> SendInput virtual keys
@@ -33,7 +33,7 @@ Windows
 macOS
   RC003 HID interfaces
     -> IOHIDManager exact VID/PID matching
-    -> report ID 1, little-endian HID usage set
+    -> bundled SVG descriptor + shared report decoder
     -> exclusive capture, or CGEventTap suppression fallback
     -> mapping snapshot and gesture state
     -> CoreGraphics keyboard/unicode events or AppKit system-key events

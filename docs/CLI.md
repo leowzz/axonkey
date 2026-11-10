@@ -189,9 +189,9 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 
 ## 键位图与空间配置
 
-`keymap get --device <型号> --json` 或 `keymap get --instance <ID> --json` 返回设备的 SVG 键位图和结构化按键元数据。遥控器设备的 `result.artwork.svg` 是完整 SVG，`result.artwork.viewBox` 是 SVG 坐标范围；`result.keys` 为每个按键提供 `id`、`label`、`regionPath`、百分比坐标和 SVG 锚点。`position.percent.y` 从上到下取 0 到 100，适合表达“上半部分”等空间条件；`position.zone.vertical` 按三等分提供 `upper`、`middle`、`lower`，`layout.verticalZones` 返回对应边界。
+`keymap get --device <型号> --json` 或 `keymap get --instance <ID> --json` 返回设备的 SVG 键位图和结构化按键元数据。遥控器设备的 `result.artwork.svg` 是完整 SVG，`result.artwork.viewBox` 是 SVG 坐标范围；`result.keys` 为每个按键提供 `id`、`label`、`regionPath`、可选 `regionTransform`、百分比坐标和 SVG 锚点。`position.percent.y` 从上到下取 0 到 100，适合表达“上半部分”等空间条件；`position.zone.vertical` 按三等分提供 `upper`、`middle`、`lower`，`layout.verticalZones` 返回对应边界。
 
-例如，Agent 可以先获取 `rc003` 键位图，筛选 `position.percent.y < 50` 的按键，再对这些按键逐个调用 `mapping set` 或 `shortcut set`。当前内置版本仍使用 `keys[].id` 作为 `--button`；SVG 设备描述协议迁移后，`keys[].stableKey` 是同一字段，协议和迁移规则见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。
+例如，Agent 可以先获取 `rc003` 键位图，筛选 `position.percent.y < 50` 的按键，再对这些按键逐个调用 `mapping set` 或 `shortcut set`。当前内置版本使用 SVG 生成的 `keys[].id` 作为 `--button`，保持既有配置键名兼容。`regionTransform` 与 `regionPath` 一起还原局部坐标的手柄热区；百分比位置和锚点始终在根画布中。协议及后续 stable Key 版本迁移规则见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。
 
 系统鼠标没有固定的物理键位图，因此 `keymap get --device mouse` 返回 `artwork: null`，并通过 `keys[].context` 和语义化输入 ID 描述作用范围。
 

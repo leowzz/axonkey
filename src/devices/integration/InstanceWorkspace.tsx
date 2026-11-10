@@ -24,7 +24,14 @@ import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
-import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
+import {
+  defaultRecordingMode,
+  emptyTriggers,
+  instanceStatusLabel,
+  packageFor,
+  supportsWindowsDriver,
+  usesHidVoice,
+} from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
@@ -70,6 +77,9 @@ export function InstanceWorkspace({
   batteryLevel,
 }: Props) {
   const pkg = packageFor(instance.kind)
+  const voice = pkg.remoteView?.voice
+  const voiceModes = voice?.triggerModes ?? []
+  const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [selected, setSelected] = useState<string>(() =>
     getStoredDeviceInput(
@@ -248,7 +258,7 @@ export function InstanceWorkspace({
   const mapped = Object.keys(profile.behaviors).filter(id =>
     Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const supportsDriver = ['rc003', 'cmiotA15', 'xmBt29', 'rc313', 'obeRcuR5', 'xboxBluetooth'].includes(instance.kind)
+  const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
@@ -416,11 +426,7 @@ export function InstanceWorkspace({
                 <span />
               </button>
             </div>
-            {(instance.kind === 'rc003' ||
-              instance.kind === 'cmiotA15' ||
-              instance.kind === 'xmBt29' ||
-              instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5') && (
+            {voice && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} />
               </span>
@@ -440,48 +446,41 @@ export function InstanceWorkspace({
               />
             </div>
           </div>
-          {(instance.kind === 'rc003' ||
-            instance.kind === 'cmiotA15' ||
-            instance.kind === 'xmBt29' ||
-            instance.kind === 'rc313' ||
-            instance.kind === 'obeRcuR5') && (
+          {voice && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
-              onToggle={
-                instance.kind === 'cmiotA15' || instance.kind === 'xmBt29' || instance.kind === 'rc313'
-                  ? () => void toggleRecording()
-                  : undefined
-              }
+              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
               disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
             />
           )}
-          {(instance.kind === 'rc003' ||
-            ((instance.kind === 'cmiotA15' ||
-              instance.kind === 'xmBt29' ||
-              instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5') &&
-              (platform === 'windows' || platform === 'macos'))) && (
-            <button
-              type="button"
-              className="managed-audio-calibration"
-              disabled={!native}
-              title={!native ? '请在桌面应用中校准音量' : undefined}
-              onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
-            >
-              <SlidersHorizontal size={16} aria-hidden="true" />
-              校准音量
-            </button>
-          )}
-          {instance.kind === 'xboxBluetooth' && (
+          {voice &&
+            (voice.transport === 'gatt' ||
+              (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos'))) && (
+              <button
+                type="button"
+                className="managed-audio-calibration"
+                disabled={!native}
+                title={!native ? '请在桌面应用中校准音量' : undefined}
+                onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
+              >
+                <SlidersHorizontal size={16} aria-hidden="true" />
+                校准音量
+              </button>
+            )}
+          {analogInputs.length > 0 && (
             <div className="managed-analog">
-              <label>
-                LT <meter min={0} max={1} value={input.values['xbox.lt'] ?? 0} />
-              </label>
-              <label>
-                RT <meter min={0} max={1} value={input.values['xbox.rt'] ?? 0} />
-              </label>
+              {analogInputs.map(button => (
+                <label key={button.id}>
+                  {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
+                </label>
+              ))}
               <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
-                摇杆方向与扳机超过 55% 时触发，低于 35% 时释放。
+                {analogInputs.map(button => (
+                  <p key={button.id}>
+                    {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
+                    {Math.round(button.releaseThreshold * 100)}% 时释放。
+                  </p>
+                ))}
               </SettingsHelp>
             </div>
           )}
@@ -552,7 +551,7 @@ export function InstanceWorkspace({
               <Settings2 size={16} />
               <span>设备设置</span>
             </button>
-            {instance.kind !== 'xboxBluetooth' && (
+            {voice && (
               <button
                 type="button"
                 aria-current={settingsSection === 'information' ? 'page' : undefined}
@@ -629,7 +628,7 @@ export function InstanceWorkspace({
                   </div>
                 )}
                 <div className="settings-form-fields">
-                  {instance.kind !== 'xboxBluetooth' && (platform === 'windows' || platform === 'macos') && (
+                  {voice && (platform === 'windows' || platform === 'macos') && (
                     <div className="settings-form-row">
                       <span className="settings-form-label">虚拟麦克风：</span>
                       <div className="settings-form-control">
@@ -639,28 +638,30 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {instance.kind === 'cmiotA15' && (platform === 'windows' || platform === 'macos') && (
-                    <label className="settings-form-row">
-                      <span className="settings-form-label">语音录制：</span>
-                      <span className="settings-form-control">
-                        <span className="manual-key-select cmiot-recording-select">
-                          <select
-                            value={instance.cmiotA15RecordingMode ?? 'click'}
-                            onChange={event => {
-                              const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                              update(item => ({ ...item, cmiotA15RecordingMode }))
-                            }}
-                          >
-                            <option value="hold">按住录音，松开停止</option>
-                            <option value="click">点击开始，再次点击停止</option>
-                          </select>
-                          <span className="manual-key-select-icon" aria-hidden="true">
-                            <ChevronDown size={14} />
+                  {voiceModes.includes('hold') &&
+                    voiceModes.includes('click') &&
+                    (platform === 'windows' || platform === 'macos') && (
+                      <label className="settings-form-row">
+                        <span className="settings-form-label">语音录制：</span>
+                        <span className="settings-form-control">
+                          <span className="manual-key-select cmiot-recording-select">
+                            <select
+                              value={instance.cmiotA15RecordingMode ?? defaultRecordingMode(instance.kind)}
+                              onChange={event => {
+                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
+                                update(item => ({ ...item, cmiotA15RecordingMode }))
+                              }}
+                            >
+                              <option value="hold">按住录音，松开停止</option>
+                              <option value="click">点击开始，再次点击停止</option>
+                            </select>
+                            <span className="manual-key-select-icon" aria-hidden="true">
+                              <ChevronDown size={14} />
+                            </span>
                           </span>
                         </span>
-                      </span>
-                    </label>
-                  )}
+                      </label>
+                    )}
                   <label className="settings-form-row">
                     <span className="settings-form-label">设备名称：</span>
                     <input

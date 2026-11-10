@@ -41,7 +41,7 @@ fn decode_inputs(
     Some(decoded)
 }
 
-/// Apply the source-declared enter/release thresholds to a normalized value.
+/// Apply a stable input's enter/release thresholds to a normalized value.
 /// Button sources use the same defaults as the existing managed reader.
 pub(crate) fn pressed(
     descriptor: &DeviceDescriptor,
@@ -49,10 +49,7 @@ pub(crate) fn pressed(
     value: f64,
     was_pressed: bool,
 ) -> bool {
-    let input = descriptor
-        .inputs
-        .iter()
-        .find(|input| input.id == key || input.legacy_key.as_deref() == Some(key));
+    let input = descriptor.inputs.iter().find(|input| input.id == key);
     let (press, release) = input
         .and_then(|input| {
             input.sources.iter().find_map(|source| {

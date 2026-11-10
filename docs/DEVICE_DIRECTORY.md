@@ -11,18 +11,18 @@ src/devices/
   pages.ts                  型号到设置页组件的注册
   shared/
     DeviceWorkspaceHeader.tsx
-    RemoteControl.tsx         小米与 A15 共用的按键交互图
+    RemoteControl.tsx         六种协议 SVG 共用的按键交互图
+    descriptorSvg.ts         生成索引到设备视图的通用适配
+  generatedDescriptors.ts   从协议 SVG 生成，不手工编辑
   xiaomi-remote/
     definition.ts           RC003 型号与实例支持包定义
     view.ts                 按键视图、区域与图片地址
-    buttons.ts              按键定义
-    geometry.ts             区域定义
+    buttons.ts              从协议索引导出兼容按键 ID 与标签
     XiaomiRemoteSettingsPage.tsx
   cmiot-a15-remote/
     definition.ts
     view.ts
     buttons.ts
-    geometry.ts
     CmiotA15SettingsPage.tsx
   system-mouse/
     definition.ts
@@ -30,10 +30,8 @@ src/devices/
     SystemMouseSettingsPage.tsx
   xbox-controller/
     definition.ts           蓝牙手柄实例支持包定义
-    inputs.ts               手柄按键、方向与输入 ID
-    ControllerDiagram.tsx
-    xbox-controller.svg
-    xbox-controller-keymap.svg
+    inputs.ts               从协议索引导出手柄输入
+    xbox-controller.svg     首页卡片图标
   integration/              跨型号的发现、绑定、实例配置与工作区
 ```
 
@@ -42,7 +40,7 @@ src/devices/
 `devices/remoteTypes.ts` 转发入口已移除，调用方已迁移。
 `integration/model.ts` 只聚合各型号的支持包并定义实例契约，不再内嵌型号按键或图片定义；
 实例工作区从支持包读取遥控器视图。型号级注册仍用于旧配置迁移和鼠标工作区，不能当作废弃代码删除。
-设备图片仍保留在 `public/`，保持现有资源 URL 与截图/测试引用稳定。
+协议图形统一放在 `public/device-descriptors/`；旧的四套 keymap SVG 与 TS 区域表已移除。`scripts/generate-device-descriptors.mjs` 在开发/构建前生成前端输入索引，图形和热区以同一 SVG 为来源。
 全局配置和跨设备映射编辑仍在现有位置；它们不属于单一设备型号。
 
 ## Rust 与 macOS 桥接
@@ -52,16 +50,18 @@ src-tauri/src/devices/
   mod.rs                    仅声明型号与共享模块
   shared.rs                 蓝牙 HID 服务标识解析
   cmiot_a15/
-    mod.rs                  A15 按键协议与 HID 会话
+    mod.rs                  通用描述器引擎的 HID 音频会话适配
     recording.rs            按住/点击录音控制
     voice.rs                FC 分片重组、解扰与 PCM 帧
     siren.rs                A15 使用的 G.722.1 解码封装
     README.md               音频协议与平台实现说明
+  device_descriptor.rs     SVG 元数据入口解析和校验
+  descriptor_registry.rs    内置六种设备、身份和配置兼容键
+  engine.rs                 通用报告解码、状态分组和阈值
   xbox/
-    mod.rs                  已验证蓝牙型号的报告解析与按键状态
+    mod.rs                  使用真实 Xbox 报告的引擎回归测试
   xiaomi_remote/
     mod.rs
-    input.rs                RC003 按键报告解析
     voice/
       mod.rs
       atvv.rs               RC003 ADPCM 解码
@@ -79,8 +79,7 @@ src-tauri/native/devices/xiaomi_remote/
 或 macOS 的 MiRemoteV 2ch，不保留每设备输出选择。`native/macos_pcm_queue.h`
 是每个 macOS 音频实例使用的 PCM 缓冲实现。
 `input_service` 和 `native/macos_input.m` 仍承载共享输入捕获与映射执行，不能
-整块移入某个型号目录。`managed/report.rs` 按型号分发报告并统一数值表示，
-各型号的按键布局和协议解析放在 `devices/`；平台连接和手势调度仍留在输入服务。
+整块移入某个型号目录。报告输入统一通过 `devices/engine.rs` 读取 SVG 布局，旧的各型号按键表和解析分支已删除；平台连接、系统输出和手势调度仍留在输入服务。
 A15 的 `HidSession` 供 macOS 与单元测试使用，Windows 的驱动通道直接组合共享的
 按键状态、录音控制和音频流模块；不能因 Windows 生产构建未使用会话封装就删除它。
 macOS 原生构建入口和直接引用桥接源码的测试已更新到新路径。

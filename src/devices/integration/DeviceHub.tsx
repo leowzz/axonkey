@@ -14,10 +14,13 @@ import {
   isMobileRemoteKind,
   mobileRemoteKindForSoftware,
   mobileRemoteKinds,
+  mobileRemoteFallbackKind,
   newInstance,
   packageFor,
   batteryForDevice,
   supportPackages,
+  supportsWindowsDriver,
+  usesHidVoice,
 } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
@@ -614,16 +617,11 @@ function DeviceCard({
               {status}
             </span>
           )}
-          {!unbound &&
-            (kind === 'rc003' ||
-              kind === 'cmiotA15' ||
-              kind === 'xmBt29' ||
-              kind === 'rc313' ||
-              kind === 'obeRcuR5') && (
-              <span className="my-devices-power">
-                <BatteryIndicator level={batteryLevel} />
-              </span>
-            )}
+          {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
+            <span className="my-devices-power">
+              <BatteryIndicator level={batteryLevel} />
+            </span>
+          )}
         </span>
         <span className="my-devices-profile">
           {profile ? (
@@ -657,12 +655,18 @@ function IntegrationDialog({
   onComplete,
 }: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
-  const [kind, setKind] = useState<DeviceKind | undefined>(() => (mobileModelSelection ? 'rc313' : initial.kind))
+  const [kind, setKind] = useState<DeviceKind | undefined>(() =>
+    mobileModelSelection ? mobileRemoteFallbackKind : initial.kind,
+  )
   const [step, setStep] = useState<IntegrationStep>(() => (initial.kind ? 'details' : 'kind'))
   const [name, setName] = useState(
     () =>
       initial.instance?.name ??
-      (mobileModelSelection ? packageFor('rc313').name : initial.kind ? packageFor(initial.kind).name : ''),
+      (mobileModelSelection
+        ? packageFor(mobileRemoteFallbackKind).name
+        : initial.kind
+          ? packageFor(initial.kind).name
+          : ''),
   )
   // null follows discovery defaults; an empty string is the user's explicit “bind later” choice.
   const [bindingChoice, setBindingChoice] = useState<string | null>(
@@ -706,7 +710,7 @@ function IntegrationDialog({
           const detectedKind = information.detectedKind ?? undefined
           const detected = isMobileRemoteKind(detectedKind)
             ? detectedKind
-            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? 'rc313')
+            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? mobileRemoteFallbackKind)
           setKind(detected)
           return
         }
@@ -767,14 +771,7 @@ function IntegrationDialog({
                     <strong>{pkg.name}</strong>
                     <small>
                       {pkg.model.split(' · ')[0]}
-                      {(pkg.kind === 'cmiotA15' ||
-                        pkg.kind === 'xmBt29' ||
-                        pkg.kind === 'rc313' ||
-                        pkg.kind === 'obeRcuR5') &&
-                      platform !== 'windows' &&
-                      platform !== 'macos'
-                        ? ' · 仅配置'
-                        : ''}
+                      {usesHidVoice(pkg.kind) && platform !== 'windows' && platform !== 'macos' ? ' · 仅配置' : ''}
                     </small>
                   </span>
                 </button>
@@ -783,7 +780,7 @@ function IntegrationDialog({
           ) : step === 'mobile-model' ? (
             <>
               <div className="managed-integration-product">
-                <img src={packageFor('rc313').artwork} alt="" />
+                <img src={packageFor(mobileRemoteFallbackKind).artwork} alt="" />
                 <div>
                   <h3>选择遥控器型号</h3>
                   <p>移动系列遥控器</p>
@@ -875,19 +872,14 @@ function IntegrationDialog({
                   </button>
                 </div>
               )}
-              {(kind === 'cmiotA15' || kind === 'xmBt29' || kind === 'rc313' || kind === 'obeRcuR5') &&
-                platform !== 'windows' &&
-                platform !== 'macos' && <p className="integration-attention">此设备暂不支持输入监听。</p>}
-              {platform === 'windows' &&
-                (kind === 'rc003' ||
-                  kind === 'cmiotA15' ||
-                  kind === 'xmBt29' ||
-                  kind === 'rc313' ||
-                  kind === 'obeRcuR5') && (
-                  <p className="integration-attention">
-                    添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
-                  </p>
-                )}
+              {usesHidVoice(kind) && platform !== 'windows' && platform !== 'macos' && (
+                <p className="integration-attention">此设备暂不支持输入监听。</p>
+              )}
+              {platform === 'windows' && supportsWindowsDriver(kind) && (
+                <p className="integration-attention">
+                  添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
+                </p>
+              )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
             </>
           )}

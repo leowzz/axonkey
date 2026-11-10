@@ -9,6 +9,7 @@ const output = path.join(root, 'src/devices/generatedDescriptors.ts')
 export function parseDescriptorSvg(source, artworkUrl) {
   const rootAttributes = attributes(source.match(/<svg\b[^>]*>/)?.[0] ?? '')
   const device = attributes(source.match(/<ak:device\b[^>]*>/)?.[0] ?? '')
+  const voice = attributes(source.match(/<ak:voice\b[^>]*>/)?.[0] ?? '')
   if (rootAttributes['data-ak-schema'] !== 'axonkey.device/1' || !device.id) {
     throw new Error(`${artworkUrl}: missing device protocol metadata`)
   }
@@ -31,34 +32,74 @@ export function parseDescriptorSvg(source, artworkUrl) {
     })
   }
   const seen = new Set()
-  const inputs = [...source.matchAll(/<ak:input\b[^>]*>/g)]
-    .map((match, index) => {
-      const input = attributes(match[0])
-      const id = input['legacy-key'] ?? input.id
+  const inputs = [...source.matchAll(/<ak:input\b[^>]*\/>|<ak:input\b[^>]*>[\s\S]*?<\/ak:input>/g)]
+    .flatMap((match, index) => {
+      const input = attributes(match[0].match(/^<ak:input\b[^>]*>/)[0])
+      const id = input['legacy-key']?.trim().split(/\s+/).find(Boolean) ?? input.id
       const region = regions.get(input.id)
+      if (!input.target && !region) return []
       if (!id || seen.has(id) || !input.label || !input.short || !input.icon || !region) {
         throw new Error(`${artworkUrl}: input ${input.id} needs a unique ID, label, short, icon and region`)
       }
       seen.add(id)
-      return {
-        id,
-        stableId: input.id,
-        label: input.label,
-        short: input.short,
-        icon: input.icon,
-        order: Number(input.order ?? index),
-        ...region,
-      }
+      const thresholds = [
+        ...(input.report ? [input] : []),
+        ...[...match[0].matchAll(/<ak:source\b[^>]*>/g)].map(source => attributes(source[0])),
+      ].find(source => source.threshold !== undefined || source['release-threshold'] !== undefined)
+      return [
+        {
+          id,
+          stableId: input.id,
+          label: input.label,
+          short: input.short,
+          icon: input.icon,
+          kind: input.kind,
+          threshold: Number(thresholds?.threshold ?? 0.55),
+          releaseThreshold: Number(thresholds?.['release-threshold'] ?? 0.35),
+          order: Number(input.order ?? index),
+          ...region,
+        },
+      ]
     })
     .sort((left, right) => left.order - right.order)
-  if (!inputs.length || inputs.length !== regions.size) throw new Error(`${artworkUrl}: input/region mismatch`)
+  if (inputs.length !== regions.size) throw new Error(`${artworkUrl}: input/region mismatch`)
   return {
     id: device.id,
     ariaLabel: device['display-name'] ?? device.model,
     artworkUrl,
+    identities: [...source.matchAll(/<ak:match\b[^>]*>/g)].map(match => {
+      const identity = attributes(match[0])
+      return {
+        vendorIds: identityNumbers(identity.vid),
+        productIds: identityNumbers(identity.pid),
+        softwareContains: identity['software-contains'] ?? '',
+        softwareFallback: identity['software-fallback'] === 'true',
+        windowsPrefix: identity['windows-prefix'] ?? '',
+      }
+    }),
+    voice: voice.engine
+      ? {
+          engine: voice.engine,
+          transport: voice.transport ?? 'none',
+          triggerModes: (voice['trigger-modes'] ?? '').split(/\s+/).filter(Boolean),
+        }
+      : null,
     viewBox: { width: box[2], height: box[3] },
     inputs,
   }
+}
+
+function identityNumbers(value = '') {
+  return value
+    .split(/[\s,|]+/)
+    .filter(Boolean)
+    .map(value => {
+      const number = Number(value)
+      if (!Number.isInteger(number) || number < 0 || number > 0xffffffff) {
+        throw new Error(`Invalid identity number: ${value}`)
+      }
+      return number & 0xffff
+    })
 }
 
 export function readBundledDescriptors() {

@@ -930,12 +930,7 @@ async fn uninstall_bound_device_drivers(
             .store
             .instances
             .iter()
-            .filter(|instance| {
-                matches!(
-                    instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-                ) && instance.binding.is_some()
-            })
+            .filter(|instance| supports_quarbor(&instance.kind) && instance.binding.is_some())
             .map(|instance| instance.id.clone())
             .collect::<Vec<_>>();
         let resource_dir = app
@@ -1194,6 +1189,16 @@ struct SystemProbe {
 }
 
 #[cfg(target_os = "windows")]
+fn supports_quarbor(kind: &str) -> bool {
+    devices::descriptor_registry::descriptor_for_kind(kind).is_some_and(|descriptor| {
+        descriptor
+            .identities
+            .iter()
+            .any(|identity| identity.attributes.contains_key("windows-prefix"))
+    })
+}
+
+#[cfg(target_os = "windows")]
 fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
     use tauri::Manager;
 
@@ -1202,13 +1207,7 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
         .store
         .instances
         .iter()
-        .find(|instance| {
-            instance.id == instance_id
-                && matches!(
-                    instance.kind.as_str(),
-                    "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-                )
-        })
+        .find(|instance| instance.id == instance_id && supports_quarbor(&instance.kind))
         .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
     if instance.binding.is_none() {
         return Err("请先绑定物理设备。".into());
@@ -1238,11 +1237,7 @@ fn resolve_installed_quarbor_target(
         .iter()
         .find(|instance| instance.id == instance_id)
         .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
-    if !matches!(
-        instance.kind.as_str(),
-        "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "xboxBluetooth"
-    ) || instance.binding.is_none()
-    {
+    if !supports_quarbor(&instance.kind) || instance.binding.is_none() {
         return Ok(None);
     }
     let devices = windows_driver_devices::list()?;
@@ -1316,14 +1311,15 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .store
         .instances
         .iter()
-        .filter(|instance| {
-            instance.kind == "rc003"
-                || (cfg!(any(windows, target_os = "macos"))
-                    && matches!(
-                        instance.kind.as_str(),
-                        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5"
-                    ))
-        })
+        .filter(
+            |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
+                Some("rc003-atvv") => true,
+                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc") => {
+                    cfg!(any(windows, target_os = "macos"))
+                }
+                _ => false,
+            },
+        )
         .map(|instance| {
             let voice_target = instance.voice_target.clone().or_else(|| {
                 instance.binding.as_ref().and_then(|binding| {
@@ -1539,7 +1535,7 @@ fn device_snapshot(
     let mut snapshot = manager.snapshot();
     audio_service.sync_instances(&audio_targets(&snapshot));
     for instance in &snapshot.store.instances {
-        if instance.kind == "rc003" {
+        if devices::descriptor_registry::voice_engine(&instance.kind) == Some("rc003-atvv") {
             if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
                 status.recording = audio_service.status(Some(&instance.id)).forwarding;
             }
@@ -1939,6 +1935,67 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{app_bundle_for_executable, args_request_autostart, rc003_connected};
+
+    #[test]
+    fn audio_targets_select_voice_backends_and_preserve_instance_settings() {
+        let instances = super::devices::descriptor_registry::KINDS
+            .iter()
+            .copied()
+            .chain(["unknown"])
+            .map(|kind| {
+                serde_json::from_value(serde_json::json!({
+                    "id": kind,
+                    "kind": kind,
+                    "name": kind,
+                    "binding": "physical-device",
+                    "voiceTarget": "AA:BB:CC:DD:EE:FF",
+                    "audioGainDb": 6,
+                    "enabled": kind != "xmBt29",
+                    "profiles": [],
+                    "activeProfileId": "default"
+                }))
+                .unwrap()
+            })
+            .collect();
+        let snapshot = super::DeviceSnapshot {
+            store: super::input_service::managed::Store {
+                instances,
+                ..Default::default()
+            },
+            discovered: Vec::new(),
+            runtime: Default::default(),
+            error: None,
+            scan_error: None,
+            scanning: false,
+        };
+        let targets = super::audio_targets(&snapshot);
+        let expected = if cfg!(any(windows, target_os = "macos")) {
+            vec!["rc003", "cmiotA15", "xmBt29", "rc313", "obeRcuR5"]
+        } else {
+            vec!["rc003"]
+        };
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        for target in targets {
+            assert_eq!(target.voice_target.as_deref(), Some("AA:BB:CC:DD:EE:FF"));
+            assert_eq!(target.gain_db, 6);
+            assert_eq!(target.enabled, target.kind != "xmBt29");
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn quarbor_commands_use_declared_windows_identities() {
+        for kind in super::devices::descriptor_registry::KINDS {
+            assert!(super::supports_quarbor(kind));
+        }
+        assert!(!super::supports_quarbor("unknown"));
+    }
 
     #[test]
     fn recognizes_only_the_autostart_launch_argument() {

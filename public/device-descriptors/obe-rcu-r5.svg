@@ -51,7 +51,7 @@
           <ak:source report="keyboard" page="0x07" usage="0x0080" />
         </ak:input>
       </ak:inputs>
-      <ak:capabilities><ak:voice id="voice" trigger-key="obeRcuR5.voice" engine="obe-rcu-r5.sbc" trigger-modes="hold" required="false" /></ak:capabilities>
+      <ak:capabilities><ak:voice id="voice" trigger-key="obeRcuR5.voice" transport="hid-report" engine="obe-rcu-r5.sbc" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>
   </metadata>
   <defs>

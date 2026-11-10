@@ -68,7 +68,7 @@
           <ak:source report="consumer" page="0x0C" usage="0x00F0" />
         </ak:input>
       </ak:inputs>
-      <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
+      <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" transport="hid-report" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>
   </metadata>
   <defs>

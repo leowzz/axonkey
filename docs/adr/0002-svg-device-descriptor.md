@@ -28,5 +28,9 @@
 
 ## 实施进度
 
-`src-tauri/src/devices/device_descriptor.rs` 和 `engine.rs` 已提供安全解析与通用报告解码；`descriptor_registry.rs` 将六种现有设备的协议化 SVG 固定打包，并由 managed 报告入口优先使用。旧设备解码器暂时保留为兼容回退，发现、映射页面、平台语音和配置迁移按 Issue #58 的后续阶段切换。
+`src-tauri/src/devices/device_descriptor.rs`、`engine.rs` 和 `descriptor_registry.rs` 已贯通六种现有设备。设备身份、软件版本细分、报告布局、原始 HID、语音能力和配置热区以 `public/device-descriptors/` 为来源，移除旧的设备按键表与解码回退。
+
+前端在构建时生成索引，统一渲染 SVG 图稿与精确热区；采用构建生成是为了保留同步类型及现有配置入口，不在页面运行时增加异步 XML 加载。Windows、managed 和 macOS 输入路径复用同一解析/状态语义，平台输出与音频后端保留为注册适配器。
+
+已有配置保持原 Key，内部 stable ID 在配置边界转为 `legacy-key`。云端分发、运行时下载、定义版本持久化与显式升级迁移留待后续实施。
 

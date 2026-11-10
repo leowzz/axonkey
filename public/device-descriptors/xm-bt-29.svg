@@ -80,7 +80,7 @@
         </ak:input>
         <ak:input original="true" id="xmBt29.delete" label="删除键" target="#delete" kind="button" report="consumer" page="0x0C" usage="0xFC" short="删除" icon="delete" order="27" />
       </ak:inputs>
-      <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
+      <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" transport="hid-report" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>
   </metadata>
   <defs>
