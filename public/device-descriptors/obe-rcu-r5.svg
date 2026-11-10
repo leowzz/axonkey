@@ -5,52 +5,53 @@
   <metadata>
     <ak:device schema="axonkey.device/1" id="obe.rcu-r5" vendor="OBE" model="RCU-R5" revision="1" display-name="OBE RCU R5 投影仪遥控器">
       <ak:identity>
-        <ak:match transport="bluetooth-hid" vid="0x1D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
-        <ak:match transport="bluetooth-hid" vid="0x051D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
-        <ak:match transport="bluetooth-hid" vid="0x011D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
+        <ak:match transport="bluetooth-hid" vid="0x1D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" />
+        <ak:match transport="bluetooth-hid" vid="0x051D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" />
+        <ak:match transport="bluetooth-hid" vid="0x011D5A" pid="0xC081" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" />
       </ak:identity>
       <ak:reports>
-        <ak:report id="keyboard" direction="input" report-id="0x01" length="9" encoding="boot-keyboard" usage-page="0x07" payload-offset="3" slot-count="6" />
+        <ak:report id="keyboard" direction="input" report-id="0x01" length="9" encoding="boot-keyboard" usage-page="0x07" payload-offset="3" slot-count="6" prefix="0x01 0x00 0x00" />
         <ak:report id="voice-audio" direction="input" report-id="0x1E" length="61" encoding="gatt-stream" payload-offset="1" engine="obe-rcu-r5.sbc" />
       </ak:reports>
       <ak:inputs>
-        <ak:input id="obeRcuR5.power" label="电源键" kind="button" target="#power" legacy-key="obeRcuR5.power" original="true">
+        <ak:input id="obeRcuR5.power" label="电源键" kind="button" target="#power" legacy-key="obeRcuR5.power" original="true" short="电源" icon="power" order="0">
           <ak:source report="keyboard" page="0x07" usage="0x0066" />
         </ak:input>
-        <ak:input id="obeRcuR5.locate" label="功能键" kind="button" target="#function" legacy-key="obeRcuR5.locate">
+        <ak:input id="obeRcuR5.locate" label="定位键" kind="button" target="#function" legacy-key="obeRcuR5.locate" short="定位" icon="locate" order="1">
           <ak:source report="keyboard" page="0x07" usage="0x0072" />
         </ak:input>
-        <ak:input id="obeRcuR5.up" label="方向上" kind="button" target="#up" legacy-key="obeRcuR5.up">
+        <ak:input id="obeRcuR5.up" label="方向上" kind="button" target="#up" legacy-key="obeRcuR5.up" short="上" icon="up" order="2">
           <ak:source report="keyboard" page="0x07" usage="0x0052" />
         </ak:input>
-        <ak:input id="obeRcuR5.left" label="方向左" kind="button" target="#left" legacy-key="obeRcuR5.left">
+        <ak:input id="obeRcuR5.left" label="方向左" kind="button" target="#left" legacy-key="obeRcuR5.left" short="左" icon="left" order="3">
           <ak:source report="keyboard" page="0x07" usage="0x0050" />
         </ak:input>
-        <ak:input id="obeRcuR5.confirm" label="确认键" kind="button" target="#direction-pad" legacy-key="obeRcuR5.confirm">
+        <ak:input id="obeRcuR5.confirm" label="确认键" kind="button" target="#direction-pad" legacy-key="obeRcuR5.confirm" short="确认" icon="center" order="4">
           <ak:source report="keyboard" page="0x07" usage="0x0028" />
         </ak:input>
-        <ak:input id="obeRcuR5.right" label="方向右" kind="button" target="#right" legacy-key="obeRcuR5.right">
+        <ak:input id="obeRcuR5.right" label="方向右" kind="button" target="#right" legacy-key="obeRcuR5.right" short="右" icon="right" order="5">
           <ak:source report="keyboard" page="0x07" usage="0x004F" />
         </ak:input>
-        <ak:input id="obeRcuR5.down" label="方向下" kind="button" target="#down" legacy-key="obeRcuR5.down">
+        <ak:input id="obeRcuR5.down" label="方向下" kind="button" target="#down" legacy-key="obeRcuR5.down" short="下" icon="down" order="6">
           <ak:source report="keyboard" page="0x07" usage="0x0051" />
         </ak:input>
-        <ak:input id="obeRcuR5.home" label="主页键" kind="button" target="#home" legacy-key="obeRcuR5.home">
+        <ak:input id="obeRcuR5.home" label="主页键" kind="button" target="#home" legacy-key="obeRcuR5.home" short="主页" icon="home" order="7">
           <ak:source report="keyboard" page="0x07" usage="0x004A" />
         </ak:input>
-        <ak:input id="obeRcuR5.back" label="返回键" kind="button" target="#back" legacy-key="obeRcuR5.back">
+        <ak:input id="obeRcuR5.back" label="返回键" kind="button" target="#back" legacy-key="obeRcuR5.back" short="返回" icon="back" order="8">
           <ak:source report="keyboard" page="0x07" usage="0x0029" />
         </ak:input>
-        <ak:input id="obeRcuR5.voice" label="语音键" kind="button" target="#function" legacy-key="obeRcuR5.voice">
+        <ak:input id="obeRcuR5.voice" label="语音键（菜单按钮）" kind="button" target="#menu" legacy-key="obeRcuR5.voice" short="语音" icon="mic" order="9">
           <ak:source report="keyboard" page="0x07" usage="0x0073" />
         </ak:input>
-        <ak:input id="obeRcuR5.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="obeRcuR5.volumeDown">
+        <ak:input id="obeRcuR5.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="obeRcuR5.volumeDown" short="音量 -" icon="volumeDown" order="10">
           <ak:source report="keyboard" page="0x07" usage="0x0081" />
         </ak:input>
-        <ak:input id="obeRcuR5.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="obeRcuR5.volumeUp">
+        <ak:input id="obeRcuR5.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="obeRcuR5.volumeUp" short="音量 +" icon="volumeUp" order="11">
           <ak:source report="keyboard" page="0x07" usage="0x0080" />
         </ak:input>
       </ak:inputs>
+      <ak:capabilities><ak:voice id="voice" trigger-key="obeRcuR5.voice" engine="obe-rcu-r5.sbc" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>
   </metadata>
   <defs>
@@ -70,11 +71,25 @@
   </g>
   <rect id="status-light" x="204" y="66" width="12" height="30" rx="6" fill="url(#indicator)"/>
   <g id="power" transform="translate(88 93)" data-ak-key="obeRcuR5.power" data-ak-role="input" aria-label="电源键" role="button" tabindex="0"><use href="#button"/><g stroke="#b9b7a7" stroke-width="3.2" stroke-linecap="round"><path d="M-9-10 A13.5 13.5 0 1 0 9-10"/><path d="M0-16 V1"/></g></g>
-  <g id="function" transform="translate(332 93)" data-ak-key="obeRcuR5.voice" data-ak-role="input" aria-label="语音键" role="button" tabindex="0"><use href="#button"/><circle r="14" stroke="#b9b7a7" stroke-width="3"/><circle r="4" fill="#b9b7a7"/><path d="M-22 0H-16 M16 0H22 M0-22V-16 M0 16V22" stroke="#c2bfad" stroke-width="2.6" stroke-linecap="round"/></g>
+  <g id="function" transform="translate(332 93)" data-ak-key="obeRcuR5.locate" data-ak-role="input" aria-label="语音键" role="button" tabindex="0"><use href="#button"/><circle r="14" stroke="#b9b7a7" stroke-width="3"/><circle r="4" fill="#b9b7a7"/><path d="M-22 0H-16 M16 0H22 M0-22V-16 M0 16V22" stroke="#c2bfad" stroke-width="2.6" stroke-linecap="round"/></g>
   <g id="direction-pad" transform="translate(210 354)" data-ak-key="obeRcuR5.confirm" data-ak-role="input" aria-label="确认键" role="button" tabindex="0"><circle cy="1" r="148" fill="#b4b09b" fill-opacity=".3"/><circle r="145.8" fill="url(#direction)" stroke="#b6b29d" stroke-width="1.5"/><circle r="66" fill="#eeeace" stroke="#b5b19b" stroke-width="1.4"/><g stroke="#b7b4a4" stroke-width="4.4" stroke-linecap="square" stroke-linejoin="miter"><path id="up" d="M-13-107 0-121 13-107" data-ak-key="obeRcuR5.up" data-ak-role="input" aria-label="方向上" role="button" tabindex="0"/><path id="left" d="M-107-13-121 0-107 13" data-ak-key="obeRcuR5.left" data-ak-role="input" aria-label="方向左" role="button" tabindex="0"/><path id="right" d="M107-13 121 0 107 13" data-ak-key="obeRcuR5.right" data-ak-role="input" aria-label="方向右" role="button" tabindex="0"/><path id="down" d="M-13 107 0 121 13 107" data-ak-key="obeRcuR5.down" data-ak-role="input" aria-label="方向下" role="button" tabindex="0"/></g></g>
   <g id="home" transform="translate(88 584)" data-ak-key="obeRcuR5.home" data-ak-role="input" aria-label="主页键" role="button" tabindex="0"><use href="#button"/><path d="M-16-1 0-16 16-1 M-10 2 V15 H10 V2" stroke="#b5b2a1" stroke-width="3.6" stroke-linecap="square" stroke-linejoin="miter"/></g>
   <g id="back" transform="translate(210 584)" data-ak-key="obeRcuR5.back" data-ak-role="input" aria-label="返回键" role="button" tabindex="0"><use href="#button"/><path d="M-16 0 H9 C20 0 20 13 9 13 H1" stroke="#b5b2a1" stroke-width="3.6" stroke-linecap="square"/><path d="M-21 0-7-10-9 0-7 10Z" fill="#b5b2a1"/></g>
-  <g id="menu" transform="translate(332 584)"><use href="#button"/><path d="M-15-10 H0 M-15 0 H0 M-15 10 H0" stroke="#b5b2a1" stroke-width="3.4" stroke-linecap="round"/><circle cx="10" cy="-10" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="0" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="10" r="2.6" fill="#b5b2a1"/></g>
+  <g id="menu" data-ak-key="obeRcuR5.voice" transform="translate(332 584)"><use href="#button"/><path d="M-15-10 H0 M-15 0 H0 M-15 10 H0" stroke="#b5b2a1" stroke-width="3.4" stroke-linecap="round"/><circle cx="10" cy="-10" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="0" r="2.6" fill="#b5b2a1"/><circle cx="10" cy="10" r="2.6" fill="#b5b2a1"/></g>
   <g id="volume-down" transform="translate(88 748)" data-ak-key="obeRcuR5.volumeDown" data-ak-role="input" aria-label="音量减" role="button" tabindex="0"><use href="#button"/><path d="M-15 0 H15" stroke="#b5b2a1" stroke-width="4" stroke-linecap="round"/></g>
   <g id="volume-up" transform="translate(332 748)" data-ak-key="obeRcuR5.volumeUp" data-ak-role="input" aria-label="音量加" role="button" tabindex="0"><use href="#button"/><path d="M-15 0 H15 M0-15 V15" stroke="#b5b2a1" stroke-width="4" stroke-linecap="round"/></g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="obeRcuR5.power" d="M 47.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 93" />
+    <path data-ak-region="obeRcuR5.locate" d="M 291.2 93 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="332 93" />
+    <path data-ak-region="obeRcuR5.up" d="M 106.90383130300137 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 250.90383130300137 L 256.6690475583121 307.3309524416879 A 66 66 0 0 0 163.33095244168788 307.3309524416879 Z" data-ak-anchor="210 246" />
+    <path data-ak-region="obeRcuR5.left" d="M 106.90383130300137 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300134 250.90383130300137 L 163.33095244168786 307.3309524416879 A 66 66 0 0 0 163.33095244168788 400.6690475583121 Z" data-ak-anchor="102 354" />
+    <path data-ak-region="obeRcuR5.confirm" d="M 144 354 a 66 66 0 1 0 132 0 a 66 66 0 1 0 -132 0" data-ak-anchor="210 354" />
+    <path data-ak-region="obeRcuR5.right" d="M 313.09616869699863 250.90383130300137 A 145.8 145.8 0 0 1 313.09616869699863 457.09616869699863 L 256.6690475583121 400.6690475583121 A 66 66 0 0 0 256.6690475583121 307.3309524416879 Z" data-ak-anchor="318 354" />
+    <path data-ak-region="obeRcuR5.down" d="M 313.09616869699863 457.09616869699863 A 145.8 145.8 0 0 1 106.90383130300137 457.09616869699863 L 163.33095244168788 400.6690475583121 A 66 66 0 0 0 256.6690475583121 400.6690475583121 Z" data-ak-anchor="210 462" />
+    <path data-ak-region="obeRcuR5.home" d="M 47.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 584" />
+    <path data-ak-region="obeRcuR5.back" d="M 169.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="210 584" />
+    <path data-ak-region="obeRcuR5.voice" d="M 291.2 584 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="332 584" />
+    <path data-ak-region="obeRcuR5.volumeDown" d="M 47.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 748" />
+    <path data-ak-region="obeRcuR5.volumeUp" d="M 291.2 748 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="332 748" />
+  </g>
 </svg>

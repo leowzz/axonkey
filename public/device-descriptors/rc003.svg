@@ -12,7 +12,7 @@
     <ak:device schema="axonkey.device/1" id="xiaomi.rc003" vendor="Xiaomi" model="RC003"
                revision="1" display-name="小米 RC003">
       <ak:identity>
-        <ak:match transport="bluetooth-hid" vid="0x2717" pid="0x32B8"
+        <ak:match transport="bluetooth-hid" vid="0x2717|0x012717" pid="0x32B8" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE"
                   service="00001812-0000-1000-8000-00805F9B34FB"
                   serial-policy="reject-ambiguous" required="true" />
       </ak:identity>
@@ -20,40 +20,95 @@
         <ak:report id="keyboard" direction="input" report-id="0x01"
                    length="7" encoding="le-u16-slots" usage-page="0x07"
                    payload-offset="1" slot-width="2" slot-count="3"
-                   endian="little" />
+                   endian="little" state-group="keyboard" />
+        <ak:report id="keyboard-no-id" direction="input" length="6" encoding="le-u16-slots" usage-page="0x07" payload-offset="0" slot-width="2" slot-count="3" endian="little" state-group="keyboard" />
+        <ak:report id="keyboard-boot" direction="input" length="8" encoding="boot-keyboard" usage-page="0x07" payload-offset="2" slot-count="6" state-group="keyboard" />
+        <ak:report id="keyboard-header" direction="input" report-id="0x01" length="9" encoding="le-u16-slots" usage-page="0x07" payload-offset="3" slot-width="2" slot-count="3" endian="little" state-group="keyboard" />
         <ak:report id="voice-audio" direction="input"
                    encoding="gatt-stream" transport="bluetooth-gatt"
                    engine="rc003-atvv" />
       </ak:reports>
       <ak:inputs>
-        <ak:input id="xiaomi.rc003.voice" label="语音键" kind="button"
+        <ak:input id="xiaomi.rc003.voice" short="语音" icon="mic" order="1" label="语音键" kind="button"
                   target="#voice" legacy-key="voice" report="keyboard"
-                  page="0x07" usage="0x003E" original="true" />
-        <ak:input id="xiaomi.rc003.power" label="电源键" kind="button"
+                  page="0x07" usage="0x003E" original="true">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x003E" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x003E" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x003E" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.power" short="电源" icon="power" order="0" label="电源键" kind="button"
                   target="#power" legacy-key="power" report="keyboard"
-                  page="0x07" usage="0x0066" original="true" />
-        <ak:input id="xiaomi.rc003.up" label="方向上" kind="button"
-                  target="#up" legacy-key="up" report="keyboard" page="0x07" usage="0x0052" />
-        <ak:input id="xiaomi.rc003.left" label="方向左" kind="button"
-                  target="#left" legacy-key="left" report="keyboard" page="0x07" usage="0x0050" />
-        <ak:input id="xiaomi.rc003.confirm" label="确认键" kind="button"
-                  target="#confirm" legacy-key="confirm" report="keyboard" page="0x07" usage="0x0028" />
-        <ak:input id="xiaomi.rc003.right" label="方向右" kind="button"
-                  target="#right" legacy-key="right" report="keyboard" page="0x07" usage="0x004F" />
-        <ak:input id="xiaomi.rc003.down" label="方向下" kind="button"
-                  target="#down" legacy-key="down" report="keyboard" page="0x07" usage="0x0051" />
-        <ak:input id="xiaomi.rc003.back" label="返回键" kind="button"
-                  target="#back" legacy-key="back" report="keyboard" page="0x07" usage="0x00F1" />
-        <ak:input id="xiaomi.rc003.home" label="主页键" kind="button"
-                  target="#home" legacy-key="home" report="keyboard" page="0x07" usage="0x004A" />
-        <ak:input id="xiaomi.rc003.menu" label="菜单键" kind="button"
-                  target="#menu" legacy-key="menu" report="keyboard" page="0x07" usage="0x0065" />
-        <ak:input id="xiaomi.rc003.tv" label="TV 键" kind="button"
-                  target="#tv" legacy-key="tv" report="keyboard" page="0x07" usage="0x0035" />
-        <ak:input id="xiaomi.rc003.volumeUp" label="音量加" kind="button"
-                  target="#volume-up" legacy-key="volumeUp" report="keyboard" page="0x07" usage="0x0080" />
-        <ak:input id="xiaomi.rc003.volumeDown" label="音量减" kind="button"
-                  target="#volume-down" legacy-key="volumeDown" report="keyboard" page="0x07" usage="0x0081" />
+                  page="0x07" usage="0x0066" original="true">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0066" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0066" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0066" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.up" short="上" icon="up" order="2" label="方向上" kind="button"
+                  target="#up" legacy-key="up" report="keyboard" page="0x07" usage="0x0052">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0052" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0052" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0052" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.left" short="左" icon="left" order="3" label="方向左" kind="button"
+                  target="#left" legacy-key="left" report="keyboard" page="0x07" usage="0x0050">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0050" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0050" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0050" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.confirm" short="确认" icon="center" order="4" label="确认键" kind="button"
+                  target="#confirm" legacy-key="confirm" report="keyboard" page="0x07" usage="0x0028">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0028" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0028" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0028" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.right" short="右" icon="right" order="5" label="方向右" kind="button"
+                  target="#right" legacy-key="right" report="keyboard" page="0x07" usage="0x004F">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x004F" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x004F" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x004F" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.down" short="下" icon="down" order="6" label="方向下" kind="button"
+                  target="#down" legacy-key="down" report="keyboard" page="0x07" usage="0x0051">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0051" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0051" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0051" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.back" short="返回" icon="back" order="7" label="返回键" kind="button"
+                  target="#back" legacy-key="back" report="keyboard" page="0x07" usage="0x00F1">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x00F1" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x00F1" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x00F1" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.home" short="主页" icon="home" order="9" label="主页键" kind="button"
+                  target="#home" legacy-key="home" report="keyboard" page="0x07" usage="0x004A">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x004A" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x004A" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x004A" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.menu" short="功能" icon="menu" order="11" label="菜单键" kind="button"
+                  target="#menu" legacy-key="menu" report="keyboard" page="0x07" usage="0x0065">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0065" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0065" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0065" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.tv" short="电视" icon="tv" order="12" label="TV 键" kind="button"
+                  target="#tv" legacy-key="tv" report="keyboard" page="0x07" usage="0x0035">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0035" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0035" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0035" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.volumeUp" short="音量 +" icon="volumeUp" order="8" label="音量加" kind="button"
+                  target="#volume-up" legacy-key="volumeUp" report="keyboard" page="0x07" usage="0x0080">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0080" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0080" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0080" />
+        </ak:input>
+        <ak:input id="xiaomi.rc003.volumeDown" short="音量 -" icon="volumeDown" order="10" label="音量减" kind="button"
+                  target="#volume-down" legacy-key="volumeDown" report="keyboard" page="0x07" usage="0x0081">
+          <ak:source report="keyboard-no-id" page="0x07" usage="0x0081" />
+          <ak:source report="keyboard-boot" page="0x07" usage="0x0081" />
+          <ak:source report="keyboard-header" page="0x07" usage="0x0081" />
+        </ak:input>
       </ak:inputs>
       <ak:capabilities>
         <ak:voice id="voice" trigger-key="xiaomi.rc003.voice"
@@ -246,5 +301,20 @@
     <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#131515" stroke-width="7.2"/>
     <rect x="-23" y="-18" width="46" height="36" rx="9" stroke="#fafbf8" stroke-width="4.6"/>
     <path d="M-15-7 H-3 M-9-7 V8 M2-7 7.8 8 H9.2 L15-7" stroke="#fafbf8" stroke-width="3.2" stroke-linejoin="round"/>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="xiaomi.rc003.power" data-ak-anchor="132 162" d="M 78.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0" />
+    <path data-ak-region="xiaomi.rc003.voice" data-ak-anchor="378 162" d="M 324.5 162 a 53.5 53.5 0 1 0 107 0 a 53.5 53.5 0 1 0 -107 0" />
+    <path data-ak-region="xiaomi.rc003.up" data-ak-anchor="255 304" d="M 115.34641071565687 318.23549801218286 A 197.5 192 0 0 1 394.6535892843432 318.2354980121829 L 329.59976541518074 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 379.40023458481926 Z" />
+    <path data-ak-region="xiaomi.rc003.left" data-ak-anchor="100 454" d="M 115.34641071565687 589.7645019878171 A 197.5 192 0 0 1 115.34641071565684 318.2354980121829 L 180.4002345848192 379.40023458481926 A 105.5 105.5 0 0 0 180.40023458481926 528.5997654151807 Z" />
+    <path data-ak-region="xiaomi.rc003.confirm" data-ak-anchor="255 455" d="M 149.8 455 a 105.2 105.2 0 1 0 210.4 0 a 105.2 105.2 0 1 0 -210.4 0" />
+    <path data-ak-region="xiaomi.rc003.right" data-ak-anchor="410 454" d="M 394.6535892843432 318.2354980121829 A 197.5 192 0 0 1 394.6535892843432 589.7645019878171 L 329.59976541518074 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 379.40023458481926 Z" />
+    <path data-ak-region="xiaomi.rc003.down" data-ak-anchor="255 604" d="M 394.6535892843432 589.7645019878171 A 197.5 192 0 0 1 115.34641071565687 589.7645019878171 L 180.40023458481926 528.5997654151807 A 105.5 105.5 0 0 0 329.59976541518074 528.5997654151807 Z" />
+    <path data-ak-region="xiaomi.rc003.back" data-ak-anchor="154 747" d="M 74.3 747 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0" />
+    <path data-ak-region="xiaomi.rc003.volumeUp" data-ak-anchor="354 747" d="M 273.5 837 V 750 A 80.5 80.5 0 0 1 434.5 750 V 837 Z" />
+    <path data-ak-region="xiaomi.rc003.home" data-ak-anchor="154 926" d="M 74.3 926 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0" />
+    <path data-ak-region="xiaomi.rc003.volumeDown" data-ak-anchor="354 927" d="M 273.5 837 H 434.5 V 924 A 80.5 80.5 0 0 1 273.5 924 Z" />
+    <path data-ak-region="xiaomi.rc003.menu" data-ak-anchor="154 1104" d="M 74.3 1104 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0" />
+    <path data-ak-region="xiaomi.rc003.tv" data-ak-anchor="354 1105" d="M 274.3 1105 a 79.7 79.7 0 1 0 159.4 0 a 79.7 79.7 0 1 0 -159.4 0" />
   </g>
 </svg>

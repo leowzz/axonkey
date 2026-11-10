@@ -12,6 +12,14 @@ pub(crate) fn decode_descriptor(
     bytes: &[u8],
 ) -> Option<BTreeMap<String, f64>> {
     let report = matching_report(descriptor, bytes)?;
+    decode_inputs(descriptor, report, bytes)
+}
+
+fn decode_inputs(
+    descriptor: &DeviceDescriptor,
+    report: &ReportDescriptor,
+    bytes: &[u8],
+) -> Option<BTreeMap<String, f64>> {
     let values = decode_report_values(report, bytes)?;
     let mut decoded = BTreeMap::new();
     for input in &descriptor.inputs {
@@ -73,8 +81,10 @@ pub(crate) fn pressed(
 /// Stateful wrapper that turns descriptor values into stable-key edges.
 #[derive(Debug, Default)]
 pub(crate) struct DescriptorEngine {
-    active_by_report: BTreeMap<String, BTreeMap<String, bool>>,
+    values_by_report: BTreeMap<String, BTreeMap<String, f64>>,
     active: BTreeMap<String, bool>,
+    values: BTreeMap<String, f64>,
+    dirty: bool,
 }
 
 impl DescriptorEngine {
@@ -86,24 +96,37 @@ impl DescriptorEngine {
         let Some(report) = matching_report(descriptor, bytes) else {
             return Vec::new();
         };
-        let Some(values) = decode_descriptor(descriptor, bytes) else {
+        let Some(values) = decode_inputs(descriptor, report, bytes) else {
             return Vec::new();
         };
-        let report_id = report.id.clone();
-        let affected = values.keys().cloned().collect::<Vec<_>>();
-        let group = self.active_by_report.entry(report_id).or_default();
-        for (key, value) in values {
-            let was_pressed = group.get(&key).copied().unwrap_or(false);
-            let pressed = value >= if was_pressed { 0.35 } else { 0.55 };
-            group.insert(key, pressed);
+        let report_id = report
+            .attributes
+            .get("state-group")
+            .unwrap_or(&report.id)
+            .clone();
+        let mut affected = values.keys().cloned().collect::<Vec<_>>();
+        if let Some(previous) = self.values_by_report.insert(report_id, values) {
+            affected.extend(previous.into_keys());
+            affected.sort();
+            affected.dedup();
         }
         let mut edges = Vec::new();
         for key in affected {
-            let pressed = self
-                .active_by_report
+            let value = self
+                .values_by_report
                 .values()
-                .any(|group| group.get(&key).copied().unwrap_or(false));
-            if self.active.get(&key).copied().unwrap_or(false) != pressed {
+                .filter_map(|group| group.get(&key))
+                .copied()
+                .fold(0.0_f64, f64::max);
+            let was_pressed = self.active.get(&key).copied().unwrap_or(false);
+            let pressed = pressed(descriptor, &key, value, was_pressed);
+            self.dirty |= self
+                .values
+                .get(&key)
+                .is_none_or(|old| (old - value).abs() > 0.005);
+            self.values.insert(key.clone(), value);
+            if was_pressed != pressed {
+                self.dirty = true;
                 self.active.insert(key.clone(), pressed);
                 edges.push((key, pressed));
             }
@@ -112,16 +135,42 @@ impl DescriptorEngine {
     }
 
     pub(crate) fn release_all(&mut self) -> Vec<(String, bool)> {
+        self.release_except(&[])
+    }
+
+    pub(crate) fn release_except(&mut self, preserved: &[&str]) -> Vec<(String, bool)> {
         let mut edges = Vec::new();
         for (key, pressed) in &mut self.active {
-            if *pressed {
+            if *pressed && !preserved.contains(&key.as_str()) {
                 edges.push((key.clone(), false));
+                *pressed = false;
             }
-            *pressed = false;
+        }
+        self.dirty |= !edges.is_empty();
+        for (key, value) in &mut self.values {
+            if !preserved.contains(&key.as_str()) {
+                self.dirty |= *value != 0.0;
+                *value = 0.0;
+            }
         }
         self.active.retain(|_, pressed| *pressed);
-        self.active_by_report.clear();
+        for group in self.values_by_report.values_mut() {
+            group.retain(|key, _| preserved.contains(&key.as_str()));
+        }
+        self.values_by_report.retain(|_, group| !group.is_empty());
         edges
+    }
+
+    pub(crate) fn take_update(&mut self) -> Option<(BTreeMap<String, f64>, Vec<String>)> {
+        std::mem::take(&mut self.dirty).then(|| {
+            (
+                self.values.clone(),
+                self.active
+                    .iter()
+                    .filter_map(|(key, pressed)| pressed.then(|| key.clone()))
+                    .collect(),
+            )
+        })
     }
 }
 
@@ -158,6 +207,15 @@ fn matches_report(report: &ReportDescriptor, bytes: &[u8]) -> bool {
 }
 
 fn decode_report_values(report: &ReportDescriptor, bytes: &[u8]) -> Option<ReportValues> {
+    if let Some(prefix) = report.attributes.get("prefix") {
+        for (index, expected) in prefix.split_whitespace().enumerate() {
+            if bytes.get(index).copied()
+                != parse_u16(expected).and_then(|value| u8::try_from(value).ok())
+            {
+                return None;
+            }
+        }
+    }
     let payload_offset = report
         .attributes
         .get("payload-offset")
@@ -238,24 +296,33 @@ fn decode_report_values(report: &ReportDescriptor, bytes: &[u8]) -> Option<Repor
             })
         }
         ReportEncoding::VendorState => {
-            if report.report_id == Some(0xf8)
-                && (bytes.get(1..3) != Some(&[0x82, 0x03][..])
-                    || bytes.get(3).is_none_or(|state| *state > 1)
-                    || bytes
-                        .get(4..)
-                        .is_none_or(|tail| tail.iter().any(|byte| *byte != 0)))
-            {
-                return None;
-            }
             let offset = report
                 .attributes
                 .get("state-offset")
                 .or_else(|| report.attributes.get("payload-offset"))
                 .and_then(|value| parse_integer(value))
                 .unwrap_or(payload_offset);
+            let state = u16::from(*bytes.get(offset)?);
+            if report
+                .attributes
+                .get("state-max")
+                .and_then(|value| parse_u16(value))
+                .is_some_and(|max| state > max)
+            {
+                return None;
+            }
+            if let Some(offset) = report
+                .attributes
+                .get("zero-tail-offset")
+                .and_then(|value| parse_integer(value))
+            {
+                if bytes.get(offset..)?.iter().any(|byte| *byte != 0) {
+                    return None;
+                }
+            }
             Some(ReportValues {
                 usages: Vec::new(),
-                state: bytes.get(offset).copied().map(u16::from),
+                state: Some(state),
             })
         }
         // These encodings are source-defined fields. The source carries the
@@ -580,7 +647,7 @@ mod tests {
         let descriptor = parse_svg(&svg).unwrap();
         let mut engine = DescriptorEngine::default();
         assert_eq!(
-            engine.accept(&descriptor, &[1, 0, 0, 0x52, 0x80, 0, 0]),
+            engine.accept(&descriptor, &[1, 0x52, 0, 0x80, 0, 0, 0]),
             [
                 ("xiaomi.rc003.up".into(), true),
                 ("xiaomi.rc003.volumeUp".into(), true)
@@ -590,6 +657,10 @@ mod tests {
         assert_eq!(
             engine.accept(&descriptor, &[1, 0, 0, 0, 0, 0, 0]),
             [("xiaomi.rc003.up".into(), false)]
+        );
+        assert_eq!(
+            engine.take_update().unwrap().0["xiaomi.rc003.volumeUp"],
+            1.0
         );
         assert_eq!(
             engine.accept(&descriptor, &[3, 0, 0]),
@@ -652,6 +723,7 @@ mod tests {
         let mut engine = DescriptorEngine::default();
         let mut report = [0_u8; 16];
         report[0] = 1;
+        report[1..3].copy_from_slice(&32768_u16.to_le_bytes());
         report[9..11].copy_from_slice(&500_u16.to_le_bytes());
         assert!(engine.accept(&descriptor, &report).is_empty());
         report[9..11].copy_from_slice(&600_u16.to_le_bytes());
@@ -684,5 +756,73 @@ mod tests {
             .attributes
             .insert("offset".into(), "99".into());
         assert!(decode_descriptor(&invalid, &bytes).is_none());
+    }
+
+    #[test]
+    fn alternate_wire_formats_share_their_declared_state_group() {
+        let mut engine = DescriptorEngine::default();
+        let rc003 = crate::devices::descriptor_registry::descriptor_for_kind("rc003").unwrap();
+        assert_eq!(
+            engine.accept(rc003, &[1, 0x52, 0, 0, 0, 0, 0]),
+            [("xiaomi.rc003.up".into(), true)]
+        );
+        assert_eq!(
+            engine.accept(rc003, &[0; 8]),
+            [("xiaomi.rc003.up".into(), false)]
+        );
+        assert_eq!(
+            engine.accept(rc003, &[0x3e, 0, 0, 0, 0, 0]),
+            [("xiaomi.rc003.voice".into(), true)]
+        );
+        assert_eq!(
+            engine.accept(rc003, &[1, 0, 0, 0, 0, 0, 0, 0, 0]),
+            [("xiaomi.rc003.voice".into(), false)]
+        );
+        assert!(engine.release_all().is_empty());
+
+        let xm = crate::devices::descriptor_registry::descriptor_for_kind("xmBt29").unwrap();
+        let mut engine = DescriptorEngine::default();
+        assert_eq!(
+            engine.accept(xm, &[1, 0, 0, 0x1e]),
+            [("xmBt29.digit1".into(), true)]
+        );
+        assert_eq!(
+            engine.accept(xm, &[1, 0, 0, 0, 0, 0, 0, 0, 0]),
+            [("xmBt29.digit1".into(), false)]
+        );
+    }
+
+    #[test]
+    fn vendor_validation_and_gap_release_keep_physical_voice_edges() {
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15").unwrap();
+        let mut engine = DescriptorEngine::default();
+        let mut voice = [0; 21];
+        voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+        assert_eq!(
+            engine.accept(descriptor, &voice),
+            [("cmiotA15.voice".into(), true)]
+        );
+        engine.accept(descriptor, &[1, 0, 0, 0x52, 0, 0, 0, 0, 0]);
+        assert_eq!(
+            engine.release_except(&["cmiotA15.voice"]),
+            [("cmiotA15.up".into(), false)]
+        );
+        assert!(engine.accept(descriptor, &voice).is_empty());
+        let mut invalid = voice;
+        invalid[1] = 0;
+        assert!(engine.accept(descriptor, &invalid).is_empty());
+        invalid = voice;
+        invalid[3] = 2;
+        assert!(engine.accept(descriptor, &invalid).is_empty());
+        invalid = voice;
+        invalid[20] = 1;
+        assert!(engine.accept(descriptor, &invalid).is_empty());
+        voice[3] = 0;
+        assert_eq!(
+            engine.accept(descriptor, &voice),
+            [("cmiotA15.voice".into(), false)]
+        );
+        assert!(engine.release_all().is_empty());
     }
 }

@@ -27,8 +27,6 @@ const MAX_REPORT: usize = 65_536;
 const MAX_MESSAGE: usize = 66_048;
 const FRAME_TIMEOUT: Duration = Duration::from_secs(5);
 const UNIVERSAL_DRIVER_NAME: &str = "QuarborUniversalKeyboardDriver";
-const ERROR_INVALID_DATA: u32 = 13;
-const ERROR_NOT_SUPPORTED: u32 = 50;
 
 #[derive(Clone, Debug, Default)]
 pub(super) struct Metadata {
@@ -49,11 +47,7 @@ pub(super) struct Capabilities {
 pub(super) enum Event {
     Hello(Metadata),
     Capabilities(Capabilities),
-    Report {
-        metadata: Metadata,
-        bytes: Vec<u8>,
-        usages: Result<Vec<u16>, u32>,
-    },
+    Report { metadata: Metadata, bytes: Vec<u8> },
     Status(Metadata),
     CommandAccepted(u64),
 }
@@ -102,55 +96,6 @@ fn physical_output_command(data: &[u8]) -> proto::client_message::Body {
         operation: proto::physical_write::Operation::WriteOutput as i32,
         data: data.to_vec(),
     })
-}
-
-/// Decode the RC003 input source carried by the BLE parent pipe.
-///
-/// The Universal driver deliberately exposes a passive vendor collection for
-/// `BTHLEDEVICE`, so its descriptor cannot be passed to `HidP_GetUsages` as a
-/// keyboard descriptor. RC003's HOGP input is a report ID followed by
-/// little-endian 16-bit keyboard usages. Some firmware/Windows combinations
-/// omit the report ID or use the standard boot-keyboard layout, so accept
-/// those wire forms while keeping the decoding scoped to this known source.
-fn decode_rc003_report(bytes: &[u8]) -> Result<Vec<u16>, u32> {
-    if bytes.is_empty() {
-        return Err(ERROR_INVALID_DATA);
-    }
-
-    if bytes.len() == 8 {
-        // Unnumbered boot keyboard report: modifiers, reserved, six usages.
-        return Ok(bytes[2..]
-            .iter()
-            .copied()
-            .filter(|usage| *usage != 0)
-            .map(u16::from)
-            .collect());
-    }
-
-    let payload = if bytes.len() == 9 && bytes[0] == 0x01 && bytes[1] == 0 && bytes[2] == 0 {
-        // Some HID stacks retain a three-byte report header before the three
-        // 16-bit RC003 usage slots.
-        &bytes[3..]
-    } else if bytes[0] == 0x01 && bytes.len() >= 7 {
-        // Numbered RC003 vendor report. The remaining bytes are 16-bit usage
-        // slots; this also handles a four-slot report without special casing.
-        &bytes[1..]
-    } else if bytes.len() % 2 == 0 {
-        // A report without the optional ID slot.
-        bytes
-    } else {
-        return Err(ERROR_NOT_SUPPORTED);
-    };
-
-    if payload.len() % 2 != 0 {
-        return Err(ERROR_INVALID_DATA);
-    }
-
-    Ok(payload
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .filter(|usage| *usage != 0)
-        .collect())
 }
 
 fn synthetic_usage_supported(page: u16, usage: u16, report_ids: &[u8; 32]) -> bool {
@@ -622,18 +567,9 @@ impl Client {
                         .saturating_add(report.queue_cleared),
                     status: 0,
                 };
-                let usages = if crate::devices::xbox::matches_instance(&self.instance_id)
-                    || crate::devices::cmiot_a15::matches_instance(&self.instance_id)
-                    || crate::devices::obe_rcu_r5::matches_instance(&self.instance_id)
-                {
-                    Err(ERROR_NOT_SUPPORTED)
-                } else {
-                    decode_rc003_report(&report.data)
-                };
                 Ok(Event::Report {
                     metadata,
                     bytes: report.data,
-                    usages,
                 })
             }
             (Some(Body::InputResult(result)), Stage::BasicInfo | Stage::Reports) => {
@@ -703,35 +639,6 @@ mod tests {
         }
         .encode_to_vec();
         assert_eq!(payload, [0x08, 0x01, 0x52, 0x00]);
-    }
-
-    #[test]
-    fn decodes_rc003_numbered_usage_report() {
-        assert_eq!(
-            decode_rc003_report(&[1, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
-            vec![0x28, 0x52]
-        );
-    }
-
-    #[test]
-    fn decodes_rc003_report_without_id_and_boot_report() {
-        assert_eq!(
-            decode_rc003_report(&[0x28, 0, 0x52, 0, 0, 0]).unwrap(),
-            vec![0x28, 0x52]
-        );
-        assert_eq!(
-            decode_rc003_report(&[0, 0, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
-            vec![0x28, 0x52]
-        );
-        assert_eq!(
-            decode_rc003_report(&[1, 0, 0, 0x28, 0, 0x52, 0, 0, 0]).unwrap(),
-            vec![0x28, 0x52]
-        );
-    }
-
-    #[test]
-    fn rejects_incomplete_rc003_report() {
-        assert_eq!(decode_rc003_report(&[1, 0, 0]), Err(ERROR_NOT_SUPPORTED));
     }
 
     #[test]

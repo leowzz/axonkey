@@ -32,14 +32,10 @@ impl Device {
     }
 
     pub fn matches_kind(&self, kind: &str) -> bool {
-        match kind {
-            "xboxBluetooth" => crate::devices::xbox::matches_instance(&self.instance_id),
-            "rc003" => self.is_rc003(),
-            "obeRcuR5" => crate::devices::obe_rcu_r5::matches_instance(&self.instance_id),
-            "cmiotA15" | "xmBt29" | "rc313" => {
-                crate::devices::cmiot_a15::matches_instance(&self.instance_id)
-            }
-            _ => false,
+        if kind == "rc003" {
+            self.is_rc003()
+        } else {
+            crate::devices::descriptor_registry::matches_instance(kind, &self.instance_id)
         }
     }
 
@@ -57,16 +53,8 @@ impl Device {
     }
 
     pub fn is_rc003_hardware(&self) -> bool {
-        let id = self.instance_id.to_ascii_uppercase();
-        let hardware = self.hardware_id.to_ascii_uppercase();
-        let text = format!("{id} {hardware}");
-        let tokens: Vec<_> = text.split(['&', '_', '\\', ' ']).collect();
-        tokens
-            .windows(2)
-            .any(|pair| pair[0] == "VID" && matches!(pair[1], "2717" | "012717"))
-            && tokens
-                .windows(2)
-                .any(|pair| pair[0] == "PID" && pair[1] == "32B8")
+        crate::devices::descriptor_registry::matches_hardware_id("rc003", &self.instance_id)
+            || crate::devices::descriptor_registry::matches_hardware_id("rc003", &self.hardware_id)
     }
 }
 

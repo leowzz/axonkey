@@ -28,6 +28,15 @@ pub(crate) struct DeviceDescriptor {
     pub identities: Vec<IdentityDescriptor>,
     pub reports: BTreeMap<String, ReportDescriptor>,
     pub inputs: Vec<InputDescriptor>,
+    pub voices: Vec<VoiceDescriptor>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct VoiceDescriptor {
+    pub id: String,
+    pub trigger_key: String,
+    pub engine: String,
+    pub attributes: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -108,6 +117,7 @@ pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> 
     let mut identities = Vec::new();
     let mut reports = BTreeMap::new();
     let mut inputs = Vec::new();
+    let mut voices = Vec::new();
     let mut input_ids = BTreeSet::new();
     let mut stack: Vec<String> = Vec::new();
     let mut svg_ids = BTreeSet::new();
@@ -138,6 +148,7 @@ pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> 
                         "match" => identities.push(IdentityDescriptor {
                             attributes: attrs.clone(),
                         }),
+                        "voice" => voices.push(parse_voice(&attrs)?),
                         "report" => {
                             let report = parse_report(&attrs)?;
                             if reports.insert(report.id.clone(), report).is_some() {
@@ -185,6 +196,7 @@ pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> 
                         "match" => identities.push(IdentityDescriptor {
                             attributes: attrs.clone(),
                         }),
+                        "voice" => voices.push(parse_voice(&attrs)?),
                         "report" => {
                             let report = parse_report(&attrs)?;
                             if reports.insert(report.id.clone(), report).is_some() {
@@ -301,6 +313,19 @@ pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> 
     device.identities = identities;
     device.reports = reports;
     device.inputs = inputs;
+    for voice in &voices {
+        if !device
+            .inputs
+            .iter()
+            .any(|input| input.id == voice.trigger_key)
+        {
+            return Err(DescriptorError(format!(
+                "voice {} has an unknown trigger key",
+                voice.id
+            )));
+        }
+    }
+    device.voices = voices;
     validate_reports(&device.reports)?;
     Ok(device)
 }
@@ -347,6 +372,27 @@ fn parse_device(attrs: &BTreeMap<String, String>) -> Result<DeviceDescriptor, De
         identities: Vec::new(),
         reports: BTreeMap::new(),
         inputs: Vec::new(),
+        voices: Vec::new(),
+    })
+}
+
+fn parse_voice(attrs: &BTreeMap<String, String>) -> Result<VoiceDescriptor, DescriptorError> {
+    let engine = required(attrs, "engine")?.to_string();
+    if attrs.get("required").is_some_and(|value| value == "true")
+        && !matches!(
+            engine.as_str(),
+            "rc003-atvv" | "cmiot-a15.g7221" | "obe-rcu-r5.sbc"
+        )
+    {
+        return Err(DescriptorError(format!(
+            "unsupported required voice engine: {engine}"
+        )));
+    }
+    Ok(VoiceDescriptor {
+        id: required(attrs, "id")?.to_string(),
+        trigger_key: required(attrs, "trigger-key")?.to_string(),
+        engine,
+        attributes: attrs.clone(),
     })
 }
 
@@ -434,6 +480,23 @@ fn source_has_layout(source: &SourceDescriptor) -> bool {
 
 fn validate_reports(reports: &BTreeMap<String, ReportDescriptor>) -> Result<(), DescriptorError> {
     for report in reports.values() {
+        if let Some(prefix) = report.attributes.get("prefix") {
+            for byte in prefix.split_whitespace() {
+                parse_u8(byte, "prefix")?;
+            }
+        }
+        if let Some(max) = report.attributes.get("state-max") {
+            parse_u8(max, "state-max")?;
+        }
+        if let Some(offset) = report.attributes.get("zero-tail-offset") {
+            let offset = parse_usize(offset, "zero-tail-offset")?;
+            if report.length.is_some_and(|length| offset > length) {
+                return Err(DescriptorError(format!(
+                    "report {} has an invalid zero tail",
+                    report.id
+                )));
+            }
+        }
         match report.encoding {
             ReportEncoding::LeU16Slots => {
                 let offset = parse_usize_attr(report, "payload-offset", 0)?;

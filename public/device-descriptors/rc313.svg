@@ -5,69 +5,70 @@
   <metadata>
     <ak:device schema="axonkey.device/1" id="cmiot.rc313" vendor="CMIOT" model="RC-313" revision="1" display-name="小米 RC-313">
       <ak:identity>
-        <ak:match transport="bluetooth-hid" vid="0x050416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
-        <ak:match transport="bluetooth-hid" vid="0x0416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
-        <ak:match transport="bluetooth-hid" vid="0x010416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" />
+        <ak:match transport="bluetooth-hid" vid="0x050416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" software-contains="CMIOT18_B302" software-fallback="true" />
+        <ak:match transport="bluetooth-hid" vid="0x0416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" software-contains="CMIOT18_B302" software-fallback="true" />
+        <ak:match transport="bluetooth-hid" vid="0x010416" pid="0x0300" service="00001812-0000-1000-8000-00805F9B34FB" serial-policy="reject-ambiguous" required="true" usage-page="0x01" usage="0x06" windows-prefix="BTHLEDEVICE" software-contains="CMIOT18_B302" software-fallback="true" />
       </ak:identity>
       <ak:reports>
-        <ak:report id="keyboard" direction="input" report-id="0x01" length="9" encoding="boot-keyboard" usage-page="0x07" payload-offset="3" slot-count="6" />
+        <ak:report id="keyboard" direction="input" report-id="0x01" length="9" encoding="boot-keyboard" usage-page="0x07" payload-offset="3" slot-count="6" prefix="0x01 0x00 0x00" />
         <ak:report id="consumer" direction="input" report-id="0x03" length="3" encoding="le-u16-single" usage-page="0x0C" payload-offset="1" />
-        <ak:report id="voice-edge" direction="input" report-id="0xF8" length="21" encoding="vendor-state" payload-offset="3" state-offset="3" engine="cmiot-a15.voice-edge" />
+        <ak:report id="voice-edge" direction="input" report-id="0xF8" length="21" encoding="vendor-state" payload-offset="3" state-offset="3" engine="cmiot-a15.voice-edge" prefix="0xF8 0x82 0x03" state-max="1" zero-tail-offset="4" />
         <ak:report id="voice-audio" direction="input" report-id="0xFC" length="21" encoding="gatt-stream" payload-offset="3" engine="cmiot-a15.g7221" />
       </ak:reports>
       <ak:inputs>
-        <ak:input id="cmiotA15.power" label="电源键" kind="button" target="#power" legacy-key="cmiotA15.power" original="true">
+        <ak:input id="cmiotA15.power" label="电源键" kind="button" target="#power" legacy-key="cmiotA15.power" original="true" short="电源" icon="power" order="0">
           <ak:source report="keyboard" page="0x07" usage="0x0066" />
         </ak:input>
-        <ak:input id="cmiotA15.voice" label="语音键" kind="button" target="#microphone" legacy-key="cmiotA15.voice" original="true">
+        <ak:input id="cmiotA15.voice" label="语音键" kind="button" target="#microphone" legacy-key="cmiotA15.voice" original="true" short="语音" icon="mic" order="1">
           <ak:source report="voice-edge" engine="cmiot-a15.voice-edge" field="state" equals="1" />
         </ak:input>
-        <ak:input id="cmiotA15.up" label="方向上" kind="button" target="#up" legacy-key="cmiotA15.up">
+        <ak:input id="cmiotA15.up" label="方向上" kind="button" target="#up" legacy-key="cmiotA15.up" short="上" icon="up" order="2">
           <ak:source report="keyboard" page="0x07" usage="0x0052" />
         </ak:input>
-        <ak:input id="cmiotA15.left" label="方向左" kind="button" target="#left" legacy-key="cmiotA15.left">
+        <ak:input id="cmiotA15.left" label="方向左" kind="button" target="#left" legacy-key="cmiotA15.left" short="左" icon="left" order="3">
           <ak:source report="keyboard" page="0x07" usage="0x0050" />
         </ak:input>
-        <ak:input id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" legacy-key="cmiotA15.confirm">
+        <ak:input id="cmiotA15.confirm" label="确认键" kind="button" target="#ok" legacy-key="cmiotA15.confirm" short="确认" icon="center" order="4">
           <ak:source report="consumer" page="0x0C" usage="0x0041" />
         </ak:input>
-        <ak:input id="cmiotA15.right" label="方向右" kind="button" target="#right" legacy-key="cmiotA15.right">
+        <ak:input id="cmiotA15.right" label="方向右" kind="button" target="#right" legacy-key="cmiotA15.right" short="右" icon="right" order="5">
           <ak:source report="keyboard" page="0x07" usage="0x004F" />
         </ak:input>
-        <ak:input id="cmiotA15.down" label="方向下" kind="button" target="#down" legacy-key="cmiotA15.down">
+        <ak:input id="cmiotA15.down" label="方向下" kind="button" target="#down" legacy-key="cmiotA15.down" short="下" icon="down" order="6">
           <ak:source report="keyboard" page="0x07" usage="0x0051" />
         </ak:input>
-        <ak:input id="cmiotA15.back" label="返回键" kind="button" target="#back" legacy-key="cmiotA15.back">
+        <ak:input id="cmiotA15.back" label="返回键" kind="button" target="#back" legacy-key="cmiotA15.back" short="返回" icon="back" order="7">
           <ak:source report="consumer" page="0x0C" usage="0x0224" />
         </ak:input>
-        <ak:input id="cmiotA15.home" label="主页键" kind="button" target="#home" legacy-key="cmiotA15.home">
+        <ak:input id="cmiotA15.home" label="主页键" kind="button" target="#home" legacy-key="cmiotA15.home" short="主页" icon="home" order="9">
           <ak:source report="consumer" page="0x0C" usage="0x0223" />
         </ak:input>
-        <ak:input id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="cmiotA15.volumeUp">
+        <ak:input id="cmiotA15.volumeUp" label="音量加" kind="button" target="#volume-up" legacy-key="cmiotA15.volumeUp" short="音量 +" icon="volumeUp" order="8">
           <ak:source report="consumer" page="0x0C" usage="0x00E9" />
         </ak:input>
-        <ak:input id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="cmiotA15.volumeDown">
+        <ak:input id="cmiotA15.volumeDown" label="音量减" kind="button" target="#volume-down" legacy-key="cmiotA15.volumeDown" short="音量 -" icon="volumeDown" order="10">
           <ak:source report="consumer" page="0x0C" usage="0x00EA" />
         </ak:input>
-        <ak:input id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" legacy-key="cmiotA15.menu">
+        <ak:input id="cmiotA15.menu" label="菜单键" kind="button" target="#menu" legacy-key="cmiotA15.menu" short="功能" icon="menu" order="11">
           <ak:source report="keyboard" page="0x07" usage="0x0065" />
         </ak:input>
-        <ak:input id="cmiotA15.mute" label="静音键" kind="button" target="#mute" legacy-key="cmiotA15.mute">
+        <ak:input id="cmiotA15.mute" label="静音键" kind="button" target="#mute" legacy-key="cmiotA15.mute" short="静音" icon="mute" order="12">
           <ak:source report="consumer" page="0x0C" usage="0x00E2" />
         </ak:input>
-        <ak:input id="cmiotA15.settings" label="设置键" kind="button" target="#settings" legacy-key="cmiotA15.settings">
+        <ak:input id="cmiotA15.settings" label="设置键" kind="button" target="#settings" legacy-key="cmiotA15.settings" short="设置" icon="settings" order="13">
           <ak:source report="consumer" page="0x0C" usage="0x00EB" />
         </ak:input>
-        <ak:input id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" legacy-key="cmiotA15.channelUp">
+        <ak:input id="cmiotA15.channelUp" label="频道加" kind="button" target="#channel-up" legacy-key="cmiotA15.channelUp" short="频道 +" icon="up" order="14">
           <ak:source report="keyboard" page="0x07" usage="0x004B" />
         </ak:input>
-        <ak:input id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" legacy-key="cmiotA15.channelDown">
+        <ak:input id="cmiotA15.channelDown" label="频道减" kind="button" target="#channel-down" legacy-key="cmiotA15.channelDown" short="频道 -" icon="down" order="15">
           <ak:source report="keyboard" page="0x07" usage="0x004E" />
         </ak:input>
-        <ak:input id="cmiotA15.m" label="M 键" kind="button" target="#m" legacy-key="cmiotA15.m">
+        <ak:input id="cmiotA15.m" label="M 键" kind="button" target="#m" legacy-key="cmiotA15.m" short="M" icon="m" order="16">
           <ak:source report="consumer" page="0x0C" usage="0x00F0" />
         </ak:input>
       </ak:inputs>
+      <ak:capabilities><ak:voice id="voice" trigger-key="cmiotA15.voice" engine="cmiot-a15.g7221" trigger-modes="hold" required="false" /></ak:capabilities>
     </ak:device>
   </metadata>
   <defs>
@@ -229,5 +230,24 @@
       <path id="channel-up" d="M-16-65 0-79 16-65" data-ak-key="cmiotA15.channelUp" data-ak-role="input" aria-label="频道加" role="button" tabindex="0"/>
       <path id="channel-down" d="M-16 65 0 79 16 65" data-ak-key="cmiotA15.channelDown" data-ak-role="input" aria-label="频道减" role="button" tabindex="0"/>
     </g>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="cmiotA15.power" d="M 47.2 101 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 101" />
+    <path data-ak-region="cmiotA15.voice" d="M 162 889 a 48 48 0 1 0 96 0 a 48 48 0 1 0 -96 0" data-ak-anchor="210 889" />
+    <path data-ak-region="cmiotA15.up" d="M 92.05458889808388 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 330.05458889808386 L 260.91168824543144 397.08831175456856 A 72 72 0 0 0 159.08831175456856 397.08831175456856 Z" data-ak-anchor="210 328" />
+    <path data-ak-region="cmiotA15.left" d="M 92.05458889808388 565.9454111019162 A 166.8 166.8 0 0 1 92.05458889808384 330.05458889808386 L 159.08831175456856 397.08831175456856 A 72 72 0 0 0 159.08831175456856 498.91168824543144 Z" data-ak-anchor="90 448" />
+    <path data-ak-region="cmiotA15.confirm" d="M 138 448 a 72 72 0 1 0 144 0 a 72 72 0 1 0 -144 0" data-ak-anchor="210 448" />
+    <path data-ak-region="cmiotA15.right" d="M 327.94541110191614 330.05458889808386 A 166.8 166.8 0 0 1 327.94541110191614 565.9454111019161 L 260.91168824543144 498.91168824543144 A 72 72 0 0 0 260.91168824543144 397.08831175456856 Z" data-ak-anchor="330 448" />
+    <path data-ak-region="cmiotA15.down" d="M 327.94541110191614 565.9454111019161 A 166.8 166.8 0 0 1 92.05458889808388 565.9454111019162 L 159.08831175456856 498.91168824543144 A 72 72 0 0 0 260.91168824543144 498.91168824543144 Z" data-ak-anchor="210 568" />
+    <path data-ak-region="cmiotA15.back" d="M 291.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="332 701" />
+    <path data-ak-region="cmiotA15.volumeUp" d="M 46.7 889 V 819.3 A 41.3 41.3 0 0 1 129.3 819.3 V 889 Z" data-ak-anchor="88 824" />
+    <path data-ak-region="cmiotA15.home" d="M 47.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 701" />
+    <path data-ak-region="cmiotA15.volumeDown" d="M 46.7 889 H 129.3 V 958.7 A 41.3 41.3 0 0 1 46.7 958.7 Z" data-ak-anchor="88 963" />
+    <path data-ak-region="cmiotA15.menu" d="M 169.2 213 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="210 213" />
+    <path data-ak-region="cmiotA15.mute" d="M 47.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="88 214" />
+    <path data-ak-region="cmiotA15.settings" d="M 291.2 214 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="332 214" />
+    <path data-ak-region="cmiotA15.channelUp" d="M 290.7 889 V 819.3 A 41.3 41.3 0 0 1 373.3 819.3 V 889 Z" data-ak-anchor="332 824" />
+    <path data-ak-region="cmiotA15.channelDown" d="M 290.7 889 H 373.3 V 958.7 A 41.3 41.3 0 0 1 290.7 958.7 Z" data-ak-anchor="332 963" />
+    <path data-ak-region="cmiotA15.m" d="M 169.2 701 a 40.8 40.8 0 1 0 81.6 0 a 40.8 40.8 0 1 0 -81.6 0" data-ak-anchor="210 701" />
   </g>
 </svg>
