@@ -8,10 +8,11 @@ import type { MouseInputId } from './system-mouse/inputs.ts'
 export type RemoteKeyRegion = {
   path: string
   anchor: { x: number; y: number }
+  transform?: string
 }
 
-export type RemoteView = {
-  buttons: readonly RemoteButton[]
+export type RemoteView<Id extends string = string> = {
+  buttons: readonly RemoteButton<Id>[]
   viewBox: { width: number; height: number }
   keyRegions: Record<string, RemoteKeyRegion>
   artworkUrl: string

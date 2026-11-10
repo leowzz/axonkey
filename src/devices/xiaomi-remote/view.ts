@@ -1,14 +1,6 @@
-import type { RemoteView } from '../types.ts'
-import { xiaomiRemoteButtons } from './buttons.ts'
-import { xiaomiRemoteKeyRegions, xiaomiRemoteViewBox } from './geometry.ts'
+import { createDescriptorView, type DescriptorInputId } from '../shared/descriptorSvg.ts'
 
-export { xiaomiRemoteButtonIds, xiaomiRemoteButtons } from './buttons.ts'
-export { xiaomiRemoteKeyRegions, xiaomiRemoteViewBox } from './geometry.ts'
-
-export const xiaomiRemoteView: RemoteView = {
-  buttons: xiaomiRemoteButtons,
-  viewBox: xiaomiRemoteViewBox,
-  keyRegions: xiaomiRemoteKeyRegions,
-  artworkUrl: '/device-descriptors/rc003.svg',
-  ariaLabel: '小米 RC003 遥控器按键',
-}
+export type XiaomiRemoteButtonId = DescriptorInputId<'rc003'>
+export const xiaomiRemoteView = createDescriptorView('rc003')
+export const xiaomiRemoteButtons = xiaomiRemoteView.buttons
+export const xiaomiRemoteButtonIds = xiaomiRemoteButtons.map(button => button.id)

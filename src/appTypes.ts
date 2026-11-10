@@ -12,8 +12,8 @@ export type MappingInput<Id extends string = InputId> = {
   originalLabel?: string
 }
 
-export type RemoteButton = {
-  id: ButtonId
+export type RemoteButton<Id extends string = ButtonId> = {
+  id: Id
   label: string
   short: string
   side: 'left' | 'right'

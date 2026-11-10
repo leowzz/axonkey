@@ -1,14 +1,6 @@
-import type { RemoteView } from '../types.ts'
-import { obeRcuR5RemoteButtons } from './buttons.ts'
-import { obeRcuR5RemoteKeyRegions, obeRcuR5RemoteViewBox } from './geometry.ts'
+import { createDescriptorView, type DescriptorInputId } from '../shared/descriptorSvg.ts'
 
-export { obeRcuR5RemoteButtonIds, obeRcuR5RemoteButtons } from './buttons.ts'
-export { obeRcuR5RemoteKeyRegions, obeRcuR5RemoteViewBox } from './geometry.ts'
-
-export const obeRcuR5RemoteView: RemoteView = {
-  buttons: obeRcuR5RemoteButtons,
-  viewBox: obeRcuR5RemoteViewBox,
-  keyRegions: obeRcuR5RemoteKeyRegions,
-  artworkUrl: '/device-descriptors/obe-rcu-r5.svg',
-  ariaLabel: '投影仪语音遥控器 OBE_RCU_R5 按键',
-}
+export type ObeRcuR5RemoteButtonId = DescriptorInputId<'obe-rcu-r5'>
+export const obeRcuR5RemoteView = createDescriptorView('obe-rcu-r5')
+export const obeRcuR5RemoteButtons = obeRcuR5RemoteView.buttons
+export const obeRcuR5RemoteButtonIds = obeRcuR5RemoteButtons.map(button => button.id)

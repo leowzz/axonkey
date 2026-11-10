@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
@@ -62,13 +63,12 @@ export function MappingFlowPage({
               <div className="remote-stage">
                 <div className="remote-art">
                   <RemoteControl
-                    buttons={editableButtons}
                     activeId={activeId}
                     pressedId={pressedId}
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
-                    onSelect={id => selectBehaviorTarget(id, 'click')}
+                    onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
                 </div>

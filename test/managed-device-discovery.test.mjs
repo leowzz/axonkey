@@ -691,8 +691,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
 
     act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
-    assert.equal(views[0].root.findByType(RemoteControl).props.pressedId, null)
-    assert.equal(views[1].root.findByType(RemoteControl).props.pressedId, 'cmiotA15.up')
+    assert.deepEqual(Array.from(views[0].root.findByType(RemoteControl).props.pressedIds), [])
+    assert.deepEqual(Array.from(views[1].root.findByType(RemoteControl).props.pressedIds), ['cmiotA15.up'])
 
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))

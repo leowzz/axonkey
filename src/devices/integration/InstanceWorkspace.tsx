@@ -24,7 +24,6 @@ import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
-import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
 import { emptyTriggers, instanceStatusLabel, packageFor } from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
@@ -432,18 +431,13 @@ export function InstanceWorkspace({
           </section>
           <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
             <div className="remote-art">
-              {instance.kind === 'xboxBluetooth' ? (
-                <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={selectInput} />
-              ) : (
-                <RemoteControl
-                  buttons={[...pkg.inputs] as { id: ButtonId; label: string }[]}
-                  activeId={selected as ButtonId}
-                  pressedId={(input.pressed[0] ?? null) as ButtonId | null}
-                  mappedIds={mapped as ButtonId[]}
-                  onSelect={selectInput}
-                  remoteView={pkg.remoteView}
-                />
-              )}
+              <RemoteControl
+                activeId={selected}
+                pressedIds={input.pressed}
+                mappedIds={mapped}
+                onSelect={selectInput}
+                remoteView={pkg.remoteView}
+              />
             </div>
           </div>
           {(instance.kind === 'rc003' ||

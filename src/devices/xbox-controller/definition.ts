@@ -1,5 +1,5 @@
 import type { DeviceSupportPackage } from '../types.ts'
-import { xboxInputs } from './inputs.ts'
+import { xboxInputs, xboxRemoteView } from './inputs.ts'
 
 export const xboxSupportPackage: DeviceSupportPackage = {
   kind: 'xboxBluetooth',
@@ -7,4 +7,5 @@ export const xboxSupportPackage: DeviceSupportPackage = {
   model: 'Xbox 蓝牙 · 045E:02E0',
   artwork: '/device-descriptors/xbox.svg',
   inputs: xboxInputs,
+  remoteView: xboxRemoteView,
 }
