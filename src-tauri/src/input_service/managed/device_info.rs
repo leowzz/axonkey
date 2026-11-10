@@ -87,6 +87,7 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
 
 const REFRESH: Duration = Duration::from_secs(300);
 const RETRY: Duration = Duration::from_secs(3);
+const MISSING_BATTERY_REFRESH: Duration = Duration::from_secs(30);
 #[derive(Default)]
 struct Schedule {
     next: Option<Instant>,
@@ -96,10 +97,19 @@ impl Schedule {
     fn due(&self, now: Instant) -> bool {
         self.next.is_none_or(|next| now >= next)
     }
-    fn complete(&mut self, success: bool, now: Instant) -> bool {
-        let retry = !success && self.retries < 3;
-        self.retries = if retry { self.retries + 1 } else { 0 };
-        self.next = Some(now + if retry { RETRY } else { REFRESH });
+    fn complete(&mut self, info: &DeviceInformation, expect_battery: bool, now: Instant) -> bool {
+        let missing_battery = expect_battery && info.battery_level.is_none();
+        let retry = (info.error.is_some() || missing_battery) && self.retries < 3;
+        let delay = if retry {
+            self.retries += 1;
+            RETRY
+        } else if missing_battery {
+            MISSING_BATTERY_REFRESH
+        } else {
+            self.retries = 0;
+            REFRESH
+        };
+        self.next = Some(now + delay);
         retry
     }
 }
@@ -153,9 +163,9 @@ pub(super) fn start(shared: Arc<Shared>) {
                     }
                     let key = (target.id.clone(), target.bluetooth_address.clone().unwrap());
                     let schedule = schedules.get_mut(&key).unwrap();
-                    let success = info.error.is_none();
-                    let retry = schedule.complete(success, Instant::now());
-                    info.status = if success {
+                    let expect_battery = cfg!(windows) && target.kind == "rc003";
+                    let retry = schedule.complete(&info, expect_battery, Instant::now());
+                    info.status = if info.error.is_none() {
                         "ready"
                     } else if retry {
                         "retrying"
@@ -476,20 +486,51 @@ mod tests {
 
     #[test]
     fn retries_three_times_then_waits_five_minutes_and_resets_after_success() {
+        let failed = DeviceInformation {
+            error: Some("设备信息读取超时".into()),
+            ..Default::default()
+        };
         let mut schedule = Schedule::default();
         let mut now = Instant::now();
         assert!(schedule.due(now));
         for retry in [true, true, true, false] {
-            assert_eq!(schedule.complete(false, now), retry);
+            assert_eq!(schedule.complete(&failed, false, now), retry);
             let delay = if retry { RETRY } else { REFRESH };
             assert!(!schedule.due(now + delay - Duration::from_millis(1)));
             now += delay;
             assert!(schedule.due(now));
         }
-        assert!(schedule.complete(false, now));
-        assert!(!schedule.complete(true, now));
+        assert!(schedule.complete(&failed, false, now));
+        assert!(!schedule.complete(&DeviceInformation::default(), false, now));
         assert_eq!(schedule.retries, 0);
         assert_eq!(schedule.next, Some(now + REFRESH));
+    }
+
+    #[test]
+    fn missing_rc003_battery_keeps_refreshing_until_a_value_is_read() {
+        let missing_battery = DeviceInformation::default();
+        let mut schedule = Schedule::default();
+        let mut now = Instant::now();
+        for _ in 0..3 {
+            assert!(schedule.due(now));
+            assert!(schedule.complete(&missing_battery, true, now));
+            now += RETRY;
+        }
+        for _ in 0..2 {
+            assert!(schedule.due(now));
+            assert!(!schedule.complete(&missing_battery, true, now));
+            assert!(!schedule.due(now + MISSING_BATTERY_REFRESH - Duration::from_millis(1)));
+            now += MISSING_BATTERY_REFRESH;
+        }
+
+        let battery_read = DeviceInformation {
+            battery_level: Some(0),
+            ..Default::default()
+        };
+        assert!(schedule.due(now));
+        assert!(!schedule.complete(&battery_read, true, now));
+        assert_eq!(schedule.next, Some(now + REFRESH));
+        assert_eq!(schedule.retries, 0);
     }
     #[test]
     fn parses_wire_values_and_optional_strings() {
