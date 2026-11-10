@@ -126,7 +126,6 @@ export function parseLibraryPage(value: unknown, platform: Platform, builtins: S
         }
       }
       if (step) {
-        step.name = item.title
         step.properties = {
           ...step.properties,
           libraryItemId: item.id,

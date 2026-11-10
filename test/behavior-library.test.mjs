@@ -36,7 +36,7 @@ test('cloud decoding preserves order, skips unsupported entries whole, and inser
     { ...publicItem('shared-mix'), content: { kind: 'sequence', behaviors: [{type: 'switchProfile', direction: 'next'}, {type: 'key', key: 'Enter'}] } },
     { ...publicItem('partial'), content: { kind: 'sequence', behaviors: [{ type: 'key', key: 'Enter' }, { type: 'future' }] } }]
   const page = parseLibraryPage({ items: source, next_cursor: 'next' }, 'macos', [builtin])
-  assert.deepEqual(page.steps.map(s => s.name), ['b', 'a'])
+  assert.deepEqual(page.steps.map(s => s.name), ['b', builtin.name])
   assert.equal(page.skipped, 5)
   assert.equal(page.nextCursor, 'next')
   const add = id => insertedWorkflowSteps({ ...page.steps[0], id }, 'macos', b => b.type)
@@ -46,6 +46,27 @@ test('cloud decoding preserves order, skips unsupported entries whole, and inser
   source[0].content.behaviors[0].key = 'Esc'
   assert.equal(first[0].properties.key, 'Enter')
   assert.throws(() => parseLibraryPage({ items: null }, 'macos', []), /响应/)
+})
+
+test('recommended builtins retain platform names instead of cloud titles', () => {
+  for (const [platform, names, cloudTitles] of [
+    ['windows', ['右 Win', '右 Alt'], ['右 Cmd', '右 Opt']],
+    ['macos', ['右 Cmd', '右 Opt'], ['右 Win', '右 Alt']],
+  ]) {
+    const presets = ['rightCommand', 'rightAlt']
+    const builtins = presets.map((preset, index) => ({
+      componentType: 'task', type: preset, name: names[index], properties: { preset },
+    }))
+    const items = presets.map((preset, index) => ({
+      ...publicItem(preset, cloudTitles[index]), source: 'official', platforms: [platform],
+      content: { kind: 'builtin', preset },
+    }))
+    const page = parseLibraryPage({ items }, platform, builtins)
+    assert.deepEqual(page.steps.map(step => step.name), names)
+    assert.deepEqual(page.steps.map(step => step.properties.libraryItemId), presets)
+    assert.deepEqual(page.steps.map(step => step.properties.preset), presets)
+    assert.equal(builtins[0].properties.libraryItemId, undefined)
+  }
 })
 
 test('library lists authenticate only with a session; confirmed share and withdrawal require auth', async () => {
