@@ -1,11 +1,14 @@
 //! RC003 keeps its original macOS capture, hardware remapping and gesture engine.
 use super::super::{
-    macos::{InputService, RemoteInstance},
+    macos::{InputService, RemoteActionGuard, RemoteInstance},
     NativeSettings, ProfileDirection,
 };
 use std::{
     ffi::CString,
-    sync::mpsc::{channel, Receiver, TryRecvError},
+    sync::{
+        mpsc::{channel, Receiver, TryRecvError},
+        Mutex,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -19,7 +22,7 @@ impl RemoteReader {
         serial: &str,
         instance_id: &str,
         settings: NativeSettings,
-        is_current: Box<dyn Fn() -> bool + Send + Sync>,
+        action_guard: RemoteActionGuard,
         switch_profile: Box<dyn Fn(ProfileDirection, bool) + Send + Sync>,
     ) -> Result<Self, String> {
         let serial = CString::new(serial).map_err(|e| e.to_string())?;
@@ -29,7 +32,8 @@ impl RemoteReader {
             RemoteInstance {
                 id: instance_id.to_owned(),
                 serial,
-                is_current,
+                action_guard: Mutex::new(action_guard),
+                pending_settings: Mutex::new(None),
                 switch_profile,
                 on_report: Box::new(move |_, bytes| {
                     let _ = tx.send(bytes.to_vec());
@@ -51,6 +55,11 @@ impl RemoteReader {
             thread::sleep(Duration::from_millis(20));
         }
     }
+
+    pub fn update_settings(&self, settings: NativeSettings, guard: RemoteActionGuard) -> bool {
+        self.service.update_bound_settings(settings, guard)
+    }
+
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         match self.reports.try_recv() {
             Ok(report) => {

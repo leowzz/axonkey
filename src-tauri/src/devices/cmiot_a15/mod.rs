@@ -138,6 +138,17 @@ impl HidSession {
             .unwrap();
     }
 
+    #[cfg(target_os = "macos")]
+    pub fn set_recording_mode(
+        &mut self,
+        mode: recording::RecordingMode,
+        send: impl FnMut([u8; 2]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.recording.synchronize(mode, true, send)?;
+        self.voice.synchronize(self.recording());
+        Ok(())
+    }
+
     pub fn recording(&self) -> bool {
         self.recording.is_recording()
     }

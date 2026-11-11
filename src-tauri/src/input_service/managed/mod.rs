@@ -11,9 +11,7 @@ mod remote;
 mod report;
 #[cfg(all(windows, not(test)))]
 use super::windows::ManagedQuarborChannel;
-#[cfg(all(windows, not(test)))]
-use super::NativeSettings;
-use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
+use super::{NativeBehavior, NativeSettings, ProfileDirection, TriggerBehaviors};
 use app_profiles::{application_binding, effective_instance, ApplicationProfile};
 use gesture::Gestures;
 use hidapi::{HidApi, HidDevice};
@@ -21,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ffi::{CStr, CString},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -858,20 +857,84 @@ impl Drop for DeviceManager {
 }
 
 struct Reader {
-    config: Instance,
+    config: Arc<ReaderConfig>,
+    path: CString,
     device: InputReader,
     descriptor: &'static crate::devices::device_descriptor::DeviceDescriptor,
     engine: crate::devices::engine::DescriptorEngine,
     gestures: Gestures,
     maps: HashMap<String, TriggerBehaviors>,
-    actions: SyncSender<Vec<gesture::Execution>>,
-    cancel: Arc<AtomicBool>,
+    actions: SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)>,
     reports: u64,
+}
+impl Reader {
+    fn update_config(&mut self, shared: &Arc<Shared>, instance: &Instance) -> bool {
+        if &self.config.instance == instance {
+            return true;
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = shared;
+        let config = Arc::new(ReaderConfig::new(instance));
+        let settings = input_settings(instance);
+        match &mut self.device {
+            #[cfg(target_os = "macos")]
+            InputReader::Remote(device) => {
+                if !device.update_settings(settings, action_guard(shared, &config)) {
+                    return false;
+                }
+            }
+            #[cfg(target_os = "macos")]
+            InputReader::A15(device) => {
+                if let Err(error) = device.update_settings(settings, action_guard(shared, &config))
+                {
+                    log::warn!(target: "axonkey::devices", "Instance {}: {error}", instance.id);
+                    return false;
+                }
+            }
+            InputReader::Hid(_) => {
+                if self.maps != settings.behaviors {
+                    self.gestures = Gestures::default();
+                    self.maps = settings.behaviors;
+                }
+            }
+        }
+        self.config.cancel.store(true, Ordering::Release);
+        self.config = config;
+        true
+    }
 }
 impl Drop for Reader {
     fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Release);
+        self.config.cancel.store(true, Ordering::Release);
     }
+}
+
+struct ReaderConfig {
+    instance: Instance,
+    cancel: AtomicBool,
+}
+
+impl ReaderConfig {
+    fn new(instance: &Instance) -> Self {
+        Self {
+            instance: instance.clone(),
+            cancel: AtomicBool::new(false),
+        }
+    }
+
+    fn is_current(&self, shared: &Shared) -> bool {
+        actions_current(shared, &self.instance, &self.cancel)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn action_guard(
+    shared: &Arc<Shared>,
+    config: &Arc<ReaderConfig>,
+) -> super::macos::RemoteActionGuard {
+    let shared = shared.clone();
+    let config = config.clone();
+    Box::new(move || config.is_current(&shared))
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -915,13 +978,22 @@ fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
         .unwrap_or_default()
 }
 
+fn input_settings(instance: &Instance) -> NativeSettings {
+    NativeSettings {
+        enabled: true,
+        behaviors: active_mappings(instance),
+        cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
+        ..Default::default()
+    }
+}
+
 fn open_reader(
     api: &HidApi,
-    path: &std::ffi::CStr,
-    instance: &Instance,
+    path: &CStr,
     shared: &Arc<Shared>,
-    cancel: &Arc<AtomicBool>,
+    config: &Arc<ReaderConfig>,
 ) -> Result<InputReader, String> {
+    let instance = &config.instance;
     #[cfg(target_os = "macos")]
     if instance.kind == "rc003" {
         let serial = api
@@ -930,27 +1002,19 @@ fn open_reader(
             .and_then(|info| info.serial_number())
             .filter(|s| !s.is_empty())
             .ok_or("此遥控器没有稳定标识，无法按实例拦截")?;
-        let settings = super::NativeSettings {
-            enabled: true,
-            behaviors: active_mappings(instance),
-            ..super::NativeSettings::default()
-        };
-        let current_shared = shared.clone();
-        let expected = instance.clone();
-        let current_cancel = cancel.clone();
         let switch_shared = shared.clone();
         let id = instance.id.clone();
         return remote::RemoteReader::open(
             serial,
             &instance.id,
-            settings,
-            Box::new(move || actions_current(&current_shared, &expected, &current_cancel)),
+            input_settings(instance),
+            action_guard(shared, config),
             Box::new(move |direction, wrap| switch_profile(&switch_shared, &id, direction, wrap)),
         )
         .map(InputReader::Remote);
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (shared, cancel);
+    let _ = shared;
     #[cfg(windows)]
     if instance.kind == "rc003" {
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
@@ -964,7 +1028,7 @@ fn open_reader(
     #[cfg(target_os = "macos")]
     if uses_hid_voice(&instance.kind) {
         return Ok(InputReader::A15(a15::A15Reader::open(
-            device, instance, shared, cancel,
+            device, shared, config,
         )));
     }
     Ok(InputReader::Hid(device))
@@ -1462,12 +1526,7 @@ fn run(shared: Arc<Shared>) {
                     QuarborRegistration {
                         target: target.clone(),
                         kind: instance.kind.clone(),
-                        settings: super::NativeSettings {
-                            enabled: true,
-                            behaviors: active_mappings(instance),
-                            cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
-                            ..Default::default()
-                        },
+                        settings: input_settings(instance),
                     },
                 );
             }
@@ -1475,10 +1534,14 @@ fn run(shared: Arc<Shared>) {
         }
         readers.retain(|id, reader| {
             let keep = enabled
-                && configs.iter().any(|i| {
-                    i == &reader.config
-                        && i.enabled
-                        && i.binding.as_ref().is_some_and(|b| paths.contains_key(b))
+                && configs.iter().any(|instance| {
+                    &instance.id == id
+                        && instance.enabled
+                        && instance.kind == reader.config.instance.kind
+                        && instance.binding == reader.config.instance.binding
+                        && instance.binding.as_ref().and_then(|b| paths.get(b))
+                            == Some(&reader.path)
+                        && reader.update_config(&shared, instance)
                 });
             if !keep {
                 emit(&shared, id, BTreeMap::new(), vec![]);
@@ -1568,8 +1631,9 @@ fn run(shared: Arc<Shared>) {
                         .get(&instance.id)
                         .is_some_and(|(failed, _)| failed == instance);
                 if retry {
-                    let cancel = Arc::new(AtomicBool::new(false));
-                    match open_reader(&api, path.unwrap(), instance, &shared, &cancel) {
+                    let config = Arc::new(ReaderConfig::new(instance));
+                    let path = path.unwrap();
+                    match open_reader(&api, path, &shared, &config) {
                         Ok(device) => {
                             failures.remove(&instance.id);
                             // macOS remote adapters execute their own actions; reports here
@@ -1581,99 +1645,12 @@ fn run(shared: Arc<Shared>) {
                             } else {
                                 active_mappings(instance)
                             };
-                            let (tx, rx) = sync_channel::<Vec<gesture::Execution>>(32);
-                            let action_shared = shared.clone();
-                            let action_cancel = cancel.clone();
-                            let id = instance.id.clone();
-                            let expected = instance.clone();
-                            thread::spawn(move || {
-                                while let Ok(sequence) = rx.recv() {
-                                    for execution in sequence {
-                                        if actions_current(
-                                            &action_shared,
-                                            &expected,
-                                            &action_cancel,
-                                        ) && execution.behaviors.iter().any(|behavior| {
-                                            behavior.enabled()
-                                                && !matches!(
-                                                    behavior,
-                                                    NativeBehavior::Disabled { .. }
-                                                )
-                                        }) {
-                                            crate::library_usage::record_trigger(
-                                                &format!("{}:{}", id, execution.input),
-                                                &execution.sources,
-                                            );
-                                        }
-                                        for behavior in execution.behaviors {
-                                            if !actions_current(
-                                                &action_shared,
-                                                &expected,
-                                                &action_cancel,
-                                            ) {
-                                                break;
-                                            }
-                                            if !behavior.enabled() {
-                                                continue;
-                                            }
-                                            match behavior {
-                                                NativeBehavior::Delay { ms, .. } => {
-                                                    let until = Instant::now()
-                                                        + Duration::from_millis(ms.min(300_000));
-                                                    while Instant::now() < until
-                                                        && actions_current(
-                                                            &action_shared,
-                                                            &expected,
-                                                            &action_cancel,
-                                                        )
-                                                    {
-                                                        thread::sleep(Duration::from_millis(10));
-                                                    }
-                                                }
-                                                NativeBehavior::SwitchProfile {
-                                                    direction,
-                                                    wrap,
-                                                    ..
-                                                } => {
-                                                    switch_profile(
-                                                        &action_shared,
-                                                        &id,
-                                                        direction,
-                                                        wrap,
-                                                    );
-                                                    break;
-                                                }
-                                                _ => {
-                                                    static OUTPUT: Mutex<()> = Mutex::new(());
-                                                    let _output = OUTPUT.lock().unwrap();
-                                                    if !actions_current(
-                                                        &action_shared,
-                                                        &expected,
-                                                        &action_cancel,
-                                                    ) {
-                                                        break;
-                                                    }
-                                                    #[cfg(target_os = "macos")]
-                                                    if super::InputService::accessibility_granted()
-                                                    {
-                                                        super::macos::execute_behaviors(&[
-                                                            behavior,
-                                                        ]);
-                                                    }
-                                                    #[cfg(windows)]
-                                                    super::windows::execute_mouse_behavior(
-                                                        &behavior, 10,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            });
+                            let actions = spawn_action_worker(shared.clone(), instance.id.clone());
                             readers.insert(
                                 instance.id.clone(),
                                 Reader {
-                                    config: instance.clone(),
+                                    config,
+                                    path: path.clone(),
                                     device,
                                     descriptor:
                                         crate::devices::descriptor_registry::descriptor_for_kind(
@@ -1683,8 +1660,7 @@ fn run(shared: Arc<Shared>) {
                                     engine: Default::default(),
                                     gestures: Gestures::default(),
                                     maps,
-                                    actions: tx,
-                                    cancel,
+                                    actions,
                                     reports: 0,
                                 },
                             );
@@ -1745,7 +1721,13 @@ fn run(shared: Arc<Shared>) {
                     status.recording = device.recording();
                 }
                 status.reports = reader.reports;
-                if !failed && !sequence.is_empty() && reader.actions.try_send(sequence).is_err() {
+                if !failed
+                    && !sequence.is_empty()
+                    && reader
+                        .actions
+                        .try_send((reader.config.clone(), sequence))
+                        .is_err()
+                {
                     status.error = Some("动作队列已满，已丢弃本次动作".into());
                 }
                 if failed {
@@ -1909,6 +1891,66 @@ fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<
         }
     }
     *previous = current;
+}
+
+fn spawn_action_worker(
+    shared: Arc<Shared>,
+    id: String,
+) -> SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)> {
+    let (tx, rx) = sync_channel::<(Arc<ReaderConfig>, Vec<gesture::Execution>)>(32);
+    thread::spawn(move || {
+        while let Ok((config, sequence)) = rx.recv() {
+            let is_current = || config.is_current(&shared);
+            for execution in sequence {
+                if is_current()
+                    && execution.behaviors.iter().any(|behavior| {
+                        behavior.enabled() && !matches!(behavior, NativeBehavior::Disabled { .. })
+                    })
+                {
+                    crate::library_usage::record_trigger(
+                        &format!("{}:{}", id, execution.input),
+                        &execution.sources,
+                    );
+                }
+                for behavior in execution.behaviors {
+                    if !is_current() {
+                        break;
+                    }
+                    if !behavior.enabled() {
+                        continue;
+                    }
+                    match behavior {
+                        NativeBehavior::Delay { ms, .. } => {
+                            let until = Instant::now() + Duration::from_millis(ms.min(300_000));
+                            while Instant::now() < until && is_current() {
+                                thread::sleep(Duration::from_millis(10));
+                            }
+                        }
+                        NativeBehavior::SwitchProfile {
+                            direction, wrap, ..
+                        } => {
+                            switch_profile(&shared, &id, direction, wrap);
+                            break;
+                        }
+                        _ => {
+                            static OUTPUT: Mutex<()> = Mutex::new(());
+                            let _output = OUTPUT.lock().unwrap();
+                            if !is_current() {
+                                break;
+                            }
+                            #[cfg(target_os = "macos")]
+                            if super::InputService::accessibility_granted() {
+                                super::macos::execute_behaviors(&[behavior]);
+                            }
+                            #[cfg(windows)]
+                            super::windows::execute_mouse_behavior(&behavior, 10);
+                        }
+                    }
+                }
+            }
+        }
+    });
+    tx
 }
 
 fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) -> bool {

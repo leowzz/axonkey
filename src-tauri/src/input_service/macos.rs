@@ -135,12 +135,21 @@ impl RemoteOwnership {
     }
 }
 
+pub(super) type RemoteActionGuard = Box<dyn Fn() -> bool + Send + Sync>;
+
 pub(super) struct RemoteInstance {
     pub id: String,
     pub serial: CString,
     pub on_report: Box<dyn Fn(u32, &[u8]) + Send + Sync>,
-    pub is_current: Box<dyn Fn() -> bool + Send + Sync>,
+    pub action_guard: Mutex<RemoteActionGuard>,
+    pub pending_settings: Mutex<Option<(NativeSettings, RemoteActionGuard)>>,
     pub switch_profile: Box<dyn Fn(super::ProfileDirection, bool) + Send + Sync>,
+}
+
+impl RemoteInstance {
+    fn is_current(&self) -> bool {
+        (self.action_guard.lock().unwrap())()
+    }
 }
 
 struct Shared {
@@ -220,9 +229,7 @@ impl InputService {
             .map_err(|_| "Input settings lock is unavailable")?
             .clone();
         let should_restart = old_settings.remote_settings_changed(&settings)
-            && (old_settings.enabled != settings.enabled
-                || hardware_capture_mappings(&old_settings)
-                    != hardware_capture_mappings(&settings));
+            && capture_configuration_changed(&old_settings, &settings);
         *self
             .shared
             .settings
@@ -238,6 +245,20 @@ impl InputService {
             behavior_count,
         );
         Ok(())
+    }
+
+    pub(super) fn update_bound_settings(
+        &self,
+        settings: NativeSettings,
+        guard: RemoteActionGuard,
+    ) -> bool {
+        if capture_configuration_changed(&self.shared.settings.read().unwrap(), &settings) {
+            return false;
+        }
+        let instance = self.shared.instance.as_ref().expect("bound remote");
+        // Apply both on the input thread, between reports and action sequences.
+        *instance.pending_settings.lock().unwrap() = Some((settings, guard));
+        true
     }
 
     pub fn status(&self) -> InputServiceStatus {
@@ -378,13 +399,25 @@ struct WorkerContext {
     decoded_usages: Option<HashSet<u16>>,
 }
 
+impl WorkerContext {
+    fn apply_remote_settings(&mut self) {
+        let Some(instance) = &self.shared.instance else {
+            return;
+        };
+        let pending = instance.pending_settings.lock().unwrap().take();
+        if let Some((settings, guard)) = pending {
+            let mut current = self.shared.settings.write().unwrap();
+            if current.remote_settings_changed(&settings) {
+                self.input.cancel_gestures();
+            }
+            *current = settings;
+            *instance.action_guard.lock().unwrap() = guard;
+        }
+    }
+}
+
 fn worker_loop(shared: Arc<Shared>) {
-    while !shared.stop.load(Ordering::Acquire)
-        && shared
-            .instance
-            .as_ref()
-            .is_none_or(|instance| (instance.is_current)())
-    {
+    while !shared.stop.load(Ordering::Acquire) {
         shared.restart.store(false, Ordering::Release);
         if !shared.remote_ownership.lock().unwrap().begin_legacy() {
             thread::sleep(Duration::from_millis(20));
@@ -489,11 +522,6 @@ unsafe extern "C" fn should_stop_callback(context: *mut c_void) -> bool {
     if context.shared.stop.load(Ordering::Acquire)
         || context.shared.restart.load(Ordering::Acquire)
         || context.shared.remote_ownership.lock().unwrap().managed
-        || context
-            .shared
-            .instance
-            .as_ref()
-            .is_some_and(|instance| !(instance.is_current)())
     {
         return true;
     }
@@ -581,13 +609,16 @@ unsafe extern "C" fn event_callback(
             }
         }
         EVENT_INPUT_REPORT if context.capture && !bytes.is_null() => {
+            context.apply_remote_settings();
             let report = std::slice::from_raw_parts(bytes, length);
             if let Some(usages) = context.decoded_usages.take() {
                 if let Some(instance) = &context.shared.instance {
-                    if !(instance.is_current)() {
+                    (instance.on_report)(report_id, report);
+                    if !instance.is_current() {
+                        context.input.cancel_gestures();
+                        context.input.active_usages = usages;
                         return;
                     }
-                    (instance.on_report)(report_id, report);
                 }
                 context.input.process_report(
                     &context.shared,
@@ -602,7 +633,17 @@ unsafe extern "C" fn event_callback(
                 record_backend_error(&mut status, code);
             }
         }
-        EVENT_TICK if context.capture => context.input.process_timers(&context.shared),
+        EVENT_TICK if context.capture => {
+            context.apply_remote_settings();
+            if context
+                .shared
+                .instance
+                .as_ref()
+                .is_none_or(RemoteInstance::is_current)
+            {
+                context.input.process_timers(&context.shared);
+            }
+        }
         _ => {}
     }));
     if result.is_err() {
@@ -986,7 +1027,7 @@ impl MacInputState {
                     && shared
                         .instance
                         .as_ref()
-                        .is_none_or(|instance| (instance.is_current)())
+                        .is_none_or(RemoteInstance::is_current)
                 {
                     // Hardware modifier remaps bypass synthetic output entirely.
                     if let Ok(settings) = shared.settings.read() {
@@ -1275,6 +1316,11 @@ impl MacInputState {
     }
 
     fn release_all(&mut self) {
+        self.cancel_gestures();
+        self.active_usages.clear();
+    }
+
+    fn cancel_gestures(&mut self) {
         for (button, state) in self.button_states.iter_mut() {
             if let Some(mut press) = state.pressed.take() {
                 log::info!(target: "axonkey::input", "Mapped forced release: button={button}, held_ms={}, held_outputs={}, passthrough={}", press.started_at.elapsed().as_millis(), press.held_outputs.keys.len(), press.passthrough);
@@ -1289,7 +1335,6 @@ impl MacInputState {
             }
             state.pending_click = None;
         }
-        self.active_usages.clear();
     }
 }
 
@@ -1460,6 +1505,11 @@ fn hardware_capture_mappings(settings: &NativeSettings) -> Vec<HardwareModifierM
     mappings
 }
 
+fn capture_configuration_changed(current: &NativeSettings, next: &NativeSettings) -> bool {
+    current.enabled != next.enabled
+        || hardware_capture_mappings(current) != hardware_capture_mappings(next)
+}
+
 fn hardware_action_usages(mappings: &[HardwareModifierMapping]) -> HashSet<u16> {
     // F20 only neutralizes Power; its configured gestures still run in software.
     mappings
@@ -1480,7 +1530,7 @@ fn record_remote_trigger(
         && shared
             .instance
             .as_ref()
-            .is_none_or(|instance| (instance.is_current)())
+            .is_none_or(RemoteInstance::is_current)
         && shared
             .status
             .try_lock()
@@ -1503,7 +1553,7 @@ fn execute_remote_behaviors(shared: &Shared, behaviors: &[NativeBehavior]) {
         return execute_behaviors(behaviors);
     };
     for behavior in behaviors.iter().filter(|b| b.enabled()) {
-        if shared.stop.load(Ordering::Acquire) || !(instance.is_current)() {
+        if shared.stop.load(Ordering::Acquire) || !instance.is_current() {
             break;
         }
         match behavior {
@@ -1517,7 +1567,7 @@ fn execute_remote_behaviors(shared: &Shared, behaviors: &[NativeBehavior]) {
                 let until = Instant::now() + Duration::from_millis((*ms).min(300_000));
                 while Instant::now() < until
                     && !shared.stop.load(Ordering::Acquire)
-                    && (instance.is_current)()
+                    && instance.is_current()
                 {
                     thread::sleep(Duration::from_millis(10));
                 }
@@ -1901,7 +1951,7 @@ mod tests {
     }
 
     #[test]
-    fn bound_remote_keeps_legacy_repeat_and_routes_profile_switch_to_its_instance() {
+    fn bound_remote_updates_software_mappings_without_restarting_capture() {
         let reports = Arc::new(Mutex::new(Vec::new()));
         let switches = Arc::new(Mutex::new(Vec::new()));
         let active = Arc::new(AtomicBool::new(true));
@@ -1928,7 +1978,8 @@ mod tests {
             instance: Some(RemoteInstance {
                 id: "test-instance".into(),
                 serial: CString::new("test-remote").unwrap(),
-                is_current: Box::new(move || is_current.load(Ordering::Acquire)),
+                action_guard: Mutex::new(Box::new(move || is_current.load(Ordering::Acquire))),
+                pending_settings: Mutex::new(None),
                 on_report: Box::new(move |_, bytes| {
                     report_sink.lock().unwrap().push(bytes.to_vec())
                 }),
@@ -1998,12 +2049,37 @@ mod tests {
         );
         active.store(false, Ordering::Release);
         send(&mut context, 0x52);
-        assert_eq!(
-            reports.lock().unwrap().len(),
-            4,
-            "obsolete instance input is not dispatched"
-        );
+        assert_eq!(reports.lock().unwrap().len(), 5);
         TEST_WHEELS.with(|events| assert_eq!(events.borrow().len(), 2));
+
+        let service = InputService {
+            shared: shared.clone(),
+            worker: Mutex::new(None),
+        };
+        let mut updated = shared.settings.read().unwrap().clone();
+        updated.behaviors.insert(
+            "up".into(),
+            serde_json::from_value(serde_json::json!({
+                "click": [{"type": "wheel", "direction": "down"}]
+            }))
+            .unwrap(),
+        );
+        assert!(service.update_bound_settings(updated.clone(), Box::new(|| true)));
+        assert!(!unsafe { should_stop_callback((&mut context as *mut WorkerContext).cast()) });
+        send(&mut context, 0);
+        send(&mut context, 0x52);
+        send(&mut context, 0);
+        TEST_WHEELS.with(|events| {
+            assert_eq!(
+                events.borrow().as_slice(),
+                [WheelDirection::Up, WheelDirection::Up, WheelDirection::Down]
+            );
+        });
+        assert_eq!(reports.lock().unwrap().len(), 8);
+        assert!(!shared.restart.load(Ordering::Acquire));
+
+        updated.behaviors.remove("voice");
+        assert!(!service.update_bound_settings(updated, Box::new(|| true)));
         context.input.release_all();
     }
 
