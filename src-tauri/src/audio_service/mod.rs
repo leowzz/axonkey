@@ -1,7 +1,9 @@
 use serde::Serialize;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
+    thread::{self, JoinHandle},
+    time::Duration,
 };
 
 #[derive(Clone, Debug, Serialize)]
@@ -94,7 +96,7 @@ impl AudioService {
 /// A device-scoped audio service configuration. The target identity is kept
 /// separate from the user-facing instance ID because Bluetooth transports use
 /// platform-specific identities.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AudioTarget {
     pub instance_id: String,
     pub kind: String,
@@ -109,86 +111,64 @@ pub struct AudioTarget {
 /// unscoped commands. Instance UI and commands address a service
 /// by `instance_id`.
 pub struct AudioServiceManager {
-    services: Mutex<BTreeMap<String, Arc<PlatformAudioService>>>,
-    target_identities: Mutex<BTreeMap<String, Option<String>>>,
+    instances: Arc<InstanceServices>,
     legacy: Arc<PlatformAudioService>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[derive(Default)]
+struct InstanceServices {
+    services: Mutex<BTreeMap<String, Arc<PlatformAudioService>>>,
+    request: Mutex<InstanceSync>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct InstanceSync {
+    targets: Vec<AudioTarget>,
+    pending: bool,
+    stopped: bool,
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 impl AudioServiceManager {
     pub fn start() -> Self {
+        Self::spawn(Arc::new(PlatformAudioService::start()))
+    }
+
+    fn spawn(legacy: Arc<PlatformAudioService>) -> Self {
+        let instances = Arc::new(InstanceServices::default());
+        let worker_instances = Arc::clone(&instances);
+        let worker = thread::Builder::new()
+            .name("Axonkey audio instances".into())
+            .spawn(move || reconcile_instances(worker_instances))
+            .map_err(|error| {
+                log::error!(target: "axonkey::audio", "Cannot start the audio instance worker: {error}");
+                instances.request.lock().unwrap().stopped = true;
+            })
+            .ok();
         Self {
-            services: Mutex::new(BTreeMap::new()),
-            target_identities: Mutex::new(BTreeMap::new()),
-            legacy: Arc::new(PlatformAudioService::start()),
+            instances,
+            legacy,
+            worker,
         }
     }
 
     fn service(&self, instance_id: Option<&str>) -> Option<Arc<PlatformAudioService>> {
         match instance_id {
-            Some(id) => self.services.lock().ok()?.get(id).cloned(),
+            Some(id) => self.instances.services.lock().ok()?.get(id).cloned(),
             None => Some(Arc::clone(&self.legacy)),
         }
     }
 
     pub fn sync_instances(&self, targets: &[AudioTarget]) {
-        let active = targets
-            .iter()
-            .filter(|target| !target.instance_id.is_empty())
-            .map(|target| target.instance_id.as_str())
-            .collect::<std::collections::HashSet<_>>();
-        let stale = if let Ok(mut services) = self.services.lock() {
-            let stale = services
-                .keys()
-                .filter(|id| !active.contains(id.as_str()))
-                .cloned()
-                .collect::<Vec<_>>();
-            for id in &stale {
-                services.remove(id);
-            }
-            stale
-        } else {
-            Vec::new()
-        };
-        drop(stale);
-
-        if let Ok(mut identities) = self.target_identities.lock() {
-            identities.retain(|id, _| active.contains(id.as_str()));
+        let mut request = self.instances.request.lock().unwrap();
+        if request.stopped || request.targets == targets {
+            return;
         }
-
-        for target in targets {
-            if target.instance_id.is_empty() {
-                continue;
-            }
-            let service = if let (Ok(mut services), Ok(mut identities)) =
-                (self.services.lock(), self.target_identities.lock())
-            {
-                let replace = identities
-                    .get(&target.instance_id)
-                    .is_some_and(|current| current != &target.voice_target);
-                if replace {
-                    services.remove(&target.instance_id);
-                }
-                identities.insert(target.instance_id.clone(), target.voice_target.clone());
-                services
-                    .entry(target.instance_id.clone())
-                    .or_insert_with(|| {
-                        #[cfg(any(windows, target_os = "macos"))]
-                        if matches!(
-                            crate::devices::descriptor_registry::voice_engine(&target.kind),
-                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
-                        ) {
-                            return Arc::new(PlatformAudioService::start_a15());
-                        }
-                        Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
-                    })
-                    .clone()
-            } else {
-                continue;
-            };
-            service.set_enabled(target.enabled);
-            let _ = service.set_gain_db(target.gain_db);
-        }
+        request.targets = targets.to_vec();
+        request.pending = true;
+        self.instances.changed.notify_one();
     }
 
     pub fn status(&self, instance_id: Option<&str>) -> AudioServiceStatus {
@@ -308,6 +288,134 @@ impl AudioServiceManager {
     }
 }
 
+impl Drop for AudioServiceManager {
+    fn drop(&mut self) {
+        self.instances.request.lock().unwrap().stopped = true;
+        self.instances.changed.notify_one();
+        // macOS bridge cleanup dispatches to the main queue. Joining that worker
+        // from a main-thread command would prevent it from finishing.
+        self.worker.take();
+    }
+}
+
+fn reconcile_instances(instances: Arc<InstanceServices>) {
+    let mut identities = BTreeMap::new();
+    let mut retired = Vec::new();
+    loop {
+        let mut request = instances.request.lock().unwrap();
+        if !request.pending && !request.stopped {
+            request = if retired.is_empty() {
+                instances.changed.wait(request).unwrap()
+            } else {
+                instances
+                    .changed
+                    .wait_timeout(request, Duration::from_millis(25))
+                    .unwrap()
+                    .0
+            };
+        }
+        if request.stopped {
+            drop(request);
+            let services = std::mem::take(&mut *instances.services.lock().unwrap());
+            for (_, service) in services {
+                service.set_enabled(false);
+                retired.push(service);
+            }
+            while !retired.is_empty() {
+                release_retired(&mut retired);
+                if !retired.is_empty() {
+                    thread::sleep(Duration::from_millis(25));
+                }
+            }
+            return;
+        }
+        let targets = request.pending.then(|| request.targets.clone());
+        request.pending = false;
+        drop(request);
+        if let Some(targets) = targets {
+            reconcile_targets(&instances, &targets, &mut identities, &mut retired);
+        }
+        release_retired(&mut retired);
+    }
+}
+
+fn reconcile_targets(
+    instances: &InstanceServices,
+    targets: &[AudioTarget],
+    identities: &mut BTreeMap<String, (String, Option<String>)>,
+    retired: &mut Vec<Arc<PlatformAudioService>>,
+) {
+    let active = targets
+        .iter()
+        .filter(|target| !target.instance_id.is_empty())
+        .map(|target| {
+            (
+                target.instance_id.clone(),
+                (target.kind.clone(), target.voice_target.clone()),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let removed = {
+        let mut services = instances.services.lock().unwrap();
+        let ids = services
+            .keys()
+            .filter(|id| {
+                active
+                    .get(*id)
+                    .is_none_or(|target| identities.get(*id) != Some(target))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        ids.into_iter()
+            .filter_map(|id| services.remove(&id))
+            .collect::<Vec<_>>()
+    };
+    for service in removed {
+        service.set_enabled(false);
+        retired.push(service);
+    }
+    identities.retain(|id, _| active.contains_key(id));
+
+    for target in targets
+        .iter()
+        .filter(|target| !target.instance_id.is_empty())
+    {
+        let existing = instances
+            .services
+            .lock()
+            .unwrap()
+            .get(&target.instance_id)
+            .cloned();
+        let service = existing.unwrap_or_else(|| {
+            #[cfg(any(windows, target_os = "macos"))]
+            if matches!(
+                crate::devices::descriptor_registry::voice_engine(&target.kind),
+                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+            ) {
+                return Arc::new(PlatformAudioService::start_a15());
+            }
+            Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
+        });
+        service.set_enabled(target.enabled);
+        let _ = service.set_gain_db(target.gain_db);
+        instances
+            .services
+            .lock()
+            .unwrap()
+            .insert(target.instance_id.clone(), service);
+        identities.insert(
+            target.instance_id.clone(),
+            (target.kind.clone(), target.voice_target.clone()),
+        );
+    }
+}
+
+fn release_retired(retired: &mut Vec<Arc<PlatformAudioService>>) {
+    // A status reader may still hold a clone. Keep the final owner here so that
+    // the reader never inherits the service's blocking Bluetooth shutdown.
+    retired.retain(|service| Arc::strong_count(service) != 1);
+}
+
 #[cfg(test)]
 mod tests {
     use super::{clamp_gain_db, AUDIO_GAIN_MAX_DB};
@@ -320,12 +428,15 @@ mod tests {
         let second = Arc::new(PlatformAudioService::without_workers());
         let legacy = Arc::new(PlatformAudioService::without_workers());
         let manager = AudioServiceManager {
-            services: Mutex::new(BTreeMap::from([
-                ("one".into(), first.clone()),
-                ("two".into(), second.clone()),
-            ])),
-            target_identities: Mutex::new(BTreeMap::new()),
+            instances: Arc::new(InstanceServices {
+                services: Mutex::new(BTreeMap::from([
+                    ("one".into(), first.clone()),
+                    ("two".into(), second.clone()),
+                ])),
+                ..Default::default()
+            }),
             legacy: legacy.clone(),
+            worker: None,
         };
         assert!(Arc::ptr_eq(&manager.service(None).unwrap(), &legacy));
         manager.set_a15_input_state(Some("one"), true, true);
@@ -354,7 +465,8 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_instances_route_audio_without_a_playback_selection_and_honor_disable() {
-        let manager = super::AudioServiceManager::start();
+        use super::*;
+        let manager = AudioServiceManager::spawn(Arc::new(PlatformAudioService::without_workers()));
         let mut target = super::AudioTarget {
             instance_id: "a15".into(),
             kind: "cmiotA15".into(),
@@ -362,16 +474,123 @@ mod tests {
             ..Default::default()
         };
         manager.sync_instances(&[target.clone()]);
+        wait_for(|| manager.service(Some("a15")).is_some());
         manager.set_a15_input_state(Some("a15"), true, true);
         manager.push_a15_pcm(Some("a15"), &[4000; 320]);
         assert!(manager.status(Some("a15")).received_data);
 
         target.enabled = false;
         manager.sync_instances(&[target]);
+        wait_for(|| manager.status(Some("a15")).state == "stopped");
         manager.push_a15_pcm(Some("a15"), &[4000; 320]);
         let status = manager.status(Some("a15"));
         assert_eq!(status.state, "stopped");
         assert!(!status.forwarding && !status.received_data);
+    }
+
+    #[cfg(windows)]
+    fn wait_for(mut ready: impl FnMut() -> bool) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !ready() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "audio worker did not finish"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn slow_bluetooth_shutdown_keeps_status_and_latest_sync_available() {
+        use super::*;
+        let (release, released) = std::sync::mpsc::channel();
+        let service = Arc::new(PlatformAudioService::with_worker(thread::spawn(
+            move || {
+                let _ = released.recv();
+            },
+        )));
+        let old = Arc::downgrade(&service);
+        let manager = AudioServiceManager::spawn(Arc::new(PlatformAudioService::without_workers()));
+        manager
+            .instances
+            .services
+            .lock()
+            .unwrap()
+            .insert("old".into(), service);
+        let mut target = AudioTarget {
+            instance_id: "a15".into(),
+            kind: "cmiotA15".into(),
+            enabled: true,
+            ..Default::default()
+        };
+        manager.sync_instances(&[target.clone()]);
+        wait_for(|| old.strong_count() == 0);
+
+        let (finished, result) = std::sync::mpsc::channel();
+        let manager = Arc::new(manager);
+        let querying = Arc::clone(&manager);
+        target.gain_db = 7;
+        let latest = AudioTarget {
+            enabled: false,
+            gain_db: 12,
+            ..target.clone()
+        };
+        let expected = latest.clone();
+        let query = thread::spawn(move || {
+            let status = querying.status(Some("a15"));
+            querying.sync_instances(&[target]);
+            querying.sync_instances(&[latest]);
+            let _ = finished.send(status);
+        });
+        let status = result.recv_timeout(Duration::from_secs(1));
+        let _ = release.send(());
+        query.join().unwrap();
+        assert!(
+            status.is_ok(),
+            "status or sync waited for Bluetooth shutdown"
+        );
+        assert_eq!(
+            manager.instances.request.lock().unwrap().targets,
+            vec![expected]
+        );
+        wait_for(|| manager.status(Some("a15")).state == "stopped");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn retired_service_keeps_its_final_owner_on_the_worker_and_worker_exits() {
+        use super::*;
+        let mut manager =
+            AudioServiceManager::spawn(Arc::new(PlatformAudioService::without_workers()));
+        let borrowed = Arc::new(PlatformAudioService::without_workers());
+        let retired = Arc::downgrade(&borrowed);
+        manager
+            .instances
+            .services
+            .lock()
+            .unwrap()
+            .insert("old".into(), borrowed.clone());
+        manager.sync_instances(&[AudioTarget {
+            instance_id: "new".into(),
+            kind: "cmiotA15".into(),
+            ..Default::default()
+        }]);
+        wait_for(|| {
+            !manager
+                .instances
+                .services
+                .lock()
+                .unwrap()
+                .contains_key("old")
+        });
+        assert_eq!(Arc::strong_count(&borrowed), 2);
+        let worker = manager.worker.take().unwrap();
+        drop(manager);
+        assert_eq!(retired.strong_count(), 2);
+        drop(borrowed);
+        worker.join().unwrap();
+        assert_eq!(retired.strong_count(), 0);
     }
 
     #[test]

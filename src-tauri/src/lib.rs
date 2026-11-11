@@ -1306,7 +1306,7 @@ fn probe_audio_state(
     audio_service.status(instance_id.as_deref())
 }
 
-fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
+pub(crate) fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
     snapshot
         .store
         .instances
@@ -1533,7 +1533,6 @@ fn device_snapshot(
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> DeviceSnapshot {
     let mut snapshot = manager.snapshot();
-    audio_service.sync_instances(&audio_targets(&snapshot));
     for instance in &snapshot.store.instances {
         if devices::descriptor_registry::voice_engine(&instance.kind) == Some("rc003-atvv") {
             if let Some(status) = snapshot.runtime.get_mut(&instance.id) {

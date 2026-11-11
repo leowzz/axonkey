@@ -1475,6 +1475,8 @@ fn run(shared: Arc<Shared>) {
                 snapshot.discovered = discovered;
             }
         }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let mut audio_targets = None;
         {
             let (generation, app_id) = crate::foreground::context();
             let snapshot = shared.snapshot.lock().unwrap();
@@ -1486,6 +1488,24 @@ fn run(shared: Arc<Shared>) {
                     .iter()
                     .map(|instance| effective_instance(instance, app_id.as_deref()).into_owned())
                     .collect();
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                {
+                    audio_targets = Some(crate::audio_targets(&snapshot));
+                }
+            }
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if scanning && audio_targets.is_none() {
+                audio_targets = Some(crate::audio_targets(&snapshot));
+            }
+        }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        if let Some(targets) = audio_targets {
+            let app = shared.app.lock().unwrap().clone();
+            if let Some(audio) = app
+                .as_ref()
+                .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+            {
+                audio.sync_instances(&targets);
             }
         }
         failures.retain(|id, _| configs.iter().any(|i| &i.id == id));
