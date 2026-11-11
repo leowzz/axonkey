@@ -39,6 +39,7 @@ hidapi = { version = "2.6.7", default-features = false, features = ["macos-share
 
 [target.'cfg(windows)'.dependencies]
 windows-collections = "0.2"
+windows-future = "0.2.1"
 prost = "0.14"
 tokio = { version = "1", features = ["rt-multi-thread", "net"] }
 winreg = "0.55"
@@ -66,3 +67,4 @@ windows = { version = "0.61.3", features = [
 
 [target.'cfg(windows)'.dev-dependencies]
 tokio = { version = "1", features = ["time"] }
+windows-core = "0.61.2"

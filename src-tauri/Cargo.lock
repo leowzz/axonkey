@@ -296,6 +296,8 @@ dependencies = [
  "uuid",
  "windows 0.61.3",
  "windows-collections 0.2.0",
+ "windows-core 0.61.2",
+ "windows-future 0.2.1",
  "winreg",
 ]
 

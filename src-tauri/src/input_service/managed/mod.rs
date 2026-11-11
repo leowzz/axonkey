@@ -2533,7 +2533,7 @@ mod tests {
         .is_ok());
     }
 
-    fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
+    pub(super) fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
                 app: Mutex::new(None),
@@ -2964,7 +2964,7 @@ mod tests {
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
 
-    fn information_remote(id: &str, address: &str) -> Discovered {
+    pub(super) fn information_remote(id: &str, address: &str) -> Discovered {
         Discovered {
             id: id.into(),
             kind: "cmiotA15".into(),

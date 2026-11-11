@@ -1,13 +1,14 @@
 use super::{digest, Discovered, Shared, Snapshot};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     fs, io,
     path::Path,
-    sync::{atomic::Ordering, Arc},
+    sync::{atomic::Ordering, mpsc, Arc},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tauri::Emitter;
 
 fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str> {
     use crate::devices::descriptor_registry::{
@@ -154,6 +155,8 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
 const REFRESH: Duration = Duration::from_secs(300);
 const RETRY: Duration = Duration::from_secs(3);
 const MISSING_BATTERY_REFRESH: Duration = Duration::from_secs(30);
+#[cfg(windows)]
+const READ_TIMEOUT: Duration = Duration::from_secs(15);
 #[derive(Default)]
 struct Schedule {
     next: Option<Instant>,
@@ -180,75 +183,123 @@ impl Schedule {
     }
 }
 
+type ReadingKey = (String, String);
+
+struct Reading {
+    target: Discovered,
+    info: DeviceInformation,
+    complete: bool,
+}
+
+impl Reading {
+    fn apply(
+        mut self,
+        shared: &Shared,
+        schedules: &mut HashMap<ReadingKey, Schedule>,
+        in_flight: &mut HashSet<ReadingKey>,
+    ) {
+        if self.complete {
+            let key = (
+                self.target.id.clone(),
+                self.target.bluetooth_address.clone().unwrap(),
+            );
+            in_flight.remove(&key);
+            let Some(schedule) = schedules.get_mut(&key) else {
+                return;
+            };
+            let expect_battery = cfg!(windows) && self.target.kind == "rc003";
+            let retry = schedule.complete(&self.info, expect_battery, Instant::now());
+            self.info.status = if self.info.error.is_none() {
+                "ready"
+            } else if retry {
+                "retrying"
+            } else {
+                "error"
+            }
+            .into();
+        }
+        self.info.updated_at = Some(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        );
+        apply_information(shared, &self.target, self.info);
+    }
+}
+
 #[cfg(any(windows, target_os = "macos"))]
 pub(super) fn start(shared: Arc<Shared>) {
-    thread::spawn(move || {
-        let mut schedules = HashMap::<(String, String), Schedule>::new();
-        while !shared.stop.load(Ordering::Acquire) {
-            let targets: Vec<_> = shared
-                .snapshot
-                .lock()
-                .unwrap()
-                .discovered
+    thread::spawn(move || run(shared, start_reading));
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
+fn run(
+    shared: Arc<Shared>,
+    start_reading: impl Fn(Vec<Discovered>, Vec<Discovered>, Arc<Shared>, mpsc::Sender<Reading>),
+) {
+    let mut schedules = HashMap::<ReadingKey, Schedule>::new();
+    let mut in_flight = HashSet::new();
+    let (sender, receiver) = mpsc::channel::<Reading>();
+    let mut next_reading = None;
+    while !shared.stop.load(Ordering::Acquire) {
+        let targets: Vec<_> = shared
+            .snapshot
+            .lock()
+            .unwrap()
+            .discovered
+            .iter()
+            .filter(|d| {
+                crate::devices::descriptor_registry::voice_engine(&d.kind).is_some()
+                    && d.connected
+                    && d.identity_quality != "ambiguous"
+                    && d.bluetooth_address.is_some()
+            })
+            .cloned()
+            .collect();
+        schedules.retain(|(id, address), _| {
+            targets
                 .iter()
-                .filter(|d| {
-                    crate::devices::descriptor_registry::voice_engine(&d.kind).is_some()
-                        && d.connected
-                        && d.identity_quality != "ambiguous"
-                        && d.bluetooth_address.is_some()
-                })
-                .cloned()
-                .collect();
-            schedules.retain(|(id, address), _| {
-                targets
-                    .iter()
-                    .any(|d| &d.id == id && d.bluetooth_address.as_ref() == Some(address))
-            });
-            let requested = std::mem::take(&mut *shared.information_requests.lock().unwrap());
-            for ((id, _), schedule) in &mut schedules {
-                if requested.contains(id) {
-                    *schedule = Schedule::default();
-                }
-            }
-            let due: Vec<_> = targets
-                .iter()
-                .filter(|target| {
-                    let key = (target.id.clone(), target.bluetooth_address.clone().unwrap());
-                    schedules.entry(key).or_default().due(Instant::now())
-                })
-                .cloned()
-                .collect();
-            if !due.is_empty() {
-                // A single platform batch shares discovery across remotes on macOS.
-                let readings = read_batch(&due, &targets);
-                for (target, mut info) in due.iter().zip(readings) {
-                    if shared.stop.load(Ordering::Acquire) {
-                        return;
-                    }
-                    let key = (target.id.clone(), target.bluetooth_address.clone().unwrap());
-                    let schedule = schedules.get_mut(&key).unwrap();
-                    let expect_battery = cfg!(windows) && target.kind == "rc003";
-                    let retry = schedule.complete(&info, expect_battery, Instant::now());
-                    info.status = if info.error.is_none() {
-                        "ready"
-                    } else if retry {
-                        "retrying"
-                    } else {
-                        "error"
-                    }
-                    .into();
-                    info.updated_at = Some(
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    );
-                    apply_information(&shared, target, info);
-                }
-            }
-            thread::sleep(Duration::from_millis(250));
+                .any(|d| &d.id == id && d.bluetooth_address.as_ref() == Some(address))
+        });
+        for reading in next_reading.take().into_iter().chain(receiver.try_iter()) {
+            reading.apply(&shared, &mut schedules, &mut in_flight);
         }
-    });
+        let requested = std::mem::take(&mut *shared.information_requests.lock().unwrap());
+        for ((id, _), schedule) in &mut schedules {
+            if requested.contains(id) {
+                *schedule = Schedule::default();
+            }
+        }
+        let due: Vec<_> = targets
+            .iter()
+            .filter(|target| {
+                let key = (target.id.clone(), target.bluetooth_address.clone().unwrap());
+                !in_flight.contains(&key) && schedules.entry(key).or_default().due(Instant::now())
+            })
+            .cloned()
+            .collect();
+        if !due.is_empty() {
+            // macOS shares discovery while streaming each matched device.
+            let can_start = !cfg!(target_os = "macos") || in_flight.is_empty();
+            if can_start {
+                for target in &due {
+                    in_flight
+                        .insert((target.id.clone(), target.bluetooth_address.clone().unwrap()));
+                }
+                start_reading(due, targets, shared.clone(), sender.clone());
+            }
+        }
+        next_reading = receiver.recv_timeout(Duration::from_millis(250)).ok();
+    }
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct InformationUpdate {
+    id: String,
+    bluetooth_address: Option<String>,
+    device_info: DeviceInformation,
 }
 
 pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: DeviceInformation) {
@@ -261,14 +312,44 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: 
     }) else {
         return;
     };
-    info.detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
-        .map(str::to_owned);
     let fresh_battery = info.battery_level;
-    info.battery_level = fresh_battery.or(device.device_info.battery_level);
+    let previous = &device.device_info;
+    info.bluetooth_name = info
+        .bluetooth_name
+        .or_else(|| previous.bluetooth_name.clone());
+    info.battery_level = fresh_battery.or(previous.battery_level);
+    info.manufacturer = info.manufacturer.or_else(|| previous.manufacturer.clone());
+    info.serial_number = info
+        .serial_number
+        .or_else(|| previous.serial_number.clone());
+    info.hardware_revision = info
+        .hardware_revision
+        .or_else(|| previous.hardware_revision.clone());
+    info.firmware_revision = info
+        .firmware_revision
+        .or_else(|| previous.firmware_revision.clone());
+    info.software_revision = info
+        .software_revision
+        .or_else(|| previous.software_revision.clone());
+    // A battery-only update must not select the software-version fallback model.
+    info.detected_kind = if info.software_revision.is_some() || info.status == "ready" {
+        kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
+            .map(str::to_owned)
+    } else {
+        previous.detected_kind.clone()
+    };
     device.device_info = info;
+    let update = InformationUpdate {
+        id: device.id.clone(),
+        bluetooth_address: device.bluetooth_address.clone(),
+        device_info: device.device_info.clone(),
+    };
+    drop(snapshot);
+    if let Some(app) = shared.app.lock().unwrap().as_ref() {
+        let _ = app.emit("axonkey-device-information", update);
+    }
     if let (Some(address), Some(level)) = (target.bluetooth_address.as_deref(), fresh_battery) {
         let mut cache = shared.battery_cache.lock().unwrap();
-        drop(snapshot);
         if let Err(error) = cache.remember(&shared.path, address, level) {
             log::warn!("无法保存设备电量缓存：{error}");
         }
@@ -320,7 +401,11 @@ fn text(bytes: &[u8]) -> Result<Option<String>, String> {
 }
 
 #[cfg(windows)]
-fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
+fn read(
+    target: &Discovered,
+    stop: &std::sync::atomic::AtomicBool,
+    mut publish: impl FnMut(&DeviceInformation),
+) -> DeviceInformation {
     use windows::Devices::Bluetooth::BluetoothLEDevice;
     let mut info = DeviceInformation::default();
     let _apartment = match crate::windows_runtime::initialize_mta() {
@@ -330,27 +415,37 @@ fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
             return info;
         }
     };
-    let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
+    let request = crate::windows_runtime::BluetoothRequest::new(READ_TIMEOUT, Some(stop));
     let result = (|| -> Result<(), String> {
         let address = u64::from_str_radix(
             &target.bluetooth_address.as_ref().unwrap().replace(':', ""),
             16,
         )
         .map_err(|e| e.to_string())?;
-        let device = BluetoothLEDevice::FromBluetoothAddressAsync(address)
-            .and_then(|op| op.get())
+        let device = request
+            .run("打开设备信息连接", || {
+                BluetoothLEDevice::FromBluetoothAddressAsync(address)
+            })
             .map_err(|e| e.to_string())?;
         info.bluetooth_name = device
             .Name()
             .ok()
             .map(|name| name.to_string())
             .filter(|name| !name.is_empty());
+        publish(&info);
         let mut errors = Vec::new();
         for (service_id, characteristics) in [
             (0x180f, &[0x2a19][..]),
             (0x180a, &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..]),
         ] {
-            if let Err(error) = read_service(&device, service_id, characteristics, &mut info) {
+            if let Err(error) = read_service(
+                &device,
+                service_id,
+                characteristics,
+                &request,
+                &mut info,
+                &mut publish,
+            ) {
                 errors.push(error);
             }
         }
@@ -370,7 +465,9 @@ fn read_service(
     device: &windows::Devices::Bluetooth::BluetoothLEDevice,
     service_id: u16,
     ids: &[u16],
+    request: &crate::windows_runtime::BluetoothRequest<'_>,
     info: &mut DeviceInformation,
+    publish: &mut impl FnMut(&DeviceInformation),
 ) -> Result<(), String> {
     use windows::{
         core::GUID,
@@ -381,9 +478,16 @@ fn read_service(
         Storage::Streams::DataReader,
     };
     let uuid = |id: u16| GUID::from_u128(((id as u128) << 96) | 0x0000_1000_8000_00805f9b34fb);
-    let services = device
-        .GetGattServicesForUuidWithCacheModeAsync(uuid(service_id), BluetoothCacheMode::Cached)
-        .and_then(|op| op.get())
+    let services = request
+        .run(
+            &format!("发现设备信息服务 {service_id:04X}"),
+            || {
+                device.GetGattServicesForUuidWithCacheModeAsync(
+                    uuid(service_id),
+                    BluetoothCacheMode::Cached,
+                )
+            },
+        )
         .map_err(|e| e.to_string())?;
     if services.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
         return Err(format!("服务 {service_id:04X} 暂时无法访问"));
@@ -394,9 +498,11 @@ fn read_service(
     }
     let service = services.GetAt(0).map_err(|e| e.to_string())?;
     let result = (|| -> Result<(), String> {
-        let opened = service
-            .OpenAsync(GattSharingMode::SharedReadOnly)
-            .and_then(|op| op.get())
+        let opened = request
+            .run(
+                &format!("打开设备信息服务 {service_id:04X}"),
+                || service.OpenAsync(GattSharingMode::SharedReadOnly),
+            )
             .map_err(|e| e.to_string())?;
         if opened != GattOpenStatus::Success && opened != GattOpenStatus::AlreadyOpened {
             return Err(format!("无法共享访问服务 {service_id:04X} ({})", opened.0));
@@ -404,12 +510,13 @@ fn read_service(
         let mut errors = Vec::new();
         for &id in ids {
             let read = (|| -> Result<(), String> {
-                let chars = service
-                    .GetCharacteristicsForUuidWithCacheModeAsync(
-                        uuid(id),
-                        BluetoothCacheMode::Cached,
-                    )
-                    .and_then(|op| op.get())
+                let chars = request
+                    .run(&format!("发现设备信息特征 {id:04X}"), || {
+                        service.GetCharacteristicsForUuidWithCacheModeAsync(
+                            uuid(id),
+                            BluetoothCacheMode::Cached,
+                        )
+                    })
                     .map_err(|e| e.to_string())?;
                 if chars.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
                     return Err(format!("无法读取特征 {id:04X}"));
@@ -418,10 +525,11 @@ fn read_service(
                 if chars.Size().map_err(|e| e.to_string())? == 0 {
                     return Ok(());
                 }
-                let value = chars
-                    .GetAt(0)
-                    .and_then(|c| c.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached))
-                    .and_then(|op| op.get())
+                let characteristic = chars.GetAt(0).map_err(|e| e.to_string())?;
+                let value = request
+                    .run(&format!("读取设备信息特征 {id:04X}"), || {
+                        characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached)
+                    })
                     .map_err(|e| e.to_string())?;
                 if value.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
                     return Err(format!("特征 {id:04X} 读取失败"));
@@ -440,6 +548,7 @@ fn read_service(
                     0x2a28 => info.software_revision = text(&bytes)?,
                     _ => unreachable!(),
                 }
+                publish(info);
                 Ok(())
             })();
             if let Err(error) = read {
@@ -463,32 +572,128 @@ fn read_service(
 }
 
 #[cfg(windows)]
-fn read_batch(targets: &[Discovered], _all_targets: &[Discovered]) -> Vec<DeviceInformation> {
-    const TIMEOUT: Duration = Duration::from_secs(15);
-    targets
-        .iter()
-        .map(|target| {
-            let target = target.clone();
-            let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-            thread::spawn(move || {
-                let _ = sender.send(read(&target, true));
+fn start_reading(
+    targets: Vec<Discovered>,
+    _all_targets: Vec<Discovered>,
+    shared: Arc<Shared>,
+    sender: mpsc::Sender<Reading>,
+) {
+    for target in targets {
+        let worker_target = target.clone();
+        let worker_sender = sender.clone();
+        let worker_shared = shared.clone();
+        let worker = thread::Builder::new()
+            .name("Axonkey device information".into())
+            .spawn(move || {
+                let started = Instant::now();
+                let mut first_battery = true;
+                let info = read(&worker_target, &worker_shared.stop, |info| {
+                    if first_battery && info.battery_level.is_some() {
+                        first_battery = false;
+                        log::info!(target: "axonkey::devices", "Device {} battery read in {} ms", worker_target.id, started.elapsed().as_millis());
+                    }
+                    let _ = worker_sender.send(Reading {
+                        target: worker_target.clone(),
+                        info: info.clone(),
+                        complete: false,
+                    });
+                });
+                log::info!(target: "axonkey::devices", "Device {} information read in {} ms: {}", worker_target.id, started.elapsed().as_millis(), info.error.as_deref().unwrap_or("ready"));
+                let _ = worker_sender.send(Reading {
+                    target: worker_target,
+                    info,
+                    complete: true,
+                });
             });
-            receiver
-                .recv_timeout(TIMEOUT)
-                .unwrap_or_else(|_| DeviceInformation {
-                    error: Some("设备信息读取超时".into()),
+        if let Err(error) = worker {
+            let _ = sender.send(Reading {
+                target,
+                info: DeviceInformation {
+                    error: Some(format!("无法启动设备信息读取：{error}")),
                     ..Default::default()
-                })
-        })
-        .collect()
+                },
+                complete: true,
+            });
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
-fn read_batch(targets: &[Discovered], all_targets: &[Discovered]) -> Vec<DeviceInformation> {
-    use std::ffi::{c_char, CStr, CString};
+fn start_reading(
+    targets: Vec<Discovered>,
+    all_targets: Vec<Discovered>,
+    _shared: Arc<Shared>,
+    sender: mpsc::Sender<Reading>,
+) {
+    let failure_targets = targets.clone();
+    let failure_sender = sender.clone();
+    let worker = thread::Builder::new()
+        .name("Axonkey device information".into())
+        .spawn(move || read_macos(&targets, &all_targets, sender));
+    if let Err(error) = worker {
+        for target in failure_targets {
+            let _ = failure_sender.send(Reading {
+                target,
+                info: DeviceInformation {
+                    error: Some(format!("无法启动设备信息读取：{error}")),
+                    ..Default::default()
+                },
+                complete: true,
+            });
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn read_macos(targets: &[Discovered], all_targets: &[Discovered], sender: mpsc::Sender<Reading>) {
+    use std::ffi::{c_char, c_void, CStr, CString};
     unsafe extern "C" {
-        fn axonkey_device_information(requests: *const c_char) -> *mut c_char;
-        fn axonkey_device_information_free(value: *mut c_char);
+        fn axonkey_device_information_stream(
+            requests: *const c_char,
+            context: *mut c_void,
+            callback: unsafe extern "C" fn(*mut c_void, usize, *const c_char, bool),
+        );
+    }
+    struct Reader<'a> {
+        targets: &'a [Discovered],
+        sender: mpsc::Sender<Reading>,
+        started: Instant,
+        battery_published: HashSet<usize>,
+    }
+    unsafe extern "C" fn progress(
+        context: *mut c_void,
+        index: usize,
+        value: *const c_char,
+        complete: bool,
+    ) {
+        let reader = unsafe { &mut *(context as *mut Reader<'_>) };
+        let Some(target) = reader.targets.get(index) else {
+            return;
+        };
+        let info: Option<DeviceInformation> = if value.is_null() {
+            None
+        } else {
+            serde_json::from_slice(unsafe { CStr::from_ptr(value) }.to_bytes()).ok()
+        };
+        let info = match info {
+            Some(info) => info,
+            None if !complete => return,
+            None => DeviceInformation {
+                error: Some("无法读取设备信息".into()),
+                ..Default::default()
+            },
+        };
+        if info.battery_level.is_some() && reader.battery_published.insert(index) {
+            log::info!(target: "axonkey::devices", "Device {} battery read in {} ms", target.id, reader.started.elapsed().as_millis());
+        }
+        if complete {
+            log::info!(target: "axonkey::devices", "Device {} information read in {} ms: {}", target.id, reader.started.elapsed().as_millis(), info.error.as_deref().unwrap_or("ready"));
+        }
+        let _ = reader.sender.send(Reading {
+            target: target.clone(),
+            info,
+            complete,
+        });
     }
     let requests: Vec<_> = targets
         .iter()
@@ -502,29 +707,226 @@ fn read_batch(targets: &[Discovered], all_targets: &[Discovered]) -> Vec<DeviceI
         })
         .collect();
     let request = CString::new(serde_json::to_string(&requests).unwrap()).unwrap();
-    let raw = unsafe { axonkey_device_information(request.as_ptr()) };
-    let parsed = if raw.is_null() {
-        None
-    } else {
-        let result: Option<Vec<DeviceInformation>> =
-            serde_json::from_slice(unsafe { CStr::from_ptr(raw) }.to_bytes()).ok();
-        unsafe { axonkey_device_information_free(raw) };
-        result
+    let mut reader = Reader {
+        targets,
+        sender,
+        started: Instant::now(),
+        battery_published: HashSet::new(),
     };
-    parsed.unwrap_or_else(|| {
-        targets
-            .iter()
-            .map(|_| DeviceInformation {
-                error: Some("无法读取设备信息".into()),
-                ..Default::default()
-            })
-            .collect()
-    })
+    unsafe {
+        axonkey_device_information_stream(
+            request.as_ptr(),
+            &mut reader as *mut Reader<'_> as *mut c_void,
+            progress,
+        );
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::{information_remote, offline_manager};
     use super::*;
+
+    #[test]
+    fn scheduler_publishes_progress_while_another_read_is_still_in_flight() {
+        let manager = offline_manager(vec![]);
+        let slow = information_remote("slow", "AA:BB:CC:DD:EE:01");
+        let fast = information_remote("fast", "AA:BB:CC:DD:EE:02");
+        let shared = manager.shared.clone();
+        shared.snapshot.lock().unwrap().discovered = vec![slow.clone(), fast.clone()];
+        let (started, requests) = mpsc::channel();
+        let worker_shared = shared.clone();
+        let worker = thread::spawn(move || {
+            run(worker_shared, |targets, _, _, sender| {
+                started.send((targets, sender)).unwrap();
+            });
+        });
+        let (targets, sender) = requests.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(targets.len(), 2);
+        for (target, complete, level) in [(slow.clone(), false, 54), (fast, true, 100)] {
+            sender
+                .send(Reading {
+                    target,
+                    info: DeviceInformation {
+                        battery_level: Some(level),
+                        ..Default::default()
+                    },
+                    complete,
+                })
+                .unwrap();
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let snapshot = manager.snapshot();
+            if snapshot.discovered[0].device_info.battery_level == Some(54)
+                && snapshot.discovered[1].device_info.status == "ready"
+            {
+                assert_eq!(snapshot.discovered[0].device_info.status, "pending");
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "scheduler waited for the unfinished device"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+        manager.refresh_information(&slow.id).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !shared.information_requests.lock().unwrap().is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "scheduler stopped handling refresh requests"
+            );
+            thread::sleep(Duration::from_millis(2));
+        }
+        assert!(
+            requests.try_recv().is_err(),
+            "refresh duplicated an in-flight read"
+        );
+        shared.stop.store(true, Ordering::Release);
+        worker.join().unwrap();
+        fs::remove_file(shared.path.with_extension("battery.json")).unwrap();
+    }
+
+    #[test]
+    fn partial_fields_and_completed_devices_publish_without_waiting_for_other_devices() {
+        let manager = offline_manager(vec![]);
+        let slow = information_remote("slow", "AA:BB:CC:DD:EE:01");
+        let fast = information_remote("fast", "AA:BB:CC:DD:EE:02");
+        let shared = &manager.shared;
+        shared.snapshot.lock().unwrap().discovered = vec![slow.clone(), fast.clone()];
+        let slow_key = (slow.id.clone(), slow.bluetooth_address.clone().unwrap());
+        let fast_key = (fast.id.clone(), fast.bluetooth_address.clone().unwrap());
+        let mut schedules = HashMap::from([
+            (slow_key.clone(), Schedule::default()),
+            (fast_key.clone(), Schedule::default()),
+        ]);
+        let mut in_flight = HashSet::from([slow_key.clone(), fast_key.clone()]);
+        Reading {
+            target: slow.clone(),
+            info: DeviceInformation {
+                battery_level: Some(0),
+                manufacturer: Some("Maker".into()),
+                ..Default::default()
+            },
+            complete: false,
+        }
+        .apply(shared, &mut schedules, &mut in_flight);
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(0));
+        assert_eq!(snapshot.discovered[0].device_info.status, "pending");
+        assert_eq!(snapshot.discovered[0].device_info.detected_kind, None);
+        assert!(schedules[&slow_key].next.is_none());
+        assert_eq!(in_flight.len(), 2);
+
+        Reading {
+            target: fast,
+            info: DeviceInformation {
+                battery_level: Some(100),
+                software_revision: Some("CMIOT3_B311".into()),
+                ..Default::default()
+            },
+            complete: true,
+        }
+        .apply(shared, &mut schedules, &mut in_flight);
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.discovered[0].device_info.status, "pending");
+        assert_eq!(snapshot.discovered[1].device_info.status, "ready");
+        assert_eq!(snapshot.discovered[1].device_info.battery_level, Some(100));
+        assert_eq!(
+            snapshot.discovered[1].device_info.detected_kind.as_deref(),
+            Some("cmiotA15")
+        );
+        assert_eq!(in_flight, HashSet::from([slow_key.clone()]));
+        assert!(schedules[&fast_key].next.is_some());
+
+        Reading {
+            target: slow,
+            info: DeviceInformation {
+                error: Some("读取固件版本超时".into()),
+                ..Default::default()
+            },
+            complete: true,
+        }
+        .apply(shared, &mut schedules, &mut in_flight);
+        let snapshot = manager.snapshot();
+        let info = &snapshot.discovered[0].device_info;
+        assert_eq!(info.status, "retrying");
+        assert_eq!(info.battery_level, Some(0));
+        assert_eq!(info.manufacturer.as_deref(), Some("Maker"));
+        assert_eq!(info.error.as_deref(), Some("读取固件版本超时"));
+        assert!(info.updated_at.is_some());
+        assert!(in_flight.is_empty());
+        assert_eq!(schedules[&slow_key].retries, 1);
+        fs::remove_file(shared.path.with_extension("battery.json")).unwrap();
+    }
+
+    #[test]
+    fn incremental_updates_preserve_details_and_do_not_erase_detected_model_on_failure() {
+        let manager = offline_manager(vec![]);
+        let remote = information_remote("one", "AA:BB:CC:DD:EE:01");
+        let shared = &manager.shared;
+        shared.snapshot.lock().unwrap().discovered = vec![remote.clone()];
+        apply_information(
+            shared,
+            &remote,
+            DeviceInformation {
+                status: "ready".into(),
+                bluetooth_name: Some("Remote".into()),
+                manufacturer: Some("Maker".into()),
+                serial_number: Some("Serial".into()),
+                hardware_revision: Some("HW1".into()),
+                firmware_revision: Some("FW1".into()),
+                software_revision: Some("XFRSD0D_M_R01_761".into()),
+                ..Default::default()
+            },
+        );
+        for status in ["pending", "retrying", "error"] {
+            apply_information(
+                shared,
+                &remote,
+                DeviceInformation {
+                    status: status.into(),
+                    error: (status != "pending").then(|| "设备信息读取超时".into()),
+                    ..Default::default()
+                },
+            );
+            let snapshot = manager.snapshot();
+            let info = &snapshot.discovered[0].device_info;
+            assert_eq!(info.status, status);
+            assert_eq!(info.bluetooth_name.as_deref(), Some("Remote"));
+            assert_eq!(info.manufacturer.as_deref(), Some("Maker"));
+            assert_eq!(info.serial_number.as_deref(), Some("Serial"));
+            assert_eq!(info.hardware_revision.as_deref(), Some("HW1"));
+            assert_eq!(info.firmware_revision.as_deref(), Some("FW1"));
+            assert_eq!(info.software_revision.as_deref(), Some("XFRSD0D_M_R01_761"));
+            assert_eq!(info.detected_kind.as_deref(), Some("xmBt29"));
+        }
+    }
+
+    #[test]
+    fn reading_completion_after_disconnect_or_address_change_cannot_update_another_device() {
+        let manager = offline_manager(vec![]);
+        let remote = information_remote("one", "AA:BB:CC:DD:EE:01");
+        for (connected, address) in [(false, "AA:BB:CC:DD:EE:01"), (true, "AA:BB:CC:DD:EE:02")] {
+            let mut current = remote.clone();
+            current.connected = connected;
+            current.bluetooth_address = Some(address.into());
+            manager.shared.snapshot.lock().unwrap().discovered = vec![current];
+            apply_information(
+                &manager.shared,
+                &remote,
+                DeviceInformation {
+                    manufacturer: Some("Old remote".into()),
+                    ..Default::default()
+                },
+            );
+            assert!(manager.snapshot().discovered[0]
+                .device_info
+                .manufacturer
+                .is_none());
+        }
+    }
 
     #[test]
     fn obe_model_does_not_depend_on_software_revision() {
