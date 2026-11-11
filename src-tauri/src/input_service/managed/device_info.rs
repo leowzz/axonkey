@@ -1,7 +1,9 @@
-use super::{Discovered, Shared, Snapshot};
+use super::{digest, Discovered, Shared, Snapshot};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
+    fs, io,
+    path::Path,
     sync::{atomic::Ordering, Arc},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -82,6 +84,46 @@ impl Default for DeviceInformation {
             updated_at: None,
             error: None,
         }
+    }
+}
+
+#[derive(Default)]
+pub(super) struct BatteryCache {
+    levels: BTreeMap<String, u8>,
+    dirty: bool,
+}
+
+impl BatteryCache {
+    pub(super) fn load(store_path: &Path) -> Self {
+        let mut levels: BTreeMap<String, u8> = fs::read(store_path.with_extension("battery.json"))
+            .ok()
+            .and_then(|data| serde_json::from_slice(&data).ok())
+            .unwrap_or_default();
+        levels.retain(|_, level| *level <= 100);
+        Self {
+            levels,
+            dirty: false,
+        }
+    }
+
+    fn level(&self, address: &str) -> Option<u8> {
+        self.levels.get(&digest(address)).copied()
+    }
+
+    fn remember(&mut self, store_path: &Path, address: &str, level: u8) -> io::Result<()> {
+        self.dirty |= self.levels.insert(digest(address), level) != Some(level);
+        if !self.dirty {
+            return Ok(());
+        }
+        let path = store_path.with_extension("battery.json");
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let temp = path.with_extension("tmp");
+        fs::write(&temp, serde_json::to_vec(&self.levels)?)?;
+        fs::rename(temp, path)?;
+        self.dirty = false;
+        Ok(())
     }
 }
 
@@ -221,18 +263,38 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: 
     };
     info.detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
         .map(str::to_owned);
+    let fresh_battery = info.battery_level;
+    info.battery_level = fresh_battery.or(device.device_info.battery_level);
     device.device_info = info;
+    if let (Some(address), Some(level)) = (target.bluetooth_address.as_deref(), fresh_battery) {
+        let mut cache = shared.battery_cache.lock().unwrap();
+        drop(snapshot);
+        if let Err(error) = cache.remember(&shared.path, address, level) {
+            log::warn!("无法保存设备电量缓存：{error}");
+        }
+    }
 }
 
-pub(super) fn retain_readings(discovered: &mut [Discovered], previous: &[Discovered]) {
+pub(super) fn retain_readings(
+    discovered: &mut [Discovered],
+    previous: &[Discovered],
+    cache: &BatteryCache,
+) {
     for device in discovered {
         if device.connected && device.identity_quality != "ambiguous" {
             if let Some(old) = previous.iter().find(|old| {
                 old.connected
+                    && old.identity_quality != "ambiguous"
                     && old.id == device.id
                     && old.bluetooth_address == device.bluetooth_address
             }) {
                 device.device_info = old.device_info.clone();
+            }
+            if device.device_info.battery_level.is_none() {
+                device.device_info.battery_level = device
+                    .bluetooth_address
+                    .as_deref()
+                    .and_then(|address| cache.level(address));
             }
         } else {
             device.device_info = DeviceInformation {
@@ -588,12 +650,16 @@ mod tests {
         };
         let previous = vec![device("one", 0), device("two", 100)];
         let mut next = vec![previous[1].clone(), previous[0].clone()];
-        retain_readings(&mut next, &previous);
+        for device in &mut next {
+            device.device_info = DeviceInformation::default();
+        }
+        let cache = BatteryCache::default();
+        retain_readings(&mut next, &previous, &cache);
         assert_eq!(next[0].device_info.battery_level, Some(100));
         assert_eq!(next[1].device_info.battery_level, Some(0));
         next[0].connected = false;
         next[1].identity_quality = "ambiguous".into();
-        retain_readings(&mut next, &previous);
+        retain_readings(&mut next, &previous, &cache);
         assert!(next.iter().all(|d| d.device_info.battery_level.is_none()));
     }
 }

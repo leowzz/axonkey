@@ -256,6 +256,7 @@ enum RecordingRequest {
 struct Shared {
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
+    battery_cache: Mutex<device_info::BatteryCache>,
     information_requests: Mutex<HashSet<String>>,
     recording_requests: Mutex<Vec<(String, RecordingRequest, SyncSender<Result<bool, String>>)>>,
     path: PathBuf,
@@ -505,6 +506,7 @@ impl DeviceManager {
         };
         let shared = Arc::new(Shared {
             app: Mutex::new(quarbor.as_ref().map(|registry| registry.app.clone())),
+            battery_cache: Mutex::new(device_info::BatteryCache::load(&path)),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
@@ -536,6 +538,7 @@ impl DeviceManager {
         };
         let shared = Arc::new(Shared {
             app: Mutex::new(None),
+            battery_cache: Mutex::new(device_info::BatteryCache::load(&path)),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
@@ -1399,7 +1402,11 @@ fn run(shared: Arc<Shared>) {
                 snapshot.scan_error = driver_error;
             }
             if hid_ok {
-                device_info::retain_readings(&mut discovered, &snapshot.discovered);
+                device_info::retain_readings(
+                    &mut discovered,
+                    &snapshot.discovered,
+                    &shared.battery_cache.lock().unwrap(),
+                );
                 remember_pairing_ids(&mut snapshot, &discovered, &shared.path);
                 snapshot.discovered = discovered;
             }
@@ -2488,6 +2495,7 @@ mod tests {
         DeviceManager {
             shared: Arc::new(Shared {
                 app: Mutex::new(None),
+                battery_cache: Mutex::default(),
                 information_requests: Mutex::new(HashSet::new()),
                 recording_requests: Mutex::new(Vec::new()),
                 snapshot: Mutex::new(Snapshot {
@@ -2914,10 +2922,8 @@ mod tests {
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
 
-    #[test]
-    fn information_refresh_queues_only_the_selected_connected_remote() {
-        let manager = offline_manager(vec![]);
-        let device = |id: &str| Discovered {
+    fn information_remote(id: &str, address: &str) -> Discovered {
+        Discovered {
             id: id.into(),
             kind: "cmiotA15".into(),
             name: "remote".into(),
@@ -2928,15 +2934,24 @@ mod tests {
             connected: true,
             paired: true,
             pairing_id: None,
-            bluetooth_address: Some(id.into()),
+            bluetooth_address: Some(address.into()),
             hid_instance_id: None,
-            device_info: device_info::DeviceInformation {
-                status: "ready".into(),
-                battery_level: Some(54),
-                ..Default::default()
-            },
-        };
-        manager.shared.snapshot.lock().unwrap().discovered = vec![device("one"), device("two")];
+            device_info: Default::default(),
+        }
+    }
+
+    #[test]
+    fn information_refresh_queues_only_the_selected_connected_remote() {
+        let manager = offline_manager(vec![]);
+        let mut devices = [
+            information_remote("one", "AA:BB:CC:DD:EE:01"),
+            information_remote("two", "AA:BB:CC:DD:EE:02"),
+        ];
+        for device in &mut devices {
+            device.device_info.status = "ready".into();
+            device.device_info.battery_level = Some(54);
+        }
+        manager.shared.snapshot.lock().unwrap().discovered = devices.into();
         let snapshot = manager.refresh_information("one").unwrap();
         assert_eq!(snapshot.discovered[0].device_info.status, "pending");
         assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(54));
@@ -2950,6 +2965,65 @@ mod tests {
         manager.shared.snapshot.lock().unwrap().discovered[1].connected = false;
         assert!(manager.refresh_information("two").is_err());
         assert_eq!(manager.shared.information_requests.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn last_battery_survives_failed_reads_and_is_restored_on_reconnect_and_restart() {
+        let manager = offline_manager(vec![]);
+        let remote = information_remote("one", "AA:BB:CC:DD:EE:01");
+        let shared = &manager.shared;
+        shared.snapshot.lock().unwrap().discovered = vec![remote.clone()];
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                battery_level: Some(54),
+                ..Default::default()
+            },
+        );
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                status: "retrying".into(),
+                error: Some("设备信息读取超时".into()),
+                ..Default::default()
+            },
+        );
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(54));
+        assert_eq!(snapshot.discovered[0].device_info.status, "retrying");
+
+        let mut offline = remote.clone();
+        offline.connected = false;
+        let mut discovered = [offline];
+        let cache = shared.battery_cache.lock().unwrap();
+        device_info::retain_readings(&mut discovered, &snapshot.discovered, &cache);
+        assert_eq!(discovered[0].device_info.battery_level, None);
+        let mut reconnected = [remote.clone()];
+        device_info::retain_readings(&mut reconnected, &discovered, &cache);
+        assert_eq!(reconnected[0].device_info.battery_level, Some(54));
+        drop(cache);
+
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                battery_level: Some(0),
+                ..Default::default()
+            },
+        );
+        let reloaded = device_info::BatteryCache::load(&shared.path);
+        let other = information_remote("two", "AA:BB:CC:DD:EE:02");
+        let mut ambiguous = remote.clone();
+        ambiguous.identity_quality = "ambiguous".into();
+        let mut restarted = [remote, other, ambiguous];
+        device_info::retain_readings(&mut restarted, &[], &reloaded);
+        assert_eq!(restarted[0].device_info.battery_level, Some(0));
+        assert_eq!(restarted[0].device_info.status, "pending");
+        assert_eq!(restarted[1].device_info.battery_level, None);
+        assert_eq!(restarted[2].device_info.battery_level, None);
+        std::fs::remove_file(shared.path.with_extension("battery.json")).unwrap();
     }
 
     #[test]
