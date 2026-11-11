@@ -52,7 +52,7 @@ export function AudioTestDialog({
   useEffect(() => {
     if (!nativeRuntime || platform === 'unsupported') return
     let active = true
-    let wasForwarding = false
+    let wasReceiving = false
     let timer: number | undefined
     const poll = async () => {
       try {
@@ -60,23 +60,24 @@ export function AudioTestDialog({
         if (active) {
           setSample(next)
           const valid = !next[0].error && next[0].driverInstalled && next[0].bluetoothConnected
-          const forwarding = valid && next[0].forwarding
-          if (!valid || (forwarding && !wasForwarding)) updateMeasurement({ type: 'reset' })
-          if (valid && (forwarding || wasForwarding)) {
+          // Windows can receive audio while no application has opened the virtual microphone.
+          const receiving = valid && (next[0].receivedData || next[0].forwarding)
+          if (!valid || (receiving && !wasReceiving)) updateMeasurement({ type: 'reset' })
+          if (valid && (receiving || wasReceiving)) {
             updateMeasurement({
               type: 'sample',
               peak: Math.max(next[1].peak, ...(next[1].waveform ?? []).map(p => p.peak)),
             })
           }
-          if (wasForwarding && valid && !forwarding) {
+          if (wasReceiving && valid && !receiving) {
             updateMeasurement({ type: 'finish', minimum: audioGainMin, maximum: audioGainMax })
           }
-          wasForwarding = forwarding
+          wasReceiving = receiving
           setError('')
         }
       } catch (cause) {
         if (active) {
-          wasForwarding = false
+          wasReceiving = false
           setSample(null)
           updateMeasurement({ type: 'reset' })
           setError(`无法读取音频状态：${String(cause)}`)
@@ -94,6 +95,7 @@ export function AudioTestDialog({
 
   const [status, level] = sample ?? [null, { peak: 0, rms: 0 }]
   const supported = nativeRuntime && platform !== 'unsupported'
+  const receiving = !!(status?.receivedData || status?.forwarding)
   const message = !supported
     ? '浏览器不支持音量测试，请使用桌面应用。'
     : error ||
@@ -159,9 +161,7 @@ export function AudioTestDialog({
           <section className={`audio-test-meter ${tone}`}>
             <h3>测试结果</h3>
             <div className={`audio-test-result ${resultTone}`} role="status" aria-live="polite" aria-atomic="true">
-              <strong>
-                {!ready ? '暂不可测试' : completed ? result.title : status?.forwarding ? '正在收音…' : '等待测试'}
-              </strong>
+              <strong>{!ready ? '暂不可测试' : completed ? result.title : receiving ? '正在收音…' : '等待测试'}</strong>
               {resultHint && <span>{resultHint}</span>}
             </div>
             <h3 className="audio-test-meter-heading">实时音量</h3>
@@ -271,7 +271,7 @@ export function AudioTestDialog({
           points={level.waveform ?? []}
           now={level.nowMs ?? 0}
           gain={audioGain}
-          forwarding={!!status?.forwarding}
+          forwarding={receiving}
           available={ready}
         />
         <details className="audio-test-details">
@@ -307,7 +307,7 @@ export function AudioTestDialog({
           <div className="audio-test-stage-list" aria-label="语音通道状态">
             <span>音频驱动：{!status ? '未检测' : status.driverInstalled ? '已安装' : '未安装'}</span>
             <span>语音连接：{!status ? '未检测' : status.bluetoothConnected ? '已连接' : '等待连接'}</span>
-            <span>收音：{!status ? '未检测' : status.forwarding ? '已收到数据' : '暂无数据'}</span>
+            <span>收音：{!status ? '未检测' : receiving ? '已收到数据' : '暂无数据'}</span>
             <span>转发：{!status ? '未检测' : status.forwarding ? '进行中' : '未转发'}</span>
           </div>
           <p className="audio-test-note">
