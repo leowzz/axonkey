@@ -2296,6 +2296,9 @@ mod tests {
                 ..Default::default()
             };
             let mut harness = Harness::new(settings.clone());
+            harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_remote\instance".into());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
             harness.channel.shared.status.lock().unwrap().capture_active = true;
             A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
             let (reply, result) = std::sync::mpsc::sync_channel(1);
