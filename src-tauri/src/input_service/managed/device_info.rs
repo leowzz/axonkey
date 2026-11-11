@@ -262,14 +262,14 @@ fn run(
                 .iter()
                 .any(|d| &d.id == id && d.bluetooth_address.as_ref() == Some(address))
         });
-        for reading in next_reading.take().into_iter().chain(receiver.try_iter()) {
-            reading.apply(&shared, &mut schedules, &mut in_flight);
-        }
         let requested = std::mem::take(&mut *shared.information_requests.lock().unwrap());
         for ((id, _), schedule) in &mut schedules {
             if requested.contains(id) {
                 *schedule = Schedule::default();
             }
+        }
+        for reading in next_reading.take().into_iter().chain(receiver.try_iter()) {
+            reading.apply(&shared, &mut schedules, &mut in_flight);
         }
         let due: Vec<_> = targets
             .iter()
@@ -726,6 +726,48 @@ fn read_macos(targets: &[Discovered], all_targets: &[Discovered], sender: mpsc::
 mod tests {
     use super::super::tests::{information_remote, offline_manager};
     use super::*;
+
+    #[test]
+    fn refresh_received_during_a_read_reuses_its_completion() {
+        let manager = offline_manager(vec![]);
+        let remote = information_remote("one", "AA:BB:CC:DD:EE:01");
+        let shared = manager.shared.clone();
+        shared.snapshot.lock().unwrap().discovered = vec![remote.clone()];
+        let (started, requests) = mpsc::channel();
+        let (resume, paused) = mpsc::channel();
+        let worker_shared = shared.clone();
+        let worker = thread::spawn(move || {
+            let first = std::cell::Cell::new(true);
+            run(worker_shared, |targets, _, _, sender| {
+                started.send((targets, sender)).unwrap();
+                if first.replace(false) {
+                    paused.recv().unwrap();
+                }
+            });
+        });
+        let (_, sender) = requests.recv_timeout(Duration::from_secs(2)).unwrap();
+        manager.refresh_information(&remote.id).unwrap();
+        sender
+            .send(Reading {
+                target: remote,
+                info: DeviceInformation::default(),
+                complete: true,
+            })
+            .unwrap();
+        resume.send(()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while manager.snapshot().discovered[0].device_info.status != "ready" {
+            assert!(Instant::now() < deadline, "reading did not complete");
+            thread::sleep(Duration::from_millis(2));
+        }
+        let duplicate = requests.recv_timeout(Duration::from_millis(50));
+        shared.stop.store(true, Ordering::Release);
+        worker.join().unwrap();
+        assert!(
+            duplicate.is_err(),
+            "refresh queued a duplicate read after completion"
+        );
+    }
 
     #[test]
     fn scheduler_publishes_progress_while_another_read_is_still_in_flight() {
