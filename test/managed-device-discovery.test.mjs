@@ -606,6 +606,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
     driverAction: null, batteryLevel: index === 0 ? 15 : 78,
     onInstallDriver: id => actions.push(['install', id]),
+    onBind: () => actions.push(['bind', instances[index].id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
     onOpenAudioCalibration: id => actions.push(['calibrate', id]),
     onOpenAudioDriver: () => audioDriverRequests.push('open'),
@@ -635,6 +636,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByProps({ className: 'device-recording-control' }).props.disabled, true)
     snapshot.discovered = [{ ...device, id: 'physical-two', kind: 'cmiotA15', connected: true }]
     act(() => views[1].update(React.createElement(InstanceWorkspace, props(1))))
+    const statusRow = views[1].root.findByProps({ 'aria-label': '设备状态' })
+    assert.equal(text(statusRow), '拦截中78%')
+    assert.equal(statusRow.findByProps({ role: 'switch' }).props['aria-checked'], true)
+    assert.equal(statusRow.findAllByType('button').length, 1)
     const recordingButton = () => views[1].root.findByProps({ className: 'device-recording-control' })
     assert.equal(recordingButton().props.disabled, false)
     assert.equal(recordingButton().props['aria-label'], '停止录音')
@@ -719,6 +724,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
       const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav device-settings-drawer-nav' })
       assert.deepEqual(settingsNavigation.findAllByType('button').map(text), ['设备设置', '设备信息'])
+      const bindingRow = views[0].root.findByProps({ className: 'settings-form-control managed-instance-binding-control' })
+      assert.deepEqual(bindingRow.findAllByType('button').map(text), ['重新绑定', '解除绑定，保留配置'])
+      act(() => bindingRow.findAllByType('button')[0].props.onClick())
+      assert.deepEqual(actions.at(-1), ['bind', 'one'])
       const manageAudioDriver = views[0].root.findAllByType('button').find(button => text(button) === '管理驱动')
       act(() => manageAudioDriver.props.onClick())
       assert.equal(audioDriverRequests.at(-1), 'open')
@@ -773,7 +782,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     assert.equal(views[1].root.findByType('select').props.value, 'click', 'all CMIOT-A15 instances support choosing a recording mode')
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    await act(async () => views[0].root.findByProps({ className: 'managed-bound-device' }).findByType('button').props.onClick())
+    const unbind = views[0].root.findByProps({ className: 'managed-bound-device' }).findAllByType('button')
+      .find(button => text(button) === '解除绑定，保留配置')
+    await act(async () => unbind.props.onClick())
     assert.deepEqual(actions.at(-1), ['unbind', 'one'])
     act(() => {
       views[0].update(React.createElement(InstanceWorkspace, props(0)))
@@ -895,6 +906,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
 
     const workspace = views[0].root
     const workflow = workspace.findByType(WorkflowAxonkey)
+    const bind = workspace.findByProps({ className: 'managed-instance-bind' })
+    assert.equal(text(bind), '绑定设备')
+    act(() => bind.props.onClick())
+    assert.deepEqual(actions.at(-1), ['bind', 'one'])
     const close = () => workspace.findByProps({ 'aria-label': '关闭设备设置' }).props.onClick()
     const open = () => workspace.findByProps({ className: 'device-workspace-settings' }).props.onClick()
     act(close)

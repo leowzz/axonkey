@@ -94,7 +94,6 @@
   min-width: 0;
 }
 .device-settings-drawer .dialog-secondary,
-.device-settings-drawer .managed-bound-device > button,
 .device-settings-drawer .managed-remove > button,
 .device-settings-drawer .managed-driver-status-control > button {
   padding: 7px 10px;

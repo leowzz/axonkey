@@ -547,15 +547,17 @@ body:has(.managed-discovery-help-dialog[open]),
   background: #edf5ff;
 }
 .managed-instance-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
   flex-shrink: 0;
-  color: #8192a3;
+  gap: 2px;
+  color: #62778a;
   font-size: 12px;
 }
-.managed-instance-status > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.managed-instance-connection {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .managed-instance-status .ready {
   color: #438164;
@@ -564,16 +566,37 @@ body:has(.managed-discovery-help-dialog[open]),
   color: #ad5144;
 }
 .managed-instance-power {
+  grid-column: 2;
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 8px;
+  gap: 3px;
+  white-space: nowrap;
+}
+.managed-instance-power .battery-icon {
+  width: 12px;
+  height: 12px;
+}
+.managed-instance-status > .switch {
+  grid-column: 3;
+  justify-self: end;
+  width: 36px;
+  height: 24px;
+}
+.managed-instance-status > .switch span {
+  width: 18px;
+  height: 18px;
+}
+.managed-instance-status > .switch.on span {
+  transform: translateX(12px);
 }
 .managed-instance-bind {
+  justify-self: start;
+  min-height: 24px;
+  padding: 0;
   border: 0;
   background: transparent;
   color: #367db8;
-  padding: 8px 0;
+  white-space: nowrap;
 }
 .managed-controller-stage .remote-art {
   width: 100%;
@@ -608,8 +631,10 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-bound-device .device-binding-copy {
   min-width: 160px;
 }
-.managed-bound-device > button {
-  flex-shrink: 0;
+.managed-bound-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .managed-dialog-footer button {
   padding: 7px 10px;

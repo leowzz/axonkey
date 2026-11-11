@@ -27,8 +27,9 @@ import { DeviceBindingPicker } from './IntegrationControls'
 import {
   defaultRecordingMode,
   emptyTriggers,
-  instanceStatusLabel,
+  instanceState,
   packageFor,
+  stateLabel,
   supportsWindowsDriver,
   usesHidVoice,
 } from './model'
@@ -260,6 +261,8 @@ export function InstanceWorkspace({
   )
   const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
+  const connectionState = native ? instanceState(instance, controller.snapshot) : undefined
+  const connectionLabel = native ? stateLabel(connectionState) : '预览模式'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
   const driverMissing =
@@ -411,28 +414,36 @@ export function InstanceWorkspace({
           )}
         <aside className="mapping-device-rail panel-surface">
           <section className="managed-instance-status" aria-label="设备状态">
-            <div>
-              <span className={ready ? 'ready' : status?.error ? 'warning' : ''}>
-                {native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}
-              </span>
-              <button
-                type="button"
-                role="switch"
-                className={`switch ${instance.enabled ? 'on' : ''}`}
-                aria-label="启用此设备"
-                aria-checked={instance.enabled}
-                onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
+            {instance.binding ? (
+              <span
+                className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
+                title={connectionLabel}
               >
-                <span />
+                {connectionState === 'exclusive'
+                  ? '拦截中'
+                  : connectionState === 'needsRebind'
+                    ? '需重新绑定'
+                    : connectionLabel}
+              </span>
+            ) : (
+              <button type="button" className="managed-instance-bind" onClick={onBind}>
+                绑定设备
               </button>
-            </div>
+            )}
             {voice && (
               <span className="managed-instance-power">
-                <BatteryIndicator level={batteryLevel} />
+                <BatteryIndicator level={batteryLevel} compact />
               </span>
             )}
-            <button className="managed-instance-bind" onClick={onBind}>
-              {instance.binding ? '重新绑定' : '绑定设备'}
+            <button
+              type="button"
+              role="switch"
+              className={`switch ${instance.enabled ? 'on' : ''}`}
+              aria-label="启用此设备"
+              aria-checked={instance.enabled}
+              onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
+            >
+              <span />
             </button>
           </section>
           <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
@@ -686,6 +697,7 @@ export function InstanceWorkspace({
                         <BoundDeviceInfo
                           binding={instance.binding}
                           device={boundDevice}
+                          onRebind={onBind}
                           onUnbind={unbindDevice}
                           disabled={pendingPhysicalAction !== null}
                         />
@@ -782,11 +794,13 @@ export function InstanceWorkspace({
 function BoundDeviceInfo({
   binding,
   device,
+  onRebind,
   onUnbind,
   disabled,
 }: {
   binding: string
   device?: DiscoveredDevice
+  onRebind: () => void
   onUnbind: () => void
   disabled: boolean
 }) {
@@ -804,9 +818,14 @@ function BoundDeviceInfo({
           {status}
         </span>
       </div>
-      <button type="button" onClick={onUnbind} disabled={disabled}>
-        {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
-      </button>
+      <div className="managed-bound-device-actions">
+        <button type="button" className="dialog-secondary" onClick={onRebind} disabled={disabled}>
+          重新绑定
+        </button>
+        <button type="button" className="dialog-secondary" onClick={onUnbind} disabled={disabled}>
+          {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
+        </button>
+      </div>
     </div>
   )
 }
