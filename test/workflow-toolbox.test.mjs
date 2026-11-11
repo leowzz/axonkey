@@ -101,7 +101,7 @@ test('saved items remain independently draggable and deleting one never starts a
 })
 
 
-test('basic and my tabs isolate their searches and preserve the empty and failed library states', () => {
+test('built-in and my tabs isolate their searches and preserve the empty and failed library states', () => {
   const saved = { ...step('savedSequence', '我的发送序列'), properties: { savedSequenceId: 'mine' } }
   let view
   function Harness({ error = '', savedSteps = [saved] }) {
@@ -111,8 +111,9 @@ test('basic and my tabs isolate their searches and preserve the empty and failed
   act(() => { view = Renderer.create(React.createElement(Harness)) })
   try {
     const tabs = view.root.findByProps({ 'aria-label': '行为来源' })
-    assert.deepEqual(tabs.findAllByType('button').map(text), ['基础', '我的'])
+    assert.deepEqual(tabs.findAllByType('button').map(text), ['内置', '我的'])
     const search = view.root.findByType('input')
+    assert.equal(search.props.placeholder, '搜索内置行为')
     act(() => search.props.onChange({ target: { value: '我的发送序列' } }))
     assert.equal(items(view).length, 0)
     act(() => tabs.findAllByType('button')[1].props.onClick())

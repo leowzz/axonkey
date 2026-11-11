@@ -344,6 +344,24 @@ test('right modifier presets keep one key token and platform-specific names', ()
   assert.equal(names('windows'), '右 Ctrl|右 Alt|右 Win')
 })
 
+test('classic mapping offers the macOS shortcuts and shows their names after saving', () => {
+  const mac = render('macos', [{ id: 'dock', enabled: true, type: 'shortcut', keys: ['Ctrl', 'F3'] }])
+  const windows = render('windows')
+  try {
+    const actions = ['聚焦 Dock', '打开控制中心', '切换到上一个 App', '打开调度中心']
+    for (const name of actions) {
+      act(() => choiceButton(mac.view, name).props.onClick())
+      assert.equal(choiceButton(windows.view, name), undefined)
+    }
+    assert.deepEqual(mac.applied, ['focusDock', 'openControlCenter', 'switchToPreviousApp', 'openMissionControl'])
+    assert.ok(mac.view.root.findByProps({ className: 'behavior-list' }).findAllByType('strong').some(node => text(node) === '聚焦 Dock'))
+    assert.match(text(choiceButton(mac.view, '切换到上一个 App')), /Cmd \+ Tab/)
+  } finally {
+    act(() => mac.view.unmount())
+    act(() => windows.view.unmount())
+  }
+})
+
 test('common behaviors offer the right-side modifiers with platform names', () => {
   const mac = render('macos')
   const windows = render('windows')

@@ -76,6 +76,7 @@ import type {
   SwitchProfileBehavior,
 } from '../behaviorModel'
 import { updateWorkflowInput } from '../components/workflowBehaviorBridge'
+import { macosShortcutPresets } from '../macosShortcutPresets'
 import { behaviorHistoryReducer, createBehaviorHistory } from '../behaviorHistory'
 import {
   isRightModifierPreset,
@@ -1671,6 +1672,12 @@ function AppController({
 
   const applyCommonBehavior = (preset: CommonBehaviorPreset) => {
     if (isRightModifierPreset(preset)) return replaceWithKey(rightModifierKeys[preset])
+    const macosShortcut = macosShortcutPresets(platform).find(item => item.preset === preset)
+    if (macosShortcut) {
+      replaceWithCommonBehavior([createBehavior({ type: 'shortcut', keys: macosShortcut.keys })])
+      showBehaviorToast(`已设为${macosShortcut.name}`)
+      return
+    }
     switch (preset) {
       case 'wheelUp':
       case 'wheelDown':

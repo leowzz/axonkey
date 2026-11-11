@@ -40,6 +40,7 @@ import {
   parseSequenceImport,
 } from '../behaviorModel'
 import { readClipboardText } from '../clipboard'
+import { macosShortcutPresets } from '../macosShortcutPresets'
 import { open } from '@tauri-apps/plugin-dialog'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { SettingsHelp } from './SettingsHelp'
@@ -313,6 +314,15 @@ export function BehaviorEditor({
                   detail={`${keyDisplayName('Ctrl', platform)} + Tab`}
                   onClick={() => onApplyCommonBehavior('nextTab')}
                 />
+                {macosShortcutPresets(platform).map(action => (
+                  <BehaviorActionButton
+                    key={action.preset}
+                    icon={<Keyboard size={17} />}
+                    label={action.name}
+                    detail={action.description}
+                    onClick={() => onApplyCommonBehavior(action.preset)}
+                  />
+                ))}
                 <BehaviorActionButton
                   icon={<ClipboardPaste size={17} />}
                   label="输入文本并回车"

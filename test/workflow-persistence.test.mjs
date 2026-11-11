@@ -17,7 +17,6 @@ const copiedSequences = []
 const libraryAdditions = []
 function MockSaveDialog(props) { return React.createElement('sequence-save-dialog', props) }
 function MockPasteDialog(props) { return React.createElement('sequence-paste-dialog', props) }
-function MockToolbox() { return null }
 const copy = value => JSON.parse(JSON.stringify(value))
 const cache = new Map()
 function MockDialog(props) { return React.createElement('workflow-dialog', props) }
@@ -25,7 +24,7 @@ const Designer = {
   create(_canvas, definition, configuration) {
     const listeners = []
     const instance = {
-      definition, configuration, canvas: _canvas, destroyed: false, coalesceChanges: false, delivering: false,
+      definition, configuration, canvas: _canvas, destroyed: false, coalesceChanges: false, delivering: false, drags: [],
       isReadonly() { return this.api.editor.isReadonly() },
       emit(changeType, stepId = null) {
         if (this.coalesceChanges && this.delivering) return Promise.resolve()
@@ -43,7 +42,7 @@ const Designer = {
       getDefinition: () => definition,
       isDragging: () => false, clearSelectedStep() { this.onSelectedStepIdChanged.emit(null) }, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
     }
-    const api = { editor: {
+    const api = { toolbox: { tryDrag: (point, step) => instance.drags.push({ point, step }) }, editor: {
       isReadonly: () => false, getDefinition: () => definition,
       createStepEditorContext: id => ({
         notifyChildrenChanged: () => instance.emit(library.DefinitionChangeType.stepChildrenChanged, id),
@@ -77,7 +76,6 @@ function load(file) {
     if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
     if (name === './WorkflowSplitPane') return { WorkflowSplitPane: props => React.createElement(React.Fragment, null, props.header, props.canvas, props.editor) }
-    if (name === './WorkflowToolbox') return { WorkflowToolbox: MockToolbox }
     if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
     if (name === './WorkflowSequenceSaveDialog') return { WorkflowSequenceSaveDialog: MockSaveDialog }
@@ -104,6 +102,7 @@ function load(file) {
 }
 
 const { WorkflowAxonkey } = load('src/components/WorkflowAxonkey.tsx')
+const { WorkflowToolbox } = load('src/components/WorkflowToolbox.tsx')
 const { MouseScopeSelector, mouseInputs } = load('src/components/MouseMapping.tsx')
 const { createDefaultBehaviorMap } = load('src/behaviorModel.ts')
 const empty = () => ({ click: [], doubleClick: [], longPress: [] })
@@ -116,14 +115,20 @@ const render = async (sequences = empty(), options = {}, account = null) => {
   let view
   const writes = []
   const requests = []
+  const toolboxLists = []
   let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]), ...options }
-  const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, { ...props, key: props.button.id }))
-  await act(async () => { view = Renderer.create(element(), { createNodeMock: () => {
+  const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, props))
+  await act(async () => { view = Renderer.create(element(), { createNodeMock: element => {
+    if (element.props.className === 'workflow-toolbox-list') {
+      const list = { scrollTop: 0 }
+      toolboxLists.push(list)
+      return list
+    }
     const handlers = new Map()
     return { handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
   } }) })
   return {
-    view, writes, requests, current: () => instances.at(-1),
+    view, writes, requests, toolboxLists, current: () => instances.at(-1),
     update: async update => { props = { ...props, ...update }; await act(async () => view.update(element())) },
     unmount: async () => act(async () => view.unmount()),
   }
@@ -148,7 +153,7 @@ test('switching mouse edges flushes pending edits to the original edge and resto
     return React.createElement(React.Fragment, null,
       React.createElement(MouseScopeSelector, { activeId, behaviors, onSelect: select }),
       React.createElement(WorkflowAxonkey, {
-        key: activeId, platform: 'windows', button: mouseInputs.find(input => input.id === activeId),
+        platform: 'windows', button: mouseInputs.find(input => input.id === activeId),
         sequences: behaviors[activeId], toolboxCategory: 'all', onToolboxCategoryChange() {}, onRequestProfileSwitch() {},
         onChange: (id, next) => setBehaviors(current => ({ ...current, [id]: copy(next) })),
       }))
@@ -456,6 +461,36 @@ test('switching inputs flushes a pending designer event into the outgoing input 
   } finally { await app.unmount() }
 })
 
+test('switching inputs keeps the library search and list scroll while routing actions to the new input', async () => {
+  const app = await render(empty(), { toolboxCategory: '常用行为/常用行为' })
+  try {
+    const previous = app.current()
+    const input = app.view.root.findByType('input')
+    await act(async () => input.props.onChange({ target: { value: '回车' } }))
+    const [list] = app.toolboxLists
+    list.scrollTop = 200
+
+    await app.update({ button: { id: 'power', label: '电源键' }, sequences: empty() })
+    assert.equal(previous.destroyed, true)
+    assert.equal(app.view.root.findByType('input'), input)
+    assert.equal(input.props.value, '回车')
+    assert.equal(app.toolboxLists.length, 1)
+    assert.equal(list.scrollTop, 200)
+    assert.equal(app.view.root.findByType(WorkflowToolbox).props.selectedCategory, '常用行为/常用行为')
+
+    const enter = app.view.root.findByProps({ className: 'sqd-toolbox-item sqd-type-enter' })
+    await act(async () => enter.findByProps({ className: 'workflow-toolbox-item-main' }).props.onMouseDown({
+      button: 0, clientX: 120, clientY: 80, preventDefault() {}, stopPropagation() {},
+    }))
+    assert.equal(previous.drags.length, 0)
+    assert.equal(app.current().drags[0].step.type, 'enter')
+    await act(async () => enter.findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
+    assert.equal(app.writes.length, 1)
+    assert.equal(app.writes[0][0], 'power')
+    assert.equal(app.writes[0][1].click[0].key, 'Enter')
+  } finally { await app.unmount() }
+})
+
 test('canceling incomplete actions keeps saved mappings intact; confirming a macro saves all steps together', async () => {
   const app = await render({ ...empty(), click: [delay(751)] })
   try {
@@ -516,7 +551,7 @@ test('save persists a snapshot without modifying mappings, restores on reopen an
     assert.equal(stored[0].name, '常用序列')
     assert.match(stored[0].sequence, /wait 650ms/)
     reopened = await render()
-    const toolbox = reopened.view.root.findByType(MockToolbox)
+    const toolbox = reopened.view.root.findByType(WorkflowToolbox)
     const savedGroup = toolbox.props.palettes.find(palette => palette.name === '已保存').groups[0]
     assert.equal(savedGroup.steps[0].name, '常用序列')
     await act(async () => toolbox.props.onRemoveSavedSequence(stored[0].id))
@@ -549,7 +584,7 @@ test('the disable action is offered in the control palette and replaces only its
   const original = { click: [delay(500), { ...delay(800), id: 'second' }], doubleClick: [{ ...delay(300), id: 'double' }], longPress: [] }
   const app = await render(original)
   try {
-    const toolbox = app.view.root.findByType(MockToolbox)
+    const toolbox = app.view.root.findByType(WorkflowToolbox)
     const action = toolbox.props.palettes.flatMap(palette => palette.groups).find(group => group.name === '控制').steps.find(step => step.type === 'disabled')
     assert.equal(action.name, '禁用此触发方式')
     const node = { ...action, id: 'disable-drop', properties: { ...action.properties } }
@@ -726,7 +761,7 @@ test('cancelling shared deletion preserves unfinished drafts in other lanes', as
 test('library add buttons append independent actions to the current trigger and preserve the palette', async () => {
   const app = await render(empty(), { activeTrigger: 'doubleClick' })
   try {
-    let toolbox = app.view.root.findByType(MockToolbox)
+    let toolbox = app.view.root.findByType(WorkflowToolbox)
     const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === 'delay')
     const before = copy(action)
     assert.equal(toolbox.props.addLabel, '添加到双击')
@@ -738,7 +773,7 @@ test('library add buttons append independent actions to the current trigger and 
     assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
     assert.deepEqual(copy(action), before)
     await app.update({ activeTrigger: 'longPress' })
-    toolbox = app.view.root.findByType(MockToolbox)
+    toolbox = app.view.root.findByType(WorkflowToolbox)
     assert.equal(toolbox.props.addLabel, '添加到长按')
     await act(async () => toolbox.props.onAddStep(action))
     assert.equal(app.writes.at(-1)[1].longPress.length, 1)
@@ -749,7 +784,7 @@ test('library add buttons append independent actions to the current trigger and 
 test('library add buttons reuse disabled-lane and profile-switch rules', async () => {
   const app = await render({ ...empty(), click: [delay(20)] })
   try {
-    const toolbox = app.view.root.findByType(MockToolbox)
+    const toolbox = app.view.root.findByType(WorkflowToolbox)
     const actions = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps)
     await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'switchProfile')))
     assert.equal(app.requests.length, 1)
@@ -770,7 +805,7 @@ test('anonymous cloud additions count accepted copies once, preserve provenance 
   const second = '00000000-0000-4000-8000-000000000002'
   const app = await render()
   try {
-    const toolbox = app.view.root.findByType(MockToolbox)
+    const toolbox = app.view.root.findByType(WorkflowToolbox)
     const action = { ...palette('delay'), properties: { ms: 20, libraryItemId: first } }
     await act(async () => toolbox.props.onAddStep(action))
     assert.equal(libraryAdditions.length, additions + 1)
@@ -829,7 +864,7 @@ test('inserting a saved copy counts each known active library source once while 
   const before = libraryAdditions.length
   const app = await render()
   try {
-    const toolbox = app.view.root.findByType(MockToolbox)
+    const toolbox = app.view.root.findByType(WorkflowToolbox)
     const action = { ...palette('savedSequence'), properties: { sequence: 'axonkey/1\nkey Enter\nwait 30ms\nkey Esc\noff text "停用"\nkey Space\nend', libraryItemIds: [first, first, second, disabled, null] } }
     await act(async () => toolbox.props.onAddStep(action))
     assert.equal(libraryAdditions.length, before + 1)

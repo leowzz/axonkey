@@ -35,6 +35,7 @@ import type {
 } from './appTypes'
 import type { KeyboardEvent } from 'react'
 import { xiaomiRemoteButtons, cmiotA15RemoteButtons } from './devices/index.ts'
+import { macosShortcutPresets } from './macosShortcutPresets.ts'
 
 export const detectBrowserPlatform = (): Platform => {
   if (typeof navigator === 'undefined') return 'windows'
@@ -522,8 +523,12 @@ export function behaviorSummary(behavior: Behavior, platform: Platform) {
       )
     case 'key':
       return behavior.key ? keyDisplayName(behavior.key, platform) : '未录入'
-    case 'shortcut':
-      return behavior.keys.length > 0 ? behavior.keys.map(key => keyDisplayName(key, platform)).join(' + ') : '未录入'
+    case 'shortcut': {
+      const preset = macosShortcutPresets(platform).find(
+        ({ keys }) => keys.length === behavior.keys.length && keys.every((key, index) => key === behavior.keys[index]),
+      )
+      return preset?.name ?? (behavior.keys.map(key => keyDisplayName(key, platform)).join(' + ') || '未录入')
+    }
     case 'typeText':
       return behavior.text ? `输入：${behavior.text.slice(0, 12)}` : '模拟输入文字'
     case 'openPath':

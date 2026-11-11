@@ -8,6 +8,7 @@ import {
   triggerTypes,
 } from '../behaviorModel.ts'
 import type { Platform } from '../appTypes.ts'
+import { macosShortcutPresets } from '../macosShortcutPresets.ts'
 import { createTriggerDefinition } from './WorkflowTriggerRoot.ts'
 export { isWorkflowLaneDisabled, isWorkflowStepLocked } from './WorkflowTriggerRoot.ts'
 import { workflowStepBehavior } from './workflowStepEditing.ts'
@@ -130,6 +131,9 @@ function expandedWorkflowSteps(step: Step, platform: Platform, label: Label): St
     )
   }
   const preset = step.type
+  const macosShortcut = macosShortcutPresets(platform).find(item => item.preset === preset)
+  if (macosShortcut)
+    return [behaviorToWorkflowStep(createBehavior({ type: 'shortcut', keys: macosShortcut.keys, id: step.id }), label)]
   if (preset === 'switchProfile')
     return [
       {

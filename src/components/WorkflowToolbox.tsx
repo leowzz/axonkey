@@ -15,6 +15,8 @@ export type WorkflowToolboxPalette = {
   groups: ToolboxGroupConfiguration[]
 }
 
+const builtInSourceLabel = '内置'
+
 const categoryCodes: Record<string, string> = {
   控制: 'control',
   键盘: 'keyboard',
@@ -37,7 +39,7 @@ export function WorkflowToolbox({
   onRemoveSavedSequence,
   savedError,
 }: {
-  api: DesignerApi
+  api: DesignerApi | null
   platform?: Platform
   palettes: WorkflowToolboxPalette[]
   iconUrls: Record<string, string>
@@ -85,7 +87,13 @@ export function WorkflowToolbox({
     platform,
   )
   const localFallback = !!cloudView && !cloud.steps.length && (cloudView === 'recommended' || !!cloud.error)
-  const sourceLabel = mine ? '我的' : cloudView === 'recommended' ? '推荐' : cloudView === 'community' ? '社区' : '基础'
+  const sourceLabel = mine
+    ? '我的'
+    : cloudView === 'recommended'
+      ? '推荐'
+      : cloudView === 'community'
+        ? '社区'
+        : builtInSourceLabel
   const categories = palettes
     .filter(palette => palette.name !== '已保存')
     .flatMap(palette =>
@@ -141,12 +149,12 @@ export function WorkflowToolbox({
         {(account
           ? [
               ['recommended', '推荐'],
-              ['all', '基础'],
+              ['all', builtInSourceLabel],
               ['community', '社区'],
               ['已保存/已保存', '我的'],
             ]
           : [
-              ['all', '基础'],
+              ['all', builtInSourceLabel],
               ['已保存/已保存', '我的'],
             ]
         ).map(([id, label]) => (
@@ -251,14 +259,14 @@ export function WorkflowToolbox({
                           dragOrigin.current = { x: event.clientX, y: event.clientY }
                           event.preventDefault()
                           event.stopPropagation()
-                          api.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
+                          api?.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
                         }}
                         onTouchStart={event => {
                           if (event.touches.length !== 1) return
                           event.stopPropagation()
                           const touch = event.touches[0]
                           dragOrigin.current = { x: touch.clientX, y: touch.clientY }
-                          api.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
+                          api?.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
                         }}
                         onClick={event => {
                           if (
