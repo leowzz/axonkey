@@ -156,7 +156,9 @@ const REFRESH: Duration = Duration::from_secs(300);
 const RETRY: Duration = Duration::from_secs(3);
 const MISSING_BATTERY_REFRESH: Duration = Duration::from_secs(30);
 #[cfg(windows)]
-const READ_TIMEOUT: Duration = Duration::from_secs(15);
+const READ_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(windows)]
+const OPERATION_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Default)]
 struct Schedule {
     next: Option<Instant>,
@@ -422,9 +424,10 @@ fn read(
             16,
         )
         .map_err(|e| ReadError::Field(e.to_string()))?;
-        let device = request.run("打开设备信息连接", || {
-            BluetoothLEDevice::FromBluetoothAddressAsync(address)
-        })?;
+        let device =
+            request.run_with_timeout("打开设备信息连接", OPERATION_TIMEOUT, || {
+                BluetoothLEDevice::FromBluetoothAddressAsync(address)
+            })?;
         info.bluetooth_name = device
             .Name()
             .ok()
@@ -471,8 +474,9 @@ fn read_service(
         Storage::Streams::DataReader,
     };
     let uuid = |id: u16| GUID::from_u128(((id as u128) << 96) | 0x0000_1000_8000_00805f9b34fb);
-    let services = request.run(
+    let services = request.run_with_timeout(
         &format!("发现设备信息服务 {service_id:04X}"),
+        OPERATION_TIMEOUT,
         || {
             device.GetGattServicesForUuidWithCacheModeAsync(
                 uuid(service_id),
@@ -491,8 +495,9 @@ fn read_service(
     }
     let service = services.GetAt(0)?;
     let result = (|| -> Result<(), ReadError> {
-        let opened = request.run(
+        let opened = request.run_with_timeout(
             &format!("打开设备信息服务 {service_id:04X}"),
+            OPERATION_TIMEOUT,
             || service.OpenAsync(GattSharingMode::SharedReadOnly),
         )?;
         if opened != GattOpenStatus::Success && opened != GattOpenStatus::AlreadyOpened {
@@ -502,12 +507,16 @@ fn read_service(
             )));
         }
         read_fields(ids, info, publish, |id| {
-            let chars = request.run(&format!("发现设备信息特征 {id:04X}"), || {
-                service.GetCharacteristicsForUuidWithCacheModeAsync(
-                    uuid(id),
-                    BluetoothCacheMode::Cached,
-                )
-            })?;
+            let chars = request.run_with_timeout(
+                &format!("发现设备信息特征 {id:04X}"),
+                OPERATION_TIMEOUT,
+                || {
+                    service.GetCharacteristicsForUuidWithCacheModeAsync(
+                        uuid(id),
+                        BluetoothCacheMode::Cached,
+                    )
+                },
+            )?;
             gatt_status(&format!("特征 {id:04X} 发现"), chars.Status()?, || {
                 chars.ProtocolError().and_then(|code| code.Value())
             })?;
@@ -516,9 +525,11 @@ fn read_service(
                 return Ok(None);
             }
             let characteristic = chars.GetAt(0)?;
-            let value = request.run(&format!("读取设备信息特征 {id:04X}"), || {
-                characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached)
-            })?;
+            let value = request.run_with_timeout(
+                &format!("读取设备信息特征 {id:04X}"),
+                OPERATION_TIMEOUT,
+                || characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached),
+            )?;
             gatt_status(&format!("特征 {id:04X} 读取"), value.Status()?, || {
                 value.ProtocolError().and_then(|code| code.Value())
             })?;
@@ -555,6 +566,17 @@ impl ReadError {
 impl From<windows::core::Error> for ReadError {
     fn from(error: windows::core::Error) -> Self {
         Self::Windows(error)
+    }
+}
+
+#[cfg(windows)]
+impl From<crate::windows_runtime::BluetoothRequestError> for ReadError {
+    fn from(error: crate::windows_runtime::BluetoothRequestError) -> Self {
+        use crate::windows_runtime::BluetoothRequestError;
+        match error {
+            BluetoothRequestError::Windows(error) => Self::Windows(error),
+            BluetoothRequestError::OperationTimeout(error) => Self::Field(error.to_string()),
+        }
     }
 }
 
@@ -905,6 +927,72 @@ mod tests {
         assert!(error.terminal());
         assert_eq!(fields, [0x2a19, 0x2a29]);
         assert_eq!(info.battery_level, Some(0));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn operation_timeout_preserves_battery_and_publishes_later_fields() {
+        use crate::windows_runtime::BluetoothRequest;
+        use windows_future::IAsyncOperation;
+
+        let request = BluetoothRequest::new(Duration::from_secs(1), None);
+        let mut info = DeviceInformation::default();
+        let mut fields = Vec::new();
+        let mut published = Vec::new();
+        let (resume, paused) = mpsc::channel();
+        let (resume_software, paused_software) = mpsc::channel();
+        let mut paused = Some(paused);
+        let mut paused_software = Some(paused_software);
+        let result = read_fields(
+            &[0x2a19, 0x2a29, 0x2a25, 0x2a28, 0x2a26],
+            &mut info,
+            &mut |info| published.push(info.clone()),
+            |id| {
+                fields.push(id);
+                let value = request.run_with_timeout("field", Duration::from_millis(30), || {
+                    Ok(if id == 0x2a29 {
+                        let paused = paused.take().unwrap();
+                        IAsyncOperation::spawn(move || {
+                            paused.recv().unwrap();
+                            Ok(1u8)
+                        })
+                    } else if id == 0x2a28 {
+                        let paused = paused_software.take().unwrap();
+                        IAsyncOperation::spawn(move || {
+                            paused.recv().unwrap();
+                            Ok(1u8)
+                        })
+                    } else {
+                        IAsyncOperation::ready(Ok(54u8))
+                    })
+                })?;
+                Ok(Some(match id {
+                    0x2a19 => vec![value],
+                    0x2a25 => b"Serial".to_vec(),
+                    0x2a26 => b"FW1".to_vec(),
+                    _ => unreachable!(),
+                }))
+            },
+        );
+        resume.send(()).unwrap();
+        resume_software.send(()).unwrap();
+        let error = result.unwrap_err();
+        assert!(!error.terminal());
+        assert_eq!(
+            error.to_string().matches("0x800705B4").count(),
+            1,
+            "optional software timeout stays optional"
+        );
+        assert_eq!(fields, [0x2a19, 0x2a29, 0x2a25, 0x2a28, 0x2a26]);
+        assert_eq!(info.battery_level, Some(54));
+        assert!(info.manufacturer.is_none());
+        assert_eq!(info.serial_number.as_deref(), Some("Serial"));
+        assert_eq!(info.firmware_revision.as_deref(), Some("FW1"));
+        assert_eq!(published.len(), 3);
+        assert_eq!(
+            published.last().unwrap().firmware_revision.as_deref(),
+            Some("FW1")
+        );
     }
 
     #[cfg(windows)]

@@ -27,6 +27,18 @@ pub(crate) struct BluetoothRequest<'a> {
     stop: Option<&'a AtomicBool>,
 }
 
+#[derive(Debug)]
+pub(crate) enum BluetoothRequestError {
+    Windows(Error),
+    OperationTimeout(Error),
+}
+
+impl From<Error> for BluetoothRequestError {
+    fn from(error: Error) -> Self {
+        Self::Windows(error)
+    }
+}
+
 impl<'a> BluetoothRequest<'a> {
     pub(crate) fn new(timeout: Duration, stop: Option<&'a AtomicBool>) -> Self {
         Self {
@@ -40,14 +52,36 @@ impl<'a> BluetoothRequest<'a> {
         stage: &str,
         start: impl FnOnce() -> Result<IAsyncOperation<T>>,
     ) -> Result<T> {
+        self.run_until(stage, self.deadline, start)
+            .map_err(|error| match error {
+                BluetoothRequestError::Windows(error)
+                | BluetoothRequestError::OperationTimeout(error) => error,
+            })
+    }
+
+    pub(crate) fn run_with_timeout<T: RuntimeType + 'static>(
+        &self,
+        stage: &str,
+        timeout: Duration,
+        start: impl FnOnce() -> Result<IAsyncOperation<T>>,
+    ) -> std::result::Result<T, BluetoothRequestError> {
+        self.run_until(stage, (Instant::now() + timeout).min(self.deadline), start)
+    }
+
+    fn run_until<T: RuntimeType + 'static>(
+        &self,
+        stage: &str,
+        deadline: Instant,
+        start: impl FnOnce() -> Result<IAsyncOperation<T>>,
+    ) -> std::result::Result<T, BluetoothRequestError> {
         let started = Instant::now();
         let mut lock_wait = Duration::ZERO;
         let mut initiation = Duration::ZERO;
         let result = (|| {
-            let guard = self.acquire(stage);
+            let guard = self.acquire(stage, deadline);
             lock_wait = started.elapsed();
             let guard = guard?;
-            self.check(stage)?;
+            self.check(stage, deadline)?;
             let initiating = Instant::now();
             let operation = start();
             initiation = initiating.elapsed();
@@ -56,30 +90,33 @@ impl<'a> BluetoothRequest<'a> {
             drop(guard);
             let operation = operation?;
             loop {
-                if let Err(error) = self.check(stage) {
+                if let Err(error) = self.check(stage, deadline) {
                     let _ = operation.Cancel();
                     return Err(error);
                 }
                 match operation.Status() {
-                    Ok(AsyncStatus::Started) => self.wait(),
-                    Ok(_) => return operation.GetResults(),
+                    Ok(AsyncStatus::Started) => Self::wait(deadline),
+                    Ok(_) => return operation.GetResults().map_err(Into::into),
                     Err(error) => {
                         let _ = operation.Cancel();
-                        return Err(error);
+                        return Err(error.into());
                     }
                 }
             }
         })();
         let elapsed = started.elapsed();
         let operation_wait = elapsed.saturating_sub(lock_wait + initiation);
-        if result
-            .as_ref()
-            .is_err_and(|error| error.code() == HRESULT(0x800705b4u32 as i32))
-        {
-            log::warn!(target: "axonkey::bluetooth",
-                "{stage}: Bluetooth request timed out; lock_wait_ms={}, initiation_ms={}, operation_ms={}, total_ms={}",
-                lock_wait.as_millis(), initiation.as_millis(),
-                operation_wait.as_millis(), elapsed.as_millis());
+        if let Err(error) = &result {
+            let (error, scope) = match error {
+                BluetoothRequestError::Windows(error) => (error, "request"),
+                BluetoothRequestError::OperationTimeout(error) => (error, "operation"),
+            };
+            if error.code() == HRESULT(0x800705b4u32 as i32) {
+                log::warn!(target: "axonkey::bluetooth",
+                    "{stage}: Bluetooth {scope} timed out; lock_wait_ms={}, initiation_ms={}, operation_ms={}, total_ms={}",
+                    lock_wait.as_millis(), initiation.as_millis(),
+                    operation_wait.as_millis(), elapsed.as_millis());
+            }
         }
         log::debug!(target: "axonkey::bluetooth",
             "{stage}: lock_wait_ms={}, initiation_ms={}, operation_ms={}, total_ms={}",
@@ -88,36 +125,47 @@ impl<'a> BluetoothRequest<'a> {
         result
     }
 
-    fn acquire(&self, stage: &str) -> Result<MutexGuard<'static, ()>> {
+    fn acquire(
+        &self,
+        stage: &str,
+        deadline: Instant,
+    ) -> std::result::Result<MutexGuard<'static, ()>, BluetoothRequestError> {
         loop {
-            self.check(stage)?;
+            self.check(stage, deadline)?;
             match bluetooth_calls().try_lock() {
                 Ok(guard) => return Ok(guard),
                 Err(TryLockError::Poisoned(poisoned)) => return Ok(poisoned.into_inner()),
-                Err(TryLockError::WouldBlock) => self.wait(),
+                Err(TryLockError::WouldBlock) => Self::wait(deadline),
             }
         }
     }
 
-    fn check(&self, stage: &str) -> Result<()> {
+    fn check(
+        &self,
+        stage: &str,
+        deadline: Instant,
+    ) -> std::result::Result<(), BluetoothRequestError> {
         if self.stop.is_some_and(|stop| stop.load(Ordering::Acquire)) {
-            return Err(Error::new(
-                HRESULT(0x800704c7u32 as i32),
-                format!("{stage} 已取消"),
-            ));
+            return Err(
+                Error::new(HRESULT(0x800704c7u32 as i32), format!("{stage} 已取消")).into(),
+            );
         }
-        if Instant::now() >= self.deadline {
-            return Err(Error::new(
+        let now = Instant::now();
+        if now >= self.deadline {
+            return Err(Error::new(HRESULT(0x800705b4u32 as i32), format!("{stage} 超时")).into());
+        }
+        if now >= deadline {
+            return Err(BluetoothRequestError::OperationTimeout(Error::new(
                 HRESULT(0x800705b4u32 as i32),
-                format!("{stage} 超时"),
-            ));
+                format!("{stage} 单次操作超时"),
+            )));
         }
         Ok(())
     }
 
-    fn wait(&self) {
+    fn wait(deadline: Instant) {
         thread::sleep(
-            Duration::from_millis(10).min(self.deadline.saturating_duration_since(Instant::now())),
+            Duration::from_millis(10).min(deadline.saturating_duration_since(Instant::now())),
         );
     }
 }
@@ -236,6 +284,83 @@ mod tests {
         assert_eq!(result.unwrap_err().code(), HRESULT(0x800705b4u32 as i32));
         assert!(canceled.load(Ordering::Acquire));
         assert_eq!(results.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn operation_timeout_cancels_only_that_operation_and_allows_the_next_call() {
+        let canceled = Arc::new(AtomicBool::new(false));
+        let results = Arc::new(AtomicUsize::new(0));
+        let operation: IAsyncOperation<u32> = PendingOperation {
+            canceled: canceled.clone(),
+            results: results.clone(),
+        }
+        .into();
+        let request = BluetoothRequest::new(Duration::from_secs(2), None);
+        let result =
+            request.run_with_timeout("slow field", Duration::from_millis(30), || Ok(operation));
+        assert!(matches!(
+            result,
+            Err(BluetoothRequestError::OperationTimeout(_))
+        ));
+        assert!(canceled.load(Ordering::Acquire));
+        assert_eq!(results.load(Ordering::Relaxed), 0);
+        assert_eq!(
+            request
+                .run_with_timeout("next field", Duration::from_millis(100), || {
+                    Ok(IAsyncOperation::ready(Ok(54u32)))
+                })
+                .unwrap(),
+            54
+        );
+    }
+
+    #[test]
+    fn healthy_operations_get_separate_limits_within_the_request_budget() {
+        let request = BluetoothRequest::new(Duration::from_secs(3), None);
+        for value in 0..4u32 {
+            let result = request.run_with_timeout("field", Duration::from_millis(300), || {
+                Ok(IAsyncOperation::spawn(move || {
+                    thread::sleep(Duration::from_millis(100));
+                    Ok(value)
+                }))
+            });
+            assert_eq!(result.unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn operation_limits_do_not_extend_the_request_deadline() {
+        let request = BluetoothRequest::new(Duration::from_millis(100), None);
+        request
+            .run_with_timeout("first field", Duration::from_secs(1), || {
+                Ok(IAsyncOperation::ready(Ok(54u32)))
+            })
+            .unwrap();
+        let canceled = Arc::new(AtomicBool::new(false));
+        let results = Arc::new(AtomicUsize::new(0));
+        let operation: IAsyncOperation<u32> = PendingOperation {
+            canceled: canceled.clone(),
+            results: results.clone(),
+        }
+        .into();
+        let result =
+            request.run_with_timeout("pending field", Duration::from_secs(1), || Ok(operation));
+        assert!(matches!(
+            result,
+            Err(BluetoothRequestError::Windows(ref error))
+                if error.code() == HRESULT(0x800705b4u32 as i32)
+        ));
+        assert!(canceled.load(Ordering::Acquire));
+        assert_eq!(results.load(Ordering::Relaxed), 0);
+        let result =
+            request.run_with_timeout::<u32>("expired request", Duration::from_secs(1), || {
+                panic!("must not initiate after the request deadline")
+            });
+        assert!(matches!(
+            result,
+            Err(BluetoothRequestError::Windows(ref error))
+                if error.code() == HRESULT(0x800705b4u32 as i32)
+        ));
     }
 
     #[test]
