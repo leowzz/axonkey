@@ -60,7 +60,7 @@ export function WorkflowStepDialog({
     return () => {
       if (app) app.inert = wasInert
       document.body.style.overflow = overflow
-      const node = document.querySelector<SVGElement>(
+      const node = document.querySelector<HTMLElement | SVGElement>(
         `.workflow-axonkey-canvas [data-step-id="${CSS.escape(edit.stepId)}"]`,
       )
       if (node) node.focus()

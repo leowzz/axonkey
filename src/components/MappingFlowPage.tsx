@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { triggerSummary } from '../appConfig'
 import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
@@ -40,7 +41,11 @@ export function MappingFlowPage({
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const [railMode, setRailMode] = useState<'diagram' | 'list'>('diagram')
   const primaryRow = deviceStatus.rows[0]
+  const mappedRemoteIds = editableButtons
+    .filter(button => Object.values(behaviors[button.id]).some(list => list.some(item => item.enabled)))
+    .map(button => button.id)
   return (
     <div className="mapping-page mapping-flow-page">
       <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
@@ -83,7 +88,6 @@ export function MappingFlowPage({
         />
         {topNotice}
         <aside className="mapping-device-rail panel-surface">
-          {deviceStatus.recording !== undefined && <DeviceRecordingStatus recording={deviceStatus.recording} />}
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}
@@ -94,20 +98,70 @@ export function MappingFlowPage({
             />
           ) : (
             <>
-              {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
-              <div className="remote-stage">
-                <div className="remote-art">
-                  <RemoteControl
-                    activeId={activeId}
-                    pressedId={pressedId}
-                    mappedIds={editableButtons
-                      .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
-                      .map(button => button.id)}
-                    onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
-                    remoteView={remoteView}
-                  />
-                </div>
+              <div className="rail-mode-tabs" role="tablist" aria-label="按键视图">
+                <button
+                  type="button"
+                  role="tab"
+                  className={`rail-tab${railMode === 'diagram' ? ' active' : ''}`}
+                  aria-selected={railMode === 'diagram'}
+                  onClick={() => setRailMode('diagram')}
+                >
+                  遥控器
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  className={`rail-tab${railMode === 'list' ? ' active' : ''}`}
+                  aria-selected={railMode === 'list'}
+                  onClick={() => setRailMode('list')}
+                >
+                  已配速览{mappedRemoteIds.length > 0 ? ` (${mappedRemoteIds.length})` : ''}
+                </button>
               </div>
+              {debugMode && <BatteryDebugControls onAdjust={adjustPreviewBattery} />}
+              {railMode === 'diagram' ? (
+                <div className="remote-stage">
+                  <div className="remote-art">
+                    <RemoteControl
+                      activeId={activeId}
+                      pressedId={pressedId}
+                      mappedIds={mappedRemoteIds}
+                      onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
+                      remoteView={remoteView}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="rail-keymap-list" role="listbox" aria-label="按键已配速览">
+                  {editableButtons.map(button => {
+                    const isSelected = activeId === button.id
+                    const isMapped = mappedRemoteIds.includes(button.id)
+                    return (
+                      <button
+                        key={button.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        className={`rail-keymap-row${isSelected ? ' selected' : ''}${isMapped ? ' mapped' : ''}`}
+                        onClick={() => selectBehaviorTarget(button.id, 'click')}
+                      >
+                        <span className="rail-keymap-head">
+                          <span>{button.label}</span>
+                          {isMapped && <span className="rail-keymap-dot" aria-hidden="true" />}
+                        </span>
+                        <span className="rail-keymap-summary">
+                          {triggerSummary(behaviors[button.id].click, 'click', platform)}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              {deviceStatus.recording !== undefined && (
+                <div className="rail-voice-strip">
+                  <DeviceRecordingStatus recording={deviceStatus.recording} />
+                </div>
+              )}
             </>
           )}
         </aside>

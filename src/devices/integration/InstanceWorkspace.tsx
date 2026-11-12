@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { SlidersHorizontal } from 'lucide-react'
+import { RotateCcw, SlidersHorizontal } from 'lucide-react'
 import type {
   MacPermissions,
   ManagedDriverAction,
@@ -9,7 +9,7 @@ import type {
   MappingInput,
   Platform,
 } from '../../appTypes'
-import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
+import type { Behavior, ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
 import { getStoredDeviceInput, storeDeviceInput } from '../../deviceInputSelection'
@@ -99,6 +99,7 @@ export function InstanceWorkspace({
     storeDeviceInput(instance.id, inputId)
   }
   const [settings, setSettings] = useState(false)
+  const [railMode, setRailMode] = useState<'diagram' | 'list'>('diagram')
   const [editingApplicationId, setEditingApplicationId] = useState('')
   const applications = useForegroundApplications(native)
   const [recordingPending, setRecordingPending] = useState(false)
@@ -324,53 +325,103 @@ export function InstanceWorkspace({
           </div>
         )}
         <aside className="mapping-device-rail panel-surface">
-          <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
-            <div className="remote-art">
-              <RemoteControl
-                activeId={selected}
-                pressedIds={input.pressed}
-                mappedIds={mapped}
-                onSelect={selectInput}
-                remoteView={pkg.remoteView}
-              />
-            </div>
+          <div className="rail-mode-tabs" role="tablist" aria-label="按键视图">
+            <button
+              type="button"
+              role="tab"
+              className={`rail-tab${railMode === 'diagram' ? ' active' : ''}`}
+              aria-selected={railMode === 'diagram'}
+              onClick={() => setRailMode('diagram')}
+            >
+              {instance.kind === 'xboxBluetooth' ? '手柄' : '遥控器'}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              className={`rail-tab${railMode === 'list' ? ' active' : ''}`}
+              aria-selected={railMode === 'list'}
+              onClick={() => setRailMode('list')}
+            >
+              已配速览{mapped.length > 0 ? ` (${mapped.length})` : ''}
+            </button>
           </div>
-          {voice && (
-            <DeviceRecordingStatus
-              recording={native && !!status?.recording}
-              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
-              disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
-            />
+          {railMode === 'diagram' ? (
+            <>
+              <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
+                <div className="remote-art">
+                  <RemoteControl
+                    activeId={selected}
+                    pressedIds={input.pressed}
+                    mappedIds={mapped}
+                    onSelect={selectInput}
+                    remoteView={pkg.remoteView}
+                  />
+                </div>
+              </div>
+              {analogInputs.length > 0 && (
+                <div className="managed-analog">
+                  {analogInputs.map(button => (
+                    <label key={button.id}>
+                      {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
+                    </label>
+                  ))}
+                  <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
+                    {analogInputs.map(button => (
+                      <p key={button.id}>
+                        {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
+                        {Math.round(button.releaseThreshold * 100)}% 时释放。
+                      </p>
+                    ))}
+                  </SettingsHelp>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rail-keymap-list" role="listbox" aria-label="按键已配速览">
+              {pkg.inputs.map(item => {
+                const itemSequences = profile.behaviors[item.id] ?? emptyTriggers()
+                const isSelected = item.id === selected
+                const isMapped = mapped.includes(item.id)
+                const isPressed = input.pressed.includes(item.id)
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    className={`rail-keymap-row${isSelected ? ' selected' : ''}${isMapped ? ' mapped' : ''}${isPressed ? ' pressed' : ''}`}
+                    onClick={() => selectInput(item.id)}
+                  >
+                    <span className="rail-keymap-head">
+                      <span>{item.label}</span>
+                      {isMapped && <span className="rail-keymap-dot" aria-hidden="true" />}
+                    </span>
+                    <span className="rail-keymap-summary">{summarizeTriggerBehaviors(itemSequences, platform)}</span>
+                  </button>
+                )
+              })}
+            </div>
           )}
-          {voice &&
-            (voice.transport === 'gatt' ||
-              (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos'))) && (
-              <button
-                type="button"
-                className="managed-audio-calibration"
-                disabled={!native}
-                title={!native ? '请在桌面应用中校准音量' : undefined}
-                onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
-              >
-                <SlidersHorizontal size={16} aria-hidden="true" />
-                校准音量
-              </button>
-            )}
-          {analogInputs.length > 0 && (
-            <div className="managed-analog">
-              {analogInputs.map(button => (
-                <label key={button.id}>
-                  {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
-                </label>
-              ))}
-              <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
-                {analogInputs.map(button => (
-                  <p key={button.id}>
-                    {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
-                    {Math.round(button.releaseThreshold * 100)}% 时释放。
-                  </p>
-                ))}
-              </SettingsHelp>
+          {voice && (
+            <div className="rail-voice-strip">
+              <DeviceRecordingStatus
+                recording={native && !!status?.recording}
+                onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
+                disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
+              />
+              {(voice.transport === 'gatt' ||
+                (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos'))) && (
+                <button
+                  type="button"
+                  className="managed-audio-calibration"
+                  disabled={!native}
+                  title={!native ? '请在桌面应用中校准音量' : '校准语音音量'}
+                  onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
+                >
+                  <SlidersHorizontal size={14} aria-hidden="true" />
+                  校准
+                </button>
+              )}
             </div>
           )}
         </aside>
@@ -394,6 +445,19 @@ export function InstanceWorkspace({
               <section className="key-picker">
                 <div className="key-picker-head">
                   <h2>{selectedInput.label}</h2>
+                  <div className="key-picker-actions">
+                    <button
+                      type="button"
+                      className="ghost-reset-key-btn"
+                      disabled={
+                        !Object.values(profile.behaviors[selected] ?? emptyTriggers()).some(seq => seq.length > 0)
+                      }
+                      onClick={() => changeSequence(selected, emptyTriggers())}
+                    >
+                      <RotateCcw size={13} aria-hidden="true" />
+                      恢复默认输入
+                    </button>
+                  </div>
                 </div>
                 {instance.kind === 'xboxBluetooth' && (
                   <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
@@ -405,7 +469,7 @@ export function InstanceWorkspace({
                         aria-pressed={controllerTrigger === trigger}
                         onClick={() => setControllerTrigger(trigger)}
                       >
-                        {triggerLabels[trigger]}
+                        {triggerLabels[trigger] ?? trigger}
                         <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
                       </button>
                     ))}
@@ -500,4 +564,55 @@ export function InstanceWorkspace({
         )}
     </div>
   )
+}
+
+const fallbackTriggerNames: Record<TriggerType, string> = {
+  click: '单击',
+  doubleClick: '双击',
+  longPress: '长按',
+}
+
+function summarizeSingleBehavior(behavior: Behavior, platform: Platform): string {
+  switch (behavior.type) {
+    case 'key':
+      return behavior.key === 'Win' && platform === 'macos' ? 'Cmd' : behavior.key
+    case 'shortcut':
+      return behavior.keys
+        .map(key => (platform === 'macos' ? ({ Win: 'Cmd', Alt: 'Opt' }[key] ?? key) : key))
+        .join(' + ')
+    case 'paste':
+      return behavior.text ? `粘贴“${behavior.text.slice(0, 10)}”` : '粘贴文本'
+    case 'typeText':
+      return behavior.text ? `输入“${behavior.text.slice(0, 10)}”` : '输入文字'
+    case 'delay':
+      return `${behavior.ms}ms`
+    case 'openApp':
+      return behavior.path.split(/[\\/]/).pop() || '打开应用'
+    case 'openWebsite':
+      return behavior.url || '打开网站'
+    case 'openPath':
+      return behavior.path.split(/[\\/]/).pop() || '打开文件'
+    case 'wheel':
+      return { up: '滚轮向上', down: '滚轮向下', left: '滚轮向左', right: '滚轮向右' }[behavior.direction]
+    case 'mouse':
+      return { left: '鼠标左键', right: '鼠标右键', back: '鼠标后退', forward: '鼠标前进' }[behavior.button]
+    case 'cursorMove':
+      return `光标${{ up: '上', down: '下', left: '左', right: '右' }[behavior.direction]}移`
+    case 'switchProfile':
+      return behavior.direction === 'previous' ? '上一配置' : '下一配置'
+    case 'disabled':
+      return '已禁用'
+  }
+}
+
+function summarizeTriggerBehaviors(sequences: TriggerBehaviors, platform: Platform): string {
+  const parts: string[] = []
+  for (const trigger of triggerTypes) {
+    const active = sequences[trigger]?.filter(item => item.enabled) ?? []
+    if (!active.length) continue
+    const label = triggerLabels[trigger] ?? fallbackTriggerNames[trigger]
+    const head = summarizeSingleBehavior(active[0], platform)
+    parts.push(`${label} ${head}${active.length > 1 ? ` +${active.length - 1}` : ''}`)
+  }
+  return parts.length > 0 ? parts.join(' · ') : '保留原始输入'
 }

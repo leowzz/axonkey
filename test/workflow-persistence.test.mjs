@@ -9,52 +9,22 @@ import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
 
 const require = createRequire(import.meta.url)
-const library = require('sequential-workflow-designer')
-const instances = []
 const storage = new Map()
 let storageFailure = false
 const copiedSequences = []
 const libraryAdditions = []
-function MockSaveDialog(props) { return React.createElement('sequence-save-dialog', props) }
-function MockPasteDialog(props) { return React.createElement('sequence-paste-dialog', props) }
 const copy = value => JSON.parse(JSON.stringify(value))
 const cache = new Map()
-function MockDialog(props) { return React.createElement('workflow-dialog', props) }
-const Designer = {
-  create(_canvas, definition, configuration) {
-    const listeners = []
-    const instance = {
-      definition, configuration, canvas: _canvas, destroyed: false, coalesceChanges: false, delivering: false, drags: [],
-      isReadonly() { return this.api.editor.isReadonly() },
-      emit(changeType, stepId = null) {
-        if (this.coalesceChanges && this.delivering) return Promise.resolve()
-        const event = { definition, changeType, stepId }
-        return Promise.resolve().then(() => {
-          this.delivering = true
-          try { for (const callback of listeners) callback(event) }
-          finally { this.delivering = false }
-        })
-      },
-      onReady: { subscribe() {} }, onDefinitionChanged: { subscribe(callback) { listeners.push(callback) } },
-      onSelectedStepIdChanged: new library.SimpleEvent(), onRootComponentUpdated: new library.SimpleEvent(),
-      onIsDraggingChanged: new library.SimpleEvent(),
-      selectStepById(id) { this.onSelectedStepIdChanged.emit(id) },
-      getDefinition: () => definition,
-      isDragging: () => false, clearSelectedStep() { this.onSelectedStepIdChanged.emit(null) }, updateLayout() {}, resetViewport() {}, destroy() { this.destroyed = true },
-    }
-    const api = { toolbox: { tryDrag: (point, step) => instance.drags.push({ point, step }) }, editor: {
-      isReadonly: () => false, getDefinition: () => definition,
-      createStepEditorContext: id => ({
-        notifyChildrenChanged: () => instance.emit(library.DefinitionChangeType.stepChildrenChanged, id),
-      }),
-    } }
-    instance.api = api
-    for (const extension of configuration.extensions) {
-      for (const component of extension.uiComponents ?? []) component.create({ appendChild() {} }, api)
-    }
-    instances.push(instance)
-    return instance
-  },
+const text = node => (typeof node === 'string' ? node : (node.children ?? []).map(text).join(''))
+
+function MockSaveDialog(props) {
+  return React.createElement('sequence-save-dialog', props)
+}
+function MockPasteDialog(props) {
+  return React.createElement('sequence-paste-dialog', props)
+}
+function MockDialog(props) {
+  return React.createElement('workflow-dialog', props)
 }
 
 function load(file) {
@@ -62,42 +32,74 @@ function load(file) {
   if (cache.has(file)) return cache.get(file).exports
   const module = { exports: {} }
   cache.set(file, module)
-  const source = ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: {
-    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX,
-  } }).outputText
+  const source = ts.transpileModule(readFileSync(file, 'utf8'), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
+  }).outputText
   const localRequire = name => {
     if (name.endsWith('.css')) return {}
-    if (name === 'sequential-workflow-designer') return { ...library, Designer }
     if (name === 'react-dom') return { createPortal: node => node }
-    if (name === '@tauri-apps/api/core') return { invoke: async (command, args) => {
-      assert.equal(command, 'axonkey_record_library_additions')
-      libraryAdditions.push(copy(args.itemIds))
-    } }
-    if (name === '../appConfig') return { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' }, behaviorSummary: behavior => `${behavior.type}:${behavior.ms ?? behavior.text ?? behavior.key ?? ''}`, keyDisplayName: key => key, rightModifierChoices: () => [] }
+    if (name === '@tauri-apps/api/core') {
+      return {
+        invoke: async (command, args) => {
+          assert.equal(command, 'axonkey_record_library_additions')
+          libraryAdditions.push(copy(args.itemIds))
+        },
+      }
+    }
     if (name === './workflowActionIcons') return { createWorkflowActionIconUrls: () => ({}) }
-    if (name === './WorkflowSplitPane') return { WorkflowSplitPane: props => React.createElement(React.Fragment, null, props.header, props.canvas, props.editor) }
-    if (name === '../clipboard') return { writeClipboardText: async text => { copiedSequences.push(text) } }
+    if (name === '../clipboard') {
+      return {
+        writeClipboardText: async value => {
+          copiedSequences.push(value)
+        },
+      }
+    }
     if (name === './BehaviorEditor') return { SequencePasteDialog: MockPasteDialog }
     if (name === './WorkflowSequenceSaveDialog') return { WorkflowSequenceSaveDialog: MockSaveDialog }
-    if (name === './workflowTrash') return { bindWorkflowTrash: (_canvas, _trash, designer, onDelete) => { designer.dropOnTrash = onDelete; return () => { delete designer.dropOnTrash } } }
     if (name === './WorkflowStepDialog') return { WorkflowStepDialog: MockDialog }
-    if (name === './WorkflowTriggerRoot') {
-      const original = load('src/components/WorkflowTriggerRoot.ts')
-      return { ...original, createTriggerRootExtension: (onClear, onScroll, onAction, triggers) => ({ ...original.createTriggerRootExtension(onClear, onScroll, onAction, triggers), clear: onClear, action: onAction, visibleTriggers: () => typeof triggers === 'function' ? triggers() : triggers }) }
-    }
     if (!name.startsWith('.')) return require(name)
     const path = resolve(dirname(file), name)
     return load(extname(path) ? path : existsSync(`${path}.tsx`) ? `${path}.tsx` : `${path}.ts`)
   }
-  vm.runInNewContext(source, {
-    module, exports: module.exports, require: localRequire, URL, console, CSS: { escape: value => value }, crypto: globalThis.crypto, structuredClone,
-    window: { __TAURI_INTERNALS__: {}, addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout, localStorage: {
-      getItem: key => storage.get(key) ?? null,
-      setItem: (key, value) => { if (storageFailure) throw new Error('Storage full'); storage.set(key, value) },
-    } },
-    document: { body: {}, createElement: () => ({ setAttribute() {}, remove() {} }) },
-    ResizeObserver: class { observe() {} disconnect() {} },
-  }, { filename: file })
+  vm.runInNewContext(
+    source,
+    {
+      module,
+      exports: module.exports,
+      require: localRequire,
+      URL,
+      console,
+      CSS: { escape: value => value },
+      crypto: globalThis.crypto,
+      structuredClone,
+      window: {
+        __TAURI_INTERNALS__: {},
+        innerWidth: 1080,
+        innerHeight: 760,
+        addEventListener() {},
+        removeEventListener() {},
+        setTimeout,
+        clearTimeout,
+        localStorage: {
+          getItem: key => storage.get(key) ?? null,
+          setItem: (key, value) => {
+            if (storageFailure) throw new Error('Storage full')
+            storage.set(key, value)
+          },
+        },
+      },
+      document: {
+        body: {},
+        querySelector: () => null,
+        createElement: () => ({ setAttribute() {}, remove() {} }),
+      },
+    },
+    { filename: file },
+  )
   return module.exports
 }
 
@@ -105,43 +107,147 @@ const { WorkflowAxonkey } = load('src/components/WorkflowAxonkey.tsx')
 const { WorkflowToolbox } = load('src/components/WorkflowToolbox.tsx')
 const { MouseScopeSelector, mouseInputs } = load('src/components/MouseMapping.tsx')
 const { createDefaultBehaviorMap } = load('src/behaviorModel.ts')
+const { BehaviorLibraryContext } = load('src/cloud/BehaviorLibraryContext.tsx')
+
 const empty = () => ({ click: [], doubleClick: [], longPress: [] })
 const delay = ms => ({ id: 'wait', type: 'delay', enabled: true, ms })
 const palette = type => ({ id: `new-${type}`, type, componentType: 'task', name: type, properties: { preset: type } })
-const branches = instance => instance.definition.sequence[0].branches
-const clearLane = (instance, trigger) => instance.configuration.extensions.find(extension => extension.rootComponent).rootComponent.clear(trigger)
-const { BehaviorLibraryContext } = load('src/cloud/BehaviorLibraryContext.tsx')
+
 const render = async (sequences = empty(), options = {}, account = null) => {
   let view
   const writes = []
   const requests = []
   const toolboxLists = []
-  let props = { onRequestProfileSwitch: (...args) => requests.push(copy(args)), toolboxCategory: 'all', onToolboxCategoryChange() {}, platform: 'windows', button: { id: 'tv', label: '电视键' }, sequences, onChange: (id, next) => writes.push([id, copy(next)]), ...options }
-  const element = () => React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, props))
-  await act(async () => { view = Renderer.create(element(), { createNodeMock: element => {
-    if (element.props.className === 'workflow-toolbox-list') {
-      const list = { scrollTop: 0 }
-      toolboxLists.push(list)
-      return list
-    }
-    const handlers = new Map()
-    return { handlers, focus() {}, querySelector: () => null, querySelectorAll: () => [], addEventListener: (name, callback) => handlers.set(name, callback), removeEventListener: name => handlers.delete(name), setAttribute() {}, classList: { toggle() {} } }
-  } }) })
+  let props = {
+    onRequestProfileSwitch: (...args) => requests.push(copy(args)),
+    toolboxCategory: 'all',
+    onToolboxCategoryChange() {},
+    platform: 'windows',
+    button: { id: 'tv', label: '电视键' },
+    sequences,
+    onChange: (id, next) => writes.push([id, copy(next)]),
+    ...options,
+  }
+  const element = () =>
+    React.createElement(BehaviorLibraryContext.Provider, { value: account }, React.createElement(WorkflowAxonkey, props))
+  await act(async () => {
+    view = Renderer.create(element(), {
+      createNodeMock: node => {
+        if (node.props.className === 'workflow-toolbox-list') {
+          const list = { scrollTop: 0 }
+          toolboxLists.push(list)
+          return list
+        }
+        return {
+          focus() {},
+          contains: () => false,
+          getBoundingClientRect: () => ({ top: 120, bottom: 148, left: 820, right: 880, width: 60, height: 28 }),
+        }
+      },
+    })
+  })
   return {
-    view, writes, requests, toolboxLists, current: () => instances.at(-1),
-    update: async update => { props = { ...props, ...update }; await act(async () => view.update(element())) },
+    view,
+    writes,
+    requests,
+    toolboxLists,
+    card: trigger => view.root.findByProps({ 'data-trigger': trigger }),
+    cards: () => view.root.findAll(node => node.type === 'article' && Boolean(node.props['data-trigger'])),
+    openPicker: async (trigger = 'click') => {
+      const btn = view.root.findByProps({ 'data-trigger-add': trigger })
+      if (!btn.props['aria-expanded']) {
+        await act(async () => btn.props.onClick({ currentTarget: { getBoundingClientRect: () => ({ bottom: 148, right: 880 }) } }))
+      }
+      return view.root.findByType(WorkflowToolbox)
+    },
+    addAction: async (trigger, stepOrType) => {
+      const btn = view.root.findByProps({ 'data-trigger-add': trigger })
+      if (!btn.props['aria-expanded']) {
+        await act(async () => btn.props.onClick({ currentTarget: { getBoundingClientRect: () => ({ bottom: 148, right: 880 }) } }))
+      }
+      const toolbox = view.root.findByType(WorkflowToolbox)
+      const step =
+        typeof stepOrType === 'string'
+          ? toolbox.props.palettes
+              .flatMap(p => p.groups)
+              .flatMap(g => g.steps)
+              .find(s => s.type === stepOrType) ?? palette(stepOrType)
+          : stepOrType
+      await act(async () => toolbox.props.onAddStep(step))
+    },
+    runMenuAction: async (trigger, labelText) => {
+      const card = view.root.findByProps({ 'data-trigger': trigger })
+      const menuBtn = card.findByProps({ 'aria-haspopup': 'menu' })
+      if (!menuBtn.props['aria-expanded']) {
+        await act(async () => menuBtn.props.onClick())
+      }
+      const item = card.findAllByProps({ role: 'menuitem' }).find(node => text(node) === labelText)
+      assert.ok(item, `menu item ${labelText}`)
+      if (!item.props.disabled) {
+        await act(async () => item.props.onClick())
+      }
+      return item
+    },
+    update: async nextProps => {
+      props = { ...props, ...nextProps }
+      await act(async () => view.update(element()))
+    },
     unmount: async () => act(async () => view.unmount()),
   }
 }
-const openContextEditor = async (app, trigger, index = 0) => {
-  const instance = app.current()
-  const branch = branches(instance)[trigger]
-  const provider = instance.configuration.extensions.find(extension => extension.contextMenu).contextMenu.createItemsProvider()
-  await act(async () => provider.getItems(branch[index], branch)[0].callback())
-  return app.view.root.findByType('workflow-dialog')
-}
 
-test('switching mouse edges flushes pending edits to the original edge and restores each independent sequence', async () => {
+test('three-column trigger card keeps fixed right add slot across 0, 1, and 2+ behaviors with inline reorder', async () => {
+  const app = await render()
+  try {
+    const clickCard = () => app.card('click')
+    // 0 behaviors: empty slot + fixed right add slot
+    assert.match(clickCard().props.className, /\bis-empty\b/)
+    assert.equal(clickCard().findAllByProps({ className: 'trigger-empty-slot' }).length, 1)
+    const slotChildrenAt0 = clickCard()
+      .findByProps({ className: 'trigger-add-slot' })
+      .children.map(child => child.props.className.split(' ')[0])
+    assert.deepEqual(slotChildrenAt0, ['trigger-seq-menu-wrap', 'add-step-btn'])
+
+    // 1 behavior: single row, no step index badge, no reorder arrows, identical right add slot
+    await app.addAction('click', 'enter')
+    await app.update({ sequences: app.writes.at(-1)[1] })
+    assert.doesNotMatch(clickCard().props.className, /\bis-empty\b/)
+    assert.equal(clickCard().findAllByProps({ className: 'step-index' }).length, 0)
+    assert.equal(clickCard().findAllByProps({ 'aria-label': '上移步骤' }).length, 0)
+    assert.deepEqual(
+      clickCard()
+        .findByProps({ className: 'trigger-add-slot' })
+        .children.map(child => child.props.className.split(' ')[0]),
+      slotChildrenAt0,
+    )
+
+    // 2 behaviors: index badges 1/2 + reorder arrows appear, right add slot remains identical
+    await app.addAction('click', 'space')
+    await app.update({ sequences: app.writes.at(-1)[1] })
+    assert.deepEqual(
+      clickCard()
+        .findAllByProps({ className: 'step-index' })
+        .map(text),
+      ['1', '2'],
+    )
+    assert.deepEqual(
+      clickCard()
+        .findByProps({ className: 'trigger-add-slot' })
+        .children.map(child => child.props.className.split(' ')[0]),
+      slotChildrenAt0,
+    )
+    const moveDownFirst = clickCard().findAllByProps({ 'aria-label': '下移步骤' })[0]
+    await act(async () => moveDownFirst.props.onClick())
+    assert.deepEqual(
+      app.writes.at(-1)[1].click.map(item => item.key),
+      ['Space', 'Enter'],
+    )
+  } finally {
+    await app.unmount()
+  }
+})
+
+test('switching mouse edges keeps each edge sequence isolated and restores saved behaviors', async () => {
   let view, currentMap, selectedId
   const initial = createDefaultBehaviorMap()
   initial['mouse.right.up'].click = [delay(900)]
@@ -150,804 +256,458 @@ test('switching mouse edges flushes pending edits to the original edge and resto
     const [behaviors, setBehaviors] = React.useState(initial)
     currentMap = behaviors
     selectedId = activeId
-    return React.createElement(React.Fragment, null,
+    return React.createElement(
+      React.Fragment,
+      null,
       React.createElement(MouseScopeSelector, { activeId, behaviors, onSelect: select }),
       React.createElement(WorkflowAxonkey, {
-        platform: 'windows', button: mouseInputs.find(input => input.id === activeId),
-        sequences: behaviors[activeId], toolboxCategory: 'all', onToolboxCategoryChange() {}, onRequestProfileSwitch() {},
+        platform: 'windows',
+        button: mouseInputs.find(input => input.id === activeId),
+        sequences: behaviors[activeId],
+        toolboxCategory: 'all',
+        onToolboxCategoryChange() {},
+        onRequestProfileSwitch() {},
         onChange: (id, next) => setBehaviors(current => ({ ...current, [id]: copy(next) })),
-      }))
+      }),
+    )
   }
-  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({
-    querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {}, setAttribute() {}, classList: { toggle() {} },
-  }) }) })
-  const switchEdge = async scope => act(async () => view.root.findByProps({ className: `mouse-scope-option mouse-scope-${scope}` }).props.onClick())
+  await act(async () => {
+    view = Renderer.create(React.createElement(Harness), {
+      createNodeMock: () => ({
+        focus() {},
+        contains: () => false,
+        getBoundingClientRect: () => ({ bottom: 148, right: 880 }),
+      }),
+    })
+  })
+  const switchEdge = async scope =>
+    act(async () => view.root.findByProps({ className: `mouse-scope-option mouse-scope-${scope}` }).props.onClick())
+  const addPreset = async type => {
+    const addBtn = view.root.findByProps({ 'data-trigger-add': 'click' })
+    if (!addBtn.props['aria-expanded']) {
+      await act(async () => addBtn.props.onClick({ currentTarget: { getBoundingClientRect: () => ({ bottom: 148, right: 880 }) } }))
+    }
+    const toolbox = view.root.findByType(WorkflowToolbox)
+    const step = toolbox.props.palettes
+      .flatMap(p => p.groups)
+      .flatMap(g => g.steps)
+      .find(s => s.type === type)
+    await act(async () => toolbox.props.onAddStep(step))
+  }
   try {
-    const top = instances.at(-1)
-    // Switch before the designer delivers a pending drop notification.
-    branches(top).click.push(palette('space'))
+    await addPreset('space')
     await switchEdge('left')
-    assert.equal(top.destroyed, true)
     assert.equal(selectedId, 'mouse.left.up')
     assert.equal(currentMap['mouse.top.up'].click[0].key, 'Space')
-    assert.deepEqual(copy(branches(instances.at(-1)).click), [])
+    assert.equal(view.root.findAllByProps({ className: 'trigger-empty-slot' }).length, 1)
 
-    const left = instances.at(-1)
-    const node = palette('enter')
-    branches(left).click.push(node)
-    await act(async () => left.emit(library.DefinitionChangeType.stepInserted, node.id))
+    await addPreset('enter')
     await switchEdge('right')
-    assert.equal(branches(instances.at(-1)).click[0].properties.ms, 900)
+    assert.equal(view.root.findByProps({ 'aria-label': '等待毫秒数' }).props.value, '900')
     await switchEdge('top')
-    assert.equal(branches(instances.at(-1)).click[0].properties.key, 'Space')
+    assert.equal(text(view.root.findByProps({ className: 'keycap-btn' })), '空格')
     await switchEdge('left')
-    assert.equal(branches(instances.at(-1)).click[0].properties.key, 'Enter')
+    assert.equal(text(view.root.findByProps({ className: 'keycap-btn' })), '回车')
     assert.equal(currentMap['mouse.top.up'].click[0].key, 'Space')
     assert.equal(currentMap['mouse.left.up'].click[0].key, 'Enter')
     assert.equal(currentMap['mouse.right.up'].click[0].ms, 900)
-  } finally { await act(async () => view.unmount()) }
+  } finally {
+    await act(async () => view.unmount())
+  }
 })
 
-test('single-lane trigger switching keeps the designer and preserves hidden sequences through edits and clearing', async () => {
-  const initial = { click: [{ ...delay(100), id: 'click-wait' }], doubleClick: [{ ...delay(200), id: 'double-wait' }], longPress: [{ ...delay(300), id: 'long-wait' }] }
+test('single-lane trigger switching preserves hidden sequences through edits and clearing', async () => {
+  const initial = {
+    click: [{ ...delay(100), id: 'click-wait' }],
+    doubleClick: [{ ...delay(200), id: 'double-wait' }],
+    longPress: [{ ...delay(300), id: 'long-wait' }],
+  }
   const app = await render(initial, { activeTrigger: 'click', button: { id: 'xbox.a', label: 'A 键' } })
-  const original = app.current()
-  const root = original.configuration.extensions.find(extension => extension.rootComponent).rootComponent
   try {
-    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
+    assert.deepEqual(
+      app.cards().map(c => c.props['data-trigger']),
+      ['click'],
+    )
     await app.update({ activeTrigger: 'doubleClick' })
-    assert.equal(app.current(), original, 'switching a trigger must not discard the live designer')
-    assert.equal(original.destroyed, false)
-    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['doubleClick'])
+    assert.deepEqual(
+      app.cards().map(c => c.props['data-trigger']),
+      ['doubleClick'],
+    )
     assert.equal(app.writes.length, 0, 'changing visibility alone does not save a new configuration')
 
-    const node = palette('space')
-    branches(original).doubleClick.push(node)
-    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
+    await app.addAction('doubleClick', 'space')
     const saved = app.writes.at(-1)[1]
     assert.equal(app.writes.at(-1)[0], 'xbox.a')
     assert.deepEqual(saved.click, initial.click)
     assert.deepEqual(saved.longPress, initial.longPress)
     assert.equal(saved.doubleClick[1].key, 'Space')
+
     await app.update({ sequences: saved, activeTrigger: 'longPress' })
-    await act(async () => clearLane(original, 'longPress'))
+    await app.runMenuAction('longPress', '清空此触发')
     const cleared = app.writes.at(-1)[1]
     assert.deepEqual(cleared.longPress, [])
     assert.deepEqual(cleared.click, initial.click)
     assert.deepEqual(cleared.doubleClick, saved.doubleClick)
-    await app.update({ sequences: cleared, activeTrigger: 'click' })
-    assert.equal(app.current(), original)
-    assert.deepEqual(copy(root.visibleTriggers().map(trigger => trigger.id)), ['click'])
-  } finally { await app.unmount() }
+  } finally {
+    await app.unmount()
+  }
 })
 
-test('a pending drop stays on its original trigger when the visible lane switches before delivery', async () => {
-  const app = await render(empty(), { activeTrigger: 'click' })
-  try {
-    const original = app.current()
-    const node = palette('enter')
-    branches(original).click.push(node)
-    // Switch first, then deliver the designer's batched drop notification.
-    await app.update({ activeTrigger: 'doubleClick' })
-    await act(async () => original.emit(library.DefinitionChangeType.stepInserted, node.id))
-    assert.equal(app.current(), original)
-    assert.equal(app.writes.at(-1)[1].click[0].key, 'Enter')
-    assert.deepEqual(app.writes.at(-1)[1].doubleClick, [])
-    await app.update({ sequences: app.writes.at(-1)[1], activeTrigger: 'click' })
-    assert.equal(branches(original).click[0].properties.key, 'Enter')
-  } finally { await app.unmount() }
-})
-
-test('workflow changes autosave once, and the save echo retains the designer and viewport', async () => {
+test('workflow changes autosave once and external undo/reset replaces cards without echoing back', async () => {
   const app = await render()
   try {
-    const instance = app.current()
     assert.equal(app.writes.length, 0, 'loading must not write empty mappings')
-    const node = palette('delay')
-    branches(instance).click.push(node)
-    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+    await app.addAction('click', 'delay')
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'tv')
     assert.equal(app.writes[0][1].click[0].ms, 300)
-    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 1, 'new behavior opens in the inline editor')
-    assert.equal(app.view.root.findByType('workflow-dialog').props.inline, true)
     await app.update({ sequences: app.writes.at(-1)[1] })
-    assert.equal(app.current(), instance)
-    assert.equal(instance.destroyed, false)
-    const dialog = await openContextEditor(app, 'click')
-    await act(async () => dialog.props.edit.onSave({ id: node.id, type: 'delay', enabled: true, ms: 751 }))
+    assert.equal(app.writes.length, 1)
+
+    const delayInput = app.card('click').findByProps({ 'aria-label': '等待毫秒数' })
+    await act(async () => delayInput.props.onChange({ target: { value: '751' } }))
     assert.equal(app.writes.length, 2)
     assert.equal(app.writes.at(-1)[1].click[0].ms, 751)
-  } finally { await app.unmount() }
-})
 
-test('a dropped block autosaves when the real designer coalesces its nested normalization event', async () => {
-  const app = await render()
-  try {
-    const instance = app.current()
-    // sequential-workflow-designer's race() drops changes emitted during
-    // delivery of the current event; normalization cannot depend on a second event.
-    instance.coalesceChanges = true
-    const node = palette('delay')
-    branches(instance).doubleClick.push(node)
-    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-    assert.equal(app.writes.length, 1)
-    assert.equal(app.writes[0][1].doubleClick[0].ms, 300)
-    await app.update({ sequences: app.writes[0][1] })
-    assert.equal(app.current(), instance)
-    assert.equal(app.writes.length, 1)
-  } finally { await app.unmount() }
-})
-
-test('external undo/reset replaces the canvas without saving the discarded definition back', async () => {
-  const app = await render({ ...empty(), click: [delay(751)] })
-  try {
-    const previous = app.current()
+    // External undo resets to empty without saving discarded state back
     await app.update({ sequences: empty() })
-    assert.equal(previous.destroyed, true)
-    assert.notEqual(app.current(), previous)
-    assert.equal(branches(app.current()).click.length, 0)
+    assert.equal(app.card('click').findAllByProps({ className: 'trigger-empty-slot' }).length, 1)
+    assert.equal(app.writes.length, 2)
+  } finally {
+    await app.unmount()
+  }
+})
+
+test('inline key chord capture, inline prompt textarea, auto-enter toggle, and explicit deletion work without modals', async () => {
+  const app = await render(empty(), { platform: 'macos' })
+  try {
+    // 1. Add customKey -> enters inline capture immediately
+    await app.addAction('click', 'customKey')
+    let keycap = app.card('click').findByProps({ className: 'keycap-btn capturing' })
+    assert.match(text(keycap), /按下按键/)
+    // Escape cancels capture and keeps default Enter
+    await act(async () =>
+      keycap.props.onKeyDown({
+        key: 'Escape',
+        ctrlKey: false,
+        altKey: false,
+        metaKey: false,
+        shiftKey: false,
+        preventDefault() {},
+        stopPropagation() {},
+      }),
+    )
+    keycap = app.card('click').findByProps({ className: 'keycap-btn' })
+    assert.equal(text(keycap), '回车')
+    // Click keycap -> capture Cmd + K
+    await act(async () => keycap.props.onClick({ currentTarget: { focus() {} } }))
+    keycap = app.card('click').findByProps({ className: 'keycap-btn capturing' })
+    await act(async () =>
+      keycap.props.onKeyDown({
+        key: 'k',
+        ctrlKey: false,
+        altKey: false,
+        metaKey: true,
+        shiftKey: false,
+        preventDefault() {},
+        stopPropagation() {},
+      }),
+    )
+    assert.deepEqual(app.writes.at(-1)[1].click[0].keys, ['Win', 'K'])
+    assert.equal(text(app.card('click').findByProps({ className: 'keycap-btn' })), 'Cmd + K')
+
+    // 2. Add textAndEnter -> opens inline textarea with auto-enter ON, waits for non-empty text
+    const writesBeforeText = app.writes.length
+    await app.addAction('doubleClick', 'textAndEnter')
+    assert.equal(app.writes.length, writesBeforeText, 'empty draft must not write yet')
+    const textarea = app.card('doubleClick').findByProps({ className: 'inline-prompt-textarea' })
+    await act(async () => textarea.props.onChange({ target: { value: '   ' } }))
+    assert.equal(app.writes.length, writesBeforeText, 'whitespace-only text does not overwrite')
+    await act(async () => textarea.props.onChange({ target: { value: '请审查当前改动' } }))
+    assert.equal(app.writes.length, writesBeforeText + 1)
+    assert.deepEqual(
+      app.writes.at(-1)[1].doubleClick.map(item => item.type),
+      ['paste', 'delay', 'key'],
+    )
+    // Visually collapsed into 1 row with auto-enter chip ON
+    const autoEnterBtn = app.card('doubleClick').findByProps({ 'aria-pressed': true })
+    await act(async () => autoEnterBtn.props.onClick())
+    assert.deepEqual(
+      app.writes.at(-1)[1].doubleClick.map(item => item.type),
+      ['paste'],
+    )
+    // Toggle auto-enter back ON
+    await act(async () => app.card('doubleClick').findByProps({ 'aria-pressed': false }).props.onClick())
+    assert.deepEqual(
+      app.writes.at(-1)[1].doubleClick.map(item => item.type),
+      ['paste', 'delay', 'key'],
+    )
+
+    // Delete collapsed paste+auto-enter unit removes all 3 underlying behaviors at once
+    const deleteBtn = app.card('doubleClick').findByProps({ 'aria-label': '删除行为' })
+    await act(async () => deleteBtn.props.onClick())
+    assert.deepEqual(app.writes.at(-1)[1].doubleClick, [])
+  } finally {
+    await app.unmount()
+  }
+})
+
+test('confirmed website targets and directional/choice presets normalize via modal editor and drafts cancel cleanly', async () => {
+  const app = await render({ ...empty(), click: [delay(751)] })
+  try {
+    await app.addAction('doubleClick', 'openWebsite')
+    assert.equal(app.writes.length, 0, 'unconfirmed website draft does not save')
+    let dialog = app.view.root.findByType('workflow-dialog')
+    await act(async () => dialog.props.onClose())
     assert.equal(app.writes.length, 0)
-    await act(async () => previous.emit(library.DefinitionChangeType.stepDeleted, 'wait'))
-    assert.equal(app.writes.length, 0, 'events from a destroyed designer must be ignored')
-  } finally { await app.unmount() }
-})
 
-test('the first custom context-menu action reopens an editable block and disabled lanes have no edit action', async () => {
-  const app = await render({ ...empty(), click: [delay(751)] })
-  try {
-    const instance = app.current()
-    const provider = instance.configuration.extensions.find(extension => extension.contextMenu).contextMenu.createItemsProvider()
-    const branch = branches(instance).click
-    const [edit] = provider.getItems(branch[0], branch)
-    assert.equal(edit.label, '编辑')
-    assert.ok(edit.order < 0, 'edit precedes the library title and built-in actions')
-    assert.equal(provider.getItems(null, branch).length, 0)
-    assert.equal(provider.getItems({ ...branch[0], type: 'mediaPlayPause' }, branch).length, 0)
-    assert.equal(provider.getItems(branch[0], [...branch, { type: 'disabled', properties: {} }]).length, 0)
-    await act(async () => edit.callback())
-    const dialog = app.view.root.findByType('workflow-dialog')
-    assert.equal(dialog.props.edit.behavior.ms, 751)
-    await act(async () => dialog.props.edit.onSave({ ...delay(900) }))
-    assert.equal(app.writes.at(-1)[1].click[0].ms, 900)
-  } finally { await app.unmount() }
-})
-
-test('clear autosaves once, keeps other lanes editable and shared undo restores the complete sequence', async () => {
-  const original = { click: [delay(751), { ...delay(900), id: 'wait-2' }], doubleClick: [{ ...delay(300), id: 'double' }], longPress: [] }
-  const app = await render(original)
-  try {
-    const instance = app.current()
-    await act(async () => clearLane(instance, 'click'))
+    // Reopen by clicking placeholder summary button and save normalized URL
+    const summaryBtn = app.card('doubleClick').findByProps({ className: 'step-summary-btn is-placeholder' })
+    await act(async () => summaryBtn.props.onClick())
+    dialog = app.view.root.findByType('workflow-dialog')
+    await act(async () =>
+      dialog.props.edit.onSave({
+        id: dialog.props.edit.stepId,
+        type: 'openWebsite',
+        enabled: true,
+        url: 'example.com',
+      }),
+    )
     assert.equal(app.writes.length, 1)
-    assert.equal(app.writes[0][0], 'tv')
-    assert.deepEqual(app.writes[0][1].click, [])
-    assert.deepEqual(app.writes[0][1].doubleClick, original.doubleClick)
-    await app.update({ sequences: app.writes.at(-1)[1] })
-    assert.equal(app.current(), instance)
-    const target = branches(instance).click
-    assert.equal(instance.configuration.steps.canInsertStep(palette('paste'), target), true)
-    await act(async () => clearLane(instance, 'click'))
-    assert.equal(app.writes.length, 1, 'repeated clear must not save or add an undo entry')
-    // Feed the previous shared-history snapshot back into the controlled component.
-    await app.update({ sequences: original })
-    assert.deepEqual(branches(app.current()).click.map(step => step.properties.ms), [751, 900])
-    assert.equal(app.writes.length, 1)
-  } finally { await app.unmount() }
-})
+    assert.equal(app.writes[0][1].doubleClick[0].url, 'https://example.com/')
+    assert.deepEqual(app.writes[0][1].click, [delay(751)])
+  } finally {
+    await app.unmount()
+  }
 
-test('legacy disabled actions loaded on any lane can be cleared without touching other lanes', async () => {
-  const off = { id: 'off', type: 'disabled', enabled: true }
-  const app = await render({ click: [delay(300)], doubleClick: [off], longPress: [off] })
-  try {
-    await act(async () => clearLane(app.current(), 'longPress'))
-    assert.deepEqual(app.writes[0][1], { click: [delay(300)], doubleClick: [off], longPress: [] })
-  } finally { await app.unmount() }
-})
-
-test('confirmed website targets use the same normalized value in the node and stored mapping', async () => {
-  const app = await render()
-  try {
-    const instance = app.current()
-    const node = palette('openWebsite')
-    branches(instance).click.push(node)
-    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-    const dialog = await openContextEditor(app, 'click')
-    await act(async () => dialog.props.edit.onSave({ id: node.id, type: 'openWebsite', enabled: true, url: 'example.com' }))
-    assert.equal(branches(instance).click[0].properties.url, 'https://example.com/')
-    assert.equal(app.writes.length, 1)
-    assert.equal(app.writes[0][1].click[0].url, 'https://example.com/')
-  } finally { await app.unmount() }
-})
-
-for (const [preset, behaviorType, nodePrefix, parameters] of [
-  ['wheel', 'wheel', 'wheel', {}],
-  ['cursorMove', 'cursorMove', 'cursor', { distance: 123 }],
-]) test(`${preset} opens a draft, cancels without saving, and commits a directional node for each choice`, async () => {
-  for (const direction of ['up', 'down', 'left', 'right']) {
-    const app = await render({ ...empty(), click: [delay(751)] })
+  for (const [preset, savedBehavior] of [
+    ['wheel', { type: 'wheel', direction: 'down' }],
+    ['cursorMove', { type: 'cursorMove', direction: 'right', distance: 120 }],
+    ['mouseButton', { type: 'mouse', button: 'right' }],
+    ['volumeControl', { type: 'key', key: 'VolumeMute' }],
+    ['mediaTrack', { type: 'key', key: 'MediaNext' }],
+  ]) {
+    const sub = await render()
     try {
-      const instance = app.current()
-      const insert = async () => {
-        const node = palette(preset)
-        branches(instance).doubleClick.push(node)
-        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-      }
-      await insert()
-      assert.equal(app.writes.length, 0)
-      const firstDialog = await openContextEditor(app, 'doubleClick')
-      const draft = firstDialog.props.edit.behavior
-      assert.equal(draft.type, behaviorType)
-      assert.equal(draft.direction, 'up')
-      if (preset === 'cursorMove') assert.equal(draft.distance, 50)
-      await act(async () => firstDialog.props.onClose())
-      assert.equal(branches(instance).doubleClick.length, 1)
-      assert.equal(app.writes.length, 0)
-      // The close icon only dismisses the editor; explicit deletion removes
-      // the draft before the next insertion in this test.
-      branches(instance).doubleClick.splice(0, 1)
-      await insert()
-      const behavior = { id: `new-${preset}`, type: behaviorType, enabled: true, direction, ...parameters }
-      const secondDialog = await openContextEditor(app, 'doubleClick')
-      await act(async () => secondDialog.props.edit.onSave(behavior))
-      assert.equal(app.writes.length, 1)
-      const saved = app.writes[0][1]
-      assert.deepEqual(saved.doubleClick, [behavior])
-      assert.deepEqual(saved.click, [delay(751)])
-      const node = branches(instance).doubleClick[0]
-      assert.equal(node.type, `${nodePrefix}${direction[0].toUpperCase()}${direction.slice(1)}`)
-      assert.equal(node.properties.draftGroup, undefined)
-      await app.update({ sequences: saved })
-      assert.equal(app.current(), instance)
-    } finally { await app.unmount() }
+      await sub.addAction('longPress', preset)
+      assert.equal(sub.writes.length, 0)
+      const modal = sub.view.root.findByType('workflow-dialog')
+      const stepId = modal.props.edit.stepId
+      await act(async () =>
+        modal.props.edit.onSave({
+          id: stepId,
+          enabled: true,
+          ...savedBehavior,
+        }),
+      )
+      assert.equal(sub.writes.length, 1)
+      assert.deepEqual(sub.writes[0][1].longPress, [{ id: stepId, enabled: true, ...savedBehavior }])
+    } finally {
+      await sub.unmount()
+    }
   }
 })
 
-test('grouped mouse and media actions cancel without writes and save each choice in the legacy format', async () => {
-  const groups = [
-    ['mouseButton', [
-      ['mouseLeft', { type: 'mouse', button: 'left' }], ['mouseRight', { type: 'mouse', button: 'right' }],
-    ]],
-    ['volumeControl', [
-      ['volumeUp', { type: 'key', key: 'VolumeUp' }], ['volumeDown', { type: 'key', key: 'VolumeDown' }], ['volumeMute', { type: 'key', key: 'VolumeMute' }],
-    ]],
-    ['mediaTrack', [
-      ['mediaPrevious', { type: 'key', key: 'MediaPrevious' }], ['mediaNext', { type: 'key', key: 'MediaNext' }],
-    ]],
-  ]
-  for (const [preset, options] of groups) for (const [nodeType, value] of options) {
-    const app = await render({ ...empty(), click: [delay(751)] })
-    try {
-      const instance = app.current()
-      const insert = async () => {
-        const node = palette(preset)
-        branches(instance).longPress.push(node)
-        await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-      }
-      await insert()
-      assert.equal(app.writes.length, 0)
-      const firstDialog = await openContextEditor(app, 'longPress')
-      assert.deepEqual(copy(firstDialog.props.edit.behavior), { id: `new-${preset}`, enabled: true, ...options[0][1] })
-      await act(async () => firstDialog.props.onClose())
-      assert.equal(branches(instance).longPress.length, 1)
-      assert.equal(app.writes.length, 0)
-      branches(instance).longPress.splice(0, 1)
-      await insert()
-      const behavior = { id: `new-${preset}`, enabled: true, ...value }
-      const secondDialog = await openContextEditor(app, 'longPress')
-      await act(async () => secondDialog.props.edit.onSave(behavior))
-      assert.equal(app.writes.length, 1)
-      assert.deepEqual(app.writes[0][1], { click: [delay(751)], doubleClick: [], longPress: [behavior] })
-      assert.equal(branches(instance).longPress[0].type, nodeType)
-      assert.equal(branches(instance).longPress[0].properties.draftGroup, undefined)
-      await app.update({ sequences: app.writes[0][1] })
-      assert.equal(app.current(), instance)
-      assert.equal(instance.destroyed, false)
-    } finally { await app.unmount() }
-  }
-})
-
-test('switching inputs flushes a pending designer event into the outgoing input only', async () => {
-  const app = await render({ ...empty(), click: [delay(751)] })
-  try {
-    const previous = app.current()
-    branches(previous).click[0].properties.ms = 900
-    // Switch before the designer publishes its batched change event.
-    await app.update({ button: { id: 'power', label: '电源键' }, sequences: empty() })
-    assert.deepEqual(app.writes, [['tv', { ...empty(), click: [delay(900)] }]])
-    assert.equal(branches(app.current()).click.length, 0)
-    await act(async () => previous.emit(library.DefinitionChangeType.stepPropertyChanged, 'wait'))
-    assert.equal(app.writes.length, 1)
-  } finally { await app.unmount() }
-})
-
-test('switching inputs keeps the library search and list scroll while routing actions to the new input', async () => {
+test('switching inputs keeps open picker search query and scroll position while routing additions to the new input', async () => {
   const app = await render(empty(), { toolboxCategory: '常用行为/常用行为' })
   try {
-    const previous = app.current()
-    const input = app.view.root.findByType('input')
-    await act(async () => input.props.onChange({ target: { value: '回车' } }))
+    await app.openPicker('click')
+    const searchInput = app.view.root.findByProps({ className: 'sqd-toolbox-filter-input' })
+    await act(async () => searchInput.props.onChange({ target: { value: '回车' } }))
     const [list] = app.toolboxLists
     list.scrollTop = 200
 
     await app.update({ button: { id: 'power', label: '电源键' }, sequences: empty() })
-    assert.equal(previous.destroyed, true)
-    assert.equal(app.view.root.findByType('input'), input)
-    assert.equal(input.props.value, '回车')
-    assert.equal(app.toolboxLists.length, 1)
+    assert.equal(app.view.root.findByProps({ className: 'sqd-toolbox-filter-input' }).props.value, '回车')
     assert.equal(list.scrollTop, 200)
-    assert.equal(app.view.root.findByType(WorkflowToolbox).props.selectedCategory, '常用行为/常用行为')
-
-    const enter = app.view.root.findByProps({ className: 'sqd-toolbox-item sqd-type-enter' })
-    await act(async () => enter.findByProps({ className: 'workflow-toolbox-item-main' }).props.onMouseDown({
-      button: 0, clientX: 120, clientY: 80, preventDefault() {}, stopPropagation() {},
-    }))
-    assert.equal(previous.drags.length, 0)
-    assert.equal(app.current().drags[0].step.type, 'enter')
-    await act(async () => enter.findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
+    const enterItem = app.view.root.findByProps({ className: 'sqd-toolbox-item sqd-type-enter' })
+    await act(async () => enterItem.findByProps({ className: 'workflow-toolbox-add' }).props.onClick())
     assert.equal(app.writes.length, 1)
     assert.equal(app.writes[0][0], 'power')
     assert.equal(app.writes[0][1].click[0].key, 'Enter')
-  } finally { await app.unmount() }
+  } finally {
+    await app.unmount()
+  }
 })
 
-test('canceling incomplete actions keeps saved mappings intact; confirming a macro saves all steps together', async () => {
-  const app = await render({ ...empty(), click: [delay(751)] })
-  try {
-    const instance = app.current()
-    const insert = async type => {
-      const node = palette(type)
-      branches(instance).doubleClick.push(node)
-      await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-    }
-    await insert('openWebsite')
-    assert.equal(app.writes.length, 0)
-    const websiteDialog = await openContextEditor(app, 'doubleClick')
-    await act(async () => websiteDialog.props.onClose())
-    assert.equal(branches(instance).doubleClick.length, 1)
-    assert.equal(app.writes.length, 0)
-    branches(instance).doubleClick.splice(0, 1)
-    await insert('textAndEnter')
-    assert.equal(app.writes.length, 0)
-    const textDialog = await openContextEditor(app, 'doubleClick')
-    await act(async () => textDialog.props.edit.onSave({ id: 'new-textAndEnter', type: 'paste', enabled: true, text: '发送' }))
-    assert.equal(app.writes.length, 1)
-    assert.deepEqual(app.writes[0][1].doubleClick.map(item => item.type), ['paste', 'delay', 'key'])
-    assert.deepEqual(app.writes[0][1].click, [delay(751)])
-  } finally { await app.unmount() }
-})
-
-const laneAction = (app, trigger, action) => act(async () => app.current().configuration.extensions.find(extension => extension.rootComponent).rootComponent.action(trigger, action))
-
-test('lane copy reads the live definition; paste replaces only its target and participates in shared undo', async () => {
+test('sequence menu supports copy, paste, save to library, removal, and blocks copying incomplete drafts', async () => {
+  storage.clear()
   const before = { click: [delay(500)], doubleClick: [{ ...delay(700), id: 'other' }], longPress: [] }
   const app = await render(before)
-  try {
-    branches(app.current()).click[0].properties.ms = 750
-    await laneAction(app, 'click', 'copy')
-    assert.match(copiedSequences.at(-1), /wait 750ms/)
-    await laneAction(app, 'longPress', 'paste')
-    const dialog = app.view.root.findByType('sequence-paste-dialog')
-    assert.equal(dialog.props.trigger, 'longPress')
-    await act(async () => dialog.props.onApply([{ ...delay(750), id: 'pasted' }]))
-    assert.deepEqual(app.writes.at(-1)[1].longPress, [{ ...delay(750), id: 'pasted' }])
-    assert.deepEqual(app.writes.at(-1)[1].doubleClick, before.doubleClick)
-    await app.update({ sequences: app.writes.at(-1)[1] })
-    await app.update({ sequences: before })
-    assert.equal(branches(app.current()).longPress.length, 0)
-  } finally { await app.unmount() }
-})
-
-test('save persists a snapshot without modifying mappings, restores on reopen and supports deletion', async () => {
-  storage.clear()
-  const app = await render({ ...empty(), click: [delay(650)] })
   let reopened
   try {
-    await laneAction(app, 'click', 'save')
-    const dialog = app.view.root.findByType('sequence-save-dialog')
-    await act(async () => { assert.equal(dialog.props.onSave('常用序列'), null) })
-    assert.equal(app.writes.length, 0)
+    await app.runMenuAction('click', '复制序列')
+    assert.match(copiedSequences.at(-1), /wait 500ms/)
+
+    await app.runMenuAction('longPress', '粘贴序列')
+    const pasteDialog = app.view.root.findByType('sequence-paste-dialog')
+    assert.equal(pasteDialog.props.trigger, 'longPress')
+    await act(async () => pasteDialog.props.onApply([{ ...delay(750), id: 'pasted' }]))
+    assert.deepEqual(app.writes.at(-1)[1].longPress, [{ ...delay(750), id: 'pasted' }])
+    assert.deepEqual(app.writes.at(-1)[1].doubleClick, before.doubleClick)
+
+    await app.runMenuAction('click', '保存到行为库')
+    storageFailure = true
+    const saveDialog = app.view.root.findByType('sequence-save-dialog')
+    await act(async () => {
+      assert.match(saveDialog.props.onSave('失败测试'), /保存失败/)
+    })
+    assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 1)
+    storageFailure = false
+    await act(async () => {
+      assert.equal(saveDialog.props.onSave('常用序列'), null)
+    })
     const stored = JSON.parse(storage.get('axonkey.saved-sequences.v1'))
     assert.equal(stored[0].name, '常用序列')
-    assert.match(stored[0].sequence, /wait 650ms/)
+
     reopened = await render()
-    const toolbox = reopened.view.root.findByType(WorkflowToolbox)
-    const savedGroup = toolbox.props.palettes.find(palette => palette.name === '已保存').groups[0]
+    const toolbox = await reopened.openPicker('click')
+    const savedGroup = toolbox.props.palettes.find(p => p.name === '已保存').groups[0]
     assert.equal(savedGroup.steps[0].name, '常用序列')
     await act(async () => toolbox.props.onRemoveSavedSequence(stored[0].id))
     assert.deepEqual(JSON.parse(storage.get('axonkey.saved-sequences.v1')), [])
-  } finally { await app.unmount(); if (reopened) await reopened.unmount() }
+  } finally {
+    storageFailure = false
+    await app.unmount()
+    if (reopened) await reopened.unmount()
+  }
 })
 
-test('failed library writes keep the save dialog open and incomplete drafts cannot be copied or saved', async () => {
-  storage.clear()
-  const app = await render({ ...empty(), click: [delay(600)] })
-  try {
-    await laneAction(app, 'click', 'save')
-    storageFailure = true
-    const dialog = app.view.root.findByType('sequence-save-dialog')
-    await act(async () => { assert.match(dialog.props.onSave('测试'), /保存失败/) })
-    assert.equal(storage.has('axonkey.saved-sequences.v1'), false)
-    assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 1)
-    await act(async () => dialog.props.onClose())
-    branches(app.current()).click[0].properties.draftGroup = 'draft'
-    const copies = copiedSequences.length
-    await laneAction(app, 'click', 'copy')
-    await laneAction(app, 'click', 'save')
-    assert.equal(copiedSequences.length, copies)
-    assert.equal(app.view.root.findAllByType('sequence-save-dialog').length, 0)
-  } finally { storageFailure = false; await app.unmount() }
-})
-
-
-test('the disable action is offered in the control palette and replaces only its target lane', async () => {
-  const original = { click: [delay(500), { ...delay(800), id: 'second' }], doubleClick: [{ ...delay(300), id: 'double' }], longPress: [] }
+test('disable action replaces target trigger, blocks adding until cleared, and restores cleanly on undo', async () => {
+  const original = {
+    click: [delay(500), { ...delay(800), id: 'second' }],
+    doubleClick: [{ ...delay(300), id: 'double' }],
+    longPress: [],
+  }
   const app = await render(original)
   try {
-    const toolbox = app.view.root.findByType(WorkflowToolbox)
-    const action = toolbox.props.palettes.flatMap(palette => palette.groups).find(group => group.name === '控制').steps.find(step => step.type === 'disabled')
-    assert.equal(action.name, '禁用此触发方式')
-    const node = { ...action, id: 'disable-drop', properties: { ...action.properties } }
-    const instance = app.current()
-    branches(instance).click.splice(1, 0, node)
-    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
+    await app.addAction('click', 'disabled')
     assert.equal(app.writes.length, 1)
-    assert.deepEqual(app.writes[0][1], { ...original, click: [{ id: node.id, type: 'disabled', enabled: true }] })
+    assert.equal(app.writes[0][1].click.length, 1)
+    assert.equal(app.writes[0][1].click[0].type, 'disabled')
     await app.update({ sequences: app.writes[0][1] })
-    const target = branches(instance).click
-    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), target), false)
-    await act(async () => clearLane(instance, 'click'))
+
+    // Cannot open picker or append into disabled lane
+    const addBtn = app.card('click').findByProps({ 'data-trigger-add': 'click' })
+    await act(async () => addBtn.props.onClick({ currentTarget: {} }))
+    assert.equal(app.view.root.findAllByType(WorkflowToolbox).length, 0)
+    assert.match(text(app.view.root.findByProps({ role: 'status' })), /取消禁用/)
+
+    // Cancel disable via inline clear button
+    const clearDisable = app.card('click').findByProps({ 'aria-label': '取消禁用单击' })
+    await act(async () => clearDisable.props.onClick())
     assert.deepEqual(app.writes.at(-1)[1].click, [])
-    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), branches(instance).click), true)
+
+    // Undo restores original 2 delays
     await app.update({ sequences: original })
-    assert.deepEqual(branches(app.current()).click.map(step => step.properties.ms), [500, 800])
-  } finally { await app.unmount() }
-})
-
-
-test('a disabling node remains draggable and trash deletion autosaves once and restores its lane', async () => {
-  const off = { id: 'disable-drag', type: 'disabled', enabled: true }
-  const original = { click: [off], doubleClick: [delay(250)], longPress: [] }
-  const app = await render(original)
-  try {
-    const instance = app.current()
-    const lane = branches(instance).click
-    const node = lane[0]
-    assert.equal(instance.configuration.steps.isDraggable(node, lane), true)
-    assert.equal(instance.configuration.steps.isDeletable(node, lane), true)
-    instance.api.editor.isReadonly = () => true
-    assert.equal(instance.configuration.steps.isDraggable(node, lane), false)
-    instance.api.editor.isReadonly = () => false
-    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), lane), false)
-    assert.equal(instance.configuration.steps.canMoveStep(lane, node, branches(instance).longPress), false)
-    await act(async () => instance.dropOnTrash(node.id))
-    assert.equal(app.writes.length, 1)
-    assert.deepEqual(app.writes[0][1], { ...original, click: [] })
-    assert.equal(instance.configuration.steps.canInsertStep(palette('delay'), lane), true)
-    await app.update({ sequences: app.writes[0][1] })
-    await app.update({ sequences: original })
-    assert.equal(branches(app.current()).click[0].type, 'disabled', 'shared undo restores the disabling node')
-  } finally { await app.unmount() }
-})
-
-
-test('dropping new or saved profile switching opens confirmation without inserting or saving anything', async () => {
-  for (const type of ['switchProfile', 'savedSequence']) {
-    const original = { click: [delay(500)], doubleClick: [delay(700)], longPress: [] }
-    const app = await render(original)
-    try {
-      const instance = app.current()
-      const node = palette(type)
-      if (type === 'savedSequence') node.properties.sequence = 'axonkey/1\nprofile next wrap\nend'
-      branches(instance).click.push(node)
-      await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-      assert.equal(app.writes.length, 0)
-      assert.equal(app.requests.length, 1)
-      assert.deepEqual(app.requests[0].slice(0, 2), ['tv', 'click'])
-      assert.equal(app.requests[0][2].wrap, true)
-      assert.deepEqual(branches(instance).click.map(step => step.properties.ms), [500])
-      assert.deepEqual(branches(instance).doubleClick.map(step => step.properties.ms), [700])
-      await app.unmount()
-      assert.equal(app.writes.length, 0, 'cancel or page changes must never flush the proposed switch')
-    } catch (error) { await app.unmount(); throw error }
+    assert.equal(app.card('click').findAllByProps({ 'aria-label': '等待毫秒数' }).length, 2)
+  } finally {
+    await app.unmount()
   }
 })
 
-test('editing and pasting profile switches wait for shared overwrite confirmation', async () => {
-  const behavior = { id: 'profile', enabled: true, type: 'switchProfile', direction: 'previous', wrap: false }
-  const app = await render({ click: [behavior], doubleClick: [], longPress: [] })
-  try {
-    const dialog = await openContextEditor(app, 'click')
-    await act(async () => dialog.props.edit.onSave({ ...behavior, direction: 'next', wrap: true }))
-    assert.equal(app.writes.length, 0)
-    assert.equal(app.requests.length, 1)
-    assert.equal(branches(app.current()).click[0].properties.wrap, false)
-    await laneAction(app, 'longPress', 'paste')
-    await act(async () => app.view.root.findByType('sequence-paste-dialog').props.onApply([behavior]))
-    assert.equal(app.requests.length, 2)
-    assert.equal(app.requests[1][1], 'longPress')
-    assert.equal(app.writes.length, 0)
-    assert.equal(branches(app.current()).longPress.length, 0)
-  } finally { await app.unmount() }
-})
-
-
-test('a fast page change cannot autosave a saved profile switch before confirmation', async () => {
-  const app = await render({ click: [delay(650)], doubleClick: [], longPress: [] })
-  const node = palette('savedSequence')
-  node.properties.sequence = 'axonkey/1\nprofile previous wrap\nend'
-  branches(app.current()).click.push(node)
-  await app.unmount()
-  assert.equal(app.writes.length, 0)
-  assert.equal(app.requests.length, 0)
-})
-
-test('trash, clear, context deletion and Delete restore a shared switch while waiting for confirmation', async () => {
+test('profile switch additions, edits, pastes, and gated deletions wait for shared confirmation and preserve drafts', async () => {
   const { removedProfileSwitchTriggers } = load('src/profileNavigation.ts')
-  for (const route of ['trash', 'clear', 'context', 'keyboard']) {
-    const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }], doubleClick: [delay(400)], longPress: [] }
-    const app = await render(original)
-    const pending = []
-    try {
-      await app.update({ onChange: (id, next) => {
-        if (removedProfileSwitchTriggers(original, next).length) { pending.push(copy(next)); return false }
-        app.writes.push([id, copy(next)])
-      } })
-      const instance = app.current()
-      instance.coalesceChanges = true
-      if (route === 'trash') await act(async () => instance.dropOnTrash('shared'))
-      if (route === 'clear') await act(async () => clearLane(instance, 'click'))
-      if (route === 'context') {
-        const lane = branches(instance).click
-        assert.equal(instance.configuration.steps.isDeletable(lane[0], lane), true)
-        lane.splice(0, 1)
-        await act(async () => instance.emit(library.DefinitionChangeType.stepDeleted, 'shared'))
+  const switchBehavior = { id: 'shared', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }
+  const original = { click: [switchBehavior], doubleClick: [delay(400)], longPress: [] }
+  const pending = []
+  const app = await render(original, {
+    onChange: (id, next) => {
+      if (removedProfileSwitchTriggers(original, next).length) {
+        pending.push(copy(next))
+        return false
       }
-      if (route === 'keyboard') {
-        instance.onSelectedStepIdChanged.emit('shared')
-        await act(async () => instance.canvas.handlers.get('keydown')({ key: 'Delete', target: { closest: () => null }, preventDefault() {}, stopPropagation() {} }))
-      }
-      assert.equal(pending.length, 1, route)
-      assert.deepEqual(pending[0], { ...original, click: [] })
-      assert.equal(app.writes.length, 0, 'confirmation cannot autosave or add an undo entry')
-      assert.equal(branches(instance).click[0].id, 'shared', 'cancel leaves the original node in place')
-      assert.equal(app.current(), instance, 'opening confirmation preserves the canvas and viewport')
-      await app.unmount()
-      assert.equal(pending.length, 1, 'cleanup must not repeat the prompt')
-      assert.equal(app.writes.length, 0, 'cleanup must not flush an unconfirmed deletion')
-    } catch (error) { await app.unmount(); throw error }
+      app.writes.push([id, copy(next)])
+    },
+  })
+  try {
+    // 1. Adding switchProfile requests confirmation without mutating doubleClick
+    await app.addAction('doubleClick', 'switchProfile')
+    assert.equal(app.requests.length, 1)
+    assert.deepEqual(app.requests[0].slice(0, 2), ['tv', 'doubleClick'])
+    assert.equal(app.writes.length, 0)
+
+    // 2. Editing existing switchProfile requests confirmation without mutating click
+    const editBtn = app.card('click').findByProps({ className: 'step-summary-btn' })
+    await act(async () => editBtn.props.onClick())
+    const dialog = app.view.root.findByType('workflow-dialog')
+    await act(async () => dialog.props.edit.onSave({ ...switchBehavior, direction: 'previous', wrap: false }))
+    assert.equal(app.requests.length, 2)
+    assert.equal(app.writes.length, 0)
+
+    // 3. Pasting a sequence containing switchProfile requests confirmation
+    await app.runMenuAction('longPress', '粘贴序列')
+    await act(async () => app.view.root.findByType('sequence-paste-dialog').props.onApply([switchBehavior]))
+    assert.equal(app.requests.length, 3)
+    assert.equal(app.requests[2][1], 'longPress')
+
+    // 4. Add an incomplete paste draft in longPress, then attempt to delete shared switch in click -> gated!
+    await app.addAction('longPress', 'paste')
+    assert.equal(app.card('longPress').findAllByProps({ className: 'inline-prompt-textarea' }).length, 1)
+    const deleteShared = app.card('click').findByProps({ 'aria-label': '删除行为' })
+    await act(async () => deleteShared.props.onClick())
+    assert.equal(pending.length, 1)
+    assert.deepEqual(pending[0], { ...original, click: [] })
+    assert.equal(app.writes.length, 0)
+    // Original switchProfile remains on click AND unfinished paste draft remains in longPress!
+    assert.equal(app.card('click').findAllByProps({ className: 'step-summary-btn' }).length, 1)
+    assert.equal(app.card('longPress').findAllByProps({ className: 'inline-prompt-textarea' }).length, 1)
+  } finally {
+    await app.unmount()
   }
 })
 
-test('a fast page change gates an undelivered shared deletion and confirmed props remove it without prompting again', async () => {
-  const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'previous', wrap: true }], doubleClick: [], longPress: [] }
-  const app = await render(original)
-  const pending = []
-  await app.update({ onChange: (_id, next) => { pending.push(copy(next)); return false } })
-  branches(app.current()).click.splice(0, 1)
-  await app.unmount()
-  assert.equal(pending.length, 1)
-  assert.deepEqual(pending[0], empty())
-  assert.equal(app.writes.length, 0)
-
-  const confirmed = await render(original)
-  try {
-    await confirmed.update({ sequences: empty() })
-    assert.deepEqual(branches(confirmed.current()).click, [])
-    assert.equal(confirmed.writes.length, 0)
-  } finally { await confirmed.unmount() }
-})
-
-test('cancelling shared deletion preserves unfinished drafts in other lanes', async () => {
-  const original = { click: [{ id: 'shared', type: 'switchProfile', enabled: true, direction: 'next', wrap: true }], doubleClick: [], longPress: [] }
-  const app = await render(original)
-  try {
-    const instance = app.current()
-    const node = palette('paste')
-    branches(instance).longPress.push(node)
-    await act(async () => instance.emit(library.DefinitionChangeType.stepInserted, node.id))
-    assert.equal(app.writes.length, 0)
-    assert.equal(branches(instance).longPress[0].properties.draftGroup, node.id)
-    await app.update({ onChange: () => false })
-    await act(async () => clearLane(instance, 'click'))
-    assert.equal(branches(instance).click[0].id, 'shared')
-    assert.equal(branches(instance).longPress[0].id, node.id)
-    assert.equal(branches(instance).longPress[0].properties.draftGroup, node.id)
-    assert.equal(app.writes.length, 0)
-  } finally { await app.unmount() }
-})
-
-
-test('library add buttons append independent actions to the current trigger and preserve the palette', async () => {
-  const app = await render(empty(), { activeTrigger: 'doubleClick' })
-  try {
-    let toolbox = app.view.root.findByType(WorkflowToolbox)
-    const action = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps).find(step => step.type === 'delay')
-    const before = copy(action)
-    assert.equal(toolbox.props.addLabel, '添加到双击')
-    await act(async () => { toolbox.props.onAddStep(action); toolbox.props.onAddStep(action) })
-    assert.equal(branches(app.current()).click.length, 0)
-    const inserted = branches(app.current()).doubleClick
-    assert.equal(inserted.length, 2)
-    assert.notEqual(inserted[0].id, inserted[1].id)
-    assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
-    assert.deepEqual(copy(action), before)
-    await app.update({ activeTrigger: 'longPress' })
-    toolbox = app.view.root.findByType(WorkflowToolbox)
-    assert.equal(toolbox.props.addLabel, '添加到长按')
-    await act(async () => toolbox.props.onAddStep(action))
-    assert.equal(app.writes.at(-1)[1].longPress.length, 1)
-    assert.equal(app.writes.at(-1)[1].doubleClick.length, 2)
-  } finally { await app.unmount() }
-})
-
-test('library add buttons reuse disabled-lane and profile-switch rules', async () => {
-  const app = await render({ ...empty(), click: [delay(20)] })
-  try {
-    const toolbox = app.view.root.findByType(WorkflowToolbox)
-    const actions = toolbox.props.palettes.flatMap(palette => palette.groups).flatMap(group => group.steps)
-    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'switchProfile')))
-    assert.equal(app.requests.length, 1)
-    assert.equal(app.requests[0][1], 'click')
-    assert.equal(branches(app.current()).click.length, 1, 'shared action waits for existing confirmation')
-    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'disabled')))
-    assert.equal(branches(app.current()).click.length, 1)
-    assert.equal(app.writes.at(-1)[1].click[0].type, 'disabled')
-    await act(async () => toolbox.props.onAddStep(actions.find(step => step.type === 'delay')))
-    assert.equal(branches(app.current()).click.length, 1, 'cannot append into a disabled lane')
-  } finally { await app.unmount() }
-})
-
-
-test('anonymous cloud additions count accepted copies once, preserve provenance and exclude canceled drafts', async () => {
-  const additions = libraryAdditions.length
+test('anonymous cloud library additions count accepted copies once, preserve provenance, exclude drafts, and batch', async () => {
+  const before = libraryAdditions.length
   const first = '00000000-0000-4000-8000-000000000001'
   const second = '00000000-0000-4000-8000-000000000002'
+  const third = '00000000-0000-4000-8000-000000000003'
+  const disabledSource = '00000000-0000-4000-8000-000000000004'
   const app = await render()
   try {
-    const toolbox = app.view.root.findByType(WorkflowToolbox)
-    const action = { ...palette('delay'), properties: { ms: 20, libraryItemId: first } }
-    await act(async () => toolbox.props.onAddStep(action))
-    assert.equal(libraryAdditions.length, additions + 1)
+    // Immediate delay copy counts once
+    await app.addAction('click', { ...palette('delay'), properties: { ms: 20, libraryItemId: first } })
+    assert.equal(libraryAdditions.length, before + 1)
     assert.deepEqual(libraryAdditions.at(-1), [first])
-    assert.equal(app.writes.at(-1)[1].click.length, 1)
-    assert.equal(branches(app.current()).click[0].properties.libraryItemId, first)
     assert.equal(app.writes.at(-1)[1].click[0].libraryItemId, first)
-    await act(async () => app.current().emit(library.DefinitionChangeType.stepChildrenChanged))
-    assert.equal(libraryAdditions.length, additions + 1)
-    const draft = { ...palette('paste'), properties: { libraryItemId: second } }
-    await act(async () => toolbox.props.onAddStep(draft))
-    assert.equal(libraryAdditions.length, additions + 1)
-    const canceled = await openContextEditor(app, 'click', 1)
-    await act(async () => canceled.props.onClose())
-    assert.equal(libraryAdditions.length, additions + 1)
-    const dialog = await openContextEditor(app, 'click', 1)
-    await act(async () => dialog.props.edit.onSave({ ...dialog.props.edit.behavior, text: 'ready' }))
-    assert.equal(libraryAdditions.length, additions + 2)
+
+    // Draft paste waits until non-empty text is entered
+    await app.addAction('click', { ...palette('paste'), properties: { libraryItemId: second } })
+    assert.equal(libraryAdditions.length, before + 1)
+    const textarea = app.card('click').findByProps({ className: 'inline-prompt-textarea' })
+    await act(async () => textarea.props.onChange({ target: { value: '云端提示词' } }))
+    assert.equal(libraryAdditions.length, before + 2)
     assert.deepEqual(libraryAdditions.at(-1), [second])
-    assert.equal(app.writes.at(-1)[1].click.at(-1).text, 'ready')
-  } finally { await app.unmount() }
-})
 
-test('cloud sequence drops and fast cleanup count once after acceptance; rejected edits and shared switches wait', async () => {
-  const itemId = '00000000-0000-4000-8000-000000000003'
-  const action = () => ({ ...palette('savedSequence'), properties: { sequence: 'axonkey/1\nkey Enter\nwait 30ms\noff text "停用"\nend', libraryItemId: itemId } })
-  for (const route of ['drop', 'cleanup', 'reject', 'switch']) {
-    const before = libraryAdditions.length
-    const app = await render(empty(), route === 'reject' ? { onChange: () => false } : {})
-    try {
-      const node = action()
-      if (route === 'switch') node.properties.sequence = 'axonkey/1\nprofile next wrap\nend'
-      branches(app.current()).click.push(node)
-      if (route === 'cleanup') await app.unmount()
-      else await act(async () => app.current().emit(library.DefinitionChangeType.stepInserted, node.id))
-      if (route === 'reject' || route === 'switch') {
-        assert.equal(libraryAdditions.length, before)
-        assert.equal(app.writes.length, 0)
-        if (route === 'switch') {
-          assert.equal(app.requests[0][2].libraryItemId, itemId)
-          assert.equal(app.requests[0][3], itemId)
-        }
-      } else {
-        assert.equal(libraryAdditions.length, before + 1)
-        assert.deepEqual(libraryAdditions.at(-1), [itemId])
-        assert.deepEqual(app.writes.at(-1)[1].click.map(behavior => behavior.libraryItemId), [itemId, itemId, itemId])
-      }
-    } finally { await app.unmount() }
+    // Saved sequence deduplicates active sources and ignores disabled/null sources
+    await app.addAction('doubleClick', {
+      ...palette('savedSequence'),
+      properties: {
+        sequence: 'axonkey/1\nkey Enter\nwait 30ms\nkey Esc\noff text "停用"\nkey Space\nend',
+        libraryItemIds: [first, first, third, disabledSource, null],
+      },
+    })
+    assert.equal(libraryAdditions.length, before + 3)
+    assert.deepEqual(libraryAdditions.at(-1), [first, third])
+
+    // Cloud switchProfile forwards pending addition ID to confirmation handler without counting prematurely
+    await app.addAction('longPress', {
+      ...palette('savedSequence'),
+      properties: { sequence: 'axonkey/1\nprofile next wrap\nend', libraryItemId: third },
+    })
+    assert.equal(libraryAdditions.length, before + 3)
+    assert.equal(app.requests.at(-1)[3], third)
+  } finally {
+    await app.unmount()
   }
-})
 
-test('inserting a saved copy counts each known active library source once while local and disabled sources stay uncounted', async () => {
-  const first = '00000000-0000-4000-8000-000000000004'
-  const second = '00000000-0000-4000-8000-000000000005'
-  const disabled = '00000000-0000-4000-8000-000000000006'
-  const before = libraryAdditions.length
-  const app = await render()
-  try {
-    const toolbox = app.view.root.findByType(WorkflowToolbox)
-    const action = { ...palette('savedSequence'), properties: { sequence: 'axonkey/1\nkey Enter\nwait 30ms\nkey Esc\noff text "停用"\nkey Space\nend', libraryItemIds: [first, first, second, disabled, null] } }
-    await act(async () => toolbox.props.onAddStep(action))
-    assert.equal(libraryAdditions.length, before + 1)
-    assert.deepEqual(libraryAdditions.at(-1), [first, second])
-    assert.deepEqual(app.writes.at(-1)[1].click.map(behavior => behavior.libraryItemId ?? null), [first, first, second, disabled, null])
-    await act(async () => app.current().emit(library.DefinitionChangeType.stepPropertyChanged))
-    assert.equal(libraryAdditions.length, before + 1)
-    await act(async () => toolbox.props.onAddStep({ ...palette('delay'), properties: { ms: 30 } }))
-    assert.equal(libraryAdditions.length, before + 1)
-  } finally { await app.unmount() }
-})
-
-test('addition increments preserve duplicate IDs and stay within the native command batch limit', () => {
-  const source = '00000000-0000-4000-8000-000000000007'
-  const before = libraryAdditions.length
+  // Verify 100-item native batching limit
+  const batchId = '00000000-0000-4000-8000-000000000007'
+  const batchBefore = libraryAdditions.length
   const { recordLibraryAdditions } = load('src/cloud/libraryUsage.ts')
-  recordLibraryAdditions(Array(205).fill(source))
-  assert.deepEqual(libraryAdditions.slice(before).map(items => items.length), [100, 100, 5])
-  assert.equal(libraryAdditions.slice(before).flat().length, 205)
-  assert.ok(libraryAdditions.slice(before).flat().every(item => item === source))
-})
-
-
-test('inline edits autosave without closing and explicit deletion removes the behavior', async () => {
-  const app = await render({ ...empty(), click: [delay(100)] })
-  try {
-    let editor = await openContextEditor(app, 'click')
-    assert.equal(editor.props.inline, true)
-    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, ms: 401 }))
-    editor = app.view.root.findByType('workflow-dialog')
-    assert.equal(editor.props.edit.behavior.ms, 401)
-    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, ms: 402 }))
-    assert.equal(app.writes.at(-1)[1].click[0].ms, 402)
-    await act(async () => app.view.root.findByType('workflow-dialog').props.edit.onDelete())
-    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 0)
-    assert.deepEqual(app.writes.at(-1)[1].click, [])
-  } finally { await app.unmount() }
-})
-
-test('incomplete inline values preserve the existing mapping and keep the editor open', async () => {
-  const app = await render({ ...empty(), click: [{ id: 'text', type: 'paste', enabled: true, text: '原内容' }] })
-  try {
-    const editor = await openContextEditor(app, 'click')
-    await act(async () => editor.props.edit.onSave({ ...editor.props.edit.behavior, text: ' ' }))
-    assert.equal(app.writes.length, 0)
-    assert.equal(branches(app.current()).click[0].properties.text, '原内容')
-    assert.equal(app.view.root.findAllByType('workflow-dialog').length, 1)
-  } finally { await app.unmount() }
-})
-
-test('dropping a multi-selection on trash deletes the group across lanes in one write', async () => {
-  const app = await render({ click: [delay(100), { ...delay(200), id: 'keep' }], doubleClick: [{ ...delay(300), id: 'second' }], longPress: [] })
-  try {
-    const instance = app.current()
-    instance.selectStepById('wait')
-    instance.canvas.handlers.get('mousedown')({
-      button: 0, ctrlKey: true, preventDefault() {}, stopPropagation() {},
-      target: { closest: selector => selector === '.sqd-workspace' ? {} : selector === '[data-step-id]' ? { getAttribute: () => 'second' } : null },
-    })
-    await act(async () => instance.dropOnTrash('wait'))
-    assert.equal(app.writes.length, 1)
-    assert.deepEqual(app.writes[0][1].click.map(item => item.id), ['keep'])
-    assert.deepEqual(app.writes[0][1].doubleClick, [])
-  } finally { await app.unmount() }
-})
-
-test('double-click modal saves back to the inline editor and closes only the modal', async () => {
-  const app = await render({ ...empty(), click: [delay(100)] })
-  try {
-    await openContextEditor(app, 'click')
-    const instance = app.current()
-    const node = branches(instance).click[0]
-    const wrapper = instance.configuration.extensions.find(extension => extension.clickBehaviorWrapperExtension).clickBehaviorWrapperExtension.create()
-    const interaction = wrapper.wrap({ onEnd: () => new library.SelectStepBehaviorEndToken(node.id, 1200) }, {
-      type: library.ClickCommandType.selectStep, component: { step: node },
-    })
-    await act(async () => interaction.onEnd(false, null, new library.SelectStepBehaviorEndToken(node.id, 1000)))
-    const modal = app.view.root.findAllByType('workflow-dialog').find(dialog => !dialog.props.inline)
-    assert.ok(modal)
-    await act(async () => modal.props.edit.onSave({ ...modal.props.edit.behavior, ms: 751 }))
-    const editor = app.view.root.findByType('workflow-dialog')
-    assert.equal(editor.props.inline, true)
-    assert.equal(editor.props.edit.behavior.ms, 751)
-    assert.equal(app.writes.at(-1)[1].click[0].ms, 751)
-  } finally { await app.unmount() }
+  recordLibraryAdditions(Array(205).fill(batchId))
+  assert.deepEqual(
+    libraryAdditions.slice(batchBefore).map(items => items.length),
+    [100, 100, 5],
+  )
 })

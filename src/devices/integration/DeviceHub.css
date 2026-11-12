@@ -643,13 +643,10 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 
 .managed-instance-workspace.is-controller {
-  --controller-lane-width: clamp(220px, 20vw, 280px);
-  --controller-library-width: clamp(280px, 24vw, 360px);
+  --controller-lane-width: clamp(380px, 46vw, 560px);
 }
-/* Reserve a compact lane and library; the diagram gets the remaining width.
-   The workflow has 32px horizontal padding and a 12px column gap. */
 .managed-instance-workspace.is-controller .mapping-workbench {
-  grid-template-columns: minmax(0, 1fr) calc(var(--controller-lane-width) + var(--controller-library-width) + 44px);
+  grid-template-columns: minmax(0, 1fr) var(--controller-lane-width);
 }
 .managed-instance-workspace.is-controller .managed-controller-stage {
   flex: 1 1 0;
@@ -669,13 +666,10 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-instance-workspace.is-controller .managed-analog {
   flex-shrink: 0;
 }
-.managed-instance-workspace.is-controller .workflow-axonkey {
-  grid-template-columns: var(--controller-lane-width) minmax(0, 1fr);
-}
 .managed-workflow-triggers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: var(--controller-lane-width);
+  width: min(320px, 100%);
   max-width: 100%;
   gap: 6px;
 }
