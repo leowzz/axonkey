@@ -127,6 +127,22 @@ test('every bundled device renders its descriptor inputs through the common SVG 
   assert.equal(rc313RemoteView.artworkUrl, '/device-descriptors/rc313.svg')
 })
 
+test('remote SVG preserves intrinsic viewBox dimensions and aspect ratio across key selection', () => {
+  const { view, key } = mount({ remoteView: cmiotA15RemoteView, activeId: 'cmiotA15.power' })
+  const container = view.root.findByProps({ className: 'remote-control-view' })
+  const svg = view.root.findByType('svg')
+  assert.equal(svg.props.width, 420)
+  assert.equal(svg.props.height, 1320)
+  assert.equal(container.props.style['--remote-aspect'], '420 / 1320')
+  assert.equal(container.props.style['--remote-ratio'], String(420 / 1320))
+  act(() => key('cmiotA15.voice').props.onClick())
+  assert.equal(svg.props.width, 420)
+  assert.equal(svg.props.height, 1320)
+  assert.equal(container.props.style['--remote-aspect'], '420 / 1320')
+  assert.equal(container.props.style['--remote-ratio'], String(420 / 1320))
+  act(() => view.unmount())
+})
+
 test('Xbox preserves independent simultaneous presses and translated stick regions', () => {
   const props = { remoteView: xboxRemoteView, activeId: 'xbox.a', pressedIds: ['xbox.lb', 'xbox.rs.up'], mappedIds: ['xbox.x'], onSelect() {} }
   const { view, key } = mount(props)

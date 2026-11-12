@@ -2648,7 +2648,11 @@ function AppController({
             )}
           </main>
           {activePage === 'settings' && (
-            <AppSettingsPanel workspaceRef={mainContentRef} onClose={closeSettingsPanel}>
+            <AppSettingsPanel
+              workspaceRef={mainContentRef}
+              backLabel={workspaceInstance?.name ?? (workspacePage === 'mapping' ? selectedDevice.name : '我的设备')}
+              onClose={closeSettingsPanel}
+            >
               <SettingsPage
                 presentation="panel"
                 cloudContent={

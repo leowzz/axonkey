@@ -381,3 +381,54 @@ test('turning debug off or changing users immediately hides recommendation contr
     assert.equal(requests.filter(request => request.method === 'POST').length, 0)
   } finally { act(() => view.unmount()) }
 })
+
+test('recommended list hides manual load-more button, auto-loads near scroll bottom, and stops on error', async () => {
+  const harness = libraryHarness()
+  const cursors = []
+  let failMore = false
+  const listNode = { clientHeight: 240, scrollHeight: 200, scrollTop: 0 }
+  const client = new RelayClient(async (_, path) => {
+    const cursor = new URL('https://relay.invalid' + path).searchParams.get('cursor') ?? ''
+    cursors.push(cursor)
+    if (cursor && failMore) throw new Error('offline')
+    if (!cursor) return { status: 200, body: { items: [publicItem('p1', '推荐一')], next_cursor: 'cursor-2' } }
+    if (cursor === 'cursor-2') {
+      listNode.scrollHeight = 620
+      return { status: 200, body: { items: [publicItem('p2', '推荐二')], next_cursor: 'cursor-3' } }
+    }
+    listNode.scrollHeight = 960
+    return { status: 200, body: { items: [publicItem('p3', '推荐三')], next_cursor: 'cursor-4' } }
+  }, null, () => {})
+  let view
+  await act(async () => {
+    view = Renderer.create(recommendationToolbox(harness, client, { debugMode: false, userId: null }, 'recommended'), {
+      createNodeMock: element => (element.props.className === 'workflow-toolbox-list' ? listNode : null),
+    })
+  })
+  try {
+    await act(async () => { harness.tick(); await flush() })
+    await act(async () => { await flush() })
+    assert.deepEqual(cursors, ['', 'cursor-2'], 'tall container auto-fills next page until scrollable')
+    assert.equal(button(view, '加载更多'), undefined)
+    assert.ok(button(view, '推荐一'))
+    assert.ok(button(view, '推荐二'))
+
+    const list = view.root.findByProps({ className: 'workflow-toolbox-list' })
+    listNode.scrollTop = 200
+    await act(async () => { list.props.onScroll({ currentTarget: listNode }); await flush() })
+    assert.deepEqual(cursors, ['', 'cursor-2'])
+
+    listNode.scrollTop = 320
+    await act(async () => { list.props.onScroll({ currentTarget: listNode }); await flush() })
+    assert.deepEqual(cursors, ['', 'cursor-2', 'cursor-3'])
+    assert.ok(button(view, '推荐三'))
+
+    failMore = true
+    listNode.scrollTop = 680
+    await act(async () => { list.props.onScroll({ currentTarget: listNode }); await flush() })
+    assert.deepEqual(cursors, ['', 'cursor-2', 'cursor-3', 'cursor-4'])
+    assert.match(text(view.toJSON()), /加载更多失败/)
+    await act(async () => { list.props.onScroll({ currentTarget: listNode }); await flush() })
+    assert.deepEqual(cursors, ['', 'cursor-2', 'cursor-3', 'cursor-4'])
+  } finally { act(() => view.unmount()) }
+})

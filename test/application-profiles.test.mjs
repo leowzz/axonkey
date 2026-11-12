@@ -114,16 +114,38 @@ test('adding an app creates an independent editable copy and preserves the globa
   assert.equal(copied.appProfileSwitching, false)
 })
 
-test('toolbar selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
+test('toolbar loads application icons automatically, selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
+  const iconRequests = []
+  const iconsById = {
+    [chrome.id]: 'data:image/png;base64,iVBORw0KGgoChrome',
+    [code.id]: 'data:image/png;base64,iVBORw0KGgoCode',
+  }
   const { SelectControl } = compile('src/components/SelectControl.tsx')
   const { ProfileManager } = compile('src/components/ProfileManager.tsx', { './SelectControl': { SelectControl } })
-  const { ApplicationProfileToolbar } = compile('src/components/ApplicationProfileToolbar.tsx', {
+  const toolbarModule = compile('src/components/ApplicationProfileToolbar.tsx', {
     'react-dom': { createPortal: node => node },
-    '@tauri-apps/api/core': { invoke: async (command, { path }) => { assert.equal(command, 'resolve_application_path'); if (path === code.path) return code; throw new Error('请选择有效的应用') } },
+    '@tauri-apps/api/core': {
+      invoke: async (command, args) => {
+        if (command === 'application_icons') {
+          iconRequests.push(args.applications)
+          return Object.fromEntries(args.applications.flatMap(({ id }) => (iconsById[id] ? [[id, iconsById[id]]] : [])))
+        }
+        assert.equal(command, 'resolve_application_path')
+        if (args.path === code.path) return code
+        throw new Error('请选择有效的应用')
+      },
+    },
     '@tauri-apps/plugin-dialog': { open: async () => code.path },
     '../devices/integration/instanceProfiles': { addApplicationForEditing },
-    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null }, './SelectControl': { SelectControl },
+    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null },
   })
+  const { ApplicationProfileToolbar } = toolbarModule
+  const { MouseApplicationProfileToolbar } = compile('src/components/MouseApplicationProfileToolbar.tsx', {
+    './ApplicationProfileToolbar': toolbarModule,
+    './ProfileManager': { ProfileManager },
+    './SettingsHelp': { SettingsHelp: () => null },
+  })
+  const nodeText = node => typeof node === 'string' ? node : (node?.children ?? []).map(nodeText).join('')
   let current, selected, view
   const switched = []
   function Harness() {
@@ -137,30 +159,81 @@ test('toolbar selects recent apps directly, toggles automatic switching and adds
       onSwitchProfile: id => switched.push(id), onCreateProfile() {}, onDuplicateProfile() {}, onRenameProfile() {}, onDeleteProfile() {},
     })
   }
-  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({ showModal() {}, close() {} }) }) })
+  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({ showModal() {}, close() {}, contains: () => false, focus() {} }) }) })
   try {
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: chrome.id } }))
+    assert.deepEqual(JSON.parse(JSON.stringify(iconRequests)), [[{ id: chrome.id, path: chrome.path }]])
+    const trigger = () => view.root.findByProps({ 'aria-label': '编辑应用' })
+    await act(async () => trigger().props.onClick())
+    const chromeOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes('Chrome'))
+    assert.equal(chromeOption.findByType('img').props.src, iconsById[chrome.id])
+    await act(async () => chromeOption.props.onClick())
     assert.equal(selected, chrome.id)
+    assert.equal(trigger().findByType('img').props.src, iconsById[chrome.id])
     assert.equal(current.activeProfileId, 'global')
     assert.equal(current.applicationProfiles[0].profileId, current.profiles.at(-1).id)
+    assert.equal(iconRequests.length, 1, 'polling or moving an app to bindings must not re-fetch cached icons')
+
     await act(async () => view.root.findByProps({ 'aria-label': '配置' }).props.onChange({ target: { value: 'editor' } }))
     assert.deepEqual(switched, ['editor'])
     await act(async () => view.root.findByProps({ role: 'switch' }).props.onClick())
     assert.equal(current.appProfileSwitching, false)
     assert.equal(selected, chrome.id)
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: '__add_application__' } }))
+
+    await act(async () => trigger().props.onClick())
+    await act(async () => view.root.findByProps({ className: 'application-select-action' }).props.onClick())
     await act(async () => view.root.findByProps({ id: 'application-add-path' }).props.onChange({ target: { value: 'invalid' } }))
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }))
     assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /请选择有效的应用/)
     await act(async () => view.root.findByProps({ 'aria-label': '选择应用文件' }).props.onClick())
     assert.equal(selected, code.id)
+    assert.equal(trigger().findByType('img').props.src, iconsById[code.id])
+    assert.deepEqual(JSON.parse(JSON.stringify(iconRequests)), [
+      [{ id: chrome.id, path: chrome.path }],
+      [{ id: code.id, path: code.path }],
+    ])
     assert.equal(current.applicationProfiles.length, 2)
     assert.equal(current.appProfileSwitching, false)
     assert.equal(view.root.findAllByType('dialog').length, 0, 'file selection immediately adds and opens the app')
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: '' } }))
+
+    await act(async () => trigger().props.onClick())
+    const globalOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node) === '全局')
+    await act(async () => globalOption.props.onClick())
     assert.equal(selected, '')
+    assert.equal(trigger().findAllByType('img').length, 0)
     assert.equal(current.activeProfileId, 'global')
   } finally { await act(async () => view.unmount()) }
+
+  let mouseView
+  await act(async () => {
+    mouseView = Renderer.create(React.createElement(MouseApplicationProfileToolbar, {
+      profiles: [
+        { id: 'default', name: '默认配置', deviceId: 'mouse', behaviors: {}, applicationIds: [] },
+        { id: 'browser', name: '浏览器', deviceId: 'mouse', behaviors: {}, applicationIds: [chrome.id] },
+      ],
+      activeProfileId: 'browser',
+      applications: { supported: true, current: null, recent: [{ application: chrome, lastUsedAt: 1 }], error: null },
+      editingApplicationId: chrome.id,
+      autoSwitching: true,
+      native: true,
+      platform: 'macos',
+      onSelectApplication() {},
+      onAddApplication() {},
+      onSwitchProfile() {},
+      onToggle() {},
+      onCreate() {},
+      onDuplicate() {},
+      onRename() {},
+      onDelete() {},
+    }))
+  })
+  try {
+    const mouseTrigger = mouseView.root.findByProps({ 'aria-label': '编辑应用' })
+    assert.equal(mouseTrigger.findByType('img').props.src, iconsById[chrome.id])
+    await act(async () => mouseTrigger.props.onClick())
+    const boundOption = mouseView.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes('Chrome'))
+    assert.ok(nodeText(boundOption).includes('浏览器'))
+    assert.equal(boundOption.findByType('img').props.src, iconsById[chrome.id])
+  } finally { await act(async () => mouseView.unmount()) }
 })
 
 test('workspace edits the explicitly selected app while paused and does not follow foreground changes', async () => {

@@ -85,6 +85,12 @@ const actionGlyphs: Record<string, string> = {
 }
 
 export function createWorkflowActionIconUrls(platform: Platform): Record<string, string> {
+  const arrowPaths: Record<string, string> = {
+    arrowUp: 'M17 16.9V7.4M13 11.2L17 7.2l4 4',
+    arrowDown: 'M17 7.4v9.5M13 13.1l4 4 4-4',
+    arrowLeft: 'M21.8 12.15h-9.6M16 8.15l-4 4 4 4',
+    arrowRight: 'M12.2 12.15h9.6M18 8.15l4 4-4 4',
+  }
   const keycaps: Record<string, string> = {
     escape: 'Esc',
     enter: 'Enter',
@@ -92,10 +98,6 @@ export function createWorkflowActionIconUrls(platform: Platform): Record<string,
     rightCtrl: 'Ctrl',
     rightAlt: platform === 'macos' ? 'Opt' : 'Alt',
     rightCommand: platform === 'macos' ? 'Cmd' : 'Win',
-    arrowUp: '↑',
-    arrowDown: '↓',
-    arrowLeft: '←',
-    arrowRight: '→',
     tab: 'Tab',
     backspace: 'Back',
     delete: 'Del',
@@ -104,17 +106,25 @@ export function createWorkflowActionIconUrls(platform: Platform): Record<string,
     pageUp: 'PgUp',
     pageDown: 'PgDn',
   }
+  const keycapShell =
+    '<rect x="0.75" y="0.75" width="32.5" height="24.5" rx="5.5" fill="#dde3ec" stroke="#8b95a7" stroke-width="1.35"/><rect x="1.5" y="1.5" width="31" height="21.25" rx="4.4" fill="#ffffff"/>'
   const urls: Record<string, string> = {}
   const toUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   for (const [action, glyph] of Object.entries(actionGlyphs)) {
     urls[action] = toUrl(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#475467" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(4 4)">${glyphShapes[glyph]}</g></svg>`,
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" stroke="#334155" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(4 4)">${glyphShapes[glyph]}</g></svg>`,
+    )
+  }
+  for (const [action, d] of Object.entries(arrowPaths)) {
+    urls[action] = toUrl(
+      `<svg data-keycap="1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 26">${keycapShell}<path d="${d}" fill="none" stroke="#181a1f" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     )
   }
   for (const [action, label] of Object.entries(keycaps)) {
-    const size = label.length === 1 ? 17 : 12
+    const size = label.length <= 3 ? 11.2 : label.length === 4 ? 9.8 : 9
+    const tracking = label.length <= 3 ? 0 : label.length === 4 ? -0.2 : -0.35
     urls[action] = toUrl(
-      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 28"><rect x="1" y="1" width="46" height="25" rx="5" fill="#f8fafc" stroke="#d0d5dd"/><path d="M5 26h38" stroke="#d0d5dd" stroke-width="1.6"/><text x="24" y="14" text-anchor="middle" dominant-baseline="central" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" font-weight="600" font-size="${size}" fill="#344054">${label}</text></svg>`,
+      `<svg data-keycap="1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 26">${keycapShell}<text x="17" y="12.2" text-anchor="middle" dominant-baseline="central" font-family="system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-weight="700" font-size="${size}" letter-spacing="${tracking}" fill="#181a1f">${label}</text></svg>`,
     )
   }
   return urls

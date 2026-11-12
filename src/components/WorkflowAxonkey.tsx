@@ -339,10 +339,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
             view: {
               paddingLeft: 8,
               paddingRight: 8,
-              paddingY: 10,
+              paddingY: 8,
               textMarginLeft: 8,
               minTextWidth: 20,
-              iconSize: 18,
+              iconSize: 22,
               radius: 5,
               inputSize: 14,
               outputSize: 10,

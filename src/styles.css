@@ -563,7 +563,8 @@ h1 {
   fill: #34c78b52;
 }
 .remote-control-hint {
-  margin: 6px 0 0;
+  height: 16px;
+  margin: 6px -24px 0;
   color: var(--muted);
   font-size: 11px;
   line-height: 16px;
@@ -3068,8 +3069,9 @@ body.permission-helper-mode #root {
     margin-top: 8px;
     padding: 10px 0 12px;
   }
-  .mapping-active .remote-art {
-    width: min(232px, calc((100vh - 198px) * 0.411), 100%);
+  .mapping-active .mapping-page:not(.mapping-flow-page) .remote-control-view {
+    width: min(232px, calc((100dvh - 198px) * var(--remote-ratio, 0.411)), 100%);
+    margin-inline: auto;
   }
   .key-picker {
     padding-top: 12px;
@@ -4027,8 +4029,9 @@ body:has(.audio-test-dialog[open]) {
 .mapping-device-rail {
   overflow-y: auto;
 }
-.mapping-active .remote-art {
-  width: min(232px, max(100px, calc((100vh - 350px) * 0.411)), 100%);
+.mapping-active .mapping-page:not(.mapping-flow-page) .remote-control-view {
+  width: min(232px, max(100px, calc((100dvh - 350px) * var(--remote-ratio, 0.411))), 100%);
+  margin-inline: auto;
 }
 .device-status-card {
   display: flex;
