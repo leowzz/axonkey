@@ -416,47 +416,40 @@ fn read(
         }
     };
     let request = crate::windows_runtime::BluetoothRequest::new(READ_TIMEOUT, Some(stop));
-    let result = (|| -> Result<(), String> {
+    let result = (|| -> Result<(), ReadError> {
         let address = u64::from_str_radix(
             &target.bluetooth_address.as_ref().unwrap().replace(':', ""),
             16,
         )
-        .map_err(|e| e.to_string())?;
-        let device = request
-            .run("打开设备信息连接", || {
-                BluetoothLEDevice::FromBluetoothAddressAsync(address)
-            })
-            .map_err(|e| e.to_string())?;
+        .map_err(|e| ReadError::Field(e.to_string()))?;
+        let device = request.run("打开设备信息连接", || {
+            BluetoothLEDevice::FromBluetoothAddressAsync(address)
+        })?;
         info.bluetooth_name = device
             .Name()
             .ok()
             .map(|name| name.to_string())
             .filter(|name| !name.is_empty());
         publish(&info);
-        let mut errors = Vec::new();
-        for (service_id, characteristics) in [
-            (0x180f, &[0x2a19][..]),
-            (0x180a, &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..]),
-        ] {
-            if let Err(error) = read_service(
+        let result = read_sequence(&[0x180f, 0x180a], None, |service_id| {
+            let characteristics: &[u16] = match service_id {
+                0x180f => &[0x2a19],
+                0x180a => &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28],
+                _ => unreachable!(),
+            };
+            read_service(
                 &device,
                 service_id,
                 characteristics,
                 &request,
                 &mut info,
                 &mut publish,
-            ) {
-                errors.push(error);
-            }
-        }
+            )
+        });
         let _ = device.Close();
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors.join("；"))
-        }
+        result
     })();
-    info.error = result.err();
+    info.error = result.err().map(|error| error.to_string());
     info
 }
 
@@ -468,107 +461,202 @@ fn read_service(
     request: &crate::windows_runtime::BluetoothRequest<'_>,
     info: &mut DeviceInformation,
     publish: &mut impl FnMut(&DeviceInformation),
-) -> Result<(), String> {
+) -> Result<(), ReadError> {
     use windows::{
         core::GUID,
         Devices::Bluetooth::{
             BluetoothCacheMode,
-            GenericAttributeProfile::{GattCommunicationStatus, GattOpenStatus, GattSharingMode},
+            GenericAttributeProfile::{GattOpenStatus, GattSharingMode},
         },
         Storage::Streams::DataReader,
     };
     let uuid = |id: u16| GUID::from_u128(((id as u128) << 96) | 0x0000_1000_8000_00805f9b34fb);
-    let services = request
-        .run(
-            &format!("发现设备信息服务 {service_id:04X}"),
-            || {
-                device.GetGattServicesForUuidWithCacheModeAsync(
-                    uuid(service_id),
-                    BluetoothCacheMode::Cached,
-                )
-            },
-        )
-        .map_err(|e| e.to_string())?;
-    if services.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
-        return Err(format!("服务 {service_id:04X} 暂时无法访问"));
-    }
-    let services = services.Services().map_err(|e| e.to_string())?;
-    if services.Size().map_err(|e| e.to_string())? == 0 {
+    let services = request.run(
+        &format!("发现设备信息服务 {service_id:04X}"),
+        || {
+            device.GetGattServicesForUuidWithCacheModeAsync(
+                uuid(service_id),
+                BluetoothCacheMode::Cached,
+            )
+        },
+    )?;
+    gatt_status(
+        &format!("服务 {service_id:04X}"),
+        services.Status()?,
+        || services.ProtocolError().and_then(|code| code.Value()),
+    )?;
+    let services = services.Services()?;
+    if services.Size()? == 0 {
         return Ok(());
     }
-    let service = services.GetAt(0).map_err(|e| e.to_string())?;
-    let result = (|| -> Result<(), String> {
-        let opened = request
-            .run(
-                &format!("打开设备信息服务 {service_id:04X}"),
-                || service.OpenAsync(GattSharingMode::SharedReadOnly),
-            )
-            .map_err(|e| e.to_string())?;
+    let service = services.GetAt(0)?;
+    let result = (|| -> Result<(), ReadError> {
+        let opened = request.run(
+            &format!("打开设备信息服务 {service_id:04X}"),
+            || service.OpenAsync(GattSharingMode::SharedReadOnly),
+        )?;
         if opened != GattOpenStatus::Success && opened != GattOpenStatus::AlreadyOpened {
-            return Err(format!("无法共享访问服务 {service_id:04X} ({})", opened.0));
+            return Err(ReadError::Field(format!(
+                "无法共享访问服务 {service_id:04X} ({})",
+                opened.0
+            )));
         }
-        let mut errors = Vec::new();
-        for &id in ids {
-            let read = (|| -> Result<(), String> {
-                let chars = request
-                    .run(&format!("发现设备信息特征 {id:04X}"), || {
-                        service.GetCharacteristicsForUuidWithCacheModeAsync(
-                            uuid(id),
-                            BluetoothCacheMode::Cached,
-                        )
-                    })
-                    .map_err(|e| e.to_string())?;
-                if chars.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
-                    return Err(format!("无法读取特征 {id:04X}"));
-                }
-                let chars = chars.Characteristics().map_err(|e| e.to_string())?;
-                if chars.Size().map_err(|e| e.to_string())? == 0 {
-                    return Ok(());
-                }
-                let characteristic = chars.GetAt(0).map_err(|e| e.to_string())?;
-                let value = request
-                    .run(&format!("读取设备信息特征 {id:04X}"), || {
-                        characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached)
-                    })
-                    .map_err(|e| e.to_string())?;
-                if value.Status().map_err(|e| e.to_string())? != GattCommunicationStatus::Success {
-                    return Err(format!("特征 {id:04X} 读取失败"));
-                }
-                let buffer = value.Value().map_err(|e| e.to_string())?;
-                let mut bytes = vec![0; buffer.Length().map_err(|e| e.to_string())? as usize];
-                DataReader::FromBuffer(&buffer)
-                    .and_then(|r| r.ReadBytes(&mut bytes))
-                    .map_err(|e| e.to_string())?;
-                match id {
-                    0x2a19 => info.battery_level = Some(percent(&bytes)?),
-                    0x2a29 => info.manufacturer = text(&bytes)?,
-                    0x2a25 => info.serial_number = text(&bytes)?,
-                    0x2a27 => info.hardware_revision = text(&bytes)?,
-                    0x2a26 => info.firmware_revision = text(&bytes)?,
-                    0x2a28 => info.software_revision = text(&bytes)?,
-                    _ => unreachable!(),
-                }
-                publish(info);
-                Ok(())
-            })();
-            if let Err(error) = read {
-                // Software Version is optional in the Device Information Service.
-                // A missing or unreadable 2A28 must leave the field empty without
-                // making the rest of the device information look unavailable.
-                if id == 0x2a28 {
-                    continue;
-                }
-                errors.push(error);
+        read_fields(ids, info, publish, |id| {
+            let chars = request.run(&format!("发现设备信息特征 {id:04X}"), || {
+                service.GetCharacteristicsForUuidWithCacheModeAsync(
+                    uuid(id),
+                    BluetoothCacheMode::Cached,
+                )
+            })?;
+            gatt_status(&format!("特征 {id:04X} 发现"), chars.Status()?, || {
+                chars.ProtocolError().and_then(|code| code.Value())
+            })?;
+            let chars = chars.Characteristics()?;
+            if chars.Size()? == 0 {
+                return Ok(None);
             }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(errors.join("；"))
-        }
+            let characteristic = chars.GetAt(0)?;
+            let value = request.run(&format!("读取设备信息特征 {id:04X}"), || {
+                characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached)
+            })?;
+            gatt_status(&format!("特征 {id:04X} 读取"), value.Status()?, || {
+                value.ProtocolError().and_then(|code| code.Value())
+            })?;
+            let buffer = value.Value()?;
+            let mut bytes = vec![0; buffer.Length()? as usize];
+            DataReader::FromBuffer(&buffer).and_then(|r| r.ReadBytes(&mut bytes))?;
+            Ok(Some(bytes))
+        })
     })();
     let _ = service.Close();
     result
+}
+
+#[cfg(windows)]
+#[derive(Debug)]
+enum ReadError {
+    Windows(windows::core::Error),
+    Field(String),
+    Batch(Vec<ReadError>),
+}
+
+#[cfg(windows)]
+impl ReadError {
+    fn terminal(&self) -> bool {
+        match self {
+            Self::Windows(error) => matches!(error.code().0 as u32, 0x800705b4 | 0x800704c7),
+            Self::Field(_) => false,
+            Self::Batch(errors) => errors.iter().any(Self::terminal),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl From<windows::core::Error> for ReadError {
+    fn from(error: windows::core::Error) -> Self {
+        Self::Windows(error)
+    }
+}
+
+#[cfg(windows)]
+impl From<String> for ReadError {
+    fn from(error: String) -> Self {
+        Self::Field(error)
+    }
+}
+
+#[cfg(windows)]
+impl std::fmt::Display for ReadError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Windows(error) => std::fmt::Display::fmt(error, formatter),
+            Self::Field(error) => formatter.write_str(error),
+            Self::Batch(errors) => {
+                for (index, error) in errors.iter().enumerate() {
+                    if index > 0 {
+                        formatter.write_str("；")?;
+                    }
+                    write!(formatter, "{error}")?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn read_sequence(
+    ids: &[u16],
+    optional: Option<u16>,
+    mut read: impl FnMut(u16) -> Result<(), ReadError>,
+) -> Result<(), ReadError> {
+    let mut errors = Vec::new();
+    for &id in ids {
+        if let Err(error) = read(id) {
+            let terminal = error.terminal();
+            if terminal || Some(id) != optional {
+                errors.push(error);
+            }
+            if terminal {
+                break;
+            }
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(ReadError::Batch(errors))
+    }
+}
+
+#[cfg(windows)]
+fn read_fields(
+    ids: &[u16],
+    info: &mut DeviceInformation,
+    publish: &mut impl FnMut(&DeviceInformation),
+    mut read: impl FnMut(u16) -> Result<Option<Vec<u8>>, ReadError>,
+) -> Result<(), ReadError> {
+    read_sequence(ids, Some(0x2a28), |id| {
+        let Some(bytes) = read(id)? else {
+            return Ok(());
+        };
+        match id {
+            0x2a19 => info.battery_level = Some(percent(&bytes)?),
+            0x2a29 => info.manufacturer = text(&bytes)?,
+            0x2a25 => info.serial_number = text(&bytes)?,
+            0x2a27 => info.hardware_revision = text(&bytes)?,
+            0x2a26 => info.firmware_revision = text(&bytes)?,
+            0x2a28 => info.software_revision = text(&bytes)?,
+            _ => unreachable!(),
+        }
+        publish(info);
+        Ok(())
+    })
+}
+
+#[cfg(windows)]
+fn gatt_status(
+    stage: &str,
+    status: windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus,
+    protocol_error: impl FnOnce() -> windows::core::Result<u8>,
+) -> Result<(), ReadError> {
+    use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+    if status == GattCommunicationStatus::Success {
+        return Ok(());
+    }
+    let name = match status {
+        GattCommunicationStatus::Unreachable => "Unreachable",
+        GattCommunicationStatus::ProtocolError => "ProtocolError",
+        GattCommunicationStatus::AccessDenied => "AccessDenied",
+        _ => "Unknown",
+    };
+    let mut error = format!("{stage}失败：{name} ({})", status.0);
+    if status == GattCommunicationStatus::ProtocolError {
+        if let Ok(code) = protocol_error() {
+            error.push_str(&format!("，ATT 0x{code:02X}"));
+        }
+    }
+    Err(ReadError::Field(error))
 }
 
 #[cfg(windows)]
@@ -726,6 +814,166 @@ fn read_macos(targets: &[Discovered], all_targets: &[Discovered], sender: mpsc::
 mod tests {
     use super::super::tests::{information_remote, offline_manager};
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn terminal_field_error_stops_fields_and_services_without_erasing_progress() {
+        use crate::windows_runtime::BluetoothRequest;
+        use windows::core::{Error, HRESULT};
+        use windows_future::IAsyncOperation;
+
+        let request = BluetoothRequest::new(Duration::from_secs(1), None);
+        let mut info = DeviceInformation::default();
+        let mut published = Vec::new();
+        let mut services = Vec::new();
+        let mut fields = Vec::new();
+        let result = read_sequence(&[0x180f, 0x180a, 0x1800], None, |service_id| {
+            services.push(service_id);
+            let ids: &[u16] = if service_id == 0x180f {
+                &[0x2a19]
+            } else {
+                &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28]
+            };
+            read_fields(
+                ids,
+                &mut info,
+                &mut |info| published.push(info.clone()),
+                |id| {
+                    fields.push(id);
+                    if id == 0x2a25 {
+                        return Err(ReadError::Field("序列号读取失败".into()));
+                    }
+                    let value = request.run("test field", || {
+                        Ok(IAsyncOperation::ready(match id {
+                            0x2a19 => Ok(54u32),
+                            0x2a29 => Ok(1),
+                            0x2a27 => Err(Error::from_hresult(HRESULT(0x800705b4u32 as i32))),
+                            _ => panic!("field started after the request terminated"),
+                        }))
+                    })?;
+                    Ok(Some(if id == 0x2a19 {
+                        vec![value as u8]
+                    } else {
+                        b"Maker".to_vec()
+                    }))
+                },
+            )
+        });
+        let error = result.unwrap_err();
+        assert!(error.terminal());
+        let error = error.to_string();
+        assert!(error.contains("序列号读取失败"));
+        assert_eq!(error.matches("0x800705B4").count(), 1);
+        assert_eq!(services, [0x180f, 0x180a]);
+        assert_eq!(fields, [0x2a19, 0x2a29, 0x2a25, 0x2a27]);
+        assert_eq!(info.battery_level, Some(54));
+        assert_eq!(info.manufacturer.as_deref(), Some("Maker"));
+        assert_eq!(published.len(), 2);
+        assert_eq!(published[0].battery_level, Some(54));
+        assert_eq!(published[1].manufacturer.as_deref(), Some("Maker"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn real_request_deadline_stops_the_production_field_sequence() {
+        use crate::windows_runtime::BluetoothRequest;
+        use windows_future::IAsyncOperation;
+
+        let request = BluetoothRequest::new(Duration::from_millis(100), None);
+        let mut info = DeviceInformation::default();
+        let mut fields = Vec::new();
+        let (resume, paused) = mpsc::channel();
+        let mut paused = Some(paused);
+        let error = read_fields(&[0x2a19, 0x2a29, 0x2a25], &mut info, &mut |_| {}, |id| {
+            fields.push(id);
+            let value = request.run("field", || {
+                Ok(if id == 0x2a19 {
+                    IAsyncOperation::ready(Ok(0u8))
+                } else {
+                    assert_eq!(id, 0x2a29, "must not initiate fields after timeout");
+                    let paused = paused.take().unwrap();
+                    IAsyncOperation::spawn(move || {
+                        paused.recv().unwrap();
+                        Ok(1u8)
+                    })
+                })
+            })?;
+            Ok(Some(vec![value]))
+        })
+        .unwrap_err();
+        resume.send(()).unwrap();
+        assert!(error.terminal());
+        assert_eq!(fields, [0x2a19, 0x2a29]);
+        assert_eq!(info.battery_level, Some(0));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn optional_software_errors_do_not_hide_request_timeout_or_cancellation() {
+        use crate::windows_runtime::BluetoothRequest;
+        use windows::core::{Error, HRESULT};
+        use windows_future::IAsyncOperation;
+
+        for code in [0x80070005u32, 0x800705b4, 0x800704c7] {
+            let request = BluetoothRequest::new(Duration::from_secs(1), None);
+            let mut info = DeviceInformation::default();
+            let mut fields = Vec::new();
+            let result = read_fields(&[0x2a28, 0x2a26], &mut info, &mut |_| {}, |id| {
+                fields.push(id);
+                request.run::<u32>("software", || {
+                    Ok(IAsyncOperation::ready(if id == 0x2a28 {
+                        Err(Error::from_hresult(HRESULT(code as i32)))
+                    } else {
+                        Ok(1)
+                    }))
+                })?;
+                Ok(Some(b"FW1".to_vec()))
+            });
+            if code == 0x80070005 {
+                assert!(
+                    result.is_ok(),
+                    "ordinary optional failure must stay optional"
+                );
+                assert_eq!(fields, [0x2a28, 0x2a26]);
+                assert_eq!(info.firmware_revision.as_deref(), Some("FW1"));
+            } else {
+                assert!(result.unwrap_err().terminal());
+                assert_eq!(fields, [0x2a28]);
+                assert!(info.firmware_revision.is_none());
+            }
+            assert!(info.software_revision.is_none());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn gatt_diagnostics_distinguish_unreachable_and_att_protocol_errors() {
+        use windows::Devices::Bluetooth::GenericAttributeProfile::GattCommunicationStatus;
+        assert!(
+            gatt_status("read", GattCommunicationStatus::Success, || panic!(
+                "no protocol error"
+            ))
+            .is_ok()
+        );
+        for (status, name) in [
+            (GattCommunicationStatus::Unreachable, "Unreachable (1)"),
+            (GattCommunicationStatus::AccessDenied, "AccessDenied (3)"),
+        ] {
+            let error = gatt_status("特征 2A19 读取", status, || {
+                panic!("not a protocol error")
+            })
+            .unwrap_err();
+            assert!(!error.terminal());
+            assert!(error.to_string().contains(name));
+        }
+        let error = gatt_status(
+            "特征 2A19 读取",
+            GattCommunicationStatus::ProtocolError,
+            || Ok(0x0a),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("ProtocolError (2)，ATT 0x0A"));
+    }
 
     #[test]
     fn refresh_received_during_a_read_reuses_its_completion() {

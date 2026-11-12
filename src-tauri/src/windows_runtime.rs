@@ -70,11 +70,21 @@ impl<'a> BluetoothRequest<'a> {
                 }
             }
         })();
+        let elapsed = started.elapsed();
+        let operation_wait = elapsed.saturating_sub(lock_wait + initiation);
+        if result
+            .as_ref()
+            .is_err_and(|error| error.code() == HRESULT(0x800705b4u32 as i32))
+        {
+            log::warn!(target: "axonkey::bluetooth",
+                "{stage}: Bluetooth request timed out; lock_wait_ms={}, initiation_ms={}, operation_ms={}, total_ms={}",
+                lock_wait.as_millis(), initiation.as_millis(),
+                operation_wait.as_millis(), elapsed.as_millis());
+        }
         log::debug!(target: "axonkey::bluetooth",
             "{stage}: lock_wait_ms={}, initiation_ms={}, operation_ms={}, total_ms={}",
             lock_wait.as_millis(), initiation.as_millis(),
-            started.elapsed().saturating_sub(lock_wait + initiation).as_millis(),
-            started.elapsed().as_millis());
+            operation_wait.as_millis(), elapsed.as_millis());
         result
     }
 
@@ -97,7 +107,6 @@ impl<'a> BluetoothRequest<'a> {
             ));
         }
         if Instant::now() >= self.deadline {
-            log::warn!(target: "axonkey::bluetooth", "{stage}: Bluetooth request timed out");
             return Err(Error::new(
                 HRESULT(0x800705b4u32 as i32),
                 format!("{stage} 超时"),
