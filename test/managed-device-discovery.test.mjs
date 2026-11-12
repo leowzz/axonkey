@@ -6,6 +6,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import * as reiconReact from 'reicon-react'
 import { parseDescriptorSvg } from '../scripts/generate-device-descriptors.mjs'
 
 const require = createRequire(import.meta.url)
@@ -21,7 +22,7 @@ function compile(path, imports = {}, globals = {}) {
     setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
     document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
     ...globals,
-    require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
+    require: name => imports[name] ?? (name === 'reicon-react' ? reiconReact : name.endsWith('.css') ? {} : require(name)),
   })
   return module.exports
 }
@@ -105,13 +106,16 @@ test('binding dropdown stays inside its modal dialog and still works outside a d
 test('parent selection opens the exact integrated device and back returns to the device list', () => {
   const first = { ...model.newInstance('rc003', 'one'), id: 'first' }
   const second = { ...model.newInstance('cmiotA15', 'two'), id: 'second' }
+  const duplicateRc = { ...model.newInstance('rc003', 'three'), id: 'third-abcd' }
   const snapshot = model.emptySnapshot()
-  snapshot.store.instances = [first, second]
+  snapshot.store.instances = [first, second, duplicateRc]
+  const legacyCalls = []
   let select, view
   function Host() {
     const [selectedInstanceId, onSelectInstance] = React.useState(null)
     select = onSelectInstance
     return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance,
+      onLegacy: id => legacyCalls.push(id),
       controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {},
     })
   }
@@ -119,8 +123,17 @@ test('parent selection opens the exact integrated device and back returns to the
   try {
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     act(() => select('second'))
-    assert.equal(view.root.findByType('instance-workspace').props.instance.id, 'second')
-    act(() => view.root.findByType('instance-workspace').props.onBack())
+    const workspace = () => view.root.findByType('instance-workspace')
+    assert.equal(workspace().props.instance.id, 'second')
+    assert.deepEqual(
+      Array.from(workspace().props.deviceOptions, item => [item.id, item.detail ?? null]),
+      [['first', 'RC003 · irst'], ['second', null], ['third-abcd', 'RC003 · abcd'], ['system-mouse', null]],
+    )
+    act(() => workspace().props.onSelectDevice('first'))
+    assert.equal(workspace().props.instance.id, 'first')
+    act(() => workspace().props.onSelectDevice('system-mouse'))
+    assert.deepEqual(legacyCalls, ['mouse'])
+    act(() => workspace().props.onBack())
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     assert.ok(text(view.toJSON()).includes('我的设备'))
   } finally { act(() => view.unmount()) }
@@ -571,6 +584,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1059,4 +1073,185 @@ test('migration binding request waits for the saved instance then opens its phys
   assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
   assert.equal(consumed, 1)
   act(() => view.unmount())
+})
+
+test('managed device workspace renders undo/redo header actions, handles shortcuts and resets on profile switch', async () => {
+  const keydownListeners = new Set()
+  class MockHTMLElement {
+    constructor(tagName = 'DIV') {
+      this.tagName = tagName
+      this.isContentEditable = false
+    }
+  }
+  let modalOpen = false
+  const RemoteControl = () => null
+  const WorkflowAxonkey = ({ header }) => header
+  const ApplicationProfileToolbar = () => null
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
+    '../../telemetry': { reportTencentEvent() {} },
+    '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../shared/RemoteControl': { RemoteControl },
+    '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar },
+    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
+    './IntegrationControls': controls,
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  }, {
+    HTMLElement: MockHTMLElement,
+    document: {
+      body: {},
+      getElementById: () => null,
+      activeElement: null,
+      querySelector: () => (modalOpen ? {} : null),
+    },
+    window: {
+      localStorage: { getItem: () => null, setItem() {} },
+      addEventListener(type, fn) { if (type === 'keydown') keydownListeners.add(fn) },
+      removeEventListener(type, fn) { if (type === 'keydown') keydownListeners.delete(fn) },
+    },
+  })
+
+  let instance = {
+    ...model.newInstance('cmiotA15', null),
+    id: 'a15-history',
+    profiles: [
+      { id: 'p1', name: '默认配置', behaviors: {} },
+      { id: 'p2', name: '影音配置', behaviors: {} },
+    ],
+    activeProfileId: 'p1',
+  }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [instance]
+  const toasts = []
+  let view
+  const render = () => React.createElement(InstanceWorkspace, {
+    instance,
+    controller: {
+      snapshot,
+      refreshInformation: async () => {},
+      toggleRecording: async () => {},
+      update: async (_id, change) => {
+        instance = change(instance)
+        snapshot.store.instances = [instance]
+        return snapshot
+      },
+    },
+    native: false,
+    platform: 'macos',
+    permissions: { accessibility: true, inputMonitoring: true },
+    onPermissions() {},
+    onBack() {},
+    onBind() {},
+    onUnbindDevice: async () => {},
+    onRemoveDevice: async () => {},
+    onOpenAudioCalibration() {},
+    onOpenAudioDriver() {},
+    driverAction: null,
+    onInstallDriver() {},
+    batteryLevel: null,
+    onToast: message => toasts.push(message),
+  })
+
+  act(() => { view = Renderer.create(render(), { createNodeMock: node => node.type === 'dialog' ? { showModal() {}, close() {} } : null }) })
+  try {
+    const undoBtn = () => view.root.findByProps({ 'aria-label': '撤销行为更改' })
+    const redoBtn = () => view.root.findByProps({ 'aria-label': '重做行为更改' })
+    const workflow = () => view.root.findByType(WorkflowAxonkey)
+    const remote = () => view.root.findByType(RemoteControl)
+    const selectedId = workflow().props.button.id
+
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, true)
+
+    const seq1 = { click: [{ id: 's1', type: 'key', enabled: true, key: 'Space' }], doubleClick: [], longPress: [] }
+    const seq2 = { click: [{ id: 's2', type: 'key', enabled: true, key: 'Enter' }], doubleClick: [], longPress: [] }
+
+    await act(async () => { workflow().props.onChange(selectedId, seq1) })
+    act(() => view.update(render()))
+    assert.equal(undoBtn().props.disabled, false)
+    assert.equal(redoBtn().props.disabled, true)
+    assert.deepEqual(Array.from(remote().props.mappedIds), [selectedId])
+
+    await act(async () => { workflow().props.onChange(selectedId, seq2) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Enter')
+
+    await act(async () => { undoBtn().props.onClick() })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Space')
+    assert.equal(undoBtn().props.disabled, false)
+    assert.equal(redoBtn().props.disabled, false)
+    assert.equal(toasts.at(-1), '已撤销行为更改')
+
+    // Typing inside an input or having a modal open must ignore history shortcuts.
+    const fireKey = (key, opts = {}) => {
+      let prevented = false
+      const event = {
+        key,
+        metaKey: true,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        defaultPrevented: false,
+        target: new MockHTMLElement('DIV'),
+        preventDefault() { prevented = true },
+        ...opts,
+      }
+      for (const listener of keydownListeners) listener(event)
+      return prevented
+    }
+
+    assert.equal(fireKey('z', { target: new MockHTMLElement('INPUT') }), false)
+    modalOpen = true
+    assert.equal(fireKey('z'), false)
+    modalOpen = false
+
+    await act(async () => { assert.equal(fireKey('z'), true) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click.length, 0)
+    assert.deepEqual(Array.from(remote().props.mappedIds), [])
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, false)
+
+    await act(async () => { assert.equal(fireKey('z', { shiftKey: true }), true) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Space')
+    assert.equal(toasts.at(-1), '已重做行为更改')
+
+    await act(async () => { redoBtn().props.onClick() })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Enter')
+    assert.equal(redoBtn().props.disabled, true)
+
+    // Switching profile resets undo/redo history so undo never restores p1 into p2.
+    act(() => {
+      view.root.findByType(ApplicationProfileToolbar).props.onSwitchProfile('p2')
+    })
+    await act(async () => {})
+    act(() => view.update(render()))
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, true)
+    assert.equal(workflow().props.sequences.click.length, 0)
+  } finally {
+    act(() => view.unmount())
+  }
 })

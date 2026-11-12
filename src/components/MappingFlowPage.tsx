@@ -13,6 +13,9 @@ import { WorkflowAxonkey } from './WorkflowAxonkey'
 export function MappingFlowPage({
   debugMode,
   selectedDeviceId,
+  activeDeviceId,
+  deviceOptions,
+  onSelectDevice,
   onBackToDevices,
   onOpenSettings,
   profileControls,
@@ -43,6 +46,9 @@ export function MappingFlowPage({
           deviceName={
             selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name
           }
+          activeDeviceId={activeDeviceId}
+          deviceOptions={deviceOptions}
+          onSelectDevice={onSelectDevice}
           profileControls={profileControls}
           onBackToDevices={onBackToDevices}
           onOpenSettings={onOpenSettings}

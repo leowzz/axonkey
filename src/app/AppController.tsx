@@ -10,7 +10,13 @@ import {
   processInstanceCliRequest,
   resolveCliInstance,
 } from '../devices/integration/instanceCli'
-import { instanceState, instanceStatusLabel, supportPackages } from '../devices/integration/model'
+import {
+  buildWorkspaceDeviceOptions,
+  instanceState,
+  instanceStatusLabel,
+  supportPackages,
+  systemMouseCardId,
+} from '../devices/integration/model'
 import { annotateSnapshot, cloudSource, saveProfileMetadata } from '../cloud/cloudMetadata'
 import { CloudSyncSettings } from '../components/CloudSyncSettings'
 import { LocalDataResetSettings } from '../components/LocalDataResetSettings'
@@ -52,7 +58,7 @@ import {
 // Authorization callbacks can outlive a dev edit; remount instead of reusing
 // an obsolete hook layout when Fast Refresh updates this stateful root.
 import { Check, Info } from 'lucide-react'
-import { RedoCircle, UndoCircle } from 'reicon-react'
+import { BehaviorHistoryActions } from '../components/BehaviorHistoryActions'
 import {
   createBehavior,
   createDefaultBehaviorMap,
@@ -1405,12 +1411,18 @@ function AppController({
   }, [canRedoBehavior, clearBehaviorEditingState, showBehaviorToast])
 
   useEffect(() => {
+    if (workspacePage !== 'mapping' || activePage === 'settings') return
     const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const target = event.target
       if (
         target instanceof HTMLElement &&
         (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      )
+        return
+      if (
+        typeof document !== 'undefined' &&
+        document.querySelector?.('dialog[open], [aria-modal="true"], .app-settings-panel, .record-key-button.capturing')
       )
         return
       const key = event.key.toLowerCase()
@@ -1426,7 +1438,7 @@ function AppController({
     }
     window.addEventListener('keydown', handleHistoryShortcut)
     return () => window.removeEventListener('keydown', handleHistoryShortcut)
-  }, [canRedoBehavior, canUndoBehavior, redoBehaviorChange, undoBehaviorChange])
+  }, [activePage, canRedoBehavior, canUndoBehavior, redoBehaviorChange, undoBehaviorChange, workspacePage])
 
   const mappingExportFilename = (date = new Date(), profileName?: string) => {
     const pad = (value: number) => String(value).padStart(2, '0')
@@ -2438,28 +2450,12 @@ function AppController({
   }
   const mappingActions = (
     <div className="mapping-context-actions">
-      <div className="mapping-history-actions" role="group" aria-label="行为编辑历史">
-        <button
-          type="button"
-          className="behavior-history-button"
-          title="撤销"
-          aria-label="撤销行为更改"
-          disabled={!canUndoBehavior}
-          onClick={undoBehaviorChange}
-        >
-          <UndoCircle size={15} weight="Outline" />
-        </button>
-        <button
-          type="button"
-          className="behavior-history-button"
-          title="重做"
-          aria-label="重做行为更改"
-          disabled={!canRedoBehavior}
-          onClick={redoBehaviorChange}
-        >
-          <RedoCircle size={15} weight="Outline" />
-        </button>
-      </div>
+      <BehaviorHistoryActions
+        canUndo={canUndoBehavior}
+        canRedo={canRedoBehavior}
+        onUndo={undoBehaviorChange}
+        onRedo={redoBehaviorChange}
+      />
       <span role="status" className={`auto-save-state ${autoSaveState}`}>
         {autoSaveState === 'error'
           ? '应用失败'
@@ -2552,6 +2548,19 @@ function AppController({
 
             {workspacePage === 'mapping' ? (
               <MappingPageComponent
+                activeDeviceId={selectedDeviceId === 'mouse' ? systemMouseCardId : undefined}
+                deviceOptions={buildWorkspaceDeviceOptions(deviceInstances.snapshot.store.instances)}
+                onSelectDevice={id => {
+                  if (id === systemMouseCardId) {
+                    setSelectedDeviceId('mouse')
+                    const mouseDevice = devices.find(d => d.id === 'mouse')!
+                    selectBehaviorTarget(getStoredDeviceInput(mouseDevice.id, mouseDevice.inputIds), 'click', false)
+                    navigateToPage('mapping')
+                    return
+                  }
+                  navigateToPage('home')
+                  setSelectedInstanceId(id)
+                }}
                 onBackToDevices={() => navigateToPage('home')}
                 onOpenSettings={() => setDeviceSettingsOpen(true)}
                 profileControls={profileControls}
@@ -2625,6 +2634,7 @@ function AppController({
                     mouseProfileName={
                       profiles.find(profile => profile.id === runtimeMouseProfileId)?.name ?? '默认配置'
                     }
+                    onToast={showBehaviorToast}
                     onPermissions={() => {
                       setSettingsSection('permissions')
                       navigateToPage('settings')

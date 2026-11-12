@@ -8,6 +8,8 @@ import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
+  buildWorkspaceDeviceOptions,
+  getStoredDeviceCardOrder,
   instanceStatusLabel,
   instanceState,
   isMobileRemoteDevice,
@@ -18,8 +20,10 @@ import {
   newInstance,
   packageFor,
   batteryForDevice,
+  saveDeviceCardOrder,
   supportPackages,
   supportsWindowsDriver,
+  systemMouseCardId,
   usesHidVoice,
 } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
@@ -48,29 +52,10 @@ type Props = {
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
+  onToast?: (message: string) => void
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
-const deviceCardOrderKey = 'axonkey.device-hub-card-order.v1'
-const systemMouseCardId = 'system-mouse'
-
-function getStoredDeviceCardOrder() {
-  if (typeof window === 'undefined') return []
-  try {
-    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function saveDeviceCardOrder(order: string[]) {
-  try {
-    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
-  } catch {
-    // UI preference is best-effort.
-  }
-}
 
 function getDiscoveredDevicesExpanded() {
   if (typeof window === 'undefined') return true
@@ -217,6 +202,11 @@ export function DeviceHub(props: Props) {
           key={instance.id}
           {...props}
           instance={instance}
+          deviceOptions={buildWorkspaceDeviceOptions(snapshot.store.instances, orderedCardIds)}
+          onSelectDevice={id => {
+            if (id === systemMouseCardId) props.onLegacy('mouse')
+            else setSelected(id)
+          }}
           batteryLevel={batteryForDevice(instance.binding, snapshot.discovered)}
           onBack={() => setSelected(null)}
           onBind={() => setIntegration({ kind: instance.kind, instance })}

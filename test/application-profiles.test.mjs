@@ -9,6 +9,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import * as reiconReact from 'reicon-react'
 
 const chrome = { id: 'macos:com.google.Chrome', name: 'Chrome', path: '/Applications/Google Chrome.app' }
 const code = { id: 'macos:com.microsoft.VSCode', name: 'VS Code', path: '/Applications/Visual Studio Code.app' }
@@ -92,7 +93,7 @@ function compile(path, imports = {}, globals = {}) {
   vm.runInNewContext(source, {
     module, exports: module.exports, document: { body: {}, activeElement: null, addEventListener() {}, removeEventListener() {} },
     HTMLElement: class {}, ...globals,
-    require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
+    require: name => imports[name] ?? (name === 'reicon-react' ? reiconReact : name.endsWith('.css') ? {} : require(name)),
   })
   return module.exports
 }
@@ -253,6 +254,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: nullComponent },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: nullComponent },
     '../../components/SettingsHelp': { SettingsHelp: nullComponent }, '../../components/BatteryIndicator': { BatteryIndicator: nullComponent },
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
     '../../components/DeviceRail': { DeviceRecordingStatus: nullComponent },
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },

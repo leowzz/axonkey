@@ -181,6 +181,9 @@ body:has(.managed-discovery-help-dialog[open]),
   opacity: 0.45;
   cursor: default;
 }
+.managed-hub .behavior-history-button:disabled {
+  opacity: 0.32;
+}
 .managed-icon {
   display: inline-flex;
   padding: 5px;

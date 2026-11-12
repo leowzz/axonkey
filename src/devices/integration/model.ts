@@ -178,3 +178,51 @@ export function instanceState(instance: DeviceInstance, snapshot: DeviceSnapshot
   }
   return state
 }
+
+export const deviceCardOrderKey = 'axonkey.device-hub-card-order.v1'
+export const systemMouseCardId = 'system-mouse'
+
+export function getStoredDeviceCardOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function saveDeviceCardOrder(order: string[]) {
+  try {
+    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
+  } catch {
+    /* UI preference is best-effort. */
+  }
+}
+
+export function buildWorkspaceDeviceOptions(
+  instances: DeviceInstance[],
+  savedOrder: string[] = getStoredDeviceCardOrder(),
+) {
+  const byId = new Map(instances.map(item => [item.id, item]))
+  const allIds = [...instances.map(item => item.id), systemMouseCardId]
+  const available = new Set(allIds)
+  const orderedIds = [...savedOrder.filter(id => available.has(id)), ...allIds.filter(id => !savedOrder.includes(id))]
+  const nameCounts = new Map<string, number>([['系统鼠标', 1]])
+  for (const item of instances) {
+    nameCounts.set(item.name, (nameCounts.get(item.name) ?? 0) + 1)
+  }
+  return orderedIds.map(id => {
+    const item = byId.get(id)
+    if (!item) {
+      return { id: systemMouseCardId, name: '系统鼠标', artwork: '/mouse-device.svg' }
+    }
+    const duplicate = (nameCounts.get(item.name) ?? 0) > 1
+    return {
+      id: item.id,
+      name: item.name,
+      artwork: packageFor(item.kind).artwork,
+      ...(duplicate ? { detail: `${packageFor(item.kind).model} · ${item.id.slice(-4)}` } : {}),
+    }
+  })
+}
