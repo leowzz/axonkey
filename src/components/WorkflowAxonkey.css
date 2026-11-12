@@ -14,7 +14,7 @@
   background: var(--bg-rail, transparent);
   overflow: hidden;
 }
-.mapping-flow-page .remote-stage {
+.mapping-active .mapping-flow-page .remote-stage {
   display: flex;
   flex: 1 1 0;
   min-height: 0;
@@ -23,8 +23,8 @@
   margin: 2px 0;
   padding: 4px 0;
 }
-.mapping-flow-page .remote-art {
-  width: min(100%, max(108px, calc((100dvh - 230px) * 0.411)));
+.mapping-active .mapping-flow-page .remote-art {
+  width: min(210px, 100%, max(108px, calc((100dvh - 210px) * 0.411)));
 }
 .mapping-flow-page .managed-analog {
   flex-shrink: 0;
@@ -123,6 +123,7 @@
 
 .rail-voice-strip {
   flex-shrink: 0;
+  margin-top: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;

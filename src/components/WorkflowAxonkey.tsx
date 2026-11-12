@@ -512,17 +512,16 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       return
     }
     branch.push(...nodes)
+    setPickerTrigger(null)
     persistCurrent()
 
     const first = nodes[0]
     if (!first) return
     if (rawStep.type === 'customKey') {
-      setPickerTrigger(null)
       setCapturingStepId(first.id)
       return
     }
     if (rawStep.type === 'paste' || rawStep.type === 'typeText' || rawStep.type === 'textAndEnter') {
-      setPickerTrigger(null)
       const initialBehavior = workflowStepBehavior(first)
       const initialText =
         initialBehavior && (initialBehavior.type === 'paste' || initialBehavior.type === 'typeText')
@@ -533,7 +532,6 @@ export function WorkflowAxonkey<Id extends string = InputId>({
     }
     const draftEditable = nodes.find(node => node.properties.draftGroup && isEditableWorkflowStep(node))
     if (draftEditable) {
-      setPickerTrigger(null)
       openModalEditor(draftEditable.id)
     }
   }

@@ -101,16 +101,11 @@ button {
   background: var(--bg-app);
 }
 .app-main {
-  --topbar-height: 0px;
-  --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height));
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-}
-.app-main:has(.mapping-disabled-notice) {
-  --sticky-header-height: calc(var(--topbar-height) + var(--native-titlebar-height) + var(--disabled-notice-height));
 }
 .brand-mark {
   display: grid;
@@ -2058,6 +2053,9 @@ body.permission-helper-mode #root {
   padding: 10px 14px;
 }
 .window-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   min-height: var(--topbar-height);
   height: var(--topbar-height);
   padding: 0 16px 0 var(--topbar-pad-left);
