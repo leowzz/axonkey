@@ -70,6 +70,8 @@ impl AudioService {
 
     pub fn set_enabled(&self, _enabled: bool) {}
 
+    pub fn set_recording_mode(&self, _mode: crate::devices::cmiot_a15::recording::RecordingMode) {}
+
     pub fn start_for(_target_identity: Option<String>) -> Self {
         Self::start()
     }
@@ -104,6 +106,7 @@ pub struct AudioTarget {
     pub kind: String,
     pub voice_target: Option<String>,
     pub gain_db: i16,
+    pub recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     pub enabled: bool,
 }
 
@@ -195,6 +198,7 @@ impl AudioServiceManager {
             } else {
                 continue;
             };
+            service.set_recording_mode(target.recording_mode);
             service.set_enabled(target.enabled);
             let _ = service.set_gain_db(target.gain_db);
         }
@@ -314,6 +318,15 @@ impl AudioServiceManager {
         }
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = (instance_id, samples);
+    }
+
+    pub(crate) fn handle_voice_key_edge(&self, instance_id: Option<&str>, pressed: bool) {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        if let Some(service) = self.service(instance_id) {
+            service.handle_voice_key_edge(pressed);
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let _ = (instance_id, pressed);
     }
 }
 

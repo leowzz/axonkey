@@ -1348,6 +1348,7 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
                 kind: instance.kind.clone(),
                 voice_target,
                 gain_db: instance.audio_gain_db,
+                recording_mode: instance.cmiot_a15_recording_mode,
                 enabled: instance.enabled && instance.binding.is_some() && information_ok,
             }
         })
@@ -1540,13 +1541,7 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
     }
 }
 
-#[tauri::command]
-fn device_snapshot(
-    manager: tauri::State<'_, DeviceManager>,
-    audio_service: tauri::State<'_, AudioServiceManager>,
-) -> DeviceSnapshot {
-    let mut snapshot = manager.snapshot();
-    audio_service.sync_instances(&audio_targets(&snapshot));
+fn apply_gatt_recording_status(snapshot: &mut DeviceSnapshot, audio_service: &AudioServiceManager) {
     for instance in &snapshot.store.instances {
         if matches!(
             devices::descriptor_registry::voice_engine(&instance.kind),
@@ -1557,6 +1552,16 @@ fn device_snapshot(
             }
         }
     }
+}
+
+#[tauri::command]
+fn device_snapshot(
+    manager: tauri::State<'_, DeviceManager>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> DeviceSnapshot {
+    let mut snapshot = manager.snapshot();
+    audio_service.sync_instances(&audio_targets(&snapshot));
+    apply_gatt_recording_status(&mut snapshot, &audio_service);
     snapshot
 }
 
@@ -1567,8 +1572,9 @@ fn put_device_instance(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
-    let snapshot = manager.put(revision, instance)?;
+    let mut snapshot = manager.put(revision, instance)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
+    apply_gatt_recording_status(&mut snapshot, &audio_service);
     Ok(snapshot)
 }
 

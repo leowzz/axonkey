@@ -94,6 +94,17 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
     assert_eq!(voice_key("tclRc902n"), Some("tcl-rc902n.assistant"));
     assert_eq!(voice_engine("tclRc902v"), Some("tcl-rc902v-atvv"));
     assert_eq!(voice_key("tclRc902v"), Some("tcl-rc902v.assistant"));
+    for kind in ["tclRc902n", "tclRc902v"] {
+        assert_eq!(
+            descriptor_for_kind(kind)
+                .unwrap()
+                .voices
+                .first()
+                .and_then(|voice| voice.attributes.get("trigger-modes"))
+                .map(String::as_str),
+            Some("hold click")
+        );
+    }
 }
 
 #[test]

@@ -1,9 +1,11 @@
-//! Google Voice over BLE (ATVV) HTT protocol, IMA ADPCM decoder, and PCM/WAV sink for TCL RC902N/RC902V.
+//! Google Voice over BLE (ATVV) PTT protocol, IMA ADPCM decoder, and PCM/WAV sink for TCL RC902N/RC902V.
+use crate::devices::cmiot_a15::recording::RecordingMode;
 use std::time::{Duration, Instant};
 
 pub(crate) const NEGOTIATION_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const STREAM_STALL_TIMEOUT: Duration = Duration::from_secs(5);
 pub(crate) const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(8);
+const KEY_GATT_SYNC_WINDOW: Duration = Duration::from_millis(600);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProtocolVersion {
@@ -129,7 +131,7 @@ impl std::fmt::Display for AtvvError {
             ),
             Self::UnsupportedModel { version, raw_model } => write!(
                 f,
-                "TCL RC902 requires ATVV HTT mode (0x03), remote reported version=0x{:04x} model=0x{raw_model:02x}",
+                "TCL RC902 unsupported ATVV assistant model: version=0x{:04x} model=0x{raw_model:02x}",
                 version.wire_code()
             ),
             Self::NoSupportedCodec(mask) => {
@@ -143,12 +145,21 @@ impl std::fmt::Display for AtvvError {
 pub(crate) struct AtvvV10;
 
 impl AtvvV10 {
+    pub(crate) const SUPPORTED_MODELS_PTT: u8 = 0x01;
+    #[allow(dead_code)]
+    pub(crate) const SUPPORTED_MODELS_ALL: u8 = 0x03;
+
     pub(crate) fn get_caps() -> [u8; 6] {
-        // 0x0A + v1.0 (0x0100) + legacy constant (0x0003) + On-request/PTT/HTT (0x03).
-        [0x0a, 0x01, 0x00, 0x00, 0x03, 0x03]
+        // Advertise On-request + PTT (0x01) rather than HTT (0x03) so firmware
+        // supporting both PTT and HTT keeps the microphone open across physical
+        // button release in click-to-toggle mode; host sends MIC_CLOSE on stop.
+        Self::get_caps_with_models(Self::SUPPORTED_MODELS_PTT)
     }
 
-    #[allow(dead_code)]
+    pub(crate) fn get_caps_with_models(supported_models: u8) -> [u8; 6] {
+        [0x0a, 0x01, 0x00, 0x00, 0x03, supported_models]
+    }
+
     pub(crate) fn mic_open(mode: MicOpenMode) -> [u8; 2] {
         [0x0c, mode as u8]
     }
@@ -171,7 +182,12 @@ impl AtvvV10 {
         }
         let codecs_mask = bytes[3];
         let raw_model = bytes[4];
-        let model = InteractionModel::from_wire(raw_model).unwrap_or(InteractionModel::OnRequest);
+        let Some(model) = InteractionModel::from_wire(raw_model) else {
+            return Err(AtvvError::UnsupportedModel {
+                version: ProtocolVersion::V10,
+                raw_model,
+            });
+        };
         let frame_size = u16::from_be_bytes([bytes[5], bytes[6]]);
         Ok(Capabilities {
             version: ProtocolVersion::V10,
@@ -189,7 +205,8 @@ impl AtvvV10 {
 pub(crate) struct AtvvV04;
 
 impl AtvvV04 {
-    #[allow(dead_code)]
+    const FRAME_HEADER_LEN: usize = 6;
+
     pub(crate) fn mic_open(codec: AdpcmCodec) -> [u8; 3] {
         [0x0c, 0x00, codec as u8]
     }
@@ -221,6 +238,17 @@ impl AtvvV04 {
             vendor_data: bytes[7..].to_vec(),
         })
     }
+
+    fn decode_frames(
+        decoder: &mut ImaAdpcmDecoder,
+        packet: &[u8],
+        frame_size: usize,
+    ) -> Vec<Vec<i16>> {
+        if frame_size <= Self::FRAME_HEADER_LEN {
+            return decoder.append(packet, frame_size);
+        }
+        decoder.append_v04_framed(packet, frame_size)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -251,7 +279,15 @@ pub(crate) enum ControlEvent {
 }
 
 impl ControlEvent {
+    #[cfg(test)]
     pub(crate) fn parse(bytes: &[u8]) -> Result<Self, AtvvError> {
+        Self::parse_for(bytes, None)
+    }
+
+    pub(crate) fn parse_for(
+        bytes: &[u8],
+        capabilities: Option<&Capabilities>,
+    ) -> Result<Self, AtvvError> {
         let Some(&opcode) = bytes.first() else {
             return Err(AtvvError::EmptyPacket);
         };
@@ -261,6 +297,19 @@ impl ControlEvent {
             }),
             0x04 => {
                 if bytes.len() < 4 {
+                    if bytes.len() == 1
+                        && capabilities.is_some_and(|caps| caps.version == ProtocolVersion::V04)
+                    {
+                        let codec = capabilities
+                            .and_then(|caps| caps.preferred_codec)
+                            .unwrap_or(AdpcmCodec::Adpcm16k)
+                            as u8;
+                        return Ok(Self::AudioStart {
+                            reason: 0x00,
+                            codec,
+                            stream_id: 0,
+                        });
+                    }
                     return Err(AtvvError::Truncated {
                         opcode,
                         len: bytes.len(),
@@ -378,10 +427,19 @@ pub(crate) struct SessionStats {
 
 pub(crate) struct AtvvSession {
     state: SessionState,
+    recording_mode: RecordingMode,
     capabilities: Option<Capabilities>,
     active_codec: AdpcmCodec,
     active_stream_id: Option<u8>,
     closing_stream_id: Option<u8>,
+    mic_open_pending: bool,
+    voice_key_down: bool,
+    opening_press_seen_until: Option<Instant>,
+    released_before_start_until: Option<Instant>,
+    awaiting_opening_key_down_until: Option<Instant>,
+    suppress_start_until: Option<Instant>,
+    suppress_key_down_until: Option<Instant>,
+    preempted_click_until: Option<Instant>,
     negotiating_since: Option<Instant>,
     stream_started_at: Option<Instant>,
     last_audio_at: Option<Instant>,
@@ -394,10 +452,19 @@ impl Default for AtvvSession {
     fn default() -> Self {
         Self {
             state: SessionState::Disconnected,
+            recording_mode: RecordingMode::default(),
             capabilities: None,
             active_codec: AdpcmCodec::Adpcm16k,
             active_stream_id: None,
             closing_stream_id: None,
+            mic_open_pending: false,
+            voice_key_down: false,
+            opening_press_seen_until: None,
+            released_before_start_until: None,
+            awaiting_opening_key_down_until: None,
+            suppress_start_until: None,
+            suppress_key_down_until: None,
+            preempted_click_until: None,
             negotiating_since: None,
             stream_started_at: None,
             last_audio_at: None,
@@ -409,6 +476,14 @@ impl Default for AtvvSession {
 }
 
 impl AtvvSession {
+    #[cfg(test)]
+    pub(crate) fn with_recording_mode(recording_mode: RecordingMode) -> Self {
+        Self {
+            recording_mode,
+            ..Self::default()
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn state(&self) -> SessionState {
         self.state
@@ -423,14 +498,76 @@ impl AtvvSession {
         self.active_stream_id
     }
 
+    pub(crate) fn set_recording_mode(
+        &mut self,
+        mode: RecordingMode,
+        now: Instant,
+    ) -> SessionAction {
+        if self.recording_mode == mode {
+            return SessionAction::default();
+        }
+        self.recording_mode = mode;
+        self.voice_key_down = false;
+        self.clear_key_sync();
+        if self.active_stream_id.is_some() {
+            self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            return self.abort_active_stream().unwrap_or_default();
+        }
+        if self.mic_open_pending {
+            self.mic_open_pending = false;
+            self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+        }
+        SessionAction::default()
+    }
+
+    pub(crate) fn on_voice_key_edge(&mut self, pressed: bool, now: Instant) -> SessionAction {
+        if pressed {
+            if self.voice_key_down {
+                return SessionAction::default();
+            }
+            self.voice_key_down = true;
+            self.released_before_start_until = None;
+            return match self.recording_mode {
+                RecordingMode::Hold => {
+                    if self.active_stream_id.is_none() {
+                        self.opening_press_seen_until = Some(now + KEY_GATT_SYNC_WINDOW);
+                    }
+                    SessionAction::default()
+                }
+                RecordingMode::Click => self.on_click_key_down(now),
+            };
+        }
+
+        let was_down = std::mem::replace(&mut self.voice_key_down, false);
+        self.awaiting_opening_key_down_until = None;
+        if self.recording_mode == RecordingMode::Hold {
+            if self.active_stream_id.is_some() {
+                self.opening_press_seen_until = None;
+                return self.abort_active_stream().unwrap_or_default();
+            }
+            if was_down
+                || self.mic_open_pending
+                || self
+                    .opening_press_seen_until
+                    .is_some_and(|until| now <= until)
+            {
+                self.opening_press_seen_until = None;
+                self.mic_open_pending = false;
+                self.released_before_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+        }
+        SessionAction::default()
+    }
+
     pub(crate) fn begin_negotiation(&mut self, now: Instant) -> SessionAction {
         self.decoder.reset_session();
         self.capabilities = None;
         self.active_stream_id = None;
         self.closing_stream_id = None;
-        self.stream_started_at = None;
-        self.last_audio_at = None;
-        self.last_keepalive_at = None;
+        self.mic_open_pending = false;
+        self.voice_key_down = false;
+        self.clear_key_sync();
+        self.clear_stream_timers();
         self.stats = SessionStats::default();
         self.state = SessionState::Subscribed;
         self.state = SessionState::Negotiating;
@@ -443,7 +580,7 @@ impl AtvvSession {
 
     pub(crate) fn handle_control(&mut self, bytes: &[u8], now: Instant) -> SessionAction {
         let mut out = SessionAction::default();
-        let parsed = match ControlEvent::parse(bytes) {
+        let parsed = match ControlEvent::parse_for(bytes, self.capabilities.as_ref()) {
             Ok(event) => event,
             Err(error) => {
                 if matches!(error, AtvvError::UnsupportedVersion(_)) {
@@ -457,13 +594,7 @@ impl AtvvSession {
 
         match parsed {
             ControlEvent::CapsResp(caps) => self.on_capabilities(caps, &mut out),
-            ControlEvent::StartSearch => {
-                // RC902V runs strictly in HTT (Hold-to-Talk); never send MIC_OPEN for click/on-request search.
-                log::debug!(
-                    target: "axonkey::audio",
-                    "RC902V ignored START_SEARCH (0x08) because HTT-only mode is active"
-                );
-            }
+            ControlEvent::StartSearch => self.on_start_search(now, &mut out),
             ControlEvent::AudioStart {
                 reason,
                 codec,
@@ -475,11 +606,13 @@ impl AtvvSession {
                 predictor,
                 step_index,
             } => self.on_audio_sync(codec, frame_no, predictor, step_index),
-            ControlEvent::AudioStop { reason } => self.on_audio_stop(reason, &mut out),
+            ControlEvent::AudioStop { reason } => self.on_audio_stop(reason, now, &mut out),
             ControlEvent::MicOpenError { code } => {
                 let message = describe_mic_open_error(code);
+                self.mic_open_pending = false;
                 if let Some(stream_id) = self.active_stream_id.take() {
                     self.clear_stream_timers();
+                    self.clear_key_sync();
                     self.decoder.reset_session();
                     out.events.push(SessionEvent::SessionStopped {
                         stream_id,
@@ -519,6 +652,7 @@ impl AtvvSession {
             return out;
         };
         let frame_size = usize::from(caps.frame_size).max(1);
+        let version = caps.version;
         self.last_audio_at = Some(now);
         self.stats.audio_packets += 1;
         self.stats.audio_bytes += bytes.len();
@@ -530,7 +664,11 @@ impl AtvvSession {
         self.stats.max_packet_len = self.stats.max_packet_len.max(bytes.len());
 
         let sample_rate = self.active_codec.sample_rate();
-        for samples in self.decoder.append(bytes, frame_size) {
+        let frames = match version {
+            ProtocolVersion::V10 => self.decoder.append(bytes, frame_size),
+            ProtocolVersion::V04 => AtvvV04::decode_frames(&mut self.decoder, bytes, frame_size),
+        };
+        for samples in frames {
             self.stats.decoded_samples += samples.len();
             out.events.push(SessionEvent::PcmChunk {
                 sample_rate,
@@ -551,17 +689,32 @@ impl AtvvSession {
             .as_ref()
             .map_or(ProtocolVersion::V10, |caps| caps.version);
         let command = encode_mic_close(version, current);
+        let mut events = Vec::new();
+        if version == ProtocolVersion::V10 {
+            let tail = self.decoder.flush_tail();
+            if !tail.is_empty() {
+                self.stats.decoded_samples += tail.len();
+                events.push(SessionEvent::PcmChunk {
+                    sample_rate: self.active_codec.sample_rate(),
+                    samples: tail,
+                });
+            }
+        }
         self.active_stream_id = None;
         self.closing_stream_id = Some(current);
+        self.mic_open_pending = false;
+        self.awaiting_opening_key_down_until = None;
+        self.preempted_click_until = None;
         self.clear_stream_timers();
         self.decoder.reset_session();
         self.state = SessionState::Stopping;
+        events.push(SessionEvent::SessionStopped {
+            stream_id: current,
+            reason: 0x00,
+        });
         Some(SessionAction {
             tx_commands: vec![command],
-            events: vec![SessionEvent::SessionStopped {
-                stream_id: current,
-                reason: 0x00,
-            }],
+            events,
         })
     }
 
@@ -627,7 +780,10 @@ impl AtvvSession {
         }
         self.capabilities = None;
         self.closing_stream_id = None;
+        self.mic_open_pending = false;
+        self.voice_key_down = false;
         self.negotiating_since = None;
+        self.clear_key_sync();
         self.clear_stream_timers();
         self.decoder.reset_session();
         self.state = SessionState::Disconnected;
@@ -635,16 +791,45 @@ impl AtvvSession {
         out
     }
 
+    fn on_click_key_down(&mut self, now: Instant) -> SessionAction {
+        if self
+            .suppress_key_down_until
+            .take()
+            .is_some_and(|until| now <= until)
+        {
+            self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            return SessionAction::default();
+        }
+        if self.active_stream_id.is_some() {
+            if self
+                .awaiting_opening_key_down_until
+                .take()
+                .is_some_and(|until| now <= until)
+            {
+                return SessionAction::default();
+            }
+            self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            return self.abort_active_stream().unwrap_or_default();
+        }
+        if self.mic_open_pending {
+            if self
+                .awaiting_opening_key_down_until
+                .take()
+                .is_some_and(|until| now <= until)
+            {
+                return SessionAction::default();
+            }
+            self.mic_open_pending = false;
+            self.suppress_start_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            return SessionAction::default();
+        }
+        self.suppress_start_until = None;
+        self.opening_press_seen_until = Some(now + KEY_GATT_SYNC_WINDOW);
+        SessionAction::default()
+    }
+
     fn on_capabilities(&mut self, caps: Capabilities, out: &mut SessionAction) {
         self.negotiating_since = None;
-        if caps.version != ProtocolVersion::V10 || caps.model != InteractionModel::Htt {
-            let error = AtvvError::UnsupportedModel {
-                version: caps.version,
-                raw_model: caps.raw_model,
-            };
-            self.abort_into_error(error.to_string(), out);
-            return;
-        }
         if caps.frame_size == 0 {
             self.abort_into_error(AtvvError::InvalidFrameSize.to_string(), out);
             return;
@@ -662,6 +847,65 @@ impl AtvvSession {
         out.events.push(SessionEvent::Capabilities(caps));
     }
 
+    fn on_start_search(&mut self, now: Instant, out: &mut SessionAction) {
+        let Some(caps) = self.capabilities.as_ref() else {
+            return;
+        };
+        if caps.model != InteractionModel::OnRequest {
+            log::debug!(
+                target: "axonkey::audio",
+                "RC902V ignored START_SEARCH (0x08) under negotiated model=0x{:02x}",
+                caps.raw_model
+            );
+            return;
+        }
+        if self.recording_mode == RecordingMode::Click {
+            if self
+                .suppress_start_until
+                .take()
+                .is_some_and(|until| now <= until)
+            {
+                return;
+            }
+            if self.active_stream_id.is_some() {
+                if let Some(mut closed) = self.abort_active_stream() {
+                    out.tx_commands.append(&mut closed.tx_commands);
+                    out.events.append(&mut closed.events);
+                }
+                if !self.voice_key_down {
+                    self.suppress_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
+                }
+                return;
+            }
+        } else if !self.voice_key_down
+            && self
+                .released_before_start_until
+                .take()
+                .is_some_and(|until| now <= until)
+        {
+            return;
+        }
+
+        if self.mic_open_pending || self.active_stream_id.is_some() {
+            return;
+        }
+        let command = match caps.version {
+            ProtocolVersion::V10 => AtvvV10::mic_open(MicOpenMode::Capture).to_vec(),
+            ProtocolVersion::V04 => AtvvV04::mic_open(self.active_codec).to_vec(),
+        };
+        self.mic_open_pending = true;
+        if self.recording_mode == RecordingMode::Click {
+            let press_seen = self
+                .opening_press_seen_until
+                .take()
+                .is_some_and(|until| now <= until);
+            if !press_seen && !self.voice_key_down {
+                self.awaiting_opening_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+        }
+        out.tx_commands.push(command);
+    }
+
     fn on_audio_start(
         &mut self,
         reason: u8,
@@ -674,10 +918,12 @@ impl AtvvSession {
             return;
         };
         let version = caps.version;
-        if reason != InteractionModel::Htt as u8 {
+        let was_mic_open_pending = std::mem::replace(&mut self.mic_open_pending, false);
+
+        if !matches!(reason, 0x00 | 0x01 | 0x03) {
             out.tx_commands.push(encode_mic_close(version, stream_id));
             out.events.push(SessionEvent::Error(format!(
-                "TCL RC902 rejected non-HTT AUDIO_START reason=0x{reason:02x} stream_id={stream_id}"
+                "TCL RC902 rejected unknown AUDIO_START reason=0x{reason:02x} stream_id={stream_id}"
             )));
             return;
         }
@@ -689,6 +935,67 @@ impl AtvvSession {
             return;
         };
 
+        if self
+            .suppress_start_until
+            .take()
+            .is_some_and(|until| now <= until)
+        {
+            out.tx_commands.push(encode_mic_close(version, stream_id));
+            if self.state != SessionState::Streaming {
+                self.closing_stream_id = Some(stream_id);
+                self.state = SessionState::Stopping;
+            }
+            return;
+        }
+
+        if self.recording_mode == RecordingMode::Hold
+            && !self.voice_key_down
+            && self
+                .released_before_start_until
+                .take()
+                .is_some_and(|until| now <= until)
+        {
+            out.tx_commands.push(encode_mic_close(version, stream_id));
+            self.closing_stream_id = Some(stream_id);
+            self.state = SessionState::Stopping;
+            return;
+        }
+
+        if self.recording_mode == RecordingMode::Click
+            && (self.active_stream_id.is_some()
+                || self
+                    .preempted_click_until
+                    .take()
+                    .is_some_and(|until| now <= until))
+        {
+            if let Some(previous_id) = self.active_stream_id.take() {
+                if version == ProtocolVersion::V10 {
+                    let tail = self.decoder.flush_tail();
+                    if !tail.is_empty() {
+                        self.stats.decoded_samples += tail.len();
+                        out.events.push(SessionEvent::PcmChunk {
+                            sample_rate: self.active_codec.sample_rate(),
+                            samples: tail,
+                        });
+                    }
+                }
+                self.decoder.reset_session();
+                self.clear_stream_timers();
+                out.events.push(SessionEvent::SessionStopped {
+                    stream_id: previous_id,
+                    reason: 0x00,
+                });
+            }
+            out.tx_commands.push(encode_mic_close(version, stream_id));
+            self.closing_stream_id = Some(stream_id);
+            self.awaiting_opening_key_down_until = None;
+            if !self.voice_key_down {
+                self.suppress_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+            self.state = SessionState::Stopping;
+            return;
+        }
+
         // Finish any previous stream before initializing the new one so ADPCM state never mixes.
         if let Some(previous_id) = self.active_stream_id.take() {
             self.decoder.reset_session();
@@ -696,6 +1003,21 @@ impl AtvvSession {
                 stream_id: previous_id,
                 reason: 0x04,
             });
+        }
+
+        if self.recording_mode == RecordingMode::Click {
+            let press_seen = self
+                .opening_press_seen_until
+                .take()
+                .is_some_and(|until| now <= until);
+            if self.voice_key_down || press_seen {
+                self.awaiting_opening_key_down_until = None;
+            } else if !was_mic_open_pending {
+                self.awaiting_opening_key_down_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+        } else {
+            self.opening_press_seen_until = None;
+            self.awaiting_opening_key_down_until = None;
         }
 
         self.decoder.reset_session();
@@ -728,14 +1050,28 @@ impl AtvvSession {
         self.stats.sync_gaps = self.decoder.sync_gaps();
     }
 
-    fn on_audio_stop(&mut self, reason: u8, out: &mut SessionAction) {
+    fn on_audio_stop(&mut self, reason: u8, now: Instant, out: &mut SessionAction) {
         // A delayed AUDIO_STOP(reason=0x00) acknowledging an earlier MIC_CLOSE must not kill a newly opened stream.
         if reason == 0x00 && self.active_stream_id.is_some() && self.closing_stream_id.is_none() {
             return;
         }
         self.closing_stream_id = None;
+        self.mic_open_pending = false;
         if let Some(stream_id) = self.active_stream_id.take() {
-            if matches!(reason, 0x00 | 0x02 | 0x04) {
+            if reason == 0x04
+                && self.recording_mode == RecordingMode::Click
+                && !self
+                    .awaiting_opening_key_down_until
+                    .is_some_and(|until| now <= until)
+            {
+                self.preempted_click_until = Some(now + KEY_GATT_SYNC_WINDOW);
+            }
+            if matches!(reason, 0x00 | 0x02 | 0x04)
+                && self
+                    .capabilities
+                    .as_ref()
+                    .is_some_and(|caps| caps.version == ProtocolVersion::V10)
+            {
                 let tail = self.decoder.flush_tail();
                 if !tail.is_empty() {
                     self.stats.decoded_samples += tail.len();
@@ -745,6 +1081,7 @@ impl AtvvSession {
                     });
                 }
             }
+            self.awaiting_opening_key_down_until = None;
             self.decoder.reset_session();
             self.clear_stream_timers();
             out.events
@@ -767,10 +1104,21 @@ impl AtvvSession {
         }
         self.capabilities = None;
         self.closing_stream_id = None;
+        self.mic_open_pending = false;
+        self.clear_key_sync();
         self.clear_stream_timers();
         self.decoder.reset_session();
         self.state = SessionState::Error;
         out.events.push(SessionEvent::Error(message));
+    }
+
+    fn clear_key_sync(&mut self) {
+        self.opening_press_seen_until = None;
+        self.released_before_start_until = None;
+        self.awaiting_opening_key_down_until = None;
+        self.suppress_start_until = None;
+        self.suppress_key_down_until = None;
+        self.preempted_click_until = None;
     }
 
     fn clear_stream_timers(&mut self) {
@@ -807,6 +1155,7 @@ pub(crate) struct ImaAdpcmDecoder {
 
 impl ImaAdpcmDecoder {
     #[cfg(target_os = "macos")]
+    #[allow(dead_code)]
     pub(crate) fn pending_bytes(&self) -> usize {
         self.pending.len()
     }
@@ -850,6 +1199,29 @@ impl ImaAdpcmDecoder {
             .map(|frame| {
                 self.apply_pending_sync_for_current_frame();
                 let samples = self.decode_bytes(frame);
+                self.frames_decoded = self.frames_decoded.wrapping_add(1);
+                samples
+            })
+            .collect()
+    }
+
+    pub(crate) fn append_v04_framed(&mut self, packet: &[u8], frame_size: usize) -> Vec<Vec<i16>> {
+        let frame_size = frame_size.max(AtvvV04::FRAME_HEADER_LEN + 1);
+        self.pending.extend_from_slice(packet);
+        let frame_count = self.pending.len() / frame_size;
+        if frame_count == 0 {
+            return Vec::new();
+        }
+        let consumed = frame_count * frame_size;
+        let bytes = self.pending.drain(..consumed).collect::<Vec<_>>();
+        bytes
+            .chunks_exact(frame_size)
+            .map(|frame| {
+                // v0.4e frames carry per-frame [seq_hi, seq_lo, id, pred_hi, pred_lo, step_index] headers.
+                self.predictor = i32::from(i16::from_be_bytes([frame[3], frame[4]]));
+                self.step_index = i32::from(frame[5]).clamp(0, 88);
+                self.pending_sync = None;
+                let samples = self.decode_bytes(&frame[AtvvV04::FRAME_HEADER_LEN..]);
                 self.frames_decoded = self.frames_decoded.wrapping_add(1);
                 samples
             })
@@ -1057,6 +1429,15 @@ pub(crate) fn approved_rc902_service_id(
 mod tests {
     use super::*;
 
+    fn synthetic_v10_ptt_caps_resp() -> [u8; 9] {
+        // Synthetic ATVV v1.0 PTT capability vector (version=0x0100, codecs=0x02, model=0x01, frame_size=160).
+        [0x0b, 0x01, 0x00, 0x02, 0x01, 0x00, 0xa0, 0x01, 0x00]
+    }
+
+    fn synthetic_v10_on_request_caps_resp() -> [u8; 9] {
+        [0x0b, 0x01, 0x00, 0x02, 0x00, 0x00, 0xa0, 0x01, 0x00]
+    }
+
     fn synthetic_v10_htt_caps_resp() -> [u8; 9] {
         // Synthetic test vector from Spec §10.2 (not a real FMR1 capture).
         [0x0b, 0x01, 0x00, 0x02, 0x03, 0x00, 0xa0, 0x01, 0x00]
@@ -1083,14 +1464,33 @@ mod tests {
 
     #[test]
     fn v10_get_caps_encodes_expected_wire_bytes() {
-        assert_eq!(AtvvV10::get_caps(), [0x0a, 0x01, 0x00, 0x00, 0x03, 0x03]);
+        assert_eq!(AtvvV10::get_caps(), [0x0a, 0x01, 0x00, 0x00, 0x03, 0x01]);
+        assert_eq!(
+            AtvvV10::get_caps_with_models(AtvvV10::SUPPORTED_MODELS_ALL),
+            [0x0a, 0x01, 0x00, 0x00, 0x03, 0x03]
+        );
     }
 
     #[test]
     fn parses_synthetic_v10_caps_resp_and_rejects_unknown_versions() {
-        let event = ControlEvent::parse(&synthetic_v10_htt_caps_resp()).unwrap();
+        let ptt = ControlEvent::parse(&synthetic_v10_ptt_caps_resp()).unwrap();
         assert_eq!(
-            event,
+            ptt,
+            ControlEvent::CapsResp(Capabilities {
+                version: ProtocolVersion::V10,
+                codecs_mask: 0x02,
+                preferred_codec: Some(AdpcmCodec::Adpcm16k),
+                model: InteractionModel::Ptt,
+                raw_model: 0x01,
+                frame_size: 160,
+                extra: 1,
+                vendor_data: Vec::new(),
+            })
+        );
+
+        let htt = ControlEvent::parse(&synthetic_v10_htt_caps_resp()).unwrap();
+        assert_eq!(
+            htt,
             ControlEvent::CapsResp(Capabilities {
                 version: ProtocolVersion::V10,
                 codecs_mask: 0x02,
@@ -1123,16 +1523,16 @@ mod tests {
         let init = session.begin_negotiation(now);
         assert_eq!(
             init.tx_commands,
-            vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x03]]
+            vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x01]]
         );
         let unknown =
-            session.handle_control(&[0x0b, 0x02, 0x00, 0x02, 0x03, 0x00, 0xa0, 0x00, 0x00], now);
+            session.handle_control(&[0x0b, 0x02, 0x00, 0x02, 0x01, 0x00, 0xa0, 0x00, 0x00], now);
         assert!(unknown.tx_commands.is_empty());
         assert_eq!(session.state(), SessionState::Error);
     }
 
     #[test]
-    fn v10_and_v04_command_formats_stay_isolated() {
+    fn v10_and_v04_command_formats_and_framing_stay_isolated() {
         assert_eq!(AtvvV10::mic_open(MicOpenMode::Capture), [0x0c, 0x01]);
         assert_eq!(AtvvV10::mic_open(MicOpenMode::Playback), [0x0c, 0x00]);
         assert_eq!(AtvvV04::mic_open(AdpcmCodec::Adpcm16k), [0x0c, 0x00, 0x02]);
@@ -1142,10 +1542,46 @@ mod tests {
         );
         assert_eq!(AtvvV10::mic_close(5), [0x0d, 0x05]);
         assert_eq!(AtvvV04::mic_close(), [0x0d]);
+
+        let now = Instant::now();
+        let mut v04_session = AtvvSession::with_recording_mode(RecordingMode::Hold);
+        v04_session.begin_negotiation(now);
+        v04_session.handle_control(&[0x0b, 0x00, 0x04, 0x00, 0x02, 0x00, 0x08], now);
+        v04_session.on_voice_key_edge(true, now);
+        let open = v04_session.handle_control(&[0x08], now);
+        assert_eq!(open.tx_commands, vec![vec![0x0c, 0x00, 0x02]]);
+        let started = v04_session.handle_control(&[0x04], now);
+        assert_eq!(
+            started.events,
+            vec![SessionEvent::SessionStarted {
+                stream_id: 0,
+                sample_rate: 16_000,
+            }]
+        );
+        // 6-byte v0.4e frame header (seq=1, id=0, predictor=0, step_index=0) + 2 ADPCM bytes.
+        let framed =
+            v04_session.handle_audio(&[0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x30, 0xb0], now);
+        assert_eq!(
+            framed.events,
+            vec![SessionEvent::PcmChunk {
+                sample_rate: 16_000,
+                samples: vec![4, 4, 0, 0],
+            }]
+        );
+        let released = v04_session.on_voice_key_edge(false, now + Duration::from_millis(40));
+        assert_eq!(released.tx_commands, vec![vec![0x0d]]);
     }
 
     #[test]
-    fn parses_v10_htt_audio_start_and_audio_sync_vectors() {
+    fn parses_v10_ptt_and_htt_audio_start_and_audio_sync_vectors() {
+        assert_eq!(
+            ControlEvent::parse(&[0x04, 0x01, 0x02, 0x05]).unwrap(),
+            ControlEvent::AudioStart {
+                reason: 0x01,
+                codec: 0x02,
+                stream_id: 5,
+            }
+        );
         assert_eq!(
             ControlEvent::parse(&[0x04, 0x03, 0x02, 0x05]).unwrap(),
             ControlEvent::AudioStart {
@@ -1170,8 +1606,8 @@ mod tests {
         let now = Instant::now();
         let mut session = AtvvSession::default();
         session.begin_negotiation(now);
-        session.handle_control(&synthetic_v10_htt_caps_resp(), now);
-        session.handle_control(&[0x04, 0x03, 0x02, 0x05], now);
+        session.handle_control(&synthetic_v10_ptt_caps_resp(), now);
+        session.handle_control(&[0x04, 0x01, 0x02, 0x05], now);
         assert_eq!(session.state(), SessionState::Streaming);
         assert_eq!(session.active_stream_id(), Some(5));
 
@@ -1186,22 +1622,168 @@ mod tests {
     }
 
     #[test]
-    fn htt_only_policy_ignores_start_search_and_closes_non_htt_streams() {
-        let now = Instant::now();
-        let mut session = AtvvSession::default();
-        session.begin_negotiation(now);
-        session.handle_control(&synthetic_v10_htt_caps_resp(), now);
+    fn ptt_hold_mode_closes_stream_on_key_release_and_handles_quick_release_before_start() {
+        let t0 = Instant::now();
+        let mut session = AtvvSession::with_recording_mode(RecordingMode::Hold);
+        session.begin_negotiation(t0);
+        session.handle_control(&synthetic_v10_ptt_caps_resp(), t0);
         assert_eq!(session.state(), SessionState::Ready);
 
-        // On-request START_SEARCH (0x08) must never emit MIC_OPEN in HTT-only mode.
-        let search = session.handle_control(&[0x08], now);
-        assert!(search.tx_commands.is_empty());
+        // Hold press -> PTT AUDIO_START(reason=0x01, stream_id=0x07) -> audio -> release sends MIC_CLOSE.
+        let mut wav = WavSink::default();
+        assert!(session.on_voice_key_edge(true, t0).tx_commands.is_empty());
+        let started =
+            session.handle_control(&[0x04, 0x01, 0x02, 0x07], t0 + Duration::from_millis(10));
+        feed_events_to_wav(&started.events, &mut wav);
+        assert_eq!(session.state(), SessionState::Streaming);
+
+        let audio = session.handle_audio(&[0x7f; 160], t0 + Duration::from_millis(30));
+        feed_events_to_wav(&audio.events, &mut wav);
+
+        let released = session.on_voice_key_edge(false, t0 + Duration::from_millis(120));
+        assert_eq!(released.tx_commands, vec![vec![0x0d, 0x07]]);
+        feed_events_to_wav(&released.events, &mut wav);
+        assert!(wav.is_finalized());
+        assert_eq!(session.state(), SessionState::Stopping);
+
+        let ack = session.handle_control(&[0x00, 0x00], t0 + Duration::from_millis(140));
+        assert!(ack.events.is_empty());
         assert_eq!(session.state(), SessionState::Ready);
 
-        // PTT AUDIO_START (reason=0x01) must be closed immediately so the mic cannot stay open after release.
-        let ptt = session.handle_control(&[0x04, 0x01, 0x02, 0x07], now);
-        assert_eq!(ptt.tx_commands, vec![vec![0x0d, 0x07]]);
+        // Quick tap in Hold mode where key release arrives before BLE AUDIO_START must immediately MIC_CLOSE.
+        let t1 = t0 + Duration::from_secs(1);
+        session.on_voice_key_edge(true, t1);
+        session.on_voice_key_edge(false, t1 + Duration::from_millis(25));
+        let delayed_start =
+            session.handle_control(&[0x04, 0x01, 0x02, 0x08], t1 + Duration::from_millis(60));
+        assert_eq!(delayed_start.tx_commands, vec![vec![0x0d, 0x08]]);
+        assert!(delayed_start.events.is_empty());
+        assert_eq!(session.state(), SessionState::Stopping);
+    }
+
+    #[test]
+    fn ptt_click_toggle_mode_keeps_recording_after_release_and_stops_on_second_press() {
+        let t0 = Instant::now();
+        let mut session = AtvvSession::with_recording_mode(RecordingMode::Click);
+        session.begin_negotiation(t0);
+        session.handle_control(&synthetic_v10_ptt_caps_resp(), t0);
+
+        // 1. First press + release starts PTT recording and keeps streaming after physical release.
+        session.on_voice_key_edge(true, t0);
+        let started =
+            session.handle_control(&[0x04, 0x01, 0x02, 0x01], t0 + Duration::from_millis(15));
+        assert_eq!(
+            started.events,
+            vec![SessionEvent::SessionStarted {
+                stream_id: 1,
+                sample_rate: 16_000,
+            }]
+        );
+        let released = session.on_voice_key_edge(false, t0 + Duration::from_millis(90));
+        assert!(released.tx_commands.is_empty());
+        assert_eq!(session.state(), SessionState::Streaming);
+
+        // Keepalive extends stream across >8s hands-free recording.
+        let _ = session.handle_audio(&[0x11; 160], t0 + Duration::from_secs(4));
+        let _ = session.handle_audio(&[0x11; 160], t0 + Duration::from_secs(8));
+        let keepalive = session.poll_timers(t0 + Duration::from_secs(9));
+        assert_eq!(keepalive.tx_commands, vec![vec![0x0e, 0x01]]);
+
+        // Second press (HID arrives first, followed by remote AUDIO_START(stream_id=2)) stops and closes both.
+        let stop_press = session.on_voice_key_edge(true, t0 + Duration::from_secs(10));
+        assert_eq!(stop_press.tx_commands, vec![vec![0x0d, 0x01]]);
+        assert_eq!(
+            stop_press.events,
+            vec![SessionEvent::SessionStopped {
+                stream_id: 1,
+                reason: 0x00,
+            }]
+        );
+        let trailing_start = session.handle_control(
+            &[0x04, 0x01, 0x02, 0x02],
+            t0 + Duration::from_secs(10) + Duration::from_millis(20),
+        );
+        assert_eq!(trailing_start.tx_commands, vec![vec![0x0d, 0x02]]);
+        assert!(trailing_start.events.is_empty());
+        session.on_voice_key_edge(
+            false,
+            t0 + Duration::from_secs(10) + Duration::from_millis(80),
+        );
+        session.handle_control(
+            &[0x00, 0x00],
+            t0 + Duration::from_secs(10) + Duration::from_millis(90),
+        );
         assert_eq!(session.state(), SessionState::Ready);
+
+        // 2. GATT-first ordering: AUDIO_START arrives before HID key-down on both 1st and 2nd press.
+        let t2 = t0 + Duration::from_secs(12);
+        let gatt_start = session.handle_control(&[0x04, 0x01, 0x02, 0x03], t2);
+        assert_eq!(session.state(), SessionState::Streaming);
+        assert_eq!(gatt_start.events.len(), 1);
+        // Trailing HID key-down from the 1st press must NOT cancel the newly opened stream.
+        let delayed_down = session.on_voice_key_edge(true, t2 + Duration::from_millis(25));
+        assert!(delayed_down.tx_commands.is_empty());
+        assert_eq!(session.state(), SessionState::Streaming);
+        session.on_voice_key_edge(false, t2 + Duration::from_millis(100));
+
+        // Remote preempts stream 3 with AUDIO_STOP(0x04) + AUDIO_START(stream_id=4) on 2nd press before HID key-down.
+        let t3 = t2 + Duration::from_secs(2);
+        let preempt_stop = session.handle_control(&[0x00, 0x04], t3);
+        assert_eq!(
+            preempt_stop.events,
+            vec![SessionEvent::SessionStopped {
+                stream_id: 3,
+                reason: 0x04,
+            }]
+        );
+        let preempt_start =
+            session.handle_control(&[0x04, 0x01, 0x02, 0x04], t3 + Duration::from_millis(5));
+        assert_eq!(preempt_start.tx_commands, vec![vec![0x0d, 0x04]]);
+        assert!(preempt_start.events.is_empty());
+        let trailing_second_down = session.on_voice_key_edge(true, t3 + Duration::from_millis(20));
+        assert!(trailing_second_down.tx_commands.is_empty());
+        session.on_voice_key_edge(false, t3 + Duration::from_millis(80));
+        session.handle_control(&[0x00, 0x00], t3 + Duration::from_millis(90));
+        assert_eq!(session.state(), SessionState::Ready);
+    }
+
+    #[test]
+    fn on_request_start_search_and_mode_switch_abort_cleanly() {
+        let t0 = Instant::now();
+        let mut session = AtvvSession::with_recording_mode(RecordingMode::Click);
+        session.begin_negotiation(t0);
+        session.handle_control(&synthetic_v10_on_request_caps_resp(), t0);
+
+        // Fast tap in On-request mode: key press -> START_SEARCH -> MIC_OPEN -> key release -> AUDIO_START.
+        session.on_voice_key_edge(true, t0);
+        let search = session.handle_control(&[0x08], t0 + Duration::from_millis(10));
+        assert_eq!(search.tx_commands, vec![vec![0x0c, 0x01]]);
+        session.on_voice_key_edge(false, t0 + Duration::from_millis(30));
+        session.handle_control(&[0x04, 0x00, 0x02, 0x09], t0 + Duration::from_millis(50));
+        assert_eq!(session.state(), SessionState::Streaming);
+
+        // Rapid second press within 200ms stops immediately instead of being mistaken for the 1st press.
+        let second_tap = session.on_voice_key_edge(true, t0 + Duration::from_millis(180));
+        assert_eq!(second_tap.tx_commands, vec![vec![0x0d, 0x09]]);
+        session.on_voice_key_edge(false, t0 + Duration::from_millis(210));
+        session.handle_control(&[0x00, 0x00], t0 + Duration::from_millis(220));
+
+        // Switching recording mode mid-stream closes the active stream immediately.
+        let t1 = t0 + Duration::from_secs(2);
+        session.on_voice_key_edge(true, t1);
+        session.handle_control(&[0x08], t1 + Duration::from_millis(10));
+        session.handle_control(&[0x04, 0x00, 0x02, 0x0a], t1 + Duration::from_millis(30));
+        assert_eq!(session.state(), SessionState::Streaming);
+        let switched =
+            session.set_recording_mode(RecordingMode::Hold, t1 + Duration::from_millis(100));
+        assert_eq!(switched.tx_commands, vec![vec![0x0d, 0x0a]]);
+        assert_eq!(
+            switched.events,
+            vec![SessionEvent::SessionStopped {
+                stream_id: 0x0a,
+                reason: 0x00,
+            }]
+        );
     }
 
     #[test]

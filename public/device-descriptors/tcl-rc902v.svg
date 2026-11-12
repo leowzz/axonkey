@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" viewBox="0 0 328 1152" data-ak-schema="axonkey.device/1" data-ak-device="tcl-rc902v" data-ak-revision="2" data-ak-status="active">
   <title>TCL RC902V 正面按键区</title>
-  <desc>TCL RC902V 正面按键，使用已采集的 HID 报告映射与 Google ATVV BLE 按住语音。</desc>
+  <desc>TCL RC902V 正面按键，使用已采集的 HID 报告映射与 Google ATVV BLE 语音（按住或点击启停）。</desc>
   <metadata>
     <ak:device schema="axonkey.device/1" id="tcl-rc902v" vendor="TCL" model="RC902V" revision="2" display-name="TCL RC902V" status="active">
       <ak:identity>
@@ -51,7 +51,7 @@
                   transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
                   audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
                   control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
-                  engine="tcl-rc902v-atvv" trigger-modes="hold"
+                  engine="tcl-rc902v-atvv" trigger-modes="hold click"
                   sample-rate="16000" required="false" />
       </ak:capabilities>
     </ak:device>

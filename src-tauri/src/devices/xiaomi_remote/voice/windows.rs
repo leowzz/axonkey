@@ -1,8 +1,9 @@
 use super::atvv::AtvvDecoder;
 use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use crate::devices::cmiot_a15::recording::RecordingMode;
 use crate::devices::tcl_rc902v::atvv::{
     approved_rc902_service_id, hex_bytes, upsample_8k_to_16k, AtvvSession as Rc902vAtvvSession,
-    SessionEvent as Rc902vSessionEvent,
+    SessionAction as Rc902vSessionAction, SessionEvent as Rc902vSessionEvent,
 };
 use crate::windows_vmic::{self, AudioSource, DriverSnapshot};
 use std::{
@@ -106,6 +107,7 @@ struct Shared {
     protocol: Mutex<VoiceProtocolState>,
     decoder: Mutex<AtvvDecoder>,
     rc902v_session: Mutex<Rc902vAtvvSession>,
+    rc902v_command_tx: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     rc902v_resample_prev: Mutex<Option<i16>>,
     source: AudioSource,
     input: Mutex<()>,
@@ -130,6 +132,7 @@ impl Shared {
             protocol: Mutex::new(protocol),
             decoder: Mutex::new(AtvvDecoder::default()),
             rc902v_session: Mutex::new(Rc902vAtvvSession::default()),
+            rc902v_command_tx: Mutex::new(None),
             rc902v_resample_prev: Mutex::new(None),
             source: windows_vmic::source(),
             input: Mutex::new(()),
@@ -208,6 +211,20 @@ impl Shared {
                 status.state = "ready".into();
             }
         });
+    }
+
+    fn dispatch_rc902v_action(&self, action: Rc902vSessionAction) {
+        apply_rc902v_events(self, action.events);
+        if action.tx_commands.is_empty() {
+            return;
+        }
+        if let Ok(guard) = self.rc902v_command_tx.lock() {
+            if let Some(tx) = guard.as_ref() {
+                for command in action.tx_commands {
+                    let _ = tx.send(command);
+                }
+            }
+        }
     }
 }
 
@@ -350,6 +367,32 @@ impl AudioService {
         let gain = clamp_gain_db(gain);
         self.shared.source.set_gain_db(gain);
         Ok(())
+    }
+
+    pub(crate) fn set_recording_mode(&self, mode: RecordingMode) {
+        if !self.shared.remote_kind.is_tcl_rc902() {
+            return;
+        }
+        let action = self
+            .shared
+            .rc902v_session
+            .lock()
+            .map(|mut session| session.set_recording_mode(mode, Instant::now()))
+            .unwrap_or_default();
+        self.shared.dispatch_rc902v_action(action);
+    }
+
+    pub(crate) fn handle_voice_key_edge(&self, pressed: bool) {
+        if !self.shared.remote_kind.is_tcl_rc902() || !self.shared.enabled.load(Ordering::Acquire) {
+            return;
+        }
+        let action = self
+            .shared
+            .rc902v_session
+            .lock()
+            .map(|mut session| session.on_voice_key_edge(pressed, Instant::now()))
+            .unwrap_or_default();
+        self.shared.dispatch_rc902v_action(action);
     }
 
     pub fn status(&self) -> AudioServiceStatus {
@@ -511,6 +554,10 @@ impl VoiceConnection {
         let audio = find_characteristic(&service, AUDIO_UUID, "audio")?;
         let control = find_characteristic(&service, CONTROL_UUID, "control")?;
         let (command_tx, commands) = mpsc::channel();
+        let rc902_tx = shared
+            .remote_kind
+            .is_tcl_rc902()
+            .then(|| command_tx.clone());
 
         let (audio_token, control_token) = if shared.remote_kind.is_tcl_rc902() {
             let audio_tx = command_tx.clone();
@@ -564,6 +611,9 @@ impl VoiceConnection {
                     hex_bytes(&command)
                 );
                 write_characteristic(&transmit, &command)?;
+            }
+            if let Ok(mut slot) = shared.rc902v_command_tx.lock() {
+                *slot = rc902_tx;
             }
         } else {
             write_characteristic(&transmit, &[0x0a, 0x01, 0x00, 0x00, 0x03, 0x03])?;
@@ -640,6 +690,9 @@ impl VoiceConnection {
     }
 
     fn close(&mut self, shared: &Shared) {
+        if let Ok(mut slot) = shared.rc902v_command_tx.lock() {
+            *slot = None;
+        }
         let close_commands = if shared.remote_kind.is_tcl_rc902() {
             let (commands, events) = shared
                 .rc902v_session
@@ -1138,7 +1191,7 @@ fn apply_rc902v_events(shared: &Shared, events: Vec<Rc902vSessionEvent>) {
                 });
                 log::info!(
                     target: "axonkey::audio",
-                    "{label} HTT voice forwarding started: stream_id={stream_id} sample_rate={sample_rate}"
+                    "{label} ATVV voice forwarding started: stream_id={stream_id} sample_rate={sample_rate}"
                 );
             }
             Rc902vSessionEvent::PcmChunk {
@@ -1173,7 +1226,7 @@ fn apply_rc902v_events(shared: &Shared, events: Vec<Rc902vSessionEvent>) {
                 shared.reset_voice_session();
                 log::info!(
                     target: "axonkey::audio",
-                    "{label} HTT voice forwarding stopped: stream_id={stream_id} reason=0x{reason:02x} packets={} bytes={} len_range={}..{} decoded_samples={} sync_gaps={}",
+                    "{label} ATVV voice forwarding stopped: stream_id={stream_id} reason=0x{reason:02x} packets={} bytes={} len_range={}..{} decoded_samples={} sync_gaps={}",
                     stats.audio_packets,
                     stats.audio_bytes,
                     stats.min_packet_len,
@@ -1370,25 +1423,31 @@ mod tests {
     }
 
     #[test]
-    fn rc902_htt_bridge_routes_hold_to_talk_pcm_and_drops_idle_audio() {
+    fn rc902_ptt_bridge_supports_hold_and_click_toggle_modes() {
+        use crate::devices::cmiot_a15::recording::RecordingMode;
         for (kind, label) in [("tclRc902n", "TCL RC902N"), ("tclRc902v", "TCL RC902V")] {
             let audio = AudioService::without_workers_rc902(kind, Some("A1:B2:C3:D4:E5:F6".into()));
             assert_eq!(audio.shared.remote_kind.label(), label);
             audio
                 .shared
                 .update_status(|status| status.bluetooth_connected = true);
-            let _ = audio
+            let (tx, rx) = mpsc::channel();
+            *audio.shared.rc902v_command_tx.lock().unwrap() = Some(tx.clone());
+            let init = audio
                 .shared
                 .rc902v_session
                 .lock()
                 .unwrap()
                 .begin_negotiation(Instant::now());
-            let (tx, rx) = mpsc::channel();
+            assert_eq!(
+                init.tx_commands,
+                vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x01]]
+            );
 
-            // Synthetic CAPS_RESP (v1.0, 16k ADPCM, HTT, frame_size=160).
+            // Synthetic CAPS_RESP (v1.0, 16k ADPCM, PTT model=0x01, frame_size=160).
             handle_rc902v_control_packet(
                 &audio.shared,
-                &[0x0b, 0x01, 0x00, 0x02, 0x03, 0x00, 0xa0, 0x01, 0x00],
+                &[0x0b, 0x01, 0x00, 0x02, 0x01, 0x00, 0xa0, 0x01, 0x00],
                 &tx,
             );
             assert_eq!(audio.status_with_driver(ready_driver()).state, "ready");
@@ -1398,18 +1457,38 @@ mod tests {
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 0);
 
-            // Hold A -> AUDIO_START (reason=0x03 HTT, codec=0x02 16kHz, stream_id=5).
-            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x03, 0x02, 0x05], &tx);
+            // 1. Hold mode: press -> PTT AUDIO_START(reason=0x01) -> PCM -> release sends MIC_CLOSE(5).
+            audio.set_recording_mode(RecordingMode::Hold);
+            audio.handle_voice_key_edge(true);
+            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x01, 0x02, 0x05], &tx);
             assert!(audio.shared.recording_indicator.is_active());
             handle_rc902v_audio_packet(&audio.shared, &[0x7f; 160], &tx);
             assert_eq!(audio.shared.source.queued_samples(), 320);
             assert!(audio.status_with_driver(ready_driver()).forwarding);
 
-            // Release A -> AUDIO_STOP (reason=0x02 HTT release).
-            handle_rc902v_control_packet(&audio.shared, &[0x00, 0x02], &tx);
+            audio.handle_voice_key_edge(false);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x05]);
             assert!(!audio.shared.recording_indicator.is_active());
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 0);
+            handle_rc902v_control_packet(&audio.shared, &[0x00, 0x00], &tx);
+
+            // 2. Click mode ("按下录音，再次按下停止录音"): 1st press + release keeps recording; 2nd press stops.
+            audio.set_recording_mode(RecordingMode::Click);
+            audio.handle_voice_key_edge(true);
+            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x01, 0x02, 0x06], &tx);
+            audio.handle_voice_key_edge(false);
+            handle_rc902v_audio_packet(&audio.shared, &[0x7f; 160], &tx);
+            assert!(audio.shared.recording_indicator.is_active());
+            assert!(audio.status_with_driver(ready_driver()).forwarding);
+            assert!(rx.try_recv().is_err());
+
+            audio.handle_voice_key_edge(true);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x06]);
+            assert!(!audio.shared.recording_indicator.is_active());
+            assert!(!audio.status_with_driver(ready_driver()).forwarding);
+            audio.handle_voice_key_edge(false);
+            handle_rc902v_control_packet(&audio.shared, &[0x00, 0x00], &tx);
             assert!(rx.try_recv().is_err());
         }
     }

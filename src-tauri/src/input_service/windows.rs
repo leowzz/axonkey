@@ -827,6 +827,9 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             }
         }
     }
+    if rc902_voice(context).is_some() {
+        publish_rc902_voice_key_edge(shared, false);
+    }
     context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
         if shared.managed_input.is_none() {
@@ -847,6 +850,17 @@ fn recording_voice(
             "cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico"
         )
     })
+}
+
+#[cfg(windows)]
+fn rc902_voice(
+    context: &QuarborContext,
+) -> Option<&'static crate::devices::device_descriptor::VoiceDescriptor> {
+    context
+        .descriptor?
+        .voices
+        .iter()
+        .find(|voice| voice.engine == "tcl-rc902v-atvv")
 }
 
 #[cfg(windows)]
@@ -915,6 +929,22 @@ fn publish_a15_recording(shared: &Shared, recording: bool) {
                 );
             }
         }
+    }
+}
+
+#[cfg(windows)]
+fn publish_rc902_voice_key_edge(shared: &Shared, pressed: bool) {
+    #[cfg(not(test))]
+    if let Some(app) = shared.event_app.read().ok().and_then(|app| app.clone()) {
+        use tauri::Manager;
+        if let Some(audio) = app.try_state::<crate::audio_service::AudioServiceManager>() {
+            audio.handle_voice_key_edge(shared.instance_id.as_deref(), pressed);
+        }
+    }
+    #[cfg(test)]
+    {
+        let _ = shared;
+        RC902_VOICE_KEY_EDGES.with(|edges| edges.borrow_mut().push(pressed));
     }
 }
 
@@ -1077,6 +1107,14 @@ fn process_remote_actions_inner(
             if !context.a15_recording.is_recording() {
                 context.obe_pcm_accumulator.clear();
             }
+        }
+        if rc902_voice(context).and_then(|voice| {
+            context
+                .descriptor
+                .and_then(|descriptor| descriptor_event_key(descriptor, &voice.trigger_key))
+        }) == Some(key.button)
+        {
+            publish_rc902_voice_key_edge(shared, key.pressed);
         }
         actions.edge(key.button, key.pressed, &settings, now);
     }
@@ -1837,6 +1875,7 @@ fn wheel_input(delta: i32, horizontal: bool) -> Input {
 #[cfg(test)]
 thread_local! {
     static A15_RECORDING_REPORTS: std::cell::RefCell<Vec<[u8; 2]>> = const { std::cell::RefCell::new(Vec::new()) };
+    static RC902_VOICE_KEY_EDGES: std::cell::RefCell<Vec<bool>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -2564,6 +2603,46 @@ mod tests {
                     )
                 });
                 A15_RECORDING_REPORTS.with(|reports| assert!(reports.borrow().is_empty()));
+            }
+        }
+
+        #[test]
+        fn rc902_assistant_key_forwards_voice_edges_without_hid_output_reports() {
+            for (kind, behavior_key) in [
+                ("tclRc902n", "tcl-rc902n.assistant"),
+                ("tclRc902v", "tcl-rc902v.assistant"),
+            ] {
+                for mode in ["hold", "click"] {
+                    A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                    RC902_VOICE_KEY_EDGES.with(|edges| edges.borrow_mut().clear());
+                    let settings: NativeSettings = serde_json::from_value(json!({
+                        "enabled": true,
+                        "cmiotA15RecordingMode": mode,
+                        "behaviors": {behavior_key: {"click": [{"type": "key", "key": "RAlt"}]}}
+                    }))
+                    .unwrap();
+                    let mut harness = Harness::new(settings.clone());
+                    harness.context.device_id = Some(r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010417_PID&0304_REV&0001_A1B2C3D4E5F6\8&1&0&001F".into());
+                    harness.context.descriptor =
+                        crate::devices::descriptor_registry::descriptor_for_kind(kind);
+                    for (index, down) in [true, false, true, false].into_iter().enumerate() {
+                        a15_report(
+                            &mut harness.context,
+                            index as u64 + 1,
+                            if down {
+                                vec![0x03, 0x21, 0x02]
+                            } else {
+                                vec![0x03, 0x00, 0x00]
+                            },
+                        );
+                        harness.tick(&settings, index as u64 * 1000, &[]);
+                        assert_eq!(harness.context.keyboard.held.len(), usize::from(down));
+                    }
+                    RC902_VOICE_KEY_EDGES.with(|edges| {
+                        assert_eq!(*edges.borrow(), vec![true, false, true, false]);
+                    });
+                    A15_RECORDING_REPORTS.with(|reports| assert!(reports.borrow().is_empty()));
+                }
             }
         }
 

@@ -24,6 +24,9 @@ enum {
     AKAudioEventOutputReset = 12,
     AKAudioEventRSSI = 13,
     AKAudioEventConnectionReset = 14,
+    AKAudioEventNegotiate = 15,
+    AKAudioEventTimerTick = 16,
+    AKAudioEventStopping = 17,
 };
 
 enum {
@@ -220,8 +223,12 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 - (void)configureTargetAddress:(NSString *)address;
 - (BOOL)matchesTargetPeripheral:(CBPeripheral *)peripheral;
 @property(nonatomic) BOOL externalInput;
-@property(nonatomic) BOOL httOnly;
+@property(nonatomic) BOOL rc902Mode;
 - (void)setExternalRecording:(BOOL)recording;
+- (BOOL)sendCommandData:(NSData *)data;
+- (void)markRc902Ready;
+- (void)setRc902SessionActive:(BOOL)active sessionID:(uint8_t)sessionID;
+- (void)setRc902Error:(NSString *)message;
 - (void)start;
 - (void)refresh;
 - (BOOL)restart;
@@ -265,7 +272,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     uint8_t _selectedCodec;
     uint8_t _activeCodec;
     uint8_t _sessionID;
-    NSTimer *_keepaliveTimer;
     NSUInteger _frameSize;
     NSUInteger _connectionGeneration;
     NSUInteger _pendingAudioBuffers;
@@ -505,6 +511,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
              value1:((_streaming || _microphoneOpened || _pendingAudioBuffers > 0) ? 1 : 0) |
                     (nativeActivity ? 2 : 0)
              value2:windowMilliseconds];
+    if (_rc902Mode && _shouldRun) {
+        [self emitEvent:AKAudioEventTimerTick data:nil value1:0 value2:0];
+    }
 }
 
 - (void)refresh {
@@ -536,9 +545,10 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     [self finishPacketTrace];
     [_diagnosticsTimer invalidate];
     _diagnosticsTimer = nil;
-    [_keepaliveTimer invalidate];
-    _keepaliveTimer = nil;
     _shouldRun = NO;
+    if (_rc902Mode) {
+        [self emitEvent:AKAudioEventStopping data:nil value1:0 value2:0];
+    }
     [self closeMicrophoneIfNeeded];
     [self emitEvent:AKAudioEventSessionStop data:nil value1:0 value2:0];
     [self stopBluetooth];
@@ -585,8 +595,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 - (void)resetPeripheral {
     _lastRSSIRequest = 0;
     _rssiPending = NO;
-    [_keepaliveTimer invalidate];
-    _keepaliveTimer = nil;
     [self emitEvent:AKAudioEventConnectionReset data:nil value1:0 value2:0];
     _peripheral.delegate = nil;
     _peripheral = nil;
@@ -712,10 +720,54 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         ![_subscribedUUIDs containsObject:_controlUUID]) {
         return;
     }
+    if (_rc902Mode) {
+        _capabilitiesRequested = YES;
+        [self emitEvent:AKAudioEventNegotiate data:nil value1:0 value2:0];
+        return;
+    }
     const uint8_t bytes[] = {0x0a, 0x01, 0x00, 0x00, 0x03, 0x03};
     if ([self writeData:[NSData dataWithBytes:bytes length:sizeof(bytes)]]) {
         _capabilitiesRequested = YES;
     }
+}
+
+- (BOOL)sendCommandData:(NSData *)data {
+    if (data.length == 0) {
+        return NO;
+    }
+    return [self writeData:data];
+}
+
+- (void)markRc902Ready {
+    _capabilitiesConfirmed = YES;
+    if ([self ensureAudioOutput]) {
+        [self setState:AKAudioStateReady error:nil];
+        [self scheduleAudioIdle];
+    }
+}
+
+- (void)setRc902SessionActive:(BOOL)active sessionID:(uint8_t)sessionID {
+    if (!_rc902Mode || !_shouldRun) {
+        return;
+    }
+    if (active) {
+        if (_streaming) {
+            [self endVoiceSession];
+        }
+        _sessionID = sessionID;
+        [self resetAudioQueue];
+        [self beginVoiceSession];
+    } else {
+        [self endVoiceSession];
+    }
+}
+
+- (void)setRc902Error:(NSString *)message {
+    if (!_rc902Mode) {
+        return;
+    }
+    [self endVoiceSession];
+    [self setState:AKAudioStateError error:message ?: @"TCL RC902 voice error"];
 }
 
 - (BOOL)openMicrophone {
@@ -733,7 +785,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 }
 
 - (void)closeMicrophoneIfNeeded {
-    if (_externalInput) return;
+    if (_externalInput || _rc902Mode) return;
     if (!_microphoneOpened && !_streaming) {
         return;
     }
@@ -768,22 +820,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         if (_pcmStorage != nil) atomic_store(&_pcmStorage->queue.draining, false);
         _streaming = YES;
         [self emitEvent:AKAudioEventSessionStart data:nil value1:_sessionID value2:0];
-        [_keepaliveTimer invalidate];
-        _keepaliveTimer = nil;
-        if (_httOnly && _protocolVersion == 0x0100) {
-            __weak typeof(self) weakSelf = self;
-            _keepaliveTimer = [NSTimer scheduledTimerWithTimeInterval:8.0
-                                                              repeats:YES
-                                                                block:^(NSTimer *timer) {
-                __strong typeof(weakSelf) strongSelf = weakSelf;
-                if (strongSelf == nil || !strongSelf->_streaming) {
-                    [timer invalidate];
-                    return;
-                }
-                uint8_t extend[2] = {0x0e, strongSelf->_sessionID};
-                [strongSelf writeData:[NSData dataWithBytes:extend length:sizeof(extend)]];
-            }];
-        }
     }
     if ([self ensureAudioOutput]) {
         [self setState:AKAudioStateForwarding error:nil];
@@ -791,8 +827,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 }
 
 - (void)endVoiceSession {
-    [_keepaliveTimer invalidate];
-    _keepaliveTimer = nil;
     if (!_streaming && !_microphoneOpened) {
         return;
     }
@@ -827,37 +861,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 }
 
 - (void)handleCapabilities:(NSData *)data {
-    if (_httOnly) {
-        if (data.length < 3) {
-            [self setState:AKAudioStateError error:@"TCL RC902 returned truncated CAPS_RESP"];
-            return;
-        }
-        const uint8_t *bytes = data.bytes;
-        _protocolVersion = ((uint16_t)bytes[1] << 8) | bytes[2];
-        if (_protocolVersion != 0x0100 || data.length < 9 || bytes[4] != 0x03) {
-            [self setState:AKAudioStateError
-                     error:[NSString stringWithFormat:@"TCL RC902 requires ATVV v1.0 HTT (0x03), got version=0x%04x len=%lu",
-                                                      _protocolVersion, (unsigned long)data.length]];
-            return;
-        }
-        uint8_t codecs = bytes[3];
-        _selectedCodec = (codecs & 0x02) != 0 ? 0x02 : ((codecs & 0x01) != 0 ? 0x01 : 0);
-        _activeCodec = _selectedCodec;
-        _frameSize = ((NSUInteger)bytes[5] << 8) | bytes[6];
-        [self logAudio:[NSString stringWithFormat:@"macOS TCL RC902 CAPS_RESP: version=0x%04x codecs=0x%02x model=0x%02x frame_bytes=%lu",
-                                                  _protocolVersion, codecs, bytes[4], (unsigned long)_frameSize]
-                 error:NO];
-        if (_selectedCodec == 0 || _frameSize == 0) {
-            [self setState:AKAudioStateError error:@"TCL RC902 returned unsupported codec or zero frame_size"];
-            return;
-        }
-        _capabilitiesConfirmed = YES;
-        if ([self ensureAudioOutput]) {
-            [self setState:AKAudioStateReady error:nil];
-            [self scheduleAudioIdle];
-        }
-        return;
-    }
     if (data.length < 7) {
         [self setState:AKAudioStateError error:@"RC003 returned invalid voice capabilities"];
         return;
@@ -895,36 +898,19 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         return;
     }
     const uint8_t *bytes = data.bytes;
-    [self emitEvent:AKAudioEventControl data:nil value1:bytes[0] value2:0];
+    [self emitEvent:AKAudioEventControl data:data value1:bytes[0] value2:0];
+    if (_rc902Mode) {
+        return;
+    }
     switch (bytes[0]) {
         case 0x0b:
             [self handleCapabilities:data];
             break;
         case 0x08:
-            if (!_httOnly) {
-                [self openMicrophone];
-            }
+            [self openMicrophone];
             break;
         case 0x04:
             if (!_capabilitiesConfirmed) {
-                return;
-            }
-            if (_httOnly) {
-                if (data.length < 4) {
-                    return;
-                }
-                if (bytes[1] != 0x03 || (bytes[2] != 0x01 && bytes[2] != 0x02)) {
-                    uint8_t closeCmd[2] = {0x0d, bytes[3]};
-                    [self writeData:[NSData dataWithBytes:closeCmd length:sizeof(closeCmd)]];
-                    [self setState:AKAudioStateError error:@"TCL RC902 rejected non-HTT or unsupported AUDIO_START"];
-                    return;
-                }
-                if (_streaming) {
-                    [self endVoiceSession];
-                }
-                _activeCodec = bytes[2];
-                _sessionID = bytes[3];
-                [self beginVoiceSession];
                 return;
             }
             if (data.length >= 3 && bytes[2] != 0x02) {
@@ -948,14 +934,6 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
                          value2:bytes[6]];
             }
             break;
-        case 0x0c:
-            if (_httOnly && data.length >= 3) {
-                uint16_t code = ((uint16_t)bytes[1] << 8) | bytes[2];
-                [self endVoiceSession];
-                [self setState:AKAudioStateError
-                         error:[NSString stringWithFormat:@"TCL RC902 MIC_OPEN_ERROR 0x%04X", code]];
-            }
-            break;
         default:
             break;
     }
@@ -970,7 +948,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         return;
     }
     if (!_streaming) {
-        if (_httOnly || (_lastVoiceStopTime > 0 &&
+        if (_rc902Mode || (_lastVoiceStopTime > 0 &&
             CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3)) {
             _audioWindow.afterStop += 1;
             [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
@@ -996,7 +974,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     [self emitEvent:AKAudioEventPacket
                data:data
              value1:(int)_frameSize
-             value2:(int)(_httOnly ? _activeCodec : _selectedCodec)];
+             value2:(int)(_rc902Mode ? _activeCodec : _selectedCodec)];
 }
 
 - (AudioDeviceID)driverDeviceID {
@@ -1542,10 +1520,38 @@ void axonkey_macos_audio_set_recording(void *rawBridge, bool recording) {
     AKOnMainSync(^{ [bridge setExternalRecording:recording]; });
 }
 
-void axonkey_macos_audio_set_htt_only(void *rawBridge, bool httOnly) {
+void axonkey_macos_audio_set_rc902_mode(void *rawBridge, bool rc902Mode) {
     if (rawBridge == NULL) return;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ bridge.httOnly = httOnly; });
+    AKOnMainSync(^{ bridge.rc902Mode = rc902Mode; });
+}
+
+bool axonkey_macos_audio_send_command(void *rawBridge, const uint8_t *bytes, size_t length) {
+    if (rawBridge == NULL || bytes == NULL || length == 0) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    NSData *payload = [NSData dataWithBytes:bytes length:length];
+    __block BOOL sent = NO;
+    AKOnMainSync(^{ sent = [bridge sendCommandData:payload]; });
+    return sent;
+}
+
+void axonkey_macos_audio_rc902_ready(void *rawBridge) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ [bridge markRc902Ready]; });
+}
+
+void axonkey_macos_audio_rc902_session_state(void *rawBridge, bool active, uint8_t sessionID) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnMainSync(^{ [bridge setRc902SessionActive:active sessionID:sessionID]; });
+}
+
+void axonkey_macos_audio_rc902_error(void *rawBridge, const char *message) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    NSString *text = message == NULL ? nil : [NSString stringWithUTF8String:message];
+    AKOnMainSync(^{ [bridge setRc902Error:text]; });
 }
 
 void axonkey_macos_audio_start(void *rawBridge) {

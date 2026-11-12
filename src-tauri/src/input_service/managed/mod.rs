@@ -1577,6 +1577,14 @@ fn run(shared: Arc<Shared>) {
                         && reader.update_config(&shared, instance)
                 });
             if !keep {
+                if reader
+                    .descriptor
+                    .voices
+                    .iter()
+                    .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                {
+                    notify_rc902_voice_key_edge(&shared, id, false);
+                }
                 emit(&shared, id, BTreeMap::new(), vec![]);
             }
             keep
@@ -1728,6 +1736,11 @@ fn run(shared: Arc<Shared>) {
                             for (id, down) in
                                 reader.engine.accept(reader.descriptor, &buffer[..len])
                             {
+                                if reader.descriptor.voices.iter().any(|voice| {
+                                    voice.engine == "tcl-rc902v-atvv" && voice.trigger_key == id
+                                }) {
+                                    notify_rc902_voice_key_edge(&shared, &instance.id, down);
+                                }
                                 let key = reader
                                     .descriptor
                                     .inputs
@@ -1768,6 +1781,14 @@ fn run(shared: Arc<Shared>) {
                     status.error = Some("动作队列已满，已丢弃本次动作".into());
                 }
                 if failed {
+                    if reader
+                        .descriptor
+                        .voices
+                        .iter()
+                        .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                    {
+                        notify_rc902_voice_key_edge(&shared, &instance.id, false);
+                    }
                     readers.remove(&instance.id);
                     emit(&shared, &instance.id, BTreeMap::new(), vec![]);
                 }
@@ -1933,6 +1954,21 @@ fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<
         }
     }
     *previous = current;
+}
+
+fn notify_rc902_voice_key_edge(shared: &Shared, instance_id: &str, pressed: bool) {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let app = shared.app.lock().unwrap();
+        if let Some(audio) = app
+            .as_ref()
+            .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+        {
+            audio.handle_voice_key_edge(Some(instance_id), pressed);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = (shared, instance_id, pressed);
 }
 
 fn spawn_action_worker(

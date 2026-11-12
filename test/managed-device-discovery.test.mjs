@@ -416,7 +416,7 @@ test('bundled capabilities retain recording defaults and platform support for al
   for (const [kind, mode, hidVoice] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
-    ['tclRc802a', 'click', true], ['tclRc902n', 'hold', false], ['tclRc902v', 'hold', false],
+    ['tclRc802a', 'click', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -836,7 +836,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     for (const [kind, battery, manualRecording, recordingModes, voiceCalibration] of [
       ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
       ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
-      ['tclRc802a', true, true, true, true], ['tclRc902n', true, false, false, true], ['tclRc902v', true, false, false, true],
+      ['tclRc802a', true, true, true, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }

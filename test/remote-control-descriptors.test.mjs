@@ -58,6 +58,13 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
     transport: 'hid-report',
     triggerModes: ['hold', 'click'],
   })
+  for (const id of ['tcl-rc902n', 'tcl-rc902v']) {
+    assert.deepEqual(deviceDescriptors[id].voice, {
+      engine: 'tcl-rc902v-atvv',
+      transport: 'gatt',
+      triggerModes: ['hold', 'click'],
+    })
+  }
   assert.equal(deviceDescriptors.rc003.voice.transport, 'gatt')
   assert.equal(deviceDescriptors.xbox.voice, null)
   for (const descriptor of Object.values(deviceDescriptors)) {
