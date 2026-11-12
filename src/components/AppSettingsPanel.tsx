@@ -52,7 +52,7 @@ export function AppSettingsPanel({
         onClick={onClose}
       />
       <aside className="app-settings-panel" aria-labelledby="app-settings-panel-title">
-        <header className="app-settings-panel-header">
+        <header className="app-settings-panel-header" data-tauri-drag-region>
           <h2 id="app-settings-panel-title">设置</h2>
           <button ref={closeRef} type="button" aria-label="关闭设置面板" title="关闭 · Esc" onClick={onClose}>
             <X size={17} aria-hidden="true" />

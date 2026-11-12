@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { SlidersHorizontal } from 'lucide-react'
@@ -27,7 +27,7 @@ import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
-import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader, type WorkspaceSwitcherItem } from '../shared/DeviceWorkspaceHeader'
 import { InstanceSettingsDrawer } from './InstanceSettingsDrawer'
 import { emptyTriggers, instanceState, packageFor, stateLabel, supportsWindowsDriver, usesHidVoice } from './model'
 import type { DeviceInstance } from './model'
@@ -58,6 +58,10 @@ type Props = {
     instanceId: string,
   ) => Promise<ManagedDriverInstallOutcome | void> | ManagedDriverInstallOutcome | void
   batteryLevel: number | null
+  switcherItems?: WorkspaceSwitcherItem[]
+  onOpenAddDevice?: () => void
+  globalControls?: ReactNode
+  topNotice?: ReactNode
 }
 export function InstanceWorkspace({
   instance,
@@ -75,6 +79,10 @@ export function InstanceWorkspace({
   onInstallDriver,
   driverAction,
   batteryLevel,
+  switcherItems,
+  onOpenAddDevice,
+  globalControls,
+  topNotice,
 }: Props) {
   const pkg = packageFor(instance.kind)
   const voice = pkg.remoteView?.voice
@@ -217,6 +225,44 @@ export function InstanceWorkspace({
           deviceName={instance.name}
           onBackToDevices={onBack}
           onOpenSettings={() => setSettings(v => !v)}
+          switcherItems={switcherItems}
+          onOpenAddDevice={onOpenAddDevice}
+          globalControls={globalControls}
+          statusControls={
+            <section className="managed-instance-status" aria-label="设备状态">
+              {instance.binding ? (
+                <span
+                  className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
+                  title={connectionLabel}
+                >
+                  {connectionState === 'exclusive'
+                    ? '拦截中'
+                    : connectionState === 'needsRebind'
+                      ? '需重新绑定'
+                      : connectionLabel}
+                </span>
+              ) : (
+                <button type="button" className="managed-instance-bind" onClick={onBind}>
+                  绑定设备
+                </button>
+              )}
+              {voice && (
+                <span className="managed-instance-power">
+                  <BatteryIndicator level={batteryLevel} compact />
+                </span>
+              )}
+              <button
+                type="button"
+                role="switch"
+                className={`switch ${instance.enabled ? 'on' : ''}`}
+                aria-label="启用此设备"
+                aria-checked={instance.enabled}
+                onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
+              >
+                <span />
+              </button>
+            </section>
+          }
           profileControls={
             <ApplicationProfileToolbar
               instance={instance}
@@ -245,6 +291,7 @@ export function InstanceWorkspace({
             />
           }
         />
+        {topNotice}
         {showDriverBanner && (
           <div className="managed-driver-notice" role="status" aria-live="polite">
             <div className="managed-driver-notice-copy">
@@ -277,39 +324,6 @@ export function InstanceWorkspace({
           </div>
         )}
         <aside className="mapping-device-rail panel-surface">
-          <section className="managed-instance-status" aria-label="设备状态">
-            {instance.binding ? (
-              <span
-                className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
-                title={connectionLabel}
-              >
-                {connectionState === 'exclusive'
-                  ? '拦截中'
-                  : connectionState === 'needsRebind'
-                    ? '需重新绑定'
-                    : connectionLabel}
-              </span>
-            ) : (
-              <button type="button" className="managed-instance-bind" onClick={onBind}>
-                绑定设备
-              </button>
-            )}
-            {voice && (
-              <span className="managed-instance-power">
-                <BatteryIndicator level={batteryLevel} compact />
-              </span>
-            )}
-            <button
-              type="button"
-              role="switch"
-              className={`switch ${instance.enabled ? 'on' : ''}`}
-              aria-label="启用此设备"
-              aria-checked={instance.enabled}
-              onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
-            >
-              <span />
-            </button>
-          </section>
           <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
             <div className="remote-art">
               <RemoteControl

@@ -16,7 +16,6 @@ function loadComponent(name) {
   return module.exports
 }
 export const { HomeDashboard } = loadComponent('HomeDashboard')
-export const { AppBottomBar } = loadComponent('AppBottomBar')
 export const base = {
   nativeRuntime: true,
   microphoneDriverAbnormal: false,

@@ -122,7 +122,7 @@ import { AudioTestDialog } from '../components/AudioTestDialog'
 import { SettingsPage, type SettingsSection } from '../components/SettingsPage'
 import { MouseApplicationProfileToolbar } from '../components/MouseApplicationProfileToolbar'
 import { HomeDashboard } from '../components/HomeDashboard'
-import { AppBottomBar, type AppBottomBarProps } from '../components/AppBottomBar'
+import { GlobalSettingsButton, type WorkspaceSwitcherItem } from '../devices/shared/DeviceWorkspaceHeader'
 import { AppSettingsPanel } from '../components/AppSettingsPanel'
 import { BehaviorEditDialog, SequencePasteDialog, TextInputPresetDialog } from '../components/BehaviorEditor'
 import { writeClipboardText } from '../clipboard'
@@ -373,6 +373,7 @@ function AppController({
   )
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(initialBindingId)
   const [pendingBindingId, setPendingBindingId] = useState(initialBindingId)
+  const [pendingAddDevice, setPendingAddDevice] = useState(false)
   const [sidebarCollapsed] = useState(initialUiState.sidebarCollapsed)
   const [mappingStyle, setMappingStyle] = useState<'flow' | 'legacy'>('flow')
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false)
@@ -2505,62 +2506,79 @@ function AppController({
     </div>
   )
 
-  const workspaceInstance = deviceInstances.snapshot.store.instances.find(
-    instance => instance.id === selectedInstanceId,
-  )
-  const managedState = workspaceInstance ? instanceState(workspaceInstance, deviceInstances.snapshot) : undefined
-  const workspaceStatus: AppBottomBarProps['workspaceStatus'] = workspaceInstance
-    ? {
-        label: nativeRuntime ? instanceStatusLabel(workspaceInstance, deviceInstances.snapshot) : '预览配置',
-        tone: !nativeRuntime
-          ? 'muted'
-          : managedState === 'exclusive'
-            ? 'connected'
-            : managedState === 'error' || managedState === 'needsRebind'
-              ? 'warning'
-              : 'muted',
+  const legacySwitcherItems: WorkspaceSwitcherItem[] = [
+    ...deviceInstances.snapshot.store.instances.map(item => {
+      const state = nativeRuntime ? instanceState(item, deviceInstances.snapshot) : undefined
+      return {
+        id: item.id,
+        name: item.name,
+        statusLabel: nativeRuntime ? instanceStatusLabel(item, deviceInstances.snapshot) : '预览配置',
+        tone: (state === 'exclusive'
+          ? 'ready'
+          : state === 'error' || state === 'needsRebind'
+            ? 'warning'
+            : 'muted') as WorkspaceSwitcherItem['tone'],
+        active: false,
+        onSelect: () => {
+          setDeviceSettingsOpen(false)
+          setSelectedInstanceId(item.id)
+          setWorkspacePage('home')
+          setActivePage('home')
+        },
       }
-    : workspacePage === 'mapping'
-      ? {
-          label: !nativeRuntime
-            ? '浏览器预览'
-            : !enabled || (isMouse && !mouseEnabled)
-              ? '已暂停'
-              : isMouse
-                ? '系统输入源'
-                : systemState.device.status === 'connected'
-                  ? '已连接'
-                  : '未连接',
-          tone:
-            nativeRuntime && enabled && !isMouse && systemState.device.status === 'connected' ? 'connected' : 'muted',
-        }
-      : undefined
+    }),
+    {
+      id: 'system-mouse',
+      name: '系统鼠标',
+      statusLabel: !nativeRuntime ? '预览配置' : mouseEnabled && enabled ? '系统输入源' : '已暂停',
+      tone: nativeRuntime && mouseEnabled && enabled ? 'ready' : 'muted',
+      active: selectedDeviceId === 'mouse',
+      onSelect: () => {
+        setSelectedDeviceId('mouse')
+        const device = devices.find(d => d.id === 'mouse')!
+        selectBehaviorTarget(getStoredDeviceInput(device.id, device.inputIds), 'click', false)
+      },
+    },
+  ]
+
+  const globalControls = (
+    <GlobalSettingsButton
+      ref={settingsButtonRef}
+      active={activePage === 'settings'}
+      hasUpdate={releaseUpdate.hasUpdate}
+      onClick={() => (activePage === 'settings' ? closeSettingsPanel() : openGlobalPanel('settings'))}
+    />
+  )
+
+  const disabledNotice = !enabled ? (
+    <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
+      <Info size={20} aria-hidden="true" />
+      <div className="mapping-disabled-copy">
+        <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
+        <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可在设置中开启软件总开关。</p>
+      </div>
+      <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
+        立即开启
+      </button>
+    </section>
+  ) : null
 
   const appShell = (
     <div className={`app-shell ${workspacePage === 'mapping' ? 'mapping-active' : ''}`}>
-      {nativeRuntime && platform === 'macos' && (
-        <div className="native-titlebar" data-tauri-drag-region aria-hidden="true" />
-      )}
       <div className="app-main">
         <div className="app-workspace">
           <main ref={mainContentRef} key={workspacePage} className="main-content">
-            {!enabled && (
-              <section className="mapping-disabled-notice" aria-labelledby="mapping-disabled-title">
-                <Info size={20} aria-hidden="true" />
-                <div className="mapping-disabled-copy">
-                  <strong id="mapping-disabled-title">自定义按键功能未开启</strong>
-                  <p>可以继续编辑和保存配置，开启后自定义按键才会生效。也可在设置中开启软件总开关。</p>
-                </div>
-                <button type="button" className="mapping-enable-button" onClick={toggleEnabled}>
-                  立即开启
-                </button>
-              </section>
-            )}
-
             {workspacePage === 'mapping' ? (
               <MappingPageComponent
                 onBackToDevices={() => navigateToPage('home')}
                 onOpenSettings={() => setDeviceSettingsOpen(true)}
+                switcherItems={legacySwitcherItems}
+                onOpenAddDevice={() => {
+                  setPendingAddDevice(true)
+                  navigateToPage('home')
+                }}
+                globalControls={globalControls}
+                topNotice={disabledNotice}
                 profileControls={profileControls}
                 debugMode={debugMode}
                 selectedDeviceId={selectedDeviceId}
@@ -2620,6 +2638,10 @@ function AppController({
                     selectedInstanceId={selectedInstanceId}
                     bindInstanceId={pendingBindingId}
                     onBindingOpened={() => setPendingBindingId(null)}
+                    openAddDevice={pendingAddDevice}
+                    onAddDeviceOpened={() => setPendingAddDevice(false)}
+                    globalControls={globalControls}
+                    topNotice={disabledNotice}
                     onSelectInstance={setSelectedInstanceId}
                     onOpenAudioDriver={openAudioDriver}
                     onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
@@ -2658,6 +2680,8 @@ function AppController({
             <AppSettingsPanel workspaceRef={mainContentRef} onClose={closeSettingsPanel}>
               <SettingsPage
                 presentation="panel"
+                hasUpdate={releaseUpdate.hasUpdate}
+                microphoneDriverAbnormal={microphoneDriverAbnormal}
                 cloudContent={
                   <CloudSyncSettings
                     cloud={cloud}
@@ -2682,6 +2706,7 @@ function AppController({
                   onCreateBackup: createBackup,
                   onRestoreBackup: restoreDataBackup,
                   onImportLegacyConfig,
+                  onOpenLogs: () => void openLogDirectory(),
                 }}
                 onOpenSignalMonitor={() => void openSignalMonitor()}
                 signalMonitorOpening={signalMonitorOpening}
@@ -2717,20 +2742,6 @@ function AppController({
             </AppSettingsPanel>
           )}
         </div>
-        <AppBottomBar
-          activePanel={activePanel}
-          workspaceName={workspaceInstance?.name ?? (workspacePage === 'mapping' ? selectedDevice.name : undefined)}
-          workspaceStatus={workspaceStatus}
-          nativeRuntime={nativeRuntime}
-          hasUpdate={releaseUpdate.hasUpdate}
-          settingsButtonRef={settingsButtonRef}
-          onOpenDevices={() => navigateToPage('home')}
-          onReturnToWorkspace={closeSettingsPanel}
-          onOpenSettings={() => openGlobalPanel('settings')}
-          onOpenCloud={() => openGlobalPanel('cloud')}
-          onOpenLogs={() => void openLogDirectory()}
-          onOpenAbout={() => openGlobalPanel('about')}
-        />
       </div>
       {toast && (
         <div className="toast">

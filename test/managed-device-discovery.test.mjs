@@ -1287,6 +1287,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     act(() =>
       views[1].root
+        .findByProps({ className: 'settings-nav device-settings-drawer-nav' })
         .findAllByType('button')
         .find(node => text(node) === '设备设置')
         .props.onClick(),
@@ -1381,6 +1382,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(refreshButton().props.disabled, true)
       act(() =>
         views[0].root
+          .findByProps({ className: 'settings-nav device-settings-drawer-nav' })
           .findAllByType('button')
           .find(node => text(node) === '设备设置')
           .props.onClick(),

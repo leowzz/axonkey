@@ -3,7 +3,7 @@ import type { InputId } from '../behaviorModel'
 import { devices } from '../devices/index.ts'
 import { RemoteControl } from '../devices/shared/RemoteControl'
 import { BatteryDebugControls } from './BatteryIndicator'
-import { DeviceStatusCard } from './DeviceRail'
+import { DeviceRecordingStatus } from './DeviceRail'
 import { DeviceWorkspaceHeader } from '../devices/shared/DeviceWorkspaceHeader'
 import { MouseInputModel, MouseControlPicker, MouseScopeSelector } from './MouseMapping'
 import type { MappingPageProps } from './MappingPage'
@@ -33,9 +33,14 @@ export function MappingFlowPage({
   showMouseKeyGrid,
   behaviorEditorProps,
   remoteView,
+  switcherItems,
+  onOpenAddDevice,
+  globalControls,
+  topNotice,
 }: MappingPageProps) {
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
+  const primaryRow = deviceStatus.rows[0]
   return (
     <div className="mapping-page mapping-flow-page">
       <div className={`mapping-workbench ${debugMode ? 'debug-mode' : ''}`}>
@@ -46,9 +51,39 @@ export function MappingFlowPage({
           profileControls={profileControls}
           onBackToDevices={onBackToDevices}
           onOpenSettings={onOpenSettings}
+          switcherItems={switcherItems}
+          onOpenAddDevice={onOpenAddDevice}
+          globalControls={globalControls}
+          statusControls={
+            <section className="managed-instance-status" aria-label={deviceStatus.title}>
+              {primaryRow && (
+                <span
+                  className={`managed-instance-connection${primaryRow.tone === 'ready' ? ' ready' : primaryRow.tone === 'warning' ? ' warning' : ''}`}
+                  title={
+                    typeof primaryRow.value === 'string' ? `${primaryRow.label}：${primaryRow.value}` : primaryRow.label
+                  }
+                >
+                  {primaryRow.value}
+                </span>
+              )}
+              {deviceStatus.toggle && (
+                <button
+                  type="button"
+                  role="switch"
+                  className={`switch ${deviceStatus.toggle.checked ? 'on' : ''}`}
+                  aria-checked={deviceStatus.toggle.checked}
+                  aria-label="启用鼠标映射"
+                  onClick={deviceStatus.toggle.onChange}
+                >
+                  <span />
+                </button>
+              )}
+            </section>
+          }
         />
+        {topNotice}
         <aside className="mapping-device-rail panel-surface">
-          <DeviceStatusCard status={deviceStatus} />
+          {deviceStatus.recording !== undefined && <DeviceRecordingStatus recording={deviceStatus.recording} />}
           {isMouse ? (
             <MouseInputModel
               activeId={selectedBehavior.buttonId}

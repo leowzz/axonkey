@@ -3,32 +3,39 @@
   flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 28px;
+  gap: 14px;
+  margin: 0;
 }
 .my-devices-heading-main {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
+}
+.my-devices-heading-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
 }
 .my-devices-brand {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 7px;
   flex-shrink: 0;
   padding: 0;
   border: 0;
-  color: #405b76;
+  color: #364e68;
   background: transparent;
-  font-size: 18px;
-  font-weight: 600;
-  letter-spacing: -0.5px;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
 }
 .my-devices-brand img {
   display: block;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
 }
 .my-devices-brand:hover {
@@ -36,29 +43,36 @@
 }
 .my-devices-brand:focus-visible {
   outline: 2px solid rgba(20, 120, 232, 0.45);
-  outline-offset: 5px;
+  outline-offset: 4px;
   border-radius: 5px;
 }
 .my-devices-heading h1 {
-  color: #354e69;
-  font-size: 25px;
-  font-weight: 650;
+  margin: 0;
+  color: #556b82;
+  font-size: 14px;
+  font-weight: 550;
   line-height: 1.35;
-  letter-spacing: -0.5px;
+}
+.my-devices-heading h1::before {
+  content: '/';
+  margin-right: 10px;
+  color: #b7c4d3;
+  font-weight: 400;
 }
 .my-devices-integrate {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  min-height: 35px;
-  padding: 8px 12px;
-  border: 1px solid #cfddeb;
-  border-radius: 5px;
-  color: #54799e;
-  background: #fff;
+  gap: 6px;
+  height: 31px;
+  padding: 0 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: #3f6285;
+  background: var(--surface-card);
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
 }
 .my-devices-integrate:hover {
@@ -378,14 +392,10 @@
 }
 @media (max-width: 1100px) {
   .my-devices-heading {
-    gap: 12px;
-    margin-bottom: 24px;
+    gap: 10px;
   }
   .my-devices-heading-main {
-    gap: 12px;
-  }
-  .my-devices-heading h1 {
-    font-size: 24px;
+    gap: 10px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

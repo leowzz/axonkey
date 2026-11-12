@@ -1,8 +1,21 @@
 .managed-hub {
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
-  padding: 28px;
+  padding: 0;
   color: #536b85;
+}
+.managed-hub-body {
+  flex: 1;
+  min-width: 0;
+  padding: 22px 28px 28px;
+}
+.managed-hub-body > .mapping-disabled-notice {
+  position: static;
+  width: 100%;
+  height: auto;
+  margin: 0 0 16px;
 }
 .managed-device-sections {
   display: flex;
@@ -345,8 +358,8 @@ body:has(.managed-discovery-help-dialog[open]),
   background: rgb(255 255 255 / 30%);
 }
 @media (max-width: 1100px) {
-  .managed-hub {
-    padding: 20px;
+  .managed-hub-body {
+    padding: 18px 20px 24px;
   }
 }
 
@@ -509,27 +522,44 @@ body:has(.managed-discovery-help-dialog[open]),
   background: #edf5ff;
 }
 .managed-instance-status {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 2px;
-  color: #62778a;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border-radius: 999px;
+  background: var(--surface-pill);
+  color: #556a7f;
   font-size: 12px;
 }
 .managed-instance-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
-  overflow-wrap: anywhere;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.managed-instance-connection::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.75;
 }
 .managed-instance-status .ready {
-  color: #438164;
+  color: #268258;
+}
+.managed-instance-status .ready::before {
+  opacity: 1;
 }
 .managed-instance-status .warning {
   color: #ad5144;
 }
 .managed-instance-power {
-  grid-column: 2;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 3px;
   white-space: nowrap;
@@ -539,25 +569,23 @@ body:has(.managed-discovery-help-dialog[open]),
   height: 12px;
 }
 .managed-instance-status > .switch {
-  grid-column: 3;
-  justify-self: end;
-  width: 36px;
-  height: 24px;
+  width: 32px;
+  height: 20px;
 }
 .managed-instance-status > .switch span {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
 }
 .managed-instance-status > .switch.on span {
   transform: translateX(12px);
 }
 .managed-instance-bind {
-  justify-self: start;
-  min-height: 24px;
+  min-height: 22px;
   padding: 0;
   border: 0;
   background: transparent;
-  color: #367db8;
+  color: #2674c2;
+  font-weight: 600;
   white-space: nowrap;
 }
 .managed-controller-stage .remote-art {

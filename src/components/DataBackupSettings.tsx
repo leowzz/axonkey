@@ -16,6 +16,7 @@ export type DataBackupSettingsProps = {
   onCreateBackup: () => BackupDocument
   onRestoreBackup: (backup: ParsedBackup) => void
   onImportLegacyConfig: (backup: LegacyBackupImport, fileName: string) => void
+  onOpenLogs?: () => void
 }
 
 export function DataBackupSettings({
@@ -23,6 +24,7 @@ export function DataBackupSettings({
   onCreateBackup,
   onRestoreBackup,
   onImportLegacyConfig,
+  onOpenLogs,
 }: DataBackupSettingsProps) {
   const input = useRef<HTMLInputElement>(null)
   const active = useRef(true)
@@ -156,6 +158,23 @@ export function DataBackupSettings({
             </SettingsHelp>
           </div>
         </div>
+        {onOpenLogs && (
+          <div className="settings-form-row">
+            <span className="settings-form-label">运行日志：</span>
+            <div className="settings-form-control">
+              <button
+                type="button"
+                className="dialog-secondary"
+                disabled={!nativeRuntime || busy}
+                title={nativeRuntime ? '打开日志目录' : '请在桌面应用中查看'}
+                onClick={onOpenLogs}
+              >
+                <FolderOpen size={14} />
+                打开日志目录
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       {status && (
         <div className="settings-backup-export-result">

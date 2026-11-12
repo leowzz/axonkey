@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, Check, Clock3, Ellipsis, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -6,6 +6,7 @@ import type { MacPermissions, ManagedDriverAction, ManagedDriverInstallOutcome, 
 import type { DeviceId } from '../types.ts'
 import { InstanceSettingsDrawer } from './InstanceSettingsDrawer'
 import { InstanceWorkspace } from './InstanceWorkspace'
+import type { WorkspaceSwitcherItem } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
@@ -51,6 +52,10 @@ type Props = {
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
+  openAddDevice?: boolean
+  onAddDeviceOpened?: () => void
+  globalControls?: ReactNode
+  topNotice?: ReactNode
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
@@ -108,6 +113,11 @@ export function DeviceHub(props: Props) {
     setIntegration({ kind: target.kind, instance: target })
     props.onBindingOpened?.()
   }, [props.bindInstanceId, props.onBindingOpened, snapshot.store.instances])
+  useEffect(() => {
+    if (!props.openAddDevice) return
+    setIntegration({})
+    props.onAddDeviceOpened?.()
+  }, [props.openAddDevice, props.onAddDeviceOpened])
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const instanceById = new Map(snapshot.store.instances.map(item => [item.id, item]))
   const inspectorInstance = inspectorInstanceId ? (instanceById.get(inspectorInstanceId) ?? null) : null
@@ -204,136 +214,181 @@ export function DeviceHub(props: Props) {
       window.removeEventListener('pointercancel', finishOutsideCard)
     }
   })
+  const hubError = error || snapshot.error || snapshot.scanError
   const banner = (
     <>
       {!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
-      {(error || snapshot.error || snapshot.scanError) && (
+      {hubError && (
         <p className="managed-error" role="alert">
-          {error || snapshot.error || snapshot.scanError}
+          {hubError}
         </p>
       )}
     </>
   )
+  const switcherItems: WorkspaceSwitcherItem[] = orderedCardIds.flatMap(cardId => {
+    const item = instanceById.get(cardId)
+    if (item) {
+      const state = native ? instanceState(item, snapshot) : undefined
+      return [
+        {
+          id: item.id,
+          name: item.name,
+          statusLabel: native ? instanceStatusLabel(item, snapshot) : '预览配置',
+          tone: state === 'exclusive' ? 'ready' : state === 'error' || state === 'needsRebind' ? 'warning' : 'muted',
+          active: item.id === instance?.id,
+          onSelect: () => setSelected(item.id),
+        },
+      ]
+    }
+    if (cardId !== systemMouseCardId) return []
+    return [
+      {
+        id: systemMouseCardId,
+        name: '系统鼠标',
+        statusLabel: '系统输入源',
+        tone: 'ready',
+        active: false,
+        onSelect: () => {
+          setSelected(null)
+          props.onLegacy('mouse')
+        },
+      },
+    ]
+  })
   return (
     <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
-      {banner}
       {instance ? (
-        <InstanceWorkspace
-          key={instance.id}
-          {...props}
-          instance={instance}
-          batteryLevel={batteryForDevice(instance.binding, snapshot.discovered)}
-          onBack={() => setSelected(null)}
-          onBind={() => setIntegration({ kind: instance.kind, instance })}
-        />
+        <>
+          <InstanceWorkspace
+            key={instance.id}
+            {...props}
+            instance={instance}
+            batteryLevel={batteryForDevice(instance.binding, snapshot.discovered)}
+            switcherItems={switcherItems}
+            onOpenAddDevice={() => setIntegration({})}
+            globalControls={props.globalControls}
+            onBack={() => setSelected(null)}
+            onBind={() => setIntegration({ kind: instance.kind, instance })}
+          />
+          {hubError && (
+            <p className="managed-error" role="alert">
+              {hubError}
+            </p>
+          )}
+        </>
       ) : (
         <>
-          <header className="my-devices-heading">
-            <div className="my-devices-heading-main">
+          <header className="my-devices-heading window-topbar" data-tauri-drag-region>
+            <div className="my-devices-heading-main" data-tauri-drag-region>
               <button className="my-devices-brand" aria-label="Axonkey" title="Axonkey" onClick={props.onBrandClick}>
                 <img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />
                 Axonkey
               </button>
               <h1>我的设备</h1>
             </div>
-            <button className="my-devices-integrate" onClick={() => setIntegration({})}>
-              <Plus size={16} />
-              手动添加设备
-            </button>
+            <div className="my-devices-heading-actions">
+              <button className="my-devices-integrate" onClick={() => setIntegration({})}>
+                <Plus size={15} />
+                手动添加设备
+              </button>
+              {props.globalControls && <div className="topbar-global-tools">{props.globalControls}</div>}
+            </div>
           </header>
-          <div className="managed-device-sections">
-            <section className="managed-device-section" aria-labelledby="my-devices-title">
-              <h2 id="my-devices-title" className="my-devices-section-title">
-                我的设备
-              </h2>
-              <div className="managed-device-grid">
-                {orderedCardIds.map(cardId => {
-                  const item = instanceById.get(cardId)
-                  if (item) {
-                    const missingWindowsDriver =
-                      native &&
-                      props.platform === 'windows' &&
-                      supportsWindowsDriver(item.kind) &&
-                      !!item.binding &&
-                      snapshot.runtime[item.id]?.driverState === 'missing'
-                    const missingMacPermissions =
-                      native &&
-                      props.platform === 'macos' &&
-                      (!props.permissions.inputMonitoring || !props.permissions.accessibility)
+          <div className="managed-hub-body">
+            {props.topNotice}
+            {banner}
+            <div className="managed-device-sections">
+              <section className="managed-device-section" aria-label="我的设备">
+                <div className="managed-device-grid">
+                  {orderedCardIds.map(cardId => {
+                    const item = instanceById.get(cardId)
+                    if (item) {
+                      const missingWindowsDriver =
+                        native &&
+                        props.platform === 'windows' &&
+                        supportsWindowsDriver(item.kind) &&
+                        !!item.binding &&
+                        snapshot.runtime[item.id]?.driverState === 'missing'
+                      const missingMacPermissions =
+                        native &&
+                        props.platform === 'macos' &&
+                        (!props.permissions.inputMonitoring || !props.permissions.accessibility)
+                      return (
+                        <DeviceCard
+                          key={item.id}
+                          instanceId={item.id}
+                          kind={item.kind}
+                          title={item.name}
+                          subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
+                          status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
+                          state={native ? instanceState(item, snapshot) : undefined}
+                          unbound={!item.binding}
+                          batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
+                          profile={
+                            item.profiles.find(
+                              p =>
+                                p.id ===
+                                (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
+                            )?.name
+                          }
+                          applicationProfileCount={item.applicationProfiles?.length ?? 0}
+                          applicationProfileSwitching={item.appProfileSwitching === true}
+                          onOpenSettings={() => setInspectorInstanceId(item.id)}
+                          quickAction={
+                            missingWindowsDriver
+                              ? {
+                                  label:
+                                    props.driverAction?.instanceId === item.id &&
+                                    props.driverAction.status === 'running'
+                                      ? '安装中…'
+                                      : '安装驱动',
+                                  disabled: props.driverAction?.status === 'running',
+                                  onClick: () => void props.onInstallDriver(item.id),
+                                }
+                              : missingMacPermissions
+                                ? { label: '前往授权', onClick: props.onPermissions }
+                                : undefined
+                          }
+                          onClick={() => {
+                            if (didDragRef.current) {
+                              didDragRef.current = false
+                              return
+                            }
+                            setSelected(item.id)
+                          }}
+                          dragging={draggingInstanceId === item.id}
+                          dragOver={dragOverInstanceId === item.id}
+                          onPointerDown={event => handleDevicePointerDown(event, item.id)}
+                        />
+                      )
+                    }
+                    if (cardId !== systemMouseCardId) return null
                     return (
                       <DeviceCard
-                        key={item.id}
-                        instanceId={item.id}
-                        kind={item.kind}
-                        title={item.name}
-                        subtitle={`实例 ${item.id.slice(-6)} · ${packageFor(item.kind).model}`}
-                        status={native ? instanceStatusLabel(item, snapshot) : '预览配置'}
-                        state={native ? instanceState(item, snapshot) : undefined}
-                        unbound={!item.binding}
-                        batteryLevel={batteryForDevice(item.binding, snapshot.discovered)}
-                        profile={
-                          item.profiles.find(
-                            p =>
-                              p.id ===
-                              (controller.snapshot.runtime[item.id]?.effectiveProfileId ?? item.activeProfileId),
-                          )?.name
-                        }
-                        applicationProfileCount={item.applicationProfiles?.length ?? 0}
-                        applicationProfileSwitching={item.appProfileSwitching === true}
-                        onOpenSettings={() => setInspectorInstanceId(item.id)}
-                        quickAction={
-                          missingWindowsDriver
-                            ? {
-                                label:
-                                  props.driverAction?.instanceId === item.id && props.driverAction.status === 'running'
-                                    ? '安装中…'
-                                    : '安装驱动',
-                                disabled: props.driverAction?.status === 'running',
-                                onClick: () => void props.onInstallDriver(item.id),
-                              }
-                            : missingMacPermissions
-                              ? { label: '前往授权', onClick: props.onPermissions }
-                              : undefined
-                        }
+                        key={systemMouseCardId}
+                        instanceId={systemMouseCardId}
+                        kind="mouse"
+                        title="系统鼠标"
+                        subtitle="按键、滚轮和屏幕边缘"
+                        status="系统输入源"
+                        profile={props.mouseProfileName}
+                        dragging={draggingInstanceId === systemMouseCardId}
+                        dragOver={dragOverInstanceId === systemMouseCardId}
+                        onPointerDown={event => handleDevicePointerDown(event, systemMouseCardId)}
                         onClick={() => {
                           if (didDragRef.current) {
                             didDragRef.current = false
                             return
                           }
-                          setSelected(item.id)
+                          props.onLegacy('mouse')
                         }}
-                        dragging={draggingInstanceId === item.id}
-                        dragOver={dragOverInstanceId === item.id}
-                        onPointerDown={event => handleDevicePointerDown(event, item.id)}
                       />
                     )
-                  }
-                  if (cardId !== systemMouseCardId) return null
-                  return (
-                    <DeviceCard
-                      key={systemMouseCardId}
-                      instanceId={systemMouseCardId}
-                      kind="mouse"
-                      title="系统鼠标"
-                      subtitle="按键、滚轮和屏幕边缘"
-                      status="系统输入源"
-                      profile={props.mouseProfileName}
-                      dragging={draggingInstanceId === systemMouseCardId}
-                      dragOver={dragOverInstanceId === systemMouseCardId}
-                      onPointerDown={event => handleDevicePointerDown(event, systemMouseCardId)}
-                      onClick={() => {
-                        if (didDragRef.current) {
-                          didDragRef.current = false
-                          return
-                        }
-                        props.onLegacy('mouse')
-                      }}
-                    />
-                  )
-                })}
-              </div>
-            </section>
-            <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
+                  })}
+                </div>
+              </section>
+              <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
+            </div>
           </div>
         </>
       )}

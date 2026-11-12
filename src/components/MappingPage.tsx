@@ -15,7 +15,7 @@ import { BatteryDebugControls } from './BatteryIndicator'
 import { BehaviorEditor } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
-import { DeviceWorkspaceHeader } from '../devices/shared/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader, type WorkspaceSwitcherItem } from '../devices/shared/DeviceWorkspaceHeader'
 import { MappingKeyGrid, MappingTriggerSelector } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseTriggerSelector } from './MouseMapping'
 
@@ -49,6 +49,10 @@ export type MappingPageProps = {
   rowRefs: MutableRefObject<Partial<Record<InputId, HTMLElement>>>
   behaviorEditorProps: ComponentProps<typeof BehaviorEditor>
   remoteView?: RemoteView
+  switcherItems?: WorkspaceSwitcherItem[]
+  onOpenAddDevice?: () => void
+  globalControls?: ReactNode
+  topNotice?: ReactNode
 }
 
 export function MappingPage({
@@ -74,6 +78,10 @@ export function MappingPage({
   rowRefs,
   behaviorEditorProps,
   remoteView,
+  switcherItems,
+  onOpenAddDevice,
+  globalControls,
+  topNotice,
 }: MappingPageProps) {
   return (
     <div className="mapping-page">
@@ -85,7 +93,11 @@ export function MappingPage({
           profileControls={profileControls}
           onBackToDevices={onBackToDevices}
           onOpenSettings={onOpenSettings}
+          switcherItems={switcherItems}
+          onOpenAddDevice={onOpenAddDevice}
+          globalControls={globalControls}
         />
+        {topNotice}
         <aside className="mapping-device-rail panel-surface">
           <DeviceStatusCard status={deviceStatus} />
           {isMouse ? (

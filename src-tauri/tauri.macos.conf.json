@@ -51,7 +51,8 @@
           ],
           "state": "active"
         },
-        "titleBarStyle": "Overlay"
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
       }
     ]
   }

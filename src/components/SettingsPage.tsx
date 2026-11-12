@@ -67,6 +67,8 @@ type SettingsPageProps = {
   onOpenSettings: (kind: MacPermissionKind) => void
   onRefresh: () => void
   backup: Omit<DataBackupSettingsProps, 'nativeRuntime'>
+  hasUpdate?: boolean
+  microphoneDriverAbnormal?: boolean
 }
 
 export function SettingsPage({
@@ -116,6 +118,8 @@ export function SettingsPage({
   onOpenSettings,
   onRefresh,
   backup,
+  hasUpdate = false,
+  microphoneDriverAbnormal = false,
 }: SettingsPageProps) {
   const currentSection = section
   const sections = [
@@ -180,10 +184,12 @@ export function SettingsPage({
               type="button"
               aria-current={currentSection === item.id ? 'page' : undefined}
               aria-controls={`settings-panel-${item.id}`}
+              aria-label={item.id === 'about' && hasUpdate ? '关于，有新版本可用' : undefined}
               onClick={() => onSectionChange(item.id)}
             >
               {item.icon}
               <span>{item.label}</span>
+              {item.id === 'about' && hasUpdate && <span className="settings-nav-update-dot" aria-hidden="true" />}
             </button>
           ))}
           <label className="settings-nav-enable-control">
@@ -486,12 +492,37 @@ export function SettingsPage({
                       虚拟麦克风：
                     </span>
                     <div className="settings-form-control">
+                      <span>Quarbor Virtual Microphone</span>
+                      <span
+                        className={`settings-permission-status ${nativeRuntime && !loading && !failed && !microphoneDriverAbnormal ? 'granted' : ''}`}
+                        aria-live="polite"
+                      >
+                        {!nativeRuntime
+                          ? '未检测'
+                          : loading
+                            ? '检测中'
+                            : failed
+                              ? '检测失败'
+                              : microphoneDriverAbnormal
+                                ? '驱动异常'
+                                : '已就绪'}
+                      </span>
                       <button type="button" className="dialog-secondary" onClick={onOpenWindowsAudioDriver}>
                         管理 Quarbor 驱动
                         <ExternalLink size={14} />
                       </button>
                     </div>
                   </section>
+                  <div className="settings-form-row">
+                    <span className="settings-form-label">语音输入法：</span>
+                    <div className="settings-form-control">
+                      <span>麦克风请选择 Quarbor Virtual Microphone</span>
+                      <SettingsHelp id="settings-win-audio-input-help" label="语音输入法麦克风设置">
+                        豆包输入法：设置 → 语音输入 → 麦克风选择 → Quarbor Virtual
+                        Microphone。其他语音输入法请在各自的音频设置中选择此设备。
+                      </SettingsHelp>
+                    </div>
+                  </div>
                   {debugMode && (
                     <section className="settings-form-row" aria-labelledby="settings-virtual-audio-upgrade-label">
                       <span id="settings-virtual-audio-upgrade-label" className="settings-form-label">

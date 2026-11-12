@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
 const backup = () => model.createDataBackup(sampleData(), '1.0.20', new Date(2026, 9, 22, 18, 2, 3))
 
-async function setup({ saveResult = '/backup.json', exportError, restoreError, openError } = {}) {
+async function setup({ saveResult = '/backup.json', exportError, restoreError, openError, nativeRuntime = true, onOpenLogs } = {}) {
   const source = ts.transpileModule(readFileSync('src/components/DataBackupSettings.tsx', 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
   }).outputText
@@ -42,7 +42,7 @@ async function setup({ saveResult = '/backup.json', exportError, restoreError, o
   })
   let view
   await act(async () => { view = Renderer.create(React.createElement(module.exports.DataBackupSettings, {
-    nativeRuntime: true, onCreateBackup: backup,
+    nativeRuntime, onCreateBackup: backup, onOpenLogs,
     onRestoreBackup: data => { if (restoreError) throw new Error(restoreError); restores.push(data) },
     onImportLegacyConfig: (data, fileName) => legacyImports.push({ data, fileName }),
   })) })
@@ -190,4 +190,21 @@ test('a late old backup read after leaving settings cannot open migration', asyn
   await app.unmount()
   await act(async () => resolve(JSON.stringify(legacyBackup())))
   assert.equal(app.legacyImports.length, 0)
+})
+
+test('runtime log entry stays disabled in browser preview and opens logs in native runtime', async () => {
+  let logs = 0
+  const preview = await setup({ nativeRuntime: false, onOpenLogs: () => logs++ })
+  try {
+    assert.equal(preview.button('打开日志目录').props.disabled, true)
+    assert.equal(preview.button('打开日志目录').props.title, '请在桌面应用中查看')
+  } finally { await preview.unmount() }
+
+  const native = await setup({ nativeRuntime: true, onOpenLogs: () => logs++ })
+  try {
+    assert.equal(native.button('打开日志目录').props.disabled, false)
+    assert.equal(native.button('打开日志目录').props.title, '打开日志目录')
+    await native.click('打开日志目录')
+    assert.equal(logs, 1)
+  } finally { await native.unmount() }
 })
