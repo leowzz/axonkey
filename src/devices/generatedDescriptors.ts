@@ -336,6 +336,322 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "hisense-rcf3b65": {
+    "id": "hisense-rcf3b65",
+    "ariaLabel": "Hisense RCF3B65",
+    "artworkUrl": "/device-descriptors/hisense-rcf3b65.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          4251
+        ],
+        "productIds": [
+          14391
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 440,
+      "height": 1160
+    },
+    "inputs": [
+      {
+        "id": "hisense-rcf3b65.power",
+        "stableId": "hisense-rcf3b65.power",
+        "label": "电源键",
+        "short": "电源",
+        "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 179 151 A 41 41 0 1 0 261 151 A 41 41 0 1 0 179 151 Z",
+        "anchor": {
+          "x": 220,
+          "y": 151
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.input",
+        "stableId": "hisense-rcf3b65.input",
+        "label": "信号源",
+        "short": "信号源",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 66 212 A 41 41 0 1 0 148 212 A 41 41 0 1 0 66 212 Z",
+        "anchor": {
+          "x": 107,
+          "y": 212
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.ai",
+        "stableId": "hisense-rcf3b65.ai",
+        "label": "AI 键",
+        "short": "AI",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 173 272 A 47 47 0 1 0 267 272 A 47 47 0 1 0 173 272 Z",
+        "anchor": {
+          "x": 220,
+          "y": 272
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.pointer",
+        "stableId": "hisense-rcf3b65.pointer",
+        "label": "指向键",
+        "short": "指向",
+        "icon": "locate",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 292 212 A 41 41 0 1 0 374 212 A 41 41 0 1 0 292 212 Z",
+        "anchor": {
+          "x": 333,
+          "y": 212
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.tv",
+        "stableId": "hisense-rcf3b65.tv",
+        "label": "看电视",
+        "short": "看电视",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 66 334 A 41 41 0 1 0 148 334 A 41 41 0 1 0 66 334 Z",
+        "anchor": {
+          "x": 107,
+          "y": 334
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.shortcut",
+        "stableId": "hisense-rcf3b65.shortcut",
+        "label": "快捷键",
+        "short": "快捷",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 292 334 A 41 41 0 1 0 374 334 A 41 41 0 1 0 292 334 Z",
+        "anchor": {
+          "x": 333,
+          "y": 334
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.up",
+        "stableId": "hisense-rcf3b65.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 105.7929 434.1056 A 162 162 0 0 1 334.2071 434.1056 L 287.3258 481.269 A 95.5 95.5 0 0 0 152.6742 481.269 Z",
+        "anchor": {
+          "x": 220,
+          "y": 420
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.right",
+        "stableId": "hisense-rcf3b65.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 334.8944 434.7929 A 162 162 0 0 1 334.8944 663.2071 L 287.731 616.3258 A 95.5 95.5 0 0 0 287.731 481.6742 Z",
+        "anchor": {
+          "x": 349,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.down",
+        "stableId": "hisense-rcf3b65.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 334.2071 663.8944 A 162 162 0 0 1 105.7929 663.8944 L 152.6742 616.731 A 95.5 95.5 0 0 0 287.3258 616.731 Z",
+        "anchor": {
+          "x": 220,
+          "y": 678
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.left",
+        "stableId": "hisense-rcf3b65.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 105.1056 663.2071 A 162 162 0 0 1 105.1056 434.7929 L 152.269 481.6742 A 95.5 95.5 0 0 0 152.269 616.3258 Z",
+        "anchor": {
+          "x": 91,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.confirm",
+        "stableId": "hisense-rcf3b65.confirm",
+        "label": "确认键",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 125 549 A 95 95 0 1 0 315 549 A 95 95 0 1 0 125 549 Z",
+        "anchor": {
+          "x": 220,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.back",
+        "stableId": "hisense-rcf3b65.back",
+        "label": "返回键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 69 760 A 40 40 0 1 0 149 760 A 40 40 0 1 0 69 760 Z",
+        "anchor": {
+          "x": 109,
+          "y": 760
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.voice",
+        "stableId": "hisense-rcf3b65.voice",
+        "label": "语音键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 176 816 A 44 44 0 1 0 264 816 A 44 44 0 1 0 176 816 Z",
+        "anchor": {
+          "x": 220,
+          "y": 816
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.home",
+        "stableId": "hisense-rcf3b65.home",
+        "label": "主页键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 291 760 A 40 40 0 1 0 371 760 A 40 40 0 1 0 291 760 Z",
+        "anchor": {
+          "x": 331,
+          "y": 760
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.settings",
+        "stableId": "hisense-rcf3b65.settings",
+        "label": "设置键",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 69 882 A 40 40 0 1 0 149 882 A 40 40 0 1 0 69 882 Z",
+        "anchor": {
+          "x": 109,
+          "y": 882
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.menu",
+        "stableId": "hisense-rcf3b65.menu",
+        "label": "菜单键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 291 882 A 40 40 0 1 0 371 882 A 40 40 0 1 0 291 882 Z",
+        "anchor": {
+          "x": 331,
+          "y": 882
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.volumeDown",
+        "stableId": "hisense-rcf3b65.volumeDown",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 219.75 963 V 1043 H 109 A 40 40 0 0 1 109 963 Z",
+        "anchor": {
+          "x": 125,
+          "y": 1003
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.volumeUp",
+        "stableId": "hisense-rcf3b65.volumeUp",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 220.25 963 H 331 A 40 40 0 0 1 331 1043 H 220.25 Z",
+        "anchor": {
+          "x": 315,
+          "y": 1003
+        }
+      }
+    ]
+  },
   "obe-rcu-r5": {
     "id": "obe.rcu-r5",
     "ariaLabel": "OBE RCU R5 投影仪遥控器",
@@ -586,6 +902,226 @@ export const deviceDescriptors = {
         "anchor": {
           "x": 332,
           "y": 748
+        }
+      }
+    ]
+  },
+  "phicomm-db1-r": {
+    "id": "phicomm-db1-r",
+    "ariaLabel": "斐讯 DB1-R",
+    "artworkUrl": "/device-descriptors/phicomm-db1-r.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          93
+        ],
+        "productIds": [
+          1
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 420,
+      "height": 1320
+    },
+    "inputs": [
+      {
+        "id": "phicomm-db1-r.ottPower",
+        "stableId": "phicomm-db1-r.ottPower",
+        "label": "OTT 电源键",
+        "short": "OTT",
+        "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 46 224 A 44 44 0 1 0 134 224 A 44 44 0 1 0 46 224 Z",
+        "anchor": {
+          "x": 90,
+          "y": 224
+        }
+      },
+      {
+        "id": "phicomm-db1-r.up",
+        "stableId": "phicomm-db1-r.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 100.7277 358.0701 A 155 155 0 0 1 319.2723 358.0701 L 267.4561 410.1982 A 81.5 81.5 0 0 0 152.5439 410.1982 Z",
+        "anchor": {
+          "x": 210,
+          "y": 350
+        }
+      },
+      {
+        "id": "phicomm-db1-r.right",
+        "stableId": "phicomm-db1-r.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 319.9299 358.7277 A 155 155 0 0 1 319.9299 577.2723 L 267.8018 525.4561 A 81.5 81.5 0 0 0 267.8018 410.5439 Z",
+        "anchor": {
+          "x": 328,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.down",
+        "stableId": "phicomm-db1-r.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 319.2723 577.9299 A 155 155 0 0 1 100.7277 577.9299 L 152.5439 525.8018 A 81.5 81.5 0 0 0 267.4561 525.8018 Z",
+        "anchor": {
+          "x": 210,
+          "y": 586
+        }
+      },
+      {
+        "id": "phicomm-db1-r.left",
+        "stableId": "phicomm-db1-r.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 100.0701 577.2723 A 155 155 0 0 1 100.0701 358.7277 L 152.1982 410.5439 A 81.5 81.5 0 0 0 152.1982 525.4561 Z",
+        "anchor": {
+          "x": 92,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.confirm",
+        "stableId": "phicomm-db1-r.confirm",
+        "label": "确认键",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 129 468 A 81 81 0 1 0 291 468 A 81 81 0 1 0 129 468 Z",
+        "anchor": {
+          "x": 210,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.back",
+        "stableId": "phicomm-db1-r.back",
+        "label": "返回键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 49 726 A 41 41 0 1 0 131 726 A 41 41 0 1 0 49 726 Z",
+        "anchor": {
+          "x": 90,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.voice",
+        "stableId": "phicomm-db1-r.voice",
+        "label": "语音键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 161 726 A 49 49 0 1 0 259 726 A 49 49 0 1 0 161 726 Z",
+        "anchor": {
+          "x": 210,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.volumeUp",
+        "stableId": "phicomm-db1-r.volumeUp",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 289 726 A 41 41 0 1 0 371 726 A 41 41 0 1 0 289 726 Z",
+        "anchor": {
+          "x": 330,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.home",
+        "stableId": "phicomm-db1-r.home",
+        "label": "主页键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 49 856 A 41 41 0 1 0 131 856 A 41 41 0 1 0 49 856 Z",
+        "anchor": {
+          "x": 90,
+          "y": 856
+        }
+      },
+      {
+        "id": "phicomm-db1-r.menu",
+        "stableId": "phicomm-db1-r.menu",
+        "label": "菜单键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 169 856 A 41 41 0 1 0 251 856 A 41 41 0 1 0 169 856 Z",
+        "anchor": {
+          "x": 210,
+          "y": 856
+        }
+      },
+      {
+        "id": "phicomm-db1-r.volumeDown",
+        "stableId": "phicomm-db1-r.volumeDown",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 289 856 A 41 41 0 1 0 371 856 A 41 41 0 1 0 289 856 Z",
+        "anchor": {
+          "x": 330,
+          "y": 856
         }
       }
     ]

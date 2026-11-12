@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="420" height="1320" viewBox="0 0 420 1320" data-ak-schema="axonkey.device/1" data-ak-device="phicomm-db1-r" data-ak-revision="2" data-ak-status="draft" role="img" aria-labelledby="device-title device-description">
+  <title id="device-title">斐讯 DB1-R 正面按键区</title>
+  <desc id="device-description">斐讯 DB1-R 语音遥控器正面轮廓与十二键热区；已按采集报文补齐两种报告布局并移除 TV 按键，HID Usage Page、设备身份接入与音频协议仍待确认。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="phicomm-db1-r" vendor="斐讯" model="DB1-R" revision="2" display-name="斐讯 DB1-R" status="draft">
+      <ak:pending-identity hardware-id="DEV_VID&amp;01005D_PID&amp;0001" vid="0x01005D" pid="0x0001"/>
+      <ak:reports>
+        <!-- Captured bytes define these layouts; HID Usage Page remains unverified. -->
+        <ak:report id="captured-buttons-9" direction="input" report-id="0x01" length="9" encoding="bit-field" prefix="0x01 0x00 0x00" state-group="captured-buttons-9" />
+        <ak:report id="captured-buttons-3" direction="input" report-id="0x02" length="3" encoding="bit-field" prefix="0x02" state-group="captured-buttons-3" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="phicomm-db1-r.ottPower" label="OTT 电源键" short="OTT" icon="power" kind="button" order="0" target="#key-ottPower" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x66" /><ak:hid-capture version="1" press="01 00 00 66 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.up" label="方向上" short="上" icon="up" kind="button" order="2" target="#key-up" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x52" /><ak:hid-capture version="1" press="01 00 00 52 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.right" label="方向右" short="右" icon="right" kind="button" order="3" target="#key-right" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x4F" /><ak:hid-capture version="1" press="01 00 00 4F 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.down" label="方向下" short="下" icon="down" kind="button" order="4" target="#key-down" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x51" /><ak:hid-capture version="1" press="01 00 00 51 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.left" label="方向左" short="左" icon="left" kind="button" order="5" target="#key-left" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x50" /><ak:hid-capture version="1" press="01 00 00 50 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.confirm" label="确认键" short="确认" icon="center" kind="button" order="6" target="#key-confirm" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x28" /><ak:hid-capture version="1" press="01 00 00 28 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.back" label="返回键" short="返回" icon="back" kind="button" order="7" target="#key-back" original="false" binding="captured"><ak:source report="captured-buttons-3" offset="1" bit="0" width="16" equals="0x0224" /><ak:hid-capture version="1" press="02 24 02" press-length="3" release="02 00 00" release-length="3"/></ak:input>
+        <ak:input id="phicomm-db1-r.voice" label="语音键" short="语音" icon="mic" kind="button" order="8" target="#key-voice" original="false" binding="captured"><ak:source report="captured-buttons-9" offset="3" bit="0" width="8" equals="0x3E" /><ak:hid-capture version="1" press="01 00 00 3E 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="phicomm-db1-r.volumeUp" label="音量加" short="音量 +" icon="volumeUp" kind="button" order="9" target="#key-volumeUp" original="false" binding="captured"><ak:source report="captured-buttons-3" offset="1" bit="0" width="16" equals="0x00E9" /><ak:hid-capture version="1" press="02 E9 00" press-length="3" release="02 00 00" release-length="3"/></ak:input>
+        <ak:input id="phicomm-db1-r.home" label="主页键" short="主页" icon="home" kind="button" order="10" target="#key-home" original="false" binding="captured"><ak:source report="captured-buttons-3" offset="1" bit="0" width="16" equals="0x0223" /><ak:hid-capture version="1" press="02 23 02" press-length="3" release="02 00 00" release-length="3"/></ak:input>
+        <ak:input id="phicomm-db1-r.menu" label="菜单键" short="菜单" icon="menu" kind="button" order="11" target="#key-menu" original="false" binding="captured"><ak:source report="captured-buttons-3" offset="1" bit="0" width="16" equals="0x0040" /><ak:hid-capture version="1" press="02 40 00" press-length="3" release="02 00 00" release-length="3"/></ak:input>
+        <ak:input id="phicomm-db1-r.volumeDown" label="音量减" short="音量 -" icon="volumeDown" kind="button" order="12" target="#key-volumeDown" original="false" binding="captured"><ak:source report="captured-buttons-3" offset="1" bit="0" width="16" equals="0x00EA" /><ak:hid-capture version="1" press="02 EA 00" press-length="3" release="02 00 00" release-length="3"/></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g data-ak-view="front" aria-label="正面按键区">
+    <path d="M 20 74 Q 20 54 38 47 Q 210 -8 382 47 Q 400 54 400 74 V 1264 Q 400 1286 378 1291 Q 210 1310 42 1291 Q 20 1286 20 1264 Z" fill="#2c3035" stroke="#141619" stroke-width="2.5"/>
+    <text x="90" y="160" text-anchor="middle" font-family="sans-serif" font-size="25" font-weight="700" fill="#eaedf0" aria-hidden="true">OTT</text>
+    <circle cx="210" cy="164" r="4.5" fill="#1c1f23" stroke="#34383e" stroke-width="1.5" aria-label="指示灯窗（非按键）"/>
+    <circle cx="210" cy="204" r="3.8" fill="#0d0f12" aria-label="麦克风孔（非按键）"/>
+
+    <g id="key-ottPower" data-ak-key="phicomm-db1-r.ottPower" data-ak-role="input" role="button" tabindex="0" aria-label="OTT 电源键">
+      <path d="M 46 224 A 44 44 0 1 0 134 224 A 44 44 0 1 0 46 224 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 79.5 214 A 15 15 0 1 0 100.5 214 M 90 206 V 223" fill="none" stroke="#e24b4a" stroke-width="3.4" stroke-linecap="round"/>
+    </g>
+
+    <circle cx="210" cy="468" r="155" fill="#202328" stroke="#0f1114" stroke-width="2.5"/>
+    <g id="key-up" data-ak-key="phicomm-db1-r.up" data-ak-role="input" role="button" tabindex="0" aria-label="方向上">
+      <path d="M 100.7277 358.0701 A 155 155 0 0 1 319.2723 358.0701 L 267.4561 410.1982 A 81.5 81.5 0 0 0 152.5439 410.1982 Z" fill="transparent"/>
+    </g>
+    <g id="key-right" data-ak-key="phicomm-db1-r.right" data-ak-role="input" role="button" tabindex="0" aria-label="方向右">
+      <path d="M 319.9299 358.7277 A 155 155 0 0 1 319.9299 577.2723 L 267.8018 525.4561 A 81.5 81.5 0 0 0 267.8018 410.5439 Z" fill="transparent"/>
+    </g>
+    <g id="key-down" data-ak-key="phicomm-db1-r.down" data-ak-role="input" role="button" tabindex="0" aria-label="方向下">
+      <path d="M 319.2723 577.9299 A 155 155 0 0 1 100.7277 577.9299 L 152.5439 525.8018 A 81.5 81.5 0 0 0 267.4561 525.8018 Z" fill="transparent"/>
+    </g>
+    <g id="key-left" data-ak-key="phicomm-db1-r.left" data-ak-role="input" role="button" tabindex="0" aria-label="方向左">
+      <path d="M 100.0701 577.2723 A 155 155 0 0 1 100.0701 358.7277 L 152.1982 410.5439 A 81.5 81.5 0 0 0 152.1982 525.4561 Z" fill="transparent"/>
+    </g>
+    <g id="key-confirm" data-ak-key="phicomm-db1-r.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认键">
+      <path d="M 129 468 A 81 81 0 1 0 291 468 A 81 81 0 1 0 129 468 Z" fill="#23262b" stroke="#0f1114" stroke-width="2.5"/>
+      <text x="210" y="479" text-anchor="middle" font-family="sans-serif" font-size="31" font-weight="600" fill="#eaedf0">OK</text>
+    </g>
+
+    <g id="key-back" data-ak-key="phicomm-db1-r.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回键">
+      <path d="M 49 726 A 41 41 0 1 0 131 726 A 41 41 0 1 0 49 726 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 87 713 L 79 720 L 87 727 M 80 720 H 95 A 8.5 8.5 0 0 1 95 737 H 83" fill="none" stroke="#eaedf0" stroke-width="2.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-voice" data-ak-key="phicomm-db1-r.voice" data-ak-role="input" role="button" tabindex="0" aria-label="语音键">
+      <path d="M 161 726 A 49 49 0 1 0 259 726 A 49 49 0 1 0 161 726 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <rect x="203.5" y="707" width="13" height="22" rx="6.5" fill="none" stroke="#eb961e" stroke-width="3.1"/>
+      <path d="M 197.5 722 A 12.5 12.5 0 0 0 222.5 722 M 210 734.5 V 743" fill="none" stroke="#eb961e" stroke-width="3.1" stroke-linecap="round"/>
+    </g>
+    <g id="key-volumeUp" data-ak-key="phicomm-db1-r.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 289 726 A 41 41 0 1 0 371 726 A 41 41 0 1 0 289 726 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 318 726 H 342 M 330 714 V 738" fill="none" stroke="#eaedf0" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g id="key-home" data-ak-key="phicomm-db1-r.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页键">
+      <path d="M 49 856 A 41 41 0 1 0 131 856 A 41 41 0 1 0 49 856 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 77 855 L 90 842 L 103 855 M 81 852 V 868 H 99 V 852" fill="none" stroke="#eaedf0" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-menu" data-ak-key="phicomm-db1-r.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单键">
+      <path d="M 169 856 A 41 41 0 1 0 251 856 A 41 41 0 1 0 169 856 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 197 848 H 223 M 197 856 H 223 M 197 864 H 223" fill="none" stroke="#eaedf0" stroke-width="2.9" stroke-linecap="round"/>
+    </g>
+    <g id="key-volumeDown" data-ak-key="phicomm-db1-r.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 289 856 A 41 41 0 1 0 371 856 A 41 41 0 1 0 289 856 Z" fill="#1d2024" stroke="#0f1114" stroke-width="2.5"/>
+      <path d="M 318 856 H 342" fill="none" stroke="#eaedf0" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="phicomm-db1-r.ottPower" data-ak-anchor="90 224" d="M 46 224 A 44 44 0 1 0 134 224 A 44 44 0 1 0 46 224 Z"/>
+    <path data-ak-region="phicomm-db1-r.up" data-ak-anchor="210 350" d="M 100.7277 358.0701 A 155 155 0 0 1 319.2723 358.0701 L 267.4561 410.1982 A 81.5 81.5 0 0 0 152.5439 410.1982 Z"/>
+    <path data-ak-region="phicomm-db1-r.right" data-ak-anchor="328 468" d="M 319.9299 358.7277 A 155 155 0 0 1 319.9299 577.2723 L 267.8018 525.4561 A 81.5 81.5 0 0 0 267.8018 410.5439 Z"/>
+    <path data-ak-region="phicomm-db1-r.down" data-ak-anchor="210 586" d="M 319.2723 577.9299 A 155 155 0 0 1 100.7277 577.9299 L 152.5439 525.8018 A 81.5 81.5 0 0 0 267.4561 525.8018 Z"/>
+    <path data-ak-region="phicomm-db1-r.left" data-ak-anchor="92 468" d="M 100.0701 577.2723 A 155 155 0 0 1 100.0701 358.7277 L 152.1982 410.5439 A 81.5 81.5 0 0 0 152.1982 525.4561 Z"/>
+    <path data-ak-region="phicomm-db1-r.confirm" data-ak-anchor="210 468" d="M 129 468 A 81 81 0 1 0 291 468 A 81 81 0 1 0 129 468 Z"/>
+    <path data-ak-region="phicomm-db1-r.back" data-ak-anchor="90 726" d="M 49 726 A 41 41 0 1 0 131 726 A 41 41 0 1 0 49 726 Z"/>
+    <path data-ak-region="phicomm-db1-r.voice" data-ak-anchor="210 726" d="M 161 726 A 49 49 0 1 0 259 726 A 49 49 0 1 0 161 726 Z"/>
+    <path data-ak-region="phicomm-db1-r.volumeUp" data-ak-anchor="330 726" d="M 289 726 A 41 41 0 1 0 371 726 A 41 41 0 1 0 289 726 Z"/>
+    <path data-ak-region="phicomm-db1-r.home" data-ak-anchor="90 856" d="M 49 856 A 41 41 0 1 0 131 856 A 41 41 0 1 0 49 856 Z"/>
+    <path data-ak-region="phicomm-db1-r.menu" data-ak-anchor="210 856" d="M 169 856 A 41 41 0 1 0 251 856 A 41 41 0 1 0 169 856 Z"/>
+    <path data-ak-region="phicomm-db1-r.volumeDown" data-ak-anchor="330 856" d="M 289 856 A 41 41 0 1 0 371 856 A 41 41 0 1 0 289 856 Z"/>
+  </g>
+</svg>

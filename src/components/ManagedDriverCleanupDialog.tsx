@@ -46,6 +46,8 @@ export function ManagedDriverCleanupDialog({
               device.kind === 'tclRc802a' ||
               device.kind === 'tclRc902n' ||
               device.kind === 'tclRc902v' ||
+              device.kind === 'hisenseRcf3b65' ||
+              device.kind === 'phicommDb1R' ||
               device.kind === 'xboxBluetooth') &&
             device.binding !== null,
         ),
@@ -127,7 +129,11 @@ export function ManagedDriverCleanupDialog({
                                   ? 'TCL RC902N'
                                   : device.kind === 'tclRc902v'
                                     ? 'TCL RC902V'
-                                    : 'Xbox 蓝牙手柄'}{' '}
+                                    : device.kind === 'hisenseRcf3b65'
+                                      ? 'Hisense RCF3B65'
+                                      : device.kind === 'phicommDb1R'
+                                        ? '斐讯 DB1-R'
+                                        : 'Xbox 蓝牙手柄'}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>

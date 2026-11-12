@@ -38,6 +38,8 @@ const modelImports = {
   '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
   '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
   '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
+  '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
+  '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -417,6 +419,7 @@ test('bundled capabilities retain recording defaults and platform support for al
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
     ['tclRc802a', 'click', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
+    ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -837,6 +840,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
       ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
       ['tclRc802a', true, true, true, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
+      ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }

@@ -57,6 +57,16 @@ fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str>
 fn supports_information(kind: &str) -> bool {
     crate::devices::descriptor_registry::voice_engine(kind).is_some()
         || crate::devices::descriptor_registry::requires_information(kind)
+        || crate::devices::descriptor_registry::descriptor_for_kind(kind).is_some_and(
+            |descriptor| {
+                descriptor.identities.iter().any(|identity| {
+                    identity
+                        .attributes
+                        .get("windows-prefix")
+                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("BTHLEDEVICE"))
+                })
+            },
+        )
 }
 
 fn detected_kind(device: &Discovered, info: &DeviceInformation) -> Option<&'static str> {

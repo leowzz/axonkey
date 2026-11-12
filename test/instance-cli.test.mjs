@@ -13,12 +13,17 @@ const { processInstanceCliRequest, resolveCliInstance, normalizeCliDeviceSelecto
   await import('../src/devices/integration/instanceCli.ts')
 assets.deregister()
 
-test('TCL CLI selectors resolve each model and use its descriptor keys', async () => {
-  for (const [model, kind, key] of [['rc802a', 'tclRc802a', 'tcl-rc802a.voice'],
-    ['rc902n', 'tclRc902n', 'tcl-rc902n.menu'], ['rc902v', 'tclRc902v', 'tcl-rc902v.mute']]) {
+test('TCL and projector remote CLI selectors resolve each model and use its descriptor keys', async () => {
+  for (const [model, alias, kind, key] of [
+    ['rc802a', 'TCL-RC802A', 'tclRc802a', 'tcl-rc802a.voice'],
+    ['rc902n', 'TCL-RC902N', 'tclRc902n', 'tcl-rc902n.menu'],
+    ['rc902v', 'TCL-RC902V', 'tclRc902v', 'tcl-rc902v.mute'],
+    ['rcf3b65', 'Hisense-RCF3B65', 'hisenseRcf3b65', 'hisense-rcf3b65.power'],
+    ['db1-r', 'PHICOMM-DB1-R', 'phicommDb1R', 'phicomm-db1-r.ottPower'],
+  ]) {
     const app = workspace([initial(model, kind)])
     assert.equal(normalizeCliDeviceSelector(model), kind.toLowerCase())
-    assert.equal(normalizeCliDeviceSelector('TCL-' + model.toUpperCase()), kind.toLowerCase())
+    assert.equal(normalizeCliDeviceSelector(alias), kind.toLowerCase())
     assert.equal(resolveCliInstance({ device: model }, app.snapshot).kind, kind)
     const result = await app.command('mapping.list', { device: model })
     assert.ok(result.mappings.some(mapping => mapping.button === key))

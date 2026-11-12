@@ -10,6 +10,8 @@ import { xboxSupportPackage } from '../xbox-controller/index.ts'
 import { tclRc802aSupportPackage } from '../tcl-rc802a-remote/definition.ts'
 import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
 import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
+import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
+import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
 
 export type { DeviceKind } from '../types.ts'
 export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
@@ -87,6 +89,8 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   tclRc802aSupportPackage,
   tclRc902nSupportPackage,
   tclRc902vSupportPackage,
+  hisenseRcf3b65SupportPackage,
+  phicommDb1RSupportPackage,
 ]
 const mobileRemotePackages = supportPackages.filter(pkg =>
   pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
@@ -148,7 +152,10 @@ export function supportsWindowsDriver(kind: DeviceKind | undefined) {
 }
 export function supportsDeviceInformation(kind: DeviceKind) {
   const view = packageFor(kind).remoteView
-  return Boolean(view?.voice || view?.identities.some(identity => identity.informationRequired))
+  return Boolean(
+    view?.voice ||
+    view?.identities.some(identity => identity.informationRequired || identity.windowsPrefix === 'BTHLEDEVICE'),
+  )
 }
 export function defaultRecordingMode(kind: DeviceKind): 'hold' | 'click' {
   const modes = packageFor(kind).remoteView?.voice?.triggerModes ?? []

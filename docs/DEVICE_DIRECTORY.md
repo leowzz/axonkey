@@ -116,3 +116,10 @@ Windows RC003 输入和语音服务都按实例维护；每个实例注册自己
 RC802A 复用现有 CMIOT-A15 的按住/点击录音状态机、G.722.1 解码和每实例 PCM 输出。协议细节及验证边界见 [RC802A 音频说明](../src-tauri/src/devices/tcl_rc802a/README.md)。
 
 RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务接入各自 `A` 键（`tcl-rc902n.assistant` / `tcl-rc902v.assistant`）PTT 语音，支持按住录音、松开停止（`hold`）和按下开始、再次按下停止（`click`）两种模式，复用 `xiaomi_remote::voice` 的实例级蓝牙工作线程与虚拟麦克风输出。协议细节及验证边界见 [RC902N 音频说明](../src-tauri/src/devices/tcl_rc902n/README.md) 与 [RC902V 音频说明](../src-tauri/src/devices/tcl_rc902v/README.md)。
+
+## 投影仪语音遥控器（按键 HID 已采集，音频待接入）
+
+| 品牌 / 型号 | 前端目录 | Rust 入口 | 硬件匹配条件 | 输入状态 | 语音 |
+| --- | --- | --- | --- | --- | --- |
+| Hisense RCF3B65 | `src/devices/hisense-rcf3b65-remote/` | `src-tauri/src/devices/hisense_rcf3b65/` | `DEV_VID&01109B_PID&3837` | 18 个正面按键已采集（`0x01` / `0x6F` 九字节） | 待接入 |
+| 斐讯 DB1-R | `src/devices/phicomm-db1-r-remote/` | `src-tauri/src/devices/phicomm_db1_r/` | `DEV_VID&01005D_PID&0001` | 12 个正面按键已采集（`0x01` 九字节 / `0x02` 三字节，红外 TV 键已移除） | 待接入 |

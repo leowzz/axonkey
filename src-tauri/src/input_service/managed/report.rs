@@ -168,6 +168,29 @@ mod tests {
                 "obeRcuR5.voice",
             ),
             (
+                "tclRc802a",
+                vec![1, 0, 0, 0x28, 0, 0, 0, 0, 0],
+                "tcl-rc802a.confirm",
+            ),
+            ("tclRc902n", vec![3, 0x42, 0], "tcl-rc902n.up"),
+            ("tclRc902v", vec![3, 0x41, 0], "tcl-rc902v.confirm"),
+            (
+                "hisenseRcf3b65",
+                vec![1, 0, 0, 0xdf, 0, 0, 0, 0, 0],
+                "hisense-rcf3b65.voice",
+            ),
+            (
+                "hisenseRcf3b65",
+                vec![0x6f, 0x6a, 0x01, 0, 0, 0, 0, 0, 0],
+                "hisense-rcf3b65.pointer",
+            ),
+            (
+                "phicommDb1R",
+                vec![1, 0, 0, 0x3e, 0, 0, 0, 0, 0],
+                "phicomm-db1-r.voice",
+            ),
+            ("phicommDb1R", vec![2, 0x24, 0x02], "phicomm-db1-r.back"),
+            (
                 "xboxBluetooth",
                 vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
                 "xbox.a",

@@ -21,15 +21,23 @@ const instances = [
 ]
 const success = { deviceCount: 3, uninstalledCount: 3, unboundCount: 3, failures: [], rebootRequired: true }
 
-test('bound TCL remotes are included in driver cleanup with their own model names', async () => {
-  const devices = ['Rc802a', 'Rc902n', 'Rc902v'].map((model, index) => ({
-    id: `tcl-${index}`, name: `遥控器 ${index}`, kind: `tcl${model}`, binding: `hid-${index}`,
+test('bound TCL and projector remotes are included in driver cleanup with their own model names', async () => {
+  const devices = [
+    ['tclRc802a', 'TCL RC802A'],
+    ['tclRc902n', 'TCL RC902N'],
+    ['tclRc902v', 'TCL RC902V'],
+    ['hisenseRcf3b65', 'Hisense RCF3B65'],
+    ['phicommDb1R', '斐讯 DB1-R'],
+  ].map(([kind], index) => ({
+    id: `remote-${index}`, name: `遥控器 ${index}`, kind, binding: `hid-${index}`,
   }))
   const h = await mount(async () => ({ store: { instances: devices } }))
   try {
     const list = h.view.root.findByProps({ 'aria-label': '本次解绑设备' })
-    assert.equal(list.findAllByType('li').length, 3)
-    for (const model of ['RC802A', 'RC902N', 'RC902V']) assert.ok(text(list).includes(`TCL ${model}`))
+    assert.equal(list.findAllByType('li').length, 5)
+    for (const model of ['TCL RC802A', 'TCL RC902N', 'TCL RC902V', 'Hisense RCF3B65', '斐讯 DB1-R']) {
+      assert.ok(text(list).includes(model))
+    }
   } finally { h.unmount() }
 })
 

@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all nine protocol SVGs', () => {
+test('the committed device index is generated from all eleven protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 9)
+  assert.equal(Object.keys(deviceDescriptors).length, 11)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -67,7 +67,12 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
   }
   assert.equal(deviceDescriptors.rc003.voice.transport, 'gatt')
   assert.equal(deviceDescriptors.xbox.voice, null)
+  assert.equal(deviceDescriptors['hisense-rcf3b65'].voice, null)
+  assert.equal(deviceDescriptors['phicomm-db1-r'].voice, null)
+  assert.equal(deviceDescriptors['hisense-rcf3b65'].inputs.length, 18)
+  assert.equal(deviceDescriptors['phicomm-db1-r'].inputs.length, 12)
   for (const descriptor of Object.values(deviceDescriptors)) {
+    assert.ok(descriptor.identities.length >= 1, `${descriptor.id} must declare runtime identity`)
     assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
   }
   assert.deepEqual(

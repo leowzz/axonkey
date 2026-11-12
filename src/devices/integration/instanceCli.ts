@@ -43,6 +43,11 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     'tcl-rc902n': 'tclrc902n',
     rc902v: 'tclrc902v',
     'tcl-rc902v': 'tclrc902v',
+    rcf3b65: 'hisensercf3b65',
+    'hisense-rcf3b65': 'hisensercf3b65',
+    'db1-r': 'phicommdb1r',
+    db1r: 'phicommdb1r',
+    'phicomm-db1-r': 'phicommdb1r',
   }
   return aliases[device] ?? device
 }
