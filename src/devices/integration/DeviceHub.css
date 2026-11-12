@@ -404,87 +404,54 @@ body:has(.managed-discovery-help-dialog[open]),
   grid-column: 1 / -1;
   display: flex;
   flex-shrink: 0;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
   margin: 8px 16px;
   padding: 8px 12px;
+  border: 1px solid #f0d4b0;
   border-radius: 6px;
-  background: #fff0ef;
-  color: #a33732;
+  background: #fff9ef;
+  color: #8f5719;
   font-size: 13px;
   line-height: 1.5;
 }
-.managed-driver-notice > span {
+.managed-driver-notice-copy {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 .managed-driver-notice > button {
   flex-shrink: 0;
-  padding: 4px 8px;
-  border: 1px solid #e7b5b2;
-  border-radius: 4px;
-  background: transparent;
-  color: inherit;
+  padding: 4px 10px;
+  border: 1px solid #ddb37e;
+  border-radius: 5px;
+  background: #fff;
+  color: #7d4a12;
+  font-weight: 500;
+}
+.managed-driver-notice > button:hover:not(:disabled) {
+  background: #fef3e1;
 }
 .managed-driver-notice > button:disabled {
   opacity: 0.6;
 }
-.managed-driver-notice-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: rgb(24 32 48 / 38%);
-}
-.managed-driver-notice-backdrop > .managed-driver-notice {
-  display: block;
-  width: min(560px, calc(100vw - 48px));
-  max-height: calc(100dvh - 48px);
-  overflow-y: auto;
-  box-sizing: border-box;
-  margin: 0;
-  padding: 28px 30px 24px;
-  border: 1px solid #e7d2d0;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 20px 70px rgb(15 23 42 / 22%);
-  color: #73332f;
-}
-.managed-driver-notice-backdrop > .managed-driver-notice[data-dismissing] {
-  pointer-events: none;
-  transform-origin: center;
-}
-.managed-driver-notice-backdrop h2 {
-  margin: 0;
-  color: #4b2522;
-  font-size: 20px;
-  line-height: 1.4;
-}
-.managed-driver-notice-backdrop p {
-  margin: 10px 0 0;
-  color: #73332f;
-  line-height: 1.65;
-}
 .managed-driver-notice-details {
-  margin-top: 16px;
-  border-top: 1px solid #eadbd9;
-  color: #73332f;
+  margin-top: 6px;
+  color: #7d4a12;
 }
 .managed-driver-notice-details summary {
   cursor: pointer;
-  padding: 12px 0 8px;
-  color: #8b4a45;
-  font-size: 13px;
+  padding: 2px 0;
+  font-size: 12px;
 }
 .managed-driver-notice-details code {
   display: block;
   overflow-x: auto;
-  padding: 10px 12px;
+  margin-top: 6px;
+  padding: 8px 10px;
   border-radius: 6px;
-  background: #faf4f3;
+  background: rgb(255 255 255 / 78%);
   color: #63322f;
   font:
     12px/1.55 ui-monospace,
@@ -494,30 +461,25 @@ body:has(.managed-discovery-help-dialog[open]),
   white-space: pre-wrap;
   word-break: break-word;
 }
-.managed-driver-notice-actions {
+.integration-uac-status {
+  margin-top: 16px;
+  padding: 10px 14px;
+  border: 1px solid #cfe1f3;
+  border-radius: 6px;
+  background: #eef5fc;
+  color: #2f6493;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.integration-uac-error {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 24px;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 16px;
+  margin-bottom: 0;
 }
-.managed-driver-notice-actions > button {
-  min-width: 76px;
-  padding: 7px 12px;
-  border: 1px solid #d7aaa6;
-  border-radius: 5px;
-  color: inherit;
-  background: transparent;
-}
-.managed-driver-notice-actions > .managed-driver-notice-install {
-  border-color: #a33732;
-  color: #fff;
-  background: #a33732;
-}
-.managed-driver-notice-actions > button:hover:not(:disabled) {
-  filter: brightness(0.96);
-}
-.managed-driver-notice-actions > button:disabled {
-  opacity: 0.6;
+.integration-uac-error strong {
+  font-weight: 600;
 }
 .managed-instance-workspace .mapping-main > .managed-error,
 .managed-instance-workspace .mapping-main > .managed-notice {

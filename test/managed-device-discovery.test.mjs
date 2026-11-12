@@ -9,17 +9,26 @@ import Renderer, { act } from 'react-test-renderer'
 import { parseDescriptorSvg } from '../scripts/generate-device-descriptors.mjs'
 
 const require = createRequire(import.meta.url)
-const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
+const text = node =>
+  typeof node === 'string' ? node : (Array.isArray(node) ? node : (node?.children ?? [])).map(text).join('')
 function compile(path, imports = {}, globals = {}) {
-  const source = ts.transpileModule(readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
-  }).outputText
+  const source = ts.transpileModule(
+    readFileSync(path, 'utf8').replaceAll('import.meta.url', JSON.stringify(`file://${process.cwd()}/${path}`)),
+    {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
+    },
+  ).outputText
   const module = { exports: {} }
   vm.runInNewContext(source, {
-    module, exports: module.exports, URL,
-    setTimeout: (...args) => globalThis.setTimeout(...args), clearTimeout: (...args) => globalThis.clearTimeout(...args),
-    setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
-    document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
+    module,
+    exports: module.exports,
+    URL,
+    setTimeout: (...args) => globalThis.setTimeout(...args),
+    clearTimeout: (...args) => globalThis.clearTimeout(...args),
+    setInterval: (...args) => globalThis.setInterval(...args),
+    clearInterval: (...args) => globalThis.clearInterval(...args),
+    document: { getElementById: () => null, activeElement: null, body: {} },
+    HTMLElement: class {},
     ...globals,
     require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
   })
@@ -40,47 +49,86 @@ const modelImports = {
 const model = compile('src/devices/integration/model.ts', modelImports)
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
-const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
-  'react-dom': { createPortal: node => node },
-  '@tauri-apps/api/event': { listen: async () => () => {} },
-  './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
-  './IntegrationControls': controls,
-  '../../components/SettingsHelp': { SettingsHelp: () => null },
-  '../../components/BatteryIndicator': battery,
-  './model': model,
-}, {
-  window: new EventTarget(),
-})
+const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile(
+  'src/devices/integration/DeviceHub.tsx',
+  {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
+    './IntegrationControls': controls,
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    './model': model,
+  },
+  {
+    window: new EventTarget(),
+  },
+)
 function DeviceHub(props) {
   const [selectedInstanceId, onSelectInstance] = React.useState(null)
   return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance, ...props })
 }
-const device = { id: 'paired-one', kind: 'xboxBluetooth', name: 'Controller', transport: 'Bluetooth', identityQuality: 'serial', vendorId: 1118, productId: 736, connected: false, paired: true }
+const device = {
+  id: 'paired-one',
+  kind: 'xboxBluetooth',
+  name: 'Controller',
+  transport: 'Bluetooth',
+  identityQuality: 'serial',
+  vendorId: 1118,
+  productId: 736,
+  connected: false,
+  paired: true,
+}
 const { managedDriverInstallMessage } = compile('src/systemState.ts')
 
 test('binding dropdown stays inside its modal dialog and still works outside a dialog', () => {
   for (const inDialog of [true, false]) {
-    const body = {}, dialog = {}, portals = [], selected = []
-    const { DeviceBindingPicker } = compile('src/devices/integration/IntegrationControls.tsx', {
-      'react-dom': { createPortal: (node, target) => { portals.push(target); return node } },
-    }, {
-      document: { body, addEventListener() {}, removeEventListener() {} },
-      window: { innerHeight: 800, addEventListener() {}, removeEventListener() {} },
-    })
+    const body = {},
+      dialog = {},
+      portals = [],
+      selected = []
+    const { DeviceBindingPicker } = compile(
+      'src/devices/integration/IntegrationControls.tsx',
+      {
+        'react-dom': {
+          createPortal: (node, target) => {
+            portals.push(target)
+            return node
+          },
+        },
+      },
+      {
+        document: { body, addEventListener() {}, removeEventListener() {} },
+        window: { innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+      },
+    )
     function Host() {
       const [value, setValue] = React.useState('')
       return React.createElement(DeviceBindingPicker, {
-        labelledBy: 'binding-label', value, devices: [device],
-        onChange: id => { selected.push(id); setValue(id) },
+        labelledBy: 'binding-label',
+        value,
+        devices: [device],
+        onChange: id => {
+          selected.push(id)
+          setValue(id)
+        },
       })
     }
     let view
-    act(() => { view = Renderer.create(React.createElement(Host), { createNodeMock: node =>
-      node.type === 'button' ? {
-        closest: selector => { assert.equal(selector, 'dialog'); return inDialog ? dialog : null },
-        getBoundingClientRect: () => ({ left: 20, top: 100, bottom: 160, width: 320 }),
-      } : { children: [] },
-    }) })
+    act(() => {
+      view = Renderer.create(React.createElement(Host), {
+        createNodeMock: node =>
+          node.type === 'button'
+            ? {
+                closest: selector => {
+                  assert.equal(selector, 'dialog')
+                  return inDialog ? dialog : null
+                },
+                getBoundingClientRect: () => ({ left: 20, top: 100, bottom: 160, width: 320 }),
+              }
+            : { children: [] },
+      })
+    })
     try {
       const trigger = () => view.root.findByProps({ role: 'combobox' })
       act(() => trigger().props.onClick())
@@ -93,12 +141,25 @@ test('binding dropdown stays inside its modal dialog and still works outside a d
       assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
       assert.match(text(trigger()), /Controller/)
       act(() => trigger().props.onClick())
-      let prevented = false, stopped = false
-      act(() => trigger().props.onKeyDown({ key: 'Escape', preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+      let prevented = false,
+        stopped = false
+      act(() =>
+        trigger().props.onKeyDown({
+          key: 'Escape',
+          preventDefault() {
+            prevented = true
+          },
+          stopPropagation() {
+            stopped = true
+          },
+        }),
+      )
       assert.equal(prevented, true)
       assert.equal(stopped, true)
       assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
-    } finally { act(() => view.unmount()) }
+    } finally {
+      act(() => view.unmount())
+    }
   }
 })
 
@@ -111,11 +172,18 @@ test('parent selection opens the exact integrated device and back returns to the
   function Host() {
     const [selectedInstanceId, onSelectInstance] = React.useState(null)
     select = onSelectInstance
-    return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance,
-      controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {},
+    return React.createElement(ControlledDeviceHub, {
+      selectedInstanceId,
+      onSelectInstance,
+      controller: { snapshot, error: '', busy: false },
+      native: false,
+      platform: 'windows',
+      permissions: {},
     })
   }
-  act(() => { view = Renderer.create(React.createElement(Host)) })
+  act(() => {
+    view = Renderer.create(React.createElement(Host))
+  })
   try {
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     act(() => select('second'))
@@ -123,7 +191,9 @@ test('parent selection opens the exact integrated device and back returns to the
     act(() => view.root.findByType('instance-workspace').props.onBack())
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     assert.ok(text(view.toJSON()).includes('我的设备'))
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('saved unbound devices are highlighted until bound, including in browser preview', () => {
@@ -134,16 +204,23 @@ test('saved unbound devices are highlighted until bound, including in browser pr
     snapshot.store.instances = [pending, offline]
     const props = { controller: { snapshot, error: '', busy: false }, native, platform: 'windows', permissions: {} }
     let view
-    act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
+    act(() => {
+      view = Renderer.create(React.createElement(DeviceHub, props))
+    })
     try {
       const highlighted = view.root.findAll(node => node.type === 'button' && node.props['data-unbound'])
       assert.equal(highlighted.length, 1, 'offline, system mouse and discovery cards are not marked unbound')
       assert.equal(text(highlighted[0].findByProps({ className: 'my-devices-unbound-badge' })), '未绑定')
       assert.equal(highlighted[0].findAllByType(battery.BatteryIndicator).length, 0)
-      act(() => { pending.binding = 'remote-one'; view.update(React.createElement(DeviceHub, props)) })
+      act(() => {
+        pending.binding = 'remote-one'
+        view.update(React.createElement(DeviceHub, props))
+      })
       assert.equal(view.root.findAllByProps({ className: 'my-devices-unbound-badge' }).length, 0)
       assert.equal(view.root.findAll(node => node.type === 'button' && node.props['data-unbound']).length, 0)
-    } finally { act(() => view.unmount()) }
+    } finally {
+      act(() => view.unmount())
+    }
   }
 })
 
@@ -154,33 +231,63 @@ test('manual recording controller updates only the requested instance after HID 
   const calls = []
   const { useDeviceInstances } = compile('src/devices/integration/useDeviceInstances.ts', {
     './model': model,
-    '@tauri-apps/api/core': { invoke: (command, args) => {
-      if (command === 'device_snapshot') return Promise.resolve(snapshot)
-      calls.push([command, args])
-      return new Promise((resolve, reject) => { complete = resolve; fail = reject })
-    } },
+    '@tauri-apps/api/core': {
+      invoke: (command, args) => {
+        if (command === 'device_snapshot') return Promise.resolve(snapshot)
+        calls.push([command, args])
+        return new Promise((resolve, reject) => {
+          complete = resolve
+          fail = reject
+        })
+      },
+    },
   })
-  function Host() { controller = useDeviceInstances(true); return null }
+  function Host() {
+    controller = useDeviceInstances(true)
+    return null
+  }
   let view
-  await act(async () => { view = Renderer.create(React.createElement(Host)) })
+  await act(async () => {
+    view = Renderer.create(React.createElement(Host))
+  })
   try {
     let operation
-    act(() => { operation = controller.toggleRecording('one') })
+    act(() => {
+      operation = controller.toggleRecording('one')
+    })
     assert.equal(controller.snapshot.runtime.one.recording, false)
-    await act(async () => { complete(true); await operation })
+    await act(async () => {
+      complete(true)
+      await operation
+    })
     assert.equal(controller.snapshot.runtime.one.recording, true)
     assert.equal(controller.snapshot.runtime.two.recording, true)
-    act(() => { operation = controller.toggleRecording('one') })
-    await act(async () => { fail(new Error('HID write failed')); await assert.rejects(operation, /HID write failed/) })
+    act(() => {
+      operation = controller.toggleRecording('one')
+    })
+    await act(async () => {
+      fail(new Error('HID write failed'))
+      await assert.rejects(operation, /HID write failed/)
+    })
     assert.equal(controller.snapshot.runtime.one.recording, true)
     assert.match(controller.error, /HID write failed/)
-    act(() => { operation = controller.toggleRecording('one') })
-    await act(async () => { complete(false); await operation })
+    act(() => {
+      operation = controller.toggleRecording('one')
+    })
+    await act(async () => {
+      complete(false)
+      await operation
+    })
     assert.equal(controller.snapshot.runtime.one.recording, false)
     assert.equal(controller.snapshot.runtime.two.recording, true)
     assert.equal(controller.error, '')
-    assert.deepEqual(JSON.parse(JSON.stringify(calls)), Array.from({ length: 3 }, () => ['toggle_device_recording', { instanceId: 'one' }]))
-  } finally { act(() => view.unmount()) }
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(calls)),
+      Array.from({ length: 3 }, () => ['toggle_device_recording', { instanceId: 'one' }]),
+    )
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('installation feedback distinguishes submitted installs from reboot before installation', () => {
@@ -188,30 +295,68 @@ test('installation feedback distinguishes submitted installs from reboot before 
   assert.match(managedDriverInstallMessage(result), /已安装/)
   assert.match(managedDriverInstallMessage({ ...result, installationState: 'reinstalled' }), /已重新安装/)
   assert.match(managedDriverInstallMessage({ ...result, rebootRequired: true }), /已提交安装.*重启/)
-  assert.match(managedDriverInstallMessage({ ...result, rebootRequired: true, installationState: 'reinstalled' }), /已提交重新安装.*重启/)
-  const pending = managedDriverInstallMessage({ ...result, rebootRequired: true, installationState: 'restart_before_install' })
+  assert.match(
+    managedDriverInstallMessage({ ...result, rebootRequired: true, installationState: 'reinstalled' }),
+    /已提交重新安装.*重启/,
+  )
+  const pending = managedDriverInstallMessage({
+    ...result,
+    rebootRequired: true,
+    installationState: 'restart_before_install',
+  })
   assert.match(pending, /尚未执行新安装.*重启 Windows 后再次安装/)
   assert.doesNotMatch(pending, /已安装|已提交/)
 })
 
 test('discovery help opens without toggling the device list and routes Bluetooth settings', () => {
-  for (const [platform, native, system] of [['windows', true, 'Windows 设置'], ['macos', true, 'macOS 系统设置'], ['windows', false, 'Windows 设置']]) {
-    let opened = 0, closed = 0, settingsOpened = 0, deviceManagerOpened = 0
-    const modal = { showModal() { opened++ }, close() { closed++ } }
+  for (const [platform, native, system] of [
+    ['windows', true, 'Windows 设置'],
+    ['macos', true, 'macOS 系统设置'],
+    ['windows', false, 'Windows 设置'],
+  ]) {
+    let opened = 0,
+      closed = 0,
+      settingsOpened = 0,
+      deviceManagerOpened = 0
+    const modal = {
+      showModal() {
+        opened++
+      },
+      close() {
+        closed++
+      },
+    }
     const props = {
       controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
-      native, platform, permissions: {},
+      native,
+      platform,
+      permissions: {},
       onOpenBluetoothSettings: () => settingsOpened++,
       onOpenDeviceManager: () => deviceManagerOpened++,
     }
     let view
-    act(() => { view = Renderer.create(React.createElement(DeviceHub, props), { createNodeMock: node => node.type === 'dialog' ? modal : null }) })
+    act(() => {
+      view = Renderer.create(React.createElement(DeviceHub, props), {
+        createNodeMock: node => (node.type === 'dialog' ? modal : null),
+      })
+    })
     try {
       const summary = view.root.findByProps({ className: 'managed-discovered-summary' })
       const help = summary.findByProps({ className: 'managed-discovery-help' })
       assert.equal(text(help), '找不到设备？')
-      let prevented = false, stopped = false
-      const clickHelp = () => act(() => help.props.onClick({ preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+      let prevented = false,
+        stopped = false
+      const clickHelp = () =>
+        act(() =>
+          help.props.onClick({
+            preventDefault() {
+              prevented = true
+            },
+            stopPropagation() {
+              stopped = true
+            },
+          }),
+        )
       clickHelp()
       assert.equal(prevented && stopped, true)
       assert.equal(view.root.findByType('details').props.open, true)
@@ -245,12 +390,20 @@ test('discovery help opens without toggling the device list and routes Bluetooth
       act(() => view.root.findByType('dialog').props.onCancel())
       assert.equal(view.root.findAllByType('dialog').length, 0)
       assert.equal(closed, 2)
-    } finally { act(() => view.unmount()) }
+    } finally {
+      act(() => view.unmount())
+    }
   }
 })
 
 test('RC003 readings are scoped to each physical device', () => {
-  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
+  const remote = {
+    ...device,
+    id: 'remote-one',
+    kind: 'rc003',
+    connected: true,
+    deviceInfo: { status: 'ready', batteryLevel: 78 },
+  }
   const offline = { ...remote, id: 'remote-two', connected: false }
   assert.equal(model.batteryForDevice(remote.id, [remote, offline, device]), 78)
   assert.equal(model.batteryForDevice(offline.id, [remote, offline]), null)
@@ -260,7 +413,13 @@ test('RC003 readings are scoped to each physical device', () => {
 })
 
 test('A15 and RC003 batteries belong to physical devices', () => {
-  const first = { ...device, id: 'a15-one', kind: 'cmiotA15', connected: true, deviceInfo: { status: 'ready', batteryLevel: 0 } }
+  const first = {
+    ...device,
+    id: 'a15-one',
+    kind: 'cmiotA15',
+    connected: true,
+    deviceInfo: { status: 'ready', batteryLevel: 0 },
+  }
   const second = { ...first, id: 'a15-two', deviceInfo: { status: 'ready', batteryLevel: 100 } }
   const remote = { ...first, id: 'rc003', kind: 'rc003', deviceInfo: { status: 'ready', batteryLevel: 78 } }
   const discovered = [first, second, remote]
@@ -269,66 +428,130 @@ test('A15 and RC003 batteries belong to physical devices', () => {
   assert.equal(model.batteryForDevice(remote.id, discovered), 78)
   assert.equal(model.batteryForDevice(first.id, [{ ...first, connected: false }]), null)
   assert.equal(model.batteryForDevice(first.id, [{ ...first, identityQuality: 'ambiguous' }]), null)
-  assert.equal(model.batteryForDevice(first.id, [{ ...first, deviceInfo: { status: 'error', batteryLevel: null } }]), null)
+  assert.equal(
+    model.batteryForDevice(first.id, [{ ...first, deviceInfo: { status: 'error', batteryLevel: null } }]),
+    null,
+  )
 })
 
 test('A15 discovery and saved cards show battery updates, low/full states and disconnects', () => {
-  const remote = { ...device, id: 'a15-one', kind: 'cmiotA15', connected: true, deviceInfo: { status: 'ready', batteryLevel: 56 } }
+  const remote = {
+    ...device,
+    id: 'a15-one',
+    kind: 'cmiotA15',
+    connected: true,
+    deviceInfo: { status: 'ready', batteryLevel: 56 },
+  }
   const instance = { ...model.newInstance('cmiotA15', remote.id), id: 'saved-a15' }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
   const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'windows', permissions: {} }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
+  act(() => {
+    view = Renderer.create(React.createElement(DeviceHub, props))
+  })
   const indicator = () => view.root.findByType(battery.BatteryIndicator)
   try {
     assert.ok(text(indicator()).includes('56%'))
-    act(() => { snapshot.store.instances = [instance]; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      snapshot.store.instances = [instance]
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.ok(text(indicator()).includes('56%'))
-    for (const [batteryLevel, label] of [[0, '0%，电量不足'], [100, '100%，已满电']]) {
-      act(() => { snapshot.discovered = [{ ...remote, deviceInfo: { status: 'ready', batteryLevel } }]; view.update(React.createElement(DeviceHub, props)) })
+    for (const [batteryLevel, label] of [
+      [0, '0%，电量不足'],
+      [100, '100%，已满电'],
+    ]) {
+      act(() => {
+        snapshot.discovered = [{ ...remote, deviceInfo: { status: 'ready', batteryLevel } }]
+        view.update(React.createElement(DeviceHub, props))
+      })
       assert.equal(indicator().findByType('span').props['aria-label'], label)
     }
-    act(() => { snapshot.discovered = [{ ...remote, connected: false }]; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      snapshot.discovered = [{ ...remote, connected: false }]
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.ok(text(indicator()).includes('电量未知'))
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('RC003 discovery and saved cards show live battery values and clear them on disconnect', () => {
-  const remote = { ...device, id: 'remote-one', kind: 'rc003', connected: true, deviceInfo: { status: 'ready', batteryLevel: 78 } }
+  const remote = {
+    ...device,
+    id: 'remote-one',
+    kind: 'rc003',
+    connected: true,
+    deviceInfo: { status: 'ready', batteryLevel: 78 },
+  }
   const instance = { ...model.newInstance('rc003', remote.id), id: 'saved-remote' }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
   const props = { controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {} }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
+  act(() => {
+    view = Renderer.create(React.createElement(DeviceHub, props))
+  })
   const indicator = () => view.root.findByType(battery.BatteryIndicator)
   try {
     assert.ok(text(indicator()).includes('78%'), 'discovered devices expose battery before integration')
-    act(() => { snapshot.store.instances = [instance]; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      snapshot.store.instances = [instance]
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.ok(text(indicator()).includes('78%'), 'integration preserves the reading')
-    act(() => { remote.deviceInfo.batteryLevel = 0; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      remote.deviceInfo.batteryLevel = 0
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.ok(text(indicator()).includes('0%'))
     assert.equal(indicator().findByType('span').props['aria-label'], '0%，电量不足')
-    act(() => { snapshot.discovered = [{ ...remote, connected: false }]; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      snapshot.discovered = [{ ...remote, connected: false }]
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.ok(text(indicator()).includes('电量未知'))
-    act(() => { snapshot.discovered = [remote]; remote.deviceInfo.batteryLevel = 100; view.update(React.createElement(DeviceHub, props)) })
+    act(() => {
+      snapshot.discovered = [remote]
+      remote.deviceInfo.batteryLevel = 100
+      view.update(React.createElement(DeviceHub, props))
+    })
     assert.equal(indicator().findByType('span').props['aria-label'], '100%，已满电')
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('paired offline cards survive refresh, update in place on reconnect, and leave when unpaired', () => {
   const snapshot = { ...model.emptySnapshot(), discovered: [device, { ...device, id: 'paired-two' }] }
   const controller = { snapshot, error: '', busy: false, refresh() {} }
-  const props = { controller, native: true, platform: 'macos', permissions: { inputMonitoring: true, accessibility: true } }
+  const props = {
+    controller,
+    native: true,
+    platform: 'macos',
+    permissions: { inputMonitoring: true, accessibility: true },
+  }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceHub, props)) })
+  act(() => {
+    view = Renderer.create(React.createElement(DeviceHub, props))
+  })
   const cards = () => view.root.findAll(node => node.type === 'button' && node.props.className === 'my-devices-card')
   assert.equal(cards().length, 2)
   assert.ok(cards().every(card => text(card).includes('未连接')))
   const first = cards()[0]
-  act(() => { snapshot.discovered = [{ ...device, connected: true }, { ...device, id: 'paired-two' }]; view.update(React.createElement(DeviceHub, props)) })
+  act(() => {
+    snapshot.discovered = [
+      { ...device, connected: true },
+      { ...device, id: 'paired-two' },
+    ]
+    view.update(React.createElement(DeviceHub, props))
+  })
   assert.equal(cards()[0], first, 'reconnect updates the original card')
   assert.ok(text(cards()[0]).includes('点击集成'))
-  act(() => { snapshot.discovered = [{ ...device, id: 'paired-two' }]; view.update(React.createElement(DeviceHub, props)) })
+  act(() => {
+    snapshot.discovered = [{ ...device, id: 'paired-two' }]
+    view.update(React.createElement(DeviceHub, props))
+  })
   assert.equal(cards().length, 1)
   act(() => view.unmount())
 })
@@ -336,10 +559,16 @@ test('paired offline cards survive refresh, update in place on reconnect, and le
 test('offline paired devices remain selectable for integration without claiming connected', () => {
   const snapshot = { ...model.emptySnapshot(), discovered: [device] }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceHub, {
-    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos',
-    permissions: { inputMonitoring: true, accessibility: true },
-  })) })
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceHub, {
+        controller: { snapshot, error: '', busy: false },
+        native: true,
+        platform: 'macos',
+        permissions: { inputMonitoring: true, accessibility: true },
+      }),
+    )
+  })
   const card = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
   act(() => card.props.onClick())
   assert.ok(text(view.root.findByProps({ role: 'combobox' })).includes('未连接'))
@@ -348,14 +577,26 @@ test('offline paired devices remain selectable for integration without claiming 
 })
 
 test('saved offline instances keep their card and show connection state even when mapping is paused', () => {
-  const instance = { ...model.newInstance('xboxBluetooth', device.id), id: 'saved-one', name: 'Desk controller', enabled: false }
+  const instance = {
+    ...model.newInstance('xboxBluetooth', device.id),
+    id: 'saved-one',
+    name: 'Desk controller',
+    enabled: false,
+  }
   const snapshot = { ...model.emptySnapshot(), runtime: { [instance.id]: { state: 'paused' } } }
   snapshot.store.instances = [instance]
   assert.equal(model.instanceStatusLabel(instance, snapshot), '未连接')
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceHub, {
-    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {},
-  })) })
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceHub, {
+        controller: { snapshot, error: '', busy: false },
+        native: true,
+        platform: 'macos',
+        permissions: {},
+      }),
+    )
+  })
   const card = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
   assert.ok(text(card).includes('Desk controller'))
   assert.ok(text(card).includes('未连接'))
@@ -365,33 +606,48 @@ test('saved offline instances keep their card and show connection state even whe
 })
 
 test('integration saves devices without an input mode on every platform', async () => {
-  for (const platform of ['macos', 'windows']) for (const kind of ['rc003', 'xboxBluetooth', 'cmiotA15']) {
-    const remote = { ...device, kind, id: 'remote-one' }
-    const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
-    let submitted
-    let view
-    const controller = { snapshot, error: '', busy: false, put: async instance => {
-      submitted = instance
-      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-remote' }] } }
-    } }
-    act(() => { view = Renderer.create(React.createElement(DeviceHub, {
-      controller, native: false, platform, permissions: {},
-    })) })
-    act(() => view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick())
-    const dialog = view.root.findByProps({ role: 'dialog' })
-    assert.ok(!text(dialog).includes('输入模式'))
-    if (kind === 'cmiotA15' && platform === 'windows') {
-      assert.ok(!text(dialog).includes('暂不支持输入监听'))
-      assert.ok(text(dialog).includes('Quarbor Universal'))
+  for (const platform of ['macos', 'windows'])
+    for (const kind of ['rc003', 'xboxBluetooth', 'cmiotA15']) {
+      const remote = { ...device, kind, id: 'remote-one' }
+      const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+      let submitted
+      let view
+      const controller = {
+        snapshot,
+        error: '',
+        busy: false,
+        put: async instance => {
+          submitted = instance
+          return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-remote' }] } }
+        },
+      }
+      act(() => {
+        view = Renderer.create(
+          React.createElement(DeviceHub, {
+            controller,
+            native: false,
+            platform,
+            permissions: {},
+          }),
+        )
+      })
+      act(() =>
+        view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card').props.onClick(),
+      )
+      const dialog = view.root.findByProps({ role: 'dialog' })
+      assert.ok(!text(dialog).includes('输入模式'))
+      if (kind === 'cmiotA15' && platform === 'windows') {
+        assert.ok(!text(dialog).includes('暂不支持输入监听'))
+        assert.ok(text(dialog).includes('Quarbor Universal'))
+      }
+      assert.ok(!text(dialog).includes('共享监听'))
+      assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
+      await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
+      assert.ok(!('capture' in submitted))
+      assert.equal(submitted.activeProfileId, 'default')
+      assert.deepEqual(structuredClone(submitted.profiles), [{ id: 'default', name: '默认配置', behaviors: {} }])
+      act(() => view.unmount())
     }
-    assert.ok(!text(dialog).includes('共享监听'))
-    assert.equal(dialog.findAllByType('input').filter(input => input.props.type === 'radio').length, 0)
-    await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
-    assert.ok(!('capture' in submitted))
-    assert.equal(submitted.activeProfileId, 'default')
-    assert.deepEqual(structuredClone(submitted.profiles), [{ id: 'default', name: '默认配置', behaviors: {} }])
-    act(() => view.unmount())
-  }
 })
 
 test('mobile model identity matching retains captured software and hardware behavior', () => {
@@ -406,13 +662,18 @@ test('mobile model identity matching retains captured software and hardware beha
     ['CMIOT18_B302_1601', 'rc313'],
     ['unknown', null],
     [null, null],
-  ]) assert.equal(model.mobileRemoteKindForSoftware(software), kind)
+  ])
+    assert.equal(model.mobileRemoteKindForSoftware(software), kind)
 })
 
 test('bundled capabilities retain recording defaults and platform support for all six devices', () => {
   for (const [kind, mode, hidVoice] of [
-    ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
-    ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
+    ['rc003', 'click', false],
+    ['cmiotA15', 'click', true],
+    ['xmBt29', 'hold', true],
+    ['rc313', 'hold', true],
+    ['obeRcuR5', 'hold', true],
+    ['xboxBluetooth', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -422,15 +683,22 @@ test('bundled capabilities retain recording defaults and platform support for al
 
 test('recording defaults and driver support follow changed SVG declarations for the same model', () => {
   const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
-  const descriptor = parseDescriptorSvg(source
-    .replace('trigger-modes="hold click"', 'trigger-modes="hold"')
-    .replaceAll('windows-prefix="BTHLEDEVICE"', ''), '/test.svg')
+  const descriptor = parseDescriptorSvg(
+    source.replace('trigger-modes="hold click"', 'trigger-modes="hold"').replaceAll('windows-prefix="BTHLEDEVICE"', ''),
+    '/test.svg',
+  )
   const definition = modelImports['../cmiot-a15-remote/definition.ts']
   const variant = compile('src/devices/integration/model.ts', {
     ...modelImports,
-    '../cmiot-a15-remote/definition.ts': { ...definition,
-      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
-        remoteView: { ...definition.cmiotA15SupportPackage.remoteView, voice: descriptor.voice, identities: descriptor.identities },
+    '../cmiot-a15-remote/definition.ts': {
+      ...definition,
+      cmiotA15SupportPackage: {
+        ...definition.cmiotA15SupportPackage,
+        remoteView: {
+          ...definition.cmiotA15SupportPackage.remoteView,
+          voice: descriptor.voice,
+          identities: descriptor.identities,
+        },
       },
     },
   })
@@ -440,13 +708,19 @@ test('recording defaults and driver support follow changed SVG declarations for 
 
 test('mobile model recognizes any software marker declared in the SVG identity', () => {
   const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
-  const descriptor = parseDescriptorSvg(source.replaceAll('CMIOT3_B311', 'unused|CMIOT3_B311|alternate')
-    .replace('software-contains="unused|CMIOT3_B311|alternate"', ''), '/test.svg')
+  const descriptor = parseDescriptorSvg(
+    source
+      .replaceAll('CMIOT3_B311', 'unused|CMIOT3_B311|alternate')
+      .replace('software-contains="unused|CMIOT3_B311|alternate"', ''),
+    '/test.svg',
+  )
   const definition = modelImports['../cmiot-a15-remote/definition.ts']
   const variant = compile('src/devices/integration/model.ts', {
     ...modelImports,
-    '../cmiot-a15-remote/definition.ts': { ...definition,
-      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
+    '../cmiot-a15-remote/definition.ts': {
+      ...definition,
+      cmiotA15SupportPackage: {
+        ...definition.cmiotA15SupportPackage,
         remoteView: { ...definition.cmiotA15SupportPackage.remoteView, identities: descriptor.identities },
       },
     },
@@ -462,26 +736,58 @@ test('mobile integration preserves selection and recognizes native, old and unkn
     const recognizedKind = recognition === 'unknown' || recognition === 'missing' ? 'rc313' : 'xmBt29'
     const expectedKind = identify ? recognizedKind : 'cmiotA15'
     const expectedName = identify ? (recognizedKind === 'rc313' ? 'RC-313' : 'XM-BT-29') : 'CMIOT-A15'
-    const remote = { ...device, id: 'mobile-one', kind: 'cmiotA15', vendorId: 0x0416, productId: 0x0300, connected: true,
-      deviceInfo: { status: 'ready',
-        softwareRevision: recognition === 'native' ? 'CMIOT3_B311' : recognition === 'unknown' ? 'unknown' : recognition === 'missing' ? null : 'XFRSD0D_M_R01_761',
+    const remote = {
+      ...device,
+      id: 'mobile-one',
+      kind: 'cmiotA15',
+      vendorId: 0x0416,
+      productId: 0x0300,
+      connected: true,
+      deviceInfo: {
+        status: 'ready',
+        softwareRevision:
+          recognition === 'native'
+            ? 'CMIOT3_B311'
+            : recognition === 'unknown'
+              ? 'unknown'
+              : recognition === 'missing'
+                ? null
+                : 'XFRSD0D_M_R01_761',
         ...(recognition === 'native' ? { detectedKind: 'xmBt29' } : {}),
-      } }
+      },
+    }
     const second = { ...remote, id: 'mobile-two' }
     const snapshot = { ...model.emptySnapshot(), discovered: [remote, second] }
-    const saved = [], refreshed = []
-    const controller = { snapshot, error: '', busy: false,
-      refreshInformation: async binding => { refreshed.push(binding) },
+    const saved = [],
+      refreshed = []
+    const controller = {
+      snapshot,
+      error: '',
+      busy: false,
+      refreshInformation: async binding => {
+        refreshed.push(binding)
+      },
       refresh: async () => snapshot,
       put: async instance => {
         saved.push(instance)
         return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-mobile' }] } }
       },
     }
-    let integrated = '', view
-    act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
-      controller, native: true, platform: 'windows', permissions: {}, onIntegrated: id => { integrated = id },
-    })) })
+    let integrated = '',
+      view
+    act(() => {
+      view = Renderer.create(
+        React.createElement(DeviceDiscoverySection, {
+          controller,
+          native: true,
+          platform: 'windows',
+          permissions: {},
+          onIntegrated: id => {
+            integrated = id
+          },
+        }),
+      )
+    })
     const button = label => view.root.findAllByType('button').find(node => text(node) === label)
     const selectedModel = () => view.root.findAllByProps({ role: 'radio' }).find(node => node.props['aria-checked'])
     try {
@@ -499,9 +805,18 @@ test('mobile integration preserves selection and recognizes native, old and unkn
         await act(async () => button('一键识别').props.onClick())
         assert.deepEqual(refreshed, [second.id])
         assert.ok(text(selectedModel()).includes(expectedName))
-        assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 1, 'recognition selects a model without returning to the details page')
+        assert.equal(
+          view.root.findAllByProps({ role: 'radiogroup' }).length,
+          1,
+          'recognition selects a model without returning to the details page',
+        )
       } else {
-        act(() => view.root.findAllByProps({ role: 'radio' }).find(node => text(node).includes('CMIOT-A15')).props.onClick())
+        act(() =>
+          view.root
+            .findAllByProps({ role: 'radio' })
+            .find(node => text(node).includes('CMIOT-A15'))
+            .props.onClick(),
+        )
       }
       act(() => button('上一步').props.onClick())
       assert.equal(view.root.findByType('input').props.value, '客厅遥控器')
@@ -516,23 +831,45 @@ test('mobile integration preserves selection and recognizes native, old and unkn
       assert.equal(saved[0].kind, expectedKind)
       assert.equal(saved[0].cmiotA15RecordingMode, identify ? 'hold' : 'click')
       assert.equal(integrated, 'saved-mobile')
-    } finally { act(() => view.unmount()) }
+    } finally {
+      act(() => view.unmount())
+    }
   }
 })
 
 test('OBE_RCU_R5 integrates directly by hardware model without software recognition', async () => {
-  const remote = { ...device, id: 'obe-one', kind: 'obeRcuR5', name: 'OBE_RCU_R5',
-    vendorId: 0x1d5a, productId: 0xc081, connected: true }
+  const remote = {
+    ...device,
+    id: 'obe-one',
+    kind: 'obeRcuR5',
+    name: 'OBE_RCU_R5',
+    vendorId: 0x1d5a,
+    productId: 0xc081,
+    connected: true,
+  }
   const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
   const saved = []
-  const controller = { snapshot, error: '', busy: false, put: async instance => {
-    saved.push(instance)
-    return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-obe' }] } }
-  } }
+  const controller = {
+    snapshot,
+    error: '',
+    busy: false,
+    put: async instance => {
+      saved.push(instance)
+      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-obe' }] } }
+    },
+  }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
-    controller, native: true, platform: 'windows', permissions: {}, onIntegrated() {},
-  })) })
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceDiscoverySection, {
+        controller,
+        native: true,
+        platform: 'windows',
+        permissions: {},
+        onIntegrated() {},
+      }),
+    )
+  })
   try {
     act(() => view.root.find(node => node.type === 'button' && node.props['data-discovered']).props.onClick())
     assert.ok(text(view.root).includes('OBE_RCU_R5'))
@@ -544,7 +881,9 @@ test('OBE_RCU_R5 integrates directly by hardware model without software recognit
     assert.equal(saved[0].kind, 'obeRcuR5')
     assert.equal(saved[0].binding, remote.id)
     assert.equal(saved[0].cmiotA15RecordingMode, 'hold')
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
@@ -552,10 +891,24 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const listeners = []
   const RemoteControl = () => null
   const WorkflowAxonkey = () => null
-  const modal = { opened: 0, closed: 0, showModal() { this.opened++ }, close() { this.closed++ } }
+  const modal = {
+    opened: 0,
+    closed: 0,
+    showModal() {
+      this.opened++
+    },
+    close() {
+      this.closed++
+    },
+  }
   const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
     'react-dom': { createPortal: node => node },
-    '@tauri-apps/api/event': { listen: async (_, listener) => { listeners.push(listener); return () => {} } },
+    '@tauri-apps/api/event': {
+      listen: async (_, listener) => {
+        listeners.push(listener)
+        return () => {}
+      },
+    },
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: {} },
     '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
@@ -565,7 +918,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../shared/RemoteControl': { RemoteControl },
     '../../components/ProfileManager': { ProfileManager: () => null },
     '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar: () => null },
-    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    '../../useForegroundApplications': {
+      useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }),
+    },
     './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
@@ -595,16 +950,31 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const informationRefreshes = []
   const recordingRequests = []
   let finishRecording
-  const controller = { snapshot, toggleRecording: id => {
-    recordingRequests.push(id)
-    return new Promise(resolve => { finishRecording = resolve })
-  }, refreshInformation: async binding => { informationRefreshes.push(binding) }, update: async (id, change) => {
-    const index = instances.findIndex(item => item.id === id)
-    instances[index] = change(instances[index])
-    return snapshot
-  } }
-  const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
-    driverAction: null, batteryLevel: index === 0 ? 15 : 78,
+  const controller = {
+    snapshot,
+    toggleRecording: id => {
+      recordingRequests.push(id)
+      return new Promise(resolve => {
+        finishRecording = resolve
+      })
+    },
+    refreshInformation: async binding => {
+      informationRefreshes.push(binding)
+    },
+    update: async (id, change) => {
+      const index = instances.findIndex(item => item.id === id)
+      instances[index] = change(instances[index])
+      return snapshot
+    },
+  }
+  const props = index => ({
+    instance: instances[index],
+    controller,
+    native: true,
+    platform: 'windows',
+    permissions: {},
+    driverAction: null,
+    batteryLevel: index === 0 ? 15 : 78,
     onInstallDriver: id => actions.push(['install', id]),
     onBind: () => actions.push(['bind', instances[index].id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
@@ -655,16 +1025,22 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[1].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     const driverNotice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-    assert.equal(driverNotice.props.role, 'dialog')
-    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动', '关闭'])
-    assert.ok(text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes('正在录音'))
+    assert.equal(driverNotice.props.role, 'status')
+    assert.deepEqual(driverNotice.findAllByType('button').map(text), ['安装驱动'])
+    assert.ok(
+      text(views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })).includes(
+        '正在录音',
+      ),
+    )
     assert.ok(!text(views[0].root.findByProps({ className: 'mapping-device-rail panel-surface' })).includes('正在录音'))
-    act(() => views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick())
+    act(() =>
+      views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button')[0].props.onClick(),
+    )
     act(() => views[1].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
-    assert.deepEqual(actions, [['install', 'one'], ['calibrate', 'two']])
-    await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-    assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
-    assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
+    assert.deepEqual(actions, [
+      ['install', 'one'],
+      ['calibrate', 'two'],
+    ])
     act(() => views[0].update(React.createElement(InstanceWorkspace, props(0))))
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
@@ -673,32 +1049,52 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     for (const kind of ['rc003', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind, hideDriverMissingReminder: false }
-        snapshot.runtime.one = { state: 'disconnected', driverState: 'connecting', driverInstalled: true, error: communicationError }
+        snapshot.runtime.one = {
+          state: 'disconnected',
+          driverState: 'connecting',
+          driverInstalled: true,
+          error: communicationError,
+        }
         views[0].update(React.createElement(InstanceWorkspace, props(0)))
       })
       const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(notice.props.role, 'dialog')
+      assert.equal(notice.props.role, 'status')
       assert.ok(text(notice).includes('驱动错误，请重新安装。'))
       assert.equal(text(notice).includes(communicationError), true)
-      assert.equal(notice.findByProps({ className: 'managed-driver-notice-details' }).findByType('summary').children[0], '查看错误详情')
+      assert.equal(
+        notice.findByProps({ className: 'managed-driver-notice-details' }).findByType('summary').children[0],
+        '查看错误详情',
+      )
       const button = notice.findByProps({ className: 'managed-driver-notice-install' })
       assert.equal(text(button), '重新安装驱动')
       assert.equal(button.props.disabled, false)
-      assert.equal(views[0].root.findAllByProps({ className: 'managed-error' }).length, 0, 'communication errors are shown once')
+      assert.equal(
+        views[0].root.findAllByProps({ className: 'managed-error' }).length,
+        0,
+        'communication errors are shown once',
+      )
       act(() => button.props.onClick())
       assert.deepEqual(actions.at(-1), ['install', 'one'])
-      await act(async () => views[0].root.findByProps({ className: 'managed-driver-notice-close' }).props.onClick())
-      const banner = views[0].root.findByProps({ className: 'managed-driver-notice' })
-      assert.equal(banner.props.role, 'status')
-      assert.equal(text(banner.findByType('span')), '驱动错误，请重新安装。')
-      assert.equal(text(banner).includes(communicationError), false)
-      act(() => views[0].update(React.createElement(InstanceWorkspace, {
-        ...props(0), driverAction: { instanceId: 'two', status: 'running' },
-      })))
-      assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).findByType('button').props.disabled, true)
-      act(() => views[0].update(React.createElement(InstanceWorkspace, {
-        ...props(0), driverAction: { instanceId: 'one', status: 'running' },
-      })))
+      act(() =>
+        views[0].update(
+          React.createElement(InstanceWorkspace, {
+            ...props(0),
+            driverAction: { instanceId: 'two', status: 'running' },
+          }),
+        ),
+      )
+      assert.equal(
+        views[0].root.findByProps({ className: 'managed-driver-notice' }).findByType('button').props.disabled,
+        true,
+      )
+      act(() =>
+        views[0].update(
+          React.createElement(InstanceWorkspace, {
+            ...props(0),
+            driverAction: { instanceId: 'one', status: 'running' },
+          }),
+        ),
+      )
       const runningNotice = views[0].root.findByProps({ className: 'managed-driver-notice' })
       assert.ok(text(runningNotice).includes('正在安装'))
       assert.equal(runningNotice.findByType('button').props.disabled, true)
@@ -713,9 +1109,12 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       act(() => {
         instances[0] = { ...instances[0], kind }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
-        views[0].update(React.createElement(InstanceWorkspace, {
-          ...props(0), driverAction: { instanceId: 'one', status: 'error', error: '旧的驱动错误' },
-        }))
+        views[0].update(
+          React.createElement(InstanceWorkspace, {
+            ...props(0),
+            driverAction: { instanceId: 'one', status: 'error', error: '旧的驱动错误' },
+          }),
+        )
       })
       const notice = views[0].root.findByProps({ className: 'managed-driver-notice' })
       assert.equal(text(notice), '设备不在线')
@@ -724,14 +1123,19 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
       const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav device-settings-drawer-nav' })
       assert.deepEqual(settingsNavigation.findAllByType('button').map(text), ['设备设置', '设备信息'])
-      const bindingRow = views[0].root.findByProps({ className: 'settings-form-control managed-instance-binding-control' })
+      const bindingRow = views[0].root.findByProps({
+        className: 'settings-form-control managed-instance-binding-control',
+      })
       assert.deepEqual(bindingRow.findAllByType('button').map(text), ['重新绑定', '解除绑定，保留配置'])
       act(() => bindingRow.findAllByType('button')[0].props.onClick())
       assert.deepEqual(actions.at(-1), ['bind', 'one'])
       const manageAudioDriver = views[0].root.findAllByType('button').find(button => text(button) === '管理驱动')
       act(() => manageAudioDriver.props.onClick())
       assert.equal(audioDriverRequests.at(-1), 'open')
-      assert.equal(views[0].root.findAllByType('select').some(select => select.props.id?.endsWith('voice-output')), false)
+      assert.equal(
+        views[0].root.findAllByType('select').some(select => select.props.id?.endsWith('voice-output')),
+        false,
+      )
       assert.ok(text(driverRow).includes('设备不在线'))
       assert.equal(driverRow.findAllByType('button').length, 0)
       act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
@@ -748,20 +1152,29 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    const reinstall = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' }).findByType('button')
+    const reinstall = views[0].root
+      .findByProps({ className: 'settings-form-row managed-driver-status-row' })
+      .findByType('button')
     assert.equal(text(reinstall), '重新安装驱动')
     act(() => reinstall.props.onClick())
     assert.deepEqual(actions.at(-1), ['install', 'one'], 'reinstallation uses the same device install command')
     const message = managedDriverInstallMessage({ rebootRequired: true, installationState: 'restart_before_install' })
     act(() => {
       snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
-      views[0].update(React.createElement(InstanceWorkspace, {
-        ...props(0), driverAction: { instanceId: 'one', status: 'restartRequired', message },
-      }))
+      views[0].update(
+        React.createElement(InstanceWorkspace, {
+          ...props(0),
+          driverAction: { instanceId: 'one', status: 'restartRequired', message },
+        }),
+      )
     })
     assert.equal(text(views[0].root.findByProps({ className: 'managed-driver-notice' })), message)
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).findAllByType('button').length, 0)
-    assert.equal(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' }).findAllByType('button').length, 0)
+    assert.equal(
+      views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' }).findAllByType('button')
+        .length,
+      0,
+    )
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     act(() => {
       instances[0] = { ...instances[0], hideDriverMissingReminder: false }
@@ -769,20 +1182,35 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       views[0].update(React.createElement(InstanceWorkspace, props(0)))
     })
 
-    act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
+    act(() => {
+      for (const listener of listeners)
+        listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } })
+    })
     assert.deepEqual(Array.from(views[0].root.findByType(RemoteControl).props.pressedIds), [])
     assert.deepEqual(Array.from(views[1].root.findByType(RemoteControl).props.pressedIds), ['cmiotA15.up'])
 
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
+    assert.ok(
+      text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'),
+    )
     assert.equal(views[0].root.findByType('select').props.value, 'click')
     await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'hold' } }))
     assert.equal(instances[0].cmiotA15RecordingMode, 'hold')
-    assert.equal(instances[1].cmiotA15RecordingMode, 'click', 'changing one instance preserves the other recording mode')
+    assert.equal(
+      instances[1].cmiotA15RecordingMode,
+      'click',
+      'changing one instance preserves the other recording mode',
+    )
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    assert.equal(views[1].root.findByType('select').props.value, 'click', 'all CMIOT-A15 instances support choosing a recording mode')
+    assert.equal(
+      views[1].root.findByType('select').props.value,
+      'click',
+      'all CMIOT-A15 instances support choosing a recording mode',
+    )
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    const unbind = views[0].root.findByProps({ className: 'managed-bound-device' }).findAllByType('button')
+    const unbind = views[0].root
+      .findByProps({ className: 'managed-bound-device' })
+      .findAllByType('button')
       .find(button => text(button) === '解除绑定，保留配置')
     await act(async () => unbind.props.onClick())
     assert.deepEqual(actions.at(-1), ['unbind', 'one'])
@@ -790,7 +1218,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       views[0].update(React.createElement(InstanceWorkspace, props(0)))
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
-    assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
+    assert.ok(
+      text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'),
+    )
     for (const kind of ['rc003', 'cmiotA15']) {
       for (const recording of [true, false]) {
         act(() => {
@@ -810,15 +1240,22 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
     assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
     for (const [kind, battery, manualRecording, recordingModes] of [
-      ['rc003', true, false, false], ['cmiotA15', true, true, true], ['xmBt29', true, true, false],
-      ['rc313', true, true, false], ['obeRcuR5', true, false, false], ['xboxBluetooth', false, false, false],
+      ['rc003', true, false, false],
+      ['cmiotA15', true, true, true],
+      ['xmBt29', true, true, false],
+      ['rc313', true, true, false],
+      ['obeRcuR5', true, false, false],
+      ['xboxBluetooth', false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
         views[1].update(React.createElement(InstanceWorkspace, props(1)))
       })
       assert.equal(views[1].root.findAllByProps({ className: 'managed-instance-power' }).length, Number(battery))
-      assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, Number(manualRecording))
+      assert.equal(
+        views[1].root.findAllByProps({ className: 'device-recording-control' }).length,
+        Number(manualRecording),
+      )
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
       assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
@@ -830,13 +1267,33 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
     act(() => listeners[1]({ payload: { instanceId: 'two', pressed: [], values: { 'xbox.lt': 0.6, 'xbox.rt': 0.3 } } }))
-    assert.deepEqual(views[1].root.findAllByType('meter').map(meter => meter.props.value), [0.6, 0.3])
-    assert.deepEqual(views[1].root.findByProps({ className: 'managed-analog' }).findAllByType('label').map(text), ['LT ', 'RT '])
+    assert.deepEqual(
+      views[1].root.findAllByType('meter').map(meter => meter.props.value),
+      [0.6, 0.3],
+    )
+    assert.deepEqual(views[1].root.findByProps({ className: 'managed-analog' }).findAllByType('label').map(text), [
+      'LT ',
+      'RT ',
+    ])
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    act(() => views[1].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
-    for (const [driverState, driverInstalled, label] of [['missing', false, '未安装'], ['connecting', true, '连接中'], ['connected', true, '已连接'], ['offline', false, '设备不在线']]) {
+    act(() =>
+      views[1].root
+        .findAllByType('button')
+        .find(node => text(node) === '设备设置')
+        .props.onClick(),
+    )
+    for (const [driverState, driverInstalled, label] of [
+      ['missing', false, '未安装'],
+      ['connecting', true, '连接中'],
+      ['connected', true, '已连接'],
+      ['offline', false, '设备不在线'],
+    ]) {
       act(() => {
-        snapshot.runtime.two = { state: driverState === 'connected' ? 'exclusive' : 'disconnected', driverState, driverInstalled }
+        snapshot.runtime.two = {
+          state: driverState === 'connected' ? 'exclusive' : 'disconnected',
+          driverState,
+          driverInstalled,
+        }
         views[1].update(React.createElement(InstanceWorkspace, props(1)))
       })
       const row = views[1].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
@@ -850,9 +1307,15 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       }
     }
 
-    act(() => views[0].update(React.createElement(InstanceWorkspace, {
-      ...props(0), platform: 'macos', permissions: { accessibility: true, inputMonitoring: true },
-    })))
+    act(() =>
+      views[0].update(
+        React.createElement(InstanceWorkspace, {
+          ...props(0),
+          platform: 'macos',
+          permissions: { accessibility: true, inputMonitoring: true },
+        }),
+      ),
+    )
     assert.equal(views[0].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 0)
     assert.equal(views[0].root.findByType('select').props.value, 'hold')
     await act(async () => views[0].root.findByType('select').props.onChange({ target: { value: 'click' } }))
@@ -860,13 +1323,36 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
 
     for (const kind of ['rc003', 'cmiotA15']) {
-      const info = { status: 'ready', bluetoothName: 'REMOTE_NATIVE', batteryLevel: 54, manufacturer: 'IFLY_RCU', serialNumber: '20190620', hardwareRevision: 'HW1', firmwareRevision: 'FW1', softwareRevision: 'SW1' }
+      const info = {
+        status: 'ready',
+        bluetoothName: 'REMOTE_NATIVE',
+        batteryLevel: 54,
+        manufacturer: 'IFLY_RCU',
+        serialNumber: '20190620',
+        hardwareRevision: 'HW1',
+        firmwareRevision: 'FW1',
+        softwareRevision: 'SW1',
+      }
       act(() => {
         instances[0] = { ...instances[0], kind, binding: 'info-device' }
-        snapshot.discovered = [{ ...device, id: 'info-device', kind, connected: true, bluetoothAddress: 'AA:BB:CC:DD:EE:FF', deviceInfo: info }]
+        snapshot.discovered = [
+          {
+            ...device,
+            id: 'info-device',
+            kind,
+            connected: true,
+            bluetoothAddress: 'AA:BB:CC:DD:EE:FF',
+            deviceInfo: info,
+          },
+        ]
         views[0].update(React.createElement(InstanceWorkspace, props(0)))
       })
-      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备信息').props.onClick())
+      act(() =>
+        views[0].root
+          .findAllByType('button')
+          .find(node => text(node) === '设备信息')
+          .props.onClick(),
+      )
       const panel = () => views[0].root.findByProps({ className: 'settings-form-fields managed-device-information' })
       const refreshButton = () => views[0].root.findByProps({ 'aria-label': '刷新设备信息' })
       const refreshCount = informationRefreshes.length
@@ -884,20 +1370,41 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       act(() => t.mock.timers.tick(8999))
       assert.equal(text(refreshButton()), '1s')
       assert.equal(refreshButton().props.disabled, true)
-      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
-      act(() => views[0].root.findAllByType('button').find(node => text(node) === '设备信息').props.onClick())
+      act(() =>
+        views[0].root
+          .findAllByType('button')
+          .find(node => text(node) === '设备设置')
+          .props.onClick(),
+      )
+      act(() =>
+        views[0].root
+          .findAllByType('button')
+          .find(node => text(node) === '设备信息')
+          .props.onClick(),
+      )
       assert.equal(informationRefreshes.length, refreshCount + 2, 'reentering the page refreshes once')
       assert.equal(refreshButton().props.disabled, true, 'navigation preserves the manual cooldown')
       act(() => t.mock.timers.tick(1))
       assert.equal(refreshButton().props.disabled, false)
       assert.equal(refreshButton().props.title, '刷新设备信息')
 
-      for (const value of ['REMOTE_NATIVE', '54%', 'AA:BB:CC:DD:EE:FF', 'IFLY_RCU', '20190620', 'HW1', 'FW1', 'SW1']) assert.ok(text(panel()).includes(value))
-      act(() => { info.manufacturer = null; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      for (const value of ['REMOTE_NATIVE', '54%', 'AA:BB:CC:DD:EE:FF', 'IFLY_RCU', '20190620', 'HW1', 'FW1', 'SW1'])
+        assert.ok(text(panel()).includes(value))
+      act(() => {
+        info.manufacturer = null
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
       assert.ok(text(panel()).includes('设备未提供'))
-      act(() => { info.status = 'retrying'; info.error = '读取超时'; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      act(() => {
+        info.status = 'retrying'
+        info.error = '读取超时'
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
       assert.ok(text(panel()).includes('正在重试'))
-      act(() => { instances[0] = { ...instances[0], binding: null }; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
+      act(() => {
+        instances[0] = { ...instances[0], binding: null }
+        views[0].update(React.createElement(InstanceWorkspace, props(0)))
+      })
       assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 8)
       assert.ok(!text(panel()).includes('REMOTE_NATIVE'))
       assert.equal(refreshButton().props.disabled, true)
@@ -923,7 +1430,13 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => dialog().props.onClick({ target: inside, currentTarget: {} }))
     assert.equal(workspace.findAllByType('dialog').length, 1, 'clicking inside does not close settings')
     let prevented = false
-    act(() => dialog().props.onCancel({ preventDefault() { prevented = true } }))
+    act(() =>
+      dialog().props.onCancel({
+        preventDefault() {
+          prevented = true
+        },
+      }),
+    )
     assert.equal(prevented, true)
     assert.equal(workspace.findAllByType('dialog').length, 0, 'Escape closes settings without leaving the device')
     assert.equal(modal.closed, closedBefore + 1)
@@ -936,33 +1449,77 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(close)
     assert.equal(workspace.findAllByType('dialog').length, 0, 'close button returns to mapping')
     assert.equal(workspace.findByType(WorkflowAxonkey), workflow)
-  } finally { act(() => views.forEach(view => view.unmount())) }
+  } finally {
+    act(() => views.forEach(view => view.unmount()))
+  }
 })
-
 
 test('guide discovery filters bound devices, refreshes and only advances after a successful save', async () => {
   const snapshot = { ...model.emptySnapshot(), discovered: [device, { ...device, id: 'already-bound' }] }
   snapshot.store.instances = [{ ...model.newInstance('xboxBluetooth', 'already-bound'), id: 'existing' }]
-  let refreshes = 0, integrated = '', fail = true, submitted, opened = 0, closed = 0
-  const controller = { snapshot, error: '', busy: false, refresh: async () => refreshes++, put: async instance => {
-    submitted = instance
-    if (fail) throw new Error('cannot save device')
-    snapshot.store.instances.push({ ...instance, id: 'new-device' })
-    return snapshot
-  } }
-  const props = { controller, native: true, platform: 'windows', permissions: {},
-    guide: true, onIntegrated: id => { integrated = id } }
+  let refreshes = 0,
+    integrated = '',
+    fail = true,
+    submitted,
+    opened = 0,
+    closed = 0
+  const controller = {
+    snapshot,
+    error: '',
+    busy: false,
+    refresh: async () => refreshes++,
+    put: async instance => {
+      submitted = instance
+      if (fail) throw new Error('cannot save device')
+      snapshot.store.instances.push({ ...instance, id: 'new-device' })
+      return snapshot
+    },
+  }
+  const props = {
+    controller,
+    native: true,
+    platform: 'windows',
+    permissions: {},
+    guide: true,
+    onIntegrated: id => {
+      integrated = id
+    },
+  }
   let view
-  act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, props), {
-    createNodeMock: node => node.type === 'dialog' ? { showModal() { opened++ }, close() { closed++ } } : null,
-  }) })
+  act(() => {
+    view = Renderer.create(React.createElement(DeviceDiscoverySection, props), {
+      createNodeMock: node =>
+        node.type === 'dialog'
+          ? {
+              showModal() {
+                opened++
+              },
+              close() {
+                closed++
+              },
+            }
+          : null,
+    })
+  })
   try {
     assert.equal(view.root.findByType('details').props.open, true)
     const cards = () => view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])
     assert.equal(cards().length, 1)
-    const refresh = view.root.findByProps({ className: 'managed-discovered-summary' }).findByProps({ 'aria-label': '刷新设备' })
-    let prevented = false, stopped = false
-    await act(async () => refresh.props.onClick({ preventDefault() { prevented = true }, stopPropagation() { stopped = true } }))
+    const refresh = view.root
+      .findByProps({ className: 'managed-discovered-summary' })
+      .findByProps({ 'aria-label': '刷新设备' })
+    let prevented = false,
+      stopped = false
+    await act(async () =>
+      refresh.props.onClick({
+        preventDefault() {
+          prevented = true
+        },
+        stopPropagation() {
+          stopped = true
+        },
+      }),
+    )
     assert.equal(prevented && stopped, true)
     assert.equal(view.root.findByType('details').props.open, true)
     assert.equal(refreshes, 1)
@@ -978,28 +1535,50 @@ test('guide discovery filters bound devices, refreshes and only advances after a
     assert.equal(closed, 1)
     assert.equal(cards().length, 0)
     assert.match(text(view.toJSON()), /暂未发现可添加的设备/)
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
-
 
 test('binding dialog defaults to the first free device and only saves on confirmation', async () => {
   const instance = { ...model.newInstance('rc003', null), id: 'migrated' }
   const occupied = { ...model.newInstance('rc003', 'occupied'), id: 'existing' }
   const available = { ...device, id: 'free', kind: 'rc003' }
-  const snapshot = { ...model.emptySnapshot(), discovered: [device,
-    { ...available, id: 'occupied' }, { ...available, id: 'conflict', identityQuality: 'ambiguous' },
-    available, { ...available, id: 'second' }],
-    store: { version: 1, revision: 1, instances: [instance, occupied] } }
+  const snapshot = {
+    ...model.emptySnapshot(),
+    discovered: [
+      device,
+      { ...available, id: 'occupied' },
+      { ...available, id: 'conflict', identityQuality: 'ambiguous' },
+      available,
+      { ...available, id: 'second' },
+    ],
+    store: { version: 1, revision: 1, instances: [instance, occupied] },
+  }
   const saved = []
-  const controller = { snapshot, busy: false, error: '', async put(value) {
-    saved.push(value)
-    return { ...snapshot, store: { ...snapshot.store, instances: [value, occupied] } }
-  } }
+  const controller = {
+    snapshot,
+    busy: false,
+    error: '',
+    async put(value) {
+      saved.push(value)
+      return { ...snapshot, store: { ...snapshot.store, instances: [value, occupied] } }
+    },
+  }
   let view
-  act(() => { view = Renderer.create(React.createElement(ControlledDeviceHub, {
-    controller, native: false, platform: 'windows', permissions: {},
-    selectedInstanceId: instance.id, onSelectInstance() {}, bindInstanceId: instance.id,
-  })) })
+  act(() => {
+    view = Renderer.create(
+      React.createElement(ControlledDeviceHub, {
+        controller,
+        native: false,
+        platform: 'windows',
+        permissions: {},
+        selectedInstanceId: instance.id,
+        onSelectInstance() {},
+        bindInstanceId: instance.id,
+      }),
+    )
+  })
   try {
     assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, available.id)
     assert.equal(saved.length, 0)
@@ -1007,21 +1586,33 @@ test('binding dialog defaults to the first free device and only saves on confirm
     await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
     assert.equal(saved.length, 1)
     assert.equal(saved[0].binding, available.id)
-  } finally { act(() => view.unmount()) }
+  } finally {
+    act(() => view.unmount())
+  }
 })
 
 test('binding dialog handles delayed discovery and keeps manual choices and existing bindings', () => {
   for (const existingBinding of [null, 'already-bound']) {
     const instance = { ...model.newInstance('rc003', existingBinding), id: 'migrated' }
     const available = { ...device, id: 'first', kind: 'rc003' }
-    let snapshot = { ...model.emptySnapshot(),
-      store: { version: 1, revision: 1, instances: [instance] } }
-    const props = { native: false, platform: 'windows', permissions: {},
-      selectedInstanceId: instance.id, onSelectInstance() {} }
+    let snapshot = { ...model.emptySnapshot(), store: { version: 1, revision: 1, instances: [instance] } }
+    const props = {
+      native: false,
+      platform: 'windows',
+      permissions: {},
+      selectedInstanceId: instance.id,
+      onSelectInstance() {},
+    }
     let view
-    const render = bindInstanceId => React.createElement(ControlledDeviceHub, { ...props,
-      bindInstanceId, controller: { snapshot, busy: false, error: '' } })
-    act(() => { view = Renderer.create(render(instance.id)) })
+    const render = bindInstanceId =>
+      React.createElement(ControlledDeviceHub, {
+        ...props,
+        bindInstanceId,
+        controller: { snapshot, busy: false, error: '' },
+      })
+    act(() => {
+      view = Renderer.create(render(instance.id))
+    })
     const picker = () => view.root.findByType(controls.DeviceBindingPicker)
     try {
       assert.equal(picker().props.value, existingBinding ?? '')
@@ -1038,25 +1629,137 @@ test('binding dialog handles delayed discovery and keeps manual choices and exis
       act(() => view.update(render(null)))
       assert.equal(picker().props.value, '')
       assert.match(text(view.root.findByProps({ role: 'combobox' })), /稍后绑定/)
-    } finally { act(() => view.unmount()) }
+    } finally {
+      act(() => view.unmount())
+    }
   }
 })
 
 test('migration binding request waits for the saved instance then opens its physical-device dialog once', () => {
   const instance = { ...model.newInstance('rc003', null), id: 'migrated' }
-  let consumed = 0, view
-  const props = { controller: { snapshot: model.emptySnapshot(), busy: false, error: '' }, native: false,
-    platform: 'windows', permissions: {}, selectedInstanceId: instance.id, onSelectInstance() {},
-    bindInstanceId: instance.id, onBindingOpened() { consumed++ } }
-  act(() => { view = Renderer.create(React.createElement(ControlledDeviceHub, props)) })
+  let consumed = 0,
+    view
+  const props = {
+    controller: { snapshot: model.emptySnapshot(), busy: false, error: '' },
+    native: false,
+    platform: 'windows',
+    permissions: {},
+    selectedInstanceId: instance.id,
+    onSelectInstance() {},
+    bindInstanceId: instance.id,
+    onBindingOpened() {
+      consumed++
+    },
+  }
+  act(() => {
+    view = Renderer.create(React.createElement(ControlledDeviceHub, props))
+  })
   assert.equal(consumed, 0)
   const snapshot = { ...model.emptySnapshot(), store: { version: 1, revision: 1, instances: [instance] } }
-  act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, controller: { ...props.controller, snapshot } })))
+  act(() =>
+    view.update(React.createElement(ControlledDeviceHub, { ...props, controller: { ...props.controller, snapshot } })),
+  )
   assert.equal(consumed, 1)
   assert.match(text(view.root.findByProps({ role: 'dialog' })), /绑定物理设备/)
-  act(() => view.update(React.createElement(ControlledDeviceHub, { ...props, bindInstanceId: null, controller: { ...props.controller, snapshot } })))
+  act(() =>
+    view.update(
+      React.createElement(ControlledDeviceHub, {
+        ...props,
+        bindInstanceId: null,
+        controller: { ...props.controller, snapshot },
+      }),
+    ),
+  )
   act(() => view.root.findByProps({ 'aria-label': '关闭集成' }).props.onClick())
   assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
   assert.equal(consumed, 1)
   act(() => view.unmount())
+})
+
+test('Windows integration installs the device driver via UAC before entering workspace and handles UAC cancellation', async () => {
+  const remote = { ...device, id: 'xbox-win', kind: 'xboxBluetooth', connected: true }
+  const snapshot = { ...model.emptySnapshot(), discovered: [remote] }
+  const savedCalls = []
+  const installCalls = []
+  let finishInstall = null
+  const controller = {
+    snapshot,
+    busy: false,
+    error: '',
+    async put(instance) {
+      savedCalls.push(instance)
+      const persisted = { ...instance, id: instance.id || 'xbox-instance-1' }
+      snapshot.store.instances = [persisted]
+      return snapshot
+    },
+  }
+  let completedId = ''
+  let view
+  act(() => {
+    view = Renderer.create(
+      React.createElement(DeviceDiscoverySection, {
+        controller,
+        native: true,
+        platform: 'windows',
+        permissions: {},
+        onIntegrated: id => {
+          completedId = id
+        },
+        onInstallDriver: instanceId => {
+          installCalls.push(instanceId)
+          return new Promise(resolve => {
+            finishInstall = resolve
+          })
+        },
+      }),
+    )
+  })
+  try {
+    act(() => view.root.find(node => node.type === 'button' && node.props['data-discovered']).props.onClick())
+    const primary = () => view.root.findByProps({ className: 'managed-primary' })
+    assert.equal(text(primary()), '集成并配置驱动')
+
+    let clickPromise
+    act(() => {
+      clickPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1)
+    assert.deepEqual(installCalls, ['xbox-instance-1'])
+    assert.equal(completedId, '', 'does not jump into workspace while UAC prompt is pending')
+    assert.ok(text(view.root.findByProps({ className: 'integration-uac-status' })).includes('Windows UAC'))
+
+    await act(async () => {
+      finishInstall({ ok: false, status: 'error', error: '用户取消了管理员授权' })
+      await clickPromise
+    })
+    assert.equal(completedId, '', 'stays inside integration dialog when UAC is cancelled')
+    assert.ok(
+      text(view.root.findByProps({ className: 'managed-error integration-uac-error' })).includes(
+        '用户取消了管理员授权',
+      ),
+    )
+    const footerButtons = view.root.findByProps({ className: 'managed-dialog-footer' }).findAllByType('button')
+    assert.deepEqual(footerButtons.map(text), ['先进入配键位（稍后安装）', '重新授权安装'])
+
+    let retryPromise
+    act(() => {
+      retryPromise = primary().props.onClick()
+    })
+    await act(async () => {
+      await Promise.resolve()
+    })
+    assert.equal(savedCalls.length, 1, 'retrying UAC reuses the already persisted instance without duplicating')
+    assert.deepEqual(installCalls, ['xbox-instance-1', 'xbox-instance-1'])
+
+    await act(async () => {
+      finishInstall({ ok: true, status: 'installed', message: '按键驱动已安装' })
+      await retryPromise
+    })
+    assert.equal(completedId, 'xbox-instance-1')
+  } finally {
+    act(() => view.unmount())
+  }
 })

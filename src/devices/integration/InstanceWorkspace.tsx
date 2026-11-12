@@ -2,7 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
-import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
+import type {
+  MacPermissions,
+  ManagedDriverAction,
+  ManagedDriverInstallOutcome,
+  MappingInput,
+  Platform,
+} from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
 import { triggerLabels } from '../../appConfig'
@@ -57,7 +63,9 @@ type Props = {
   onOpenAudioCalibration: (instanceId: string) => void
   onOpenAudioDriver: () => void
   driverAction: ManagedDriverAction | null
-  onInstallDriver: (instanceId: string) => void
+  onInstallDriver: (
+    instanceId: string,
+  ) => Promise<ManagedDriverInstallOutcome | void> | ManagedDriverInstallOutcome | void
   batteryLevel: number | null
 }
 export function InstanceWorkspace({
@@ -96,13 +104,7 @@ export function InstanceWorkspace({
   const [editingApplicationId, setEditingApplicationId] = useState('')
   const applications = useForegroundApplications(native)
   const [recordingPending, setRecordingPending] = useState(false)
-  const [driverNoticeDismissed, setDriverNoticeDismissed] = useState(false)
-  const [dismissingDriverNotice, setDismissingDriverNotice] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const driverNoticeRef = useRef<HTMLElement>(null)
-  useEffect(() => {
-    if (!instance.hideDriverMissingReminder) setDriverNoticeDismissed(false)
-  }, [instance.hideDriverMissingReminder])
   const [settingsSection, setSettingsSection] = useState<'overview' | 'information'>('overview')
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
@@ -168,51 +170,6 @@ export function InstanceWorkspace({
       // The controller exposes HID errors through the device hub banner.
     } finally {
       setRecordingPending(false)
-    }
-  }
-  const dismissDriverNotice = async () => {
-    const notice = driverNoticeRef.current
-    const settingsButton = workspaceRef.current?.querySelector<HTMLButtonElement>('.device-workspace-settings')
-    if (!notice || !settingsButton || typeof notice.animate !== 'function') {
-      try {
-        await controller.update(instance.id, item => ({ ...item, hideDriverMissingReminder: true }))
-        setDriverNoticeDismissed(true)
-      } catch {
-        // A failed save leaves the reminder visible; the controller displays the error.
-      }
-      return
-    }
-    setDismissingDriverNotice(true)
-    const reducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    const source = notice.getBoundingClientRect()
-    const target = settingsButton.getBoundingClientRect()
-    const dx = target.x + target.width / 2 - (source.x + source.width / 2)
-    const dy = target.y + target.height / 2 - (source.y + source.height / 2)
-    const flight = notice.animate(
-      reducedMotion
-        ? [{ opacity: 1 }, { opacity: 0 }]
-        : [
-            { transform: 'translate(0, 0) scale(1)', opacity: 1, borderRadius: '12px' },
-            { transform: `translate(${dx * 0.7}px, ${dy * 0.7}px) scale(0.32)`, opacity: 0.75, offset: 0.62 },
-            {
-              transform: `translate(${dx}px, ${dy}px) scale(${target.width / source.width}, ${target.height / source.height})`,
-              opacity: 0,
-              borderRadius: '20px',
-            },
-          ],
-      { duration: reducedMotion ? 100 : 520, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' },
-    )
-    let dismissed = false
-    try {
-      await flight.finished
-      await controller.update(instance.id, item => ({ ...item, hideDriverMissingReminder: true }))
-      setDriverNoticeDismissed(true)
-      dismissed = true
-    } catch {
-      // A failed save leaves the reminder visible; the controller displays the error.
-    } finally {
-      if (!dismissed) flight.cancel()
-      setDismissingDriverNotice(false)
     }
   }
   const unbindDevice = () => {
@@ -281,8 +238,8 @@ export function InstanceWorkspace({
       ? currentDriverAction.error
       : driverCommunicationError
     : null
-  const showDriverNotice =
-    !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
+  const showDriverBanner =
+    deviceOffline || driverRestartRequired || !!driverErrorDetail || driverMissing || !!currentDriverAction
   const driverNoticeMessage = driverErrorDetail
     ? '驱动错误，请重新安装。'
     : driverRestartRequired
@@ -332,86 +289,37 @@ export function InstanceWorkspace({
             />
           }
         />
-        {showDriverNotice &&
-          createPortal(
-            <div className="managed-driver-notice-backdrop" role="presentation">
-              <section
-                ref={driverNoticeRef}
-                className="managed-driver-notice"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="managed-driver-notice-title"
-                aria-describedby="managed-driver-notice-description"
-                data-dismissing={dismissingDriverNotice || undefined}
-              >
-                <h2 id="managed-driver-notice-title">{driverErrorDetail ? '驱动错误' : '设备按键驱动提示'}</h2>
-                <p id="managed-driver-notice-description">{driverNoticeMessage}</p>
-                {driverErrorDetail && (
-                  <details className="managed-driver-notice-details">
-                    <summary>查看错误详情</summary>
-                    <code>{driverErrorDetail}</code>
-                  </details>
-                )}
-                <div className="managed-driver-notice-actions">
-                  {!deviceOffline && !driverRestartRequired && (
-                    <button
-                      type="button"
-                      className="managed-driver-notice-install"
-                      disabled={driverBusy || dismissingDriverNotice}
-                      onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
-                    >
-                      {!instance.binding
-                        ? '绑定设备'
-                        : driverRunning
-                          ? '正在安装…'
-                          : driverInstalled
-                            ? '重新安装驱动'
-                            : currentDriverAction?.error
-                              ? '重试安装'
-                              : '安装驱动'}
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="managed-driver-notice-close"
-                    aria-label="关闭驱动提示"
-                    disabled={dismissingDriverNotice}
-                    onClick={() => void dismissDriverNotice()}
-                  >
-                    关闭
-                  </button>
-                </div>
-              </section>
-            </div>,
-            document.body,
-          )}
-        {!showDriverNotice &&
-          (deviceOffline ||
-            driverRestartRequired ||
-            driverCommunicationError ||
-            driverMissing ||
-            currentDriverAction) && (
-            <div className="managed-driver-notice" role="status" aria-live="polite">
+        {showDriverBanner && (
+          <div className="managed-driver-notice" role="status" aria-live="polite">
+            <div className="managed-driver-notice-copy">
               <span>{driverNoticeMessage}</span>
-              {!deviceOffline && !driverRestartRequired && (
-                <button
-                  type="button"
-                  disabled={driverBusy}
-                  onClick={instance.binding ? () => onInstallDriver(instance.id) : onBind}
-                >
-                  {!instance.binding
-                    ? '绑定设备'
-                    : driverRunning
-                      ? '正在安装…'
-                      : driverInstalled
-                        ? '重新安装驱动'
-                        : currentDriverAction?.error
-                          ? '重试安装'
-                          : '安装驱动'}
-                </button>
+              {driverErrorDetail && (
+                <details className="managed-driver-notice-details">
+                  <summary>查看错误详情</summary>
+                  <code>{driverErrorDetail}</code>
+                </details>
               )}
             </div>
-          )}
+            {!deviceOffline && !driverRestartRequired && (
+              <button
+                type="button"
+                className="managed-driver-notice-install"
+                disabled={driverBusy}
+                onClick={instance.binding ? () => void onInstallDriver(instance.id) : onBind}
+              >
+                {!instance.binding
+                  ? '绑定设备'
+                  : driverRunning
+                    ? '正在安装…'
+                    : driverInstalled
+                      ? '重新安装驱动'
+                      : currentDriverAction?.error
+                        ? '重试安装'
+                        : '安装驱动'}
+              </button>
+            )}
+          </div>
+        )}
         <aside className="mapping-device-rail panel-surface">
           <section className="managed-instance-status" aria-label="设备状态">
             {instance.binding ? (

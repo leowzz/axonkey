@@ -1907,7 +1907,9 @@ function AppController({
   }
 
   const installManagedDriver = async (instanceId: string) => {
-    if (managedDriverAction?.status === 'running') return
+    if (managedDriverAction?.status === 'running') {
+      return { ok: false, status: 'error' as const, error: '驱动安装正在进行中，请稍候。' }
+    }
     setManagedDriverAction({ instanceId, status: 'running' })
     if (platform === 'windows') reportTencentEvent('windows_hid_driver_install')
     try {
@@ -1918,15 +1920,20 @@ function AppController({
       await new Promise(resolve => window.setTimeout(resolve, 900))
       await deviceInstances.refresh()
       const message = managedDriverInstallMessage(result)
-      setManagedDriverAction(
-        result.installationState === 'restart_before_install'
-          ? { instanceId, status: 'restartRequired', message }
-          : null,
-      )
+      if (result.installationState === 'restart_before_install') {
+        setManagedDriverAction({ instanceId, status: 'restartRequired', message })
+        setToast(message)
+        window.setTimeout(() => setToast(''), 3200)
+        return { ok: false, status: 'restartRequired' as const, message }
+      }
+      setManagedDriverAction(null)
       setToast(message)
       window.setTimeout(() => setToast(''), 3200)
+      return { ok: true, status: 'installed' as const, message }
     } catch (error) {
-      setManagedDriverAction(current => (current ? { ...current, status: 'error', error: String(error) } : current))
+      const errorMessage = String(error)
+      setManagedDriverAction(current => (current ? { ...current, status: 'error', error: errorMessage } : current))
+      return { ok: false, status: 'error' as const, error: errorMessage }
     }
   }
 
@@ -2631,7 +2638,7 @@ function AppController({
                     }}
                     onOpenAudioCalibration={openInstanceAudioCalibration}
                     driverAction={managedDriverAction}
-                    onInstallDriver={instanceId => void installManagedDriver(instanceId)}
+                    onInstallDriver={installManagedDriver}
                     onUnbindDevice={unbindManagedInstance}
                     onRemoveDevice={removeManagedInstance}
                     onLegacy={deviceId => {
@@ -2924,6 +2931,7 @@ function AppController({
             },
             onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
             onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
+            onInstallDriver: installManagedDriver,
           }}
           windowsAudioDriver={windowsAudioDriver}
           nativeRuntime={nativeRuntime}

@@ -100,6 +100,13 @@ export type ManagedDriverAction = {
   message?: string
 }
 
+export type ManagedDriverInstallOutcome = {
+  ok: boolean
+  status: 'installed' | 'restartRequired' | 'error'
+  message?: string
+  error?: string
+}
+
 export type AudioProbe = {
   driverInstalled: boolean
   state:

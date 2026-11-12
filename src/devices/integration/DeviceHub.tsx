@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { createPortal } from 'react-dom'
 import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
+import type { MacPermissions, ManagedDriverAction, ManagedDriverInstallOutcome, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
@@ -44,7 +44,9 @@ type Props = {
   onOpenBluetoothSettings: () => void
   onOpenDeviceManager: () => void
   driverAction: ManagedDriverAction | null
-  onInstallDriver: (instanceId: string) => void
+  onInstallDriver: (
+    instanceId: string,
+  ) => Promise<ManagedDriverInstallOutcome | void> | ManagedDriverInstallOutcome | void
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
@@ -328,7 +330,9 @@ export function DeviceHub(props: Props) {
     </section>
   )
 }
-type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'>
+type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'> & {
+  onInstallDriver?: Props['onInstallDriver']
+}
 export type DeviceDiscoveryProps = IntegrationProps &
   Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
     guide?: boolean
@@ -651,6 +655,7 @@ function IntegrationDialog({
   platform,
   permissions,
   onPermissions,
+  onInstallDriver,
   onClose,
   onComplete,
 }: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
@@ -674,6 +679,12 @@ function IntegrationDialog({
   )
   const [localError, setError] = useState('')
   const [recognizing, setRecognizing] = useState(false)
+  const [pendingInstance, setPendingInstance] = useState<DeviceInstance | null>(null)
+  const [installingDriver, setInstallingDriver] = useState(false)
+  const [driverInstallNotice, setDriverInstallNotice] = useState<{
+    status: 'error' | 'restartRequired'
+    text: string
+  } | null>(null)
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const modal = dialog.current
@@ -684,15 +695,25 @@ function IntegrationDialog({
       if (focus instanceof HTMLElement && focus.isConnected) focus.focus()
     }
   }, [])
+  const currentInstanceId = pendingInstance?.id ?? initial.instance?.id
   const candidates = controller.snapshot.discovered.filter(
     d =>
       (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : d.kind === kind) &&
-      !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
+      !controller.snapshot.store.instances.some(i => i.id !== currentInstanceId && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
   const device = candidates.find(d => d.id === binding)
   const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
   const selectedPackage = kind ? packageFor(kind) : null
+  const needsWindowsDriverInstall = Boolean(
+    native &&
+    platform === 'windows' &&
+    kind &&
+    supportsWindowsDriver(kind) &&
+    binding &&
+    onInstallDriver &&
+    controller.snapshot.runtime[currentInstanceId ?? '']?.driverInstalled !== true,
+  )
   const recognitionError =
     '识别失败，请按下遥控器任意按钮，然后再次尝试 一键识别。如果依然识别失败，请看遥控器背面或者说明书确认型号，并手动选择。'
   async function identifyMobileRemote() {
@@ -724,15 +745,72 @@ function IntegrationDialog({
       setRecognizing(false)
     }
   }
+  async function runWindowsDriverInstall(instanceId: string) {
+    if (!onInstallDriver) {
+      onComplete(instanceId)
+      return
+    }
+    setInstallingDriver(true)
+    setDriverInstallNotice(null)
+    setError('')
+    try {
+      const outcome = await onInstallDriver(instanceId)
+      if (!outcome || outcome.ok) {
+        onComplete(instanceId)
+        return
+      }
+      setDriverInstallNotice({
+        status: outcome.status === 'restartRequired' ? 'restartRequired' : 'error',
+        text: outcome.message || outcome.error || '未完成管理员授权或驱动安装失败。',
+      })
+    } catch (e) {
+      setDriverInstallNotice({
+        status: 'error',
+        text: String(e),
+      })
+    } finally {
+      setInstallingDriver(false)
+    }
+  }
   async function integrate() {
     if (!kind) return
+    if (
+      pendingInstance &&
+      pendingInstance.kind === kind &&
+      pendingInstance.name === name.trim() &&
+      pendingInstance.binding === (binding || null)
+    ) {
+      if (pendingInstance.binding && needsWindowsDriverInstall) {
+        await runWindowsDriverInstall(pendingInstance.id)
+      } else {
+        onComplete(pendingInstance.id)
+      }
+      return
+    }
     try {
-      const instance = { ...(initial.instance ?? newInstance(kind, null)), name: name.trim(), binding: binding || null }
+      setError('')
+      setDriverInstallNotice(null)
+      const base = pendingInstance ?? initial.instance ?? newInstance(kind, null)
+      const instance = { ...base, kind, name: name.trim(), binding: binding || null }
       const result = await controller.put(instance)
       const saved = instance.id
         ? result.store.instances.find(i => i.id === instance.id)
         : result.store.instances[result.store.instances.length - 1]
-      if (saved) onComplete(saved.id)
+      if (!saved) return
+      setPendingInstance(saved)
+      const driverAlreadyInstalled = result.runtime[saved.id]?.driverInstalled === true
+      if (
+        native &&
+        platform === 'windows' &&
+        supportsWindowsDriver(kind) &&
+        saved.binding &&
+        onInstallDriver &&
+        !driverAlreadyInstalled
+      ) {
+        await runWindowsDriverInstall(saved.id)
+        return
+      }
+      onComplete(saved.id)
     } catch (e) {
       setError(String(e))
     }
@@ -744,12 +822,18 @@ function IntegrationDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby="managed-integration-title"
-      onCancel={onClose}
+      onCancel={event => {
+        if (installingDriver) {
+          event.preventDefault()
+          return
+        }
+        onClose()
+      }}
     >
       <section className="behavior-dialog managed-integration-dialog">
         <header className="behavior-dialog-head">
           <h2 id="managed-integration-title">{initial.instance ? '绑定物理设备' : '集成设备'}</h2>
-          <button aria-label="关闭集成" className="dialog-close" onClick={onClose}>
+          <button aria-label="关闭集成" className="dialog-close" disabled={installingDriver} onClick={onClose}>
             <X size={17} />
           </button>
         </header>
@@ -797,7 +881,7 @@ function IntegrationDialog({
                       data-selected={kind === modelKind || undefined}
                       role="radio"
                       aria-checked={kind === modelKind}
-                      disabled={recognizing}
+                      disabled={recognizing || installingDriver}
                       onClick={() => setKind(modelKind)}
                     >
                       <img src={pkg.artwork} alt="" />
@@ -814,7 +898,7 @@ function IntegrationDialog({
                 <button
                   type="button"
                   className="managed-primary"
-                  disabled={!native || !binding || !device?.connected || recognizing}
+                  disabled={!native || !binding || !device?.connected || recognizing || installingDriver}
                   onClick={() => void identifyMobileRemote()}
                 >
                   {recognizing ? '正在识别…' : '一键识别'}
@@ -833,7 +917,15 @@ function IntegrationDialog({
               <div className="settings-form-fields">
                 <label className="settings-form-row">
                   <span className="settings-form-label">设备名称</span>
-                  <input value={name} maxLength={60} onChange={e => setName(e.target.value)} />
+                  <input
+                    value={name}
+                    maxLength={60}
+                    disabled={installingDriver}
+                    onChange={e => {
+                      setName(e.target.value)
+                      setDriverInstallNotice(null)
+                    }}
+                  />
                 </label>
                 <div className="settings-form-row">
                   <span className="settings-form-label" id="integration-binding-label">
@@ -843,7 +935,10 @@ function IntegrationDialog({
                     labelledBy="integration-binding-label"
                     value={binding}
                     devices={candidates}
-                    onChange={setBindingChoice}
+                    onChange={next => {
+                      setBindingChoice(next)
+                      setDriverInstallNotice(null)
+                    }}
                   />
                 </div>
               </div>
@@ -875,13 +970,28 @@ function IntegrationDialog({
               {usesHidVoice(kind) && platform !== 'windows' && platform !== 'macos' && (
                 <p className="integration-attention">此设备暂不支持输入监听。</p>
               )}
-              {platform === 'windows' && supportsWindowsDriver(kind) && (
+              {platform === 'windows' && supportsWindowsDriver(kind) && !driverInstallNotice && !installingDriver && (
                 <p className="integration-attention">
-                  添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
+                  {binding
+                    ? '点击集成后将直接请求管理员权限安装 Quarbor Universal 按键驱动，完成后进入工作区即可使用。'
+                    : '暂不绑定硬件时可先配置键位，绑定物理设备后再安装 Quarbor Universal 按键驱动。'}
                 </p>
               )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
             </>
+          )}
+          {installingDriver && (
+            <div className="integration-uac-status" role="status" aria-live="polite">
+              正在请求管理员权限安装 Quarbor Universal 按键驱动，请在 Windows UAC 窗口中点击「是」…
+            </div>
+          )}
+          {driverInstallNotice && (
+            <div className="managed-error integration-uac-error" role="alert">
+              <strong>
+                {driverInstallNotice.status === 'restartRequired' ? '需要先重启 Windows' : '按键驱动尚未完成安装'}
+              </strong>
+              <span>{driverInstallNotice.text}</span>
+            </div>
           )}
           {localError && (
             <p className="managed-error" role="alert">
@@ -890,47 +1000,77 @@ function IntegrationDialog({
           )}
         </div>
         <footer className="managed-dialog-footer">
-          <button onClick={onClose}>取消</button>
-          {step === 'mobile-model' && (
-            <button
-              disabled={recognizing}
-              onClick={() => {
-                setError('')
-                setStep('details')
-              }}
-            >
-              上一步
-            </button>
-          )}
-          {step !== 'kind' && kind && (
-            <button
-              className="managed-primary"
-              disabled={
-                !name.trim() ||
-                controller.busy ||
-                recognizing ||
-                device?.identityQuality === 'ambiguous' ||
-                Boolean(binding && !device)
-              }
-              onClick={() => {
-                if (step === 'details' && needsMobileModelSelection) {
-                  setError('')
-                  setStep('mobile-model')
-                } else {
-                  void integrate()
-                }
-              }}
-            >
-              {step === 'details' && needsMobileModelSelection
-                ? '下一步'
-                : !native
-                  ? '保存预览'
-                  : initial.instance
-                    ? '保存'
-                    : binding
-                      ? '集成设备'
-                      : '添加设备'}
-            </button>
+          {pendingInstance && driverInstallNotice ? (
+            <>
+              <button type="button" disabled={installingDriver} onClick={() => onComplete(pendingInstance.id)}>
+                先进入配键位（稍后安装）
+              </button>
+              {driverInstallNotice.status !== 'restartRequired' && (
+                <button
+                  type="button"
+                  className="managed-primary"
+                  disabled={installingDriver || Boolean(binding && !device) || device?.identityQuality === 'ambiguous'}
+                  onClick={() => void integrate()}
+                >
+                  重新授权安装
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button disabled={installingDriver} onClick={onClose}>
+                取消
+              </button>
+              {step === 'mobile-model' && (
+                <button
+                  disabled={recognizing || installingDriver}
+                  onClick={() => {
+                    setError('')
+                    setDriverInstallNotice(null)
+                    setStep('details')
+                  }}
+                >
+                  上一步
+                </button>
+              )}
+              {step !== 'kind' && kind && (
+                <button
+                  className="managed-primary"
+                  disabled={
+                    !name.trim() ||
+                    controller.busy ||
+                    recognizing ||
+                    installingDriver ||
+                    device?.identityQuality === 'ambiguous' ||
+                    Boolean(binding && !device)
+                  }
+                  onClick={() => {
+                    if (step === 'details' && needsMobileModelSelection) {
+                      setError('')
+                      setStep('mobile-model')
+                    } else {
+                      void integrate()
+                    }
+                  }}
+                >
+                  {step === 'details' && needsMobileModelSelection
+                    ? '下一步'
+                    : !native
+                      ? '保存预览'
+                      : installingDriver
+                        ? '正在安装驱动…'
+                        : needsWindowsDriverInstall
+                          ? initial.instance
+                            ? '保存并配置驱动'
+                            : '集成并配置驱动'
+                          : initial.instance
+                            ? '保存'
+                            : binding
+                              ? '集成设备'
+                              : '添加设备'}
+                </button>
+              )}
+            </>
           )}
         </footer>
       </section>
