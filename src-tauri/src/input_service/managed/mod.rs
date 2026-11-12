@@ -1822,7 +1822,12 @@ fn run(shared: Arc<Shared>) {
                     .get(&instance.id)
                     .is_some_and(|status| status.recording);
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
-                if instance.kind == "rc003" && enabled && instance.enabled {
+                if matches!(
+                    crate::devices::descriptor_registry::voice_engine(&instance.kind),
+                    Some("rc003-atvv" | "tcl-rc902v-atvv")
+                ) && enabled
+                    && instance.enabled
+                {
                     let app = shared.app.lock().unwrap();
                     active = app
                         .as_ref()

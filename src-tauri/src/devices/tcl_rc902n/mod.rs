@@ -1,4 +1,4 @@
-//! TCL RC902N uses the captured report layout in its SVG descriptor.
+//! TCL RC902N uses the captured report layout in its SVG descriptor and Google ATVV HTT voice.
 use super::device_descriptor::DeviceDescriptor;
 use std::sync::OnceLock;
 

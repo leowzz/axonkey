@@ -1572,7 +1572,13 @@ export const deviceDescriptors = {
         "manufacturerContains": ""
       }
     ],
-    "voice": null,
+    "voice": {
+      "engine": "tcl-rc902v-atvv",
+      "transport": "gatt",
+      "triggerModes": [
+        "hold"
+      ]
+    },
     "viewBox": {
       "width": 440,
       "height": 904
@@ -1613,8 +1619,8 @@ export const deviceDescriptors = {
       {
         "id": "tcl-rc902n.assistant",
         "stableId": "tcl-rc902n.assistant",
-        "label": "助手图标键",
-        "short": "助手",
+        "label": "语音键（A）",
+        "short": "语音",
         "icon": "mic",
         "kind": "button",
         "threshold": 0.55,
@@ -1952,7 +1958,13 @@ export const deviceDescriptors = {
         "manufacturerContains": ""
       }
     ],
-    "voice": null,
+    "voice": {
+      "engine": "tcl-rc902v-atvv",
+      "transport": "gatt",
+      "triggerModes": [
+        "hold"
+      ]
+    },
     "viewBox": {
       "width": 328,
       "height": 1152
@@ -1993,9 +2005,9 @@ export const deviceDescriptors = {
       {
         "id": "tcl-rc902v.assistant",
         "stableId": "tcl-rc902v.assistant",
-        "label": "助手键",
-        "short": "助手",
-        "icon": "center",
+        "label": "语音键（A）",
+        "short": "语音",
+        "icon": "mic",
         "kind": "button",
         "threshold": 0.55,
         "releaseThreshold": 0.35,

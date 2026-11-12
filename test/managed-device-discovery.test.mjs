@@ -416,7 +416,7 @@ test('bundled capabilities retain recording defaults and platform support for al
   for (const [kind, mode, hidVoice] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
-    ['tclRc802a', 'click', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
+    ['tclRc802a', 'click', true], ['tclRc902n', 'hold', false], ['tclRc902v', 'hold', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
@@ -694,7 +694,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
 
     const communicationError = 'Quarbor Universal connect (BTHLEDEVICE\\device): 系统找不到指定的文件。(os error 2)'
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind, hideDriverMissingReminder: false }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'connecting', driverInstalled: true, error: communicationError }
@@ -733,7 +733,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     }
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
@@ -815,7 +815,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       for (const recording of [true, false]) {
         act(() => {
           instances[1] = { ...instances[1], kind }
@@ -833,10 +833,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
     assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
-    for (const [kind, battery, manualRecording, recordingModes] of [
-      ['rc003', true, false, false], ['cmiotA15', true, true, true], ['xmBt29', true, true, false],
-      ['rc313', true, true, false], ['obeRcuR5', true, false, false], ['xboxBluetooth', false, false, false],
-      ['tclRc802a', true, true, true], ['tclRc902n', true, false, false], ['tclRc902v', true, false, false],
+    for (const [kind, battery, manualRecording, recordingModes, voiceCalibration] of [
+      ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
+      ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
+      ['tclRc802a', true, true, true, true], ['tclRc902n', true, false, false, true], ['tclRc902v', true, false, false, true],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -844,6 +844,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       })
       assert.equal(views[1].root.findAllByProps({ className: 'managed-instance-power' }).length, Number(battery))
       assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, Number(manualRecording))
+      assert.equal(views[1].root.findAllByProps({ className: 'managed-audio-calibration' }).length, Number(voiceCalibration))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
       assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
@@ -884,7 +885,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(instances[0].cmiotA15RecordingMode, 'click')
     act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       const info = { status: 'ready', bluetoothName: 'REMOTE_NATIVE', batteryLevel: 54, manufacturer: 'IFLY_RCU', serialNumber: '20190620', hardwareRevision: 'HW1', firmwareRevision: 'FW1', softwareRevision: 'SW1' }
       act(() => {
         instances[0] = { ...instances[0], kind, binding: 'info-device' }

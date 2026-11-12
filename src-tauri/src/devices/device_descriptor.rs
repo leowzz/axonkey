@@ -382,7 +382,11 @@ fn parse_voice(attrs: &BTreeMap<String, String>) -> Result<VoiceDescriptor, Desc
     if attrs.get("required").is_some_and(|value| value == "true")
         && !matches!(
             engine.as_str(),
-            "rc003-atvv" | "cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico"
+            "rc003-atvv"
+                | "tcl-rc902v-atvv"
+                | "cmiot-a15.g7221"
+                | "obe-rcu-r5.sbc"
+                | "tcl-rc802a.ico"
         )
     {
         return Err(DescriptorError(format!(

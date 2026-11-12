@@ -90,8 +90,10 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
         .find(|input| input.id.ends_with(".confirm"))
         .unwrap();
     assert!(pending.pending && pending.sources.is_empty());
-    assert_eq!(voice_engine("tclRc902n"), None);
-    assert_eq!(voice_engine("tclRc902v"), None);
+    assert_eq!(voice_engine("tclRc902n"), Some("tcl-rc902v-atvv"));
+    assert_eq!(voice_key("tclRc902n"), Some("tcl-rc902n.assistant"));
+    assert_eq!(voice_engine("tclRc902v"), Some("tcl-rc902v-atvv"));
+    assert_eq!(voice_key("tclRc902v"), Some("tcl-rc902v.assistant"));
 }
 
 #[test]

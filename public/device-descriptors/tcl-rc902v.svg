@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" viewBox="0 0 328 1152" data-ak-schema="axonkey.device/1" data-ak-device="tcl-rc902v" data-ak-revision="2" data-ak-status="active">
   <title>TCL RC902V 正面按键区</title>
-  <desc>TCL RC902V 正面按键，使用已采集的 HID 报告映射；语音尚未适配。</desc>
+  <desc>TCL RC902V 正面按键，使用已采集的 HID 报告映射与 Google ATVV BLE 按住语音。</desc>
   <metadata>
     <ak:device schema="axonkey.device/1" id="tcl-rc902v" vendor="TCL" model="RC902V" revision="2" display-name="TCL RC902V" status="active">
       <ak:identity>
@@ -11,11 +11,14 @@
         <ak:report id="captured-buttons" direction="input" report-id="0x03"
                    length="3" encoding="bit-field" prefix="0x03"
                    state-group="captured-buttons" />
+        <ak:report id="voice-audio" direction="input"
+                   encoding="gatt-stream" transport="bluetooth-gatt"
+                   engine="tcl-rc902v-atvv" />
       </ak:reports>
       <ak:inputs>
         <ak:input id="tcl-rc902v.mute" label="静音" short="静音" icon="mute" kind="button" order="0" target="#key-mute" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00E2"/><ak:hid-capture version="1" press="03 E2 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
         <ak:input id="tcl-rc902v.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="2" target="#key-bookmark" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0059"/><ak:hid-capture version="1" press="03 59 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
-        <ak:input id="tcl-rc902v.assistant" label="助手键" short="助手" icon="center" kind="button" order="3" target="#key-assistant" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0221"/><ak:hid-capture version="1" press="03 21 02" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.assistant" label="语音键（A）" short="语音" icon="mic" kind="button" order="3" target="#key-assistant" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0221"/><ak:hid-capture version="1" press="03 21 02" press-length="3" release="03 00 00" release-length="3"/></ak:input>
         <ak:input id="tcl-rc902v.settings" label="设置" short="设置" icon="settings" kind="button" order="4" target="#key-settings" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0055"/><ak:hid-capture version="1" press="03 55 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
         <ak:input id="tcl-rc902v.up" label="上" short="上" icon="up" kind="button" order="5" target="#key-up" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0042"/><ak:hid-capture version="1" press="03 42 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
         <ak:input id="tcl-rc902v.right" label="右" short="右" icon="right" kind="button" order="6" target="#key-right" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0045"/><ak:hid-capture version="1" press="03 45 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
@@ -41,6 +44,16 @@
         <ak:input id="tcl-rc902v.youtube" label="YouTube" short="YouTube" icon="center" kind="button" order="26" target="#key-youtube" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0057"/><ak:hid-capture version="1" press="03 57 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
         <ak:input id="tcl-rc902v.tclChannel" label="TCL Channel" short="TCL Channel" icon="center" kind="button" order="27" target="#key-tclChannel" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0053"/><ak:hid-capture version="1" press="03 53 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
       </ak:inputs>
+      <ak:capabilities>
+        <ak:voice id="voice" trigger-key="tcl-rc902v.assistant"
+                  transport="gatt"
+                  service="AB5E0001-5A21-4F05-BC7D-AF01F617B664"
+                  transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
+                  audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
+                  control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
+                  engine="tcl-rc902v-atvv" trigger-modes="hold"
+                  sample-rate="16000" required="false" />
+      </ak:capabilities>
     </ak:device>
   </metadata>
   <g data-ak-view="front" aria-label="正面按键区">
@@ -55,7 +68,7 @@
       <path d="M 45 208 A 35 35 0 1 0 115 208 A 35 35 0 1 0 45 208 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
       <path d="M 71 194 H 89 V 222 L 80 216 L 71 222 Z" fill="#c6d1d5"/>
     </g>
-    <g id="key-assistant" data-ak-key="tcl-rc902v.assistant" data-ak-role="input" role="button" tabindex="0" aria-label="助手键">
+    <g id="key-assistant" data-ak-key="tcl-rc902v.assistant" data-ak-role="input" role="button" tabindex="0" aria-label="语音键（A）">
       <path d="M 129 208 A 35 35 0 1 0 199 208 A 35 35 0 1 0 129 208 Z" fill="#c9d1d5" stroke="#101418" stroke-width="2"/>
       <text x="164" y="216.75" text-anchor="middle" fill="#249bc8" font-family="sans-serif" font-size="25" font-weight="600">A</text>
     </g>

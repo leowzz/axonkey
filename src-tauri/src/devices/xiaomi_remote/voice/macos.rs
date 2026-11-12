@@ -1,6 +1,7 @@
 use super::atvv::AtvvDecoder;
 use crate::audio_service::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
 use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use crate::devices::tcl_rc902v::atvv::{upsample_8k_to_16k, ImaAdpcmDecoder};
 use std::{
     ffi::{c_char, c_void, CString},
     sync::{
@@ -40,6 +41,7 @@ extern "C" {
         target_address: *const c_char,
     ) -> *mut c_void;
     fn axonkey_macos_audio_set_recording(bridge: *mut c_void, recording: bool);
+    fn axonkey_macos_audio_set_htt_only(bridge: *mut c_void, htt_only: bool);
     fn axonkey_macos_audio_start(bridge: *mut c_void);
     fn axonkey_macos_audio_refresh(bridge: *mut c_void);
     fn axonkey_macos_audio_restart(bridge: *mut c_void) -> bool;
@@ -66,6 +68,7 @@ extern "C" {
 struct Shared {
     recording_indicator: crate::recording_overlay::RecordingSource,
     a15: bool,
+    htt_only: bool,
     a15_connected: AtomicBool,
     a15_recording: AtomicBool,
     a15_received: AtomicBool,
@@ -74,6 +77,8 @@ struct Shared {
     bridge: AtomicPtr<c_void>,
     output_enabled: AtomicBool,
     decoder: Mutex<AtvvDecoder>,
+    rc902v_decoder: Mutex<ImaAdpcmDecoder>,
+    rc902v_resample_prev: Mutex<Option<i16>>,
     signal_monitor: Mutex<SignalMonitor>,
 }
 
@@ -118,24 +123,30 @@ impl AudioService {
     }
 
     pub fn start() -> Self {
-        Self::create(false, None)
+        Self::create(false, false, None)
     }
 
     pub fn start_for(target_identity: Option<String>) -> Self {
         // An instance without an address must not fall back to an arbitrary RC003.
         let target = CString::new(target_identity.unwrap_or_default()).unwrap_or_default();
-        Self::create(false, Some(target))
+        Self::create(false, false, Some(target))
+    }
+
+    pub fn start_rc902(_kind: &str, target_identity: Option<String>) -> Self {
+        let target = CString::new(target_identity.unwrap_or_default()).unwrap_or_default();
+        Self::create(false, true, Some(target))
     }
 
     pub fn start_a15() -> Self {
-        Self::create(true, None)
+        Self::create(true, false, None)
     }
 
-    fn create(a15: bool, target_address: Option<CString>) -> Self {
+    fn create(a15: bool, htt_only: bool, target_address: Option<CString>) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
             recording_indicator: Default::default(),
             a15,
+            htt_only,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
@@ -144,6 +155,8 @@ impl AudioService {
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
+            rc902v_decoder: Mutex::new(ImaAdpcmDecoder::default()),
+            rc902v_resample_prev: Mutex::new(None),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         });
         let callback_context = Arc::into_raw(Arc::clone(&shared));
@@ -152,13 +165,17 @@ impl AudioService {
             on_event: native_event_callback,
         };
         let bridge = unsafe {
-            axonkey_macos_audio_create(
+            let bridge = axonkey_macos_audio_create(
                 &callbacks,
                 a15,
                 target_address
                     .as_ref()
                     .map_or(std::ptr::null(), |address| address.as_ptr()),
-            )
+            );
+            if !bridge.is_null() && htt_only {
+                axonkey_macos_audio_set_htt_only(bridge, true);
+            }
+            bridge
         };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
@@ -405,16 +422,42 @@ unsafe extern "C" fn native_event_callback(
     let shared = &*(context.cast::<Shared>());
     match event {
         EVENT_AUDIO_PACKET if !data.is_null() && length > 0 => {
-            let Ok(mut decoder) = shared.decoder.lock() else {
-                shared.diagnostics.rejected();
-                return;
-            };
             let packet = std::slice::from_raw_parts(data, length);
-            let frames = decoder.append(packet, value1.max(1) as usize);
-            shared
-                .diagnostics
-                .decoder_pending(decoder.pending_bytes(), 0);
-            drop(decoder);
+            let frames = if shared.htt_only {
+                let Ok(mut decoder) = shared.rc902v_decoder.lock() else {
+                    shared.diagnostics.rejected();
+                    return;
+                };
+                let raw_frames = decoder.append(packet, value1.max(1) as usize);
+                shared
+                    .diagnostics
+                    .decoder_pending(decoder.pending_bytes(), 0);
+                drop(decoder);
+                if value2 == 0x01 {
+                    shared
+                        .rc902v_resample_prev
+                        .lock()
+                        .map(|mut prev| {
+                            raw_frames
+                                .into_iter()
+                                .map(|samples| upsample_8k_to_16k(&samples, &mut prev))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default()
+                } else {
+                    raw_frames
+                }
+            } else {
+                let Ok(mut decoder) = shared.decoder.lock() else {
+                    shared.diagnostics.rejected();
+                    return;
+                };
+                let frames = decoder.append(packet, value1.max(1) as usize);
+                shared
+                    .diagnostics
+                    .decoder_pending(decoder.pending_bytes(), 0);
+                frames
+            };
             let bridge = shared.bridge.load(Ordering::Acquire);
             for samples in frames {
                 shared.diagnostics.decoded(&samples);
@@ -441,7 +484,17 @@ unsafe extern "C" fn native_event_callback(
             }
         }
         EVENT_CODEC_SYNC => {
-            if let Ok(mut decoder) = shared.decoder.lock() {
+            if shared.htt_only {
+                let frame_no = if !data.is_null() && length >= 4 {
+                    let sync = std::slice::from_raw_parts(data, length);
+                    u16::from_be_bytes([sync[2], sync[3]])
+                } else {
+                    0
+                };
+                if let Ok(mut decoder) = shared.rc902v_decoder.lock() {
+                    decoder.synchronize(frame_no, value1, value2);
+                }
+            } else if let Ok(mut decoder) = shared.decoder.lock() {
                 shared
                     .diagnostics
                     .decoder_pending(0, decoder.pending_bytes());
@@ -453,7 +506,17 @@ unsafe extern "C" fn native_event_callback(
             if !shared.a15 {
                 shared.recording_indicator.set(event == EVENT_SESSION_START);
             }
-            if let Ok(mut decoder) = shared.decoder.lock() {
+            if shared.htt_only {
+                if let Ok(mut decoder) = shared.rc902v_decoder.lock() {
+                    shared
+                        .diagnostics
+                        .decoder_pending(0, decoder.pending_bytes());
+                    decoder.reset_session();
+                }
+                if let Ok(mut prev) = shared.rc902v_resample_prev.lock() {
+                    *prev = None;
+                }
+            } else if let Ok(mut decoder) = shared.decoder.lock() {
                 shared
                     .diagnostics
                     .decoder_pending(0, decoder.pending_bytes());
@@ -501,10 +564,11 @@ unsafe extern "C" fn native_event_callback(
 mod tests {
     use super::*;
 
-    fn indicator_service(a15: bool) -> AudioService {
-        let shared = Arc::new(Shared {
+    fn test_shared(a15: bool) -> Shared {
+        Shared {
             recording_indicator: Default::default(),
             a15,
+            htt_only: false,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
@@ -513,8 +577,14 @@ mod tests {
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
+            rc902v_decoder: Mutex::new(ImaAdpcmDecoder::default()),
+            rc902v_resample_prev: Mutex::new(None),
             signal_monitor: Mutex::new(SignalMonitor::default()),
-        });
+        }
+    }
+
+    fn indicator_service(a15: bool) -> AudioService {
+        let shared = Arc::new(test_shared(a15));
         AudioService {
             callback_context: Arc::into_raw(shared.clone()),
             shared,
@@ -576,19 +646,7 @@ mod tests {
 
     #[test]
     fn native_packets_record_decode_and_enqueue_failure_separately() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 120];
         unsafe {
@@ -615,19 +673,7 @@ mod tests {
 
     #[test]
     fn partial_decoder_frames_are_accounted_on_sync_and_stop() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 60];
         unsafe {
@@ -668,19 +714,7 @@ mod tests {
 
     #[test]
     fn native_telemetry_does_not_take_the_decoder_lock() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let _guard = shared.decoder.lock().unwrap();
         unsafe {

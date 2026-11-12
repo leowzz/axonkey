@@ -74,6 +74,10 @@ impl AudioService {
         Self::start()
     }
 
+    pub fn start_rc902(_kind: &str, _target_identity: Option<String>) -> Self {
+        Self::start()
+    }
+
     pub fn restart(&self) -> Result<(), String> {
         Err("当前系统暂不支持语音音频服务".into())
     }
@@ -173,14 +177,19 @@ impl AudioServiceManager {
                 services
                     .entry(target.instance_id.clone())
                     .or_insert_with(|| {
-                        #[cfg(any(windows, target_os = "macos"))]
-                        if matches!(
-                            crate::devices::descriptor_registry::voice_engine(&target.kind),
-                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico")
-                        ) {
-                            return Arc::new(PlatformAudioService::start_a15());
+                        match crate::devices::descriptor_registry::voice_engine(&target.kind) {
+                            #[cfg(any(windows, target_os = "macos"))]
+                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico") => {
+                                Arc::new(PlatformAudioService::start_a15())
+                            }
+                            Some("tcl-rc902v-atvv") => Arc::new(PlatformAudioService::start_rc902(
+                                &target.kind,
+                                target.voice_target.clone(),
+                            )),
+                            _ => Arc::new(PlatformAudioService::start_for(
+                                target.voice_target.clone(),
+                            )),
                         }
-                        Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
                     })
                     .clone()
             } else {

@@ -1313,7 +1313,7 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .iter()
         .filter(
             |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
-                Some("rc003-atvv") => true,
+                Some("rc003-atvv" | "tcl-rc902v-atvv") => true,
                 Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico") => {
                     cfg!(any(windows, target_os = "macos"))
                 }
@@ -1321,21 +1321,34 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
             },
         )
         .map(|instance| {
-            let voice_target = instance.voice_target.clone().or_else(|| {
-                instance.binding.as_ref().and_then(|binding| {
-                    snapshot
-                        .discovered
-                        .iter()
-                        .find(|device| &device.id == binding)
-                        .and_then(|device| device.bluetooth_address.clone())
-                })
+            let bound_device = instance.binding.as_ref().and_then(|binding| {
+                snapshot
+                    .discovered
+                    .iter()
+                    .find(|device| &device.id == binding)
             });
+            let information_ok =
+                !devices::descriptor_registry::requires_information(&instance.kind)
+                    || bound_device.is_none_or(|device| {
+                        devices::descriptor_registry::matches_information(
+                            &instance.kind,
+                            device.vendor_id,
+                            device.product_id,
+                            device.device_info.model_number.as_deref(),
+                            device.device_info.manufacturer.as_deref(),
+                            device.device_info.software_revision.as_deref(),
+                        )
+                    });
+            let voice_target = instance
+                .voice_target
+                .clone()
+                .or_else(|| bound_device.and_then(|device| device.bluetooth_address.clone()));
             AudioTarget {
                 instance_id: instance.id.clone(),
                 kind: instance.kind.clone(),
                 voice_target,
                 gain_db: instance.audio_gain_db,
-                enabled: instance.enabled && instance.binding.is_some(),
+                enabled: instance.enabled && instance.binding.is_some() && information_ok,
             }
         })
         .collect()
@@ -1535,7 +1548,10 @@ fn device_snapshot(
     let mut snapshot = manager.snapshot();
     audio_service.sync_instances(&audio_targets(&snapshot));
     for instance in &snapshot.store.instances {
-        if devices::descriptor_registry::voice_engine(&instance.kind) == Some("rc003-atvv") {
+        if matches!(
+            devices::descriptor_registry::voice_engine(&instance.kind),
+            Some("rc003-atvv" | "tcl-rc902v-atvv")
+        ) {
             if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
                 status.recording = audio_service.status(Some(&instance.id)).forwarding;
             }
@@ -1977,9 +1993,11 @@ mod tests {
                 "rc313",
                 "obeRcuR5",
                 "tclRc802a",
+                "tclRc902n",
+                "tclRc902v",
             ]
         } else {
-            vec!["rc003"]
+            vec!["rc003", "tclRc902n", "tclRc902v"]
         };
         assert_eq!(
             targets

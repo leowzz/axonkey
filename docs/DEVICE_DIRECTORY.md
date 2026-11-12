@@ -106,11 +106,13 @@ Windows RC003 输入和语音服务都按实例维护；每个实例注册自己
 | 型号 | 前端目录 | Rust 入口 | 联合身份条件 | 已采集按键 | 语音 |
 | --- | --- | --- | --- | --- | --- |
 | RC802A | `src/devices/tcl-rc802a-remote/` | `src-tauri/src/devices/tcl_rc802a/` | `DEV_VID&010416_PID&0301` + 2A24 含 `BT_RC802A` + 2A29 含 `TCL` | 22 | EB 启停 / EC ICO |
-| RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N` | 21；确认键按下待采集 | 未接入 |
-| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V` | 27 | 未接入 |
+| RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N` | 21；确认键按下待采集 | ATVV BLE 按住语音（A 键） |
+| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V` | 27 | ATVV BLE 按住语音（A 键） |
 
 型号匹配声明来自 SVG。Windows/macOS 读取 Device Information 的 `2A24/modelNumber`、`2A29/manufacturer` 和 `2A28/softwareRevision`，发现候选不代表已确认型号。绑定、驱动目标和输入启动都要求真实信息字段匹配，不能仅凭名称或 `detectedKind` 回退。RC902N/V 共用硬件候选身份，识别后只更新型号，不重算已发现实物 ID。
 
 按键通过现有描述引擎处理原始字段，未知 Usage Page 不补写成标准键盘或 Consumer usage，未配置输入不承诺原始按键转发。RC902N 确认键显式 `binding="pending"`，保留图形、标签与可配置区域，但不产生输入边沿。
 
 RC802A 复用现有 CMIOT-A15 的按住/点击录音状态机、G.722.1 解码和每实例 PCM 输出。协议细节及验证边界见 [RC802A 音频说明](../src-tauri/src/devices/tcl_rc802a/README.md)。
+
+RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务接入各自 `A` 键（`tcl-rc902n.assistant` / `tcl-rc902v.assistant`）按住说话、松手结束（HTT）语音，复用 `xiaomi_remote::voice` 的实例级蓝牙工作线程与虚拟麦克风输出。协议细节及验证边界见 [RC902N 音频说明](../src-tauri/src/devices/tcl_rc902n/README.md) 与 [RC902V 音频说明](../src-tauri/src/devices/tcl_rc902v/README.md)。
