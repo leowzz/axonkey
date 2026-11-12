@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, Check, Clock3, Ellipsis, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, ManagedDriverInstallOutcome, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
+import { InstanceSettingsDrawer } from './InstanceSettingsDrawer'
 import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
@@ -87,6 +88,7 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [inspectorInstanceId, setInspectorInstanceId] = useState<string | null>(null)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
@@ -108,6 +110,7 @@ export function DeviceHub(props: Props) {
   }, [props.bindInstanceId, props.onBindingOpened, snapshot.store.instances])
   const instance = snapshot.store.instances.find(i => i.id === selected)
   const instanceById = new Map(snapshot.store.instances.map(item => [item.id, item]))
+  const inspectorInstance = inspectorInstanceId ? (instanceById.get(inspectorInstanceId) ?? null) : null
   const allCardIds = [...snapshot.store.instances.map(item => item.id), systemMouseCardId]
   const availableCardIds = new Set(allCardIds)
   const orderedCardIds = [
@@ -247,6 +250,16 @@ export function DeviceHub(props: Props) {
                 {orderedCardIds.map(cardId => {
                   const item = instanceById.get(cardId)
                   if (item) {
+                    const missingWindowsDriver =
+                      native &&
+                      props.platform === 'windows' &&
+                      supportsWindowsDriver(item.kind) &&
+                      !!item.binding &&
+                      snapshot.runtime[item.id]?.driverState === 'missing'
+                    const missingMacPermissions =
+                      native &&
+                      props.platform === 'macos' &&
+                      (!props.permissions.inputMonitoring || !props.permissions.accessibility)
                     return (
                       <DeviceCard
                         key={item.id}
@@ -267,6 +280,21 @@ export function DeviceHub(props: Props) {
                         }
                         applicationProfileCount={item.applicationProfiles?.length ?? 0}
                         applicationProfileSwitching={item.appProfileSwitching === true}
+                        onOpenSettings={() => setInspectorInstanceId(item.id)}
+                        quickAction={
+                          missingWindowsDriver
+                            ? {
+                                label:
+                                  props.driverAction?.instanceId === item.id && props.driverAction.status === 'running'
+                                    ? '安装中…'
+                                    : '安装驱动',
+                                disabled: props.driverAction?.status === 'running',
+                                onClick: () => void props.onInstallDriver(item.id),
+                              }
+                            : missingMacPermissions
+                              ? { label: '前往授权', onClick: props.onPermissions }
+                              : undefined
+                        }
                         onClick={() => {
                           if (didDragRef.current) {
                             didDragRef.current = false
@@ -308,6 +336,26 @@ export function DeviceHub(props: Props) {
             <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
           </div>
         </>
+      )}
+      {inspectorInstance && !instance && (
+        <InstanceSettingsDrawer
+          open
+          instance={inspectorInstance}
+          controller={controller}
+          native={native}
+          platform={props.platform}
+          driverAction={props.driverAction}
+          onInstallDriver={props.onInstallDriver}
+          onBind={() => {
+            setInspectorInstanceId(null)
+            setIntegration({ kind: inspectorInstance.kind, instance: inspectorInstance })
+          }}
+          onUnbindDevice={props.onUnbindDevice}
+          onRemoveDevice={props.onRemoveDevice}
+          onOpenAudioDriver={props.onOpenAudioDriver}
+          onClose={() => setInspectorInstanceId(null)}
+          onRemoved={() => setInspectorInstanceId(null)}
+        />
       )}
       {integration &&
         createPortal(
@@ -560,6 +608,8 @@ function DeviceCard({
   applicationProfileCount = 0,
   applicationProfileSwitching = false,
   batteryLevel = null,
+  onOpenSettings,
+  quickAction,
   onClick,
   dragging = false,
   dragOver = false,
@@ -577,6 +627,8 @@ function DeviceCard({
   applicationProfileCount?: number
   applicationProfileSwitching?: boolean
   batteryLevel?: number | null
+  onOpenSettings?: () => void
+  quickAction?: { label: string; disabled?: boolean; onClick: () => void }
   onClick: () => void
   dragging?: boolean
   dragOver?: boolean
@@ -585,65 +637,88 @@ function DeviceCard({
   const appearance = state ? deviceStatusAppearance[state] : undefined
   const StatusIcon = appearance?.icon
   return (
-    <button
-      className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`}
-      data-instance-id={instanceId}
-      data-discovered={discovered || undefined}
-      data-unbound={unbound || undefined}
-      data-dragging={dragging || undefined}
-      data-drag-over={dragOver || undefined}
-      onPointerDown={onPointerDown}
-      onClick={onClick}
-    >
-      <div className="my-devices-card-main">
-        <span className="my-devices-artwork">
-          <img src={kind === 'mouse' ? '/mouse-device.svg' : packageFor(kind).artwork} alt="" />
+    <div className="my-devices-card-shell" data-dragging={dragging || undefined} data-drag-over={dragOver || undefined}>
+      <button
+        className={`my-devices-card${kind === 'mouse' ? ' managed-system-mouse' : ''}`}
+        data-instance-id={instanceId}
+        data-discovered={discovered || undefined}
+        data-unbound={unbound || undefined}
+        data-dragging={dragging || undefined}
+        data-drag-over={dragOver || undefined}
+        onPointerDown={onPointerDown}
+        onClick={onClick}
+      >
+        <div className="my-devices-card-main">
+          <span className="my-devices-artwork">
+            <img src={kind === 'mouse' ? '/mouse-device.svg' : packageFor(kind).artwork} alt="" />
+          </span>
+          <span className="my-devices-identity">
+            <strong>{title}</strong>
+            <span className="my-devices-count">{subtitle}</span>
+          </span>
+        </div>
+        <span className="my-devices-summary">
+          <span className="my-devices-telemetry">
+            {unbound ? (
+              <span className="my-devices-unbound-badge">
+                <Link2Off size={14} aria-hidden="true" />
+                未绑定
+              </span>
+            ) : (
+              <span className="my-devices-status" data-tone={appearance?.tone}>
+                {StatusIcon ? (
+                  <StatusIcon size={12} aria-hidden="true" />
+                ) : (
+                  <i className="my-devices-status-dot" aria-hidden="true" />
+                )}
+                {status}
+              </span>
+            )}
+            {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
+              <span className="my-devices-power">
+                <BatteryIndicator level={batteryLevel} />
+              </span>
+            )}
+          </span>
+          <span className="my-devices-profile">
+            {profile ? (
+              <span className="my-devices-profile-current">
+                <span>当前配置</span>
+                <strong>{profile}</strong>
+              </span>
+            ) : (
+              <ChevronRight size={15} aria-hidden="true" />
+            )}
+            {applicationProfileCount > 0 && (
+              <small className="my-devices-application-profiles">
+                {applicationProfileCount} 个应用配置{applicationProfileSwitching ? ' · 自动切换' : ' · 已暂停'}
+              </small>
+            )}
+          </span>
         </span>
-        <span className="my-devices-identity">
-          <strong>{title}</strong>
-          <span className="my-devices-count">{subtitle}</span>
-        </span>
-      </div>
-      <span className="my-devices-summary">
-        <span className="my-devices-telemetry">
-          {unbound ? (
-            <span className="my-devices-unbound-badge">
-              <Link2Off size={14} aria-hidden="true" />
-              未绑定
-            </span>
-          ) : (
-            <span className="my-devices-status" data-tone={appearance?.tone}>
-              {StatusIcon ? (
-                <StatusIcon size={12} aria-hidden="true" />
-              ) : (
-                <i className="my-devices-status-dot" aria-hidden="true" />
-              )}
-              {status}
-            </span>
-          )}
-          {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
-            <span className="my-devices-power">
-              <BatteryIndicator level={batteryLevel} />
-            </span>
-          )}
-        </span>
-        <span className="my-devices-profile">
-          {profile ? (
-            <span className="my-devices-profile-current">
-              <span>当前配置</span>
-              <strong>{profile}</strong>
-            </span>
-          ) : (
-            <ChevronRight size={15} aria-hidden="true" />
-          )}
-          {applicationProfileCount > 0 && (
-            <small className="my-devices-application-profiles">
-              {applicationProfileCount} 个应用配置{applicationProfileSwitching ? ' · 自动切换' : ' · 已暂停'}
-            </small>
-          )}
-        </span>
-      </span>
-    </button>
+      </button>
+      {onOpenSettings && (
+        <button
+          type="button"
+          className="my-devices-card-more"
+          aria-label={`${title}设备设置`}
+          title="设备设置与硬件信息"
+          onClick={onOpenSettings}
+        >
+          <Ellipsis size={16} aria-hidden="true" />
+        </button>
+      )}
+      {quickAction && (
+        <button
+          type="button"
+          className="my-devices-card-action"
+          disabled={quickAction.disabled}
+          onClick={quickAction.onClick}
+        >
+          {quickAction.label}
+        </button>
+      )}
+    </div>
   )
 }
 type IntegrationStep = 'kind' | 'mobile-model' | 'details'

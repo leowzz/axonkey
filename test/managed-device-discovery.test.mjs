@@ -49,11 +49,22 @@ const modelImports = {
 const model = compile('src/devices/integration/model.ts', modelImports)
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
+const sharedSettingsDrawer = compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+  'react-dom': { createPortal: node => node },
+})
+const instanceSettingsDrawer = compile('src/devices/integration/InstanceSettingsDrawer.tsx', {
+  'react-dom': { createPortal: node => node },
+  '../../components/BatteryIndicator': battery,
+  '../shared/DeviceSettingsDrawer': sharedSettingsDrawer,
+  './IntegrationControls': controls,
+  './model': model,
+})
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile(
   'src/devices/integration/DeviceHub.tsx',
   {
     'react-dom': { createPortal: node => node },
     '@tauri-apps/api/event': { listen: async () => () => {} },
+    './InstanceSettingsDrawer': instanceSettingsDrawer,
     './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
     './IntegrationControls': controls,
     '../../components/SettingsHelp': { SettingsHelp: () => null },
@@ -930,9 +941,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
-    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
-      'react-dom': { createPortal: node => node },
-    }),
+    './InstanceSettingsDrawer': instanceSettingsDrawer,
     './IntegrationControls': controls,
     './model': model,
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
@@ -1759,6 +1768,103 @@ test('Windows integration installs the device driver via UAC before entering wor
       await retryPromise
     })
     assert.equal(completedId, 'xbox-instance-1')
+  } finally {
+    act(() => view.unmount())
+  }
+})
+
+test('home device card menu opens unified settings and hardware info drawer without entering workspace', async () => {
+  const instance = { ...model.newInstance('rc003', 'remote-ble'), id: 'home-rc003', name: '客厅遥控器' }
+  const snapshot = {
+    ...model.emptySnapshot(),
+    store: { version: 1, revision: 1, instances: [instance] },
+    discovered: [
+      {
+        ...device,
+        id: 'remote-ble',
+        kind: 'rc003',
+        name: 'XMRM-003',
+        connected: true,
+        bluetoothAddress: '11:22:33:44:55:66',
+        deviceInfo: {
+          status: 'ready',
+          bluetoothName: 'XMRM-003',
+          batteryLevel: 88,
+          manufacturer: 'Xiaomi',
+          serialNumber: 'SN-8801',
+          hardwareRevision: '1.0',
+          firmwareRevision: '2.1',
+          softwareRevision: '2.1.4',
+        },
+      },
+    ],
+  }
+  const removed = []
+  const controller = {
+    snapshot,
+    busy: false,
+    error: '',
+    refreshInformation: async () => {},
+    update: async (_id, change) => {
+      snapshot.store.instances[0] = change(snapshot.store.instances[0])
+      return snapshot
+    },
+  }
+  let selectedId = null
+  let view
+  act(() => {
+    view = Renderer.create(
+      React.createElement(ControlledDeviceHub, {
+        controller,
+        native: true,
+        platform: 'macos',
+        permissions: { accessibility: true, inputMonitoring: true, captureActive: true },
+        selectedInstanceId: selectedId,
+        onSelectInstance: id => {
+          selectedId = id
+        },
+        onRemoveDevice: async id => {
+          removed.push(id)
+        },
+      }),
+    )
+  })
+  try {
+    const moreBtn = view.root.findByProps({ 'aria-label': '客厅遥控器设备设置' })
+    act(() => moreBtn.props.onClick())
+    assert.equal(selectedId, null, 'opening quick inspector does not navigate into workspace')
+    const drawer = view.root.findByProps({ className: 'device-settings-drawer' })
+    const navButtons = drawer.findByProps({ className: 'settings-nav device-settings-drawer-nav' }).findAllByType('button')
+    assert.deepEqual(navButtons.map(text), ['设备设置', '设备信息'])
+
+    const nameInput = drawer.findByType('input')
+    act(() => nameInput.props.onBlur({ target: { value: '书房遥控器' } }))
+    assert.equal(snapshot.store.instances[0].name, '书房遥控器')
+
+    act(() => navButtons[1].props.onClick())
+    assert.ok(text(drawer).includes('11:22:33:44:55:66'))
+    assert.ok(text(drawer).includes('SN-8801'))
+
+    act(() =>
+      drawer
+        .findByProps({ className: 'settings-nav device-settings-drawer-nav' })
+        .findAllByType('button')[0]
+        .props.onClick(),
+    )
+    act(() =>
+      drawer
+        .findByProps({ className: 'managed-remove' })
+        .findByType('button')
+        .props.onClick(),
+    )
+    await act(async () =>
+      drawer
+        .findByProps({ className: 'managed-remove' })
+        .findAllByType('button')[0]
+        .props.onClick(),
+    )
+    assert.deepEqual(removed, ['home-rc003'])
+    assert.equal(view.root.findAllByProps({ className: 'device-settings-drawer' }).length, 0)
   } finally {
     act(() => view.unmount())
   }

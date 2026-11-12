@@ -185,6 +185,7 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
+    './InstanceSettingsDrawer': { InstanceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
     './IntegrationControls': { DeviceBindingPicker: nullComponent },
     './model': require('../src/devices/integration/model.ts'),

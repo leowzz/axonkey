@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
+import { SlidersHorizontal } from 'lucide-react'
 import type {
   MacPermissions,
   ManagedDriverAction,
@@ -27,19 +27,10 @@ import { reportTencentEvent } from '../../telemetry'
 import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
-import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
-import { DeviceBindingPicker } from './IntegrationControls'
-import {
-  defaultRecordingMode,
-  emptyTriggers,
-  instanceState,
-  packageFor,
-  stateLabel,
-  supportsWindowsDriver,
-  usesHidVoice,
-} from './model'
-import type { DeviceInstance, DiscoveredDevice } from './model'
+import { InstanceSettingsDrawer } from './InstanceSettingsDrawer'
+import { emptyTriggers, instanceState, packageFor, stateLabel, supportsWindowsDriver, usesHidVoice } from './model'
+import type { DeviceInstance } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
@@ -87,7 +78,6 @@ export function InstanceWorkspace({
 }: Props) {
   const pkg = packageFor(instance.kind)
   const voice = pkg.remoteView?.voice
-  const voiceModes = voice?.triggerModes ?? []
   const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [selected, setSelected] = useState<string>(() =>
@@ -105,9 +95,6 @@ export function InstanceWorkspace({
   const applications = useForegroundApplications(native)
   const [recordingPending, setRecordingPending] = useState(false)
   const workspaceRef = useRef<HTMLDivElement>(null)
-  const [settingsSection, setSettingsSection] = useState<'overview' | 'information'>('overview')
-  const [confirmRemove, setConfirmRemove] = useState(false)
-  const [pendingPhysicalAction, setPendingPhysicalAction] = useState<'unbind' | 'remove' | null>(null)
   const [toolboxCategory, setToolboxCategory] = useState('recommended')
   const [controllerTrigger, setControllerTrigger] = useState<TriggerType>('click')
   const [pendingSwitch, setPendingSwitch] = useState<{
@@ -133,20 +120,7 @@ export function InstanceWorkspace({
   const boundDevice = instance.binding
     ? controller.snapshot.discovered.find(device => device.id === instance.binding)
     : undefined
-  const [informationRefreshRemaining, setInformationRefreshRemaining] = useState(0)
-  const informationRefreshLocked = informationRefreshRemaining > 0
   const informationAvailable = !!boundDevice?.connected && boundDevice.identityQuality !== 'ambiguous'
-  const refreshInformation = controller.refreshInformation
-  useEffect(() => {
-    if (settings && settingsSection === 'information' && native && informationAvailable && instance.binding) {
-      void refreshInformation(instance.binding).catch(() => {})
-    }
-  }, [settings, settingsSection, native, informationAvailable, instance.binding, refreshInformation])
-  useEffect(() => {
-    if (!informationRefreshLocked) return
-    const timer = setInterval(() => setInformationRefreshRemaining(seconds => Math.max(0, seconds - 1)), 1000)
-    return () => clearInterval(timer)
-  }, [informationRefreshLocked])
   useEffect(() => {
     const recording = status?.recording === true
     const previous = recordingRef.current
@@ -154,11 +128,6 @@ export function InstanceWorkspace({
       reportTencentEvent('voice_recording_start')
     recordingRef.current = { instanceId: instance.id, recording }
   }, [instance.id, status?.recording])
-  const availableDevices = controller.snapshot.discovered.filter(
-    device =>
-      device.kind === instance.kind &&
-      !controller.snapshot.store.instances.some(item => item.id !== instance.id && item.binding === device.id),
-  )
   const update = (change: (item: DeviceInstance) => DeviceInstance) => {
     void controller.update(instance.id, change).catch(() => {})
   }
@@ -171,19 +140,6 @@ export function InstanceWorkspace({
     } finally {
       setRecordingPending(false)
     }
-  }
-  const unbindDevice = () => {
-    setPendingPhysicalAction('unbind')
-    void onUnbindDevice(instance.id)
-      .catch(() => {})
-      .finally(() => setPendingPhysicalAction(null))
-  }
-  const removeDevice = () => {
-    setPendingPhysicalAction('remove')
-    void onRemoveDevice(instance.id)
-      .then(onBack)
-      .catch(() => {})
-      .finally(() => setPendingPhysicalAction(null))
   }
   useEffect(() => {
     if (!native) return
@@ -458,188 +414,21 @@ export function InstanceWorkspace({
           />
         </section>
       </div>
-      {settings && (
-        <DeviceSettingsDrawer deviceName={instance.name} onClose={() => setSettings(false)}>
-          <nav className="settings-nav device-settings-drawer-nav" aria-label={`${instance.name}设置分类`}>
-            <button
-              type="button"
-              aria-current={settingsSection === 'overview' ? 'page' : undefined}
-              onClick={() => setSettingsSection('overview')}
-            >
-              <Settings2 size={16} />
-              <span>设备设置</span>
-            </button>
-            {voice && (
-              <button
-                type="button"
-                aria-current={settingsSection === 'information' ? 'page' : undefined}
-                onClick={() => setSettingsSection('information')}
-              >
-                <Info size={16} />
-                <span>设备信息</span>
-              </button>
-            )}
-            {settingsSection === 'information' && (
-              <button
-                type="button"
-                className="settings-refresh"
-                aria-label="刷新设备信息"
-                title={informationRefreshLocked ? `${informationRefreshRemaining} 秒后可再次刷新` : '刷新设备信息'}
-                disabled={!native || !informationAvailable || !instance.binding || informationRefreshLocked}
-                onClick={() => {
-                  if (!instance.binding || informationRefreshLocked) return
-                  setInformationRefreshRemaining(10)
-                  void refreshInformation(instance.binding).catch(() => {})
-                }}
-              >
-                {informationRefreshLocked ? (
-                  <span className="device-information-countdown" aria-hidden="true">
-                    {informationRefreshRemaining}s
-                  </span>
-                ) : (
-                  <RefreshCw size={14} aria-hidden="true" />
-                )}
-              </button>
-            )}
-          </nav>
-          <section
-            className="device-settings-drawer-panel"
-            aria-label={settingsSection === 'information' ? '设备信息' : '设备设置'}
-          >
-            {settingsSection === 'information' ? (
-              <DeviceInformationPanel binding={instance.binding} device={boundDevice} native={native} />
-            ) : (
-              <>
-                {supportsDriver && platform === 'windows' && (
-                  <div className="settings-form-row managed-driver-status-row">
-                    <span className="settings-form-label">按键驱动：</span>
-                    <div className="settings-form-control managed-driver-status-control">
-                      <strong>
-                        {!native
-                          ? '预览模式'
-                          : driverRestartRequired
-                            ? '需重启后安装'
-                            : deviceOffline
-                              ? '设备不在线'
-                              : status?.driverState === 'installed'
-                                ? '已安装'
-                                : status?.driverState === 'connected'
-                                  ? '已连接'
-                                  : status?.driverState === 'connecting'
-                                    ? '连接中'
-                                    : status?.driverState === 'missing'
-                                      ? '未安装'
-                                      : status?.driverState === 'disconnected'
-                                        ? '等待设备'
-                                        : '检测中'}
-                      </strong>
-                      {native && !deviceOffline && !driverRestartRequired && (
-                        <button
-                          type="button"
-                          disabled={driverBusy || !instance.binding}
-                          onClick={() => onInstallDriver(instance.id)}
-                        >
-                          {driverRunning ? '正在安装…' : driverInstalled ? '重新安装驱动' : '安装驱动'}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <div className="settings-form-fields">
-                  {voice && (platform === 'windows' || platform === 'macos') && (
-                    <div className="settings-form-row">
-                      <span className="settings-form-label">虚拟麦克风：</span>
-                      <div className="settings-form-control">
-                        <button type="button" className="dialog-secondary" onClick={onOpenAudioDriver}>
-                          管理驱动
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {voiceModes.includes('hold') &&
-                    voiceModes.includes('click') &&
-                    (platform === 'windows' || platform === 'macos') && (
-                      <label className="settings-form-row">
-                        <span className="settings-form-label">语音录制：</span>
-                        <span className="settings-form-control">
-                          <span className="manual-key-select cmiot-recording-select">
-                            <select
-                              value={instance.cmiotA15RecordingMode ?? defaultRecordingMode(instance.kind)}
-                              onChange={event => {
-                                const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
-                                update(item => ({ ...item, cmiotA15RecordingMode }))
-                              }}
-                            >
-                              <option value="hold">按住录音，松开停止</option>
-                              <option value="click">点击开始，再次点击停止</option>
-                            </select>
-                            <span className="manual-key-select-icon" aria-hidden="true">
-                              <ChevronDown size={14} />
-                            </span>
-                          </span>
-                        </span>
-                      </label>
-                    )}
-                  <label className="settings-form-row">
-                    <span className="settings-form-label">设备名称：</span>
-                    <input
-                      key={instance.name}
-                      defaultValue={instance.name}
-                      maxLength={60}
-                      onBlur={e => {
-                        const name = e.target.value.trim()
-                        if (name && name !== instance.name) update(item => ({ ...item, name }))
-                      }}
-                    />
-                  </label>
-                  <div className="settings-form-row">
-                    <span className="settings-form-label">设备型号：</span>
-                    <span className="settings-form-control">{pkg.model}</span>
-                  </div>
-                  <div className="settings-form-row">
-                    <span className="settings-form-label" id="instance-binding-label">
-                      物理设备：
-                    </span>
-                    <div className="settings-form-control managed-instance-binding-control">
-                      {instance.binding ? (
-                        <BoundDeviceInfo
-                          binding={instance.binding}
-                          device={boundDevice}
-                          onRebind={onBind}
-                          onUnbind={unbindDevice}
-                          disabled={pendingPhysicalAction !== null}
-                        />
-                      ) : (
-                        <DeviceBindingPicker
-                          labelledBy="instance-binding-label"
-                          value=""
-                          devices={availableDevices}
-                          onChange={binding => {
-                            if (binding) update(item => ({ ...item, binding }))
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="managed-remove">
-                  {confirmRemove ? (
-                    <>
-                      <span>移除此设备及其全部配置？</span>
-                      <button disabled={pendingPhysicalAction !== null} onClick={removeDevice}>
-                        {pendingPhysicalAction === 'remove' ? '正在解除绑定…' : '确认移除'}
-                      </button>
-                      <button onClick={() => setConfirmRemove(false)}>取消</button>
-                    </>
-                  ) : (
-                    <button onClick={() => setConfirmRemove(true)}>移除设备</button>
-                  )}
-                </div>
-              </>
-            )}
-          </section>
-        </DeviceSettingsDrawer>
-      )}
+      <InstanceSettingsDrawer
+        open={settings}
+        instance={instance}
+        controller={controller}
+        native={native}
+        platform={platform}
+        driverAction={driverAction}
+        onInstallDriver={onInstallDriver}
+        onBind={onBind}
+        onUnbindDevice={onUnbindDevice}
+        onRemoveDevice={onRemoveDevice}
+        onOpenAudioDriver={onOpenAudioDriver}
+        onClose={() => setSettings(false)}
+        onRemoved={onBack}
+      />
       {pendingSwitch &&
         createPortal(
           <ProfileSwitchConfirmDialog
@@ -695,108 +484,6 @@ export function InstanceWorkspace({
           />,
           document.body,
         )}
-    </div>
-  )
-}
-
-function BoundDeviceInfo({
-  binding,
-  device,
-  onRebind,
-  onUnbind,
-  disabled,
-}: {
-  binding: string
-  device?: DiscoveredDevice
-  onRebind: () => void
-  onUnbind: () => void
-  disabled: boolean
-}) {
-  const transport = device?.transport === 'Bluetooth' ? '蓝牙' : device?.transport
-  const status = device?.identityQuality === 'ambiguous' ? '标识冲突' : device?.connected ? '已连接' : '未连接'
-  return (
-    <div className="managed-bound-device">
-      <div className="device-binding-copy">
-        <strong>{device?.name ?? '原绑定设备'}</strong>
-        <small>{device ? `${transport} · ${device.id.slice(-6)}` : binding}</small>
-        <span
-          className={`device-binding-status${device?.identityQuality === 'ambiguous' ? ' is-unavailable' : !device?.connected ? ' is-offline' : ''}`}
-        >
-          <i />
-          {status}
-        </span>
-      </div>
-      <div className="managed-bound-device-actions">
-        <button type="button" className="dialog-secondary" onClick={onRebind} disabled={disabled}>
-          重新绑定
-        </button>
-        <button type="button" className="dialog-secondary" onClick={onUnbind} disabled={disabled}>
-          {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function DeviceInformationPanel({
-  binding,
-  device,
-  native,
-}: {
-  binding: string | null
-  device?: DiscoveredDevice
-  native: boolean
-}) {
-  const info = device?.deviceInfo
-  const unavailable = !binding
-    ? '未绑定设备'
-    : !native
-      ? '预览模式'
-      : !device?.connected
-        ? '设备未连接'
-        : device.identityQuality === 'ambiguous'
-          ? '设备身份冲突'
-          : info?.status === 'ready'
-            ? '设备未提供'
-            : info?.status === 'error'
-              ? '读取失败'
-              : info?.status === 'retrying'
-                ? '正在重试…'
-                : '读取中…'
-  const value = (text?: string | number | null) => (!binding ? '未绑定设备' : (text ?? unavailable))
-  const fields = [
-    ['设备蓝牙名称', value(info?.bluetoothName)],
-    ['设备蓝牙地址', value(device?.bluetoothAddress)],
-    [
-      '电量',
-      !binding ? (
-        '未绑定设备'
-      ) : device?.connected && info?.batteryLevel != null ? (
-        <BatteryIndicator level={info.batteryLevel} />
-      ) : (
-        unavailable
-      ),
-    ],
-    ['制造商', value(info?.manufacturer)],
-    ['序列号', value(info?.serialNumber)],
-    ['硬件版本', value(info?.hardwareRevision)],
-    ['固件版本', value(info?.firmwareRevision)],
-    ['软件版本', value(info?.softwareRevision)],
-  ] as const
-  return (
-    <div className="settings-form-fields managed-device-information">
-      {fields.map(([label, value]) => (
-        <div className="settings-form-row" key={label}>
-          <span className="settings-form-label">{label}：</span>
-          <span className="settings-form-control">{value}</span>
-        </div>
-      ))}
-      {binding && info?.error && (
-        <p role="status" className="managed-error">
-          {info.status === 'retrying' ? '读取失败，正在重试。' : '读取失败，稍后自动刷新。'}
-          {info.error}
-        </p>
-      )}
     </div>
   )
 }

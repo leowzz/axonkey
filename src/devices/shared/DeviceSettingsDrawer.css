@@ -1,14 +1,14 @@
 .device-settings-drawer {
   inset: 0;
-  width: min(580px, calc(100vw - 48px));
+  width: min(420px, calc(100vw - 32px));
   height: calc(100dvh - var(--native-titlebar-height));
   max-height: none;
   margin: var(--native-titlebar-height) 0 0 auto;
   padding: 0;
   border: 0;
-  border-left: 1px solid #d3dfe8;
+  border-left: 1px solid var(--border-subtle, #d3dfe8);
   color: #344d61;
-  background: #f1f4f6;
+  background: var(--surface-popover, #ffffff);
   box-shadow: -12px 0 35px rgb(24 50 71 / 14%);
   overflow: hidden;
 }
@@ -47,26 +47,37 @@
   flex-direction: row;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px;
-  padding: 0 24px 20px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
+  gap: 4px;
+  margin: 0 24px 16px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle, #dbe4ee);
+  border-radius: 8px;
+  background: var(--surface-pill, #eef2f6);
 }
-.device-settings-drawer .device-settings-drawer-nav > button {
+.device-settings-drawer .device-settings-drawer-nav > button:not(.settings-refresh) {
+  flex: 1;
+  justify-content: center;
   width: auto;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 6px;
   background: transparent;
   border-color: transparent;
   white-space: nowrap;
+  font-size: 13px;
 }
-.device-settings-drawer .device-settings-drawer-nav > button[aria-current='page'] {
+.device-settings-drawer .device-settings-drawer-nav > button:not(.settings-refresh)[aria-current='page'] {
   color: #1379e2;
-  border-color: #c9dcf2;
-  background: #fff;
+  border-color: rgb(19 121 226 / 14%);
+  background: var(--surface-card, #fff);
+  box-shadow: 0 1px 2px rgb(15 23 42 / 6%);
+  font-weight: 600;
 }
 .device-settings-drawer-nav .settings-refresh {
-  margin-left: auto;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-left: 2px;
   padding: 0;
 }
 .device-settings-drawer-panel {
@@ -84,6 +95,11 @@
 .device-settings-drawer .managed-remove {
   margin-left: 122px;
   flex-wrap: wrap;
+}
+.device-settings-drawer .managed-remove > button.danger {
+  border-color: #e4b6b1;
+  background: #fff2f0;
+  color: #b43e36;
 }
 .device-settings-drawer input:not([type]) {
   padding: 7px 9px;
