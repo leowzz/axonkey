@@ -6,15 +6,15 @@
   margin: var(--native-titlebar-height) 0 0 auto;
   padding: 0;
   border: 0;
-  border-left: 1px solid #d3dfe8;
-  color: #344d61;
-  background: #f1f4f6;
-  box-shadow: -12px 0 35px rgb(24 50 71 / 14%);
+  border-left: 1px solid var(--line-strong);
+  color: var(--ink);
+  background: #f9fafb;
+  box-shadow: -16px 0 42px rgb(15 23 42 / 14%);
   overflow: hidden;
 }
 .device-settings-drawer::backdrop {
-  background: rgb(38 59 76 / 18%);
-  backdrop-filter: blur(1px);
+  background: rgb(15 23 42 / 22%);
+  backdrop-filter: blur(2px);
 }
 .device-settings-drawer-content {
   display: flex;
@@ -32,13 +32,13 @@
 }
 .device-settings-drawer-header h2 {
   margin: 0;
-  color: #304f6d;
+  color: var(--ink);
   font-size: 18px;
-  font-weight: 600;
+  font-weight: 650;
 }
 .device-settings-drawer-header p {
-  margin: 10px 0 0;
-  color: #71879b;
+  margin: 8px 0 0;
+  color: var(--muted);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -47,8 +47,8 @@
   flex-direction: row;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px;
-  padding: 0 24px 20px;
+  gap: 6px;
+  padding: 0 24px 18px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -60,9 +60,10 @@
   white-space: nowrap;
 }
 .device-settings-drawer .device-settings-drawer-nav > button[aria-current='page'] {
-  color: #1379e2;
-  border-color: #c9dcf2;
+  color: var(--blue);
+  border-color: rgb(0 102 255 / 22%);
   background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 6%);
 }
 .device-settings-drawer-nav .settings-refresh {
   margin-left: auto;
@@ -86,21 +87,35 @@
   flex-wrap: wrap;
 }
 .device-settings-drawer input:not([type]) {
-  padding: 7px 9px;
-  border: 1px solid #ccdbe8;
-  border-radius: 5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
   background: #fff;
-  color: #405f7d;
+  color: var(--ink);
   min-width: 0;
+}
+.device-settings-drawer input:not([type]):focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(0 102 255 / 11%);
 }
 .device-settings-drawer .dialog-secondary,
 .device-settings-drawer .managed-remove > button,
 .device-settings-drawer .managed-driver-status-control > button {
-  padding: 7px 10px;
-  color: #547a9c;
-  border: 1px solid #d2dfeb;
+  min-height: 32px;
+  padding: 6px 12px;
+  color: var(--ink-secondary);
+  border: 1px solid var(--line-strong);
   background: #fff;
-  border-radius: 5px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.device-settings-drawer .dialog-secondary:hover:not(:disabled),
+.device-settings-drawer .managed-remove > button:hover:not(:disabled),
+.device-settings-drawer .managed-driver-status-control > button:hover:not(:disabled) {
+  border-color: var(--blue-border);
+  color: var(--blue);
 }
 .device-settings-drawer .dialog-close {
   flex-shrink: 0;

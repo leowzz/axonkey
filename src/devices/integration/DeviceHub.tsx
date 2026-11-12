@@ -229,18 +229,16 @@ export function DeviceHub(props: Props) {
                 <img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />
                 Axonkey
               </button>
-              <h1>我的设备</h1>
+              <h1 id="my-devices-title">我的设备</h1>
+              <span className="my-devices-total">{orderedCardIds.length} 台已接入</span>
             </div>
             <button className="my-devices-integrate" onClick={() => setIntegration({})}>
-              <Plus size={16} />
+              <Plus size={15} />
               手动添加设备
             </button>
           </header>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
-              <h2 id="my-devices-title" className="my-devices-section-title">
-                我的设备
-              </h2>
               <div className="managed-device-grid">
                 {orderedCardIds.map(cardId => {
                   const item = instanceById.get(cardId)
@@ -614,21 +612,18 @@ function DeviceCard({
               ) : (
                 <i className="my-devices-status-dot" aria-hidden="true" />
               )}
-              {status}
-            </span>
-          )}
-          {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
-            <span className="my-devices-power">
-              <BatteryIndicator level={batteryLevel} />
+              <span>{status}</span>
             </span>
           )}
         </span>
+        {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
+          <span className="my-devices-power">
+            <BatteryIndicator level={batteryLevel} />
+          </span>
+        )}
         <span className="my-devices-profile">
           {profile ? (
-            <span className="my-devices-profile-current">
-              <span>当前配置</span>
-              <strong>{profile}</strong>
-            </span>
+            <strong className="my-devices-profile-current">{profile}</strong>
           ) : (
             <ChevronRight size={15} aria-hidden="true" />
           )}

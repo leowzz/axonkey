@@ -121,7 +121,15 @@ export function createTriggerRootExtension(
           rx: 12,
         })
         lane.insertBefore(background, viewport)
-        const title = Dom.svg('text', { class: 'workflow-trigger-title', x: center, y: 30 })
+        const titleDot = Dom.svg('circle', {
+          class: 'workflow-trigger-dot',
+          cx: center - label.length * 7 - 3.5,
+          cy: 25,
+          r: 3.5,
+          'aria-hidden': 'true',
+        })
+        lane.appendChild(titleDot)
+        const title = Dom.svg('text', { class: 'workflow-trigger-title', x: center + 6.5, y: 30 })
         title.textContent = label
         lane.appendChild(title)
         // Keep the control in SVG coordinates: WebKit can misplace HTML inside
