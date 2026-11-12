@@ -1311,6 +1311,7 @@ pub(crate) fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .store
         .instances
         .iter()
+        .filter(|instance| instance.binding.is_some())
         .filter(
             |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
                 Some("rc003-atvv") => true,
@@ -1320,23 +1321,29 @@ pub(crate) fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
                 _ => false,
             },
         )
-        .map(|instance| {
-            let voice_target = instance.voice_target.clone().or_else(|| {
-                instance.binding.as_ref().and_then(|binding| {
-                    snapshot
-                        .discovered
-                        .iter()
-                        .find(|device| &device.id == binding)
-                        .and_then(|device| device.bluetooth_address.clone())
-                })
-            });
-            AudioTarget {
+        .filter_map(|instance| {
+            let voice_target = if devices::descriptor_registry::voice_engine(&instance.kind)
+                == Some("rc003-atvv")
+            {
+                Some(instance.voice_target.clone().or_else(|| {
+                    instance.binding.as_ref().and_then(|binding| {
+                        snapshot
+                            .discovered
+                            .iter()
+                            .find(|device| &device.id == binding)
+                            .and_then(|device| device.bluetooth_address.clone())
+                    })
+                })?)
+            } else {
+                None
+            };
+            Some(AudioTarget {
                 instance_id: instance.id.clone(),
                 kind: instance.kind.clone(),
                 voice_target,
                 gain_db: instance.audio_gain_db,
-                enabled: instance.enabled && instance.binding.is_some(),
-            }
+                enabled: instance.enabled,
+            })
         })
         .collect()
 }
@@ -1981,10 +1988,85 @@ mod tests {
             expected
         );
         for target in targets {
-            assert_eq!(target.voice_target.as_deref(), Some("AA:BB:CC:DD:EE:FF"));
+            let address = (super::devices::descriptor_registry::voice_engine(&target.kind)
+                == Some("rc003-atvv"))
+            .then_some("AA:BB:CC:DD:EE:FF");
+            assert_eq!(target.voice_target.as_deref(), address);
             assert_eq!(target.gain_db, 6);
             assert_eq!(target.enabled, target.kind != "xmBt29");
         }
+    }
+
+    #[test]
+    fn audio_targets_wait_for_binding_and_rc003_address_but_keep_disabled_instances() {
+        let instance =
+            |id: &str, kind: &str, binding: Option<&str>, address: Option<&str>, enabled| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "kind": kind, "name": id, "binding": binding,
+                    "voiceTarget": address, "enabled": enabled,
+                    "profiles": [], "activeProfileId": "default"
+                }))
+                .unwrap()
+            };
+        let mut snapshot = super::DeviceSnapshot {
+            store: super::input_service::managed::Store {
+                instances: vec![
+                    instance("unbound", "rc003", None, Some("AA:BB:CC:DD:EE:01"), true),
+                    instance("unresolved", "rc003", Some("physical-rc003"), None, true),
+                    instance(
+                        "disabled",
+                        "rc003",
+                        Some("physical-other"),
+                        Some("AA:BB:CC:DD:EE:02"),
+                        false,
+                    ),
+                    instance("pcm", "cmiotA15", Some("physical-pcm"), None, true),
+                    instance("unbound-pcm", "cmiotA15", None, None, true),
+                ],
+                ..Default::default()
+            },
+            discovered: Vec::new(),
+            runtime: Default::default(),
+            error: None,
+            scan_error: None,
+            scanning: false,
+        };
+        let targets = super::audio_targets(&snapshot);
+        let expected = if cfg!(any(windows, target_os = "macos")) {
+            vec!["disabled", "pcm"]
+        } else {
+            vec!["disabled"]
+        };
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(!targets[0].enabled);
+        snapshot
+            .discovered
+            .push(super::input_service::managed::Discovered {
+                id: "physical-rc003".into(),
+                kind: "rc003".into(),
+                name: "RC003".into(),
+                transport: "Bluetooth".into(),
+                identity_quality: "serial".into(),
+                vendor_id: 0x2717,
+                product_id: 0x32b8,
+                connected: true,
+                paired: true,
+                bluetooth_address: Some("AA:BB:CC:DD:EE:03".into()),
+                pairing_id: None,
+                hid_instance_id: None,
+                device_info: Default::default(),
+            });
+        let resolved = super::audio_targets(&snapshot)
+            .into_iter()
+            .find(|target| target.instance_id == "unresolved")
+            .unwrap();
+        assert_eq!(resolved.voice_target.as_deref(), Some("AA:BB:CC:DD:EE:03"));
     }
 
     #[cfg(target_os = "windows")]

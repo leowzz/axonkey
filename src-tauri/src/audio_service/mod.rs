@@ -175,6 +175,7 @@ impl AudioServiceManager {
         self.service(instance_id)
             .map(|service| service.status())
             .unwrap_or_else(|| AudioServiceStatus {
+                driver_installed: self.legacy.status().driver_installed,
                 state: "stopped".into(),
                 ..AudioServiceStatus::default()
             })
@@ -348,12 +349,7 @@ fn reconcile_targets(
     let active = targets
         .iter()
         .filter(|target| !target.instance_id.is_empty())
-        .map(|target| {
-            (
-                target.instance_id.clone(),
-                (target.kind.clone(), target.voice_target.clone()),
-            )
-        })
+        .map(|target| (target.instance_id.clone(), service_identity(target)))
         .collect::<BTreeMap<_, _>>();
     let removed = {
         let mut services = instances.services.lock().unwrap();
@@ -387,27 +383,39 @@ fn reconcile_targets(
             .get(&target.instance_id)
             .cloned();
         let service = existing.unwrap_or_else(|| {
-            #[cfg(any(windows, target_os = "macos"))]
+            #[cfg(windows)]
+            return Arc::new(PlatformAudioService::start_paused(
+                service_identity(target).1,
+            ));
+            #[cfg(target_os = "macos")]
             if matches!(
                 crate::devices::descriptor_registry::voice_engine(&target.kind),
                 Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
             ) {
                 return Arc::new(PlatformAudioService::start_a15());
             }
+            #[cfg(not(windows))]
             Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
         });
-        service.set_enabled(target.enabled);
         let _ = service.set_gain_db(target.gain_db);
+        service.set_enabled(target.enabled);
         instances
             .services
             .lock()
             .unwrap()
             .insert(target.instance_id.clone(), service);
-        identities.insert(
-            target.instance_id.clone(),
-            (target.kind.clone(), target.voice_target.clone()),
-        );
+        identities.insert(target.instance_id.clone(), service_identity(target));
     }
+}
+
+fn service_identity(target: &AudioTarget) -> (String, Option<String>) {
+    let address =
+        if crate::devices::descriptor_registry::voice_engine(&target.kind) == Some("rc003-atvv") {
+            target.voice_target.clone()
+        } else {
+            None
+        };
+    (target.kind.clone(), address)
 }
 
 fn release_retired(retired: &mut Vec<Arc<PlatformAudioService>>) {
@@ -464,6 +472,31 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    fn missing_instance_reports_the_platform_driver_without_using_legacy_audio() {
+        use super::*;
+        let legacy = Arc::new(PlatformAudioService::without_workers());
+        legacy.set_a15_input_state(true, true);
+        for _ in 0..11 {
+            legacy.push_a15_pcm(&[5000; 320]);
+        }
+        let manager = AudioServiceManager::spawn(legacy);
+        let legacy_status = manager.status(None);
+        assert!(legacy_status.bluetooth_connected && legacy_status.received_data);
+        assert!(manager.level(None).peak > 0.0);
+
+        let status = manager.status(Some("unresolved"));
+        assert_eq!(status.driver_installed, legacy_status.driver_installed);
+        assert_eq!(status.state, "stopped");
+        assert!(!status.bluetooth_connected && !status.received_data && !status.forwarding);
+        assert!(!status.output_ready);
+        assert!(status.error.is_none());
+        let level = manager.level(Some("unresolved"));
+        assert_eq!(level.peak, 0.0);
+        assert!(level.waveform.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn windows_instances_route_audio_without_a_playback_selection_and_honor_disable() {
         use super::*;
         let manager = AudioServiceManager::spawn(Arc::new(PlatformAudioService::without_workers()));
@@ -486,6 +519,113 @@ mod tests {
         let status = manager.status(Some("a15"));
         assert_eq!(status.state, "stopped");
         assert!(!status.forwarding && !status.received_data);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn external_pcm_address_discovery_and_enable_changes_reuse_the_source() {
+        use super::*;
+        let instances = InstanceServices::default();
+        let mut identities = BTreeMap::new();
+        let mut retired = Vec::new();
+        for kind in crate::devices::descriptor_registry::KINDS
+            .iter()
+            .copied()
+            .filter(|kind| {
+                matches!(
+                    crate::devices::descriptor_registry::voice_engine(kind),
+                    Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+                )
+            })
+        {
+            let mut target = AudioTarget {
+                instance_id: kind.into(),
+                kind: kind.into(),
+                enabled: true,
+                ..Default::default()
+            };
+            reconcile_targets(&instances, &[target.clone()], &mut identities, &mut retired);
+            let first = instances.services.lock().unwrap()[kind].clone();
+            first.set_a15_input_state(true, true);
+            first.push_a15_pcm(&[2000; 320]);
+            assert!(first.status().received_data);
+
+            target.voice_target = Some("AA:BB:CC:DD:EE:FF".into());
+            reconcile_targets(&instances, &[target.clone()], &mut identities, &mut retired);
+            assert!(Arc::ptr_eq(
+                &first,
+                &instances.services.lock().unwrap()[kind]
+            ));
+            assert!(first.status().received_data);
+            assert!(retired.is_empty());
+
+            target.enabled = false;
+            reconcile_targets(&instances, &[target.clone()], &mut identities, &mut retired);
+            assert!(Arc::ptr_eq(
+                &first,
+                &instances.services.lock().unwrap()[kind]
+            ));
+            assert_eq!(first.status().state, "stopped");
+            target.enabled = true;
+            reconcile_targets(&instances, &[target], &mut identities, &mut retired);
+            assert!(Arc::ptr_eq(
+                &first,
+                &instances.services.lock().unwrap()[kind]
+            ));
+            first.set_a15_input_state(true, true);
+            first.push_a15_pcm(&[3000; 320]);
+            assert!(first.status().received_data);
+            drop(first);
+            reconcile_targets(&instances, &[], &mut identities, &mut retired);
+            release_retired(&mut retired);
+            assert!(retired.is_empty());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn disabled_rc003_reconciliation_preserves_the_instance_and_legacy_service() {
+        use super::*;
+        let legacy = Arc::new(PlatformAudioService::without_workers());
+        let instances = InstanceServices::default();
+        let service = Arc::new(PlatformAudioService::without_workers());
+        instances
+            .services
+            .lock()
+            .unwrap()
+            .insert("remote".into(), service.clone());
+        let mut target = AudioTarget {
+            instance_id: "remote".into(),
+            kind: "rc003".into(),
+            voice_target: Some("AA:BB:CC:DD:EE:01".into()),
+            enabled: false,
+            ..Default::default()
+        };
+        let mut identities = BTreeMap::from([("remote".into(), service_identity(&target))]);
+        let mut retired = Vec::new();
+        reconcile_targets(&instances, &[target.clone()], &mut identities, &mut retired);
+        assert_eq!(service.status().state, "stopped");
+        assert!(Arc::ptr_eq(
+            &service,
+            &instances.services.lock().unwrap()["remote"]
+        ));
+        target.enabled = true;
+        reconcile_targets(&instances, &[target], &mut identities, &mut retired);
+        assert!(Arc::ptr_eq(
+            &service,
+            &instances.services.lock().unwrap()["remote"]
+        ));
+        service.set_a15_input_state(true, true);
+        service.push_a15_pcm(&[1000; 320]);
+        assert!(service.status().received_data);
+        assert!(retired.is_empty());
+        let manager = AudioServiceManager {
+            instances: Arc::new(instances),
+            legacy: legacy.clone(),
+            worker: None,
+        };
+        assert!(Arc::ptr_eq(&manager.service(None).unwrap(), &legacy));
+        assert!(!legacy.status().bluetooth_connected);
     }
 
     #[cfg(windows)]

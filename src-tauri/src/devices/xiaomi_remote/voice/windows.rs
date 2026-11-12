@@ -209,22 +209,30 @@ impl AudioService {
     pub fn start() -> Self {
         // Saved instances own their BLE sessions; the legacy service must not
         // connect to the same remote a second time.
-        let service = Self::start_workers(None, false);
-        service.set_enabled(false);
-        service
+        Self::start_workers(None, false, false)
     }
 
     pub fn start_for(target_bluetooth_address: Option<String>) -> Self {
-        Self::start_workers(target_bluetooth_address, true)
+        Self::start_workers(target_bluetooth_address, true, true)
     }
 
     pub fn start_a15() -> Self {
-        Self::start_workers(None, false)
+        Self::start_workers(None, false, true)
     }
 
-    fn start_workers(target_bluetooth_address: Option<String>, bluetooth: bool) -> Self {
+    pub(crate) fn start_paused(target_bluetooth_address: Option<String>) -> Self {
+        let bluetooth = target_bluetooth_address.is_some();
+        Self::start_workers(target_bluetooth_address, bluetooth, false)
+    }
+
+    fn start_workers(
+        target_bluetooth_address: Option<String>,
+        bluetooth: bool,
+        enabled: bool,
+    ) -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows virtual microphone source");
         let shared = Arc::new(Shared::new(target_bluetooth_address));
+        shared.enabled.store(enabled, Ordering::Release);
         let ble_worker = if bluetooth {
             let ble_shared = Arc::clone(&shared);
             thread::Builder::new()
@@ -382,6 +390,9 @@ fn ble_worker_loop(shared: Arc<Shared>) {
                 log::info!(target: "axonkey::audio", "RC003 voice GATT connected");
                 let result = connection.run(&shared);
                 connection.close(&shared);
+                if shared.stop.load(Ordering::Acquire) {
+                    break;
+                }
                 if let Err(error) = result {
                     log::warn!(target: "axonkey::audio", "RC003 voice bridge stopped: {error}");
                     shared.update_status(|status| {
@@ -391,6 +402,9 @@ fn ble_worker_loop(shared: Arc<Shared>) {
                 }
             }
             Err(error) => {
+                if shared.stop.load(Ordering::Acquire) {
+                    break;
+                }
                 if last_connection_error.as_deref() != Some(error.as_str()) {
                     log::warn!(target: "axonkey::audio", "RC003 voice bridge waiting: {error}");
                     last_connection_error = Some(error.clone());
@@ -1057,6 +1071,23 @@ mod tests {
         let legacy = AudioService::start();
         assert!(legacy.ble_worker.lock().unwrap().is_none());
         assert!(!legacy.shared.enabled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn paused_instances_wait_for_configuration_and_external_sources_keep_their_default() {
+        let paused = AudioService::start_paused(Some("AA:BB:CC:DD:EE:FF".into()));
+        assert!(!paused.shared.enabled.load(Ordering::Acquire));
+        assert!(paused.ble_worker.lock().unwrap().is_some());
+        assert_eq!(
+            paused.shared.target_bluetooth_address.as_deref(),
+            Some("AA:BB:CC:DD:EE:FF")
+        );
+        let external = AudioService::start_a15();
+        assert!(external.shared.enabled.load(Ordering::Acquire));
+        external.set_a15_input_state(true, true);
+        external.push_a15_pcm(&[1000; 320]);
+        assert!(external.status().received_data);
+        assert!(external.ble_worker.lock().unwrap().is_none());
     }
 
     #[test]
