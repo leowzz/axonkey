@@ -75,6 +75,9 @@ export function parseDescriptorSvg(source, artworkUrl) {
         softwareContains: identity['software-contains'] ?? '',
         softwareFallback: identity['software-fallback'] === 'true',
         windowsPrefix: identity['windows-prefix'] ?? '',
+        informationRequired: identity['information-required'] === 'true',
+        modelContains: identity['model-contains'] ?? '',
+        manufacturerContains: identity['manufacturer-contains'] ?? '',
       }
     }),
     voice: voice.engine

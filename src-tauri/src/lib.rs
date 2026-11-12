@@ -1314,7 +1314,7 @@ fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
         .filter(
             |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
                 Some("rc003-atvv") => true,
-                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc") => {
+                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico") => {
                     cfg!(any(windows, target_os = "macos"))
                 }
                 _ => false,
@@ -1970,7 +1970,14 @@ mod tests {
         };
         let targets = super::audio_targets(&snapshot);
         let expected = if cfg!(any(windows, target_os = "macos")) {
-            vec!["rc003", "cmiotA15", "xmBt29", "rc313", "obeRcuR5"]
+            vec![
+                "rc003",
+                "cmiotA15",
+                "xmBt29",
+                "rc313",
+                "obeRcuR5",
+                "tclRc802a",
+            ]
         } else {
             vec!["rc003"]
         };

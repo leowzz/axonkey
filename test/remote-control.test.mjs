@@ -12,6 +12,9 @@ import { xmBt29RemoteView } from '../src/devices/xm-bt-29-remote/view.ts'
 import { obeRcuR5RemoteView } from '../src/devices/obe-rcu-r5-remote/view.ts'
 import { rc313RemoteView } from '../src/devices/rc-313-remote/view.ts'
 import { xboxRemoteView } from '../src/devices/xbox-controller/inputs.ts'
+import { tclRc802aRemoteView } from '../src/devices/tcl-rc802a-remote/view.ts'
+import { tclRc902nRemoteView } from '../src/devices/tcl-rc902n-remote/view.ts'
+import { tclRc902vRemoteView } from '../src/devices/tcl-rc902v-remote/view.ts'
 
 const require = createRequire(import.meta.url)
 const module = { exports: {} }
@@ -112,7 +115,7 @@ test('each accessible SVG key selects its own input without activating its neigh
 })
 
 test('every bundled device renders its descriptor inputs through the common SVG control', () => {
-  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView]) {
+  for (const remoteView of [xiaomiRemoteView, cmiotA15RemoteView, xmBt29RemoteView, rc313RemoteView, obeRcuR5RemoteView, xboxRemoteView, tclRc802aRemoteView, tclRc902nRemoteView, tclRc902vRemoteView]) {
     const { view, key, selected } = mount({ remoteView })
     assert.equal(view.root.findByType('image').props.href, remoteView.artworkUrl)
     assert.equal(view.root.findAllByProps({ role: 'button' }).length, remoteView.buttons.length)

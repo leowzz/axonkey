@@ -21,6 +21,18 @@ const instances = [
 ]
 const success = { deviceCount: 3, uninstalledCount: 3, unboundCount: 3, failures: [], rebootRequired: true }
 
+test('bound TCL remotes are included in driver cleanup with their own model names', async () => {
+  const devices = ['Rc802a', 'Rc902n', 'Rc902v'].map((model, index) => ({
+    id: `tcl-${index}`, name: `遥控器 ${index}`, kind: `tcl${model}`, binding: `hid-${index}`,
+  }))
+  const h = await mount(async () => ({ store: { instances: devices } }))
+  try {
+    const list = h.view.root.findByProps({ 'aria-label': '本次解绑设备' })
+    assert.equal(list.findAllByType('li').length, 3)
+    for (const model of ['RC802A', 'RC902N', 'RC902V']) assert.ok(text(list).includes(`TCL ${model}`))
+  } finally { h.unmount() }
+})
+
 async function mount(invoke) {
   const module = { exports: {} }
   let focused = 0, closed = 0, refreshed = 0

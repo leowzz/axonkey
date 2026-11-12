@@ -54,6 +54,29 @@ fn kind_for_software(kind: &str, software: Option<&str>) -> Option<&'static str>
         .or_else(|| (candidates.len() == 1).then(|| candidates[0]))
 }
 
+fn supports_information(kind: &str) -> bool {
+    crate::devices::descriptor_registry::voice_engine(kind).is_some()
+        || crate::devices::descriptor_registry::requires_information(kind)
+}
+
+fn detected_kind(device: &Discovered, info: &DeviceInformation) -> Option<&'static str> {
+    use crate::devices::descriptor_registry::{matches_information, requires_information, KINDS};
+    if requires_information(&device.kind) {
+        return KINDS.iter().copied().find(|kind| {
+            requires_information(kind)
+                && matches_information(
+                    kind,
+                    device.vendor_id,
+                    device.product_id,
+                    info.model_number.as_deref(),
+                    info.manufacturer.as_deref(),
+                    info.software_revision.as_deref(),
+                )
+        });
+    }
+    kind_for_software(&device.kind, info.software_revision.as_deref())
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DeviceInformation {
@@ -61,6 +84,7 @@ pub struct DeviceInformation {
     pub bluetooth_name: Option<String>,
     pub battery_level: Option<u8>,
     pub manufacturer: Option<String>,
+    pub model_number: Option<String>,
     pub serial_number: Option<String>,
     pub hardware_revision: Option<String>,
     pub firmware_revision: Option<String>,
@@ -76,6 +100,7 @@ impl Default for DeviceInformation {
             bluetooth_name: None,
             battery_level: None,
             manufacturer: None,
+            model_number: None,
             serial_number: None,
             hardware_revision: None,
             firmware_revision: None,
@@ -134,7 +159,7 @@ pub(super) fn request(shared: &Shared, binding: &str) -> Result<Snapshot, String
         .iter_mut()
         .find(|device| device.id == binding)
         .ok_or("未找到绑定设备")?;
-    if crate::devices::descriptor_registry::voice_engine(&device.kind).is_none()
+    if !supports_information(&device.kind)
         || !device.connected
         || device.identity_quality == "ambiguous"
         || device.bluetooth_address.is_none()
@@ -192,7 +217,7 @@ pub(super) fn start(shared: Arc<Shared>) {
                 .discovered
                 .iter()
                 .filter(|d| {
-                    crate::devices::descriptor_registry::voice_engine(&d.kind).is_some()
+                    supports_information(&d.kind)
                         && d.connected
                         && d.identity_quality != "ambiguous"
                         && d.bluetooth_address.is_some()
@@ -227,6 +252,12 @@ pub(super) fn start(shared: Arc<Shared>) {
                     }
                     let key = (target.id.clone(), target.bluetooth_address.clone().unwrap());
                     let schedule = schedules.get_mut(&key).unwrap();
+                    if crate::devices::descriptor_registry::requires_information(&target.kind)
+                        && detected_kind(target, &info).is_none()
+                        && info.error.is_none()
+                    {
+                        info.error = Some("设备信息未匹配受支持的遥控器型号".into());
+                    }
                     let expect_battery = cfg!(windows) && target.kind == "rc003";
                     let retry = schedule.complete(&info, expect_battery, Instant::now());
                     info.status = if info.error.is_none() {
@@ -261,8 +292,12 @@ pub(super) fn apply_information(shared: &Shared, target: &Discovered, mut info: 
     }) else {
         return;
     };
-    info.detected_kind = kind_for_software(device.kind.as_str(), info.software_revision.as_deref())
-        .map(str::to_owned);
+    info.detected_kind = detected_kind(device, &info).map(str::to_owned);
+    if crate::devices::descriptor_registry::requires_information(&device.kind) {
+        if let Some(kind) = &info.detected_kind {
+            device.kind = kind.clone();
+        }
+    }
     let fresh_battery = info.battery_level;
     info.battery_level = fresh_battery.or(device.device_info.battery_level);
     device.device_info = info;
@@ -289,6 +324,11 @@ pub(super) fn retain_readings(
                     && old.bluetooth_address == device.bluetooth_address
             }) {
                 device.device_info = old.device_info.clone();
+                if crate::devices::descriptor_registry::requires_information(&device.kind) {
+                    if let Some(kind) = &device.device_info.detected_kind {
+                        device.kind = kind.clone();
+                    }
+                }
             }
             if device.device_info.battery_level.is_none() {
                 device.device_info.battery_level = device
@@ -348,7 +388,10 @@ fn read(target: &Discovered, _unique_model: bool) -> DeviceInformation {
         let mut errors = Vec::new();
         for (service_id, characteristics) in [
             (0x180f, &[0x2a19][..]),
-            (0x180a, &[0x2a29, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..]),
+            (
+                0x180a,
+                &[0x2a29, 0x2a24, 0x2a25, 0x2a27, 0x2a26, 0x2a28][..],
+            ),
         ] {
             if let Err(error) = read_service(&device, service_id, characteristics, &mut info) {
                 errors.push(error);
@@ -434,6 +477,7 @@ fn read_service(
                 match id {
                     0x2a19 => info.battery_level = Some(percent(&bytes)?),
                     0x2a29 => info.manufacturer = text(&bytes)?,
+                    0x2a24 => info.model_number = text(&bytes)?,
                     0x2a25 => info.serial_number = text(&bytes)?,
                     0x2a27 => info.hardware_revision = text(&bytes)?,
                     0x2a26 => info.firmware_revision = text(&bytes)?,

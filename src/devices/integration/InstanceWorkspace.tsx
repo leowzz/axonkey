@@ -26,11 +26,13 @@ import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import {
   defaultRecordingMode,
+  deviceMatchesKind,
   emptyTriggers,
   instanceState,
   packageFor,
   stateLabel,
   supportsWindowsDriver,
+  supportsDeviceInformation,
   usesHidVoice,
 } from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
@@ -154,7 +156,7 @@ export function InstanceWorkspace({
   }, [instance.id, status?.recording])
   const availableDevices = controller.snapshot.discovered.filter(
     device =>
-      device.kind === instance.kind &&
+      deviceMatchesKind(device, instance.kind) &&
       !controller.snapshot.store.instances.some(item => item.id !== instance.id && item.binding === device.id),
   )
   const update = (change: (item: DeviceInstance) => DeviceInstance) => {
@@ -430,7 +432,7 @@ export function InstanceWorkspace({
                 绑定设备
               </button>
             )}
-            {voice && (
+            {supportsDeviceInformation(instance.kind) && (
               <span className="managed-instance-power">
                 <BatteryIndicator level={batteryLevel} compact />
               </span>
@@ -460,7 +462,11 @@ export function InstanceWorkspace({
           {voice && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
-              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
+              onToggle={
+                voice.engine === 'cmiot-a15.g7221' || voice.engine === 'tcl-rc802a.ico'
+                  ? () => void toggleRecording()
+                  : undefined
+              }
               disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
             />
           )}
@@ -561,7 +567,7 @@ export function InstanceWorkspace({
               <Settings2 size={16} />
               <span>设备设置</span>
             </button>
-            {voice && (
+            {supportsDeviceInformation(instance.kind) && (
               <button
                 type="button"
                 aria-current={settingsSection === 'information' ? 'page' : undefined}
@@ -870,6 +876,7 @@ function DeviceInformationPanel({
       ),
     ],
     ['制造商', value(info?.manufacturer)],
+    ['型号', value(info?.modelNumber)],
     ['序列号', value(info?.serialNumber)],
     ['硬件版本', value(info?.hardwareRevision)],
     ['固件版本', value(info?.firmwareRevision)],

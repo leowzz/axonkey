@@ -176,7 +176,7 @@ impl AudioServiceManager {
                         #[cfg(any(windows, target_os = "macos"))]
                         if matches!(
                             crate::devices::descriptor_registry::voice_engine(&target.kind),
-                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+                            Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico")
                         ) {
                             return Arc::new(PlatformAudioService::start_a15());
                         }

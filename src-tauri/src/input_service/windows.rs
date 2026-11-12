@@ -272,7 +272,7 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                     .then(|| report.attributes.get("engine").map(String::as_str))
                     .flatten()
                 });
-                if audio_engine == Some("cmiot-a15.g7221") {
+                if matches!(audio_engine, Some("cmiot-a15.g7221" | "tcl-rc802a.ico")) {
                     match context.a15_voice.feed(bytes) {
                         Ok(Some(frame)) => {
                             if context.a15_pcm.len() == 32 {
@@ -709,6 +709,11 @@ impl ManagedQuarborChannel {
                         &descriptor_kind,
                     ),
                     descriptor_engine: Some(Default::default()),
+                    a15_voice: if descriptor_kind == "tclRc802a" {
+                        crate::devices::tcl_rc802a::voice_stream()
+                    } else {
+                        Default::default()
+                    },
                     ..Default::default()
                 };
                 run_context(&mut context, &worker_shared, target);
@@ -836,20 +841,24 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
 fn recording_voice(
     context: &QuarborContext,
 ) -> Option<&'static crate::devices::device_descriptor::VoiceDescriptor> {
-    context
-        .descriptor?
-        .voices
-        .iter()
-        .find(|voice| matches!(voice.engine.as_str(), "cmiot-a15.g7221" | "obe-rcu-r5.sbc"))
+    context.descriptor?.voices.iter().find(|voice| {
+        matches!(
+            voice.engine.as_str(),
+            "cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico"
+        )
+    })
 }
 
 #[cfg(windows)]
 fn send_recording_report(
     engine: Option<&str>,
     reader: &mut Option<super::windows_quarbor::Client>,
-    report: [u8; 2],
+    mut report: [u8; 2],
 ) -> std::io::Result<()> {
-    if engine == Some("cmiot-a15.g7221") {
+    if matches!(engine, Some("cmiot-a15.g7221" | "tcl-rc802a.ico")) {
+        if engine == Some("tcl-rc802a.ico") {
+            report[0] = 0xeb;
+        }
         send_a15_recording_report(reader, report)
     } else {
         Ok(())
@@ -2296,6 +2305,8 @@ mod tests {
                 ..Default::default()
             };
             let mut harness = Harness::new(settings.clone());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
             harness.channel.shared.status.lock().unwrap().capture_active = true;
             A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
             let (reply, result) = std::sync::mpsc::sync_channel(1);
@@ -2474,6 +2485,43 @@ mod tests {
                         }
                     )
                 });
+            }
+        }
+
+        #[test]
+        fn rc802a_windows_channel_sends_eb_and_decodes_ec_into_the_audio_queue() {
+            for mode in ["hold", "click"] {
+                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+                let settings: NativeSettings = serde_json::from_value(json!({
+                    "enabled": true, "cmiotA15RecordingMode": mode,
+                    "behaviors": {"tcl-rc802a.voice": {"click": [{"type":"key", "key":"RAlt"}]}}
+                }))
+                .unwrap();
+                let mut harness = Harness::new(settings.clone());
+                harness.context.descriptor =
+                    crate::devices::descriptor_registry::descriptor_for_kind("tclRc802a");
+                harness.context.a15_voice = crate::devices::tcl_rc802a::voice_stream();
+                let reports = crate::devices::cmiot_a15::voice::ico_test_reports(0xec);
+                a15_report(&mut harness.context, 1, vec![1, 0, 0, 0xad, 0, 0, 0, 0, 0]);
+                harness.tick(&settings, 0, &[]);
+                assert!(harness.context.a15_recording.is_recording());
+                for (index, report) in reports[0].iter().enumerate() {
+                    a15_report(&mut harness.context, index as u64 + 2, report.to_vec());
+                }
+                let pcm = harness.context.a15_pcm.front().unwrap();
+                assert_eq!(pcm.samples.len(), 320);
+                assert_eq!(pcm.sample_rate, 16000);
+                assert!(pcm.samples.iter().all(|sample| sample & 3 == 0));
+                a15_report(&mut harness.context, 5, vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
+                harness.tick(&settings, 100, &[]);
+                if mode == "click" {
+                    assert!(harness.context.a15_recording.is_recording());
+                    a15_report(&mut harness.context, 6, vec![1, 0, 0, 0xad, 0, 0, 0, 0, 0]);
+                    harness.tick(&settings, 200, &[]);
+                }
+                assert!(!harness.context.a15_recording.is_recording());
+                A15_RECORDING_REPORTS
+                    .with(|reports| assert_eq!(*reports.borrow(), [[0xeb, 1], [0xeb, 0]]));
             }
         }
 

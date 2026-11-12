@@ -19,6 +19,9 @@ export type RemoteView<Id extends string = string> = {
     softwareContains: string
     softwareFallback: boolean
     windowsPrefix: string
+    informationRequired: boolean
+    modelContains: string
+    manufacturerContains: string
   }[]
   voice: { engine: string; transport: string; triggerModes: readonly string[] } | null
   viewBox: { width: number; height: number }
@@ -31,7 +34,8 @@ export type RemoteButtonId =
   XiaomiRemoteButtonId | CmiotA15RemoteButtonId | XmBt29RemoteButtonId | ObeRcuR5RemoteButtonId
 export type InputId = RemoteButtonId | MouseInputId
 export type DeviceId = 'rc003' | 'cmiotA15' | 'mouse'
-export type DeviceKind = 'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313' | 'obeRcuR5'
+export type DeviceKind =
+  'xboxBluetooth' | 'rc003' | 'cmiotA15' | 'xmBt29' | 'rc313' | 'obeRcuR5' | 'tclRc802a' | 'tclRc902n' | 'tclRc902v'
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

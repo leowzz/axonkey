@@ -7,6 +7,9 @@ import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
 import { obeRcuR5SupportPackage } from '../obe-rcu-r5-remote/definition.ts'
 import { rc313SupportPackage } from '../rc-313-remote/definition.ts'
 import { xboxSupportPackage } from '../xbox-controller/index.ts'
+import { tclRc802aSupportPackage } from '../tcl-rc802a-remote/definition.ts'
+import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
+import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
 
 export type { DeviceKind } from '../types.ts'
 export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
@@ -32,6 +35,7 @@ export type DeviceInformation = {
   bluetoothName?: string | null
   batteryLevel?: number | null
   manufacturer?: string | null
+  modelNumber?: string | null
   serialNumber?: string | null
   hardwareRevision?: string | null
   firmwareRevision?: string | null
@@ -80,9 +84,12 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   xmBt29SupportPackage,
   rc313SupportPackage,
   obeRcuR5SupportPackage,
+  tclRc802aSupportPackage,
+  tclRc902nSupportPackage,
+  tclRc902vSupportPackage,
 ]
 const mobileRemotePackages = supportPackages.filter(pkg =>
-  pkg.remoteView?.identities.some(identity => identity.softwareContains),
+  pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
 )
 export const mobileRemoteKinds = mobileRemotePackages.map(pkg => pkg.kind)
 export const mobileRemoteFallbackKind = mobileRemotePackages.find(pkg =>
@@ -120,10 +127,28 @@ export const emptySnapshot = (): DeviceSnapshot => ({
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
 export function usesHidVoice(kind: DeviceKind | undefined) {
   const engine = kind && packageFor(kind).remoteView?.voice?.engine
-  return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc'
+  return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc' || engine === 'tcl-rc802a.ico'
+}
+export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
+  const identities = packageFor(kind).remoteView?.identities ?? []
+  if (!identities.some(identity => identity.informationRequired)) return device.kind === kind
+  return identities.some(
+    identity =>
+      identity.vendorIds.includes(device.vendorId) &&
+      identity.productIds.includes(device.productId) &&
+      [
+        [identity.modelContains, device.deviceInfo?.modelNumber],
+        [identity.manufacturerContains, device.deviceInfo?.manufacturer],
+        [identity.softwareContains, device.deviceInfo?.softwareRevision],
+      ].every(([marker, value]) => !marker || Boolean(value && marker.split('|').some(part => value.includes(part)))),
+  )
 }
 export function supportsWindowsDriver(kind: DeviceKind | undefined) {
   return kind !== undefined && packageFor(kind).remoteView!.identities.some(identity => identity.windowsPrefix)
+}
+export function supportsDeviceInformation(kind: DeviceKind) {
+  const view = packageFor(kind).remoteView
+  return Boolean(view?.voice || view?.identities.some(identity => identity.informationRequired))
 }
 export function defaultRecordingMode(kind: DeviceKind): 'hold' | 'click' {
   const modes = packageFor(kind).remoteView?.voice?.triggerModes ?? []

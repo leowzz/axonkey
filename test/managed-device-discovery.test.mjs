@@ -35,6 +35,9 @@ const modelImports = {
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
   '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
   '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
+  '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
+  '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
+  '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -409,14 +412,35 @@ test('mobile model identity matching retains captured software and hardware beha
   ]) assert.equal(model.mobileRemoteKindForSoftware(software), kind)
 })
 
-test('bundled capabilities retain recording defaults and platform support for all six devices', () => {
+test('bundled capabilities retain recording defaults and platform support for all supported devices', () => {
   for (const [kind, mode, hidVoice] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
+    ['tclRc802a', 'click', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
     assert.equal(model.supportsWindowsDriver(kind), true)
+  }
+})
+
+test('TCL identity requires actual information fields and never trusts kind or detectedKind alone', () => {
+  const rc802a = { ...device, kind: 'tclRc802a', vendorId: 0x0416, productId: 0x0301,
+    deviceInfo: { modelNumber: 'prefix_BT_RC802A_suffix', manufacturer: 'TCL Electronics' } }
+  assert.equal(model.deviceMatchesKind(rc802a, 'tclRc802a'), true)
+  for (const field of ['modelNumber', 'manufacturer']) {
+    for (const value of [null, '', 'other']) {
+      assert.equal(model.deviceMatchesKind({ ...rc802a, deviceInfo: { ...rc802a.deviceInfo,
+        [field]: value, detectedKind: 'tclRc802a' } }, 'tclRc802a'), false)
+    }
+  }
+  assert.equal(model.deviceMatchesKind({ ...rc802a, productId: 0x0300 }, 'tclRc802a'), false)
+  for (const [software, expected] of [['TCL_RC902N_1.0', 'tclRc902n'], ['TCL_RC902V_1.0', 'tclRc902v'], ['', null]]) {
+    const remote = { ...device, kind: 'tclRc902n', vendorId: 0x0417, productId: 0x0304,
+      deviceInfo: { softwareRevision: software, detectedKind: 'tclRc902n' } }
+    for (const kind of ['tclRc902n', 'tclRc902v']) {
+      assert.equal(model.deviceMatchesKind(remote, kind), kind === expected)
+    }
   }
 })
 
@@ -812,6 +836,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     for (const [kind, battery, manualRecording, recordingModes] of [
       ['rc003', true, false, false], ['cmiotA15', true, true, true], ['xmBt29', true, true, false],
       ['rc313', true, true, false], ['obeRcuR5', true, false, false], ['xboxBluetooth', false, false, false],
+      ['tclRc802a', true, true, true], ['tclRc902n', true, false, false], ['tclRc902v', true, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -898,7 +923,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       act(() => { info.status = 'retrying'; info.error = '读取超时'; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
       assert.ok(text(panel()).includes('正在重试'))
       act(() => { instances[0] = { ...instances[0], binding: null }; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
-      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 8)
+      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 9)
       assert.ok(!text(panel()).includes('REMOTE_NATIVE'))
       assert.equal(refreshButton().props.disabled, true)
     }

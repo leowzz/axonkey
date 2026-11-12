@@ -642,6 +642,7 @@ mod tests {
     #[test]
     fn report_groups_release_independently() {
         let svg = RC003
+            .replace("\r\n", "\n")
             .replace(
             "<ak:report id=\"voice-audio\" direction=\"input\"\n                   encoding=\"gatt-stream\" transport=\"bluetooth-gatt\"\n                   engine=\"rc003-atvv\" />",
             "<ak:report id=\"media\" direction=\"input\" report-id=\"0x03\" length=\"3\"\n                   encoding=\"le-u16-single\" usage-page=\"0x0C\" />",

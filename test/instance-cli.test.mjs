@@ -13,6 +13,18 @@ const { processInstanceCliRequest, resolveCliInstance, normalizeCliDeviceSelecto
   await import('../src/devices/integration/instanceCli.ts')
 assets.deregister()
 
+test('TCL CLI selectors resolve each model and use its descriptor keys', async () => {
+  for (const [model, kind, key] of [['rc802a', 'tclRc802a', 'tcl-rc802a.voice'],
+    ['rc902n', 'tclRc902n', 'tcl-rc902n.menu'], ['rc902v', 'tclRc902v', 'tcl-rc902v.mute']]) {
+    const app = workspace([initial(model, kind)])
+    assert.equal(normalizeCliDeviceSelector(model), kind.toLowerCase())
+    assert.equal(normalizeCliDeviceSelector('TCL-' + model.toUpperCase()), kind.toLowerCase())
+    assert.equal(resolveCliInstance({ device: model }, app.snapshot).kind, kind)
+    const result = await app.command('mapping.list', { device: model })
+    assert.ok(result.mappings.some(mapping => mapping.button === key))
+  }
+})
+
 function initial(id = 'remote-one', kind = 'rc003') {
   return {
     id,

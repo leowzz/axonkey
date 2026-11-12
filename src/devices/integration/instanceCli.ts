@@ -37,6 +37,12 @@ export function normalizeCliDeviceSelector(value: unknown): string {
     'rc-313': 'rc313',
     'rcu-r5': 'obercur5',
     xbox: 'xboxbluetooth',
+    rc802a: 'tclrc802a',
+    'tcl-rc802a': 'tclrc802a',
+    rc902n: 'tclrc902n',
+    'tcl-rc902n': 'tclrc902n',
+    rc902v: 'tclrc902v',
+    'tcl-rc902v': 'tclrc902v',
   }
   return aliases[device] ?? device
 }

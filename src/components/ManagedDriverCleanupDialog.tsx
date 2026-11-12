@@ -43,6 +43,9 @@ export function ManagedDriverCleanupDialog({
               device.kind === 'xmBt29' ||
               device.kind === 'rc313' ||
               device.kind === 'obeRcuR5' ||
+              device.kind === 'tclRc802a' ||
+              device.kind === 'tclRc902n' ||
+              device.kind === 'tclRc902v' ||
               device.kind === 'xboxBluetooth') &&
             device.binding !== null,
         ),
@@ -118,7 +121,13 @@ export function ManagedDriverCleanupDialog({
                             ? 'RC-313'
                             : device.kind === 'obeRcuR5'
                               ? 'OBE_RCU_R5'
-                              : 'Xbox 蓝牙手柄'}{' '}
+                              : device.kind === 'tclRc802a'
+                                ? 'TCL RC802A'
+                                : device.kind === 'tclRc902n'
+                                  ? 'TCL RC902N'
+                                  : device.kind === 'tclRc902v'
+                                    ? 'TCL RC902V'
+                                    : 'Xbox 蓝牙手柄'}{' '}
                     · {device.id.slice(-6)}
                   </span>
                 </li>
