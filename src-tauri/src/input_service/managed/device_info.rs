@@ -427,7 +427,12 @@ fn read(
         let device =
             request.run_with_timeout("打开设备信息连接", OPERATION_TIMEOUT, || {
                 BluetoothLEDevice::FromBluetoothAddressAsync(address)
-            })?;
+            });
+        let device = TimedRelease::new(
+            convert_read_result(&target.id, "device open error conversion", device)?,
+            &target.id,
+            "device release",
+        );
         info.bluetooth_name = device
             .Name()
             .ok()
@@ -442,6 +447,7 @@ fn read(
             };
             read_service(
                 &device,
+                &target.id,
                 service_id,
                 characteristics,
                 &request,
@@ -449,16 +455,21 @@ fn read(
                 &mut publish,
             )
         });
+        let started = Instant::now();
         let _ = device.Close();
+        log_read_duration(&target.id, "device close", started.elapsed());
         result
     })();
+    let started = Instant::now();
     info.error = result.err().map(|error| error.to_string());
+    log_read_duration(&target.id, "result error conversion", started.elapsed());
     info
 }
 
 #[cfg(windows)]
 fn read_service(
     device: &windows::Devices::Bluetooth::BluetoothLEDevice,
+    device_id: &str,
     service_id: u16,
     ids: &[u16],
     request: &crate::windows_runtime::BluetoothRequest<'_>,
@@ -483,22 +494,44 @@ fn read_service(
                 BluetoothCacheMode::Cached,
             )
         },
-    )?;
+    );
+    let services = TimedRelease::new(
+        convert_read_result(
+            device_id,
+            &format!("{service_id:04X} service discovery error conversion"),
+            services,
+        )?,
+        device_id,
+        format!("{service_id:04X} service discovery result release"),
+    );
     gatt_status(
         &format!("服务 {service_id:04X}"),
         services.Status()?,
         || services.ProtocolError().and_then(|code| code.Value()),
     )?;
-    let services = services.Services()?;
+    let services = TimedRelease::new(
+        services.Services()?,
+        device_id,
+        format!("{service_id:04X} services release"),
+    );
     if services.Size()? == 0 {
         return Ok(());
     }
-    let service = services.GetAt(0)?;
+    let service = TimedRelease::new(
+        services.GetAt(0)?,
+        device_id,
+        format!("{service_id:04X} service release"),
+    );
     let result = (|| -> Result<(), ReadError> {
         let opened = request.run_with_timeout(
             &format!("打开设备信息服务 {service_id:04X}"),
             OPERATION_TIMEOUT,
             || service.OpenAsync(GattSharingMode::SharedReadOnly),
+        );
+        let opened = convert_read_result(
+            device_id,
+            &format!("{service_id:04X} service open error conversion"),
+            opened,
         )?;
         if opened != GattOpenStatus::Success && opened != GattOpenStatus::AlreadyOpened {
             return Err(ReadError::Field(format!(
@@ -516,19 +549,41 @@ fn read_service(
                         BluetoothCacheMode::Cached,
                     )
                 },
-            )?;
+            );
+            let chars = TimedRelease::new(
+                convert_read_result(
+                    device_id,
+                    &format!("{service_id:04X}/{id:04X} discovery error conversion"),
+                    chars,
+                )?,
+                device_id,
+                format!("{service_id:04X}/{id:04X} discovery result release"),
+            );
             gatt_status(&format!("特征 {id:04X} 发现"), chars.Status()?, || {
                 chars.ProtocolError().and_then(|code| code.Value())
             })?;
-            let chars = chars.Characteristics()?;
+            let chars = TimedRelease::new(
+                chars.Characteristics()?,
+                device_id,
+                format!("{service_id:04X}/{id:04X} characteristics release"),
+            );
             if chars.Size()? == 0 {
                 return Ok(None);
             }
-            let characteristic = chars.GetAt(0)?;
+            let characteristic = TimedRelease::new(
+                chars.GetAt(0)?,
+                device_id,
+                format!("{service_id:04X}/{id:04X} characteristic release"),
+            );
             let value = request.run_with_timeout(
                 &format!("读取设备信息特征 {id:04X}"),
                 OPERATION_TIMEOUT,
                 || characteristic.ReadValueWithCacheModeAsync(BluetoothCacheMode::Uncached),
+            );
+            let value = convert_read_result(
+                device_id,
+                &format!("{service_id:04X}/{id:04X} value read error conversion"),
+                value,
             )?;
             gatt_status(&format!("特征 {id:04X} 读取"), value.Status()?, || {
                 value.ProtocolError().and_then(|code| code.Value())
@@ -539,8 +594,74 @@ fn read_service(
             Ok(Some(bytes))
         })
     })();
+    let started = Instant::now();
     let _ = service.Close();
+    log_read_duration(
+        device_id,
+        &format!("{service_id:04X} service close"),
+        started.elapsed(),
+    );
     result
+}
+
+#[cfg(windows)]
+struct TimedRelease<'a, T> {
+    value: Option<T>,
+    device_id: &'a str,
+    stage: String,
+}
+
+#[cfg(windows)]
+impl<'a, T> TimedRelease<'a, T> {
+    fn new(value: T, device_id: &'a str, stage: impl Into<String>) -> Self {
+        Self {
+            value: Some(value),
+            device_id,
+            stage: stage.into(),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl<T> std::ops::Deref for TimedRelease<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        self.value.as_ref().unwrap()
+    }
+}
+
+#[cfg(windows)]
+impl<T> Drop for TimedRelease<'_, T> {
+    fn drop(&mut self) {
+        let started = Instant::now();
+        drop(self.value.take());
+        log_read_duration(self.device_id, &self.stage, started.elapsed());
+    }
+}
+
+#[cfg(windows)]
+fn convert_read_result<T>(
+    device_id: &str,
+    stage: &str,
+    result: Result<T, crate::windows_runtime::BluetoothRequestError>,
+) -> Result<T, ReadError> {
+    let started = Instant::now();
+    let result = result.map_err(ReadError::from);
+    log_read_duration(device_id, stage, started.elapsed());
+    result
+}
+
+#[cfg(windows)]
+fn log_read_duration(device_id: &str, stage: &str, elapsed: Duration) {
+    let elapsed_ms = elapsed.as_millis();
+    if elapsed >= Duration::from_millis(100) {
+        log::warn!(target: "axonkey::devices",
+            "Device {device_id} information stage {stage}: elapsed_ms={elapsed_ms}");
+    } else {
+        log::debug!(target: "axonkey::devices",
+            "Device {device_id} information stage {stage}: elapsed_ms={elapsed_ms}");
+    }
 }
 
 #[cfg(windows)]
