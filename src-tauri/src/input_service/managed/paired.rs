@@ -236,6 +236,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 
 #[cfg(windows)]
 pub(super) fn scan() -> Result<Vec<Device>, String> {
+    use std::time::Duration;
     use windows::{
         core::{Interface, HSTRING},
         Devices::{
@@ -246,7 +247,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
     };
     let _apartment = crate::windows_runtime::initialize_mta()
         .map_err(|e| format!("无法初始化蓝牙配对查询：{e}"))?;
-    let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
+    let request = crate::windows_runtime::BluetoothRequest::new(Duration::from_secs(15), None);
     let result = (|| -> windows::core::Result<Vec<Device>> {
         let mut devices = vec![];
         for (index, selector) in [
@@ -263,11 +264,12 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 HSTRING::from("System.DeviceInterface.Bluetooth.VendorIdSource"),
             ]
             .into();
-            let records = DeviceInformation::FindAllAsyncAqsFilterAndAdditionalProperties(
-                &selector,
-                &properties,
-            )?
-            .get()?;
+            let records = request.run("配对设备枚举", || {
+                DeviceInformation::FindAllAsyncAqsFilterAndAdditionalProperties(
+                    &selector,
+                    &properties,
+                )
+            })?;
             for record in records {
                 let values = record.Properties()?;
                 let property = |key: &str| {
@@ -301,12 +303,16 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 } else {
                     // The paired selector can return a device interface without AEP properties.
                     let address = if index == 0 {
-                        let device = BluetoothDevice::FromIdAsync(&record.Id()?)?.get()?;
+                        let device = request.run("配对设备地址", || {
+                            BluetoothDevice::FromIdAsync(&record.Id()?)
+                        })?;
                         let address = device.BluetoothAddress()?;
                         device.Close()?;
                         address
                     } else {
-                        let device = BluetoothLEDevice::FromIdAsync(&record.Id()?)?.get()?;
+                        let device = request.run("配对 BLE 设备地址", || {
+                            BluetoothLEDevice::FromIdAsync(&record.Id()?)
+                        })?;
                         let address = device.BluetoothAddress()?;
                         device.Close()?;
                         address
