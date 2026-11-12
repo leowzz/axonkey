@@ -374,6 +374,13 @@ test('saved offline instances keep their card and show connection state even whe
   assert.ok(text(card).includes('未连接'))
   snapshot.discovered = [{ ...device, connected: true }]
   assert.equal(model.instanceStatusLabel(instance, snapshot), '已暂停')
+  snapshot.runtime[instance.id] = { state: 'exclusive' }
+  assert.equal(model.instanceStatusLabel(instance, snapshot), '拦截中')
+  act(() => view.update(React.createElement(DeviceHub, {
+    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {},
+  })))
+  const updatedCard = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
+  assert.equal(text(updatedCard.findByProps({ className: 'my-devices-status' })), '拦截中')
   act(() => view.unmount())
 })
 
@@ -1181,6 +1188,14 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
 
     assert.equal(undoBtn().props.disabled, true)
     assert.equal(redoBtn().props.disabled, true)
+    assert.equal(view.root.findAllByProps({ className: 'key-picker-voice-guidance' }).length, 0)
+
+    act(() => remote().props.onSelect('cmiotA15.voice'))
+    const voiceGuidance = view.root.findByProps({ className: 'key-picker-voice-guidance' })
+    assert.equal(voiceGuidance.parent.props.className, 'key-picker-heading')
+    assert.match(text(voiceGuidance), /要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空/)
+    act(() => remote().props.onSelect(selectedId))
+    assert.equal(view.root.findAllByProps({ className: 'key-picker-voice-guidance' }).length, 0)
 
     const seq1 = { click: [{ id: 's1', type: 'key', enabled: true, key: 'Space' }], doubleClick: [], longPress: [] }
     const seq2 = { click: [{ id: 's2', type: 'key', enabled: true, key: 'Enter' }], doubleClick: [], longPress: [] }

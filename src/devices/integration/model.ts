@@ -158,7 +158,7 @@ export function stateLabel(state?: string): string {
         needsRebind: '未连接 · 需重新绑定',
         opening: '正在连接',
         error: '需要处理',
-        exclusive: '独占拦截中',
+        exclusive: '拦截中',
         unsupported: '等待输入适配',
       } as Record<string, string>
     )[state ?? ''] ?? '等待启动'

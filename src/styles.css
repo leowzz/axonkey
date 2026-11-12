@@ -2391,21 +2391,37 @@ body.permission-helper-mode #root {
   position: relative;
   z-index: 3;
   display: flex;
+  min-height: 26px;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 .key-picker-heading {
   display: flex;
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
   gap: 10px;
+}
+.key-picker-heading h2 {
+  flex-shrink: 0;
+}
+.key-picker-voice-guidance {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .key-picker-head + * {
   margin-top: 10px;
 }
 .key-picker-actions {
   display: flex;
+  flex-shrink: 0;
   flex-wrap: wrap;
   min-width: 0;
   align-items: center;

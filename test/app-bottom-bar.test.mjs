@@ -44,13 +44,13 @@ test('bottom bar selects the current workspace or open panel and shows device st
   const props = {
     ...base,
     workspaceName: '小米遥控器',
-    workspaceStatus: { label: '独占拦截中', tone: 'connected' },
+    workspaceStatus: { label: '拦截中', tone: 'connected' },
   }
   try {
     assert.deepEqual(selectedLabels(), ['设备'])
     renderer.update(React.createElement(AppBottomBar, props))
     assert.deepEqual(selectedLabels(), ['小米遥控器'])
-    assert.match(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), /独占拦截中/)
+    assert.match(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), /拦截中/)
     for (const [panel, label] of [['settings', '设置'], ['cloud', '账号与同步'], ['about', '关于']]) {
       renderer.update(React.createElement(AppBottomBar, { ...props, activePanel: panel }))
       assert.deepEqual(selectedLabels(), [label])

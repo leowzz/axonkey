@@ -211,20 +211,6 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-canvas-footer {
   flex: 0 0 auto;
 }
-.workflow-canvas-footer.has-voice-guidance {
-  padding: 8px 12px 0;
-}
-.workflow-voice-guidance {
-  color: var(--ink-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-.workflow-voice-guidance p {
-  margin: 0;
-}
-.workflow-voice-guidance p + p {
-  margin-top: 4px;
-}
 .workflow-axonkey-canvas .sqd-designer {
   background: transparent;
 }

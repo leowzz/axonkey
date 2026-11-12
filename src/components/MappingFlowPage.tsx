@@ -92,6 +92,14 @@ export function MappingFlowPage({
                   <div className="key-picker-head">
                     <div className="key-picker-heading">
                       <h2 id="key-picker-title">{behaviorEditorProps.button.label}</h2>
+                      {behaviorEditorProps.button.icon === 'mic' && (
+                        <span
+                          className="key-picker-voice-guidance"
+                          title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
+                        >
+                          要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
+                        </span>
+                      )}
                     </div>
                     {toolbar}
                   </div>
