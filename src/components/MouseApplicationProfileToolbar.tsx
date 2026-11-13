@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import type { Application, ForegroundApplications } from '../applications'
 import type { MappingProfile } from '../appTypes'
-import { AddApplicationDialog } from './ApplicationProfileToolbar'
+import { AddApplicationDialog, ApplicationSelect } from './ApplicationProfileToolbar'
 import { ProfileManager } from './ProfileManager'
-import { SelectControl } from './SelectControl'
 import { SettingsHelp } from './SettingsHelp'
 import './ApplicationProfileToolbar.css'
 
@@ -44,52 +43,35 @@ export function MouseApplicationProfileToolbar({
 }) {
   const [adding, setAdding] = useState(false)
   const bindings = profiles.flatMap(profile =>
-    (profile.applicationIds ?? []).map(applicationId => ({ profile, applicationId })),
+    (profile.applicationIds ?? []).map(applicationId => {
+      const known =
+        applications.current?.id === applicationId
+          ? applications.current
+          : applications.recent.find(entry => entry.application.id === applicationId)?.application
+      return {
+        id: applicationId,
+        name: known?.name ?? applicationId,
+        path: known?.path ?? '',
+        detail: profile.name,
+      }
+    }),
   )
-  const recent = applications.recent.filter(
-    entry => !bindings.some(binding => binding.applicationId === entry.application.id),
-  )
+  const recent = applications.recent
+    .filter(entry => !bindings.some(binding => binding.id === entry.application.id))
+    .map(entry => entry.application)
   return (
     <div className="application-profile-toolbar mouse-application-profile-toolbar">
-      <label className="application-edit-target">
-        编辑应用
-        <SelectControl
-          aria-label="编辑应用"
+      <div className="application-edit-target">
+        <span>编辑应用</span>
+        <ApplicationSelect
           value={editingApplicationId}
-          onChange={event => {
-            const id = event.target.value
-            if (id === '__add_application__') {
-              setAdding(true)
-              return
-            }
-            onSelectApplication(id)
-          }}
-        >
-          <option value="">全局</option>
-          {bindings.length > 0 && (
-            <optgroup label="已添加">
-              {bindings.map(({ applicationId, profile }) => (
-                <option key={applicationId} value={applicationId}>
-                  {applications.recent.find(entry => entry.application.id === applicationId)?.application.name ??
-                    applicationId}
-                  {' · '}
-                  {profile.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {recent.length > 0 && (
-            <optgroup label="最近使用">
-              {recent.map(({ application }) => (
-                <option key={application.id} value={application.id}>
-                  {application.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          <option value="__add_application__">＋ 添加应用…</option>
-        </SelectControl>
-      </label>
+          added={bindings}
+          recent={recent}
+          native={native}
+          onSelect={onSelectApplication}
+          onAddApplication={() => setAdding(true)}
+        />
+      </div>
       <div className="application-edit-profile">
         <span>配置</span>
         <ProfileManager

@@ -1,13 +1,15 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
-import { X } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import './AppSettingsPanel.css'
 
 export function AppSettingsPanel({
   workspaceRef,
+  backLabel = '返回',
   onClose,
   children,
 }: {
   workspaceRef: RefObject<HTMLElement>
+  backLabel?: string
   onClose: () => void
   children: ReactNode
 }) {
@@ -43,23 +45,24 @@ export function AppSettingsPanel({
   }, [onClose])
 
   return (
-    <>
-      <button
-        className="app-settings-panel-dismiss"
-        type="button"
-        aria-label="点击空白处关闭设置面板"
-        tabIndex={-1}
-        onClick={onClose}
-      />
-      <aside className="app-settings-panel" aria-labelledby="app-settings-panel-title">
-        <header className="app-settings-panel-header">
-          <h2 id="app-settings-panel-title">设置</h2>
-          <button ref={closeRef} type="button" aria-label="关闭设置面板" title="关闭 · Esc" onClick={onClose}>
-            <X size={17} aria-hidden="true" />
+    <section className="app-settings-panel" aria-labelledby="app-settings-panel-title">
+      <header className="device-workspace-header app-settings-panel-header">
+        <div className="device-workspace-title">
+          <button
+            ref={closeRef}
+            type="button"
+            className="device-workspace-back"
+            aria-label={backLabel === '返回' ? '退出设置' : `返回${backLabel}`}
+            title="退出设置 · Esc"
+            onClick={onClose}
+          >
+            <ArrowLeft size={15} aria-hidden="true" />
+            {backLabel}
           </button>
-        </header>
-        {children}
-      </aside>
-    </>
+          <h2 id="app-settings-panel-title">设置</h2>
+        </div>
+      </header>
+      {children}
+    </section>
   )
 }

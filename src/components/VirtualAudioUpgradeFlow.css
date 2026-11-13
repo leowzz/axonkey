@@ -1,6 +1,6 @@
 .virtual-audio-checking {
   margin: 40px;
-  color: #627b90;
+  color: var(--muted);
   font-size: 13px;
 }
 .virtual-audio-upgrade {
@@ -14,18 +14,19 @@
 }
 .virtual-audio-upgrade-icon {
   display: flex;
-  color: #3784ce;
+  color: var(--blue);
 }
 .virtual-audio-upgrade h2 {
   margin: 0;
-  font-size: 21px;
+  font-size: 20px;
+  font-weight: 700;
   outline: none;
 }
 .virtual-audio-upgrade-progress {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #3375ac;
+  color: var(--blue);
 }
 .virtual-audio-upgrade-progress svg {
   flex-shrink: 0;
@@ -34,11 +35,11 @@
 .virtual-audio-upgrade-reboot {
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fff2d6;
-  color: #845c1f;
+  background: var(--warn-soft);
+  color: var(--warn);
 }
 .virtual-audio-upgrade-logs {
-  color: #627b90;
+  color: var(--muted);
   font-size: 12px;
   overflow-wrap: anywhere;
 }
@@ -49,17 +50,17 @@
   align-items: center;
 }
 .virtual-audio-upgrade .virtual-audio-install-only {
-  background: #edf0f3;
-  border-color: #d6dce2;
-  color: #4c5d6b;
+  background: var(--surface-subtle);
+  border-color: var(--line-strong);
+  color: var(--ink-secondary);
 }
 .virtual-audio-upgrade .virtual-audio-upgrade-skip {
   min-height: 26px;
   padding: 4px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 5px;
   background: transparent;
-  color: #73889a;
+  color: var(--muted);
   font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) {

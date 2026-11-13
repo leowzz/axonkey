@@ -2,15 +2,232 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FolderOpen, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, FolderOpen, Globe, Plus, X } from 'lucide-react'
 import type { Application, ForegroundApplications } from '../applications'
 import type { Platform } from '../appTypes'
 import type { DeviceInstance } from '../devices/integration/model'
 import { addApplicationForEditing } from '../devices/integration/instanceProfiles'
 import { ProfileManager } from './ProfileManager'
 import { SettingsHelp } from './SettingsHelp'
-import { SelectControl } from './SelectControl'
 import './ApplicationProfileToolbar.css'
+
+export type ApplicationSelectOption = {
+  id: string
+  name: string
+  path?: string
+  detail?: string
+}
+
+const applicationIconCache = new Map<string, string>()
+const requestedApplicationIconKeys = new Set<string>()
+
+function ApplicationIcon({ iconUrl, global = false }: { iconUrl?: string; global?: boolean }) {
+  if (global) {
+    return (
+      <span className="application-icon-slot is-global" aria-hidden="true">
+        <Globe size={13.5} />
+      </span>
+    )
+  }
+  if (iconUrl) {
+    return (
+      <span className="application-icon-slot has-image" aria-hidden="true">
+        <img className="application-icon-image" src={iconUrl} alt="" draggable={false} />
+      </span>
+    )
+  }
+  return (
+    <span className="application-icon-slot is-fallback" aria-hidden="true">
+      <AppWindow size={13.5} />
+    </span>
+  )
+}
+
+export function ApplicationSelect({
+  value,
+  added,
+  recent,
+  native,
+  disabled = false,
+  onSelect,
+  onAddApplication,
+}: {
+  value: string
+  added: ApplicationSelectOption[]
+  recent: ApplicationSelectOption[]
+  native: boolean
+  disabled?: boolean
+  onSelect: (id: string) => void
+  onAddApplication: () => void
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [icons, setIcons] = useState<Record<string, string>>(() => Object.fromEntries(applicationIconCache.entries()))
+  const rootRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (disabled) setMenuOpen(false)
+  }, [disabled])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setMenuOpen(false)
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false)
+        triggerRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
+
+  useEffect(() => {
+    if (!native) return
+    const seen = new Set<string>()
+    const missing: { id: string; path: string }[] = []
+    for (const item of [...added, ...recent]) {
+      if (!item.id || seen.has(item.id)) continue
+      seen.add(item.id)
+      const path = item.path ?? ''
+      const requestKey = `${item.id}\0${path}`
+      if (!applicationIconCache.has(item.id) && !requestedApplicationIconKeys.has(requestKey)) {
+        requestedApplicationIconKeys.add(requestKey)
+        missing.push({ id: item.id, path })
+      }
+    }
+    if (missing.length === 0) return
+    let active = true
+    void invoke<Record<string, string>>('application_icons', { applications: missing })
+      .then(loaded => {
+        if (!loaded || typeof loaded !== 'object') return
+        let updated = false
+        for (const [id, dataUrl] of Object.entries(loaded)) {
+          if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
+            applicationIconCache.set(id, dataUrl)
+            updated = true
+          }
+        }
+        if (updated && active) {
+          setIcons(Object.fromEntries(applicationIconCache.entries()))
+        }
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [native, added, recent])
+
+  const selected = [...added, ...recent].find(item => item.id === value) ?? (value ? { id: value, name: value } : null)
+  const choose = (id: string) => {
+    setMenuOpen(false)
+    onSelect(id)
+  }
+
+  return (
+    <div ref={rootRef} className="application-select">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="application-select-trigger"
+        aria-label="编辑应用"
+        aria-haspopup="listbox"
+        aria-expanded={menuOpen}
+        disabled={disabled}
+        onClick={() => setMenuOpen(current => !current)}
+        onKeyDown={event => {
+          if (event.key === 'ArrowDown' && !menuOpen) {
+            event.preventDefault()
+            setMenuOpen(true)
+          }
+        }}
+      >
+        <ApplicationIcon iconUrl={selected ? icons[selected.id] : undefined} global={!selected} />
+        <span className="application-select-trigger-text">{selected ? selected.name : '全局'}</span>
+        <ChevronDown size={14} className="application-select-chevron" aria-hidden="true" />
+      </button>
+      {menuOpen && (
+        <div className="application-select-popover" role="listbox" aria-label="编辑应用选项">
+          <div className="application-select-scroll">
+            <button
+              type="button"
+              role="option"
+              className="application-select-option"
+              aria-selected={value === ''}
+              onClick={() => choose('')}
+            >
+              <ApplicationIcon global />
+              <span className="application-select-option-name">全局</span>
+              {value === '' && <Check size={14} className="application-select-check" aria-hidden="true" />}
+            </button>
+            {added.length > 0 && (
+              <div className="application-select-group" role="group" aria-label="已添加">
+                <div className="application-select-heading" aria-hidden="true">
+                  已添加
+                </div>
+                {added.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    className="application-select-option"
+                    aria-selected={value === item.id}
+                    onClick={() => choose(item.id)}
+                  >
+                    <ApplicationIcon iconUrl={icons[item.id]} />
+                    <span className="application-select-option-name">{item.name}</span>
+                    {item.detail && <span className="application-select-option-detail">{item.detail}</span>}
+                    {value === item.id && <Check size={14} className="application-select-check" aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+            )}
+            {recent.length > 0 && (
+              <div className="application-select-group" role="group" aria-label="最近使用">
+                <div className="application-select-heading" aria-hidden="true">
+                  最近使用
+                </div>
+                {recent.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="option"
+                    className="application-select-option"
+                    aria-selected={value === item.id}
+                    onClick={() => choose(item.id)}
+                  >
+                    <ApplicationIcon iconUrl={icons[item.id]} />
+                    <span className="application-select-option-name">{item.name}</span>
+                    {value === item.id && <Check size={14} className="application-select-check" aria-hidden="true" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="application-select-actions">
+            <button
+              type="button"
+              className="application-select-action"
+              onClick={() => {
+                setMenuOpen(false)
+                onAddApplication()
+              }}
+            >
+              <Plus size={15} aria-hidden="true" />
+              <span>添加应用…</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function ApplicationProfileToolbar({
   instance,
@@ -66,46 +283,26 @@ export function ApplicationProfileToolbar({
   }
   return (
     <div className="application-profile-toolbar">
-      <label className="application-edit-target">
-        编辑应用
-        <SelectControl
-          aria-label="编辑应用"
+      <div className="application-edit-target">
+        <span>编辑应用</span>
+        <ApplicationSelect
           value={editingApplicationId}
+          added={bindings.map(binding => binding.application)}
+          recent={recent.map(entry => entry.application)}
+          native={native}
           disabled={pending}
-          onChange={event => {
-            const id = event.target.value
+          onSelect={id => {
             setError('')
-            if (id === '__add_application__') {
-              setAdding(true)
-              return
-            }
             const application = recent.find(entry => entry.application.id === id)?.application
             if (application) void run(() => add(application))
             else onSelectApplication(id)
           }}
-        >
-          <option value="">全局</option>
-          {bindings.length > 0 && (
-            <optgroup label="已添加">
-              {bindings.map(binding => (
-                <option key={binding.application.id} value={binding.application.id}>
-                  {binding.application.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {recent.length > 0 && (
-            <optgroup label="最近使用">
-              {recent.map(({ application }) => (
-                <option key={application.id} value={application.id}>
-                  {application.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          <option value="__add_application__">＋ 添加应用…</option>
-        </SelectControl>
-      </label>
+          onAddApplication={() => {
+            setError('')
+            setAdding(true)
+          }}
+        />
+      </div>
       <div className="application-edit-profile">
         <span>配置</span>
         <ProfileManager

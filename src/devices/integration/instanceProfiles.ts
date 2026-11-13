@@ -3,7 +3,117 @@ import type { SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../..
 import { setApplicationProfile } from './applicationProfiles.ts'
 import type { Application } from '../../applications'
 
+export type InstanceProfileBehaviors = Record<string, TriggerBehaviors>
+
+export type InstanceBehaviorHistory = {
+  profileId: string
+  past: InstanceProfileBehaviors[]
+  present: InstanceProfileBehaviors
+  future: InstanceProfileBehaviors[]
+}
+
+export type InstanceBehaviorHistoryAction =
+  | { type: 'change'; inputId: string; sequences: TriggerBehaviors }
+  | { type: 'replace'; profileId: string; present: InstanceProfileBehaviors }
+  | { type: 'sync'; profileId: string; present: InstanceProfileBehaviors }
+  | { type: 'undo' }
+  | { type: 'redo' }
+
+const historyLimit = 100
 const empty = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
+
+function hasAnyBehavior(sequences: TriggerBehaviors | undefined): boolean {
+  if (!sequences) return false
+  return sequences.click.length > 0 || sequences.doubleClick.length > 0 || sequences.longPress.length > 0
+}
+
+function canonicalValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalValue)
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    return Object.fromEntries(entries.map(([key, item]) => [key, canonicalValue(item)]))
+  }
+  return value
+}
+
+function triggerBehaviorsSignature(sequences: TriggerBehaviors | undefined): string {
+  return JSON.stringify(canonicalValue(sequences ?? empty()))
+}
+
+export function profileBehaviorsSignature(behaviors: InstanceProfileBehaviors): string {
+  const entries = Object.entries(behaviors)
+    .filter(([, sequences]) => hasAnyBehavior(sequences))
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+  return JSON.stringify(entries.map(([inputId, sequences]) => [inputId, canonicalValue(sequences)]))
+}
+
+export function createInstanceBehaviorHistory(
+  profileId: string,
+  present: InstanceProfileBehaviors,
+): InstanceBehaviorHistory {
+  return { profileId, past: [], present: structuredClone(present), future: [] }
+}
+
+export function instanceBehaviorHistoryReducer(
+  state: InstanceBehaviorHistory,
+  action: InstanceBehaviorHistoryAction,
+): InstanceBehaviorHistory {
+  switch (action.type) {
+    case 'replace':
+      return createInstanceBehaviorHistory(action.profileId, action.present)
+    case 'sync':
+      if (action.profileId !== state.profileId) {
+        return createInstanceBehaviorHistory(action.profileId, action.present)
+      }
+      if (profileBehaviorsSignature(action.present) === profileBehaviorsSignature(state.present)) {
+        return state
+      }
+      return createInstanceBehaviorHistory(action.profileId, action.present)
+    case 'change':
+      if (triggerBehaviorsSignature(state.present[action.inputId]) === triggerBehaviorsSignature(action.sequences)) {
+        return state
+      }
+      return {
+        profileId: state.profileId,
+        past: [...state.past, state.present].slice(-historyLimit),
+        present: { ...state.present, [action.inputId]: structuredClone(action.sequences) },
+        future: [],
+      }
+    case 'undo': {
+      const present = state.past[state.past.length - 1]
+      if (!present) return state
+      return {
+        profileId: state.profileId,
+        past: state.past.slice(0, -1),
+        present,
+        future: [state.present, ...state.future].slice(0, historyLimit),
+      }
+    }
+    case 'redo': {
+      const present = state.future[0]
+      if (!present) return state
+      return {
+        profileId: state.profileId,
+        past: [...state.past, state.present].slice(-historyLimit),
+        present,
+        future: state.future.slice(1),
+      }
+    }
+  }
+}
+
+export function replaceInstanceProfileBehaviors(
+  instance: DeviceInstance,
+  profileId: string,
+  behaviors: InstanceProfileBehaviors,
+): DeviceInstance {
+  return {
+    ...instance,
+    profiles: instance.profiles.map(p => (p.id === profileId ? { ...p, behaviors: structuredClone(behaviors) } : p)),
+  }
+}
 
 export function updateInstanceSequence(
   instance: DeviceInstance,
@@ -92,8 +202,7 @@ export function addApplicationForEditing(instance: DeviceInstance, application: 
 export function deleteInstanceProfile(instance: DeviceInstance, profileId: string): DeviceInstance {
   if (instance.profiles.length <= 1) return instance
   const profiles = instance.profiles.filter(profile => profile.id !== profileId)
-  const fallbackProfileId =
-    instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId
+  const fallbackProfileId = instance.activeProfileId === profileId ? profiles[0].id : instance.activeProfileId
   return {
     ...instance,
     profiles,

@@ -1915,6 +1915,7 @@ pub fn run() {
             device_snapshot,
             foreground::foreground_applications,
             foreground::resolve_application_path,
+            foreground::application_icons,
             refresh_device_information,
             toggle_device_recording,
             restart_app,

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
+import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -22,7 +23,7 @@ import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
-import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
 import { DeviceBindingPicker } from './IntegrationControls'
 import {
   defaultRecordingMode,
@@ -39,9 +40,12 @@ import {
   addInstanceProfile,
   deleteInstanceProfile,
   applyInstanceProfileSwitch,
+  createInstanceBehaviorHistory,
+  instanceBehaviorHistoryReducer,
   removeInstanceProfileSwitch,
-  updateInstanceSequence,
+  replaceInstanceProfileBehaviors,
 } from './instanceProfiles'
+import type { InstanceBehaviorHistoryAction, InstanceProfileBehaviors } from './instanceProfiles'
 
 type Props = {
   instance: DeviceInstance
@@ -59,6 +63,9 @@ type Props = {
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
+  onToast?: (message: string) => void
+  deviceOptions?: WorkspaceDeviceOption[]
+  onSelectDevice?: (id: string) => void
 }
 export function InstanceWorkspace({
   instance,
@@ -76,6 +83,9 @@ export function InstanceWorkspace({
   onInstallDriver,
   driverAction,
   batteryLevel,
+  onToast,
+  deviceOptions,
+  onSelectDevice,
 }: Props) {
   const pkg = packageFor(instance.kind)
   const voice = pkg.remoteView?.voice
@@ -245,19 +255,76 @@ export function InstanceWorkspace({
   useEffect(() => {
     setInput({ pressed: [], values: {} })
   }, [instance.enabled, profile.id, status?.state])
+  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, profile.behaviors))
+  const historyRef = useRef(history)
+  historyRef.current = history
+  const pendingSavesRef = useRef(0)
+  const applyHistoryAction = useCallback((action: InstanceBehaviorHistoryAction) => {
+    const current = historyRef.current
+    const next = instanceBehaviorHistoryReducer(current, action)
+    if (next === current) return null
+    historyRef.current = next
+    setHistory(next)
+    return next
+  }, [])
+  useEffect(() => {
+    if (profile.id !== historyRef.current.profileId) {
+      applyHistoryAction({ type: 'replace', profileId: profile.id, present: profile.behaviors })
+      return
+    }
+    if (pendingSavesRef.current === 0) {
+      applyHistoryAction({ type: 'sync', profileId: profile.id, present: profile.behaviors })
+    }
+  }, [applyHistoryAction, profile.behaviors, profile.id])
+  const saveProfileBehaviors = useCallback(
+    (profileId: string, behaviors: InstanceProfileBehaviors) => {
+      pendingSavesRef.current += 1
+      void controller
+        .update(instance.id, item => replaceInstanceProfileBehaviors(item, profileId, behaviors))
+        .catch(() => {})
+        .finally(() => {
+          pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+        })
+    },
+    [controller, instance.id],
+  )
+  const activeBehaviors = history.profileId === profile.id ? history.present : profile.behaviors
+  const canUndo = history.profileId === profile.id && history.past.length > 0
+  const canRedo = history.profileId === profile.id && history.future.length > 0
+  const undoBehaviorChange = useCallback(() => {
+    if (historyRef.current.profileId !== profile.id) return
+    const next = applyHistoryAction({ type: 'undo' })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
+    onToast?.('已撤销行为更改')
+  }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
+  const redoBehaviorChange = useCallback(() => {
+    if (historyRef.current.profileId !== profile.id) return
+    const next = applyHistoryAction({ type: 'redo' })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
+    onToast?.('已重做行为更改')
+  }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
   const changeSequence = (id: string, sequences: TriggerBehaviors) => {
-    const triggers = removedProfileSwitchTriggers(profile.behaviors[id] ?? emptyTriggers(), sequences)
+    if (historyRef.current.profileId !== profile.id) {
+      const replaced = createInstanceBehaviorHistory(profile.id, profile.behaviors)
+      historyRef.current = replaced
+      setHistory(replaced)
+    }
+    const triggers = removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
     if (triggers.length) {
       setPendingDeletion({ profileId: profile.id, inputId: id, triggers, sequences })
       return false
     }
-    update(item => updateInstanceSequence(item, profile.id, id, sequences))
+    const next = applyHistoryAction({ type: 'change', inputId: id, sequences })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
   }
   const renameProfile = (name: string) =>
     update(item => ({ ...item, profiles: item.profiles.map(p => (p.id === profile.id ? { ...p, name } : p)) }))
   const deleteProfile = () => update(item => deleteInstanceProfile(item, profile.id))
-  const mapped = Object.keys(profile.behaviors).filter(id =>
-    Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
+  const mapped = Object.keys(activeBehaviors).filter(id =>
+    Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
   const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
@@ -283,6 +350,45 @@ export function InstanceWorkspace({
     : null
   const showDriverNotice =
     !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    if (settings || pendingSwitch || pendingDeletion || showDriverNotice) return
+    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      )
+        return
+      if (
+        typeof document !== 'undefined' &&
+        document.querySelector?.('dialog[open], [aria-modal="true"], .app-settings-panel, .record-key-button.capturing')
+      )
+        return
+      const key = event.key.toLowerCase()
+      const undo = key === 'z' && !event.shiftKey
+      const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey)
+      if (undo && canUndo) {
+        event.preventDefault()
+        undoBehaviorChange()
+      } else if (redo && canRedo) {
+        event.preventDefault()
+        redoBehaviorChange()
+      }
+    }
+    window.addEventListener('keydown', handleHistoryShortcut)
+    return () => window.removeEventListener('keydown', handleHistoryShortcut)
+  }, [
+    canRedo,
+    canUndo,
+    pendingDeletion,
+    pendingSwitch,
+    redoBehaviorChange,
+    settings,
+    showDriverNotice,
+    undoBehaviorChange,
+  ])
   const driverNoticeMessage = driverErrorDetail
     ? '驱动错误，请重新安装。'
     : driverRestartRequired
@@ -302,6 +408,9 @@ export function InstanceWorkspace({
       <div className="mapping-workbench">
         <DeviceWorkspaceHeader
           deviceName={instance.name}
+          activeDeviceId={instance.id}
+          deviceOptions={deviceOptions}
+          onSelectDevice={onSelectDevice}
           onBackToDevices={onBack}
           onOpenSettings={() => setSettings(v => !v)}
           profileControls={
@@ -419,11 +528,7 @@ export function InstanceWorkspace({
                 className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
                 title={connectionLabel}
               >
-                {connectionState === 'exclusive'
-                  ? '拦截中'
-                  : connectionState === 'needsRebind'
-                    ? '需重新绑定'
-                    : connectionLabel}
+                {connectionState === 'needsRebind' ? '需重新绑定' : connectionLabel}
               </span>
             ) : (
               <button type="button" className="managed-instance-bind" onClick={onBind}>
@@ -515,7 +620,25 @@ export function InstanceWorkspace({
             header={
               <section className="key-picker">
                 <div className="key-picker-head">
-                  <h2>{selectedInput.label}</h2>
+                  <div className="key-picker-heading">
+                    <h2>{selectedInput.label}</h2>
+                    {selectedInput.icon === 'mic' && (
+                      <span
+                        className="key-picker-voice-guidance"
+                        title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
+                      >
+                        要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
+                      </span>
+                    )}
+                  </div>
+                  <div className="key-picker-actions">
+                    <BehaviorHistoryActions
+                      canUndo={canUndo}
+                      canRedo={canRedo}
+                      onUndo={undoBehaviorChange}
+                      onRedo={redoBehaviorChange}
+                    />
+                  </div>
                 </div>
                 {instance.kind === 'xboxBluetooth' && (
                   <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
@@ -528,7 +651,7 @@ export function InstanceWorkspace({
                         onClick={() => setControllerTrigger(trigger)}
                       >
                         {triggerLabels[trigger]}
-                        <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
+                        <span>{activeBehaviors[selected]?.[trigger].length ?? 0}</span>
                       </button>
                     ))}
                   </div>
@@ -539,7 +662,7 @@ export function InstanceWorkspace({
             onSplitRatioChange={setSplitRatio}
             platform={platform}
             button={selectedInput}
-            sequences={profile.behaviors[selected] ?? emptyTriggers()}
+            sequences={activeBehaviors[selected] ?? emptyTriggers()}
             activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
             onChange={changeSequence}
             onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
@@ -741,21 +864,39 @@ export function InstanceWorkspace({
             targets={instance.profiles.map(p => ({
               id: p.id,
               name: p.name,
-              behaviors: p.behaviors[pendingSwitch.inputId]?.[pendingSwitch.trigger] ?? [],
+              behaviors:
+                (p.id === profile.id ? activeBehaviors : p.behaviors)[pendingSwitch.inputId]?.[pendingSwitch.trigger] ??
+                [],
             }))}
             activeProfileId={profile.id}
             platform={platform}
             onCancel={() => setPendingSwitch(null)}
             onConfirm={behavior => {
+              pendingSavesRef.current += 1
+              let nextProfileBehaviors: InstanceProfileBehaviors | undefined
               void controller
-                .update(instance.id, item =>
-                  applyInstanceProfileSwitch(item, pendingSwitch.inputId, pendingSwitch.trigger, behavior),
-                )
+                .update(instance.id, item => {
+                  const updated = applyInstanceProfileSwitch(
+                    item,
+                    pendingSwitch.inputId,
+                    pendingSwitch.trigger,
+                    behavior,
+                  )
+                  nextProfileBehaviors = updated.profiles.find(p => p.id === profile.id)?.behaviors
+                  return updated
+                })
                 .then(() => {
+                  if (nextProfileBehaviors && historyRef.current.profileId === profile.id) {
+                    applyHistoryAction({ type: 'replace', profileId: profile.id, present: nextProfileBehaviors })
+                  }
                   if (pendingSwitch.additionItemId && behavior.enabled)
                     recordLibraryAdditions([pendingSwitch.additionItemId])
+                  onToast?.('已应用到此设备的所有配置文件')
                 })
                 .catch(() => {})
+                .finally(() => {
+                  pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+                })
               setPendingSwitch(null)
             }}
           />,
@@ -768,20 +909,41 @@ export function InstanceWorkspace({
             targets={pendingDeletion.triggers.map(trigger => ({
               trigger,
               profiles: instance.profiles.filter(p =>
-                p.behaviors[pendingDeletion.inputId]?.[trigger].some(b => b.type === 'switchProfile'),
+                (p.id === profile.id ? activeBehaviors : p.behaviors)[pendingDeletion.inputId]?.[trigger].some(
+                  b => b.type === 'switchProfile',
+                ),
               ),
             }))}
             onCancel={() => setPendingDeletion(null)}
             onConfirm={() => {
-              update(item =>
-                removeInstanceProfileSwitch(
-                  item,
-                  pendingDeletion.profileId,
-                  pendingDeletion.inputId,
-                  pendingDeletion.triggers,
-                  pendingDeletion.sequences,
-                ),
-              )
+              pendingSavesRef.current += 1
+              let nextProfileBehaviors: InstanceProfileBehaviors | undefined
+              void controller
+                .update(instance.id, item => {
+                  const updated = removeInstanceProfileSwitch(
+                    item,
+                    pendingDeletion.profileId,
+                    pendingDeletion.inputId,
+                    pendingDeletion.triggers,
+                    pendingDeletion.sequences,
+                  )
+                  nextProfileBehaviors = updated.profiles.find(p => p.id === pendingDeletion.profileId)?.behaviors
+                  return updated
+                })
+                .then(() => {
+                  if (nextProfileBehaviors && historyRef.current.profileId === pendingDeletion.profileId) {
+                    applyHistoryAction({
+                      type: 'replace',
+                      profileId: pendingDeletion.profileId,
+                      present: nextProfileBehaviors,
+                    })
+                  }
+                  onToast?.('已同步删除切换配置文件行为')
+                })
+                .catch(() => {})
+                .finally(() => {
+                  pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+                })
               setPendingDeletion(null)
             }}
           />,
