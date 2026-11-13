@@ -15,7 +15,7 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
         (
             "tclRc902n",
             include_str!("../../../../docs/device-drafts/tcl-rc902n.svg"),
-            21,
+            22,
         ),
         (
             "tclRc902v",
@@ -83,13 +83,13 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
         assert_eq!(tested, count);
         assert!(descriptor.inputs.iter().all(|input| !input.original));
     }
-    let pending = descriptor_for_kind("tclRc902n")
+    let confirm = descriptor_for_kind("tclRc902n")
         .unwrap()
         .inputs
         .iter()
-        .find(|input| input.id.ends_with(".confirm"))
+        .find(|input| input.id == "tcl-rc902n.confirm")
         .unwrap();
-    assert!(pending.pending && pending.sources.is_empty());
+    assert!(!confirm.pending && confirm.sources.len() == 1);
     assert_eq!(voice_engine("tclRc902n"), Some("tcl-rc902v-atvv"));
     assert_eq!(voice_key("tclRc902n"), Some("tcl-rc902n.assistant"));
     assert_eq!(voice_engine("tclRc902v"), Some("tcl-rc902v-atvv"));

@@ -2252,7 +2252,7 @@ export const deviceDescriptors = {
       {
         "id": "tcl-rc902n.confirm",
         "stableId": "tcl-rc902n.confirm",
-        "label": "确认（待采集）",
+        "label": "确认",
         "short": "确认",
         "icon": "center",
         "kind": "button",
