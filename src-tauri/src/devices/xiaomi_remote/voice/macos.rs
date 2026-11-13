@@ -1,13 +1,18 @@
 use super::atvv::AtvvDecoder;
 use crate::audio_service::signal_monitor::{now_ms, NativeMonitorSnapshot, SignalMonitor};
 use crate::audio_service::{clamp_gain_db, diagnostics::AudioDiagnostics, AudioServiceStatus};
+use crate::devices::cmiot_a15::recording::RecordingMode;
+use crate::devices::tcl_rc902v::atvv::{
+    hex_bytes, upsample_8k_to_16k, AtvvSession as Rc902vAtvvSession,
+    SessionAction as Rc902vSessionAction, SessionEvent as Rc902vSessionEvent,
+};
 use std::{
     ffi::{c_char, c_void, CString},
     sync::{
         atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const EVENT_AUDIO_PACKET: i32 = 1;
@@ -24,6 +29,9 @@ const EVENT_CONTROL: i32 = 11;
 const EVENT_OUTPUT_RESET: i32 = 12;
 const EVENT_RSSI: i32 = 13;
 const EVENT_CONNECTION_RESET: i32 = 14;
+const EVENT_NEGOTIATE: i32 = 15;
+const EVENT_TIMER_TICK: i32 = 16;
+const EVENT_STOPPING: i32 = 17;
 
 type EventCallback = unsafe extern "C" fn(*mut c_void, i32, *const u8, usize, i32, i32);
 
@@ -40,6 +48,15 @@ extern "C" {
         target_address: *const c_char,
     ) -> *mut c_void;
     fn axonkey_macos_audio_set_recording(bridge: *mut c_void, recording: bool);
+    fn axonkey_macos_audio_set_rc902_mode(bridge: *mut c_void, rc902_mode: bool);
+    fn axonkey_macos_audio_send_command(
+        bridge: *mut c_void,
+        bytes: *const u8,
+        length: usize,
+    ) -> bool;
+    fn axonkey_macos_audio_rc902_ready(bridge: *mut c_void);
+    fn axonkey_macos_audio_rc902_session_state(bridge: *mut c_void, active: bool, session_id: u8);
+    fn axonkey_macos_audio_rc902_error(bridge: *mut c_void, message: *const c_char);
     fn axonkey_macos_audio_start(bridge: *mut c_void);
     fn axonkey_macos_audio_refresh(bridge: *mut c_void);
     fn axonkey_macos_audio_restart(bridge: *mut c_void) -> bool;
@@ -66,6 +83,8 @@ extern "C" {
 struct Shared {
     recording_indicator: crate::recording_overlay::RecordingSource,
     a15: bool,
+    rc902: bool,
+    rc902_label: &'static str,
     a15_connected: AtomicBool,
     a15_recording: AtomicBool,
     a15_received: AtomicBool,
@@ -74,6 +93,10 @@ struct Shared {
     bridge: AtomicPtr<c_void>,
     output_enabled: AtomicBool,
     decoder: Mutex<AtvvDecoder>,
+    rc902v_session: Mutex<Rc902vAtvvSession>,
+    rc902v_resample_prev: Mutex<Option<i16>>,
+    #[cfg(test)]
+    rc902_sent_commands: Mutex<Vec<Vec<u8>>>,
     signal_monitor: Mutex<SignalMonitor>,
 }
 
@@ -118,24 +141,41 @@ impl AudioService {
     }
 
     pub fn start() -> Self {
-        Self::create(false, None)
+        Self::create(false, false, "RC003", None)
     }
 
     pub fn start_for(target_identity: Option<String>) -> Self {
         // An instance without an address must not fall back to an arbitrary RC003.
         let target = CString::new(target_identity.unwrap_or_default()).unwrap_or_default();
-        Self::create(false, Some(target))
+        Self::create(false, false, "RC003", Some(target))
+    }
+
+    pub fn start_rc902(kind: &str, target_identity: Option<String>) -> Self {
+        let label = if kind == "tclRc902n" {
+            "TCL RC902N"
+        } else {
+            "TCL RC902V"
+        };
+        let target = CString::new(target_identity.unwrap_or_default()).unwrap_or_default();
+        Self::create(false, true, label, Some(target))
     }
 
     pub fn start_a15() -> Self {
-        Self::create(true, None)
+        Self::create(true, false, "A15", None)
     }
 
-    fn create(a15: bool, target_address: Option<CString>) -> Self {
+    fn create(
+        a15: bool,
+        rc902: bool,
+        rc902_label: &'static str,
+        target_address: Option<CString>,
+    ) -> Self {
         log::info!(target: "axonkey::audio", "Starting macOS audio service");
         let shared = Arc::new(Shared {
             recording_indicator: Default::default(),
             a15,
+            rc902,
+            rc902_label,
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
@@ -144,6 +184,10 @@ impl AudioService {
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
+            rc902v_session: Mutex::new(Rc902vAtvvSession::default()),
+            rc902v_resample_prev: Mutex::new(None),
+            #[cfg(test)]
+            rc902_sent_commands: Mutex::new(Vec::new()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
         });
         let callback_context = Arc::into_raw(Arc::clone(&shared));
@@ -152,13 +196,17 @@ impl AudioService {
             on_event: native_event_callback,
         };
         let bridge = unsafe {
-            axonkey_macos_audio_create(
+            let bridge = axonkey_macos_audio_create(
                 &callbacks,
                 a15,
                 target_address
                     .as_ref()
                     .map_or(std::ptr::null(), |address| address.as_ptr()),
-            )
+            );
+            if !bridge.is_null() && rc902 {
+                axonkey_macos_audio_set_rc902_mode(bridge, true);
+            }
+            bridge
         };
         shared.bridge.store(bridge, Ordering::Release);
         if !bridge.is_null() {
@@ -341,19 +389,48 @@ impl AudioService {
             && unsafe { axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len()) };
         self.shared.diagnostics.scheduled(samples.len(), success);
     }
+
+    pub(crate) fn set_recording_mode(&self, mode: RecordingMode) {
+        if !self.shared.rc902 {
+            return;
+        }
+        // Release rc902v_session before dispatching to the main-queue Obj-C bridge.
+        let action = self
+            .shared
+            .rc902v_session
+            .lock()
+            .map(|mut session| session.set_recording_mode(mode, Instant::now()))
+            .unwrap_or_default();
+        apply_rc902v_action(&self.shared, action);
+    }
+
+    pub(crate) fn handle_voice_key_edge(&self, pressed: bool) {
+        if !self.shared.rc902 || !self.shared.output_enabled.load(Ordering::Acquire) {
+            return;
+        }
+        // Release rc902v_session before dispatching to the main-queue Obj-C bridge.
+        let action = self
+            .shared
+            .rc902v_session
+            .lock()
+            .map(|mut session| session.on_voice_key_edge(pressed, Instant::now()))
+            .unwrap_or_default();
+        apply_rc902v_action(&self.shared, action);
+    }
 }
 
 impl Drop for AudioService {
     fn drop(&mut self) {
+        let bridge = self.shared.bridge.load(Ordering::Acquire);
+        if !bridge.is_null() {
+            unsafe { axonkey_macos_audio_stop(bridge) };
+        }
         let bridge = self
             .shared
             .bridge
             .swap(std::ptr::null_mut(), Ordering::AcqRel);
         if !bridge.is_null() {
-            unsafe {
-                axonkey_macos_audio_stop(bridge);
-                axonkey_macos_audio_destroy(bridge);
-            }
+            unsafe { axonkey_macos_audio_destroy(bridge) };
         }
         self.shared.recording_indicator.set(false);
         unsafe { drop(Arc::from_raw(self.callback_context)) };
@@ -391,6 +468,118 @@ fn native_error(bridge: *mut c_void) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn apply_rc902v_action(shared: &Shared, action: Rc902vSessionAction) {
+    let label = shared.rc902_label;
+    let bridge = shared.bridge.load(Ordering::Acquire);
+    for command in action.tx_commands {
+        log::info!(
+            target: "axonkey::audio",
+            "macOS {label} ATVV TX len={} hex={}",
+            command.len(),
+            hex_bytes(&command)
+        );
+        if !bridge.is_null() {
+            unsafe { axonkey_macos_audio_send_command(bridge, command.as_ptr(), command.len()) };
+        }
+        #[cfg(test)]
+        if bridge.is_null() {
+            if let Ok(mut sent) = shared.rc902_sent_commands.lock() {
+                sent.push(command);
+            }
+        }
+    }
+
+    for event in action.events {
+        match event {
+            Rc902vSessionEvent::Capabilities(caps) => {
+                log::info!(
+                    target: "axonkey::audio",
+                    "macOS {label} CAPS_RESP: version=0x{:04x} codecs=0x{:02x} model=0x{:02x} frame_size={} extra=0x{:02x} vendor_len={}",
+                    caps.version.wire_code(),
+                    caps.codecs_mask,
+                    caps.raw_model,
+                    caps.frame_size,
+                    caps.extra,
+                    caps.vendor_data.len()
+                );
+                if !bridge.is_null() {
+                    unsafe { axonkey_macos_audio_rc902_ready(bridge) };
+                }
+            }
+            Rc902vSessionEvent::SessionStarted {
+                stream_id,
+                sample_rate,
+            } => {
+                if let Ok(mut prev) = shared.rc902v_resample_prev.lock() {
+                    *prev = None;
+                }
+                shared.recording_indicator.set(true);
+                log::info!(
+                    target: "axonkey::audio",
+                    "macOS {label} ATVV voice forwarding started: stream_id={stream_id} sample_rate={sample_rate}"
+                );
+                if !bridge.is_null() {
+                    unsafe { axonkey_macos_audio_rc902_session_state(bridge, true, stream_id) };
+                }
+            }
+            Rc902vSessionEvent::PcmChunk {
+                sample_rate,
+                samples,
+            } => {
+                let samples = if sample_rate == 8_000 {
+                    shared
+                        .rc902v_resample_prev
+                        .lock()
+                        .map(|mut prev| upsample_8k_to_16k(&samples, &mut prev))
+                        .unwrap_or_default()
+                } else {
+                    samples
+                };
+                if samples.is_empty() {
+                    continue;
+                }
+                shared.diagnostics.decoded(&samples);
+                if let Ok(mut monitor) = shared.signal_monitor.lock() {
+                    monitor.waveform(now_ms(), &samples);
+                }
+                let success = !bridge.is_null()
+                    && unsafe {
+                        axonkey_macos_audio_enqueue(bridge, samples.as_ptr(), samples.len())
+                    };
+                shared.diagnostics.scheduled(samples.len(), success);
+            }
+            Rc902vSessionEvent::SessionStopped { stream_id, reason } => {
+                if let Ok(mut prev) = shared.rc902v_resample_prev.lock() {
+                    *prev = None;
+                }
+                shared.recording_indicator.set(false);
+                log::info!(
+                    target: "axonkey::audio",
+                    "macOS {label} ATVV voice forwarding stopped: stream_id={stream_id} reason=0x{reason:02x}"
+                );
+                if !bridge.is_null() {
+                    unsafe { axonkey_macos_audio_rc902_session_state(bridge, false, stream_id) };
+                }
+            }
+            Rc902vSessionEvent::Error(message) => {
+                shared.recording_indicator.set(false);
+                log::warn!(target: "axonkey::audio", "{message}");
+                if !bridge.is_null() {
+                    if let Ok(c_message) = CString::new(message) {
+                        unsafe { axonkey_macos_audio_rc902_error(bridge, c_message.as_ptr()) };
+                    }
+                }
+            }
+            Rc902vSessionEvent::Disconnected => {
+                if let Ok(mut prev) = shared.rc902v_resample_prev.lock() {
+                    *prev = None;
+                }
+                shared.recording_indicator.set(false);
+            }
+        }
+    }
+}
+
 unsafe extern "C" fn native_event_callback(
     context: *mut c_void,
     event: i32,
@@ -404,12 +593,57 @@ unsafe extern "C" fn native_event_callback(
     }
     let shared = &*(context.cast::<Shared>());
     match event {
+        EVENT_NEGOTIATE => {
+            if shared.rc902 {
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| session.begin_negotiation(Instant::now()))
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+            }
+        }
+        EVENT_TIMER_TICK => {
+            if shared.rc902 {
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| session.poll_timers(Instant::now()))
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+            }
+        }
+        EVENT_STOPPING => {
+            if shared.rc902 {
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| {
+                        let mut out = session.abort_active_stream().unwrap_or_default();
+                        let mut disconnected = session.disconnect();
+                        out.tx_commands.append(&mut disconnected.tx_commands);
+                        out.events.append(&mut disconnected.events);
+                        out
+                    })
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+            }
+        }
         EVENT_AUDIO_PACKET if !data.is_null() && length > 0 => {
+            let packet = std::slice::from_raw_parts(data, length);
+            if shared.rc902 {
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| session.handle_audio(packet, Instant::now()))
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+                return;
+            }
             let Ok(mut decoder) = shared.decoder.lock() else {
                 shared.diagnostics.rejected();
                 return;
             };
-            let packet = std::slice::from_raw_parts(data, length);
             let frames = decoder.append(packet, value1.max(1) as usize);
             shared
                 .diagnostics
@@ -433,6 +667,14 @@ unsafe extern "C" fn native_event_callback(
             }
         }
         EVENT_CONNECTION_RESET => {
+            if shared.rc902 {
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| session.disconnect())
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+            }
             if !shared.a15 {
                 shared.recording_indicator.set(false);
             }
@@ -441,11 +683,13 @@ unsafe extern "C" fn native_event_callback(
             }
         }
         EVENT_CODEC_SYNC => {
-            if let Ok(mut decoder) = shared.decoder.lock() {
-                shared
-                    .diagnostics
-                    .decoder_pending(0, decoder.pending_bytes());
-                decoder.synchronize(value1, value2);
+            if !shared.rc902 {
+                if let Ok(mut decoder) = shared.decoder.lock() {
+                    shared
+                        .diagnostics
+                        .decoder_pending(0, decoder.pending_bytes());
+                    decoder.synchronize(value1, value2);
+                }
             }
         }
         EVENT_SESSION_START | EVENT_SESSION_STOP => {
@@ -453,11 +697,13 @@ unsafe extern "C" fn native_event_callback(
             if !shared.a15 {
                 shared.recording_indicator.set(event == EVENT_SESSION_START);
             }
-            if let Ok(mut decoder) = shared.decoder.lock() {
-                shared
-                    .diagnostics
-                    .decoder_pending(0, decoder.pending_bytes());
-                decoder.reset_session();
+            if !shared.rc902 {
+                if let Ok(mut decoder) = shared.decoder.lock() {
+                    shared
+                        .diagnostics
+                        .decoder_pending(0, decoder.pending_bytes());
+                    decoder.reset_session();
+                }
             }
             if let Ok(mut monitor) = shared.signal_monitor.lock() {
                 monitor.session(event == EVENT_SESSION_START);
@@ -473,7 +719,26 @@ unsafe extern "C" fn native_event_callback(
         EVENT_REJECTED => shared.diagnostics.rejected(),
         EVENT_READ_ERROR => shared.diagnostics.read_error(),
         EVENT_RENDERED => shared.diagnostics.output(value1.max(0) as usize, 0, false),
-        EVENT_CONTROL => shared.diagnostics.control(value1 as u8),
+        EVENT_CONTROL => {
+            shared.diagnostics.control(value1 as u8);
+            if shared.rc902 && !data.is_null() && length > 0 {
+                let bytes = std::slice::from_raw_parts(data, length);
+                log::info!(
+                    target: "axonkey::audio",
+                    "macOS {} ATVV CTL opcode=0x{:02x} len={} hex={}",
+                    shared.rc902_label,
+                    bytes[0],
+                    bytes.len(),
+                    hex_bytes(bytes)
+                );
+                let action = shared
+                    .rc902v_session
+                    .lock()
+                    .map(|mut session| session.handle_control(bytes, Instant::now()))
+                    .unwrap_or_default();
+                apply_rc902v_action(shared, action);
+            }
+        }
         EVENT_OUTPUT_RESET => shared.diagnostics.discarded_buffers(value1.max(0) as usize),
         EVENT_DIAGNOSTICS | EVENT_LOG if !data.is_null() => {
             let message = String::from_utf8_lossy(std::slice::from_raw_parts(data, length));
@@ -485,7 +750,7 @@ unsafe extern "C" fn native_event_callback(
                     .diagnostics
                     .report_macos(value1 & 1 != 0, Duration::from_millis(value2.max(0) as u64))
                 {
-                    log::info!(target: "axonkey::audio", "macOS RC003 audio diagnostics: {report} {message}");
+                    log::info!(target: "axonkey::audio", "macOS {} audio diagnostics: {report} {message}", shared.rc902_label);
                 }
             } else if value1 != 0 {
                 log::warn!(target: "axonkey::audio", "{message}");
@@ -501,10 +766,12 @@ unsafe extern "C" fn native_event_callback(
 mod tests {
     use super::*;
 
-    fn indicator_service(a15: bool) -> AudioService {
-        let shared = Arc::new(Shared {
+    fn test_shared(a15: bool) -> Shared {
+        Shared {
             recording_indicator: Default::default(),
             a15,
+            rc902: false,
+            rc902_label: "RC003",
             a15_connected: AtomicBool::new(false),
             a15_recording: AtomicBool::new(false),
             a15_received: AtomicBool::new(false),
@@ -513,8 +780,15 @@ mod tests {
             bridge: AtomicPtr::new(std::ptr::null_mut()),
             output_enabled: AtomicBool::new(false),
             decoder: Mutex::new(AtvvDecoder::default()),
+            rc902v_session: Mutex::new(Rc902vAtvvSession::default()),
+            rc902v_resample_prev: Mutex::new(None),
+            rc902_sent_commands: Mutex::new(Vec::new()),
             signal_monitor: Mutex::new(SignalMonitor::default()),
-        });
+        }
+    }
+
+    fn indicator_service(a15: bool) -> AudioService {
+        let shared = Arc::new(test_shared(a15));
         AudioService {
             callback_context: Arc::into_raw(shared.clone()),
             shared,
@@ -576,19 +850,7 @@ mod tests {
 
     #[test]
     fn native_packets_record_decode_and_enqueue_failure_separately() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 120];
         unsafe {
@@ -615,19 +877,7 @@ mod tests {
 
     #[test]
     fn partial_decoder_frames_are_accounted_on_sync_and_stop() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let packet = [0x11; 60];
         unsafe {
@@ -668,19 +918,7 @@ mod tests {
 
     #[test]
     fn native_telemetry_does_not_take_the_decoder_lock() {
-        let shared = Shared {
-            recording_indicator: Default::default(),
-            a15: false,
-            a15_connected: AtomicBool::new(false),
-            a15_recording: AtomicBool::new(false),
-            a15_received: AtomicBool::new(false),
-            event_version: AtomicU64::new(0),
-            diagnostics: AudioDiagnostics::default(),
-            bridge: AtomicPtr::new(std::ptr::null_mut()),
-            output_enabled: AtomicBool::new(false),
-            decoder: Mutex::new(AtvvDecoder::default()),
-            signal_monitor: Mutex::new(SignalMonitor::default()),
-        };
+        let shared = test_shared(false);
         let context = (&shared as *const Shared).cast_mut().cast();
         let _guard = shared.decoder.lock().unwrap();
         unsafe {
@@ -695,6 +933,114 @@ mod tests {
         assert!(report.contains("completed_buffers=1 rendered_samples=240"));
         assert!(report.contains("notification_read_errors=1"));
         assert!(report.contains("discarded_pending_buffers=2"));
+    }
+
+    #[test]
+    fn rc902_on_request_hold_and_click_toggle_drive_atvv_commands() {
+        let mut base = test_shared(false);
+        base.rc902 = true;
+        base.rc902_label = "TCL RC902V";
+        base.output_enabled.store(true, Ordering::Release);
+        let shared = Arc::new(base);
+        let service = AudioService {
+            callback_context: Arc::into_raw(shared.clone()),
+            shared: shared.clone(),
+        };
+        let context = service.callback_context.cast_mut().cast();
+
+        let caps = [0x0b_u8, 0x01, 0x00, 0x02, 0x00, 0x00, 0xa0, 0x01, 0x00];
+        unsafe {
+            native_event_callback(context, EVENT_NEGOTIATE, std::ptr::null(), 0, 0, 0);
+            native_event_callback(context, EVENT_CONTROL, caps.as_ptr(), caps.len(), 0x0b, 0);
+        }
+        assert_eq!(
+            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
+            vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x00]]
+        );
+
+        // Hold mode: START_SEARCH + press -> MIC_OPEN([0x0c, 0x00]) -> AUDIO_START -> release sends MIC_CLOSE(0).
+        service.set_recording_mode(RecordingMode::Hold);
+        let start_search = [0x08_u8];
+        let start_stream = [0x04_u8, 0x00, 0x02, 0x00];
+        unsafe {
+            native_event_callback(
+                context,
+                EVENT_CONTROL,
+                start_search.as_ptr(),
+                start_search.len(),
+                0x08,
+                0,
+            );
+        }
+        service.handle_voice_key_edge(true);
+        assert_eq!(
+            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
+            vec![vec![0x0c, 0x00]]
+        );
+        unsafe {
+            native_event_callback(
+                context,
+                EVENT_CONTROL,
+                start_stream.as_ptr(),
+                start_stream.len(),
+                0x04,
+                0,
+            );
+        }
+        assert!(shared.recording_indicator.is_active());
+        service.handle_voice_key_edge(false);
+        assert!(!shared.recording_indicator.is_active());
+        assert_eq!(
+            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
+            vec![vec![0x0d, 0x00]]
+        );
+        let stop_ack = [0x00_u8, 0x00];
+        unsafe {
+            native_event_callback(
+                context,
+                EVENT_CONTROL,
+                stop_ack.as_ptr(),
+                stop_ack.len(),
+                0x00,
+                0,
+            );
+        }
+
+        // Click mode: 1st press + release keeps recording; 2nd press sends MIC_CLOSE(0).
+        service.set_recording_mode(RecordingMode::Click);
+        service.handle_voice_key_edge(true);
+        unsafe {
+            native_event_callback(
+                context,
+                EVENT_CONTROL,
+                start_search.as_ptr(),
+                start_search.len(),
+                0x08,
+                0,
+            );
+            native_event_callback(
+                context,
+                EVENT_CONTROL,
+                start_stream.as_ptr(),
+                start_stream.len(),
+                0x04,
+                0,
+            );
+        }
+        assert_eq!(
+            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
+            vec![vec![0x0c, 0x00]]
+        );
+        service.handle_voice_key_edge(false);
+        assert!(shared.recording_indicator.is_active());
+        assert!(shared.rc902_sent_commands.lock().unwrap().is_empty());
+
+        service.handle_voice_key_edge(true);
+        assert!(!shared.recording_indicator.is_active());
+        assert_eq!(
+            std::mem::take(&mut *shared.rc902_sent_commands.lock().unwrap()),
+            vec![vec![0x0d, 0x00]]
+        );
     }
 
     #[test]

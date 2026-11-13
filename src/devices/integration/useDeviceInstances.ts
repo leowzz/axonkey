@@ -2,9 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { emptySnapshot } from './model'
-import type { DeviceInformation, DeviceInstance, DeviceSnapshot } from './model'
+import type { DeviceInformation, DeviceInstance, DeviceKind, DeviceSnapshot } from './model'
 const previewKey = 'axonkey.device-instances.preview.v1'
-type InformationUpdate = { id: string; bluetoothAddress: string | null; deviceInfo: DeviceInformation }
+type InformationUpdate = {
+  id: string
+  kind?: DeviceKind
+  bluetoothAddress: string | null
+  deviceInfo: DeviceInformation
+}
 export function useDeviceInstances(native: boolean) {
   const [snapshot, setSnapshot] = useState<DeviceSnapshot>(emptySnapshot)
   const [error, setError] = useState('')
@@ -231,7 +236,7 @@ function applyInformation(snapshot: DeviceSnapshot, updates: Iterable<Informatio
         device.connected &&
         device.identityQuality !== 'ambiguous' &&
         device.bluetoothAddress === update.bluetoothAddress
-        ? { ...device, deviceInfo: update.deviceInfo }
+        ? { ...device, ...(update.kind ? { kind: update.kind } : {}), deviceInfo: update.deviceInfo }
         : device
     }),
   }

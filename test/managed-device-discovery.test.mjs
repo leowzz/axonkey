@@ -36,6 +36,11 @@ const modelImports = {
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
   '../rc-313-remote/definition.ts': require('../src/devices/rc-313-remote/definition.ts'),
   '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
+  '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
+  '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
+  '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
+  '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
+  '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -429,14 +434,36 @@ test('mobile model identity matching retains captured software and hardware beha
   ]) assert.equal(model.mobileRemoteKindForSoftware(software), kind)
 })
 
-test('bundled capabilities retain recording defaults and platform support for all six devices', () => {
+test('bundled capabilities retain recording defaults and platform support for all supported devices', () => {
   for (const [kind, mode, hidVoice] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
+    ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
+    ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
     assert.equal(model.supportsWindowsDriver(kind), true)
+  }
+})
+
+test('TCL identity requires actual information fields and never trusts kind or detectedKind alone', () => {
+  const rc802a = { ...device, kind: 'tclRc802a', vendorId: 0x0416, productId: 0x0301,
+    deviceInfo: { modelNumber: 'prefix_BT_RC802A_suffix', manufacturer: 'TCL Electronics' } }
+  assert.equal(model.deviceMatchesKind(rc802a, 'tclRc802a'), true)
+  for (const field of ['modelNumber', 'manufacturer']) {
+    for (const value of [null, '', 'other']) {
+      assert.equal(model.deviceMatchesKind({ ...rc802a, deviceInfo: { ...rc802a.deviceInfo,
+        [field]: value, detectedKind: 'tclRc802a' } }, 'tclRc802a'), false)
+    }
+  }
+  assert.equal(model.deviceMatchesKind({ ...rc802a, productId: 0x0300 }, 'tclRc802a'), false)
+  for (const [software, expected] of [['TCL_RC902N_1.0', 'tclRc902n'], ['TCL_RC902V_1.0', 'tclRc902v'], ['', null]]) {
+    const remote = { ...device, kind: 'tclRc902n', vendorId: 0x0417, productId: 0x0304,
+      deviceInfo: { softwareRevision: software, detectedKind: 'tclRc902n' } }
+    for (const kind of ['tclRc902n', 'tclRc902v']) {
+      assert.equal(model.deviceMatchesKind(remote, kind), kind === expected)
+    }
   }
 })
 
@@ -691,7 +718,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
 
     const communicationError = 'Quarbor Universal connect (BTHLEDEVICE\\device): 系统找不到指定的文件。(os error 2)'
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind, hideDriverMissingReminder: false }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'connecting', driverInstalled: true, error: communicationError }
@@ -730,7 +757,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     }
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
@@ -812,7 +839,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       for (const recording of [true, false]) {
         act(() => {
           instances[1] = { ...instances[1], kind }
@@ -830,9 +857,11 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
     assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
-    for (const [kind, battery, manualRecording, recordingModes] of [
-      ['rc003', true, false, false], ['cmiotA15', true, true, true], ['xmBt29', true, true, false],
-      ['rc313', true, true, false], ['obeRcuR5', true, false, false], ['xboxBluetooth', false, false, false],
+    for (const [kind, battery, manualRecording, recordingModes, voiceCalibration] of [
+      ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
+      ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
+      ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
+      ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -840,6 +869,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       })
       assert.equal(views[1].root.findAllByProps({ className: 'managed-instance-power' }).length, Number(battery))
       assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, Number(manualRecording))
+      assert.equal(views[1].root.findAllByProps({ className: 'managed-audio-calibration' }).length, Number(voiceCalibration))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
       assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
@@ -880,7 +910,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(instances[0].cmiotA15RecordingMode, 'click')
     act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       const info = { status: 'ready', bluetoothName: 'REMOTE_NATIVE', batteryLevel: 54, manufacturer: 'IFLY_RCU', serialNumber: '20190620', hardwareRevision: 'HW1', firmwareRevision: 'FW1', softwareRevision: 'SW1' }
       act(() => {
         instances[0] = { ...instances[0], kind, binding: 'info-device' }
@@ -919,7 +949,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       act(() => { info.status = 'retrying'; info.error = '读取超时'; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
       assert.ok(text(panel()).includes('正在重试'))
       act(() => { instances[0] = { ...instances[0], binding: null }; views[0].update(React.createElement(InstanceWorkspace, props(0))) })
-      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 8)
+      assert.equal((text(panel()).match(/未绑定设备/g) ?? []).length, 9)
       assert.ok(!text(panel()).includes('REMOTE_NATIVE'))
       assert.equal(refreshButton().props.disabled, true)
     }

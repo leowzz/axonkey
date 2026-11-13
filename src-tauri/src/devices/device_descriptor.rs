@@ -92,6 +92,7 @@ pub(crate) struct InputDescriptor {
     pub target: Option<String>,
     pub legacy_key: Option<String>,
     pub original: bool,
+    pub pending: bool,
     pub sources: Vec<SourceDescriptor>,
 }
 
@@ -265,7 +266,7 @@ pub(crate) fn parse_svg(svg: &str) -> Result<DeviceDescriptor, DescriptorError> 
         return Err(DescriptorError("ak:identity must contain a match".into()));
     }
     for input in &mut inputs {
-        if input.sources.is_empty() {
+        if input.sources.is_empty() && !input.pending {
             return Err(DescriptorError(format!(
                 "input has no source: {}",
                 input.id
@@ -381,7 +382,11 @@ fn parse_voice(attrs: &BTreeMap<String, String>) -> Result<VoiceDescriptor, Desc
     if attrs.get("required").is_some_and(|value| value == "true")
         && !matches!(
             engine.as_str(),
-            "rc003-atvv" | "cmiot-a15.g7221" | "obe-rcu-r5.sbc"
+            "rc003-atvv"
+                | "tcl-rc902v-atvv"
+                | "cmiot-a15.g7221"
+                | "obe-rcu-r5.sbc"
+                | "tcl-rc802a.ico"
         )
     {
         return Err(DescriptorError(format!(
@@ -441,6 +446,7 @@ fn parse_input(attrs: &BTreeMap<String, String>) -> Result<InputDescriptor, Desc
         kind: required(attrs, "kind")?.to_string(),
         target: attrs.get("target").cloned(),
         legacy_key: attrs.get("legacy-key").cloned(),
+        pending: attrs.get("binding").is_some_and(|value| value == "pending"),
         original: match attrs.get("original").map(String::as_str) {
             None | Some("false") => false,
             Some("true") => true,

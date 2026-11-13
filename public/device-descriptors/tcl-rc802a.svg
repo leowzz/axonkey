@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="440" height="912" viewBox="0 0 440 912" data-ak-schema="axonkey.device/1" data-ak-device="tcl-rc802a" data-ak-revision="3" data-ak-status="active" role="img" aria-labelledby="device-title device-description">
+  <title id="device-title">TCL RC802A 按键区：正面与侧面</title>
+  <desc id="device-description">TCL RC802A 正面与侧面按键，按采集的九字节 HID 报告映射；语音使用 EB 启停命令和 EC 分片。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="tcl-rc802a" vendor="TCL" model="RC802A" revision="3" display-name="TCL RC802A" status="active">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="0x010416" pid="0x0301" service="00001812-0000-1000-8000-00805F9B34FB" windows-prefix="BTHLEDEVICE" information-required="true" model-contains="BT_RC802A" manufacturer-contains="TCL" />
+      </ak:identity>
+      <ak:reports>
+        <!-- This layout describes captured bytes; HID Usage Page and multi-key slot semantics remain unverified. -->
+        <ak:report id="captured-buttons" direction="input" report-id="0x01"
+                   length="9" encoding="bit-field" prefix="0x01 0x00 0x00"
+                   state-group="captured-buttons" />
+        <ak:report id="voice-audio" direction="input" report-id="0xEC" length="21" encoding="gatt-stream" engine="tcl-rc802a.ico" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="tcl-rc802a.mute" label="静音" short="静音" icon="mute" kind="button" target="#key-mute" order="2" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xEF"/><ak:hid-capture version="1" press="01 00 00 EF 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.input" label="信号源" short="信号源" icon="tv" kind="button" target="#key-input" order="3" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x97"/><ak:hid-capture version="1" press="01 00 00 97 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.red" label="红色键" short="红" icon="center" kind="button" target="#key-red" order="4" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x99"/><ak:hid-capture version="1" press="01 00 00 99 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.green" label="绿色键" short="绿" icon="center" kind="button" target="#key-green" order="5" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x9A"/><ak:hid-capture version="1" press="01 00 00 9A 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.blue" label="蓝色键" short="蓝" icon="center" kind="button" target="#key-blue" order="6" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x9B"/><ak:hid-capture version="1" press="01 00 00 9B 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.up" label="上" short="上" icon="up" kind="button" target="#key-up" order="7" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x52"/><ak:hid-capture version="1" press="01 00 00 52 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.right" label="右" short="右" icon="right" kind="button" target="#key-right" order="8" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x4F"/><ak:hid-capture version="1" press="01 00 00 4F 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.down" label="下" short="下" icon="down" kind="button" target="#key-down" order="9" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x51"/><ak:hid-capture version="1" press="01 00 00 51 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.left" label="左" short="左" icon="left" kind="button" target="#key-left" order="10" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x50"/><ak:hid-capture version="1" press="01 00 00 50 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.confirm" label="确认" short="确认" icon="center" kind="button" target="#key-confirm" order="11" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x28"/><ak:hid-capture version="1" press="01 00 00 28 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.back" label="返回" short="返回" icon="back" kind="button" target="#key-back" order="12" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xF1"/><ak:hid-capture version="1" press="01 00 00 F1 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.volumeUp" label="音量加" short="音量＋" icon="volumeUp" kind="button" target="#key-volume-up" order="13" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xED"/><ak:hid-capture version="1" press="01 00 00 ED 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.home" label="主页" short="主页" icon="home" kind="button" target="#key-home" order="14" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x83"/><ak:hid-capture version="1" press="01 00 00 83 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.menu" label="菜单" short="菜单" icon="menu" kind="button" target="#key-menu" order="15" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x65"/><ak:hid-capture version="1" press="01 00 00 65 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.volumeDown" label="音量减" short="音量－" icon="volumeDown" kind="button" target="#key-volume-down" order="16" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xEE"/><ak:hid-capture version="1" press="01 00 00 EE 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.settings" label="设置" short="设置" icon="settings" kind="button" target="#key-settings" order="17" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xA8"/><ak:hid-capture version="1" press="01 00 00 A8 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.appB" label="应用 B" short="B" icon="tv" kind="button" target="#key-app-b" order="18" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xD1"/><ak:hid-capture version="1" press="01 00 00 D1 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.appK" label="应用 K" short="K" icon="tv" kind="button" target="#key-app-k" order="19" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xDE"/><ak:hid-capture version="1" press="01 00 00 DE 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.voice" label="麦克风键" short="语音" icon="mic" kind="button" target="#key-voice" order="20" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xAD"/><ak:hid-capture version="1" press="01 00 00 AD 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.sideUpper" label="侧边上键" short="侧上" icon="center" kind="button" target="#key-side-upper" order="21" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x9E"/><ak:hid-capture version="1" press="01 00 00 9E 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.sideLower" label="侧边下键" short="侧下" icon="center" kind="button" target="#key-side-lower" order="22" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x9F"/><ak:hid-capture version="1" press="01 00 00 9F 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+        <ak:input id="tcl-rc802a.sideFunction" label="侧边功能键" short="侧键" icon="center" kind="button" target="#key-side-function" order="23" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xAA"/><ak:hid-capture version="1" press="01 00 00 AA 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
+      </ak:inputs>
+      <ak:voice id="voice" trigger-key="tcl-rc802a.voice" engine="tcl-rc802a.ico" transport="hid-report" trigger-modes="hold" required="true" />
+    </ak:device>
+  </metadata>
+
+  <g id="front-view" data-ak-view="front" aria-label="正面按键区">
+    <rect x="20" y="20" width="288" height="872" rx="21" fill="#353a3e" stroke="#181c1f" stroke-width="2"/>
+    <path d="M 29 44 V 867" fill="none" stroke="#484e52" stroke-width="1"/>
+    <path d="M 301 42 V 869" fill="none" stroke="#242a2e" stroke-width="2"/>
+    <path d="M 308 295 h 3 q 2 0 2 3 v 155 q 0 3 -2 3 h -3 Z M 308 582 h 3 v 29 h -3 Z" fill="#202529"/>
+
+    <g id="key-mute" data-ak-key="tcl-rc802a.mute" data-ak-role="input" role="button" tabindex="0" aria-label="静音">
+      <circle cx="80" cy="119" r="33" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 68 114 H 74 L 82 107 V 131 L 74 124 H 68 Z M 86 114 L 94 126 M 94 114 L 86 126 M 68 104 L 92 134" fill="none" stroke="#d0d5d7" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <circle cx="164" cy="119" r="3.2" fill="#111619"/>
+    <g id="key-input" data-ak-key="tcl-rc802a.input" data-ak-role="input" role="button" tabindex="0" aria-label="信号源">
+      <circle cx="248" cy="119" r="33" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 247 108 H 259 V 130 H 247 M 235 119 H 253 M 247 113 L 253 119 L 247 125" fill="none" stroke="#d0d5d7" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <g id="key-red" data-ak-key="tcl-rc802a.red" data-ak-role="input" role="button" tabindex="0" aria-label="红色键">
+      <circle cx="80" cy="198" r="33" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <circle cx="80" cy="198" r="9.5" fill="#ef4c57"/>
+    </g>
+    <g id="key-green" data-ak-key="tcl-rc802a.green" data-ak-role="input" role="button" tabindex="0" aria-label="绿色键">
+      <circle cx="164" cy="198" r="33" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <circle cx="164" cy="198" r="9.5" fill="#15c843"/>
+    </g>
+    <g id="key-blue" data-ak-key="tcl-rc802a.blue" data-ak-role="input" role="button" tabindex="0" aria-label="蓝色键">
+      <circle cx="248" cy="198" r="33" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <circle cx="248" cy="198" r="9.5" fill="#1ba2ed"/>
+    </g>
+
+    <circle cx="164" cy="370" r="120" fill="#202529" stroke="#111619" stroke-width="2.6"/>
+    <g id="key-up" data-ak-key="tcl-rc802a.up" data-ak-role="input" role="button" tabindex="0" aria-label="上">
+      <path d="M 79.147 285.147 A 120 120 0 0 1 248.853 285.147 L 204.305 329.695 A 57 57 0 0 0 123.695 329.695 Z" fill="transparent"/>
+    </g>
+    <g id="key-right" data-ak-key="tcl-rc802a.right" data-ak-role="input" role="button" tabindex="0" aria-label="右">
+      <path d="M 248.853 285.147 A 120 120 0 0 1 248.853 454.853 L 204.305 410.305 A 57 57 0 0 0 204.305 329.695 Z" fill="transparent"/>
+    </g>
+    <g id="key-down" data-ak-key="tcl-rc802a.down" data-ak-role="input" role="button" tabindex="0" aria-label="下">
+      <path d="M 248.853 454.853 A 120 120 0 0 1 79.147 454.853 L 123.695 410.305 A 57 57 0 0 0 204.305 410.305 Z" fill="transparent"/>
+    </g>
+    <g id="key-left" data-ak-key="tcl-rc802a.left" data-ak-role="input" role="button" tabindex="0" aria-label="左">
+      <path d="M 79.147 454.853 A 120 120 0 0 1 79.147 285.147 L 123.695 329.695 A 57 57 0 0 0 123.695 410.305 Z" fill="transparent"/>
+    </g>
+    <g id="key-confirm" data-ak-key="tcl-rc802a.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认">
+      <circle cx="164" cy="370" r="57" fill="#2a2e32" stroke="#111619" stroke-width="3"/>
+    </g>
+
+    <g id="key-back" data-ak-key="tcl-rc802a.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回">
+      <circle cx="80" cy="548" r="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 70 539 H 83 A 10 10 0 0 1 83 559 H 69 M 75 534 L 69 539 L 75 544" fill="none" stroke="#d0d5d7" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <rect x="130" y="513" width="68" height="158" rx="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+    <g id="key-volume-up" data-ak-key="tcl-rc802a.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 130 592 V 547 A 34 34 0 0 1 198 547 V 592 Z" fill="transparent"/>
+      <path d="M 151 548 H 177 M 164 535 V 561" fill="none" stroke="#d0d5d7" stroke-width="2.7" stroke-linecap="round"/>
+    </g>
+    <circle cx="164" cy="592" r="3.1" fill="#14191c"/>
+    <g id="key-volume-down" data-ak-key="tcl-rc802a.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 130 592 H 198 V 637 A 34 34 0 0 1 130 637 Z" fill="transparent"/>
+      <path d="M 151 636 H 177" fill="none" stroke="#d0d5d7" stroke-width="2.7" stroke-linecap="round"/>
+    </g>
+    <g id="key-home" data-ak-key="tcl-rc802a.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页">
+      <circle cx="248" cy="548" r="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 235 545 L 248 534 L 261 545 V 561 H 252 V 550 H 244 V 561 H 235 Z" fill="none" stroke="#d0d5d7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-menu" data-ak-key="tcl-rc802a.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单">
+      <circle cx="80" cy="636" r="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 66 626 H 94 M 66 636 H 94 M 66 646 H 94" fill="none" stroke="#d0d5d7" stroke-width="2.8" stroke-linecap="round"/>
+    </g>
+    <g id="key-settings" data-ak-key="tcl-rc802a.settings" data-ak-role="input" role="button" tabindex="0" aria-label="设置">
+      <circle cx="248" cy="636" r="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <path d="M 244 620 H 252 L 254 625 L 259 627 L 264 632 V 640 L 259 645 L 254 647 L 252 652 H 244 L 242 647 L 237 645 L 232 640 V 632 L 237 627 L 242 625 Z" fill="none" stroke="#d0d5d7" stroke-width="2.4" stroke-linejoin="round"/>
+      <circle cx="248" cy="636" r="6" fill="none" stroke="#d0d5d7" stroke-width="2.3"/>
+    </g>
+
+    <g id="key-app-b" data-ak-key="tcl-rc802a.appB" data-ak-role="input" role="button" tabindex="0" aria-label="应用 B">
+      <rect x="44" y="694" width="112" height="58" rx="28" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <text x="100" y="733" text-anchor="middle" fill="#d0d5d7" font-family="sans-serif" font-size="27" font-weight="600">B</text>
+    </g>
+    <g id="key-app-k" data-ak-key="tcl-rc802a.appK" data-ak-role="input" role="button" tabindex="0" aria-label="应用 K">
+      <rect x="174" y="694" width="112" height="58" rx="28" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <text x="230" y="733" text-anchor="middle" fill="#d0d5d7" font-family="sans-serif" font-size="27" font-weight="600">K</text>
+    </g>
+    <g id="key-voice" data-ak-key="tcl-rc802a.voice" data-ak-role="input" role="button" tabindex="0" aria-label="麦克风键">
+      <circle cx="164" cy="803" r="34" fill="#202529" stroke="#111619" stroke-width="2"/>
+      <rect x="159" y="785" width="10" height="24" rx="5" fill="none" stroke="#d0d5d7" stroke-width="2.7"/>
+      <path d="M 153 799 V 804 A 11 11 0 0 0 175 804 V 799 M 164 815 V 824 M 158 824 H 170" fill="none" stroke="#d0d5d7" stroke-width="2.7" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <g id="side-view" data-ak-view="side" aria-label="侧面按键区">
+    <rect x="344" y="20" width="72" height="872" rx="12" fill="#353a3e" stroke="#181c1f" stroke-width="2"/>
+
+    <g transform="translate(19 0)" fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+      <circle cx="361" cy="279" r="4.6"/>
+      <path d="M 361 269 V 271 M 361 287 V 289 M 351 279 H 353 M 369 279 H 371 M 354 272 L 355.5 273.5 M 366.5 284.5 L 368 286 M 354 286 L 355.5 284.5 M 366.5 273.5 L 368 272"/>
+      <circle cx="361" cy="485" r="3.1"/>
+      <path d="M 361 478 V 479 M 361 491 V 492 M 354 485 H 355 M 367 485 H 368 M 356 480 L 357 481 M 365 489 L 366 490 M 356 490 L 357 489 M 365 481 L 366 480"/>
+    </g>
+    <rect x="366" y="299" width="28" height="164" rx="14" fill="#202529" stroke="#111619" stroke-width="1.4"/>
+    <g id="key-side-upper" data-ak-key="tcl-rc802a.sideUpper" data-ak-role="input" role="button" tabindex="0" aria-label="侧边上键">
+      <path d="M 366 381 V 313 A 14 14 0 0 1 394 313 V 381 Z" fill="transparent"/>
+    </g>
+    <g id="key-side-lower" data-ak-key="tcl-rc802a.sideLower" data-ak-role="input" role="button" tabindex="0" aria-label="侧边下键">
+      <path d="M 366 381 H 394 V 449 A 14 14 0 0 1 366 449 Z" fill="transparent"/>
+    </g>
+
+    <g transform="translate(19 0)" fill="none" stroke="#c3cbcf" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M 353 550 H 369 V 566 H 353 Z M 355 563 L 360 558 L 363 561 L 367 557"/>
+      <circle cx="358" cy="554" r="1.1" fill="#c3cbcf" stroke="none"/>
+    </g>
+    <g id="key-side-function" data-ak-key="tcl-rc802a.sideFunction" data-ak-role="input" role="button" tabindex="0" aria-label="侧边功能键">
+      <rect x="366" y="583" width="28" height="44" rx="14" fill="#202529" stroke="#111619" stroke-width="1.4"/>
+    </g>
+  </g>
+
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="tcl-rc802a.mute" data-ak-anchor="80 119" d="M 47 119 A 33 33 0 1 0 113 119 A 33 33 0 1 0 47 119 Z"/>
+    <path data-ak-region="tcl-rc802a.input" data-ak-anchor="248 119" d="M 215 119 A 33 33 0 1 0 281 119 A 33 33 0 1 0 215 119 Z"/>
+    <path data-ak-region="tcl-rc802a.red" data-ak-anchor="80 198" d="M 47 198 A 33 33 0 1 0 113 198 A 33 33 0 1 0 47 198 Z"/>
+    <path data-ak-region="tcl-rc802a.green" data-ak-anchor="164 198" d="M 131 198 A 33 33 0 1 0 197 198 A 33 33 0 1 0 131 198 Z"/>
+    <path data-ak-region="tcl-rc802a.blue" data-ak-anchor="248 198" d="M 215 198 A 33 33 0 1 0 281 198 A 33 33 0 1 0 215 198 Z"/>
+    <path data-ak-region="tcl-rc802a.up" data-ak-anchor="164 281" d="M 79.147 285.147 A 120 120 0 0 1 248.853 285.147 L 204.305 329.695 A 57 57 0 0 0 123.695 329.695 Z"/>
+    <path data-ak-region="tcl-rc802a.right" data-ak-anchor="253 370" d="M 248.853 285.147 A 120 120 0 0 1 248.853 454.853 L 204.305 410.305 A 57 57 0 0 0 204.305 329.695 Z"/>
+    <path data-ak-region="tcl-rc802a.down" data-ak-anchor="164 459" d="M 248.853 454.853 A 120 120 0 0 1 79.147 454.853 L 123.695 410.305 A 57 57 0 0 0 204.305 410.305 Z"/>
+    <path data-ak-region="tcl-rc802a.left" data-ak-anchor="75 370" d="M 79.147 454.853 A 120 120 0 0 1 79.147 285.147 L 123.695 329.695 A 57 57 0 0 0 123.695 410.305 Z"/>
+    <path data-ak-region="tcl-rc802a.confirm" data-ak-anchor="164 370" d="M 107 370 A 57 57 0 1 0 221 370 A 57 57 0 1 0 107 370 Z"/>
+    <path data-ak-region="tcl-rc802a.back" data-ak-anchor="80 548" d="M 46 548 A 34 34 0 1 0 114 548 A 34 34 0 1 0 46 548 Z"/>
+    <path data-ak-region="tcl-rc802a.volumeUp" data-ak-anchor="164 548" d="M 130 592 V 547 A 34 34 0 0 1 198 547 V 592 Z"/>
+    <path data-ak-region="tcl-rc802a.home" data-ak-anchor="248 548" d="M 214 548 A 34 34 0 1 0 282 548 A 34 34 0 1 0 214 548 Z"/>
+    <path data-ak-region="tcl-rc802a.menu" data-ak-anchor="80 636" d="M 46 636 A 34 34 0 1 0 114 636 A 34 34 0 1 0 46 636 Z"/>
+    <path data-ak-region="tcl-rc802a.volumeDown" data-ak-anchor="164 636" d="M 130 592 H 198 V 637 A 34 34 0 0 1 130 637 Z"/>
+    <path data-ak-region="tcl-rc802a.settings" data-ak-anchor="248 636" d="M 214 636 A 34 34 0 1 0 282 636 A 34 34 0 1 0 214 636 Z"/>
+    <path data-ak-region="tcl-rc802a.appB" data-ak-anchor="100 723" d="M 72 694 H 128 A 28 28 0 0 1 156 722 V 724 A 28 28 0 0 1 128 752 H 72 A 28 28 0 0 1 44 724 V 722 A 28 28 0 0 1 72 694 Z"/>
+    <path data-ak-region="tcl-rc802a.appK" data-ak-anchor="230 723" d="M 202 694 H 258 A 28 28 0 0 1 286 722 V 724 A 28 28 0 0 1 258 752 H 202 A 28 28 0 0 1 174 724 V 722 A 28 28 0 0 1 202 694 Z"/>
+    <path data-ak-region="tcl-rc802a.voice" data-ak-anchor="164 803" d="M 130 803 A 34 34 0 1 0 198 803 A 34 34 0 1 0 130 803 Z"/>
+    <path data-ak-region="tcl-rc802a.sideUpper" data-ak-anchor="380 340" d="M 366 381 V 313 A 14 14 0 0 1 394 313 V 381 Z"/>
+    <path data-ak-region="tcl-rc802a.sideLower" data-ak-anchor="380 422" d="M 366 381 H 394 V 449 A 14 14 0 0 1 366 449 Z"/>
+    <path data-ak-region="tcl-rc802a.sideFunction" data-ak-anchor="380 605" d="M 366 597 A 14 14 0 0 1 394 597 V 613 A 14 14 0 0 1 366 613 Z"/>
+  </g>
+</svg>

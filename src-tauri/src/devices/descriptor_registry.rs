@@ -7,6 +7,11 @@ pub(crate) const KINDS: &[&str] = &[
     "xmBt29",
     "rc313",
     "obeRcuR5",
+    "tclRc802a",
+    "tclRc902n",
+    "tclRc902v",
+    "hisenseRcf3b65",
+    "phicommDb1R",
     "xboxBluetooth",
 ];
 
@@ -21,12 +26,17 @@ pub(crate) fn descriptor_for_kind(kind: &str) -> Option<&'static DeviceDescripto
         "xmBt29" => xm_bt_29(),
         "rc313" => rc313(),
         "obeRcuR5" => obe_rcu_r5(),
+        "tclRc802a" => crate::devices::tcl_rc802a::descriptor(),
+        "tclRc902n" => crate::devices::tcl_rc902n::descriptor(),
+        "tclRc902v" => crate::devices::tcl_rc902v::descriptor(),
+        "hisenseRcf3b65" => crate::devices::hisense_rcf3b65::descriptor(),
+        "phicommDb1R" => crate::devices::phicomm_db1_r::descriptor(),
         "xboxBluetooth" => xbox(),
         _ => None,
     }
 }
 
-fn load(
+pub(super) fn load(
     svg: &'static str,
     slot: &'static OnceLock<Option<DeviceDescriptor>>,
 ) -> Option<&'static DeviceDescriptor> {
@@ -145,6 +155,46 @@ pub(crate) fn voice_key(kind: &str) -> Option<&'static str> {
         .iter()
         .find(|input| input.id == voice.trigger_key)
         .map(input_key)
+}
+
+pub(crate) fn requires_information(kind: &str) -> bool {
+    descriptor_for_kind(kind).is_some_and(|descriptor| {
+        descriptor.identities.iter().any(|identity| {
+            identity
+                .attributes
+                .get("information-required")
+                .is_some_and(|value| value == "true")
+        })
+    })
+}
+
+pub(crate) fn matches_information(
+    kind: &str,
+    vendor: u16,
+    product: u16,
+    model: Option<&str>,
+    manufacturer: Option<&str>,
+    software: Option<&str>,
+) -> bool {
+    descriptor_for_kind(kind).is_some_and(|descriptor| {
+        descriptor.identities.iter().any(|identity| {
+            matches_identity_number(identity, "vid", Some(vendor))
+                && matches_identity_number(identity, "pid", Some(product))
+                && [
+                    ("model-contains", model),
+                    ("manufacturer-contains", manufacturer),
+                    ("software-contains", software),
+                ]
+                .iter()
+                .all(|(key, actual)| {
+                    identity.attributes.get(*key).is_none_or(|markers| {
+                        actual.is_some_and(|value| {
+                            markers.split('|').any(|marker| value.contains(marker))
+                        })
+                    })
+                })
+        })
+    })
 }
 
 pub(crate) fn matches_hardware(
@@ -285,6 +335,36 @@ mod tests {
             "rc003",
             r"BTHLEDEVICE\VID_012717&PID_32B80\instance"
         ));
+        assert!(matches_instance(
+            "hisenseRcf3b65",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&01109B_PID&3837\instance"
+        ));
+        assert!(!matches_instance(
+            "hisenseRcf3b65",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&05109B_PID&3837\instance"
+        ));
+        assert!(matches_hardware(
+            "hisenseRcf3b65",
+            0x109b,
+            0x3837,
+            Some(1),
+            Some(6)
+        ));
+        assert!(matches_instance(
+            "phicommDb1R",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&01005D_PID&0001\instance"
+        ));
+        assert!(!matches_instance(
+            "phicommDb1R",
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&05005D_PID&0001\instance"
+        ));
+        assert!(matches_hardware(
+            "phicommDb1R",
+            0x005d,
+            0x0001,
+            Some(12),
+            Some(1)
+        ));
     }
 
     #[test]
@@ -305,19 +385,12 @@ mod tests {
 
     #[test]
     fn bundled_descriptors_parse_for_every_supported_kind() {
-        for kind in [
-            "rc003",
-            "cmiotA15",
-            "xmBt29",
-            "rc313",
-            "obeRcuR5",
-            "xboxBluetooth",
-        ] {
+        for kind in KINDS {
             let descriptor = descriptor_for_kind(kind)
                 .unwrap_or_else(|| panic!("bundled descriptor failed to parse: {kind}"));
-            assert_eq!(descriptor.revision, 1, "unexpected revision for {kind}");
-            assert!(!descriptor.reports.is_empty(), "missing reports for {kind}");
+            assert!(descriptor.revision >= 1, "unexpected revision for {kind}");
             assert!(!descriptor.inputs.is_empty(), "missing inputs for {kind}");
+            assert!(!descriptor.reports.is_empty(), "missing reports for {kind}");
         }
     }
 }

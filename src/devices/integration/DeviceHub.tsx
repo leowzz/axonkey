@@ -11,6 +11,7 @@ import {
   buildWorkspaceDeviceOptions,
   getStoredDeviceCardOrder,
   instanceStatusLabel,
+  deviceMatchesKind,
   instanceState,
   isMobileRemoteDevice,
   isMobileRemoteKind,
@@ -23,6 +24,7 @@ import {
   saveDeviceCardOrder,
   supportPackages,
   supportsWindowsDriver,
+  supportsDeviceInformation,
   systemMouseCardId,
   usesHidVoice,
 } from './model'
@@ -329,7 +331,9 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
   const [discoveredExpanded, setDiscoveredExpanded] = useState(() => guide || getDiscoveredDevicesExpanded())
-  const unboundDevices = snapshot.discovered.filter(d => !snapshot.store.instances.some(i => i.binding === d.id))
+  const unboundDevices = snapshot.discovered.filter(
+    d => deviceMatchesKind(d, d.kind) && !snapshot.store.instances.some(i => i.binding === d.id),
+  )
   useEffect(() => {
     if (guide || typeof window === 'undefined') return
     try {
@@ -606,7 +610,7 @@ function DeviceCard({
             </span>
           )}
         </span>
-        {!unbound && kind !== 'mouse' && packageFor(kind).remoteView?.voice && (
+        {!unbound && kind !== 'mouse' && supportsDeviceInformation(kind) && (
           <span className="my-devices-power">
             <BatteryIndicator level={batteryLevel} />
           </span>
@@ -671,7 +675,7 @@ function IntegrationDialog({
   }, [])
   const candidates = controller.snapshot.discovered.filter(
     d =>
-      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : d.kind === kind) &&
+      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : kind && deviceMatchesKind(d, kind)) &&
       !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''

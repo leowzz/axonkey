@@ -72,7 +72,13 @@ impl AudioService {
 
     pub fn set_enabled(&self, _enabled: bool) {}
 
+    pub fn set_recording_mode(&self, _mode: crate::devices::cmiot_a15::recording::RecordingMode) {}
+
     pub fn start_for(_target_identity: Option<String>) -> Self {
+        Self::start()
+    }
+
+    pub fn start_rc902(_kind: &str, _target_identity: Option<String>) -> Self {
         Self::start()
     }
 
@@ -102,6 +108,7 @@ pub struct AudioTarget {
     pub kind: String,
     pub voice_target: Option<String>,
     pub gain_db: i16,
+    pub recording_mode: crate::devices::cmiot_a15::recording::RecordingMode,
     pub enabled: bool,
 }
 
@@ -287,6 +294,15 @@ impl AudioServiceManager {
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         let _ = (instance_id, samples);
     }
+
+    pub(crate) fn handle_voice_key_edge(&self, instance_id: Option<&str>, pressed: bool) {
+        #[cfg(any(target_os = "windows", target_os = "macos"))]
+        if let Some(service) = self.service(instance_id) {
+            service.handle_voice_key_edge(pressed);
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let _ = (instance_id, pressed);
+    }
 }
 
 impl Drop for AudioServiceManager {
@@ -384,19 +400,34 @@ fn reconcile_targets(
             .cloned();
         let service = existing.unwrap_or_else(|| {
             #[cfg(windows)]
-            return Arc::new(PlatformAudioService::start_paused(
+            return Arc::new(PlatformAudioService::start_paused_for(
+                &target.kind,
                 service_identity(target).1,
             ));
             #[cfg(target_os = "macos")]
-            if matches!(
-                crate::devices::descriptor_registry::voice_engine(&target.kind),
-                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
-            ) {
-                return Arc::new(PlatformAudioService::start_a15());
+            return match crate::devices::descriptor_registry::voice_engine(&target.kind) {
+                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico") => {
+                    Arc::new(PlatformAudioService::start_a15())
+                }
+                Some("tcl-rc902v-atvv") => Arc::new(PlatformAudioService::start_rc902(
+                    &target.kind,
+                    target.voice_target.clone(),
+                )),
+                _ => Arc::new(PlatformAudioService::start_for(target.voice_target.clone())),
+            };
+            #[cfg(not(any(windows, target_os = "macos")))]
+            if crate::devices::descriptor_registry::voice_engine(&target.kind)
+                == Some("tcl-rc902v-atvv")
+            {
+                Arc::new(PlatformAudioService::start_rc902(
+                    &target.kind,
+                    target.voice_target.clone(),
+                ))
+            } else {
+                Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
             }
-            #[cfg(not(windows))]
-            Arc::new(PlatformAudioService::start_for(target.voice_target.clone()))
         });
+        service.set_recording_mode(target.recording_mode);
         let _ = service.set_gain_db(target.gain_db);
         service.set_enabled(target.enabled);
         instances
@@ -409,12 +440,14 @@ fn reconcile_targets(
 }
 
 fn service_identity(target: &AudioTarget) -> (String, Option<String>) {
-    let address =
-        if crate::devices::descriptor_registry::voice_engine(&target.kind) == Some("rc003-atvv") {
-            target.voice_target.clone()
-        } else {
-            None
-        };
+    let address = if matches!(
+        crate::devices::descriptor_registry::voice_engine(&target.kind),
+        Some("rc003-atvv" | "tcl-rc902v-atvv")
+    ) {
+        target.voice_target.clone()
+    } else {
+        None
+    };
     (target.kind.clone(), address)
 }
 
@@ -534,7 +567,7 @@ mod tests {
             .filter(|kind| {
                 matches!(
                     crate::devices::descriptor_registry::voice_engine(kind),
-                    Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+                    Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico")
                 )
             })
         {

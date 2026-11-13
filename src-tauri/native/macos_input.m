@@ -1458,6 +1458,23 @@ bool axonkey_macos_post_mouse_move(int32_t dx, int32_t dy) {
     return true;
 }
 
+bool axonkey_macos_post_absolute_mouse_move(uint16_t abs_x, uint16_t abs_y) {
+    CGRect bounds = CGDisplayBounds(CGMainDisplayID());
+    if (bounds.size.width <= 0.0 || bounds.size.height <= 0.0) return false;
+    CGFloat max_x = bounds.size.width > 1.0 ? bounds.size.width - 1.0 : 0.0;
+    CGFloat max_y = bounds.size.height > 1.0 ? bounds.size.height - 1.0 : 0.0;
+    CGPoint location = CGPointMake(
+        CGRectGetMinX(bounds) + ((CGFloat)abs_x / 65535.0) * max_x,
+        CGRectGetMinY(bounds) + ((CGFloat)abs_y / 65535.0) * max_y
+    );
+    CGEventRef event = CGEventCreateMouseEvent(NULL, kCGEventMouseMoved, location, kCGMouseButtonLeft);
+    if (event == NULL) return false;
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, AXONKEY_SYNTHETIC_EVENT_MARKER);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+    return true;
+}
+
 // Independent mouse capture: no HID device or remote capture session required.
 typedef struct {
     void *context;

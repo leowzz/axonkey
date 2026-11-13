@@ -15,7 +15,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT3_B311",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -26,7 +29,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT3_B311",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -37,7 +43,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT3_B311",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {
@@ -327,6 +336,322 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "hisense-rcf3b65": {
+    "id": "hisense-rcf3b65",
+    "ariaLabel": "Hisense RCF3B65",
+    "artworkUrl": "/device-descriptors/hisense-rcf3b65.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          4251
+        ],
+        "productIds": [
+          14391
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 440,
+      "height": 1160
+    },
+    "inputs": [
+      {
+        "id": "hisense-rcf3b65.power",
+        "stableId": "hisense-rcf3b65.power",
+        "label": "电源键",
+        "short": "电源",
+        "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 179 151 A 41 41 0 1 0 261 151 A 41 41 0 1 0 179 151 Z",
+        "anchor": {
+          "x": 220,
+          "y": 151
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.input",
+        "stableId": "hisense-rcf3b65.input",
+        "label": "信号源",
+        "short": "信号源",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 66 212 A 41 41 0 1 0 148 212 A 41 41 0 1 0 66 212 Z",
+        "anchor": {
+          "x": 107,
+          "y": 212
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.ai",
+        "stableId": "hisense-rcf3b65.ai",
+        "label": "AI 键",
+        "short": "AI",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 173 272 A 47 47 0 1 0 267 272 A 47 47 0 1 0 173 272 Z",
+        "anchor": {
+          "x": 220,
+          "y": 272
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.pointer",
+        "stableId": "hisense-rcf3b65.pointer",
+        "label": "指向键",
+        "short": "指向",
+        "icon": "locate",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 292 212 A 41 41 0 1 0 374 212 A 41 41 0 1 0 292 212 Z",
+        "anchor": {
+          "x": 333,
+          "y": 212
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.tv",
+        "stableId": "hisense-rcf3b65.tv",
+        "label": "看电视",
+        "short": "看电视",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 66 334 A 41 41 0 1 0 148 334 A 41 41 0 1 0 66 334 Z",
+        "anchor": {
+          "x": 107,
+          "y": 334
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.shortcut",
+        "stableId": "hisense-rcf3b65.shortcut",
+        "label": "快捷键",
+        "short": "快捷",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 292 334 A 41 41 0 1 0 374 334 A 41 41 0 1 0 292 334 Z",
+        "anchor": {
+          "x": 333,
+          "y": 334
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.up",
+        "stableId": "hisense-rcf3b65.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 105.7929 434.1056 A 162 162 0 0 1 334.2071 434.1056 L 287.3258 481.269 A 95.5 95.5 0 0 0 152.6742 481.269 Z",
+        "anchor": {
+          "x": 220,
+          "y": 420
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.right",
+        "stableId": "hisense-rcf3b65.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 334.8944 434.7929 A 162 162 0 0 1 334.8944 663.2071 L 287.731 616.3258 A 95.5 95.5 0 0 0 287.731 481.6742 Z",
+        "anchor": {
+          "x": 349,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.down",
+        "stableId": "hisense-rcf3b65.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 334.2071 663.8944 A 162 162 0 0 1 105.7929 663.8944 L 152.6742 616.731 A 95.5 95.5 0 0 0 287.3258 616.731 Z",
+        "anchor": {
+          "x": 220,
+          "y": 678
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.left",
+        "stableId": "hisense-rcf3b65.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 105.1056 663.2071 A 162 162 0 0 1 105.1056 434.7929 L 152.269 481.6742 A 95.5 95.5 0 0 0 152.269 616.3258 Z",
+        "anchor": {
+          "x": 91,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.confirm",
+        "stableId": "hisense-rcf3b65.confirm",
+        "label": "确认键",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 125 549 A 95 95 0 1 0 315 549 A 95 95 0 1 0 125 549 Z",
+        "anchor": {
+          "x": 220,
+          "y": 549
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.back",
+        "stableId": "hisense-rcf3b65.back",
+        "label": "返回键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 69 760 A 40 40 0 1 0 149 760 A 40 40 0 1 0 69 760 Z",
+        "anchor": {
+          "x": 109,
+          "y": 760
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.voice",
+        "stableId": "hisense-rcf3b65.voice",
+        "label": "语音键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 176 816 A 44 44 0 1 0 264 816 A 44 44 0 1 0 176 816 Z",
+        "anchor": {
+          "x": 220,
+          "y": 816
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.home",
+        "stableId": "hisense-rcf3b65.home",
+        "label": "主页键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 291 760 A 40 40 0 1 0 371 760 A 40 40 0 1 0 291 760 Z",
+        "anchor": {
+          "x": 331,
+          "y": 760
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.settings",
+        "stableId": "hisense-rcf3b65.settings",
+        "label": "设置键",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 69 882 A 40 40 0 1 0 149 882 A 40 40 0 1 0 69 882 Z",
+        "anchor": {
+          "x": 109,
+          "y": 882
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.menu",
+        "stableId": "hisense-rcf3b65.menu",
+        "label": "菜单键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 291 882 A 40 40 0 1 0 371 882 A 40 40 0 1 0 291 882 Z",
+        "anchor": {
+          "x": 331,
+          "y": 882
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.volumeDown",
+        "stableId": "hisense-rcf3b65.volumeDown",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 219.75 963 V 1043 H 109 A 40 40 0 0 1 109 963 Z",
+        "anchor": {
+          "x": 125,
+          "y": 1003
+        }
+      },
+      {
+        "id": "hisense-rcf3b65.volumeUp",
+        "stableId": "hisense-rcf3b65.volumeUp",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 220.25 963 H 331 A 40 40 0 0 1 331 1043 H 220.25 Z",
+        "anchor": {
+          "x": 315,
+          "y": 1003
+        }
+      }
+    ]
+  },
   "obe-rcu-r5": {
     "id": "obe.rcu-r5",
     "ariaLabel": "OBE RCU R5 投影仪遥控器",
@@ -341,7 +666,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -352,7 +680,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -363,7 +694,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {
@@ -572,6 +906,226 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "phicomm-db1-r": {
+    "id": "phicomm-db1-r",
+    "ariaLabel": "斐讯 DB1-R",
+    "artworkUrl": "/device-descriptors/phicomm-db1-r.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          93
+        ],
+        "productIds": [
+          1
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": null,
+    "viewBox": {
+      "width": 420,
+      "height": 1320
+    },
+    "inputs": [
+      {
+        "id": "phicomm-db1-r.ottPower",
+        "stableId": "phicomm-db1-r.ottPower",
+        "label": "OTT 电源键",
+        "short": "OTT",
+        "icon": "power",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 46 224 A 44 44 0 1 0 134 224 A 44 44 0 1 0 46 224 Z",
+        "anchor": {
+          "x": 90,
+          "y": 224
+        }
+      },
+      {
+        "id": "phicomm-db1-r.up",
+        "stableId": "phicomm-db1-r.up",
+        "label": "方向上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 100.7277 358.0701 A 155 155 0 0 1 319.2723 358.0701 L 267.4561 410.1982 A 81.5 81.5 0 0 0 152.5439 410.1982 Z",
+        "anchor": {
+          "x": 210,
+          "y": 350
+        }
+      },
+      {
+        "id": "phicomm-db1-r.right",
+        "stableId": "phicomm-db1-r.right",
+        "label": "方向右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 319.9299 358.7277 A 155 155 0 0 1 319.9299 577.2723 L 267.8018 525.4561 A 81.5 81.5 0 0 0 267.8018 410.5439 Z",
+        "anchor": {
+          "x": 328,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.down",
+        "stableId": "phicomm-db1-r.down",
+        "label": "方向下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 319.2723 577.9299 A 155 155 0 0 1 100.7277 577.9299 L 152.5439 525.8018 A 81.5 81.5 0 0 0 267.4561 525.8018 Z",
+        "anchor": {
+          "x": 210,
+          "y": 586
+        }
+      },
+      {
+        "id": "phicomm-db1-r.left",
+        "stableId": "phicomm-db1-r.left",
+        "label": "方向左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 100.0701 577.2723 A 155 155 0 0 1 100.0701 358.7277 L 152.1982 410.5439 A 81.5 81.5 0 0 0 152.1982 525.4561 Z",
+        "anchor": {
+          "x": 92,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.confirm",
+        "stableId": "phicomm-db1-r.confirm",
+        "label": "确认键",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 129 468 A 81 81 0 1 0 291 468 A 81 81 0 1 0 129 468 Z",
+        "anchor": {
+          "x": 210,
+          "y": 468
+        }
+      },
+      {
+        "id": "phicomm-db1-r.back",
+        "stableId": "phicomm-db1-r.back",
+        "label": "返回键",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 49 726 A 41 41 0 1 0 131 726 A 41 41 0 1 0 49 726 Z",
+        "anchor": {
+          "x": 90,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.voice",
+        "stableId": "phicomm-db1-r.voice",
+        "label": "语音键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 161 726 A 49 49 0 1 0 259 726 A 49 49 0 1 0 161 726 Z",
+        "anchor": {
+          "x": 210,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.volumeUp",
+        "stableId": "phicomm-db1-r.volumeUp",
+        "label": "音量加",
+        "short": "音量 +",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 289 726 A 41 41 0 1 0 371 726 A 41 41 0 1 0 289 726 Z",
+        "anchor": {
+          "x": 330,
+          "y": 726
+        }
+      },
+      {
+        "id": "phicomm-db1-r.home",
+        "stableId": "phicomm-db1-r.home",
+        "label": "主页键",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 49 856 A 41 41 0 1 0 131 856 A 41 41 0 1 0 49 856 Z",
+        "anchor": {
+          "x": 90,
+          "y": 856
+        }
+      },
+      {
+        "id": "phicomm-db1-r.menu",
+        "stableId": "phicomm-db1-r.menu",
+        "label": "菜单键",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 169 856 A 41 41 0 1 0 251 856 A 41 41 0 1 0 169 856 Z",
+        "anchor": {
+          "x": 210,
+          "y": 856
+        }
+      },
+      {
+        "id": "phicomm-db1-r.volumeDown",
+        "stableId": "phicomm-db1-r.volumeDown",
+        "label": "音量减",
+        "short": "音量 -",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 289 856 A 41 41 0 1 0 371 856 A 41 41 0 1 0 289 856 Z",
+        "anchor": {
+          "x": 330,
+          "y": 856
+        }
+      }
+    ]
+  },
   "rc003": {
     "id": "xiaomi.rc003",
     "ariaLabel": "小米 RC003",
@@ -587,7 +1141,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {
@@ -824,7 +1381,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT18_B302",
         "softwareFallback": true,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -835,7 +1395,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT18_B302",
         "softwareFallback": true,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -846,7 +1409,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "CMIOT18_B302",
         "softwareFallback": true,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {
@@ -1135,6 +1701,1246 @@ export const deviceDescriptors = {
       }
     ]
   },
+  "tcl-rc802a": {
+    "id": "tcl-rc802a",
+    "ariaLabel": "TCL RC802A",
+    "artworkUrl": "/device-descriptors/tcl-rc802a.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1046
+        ],
+        "productIds": [
+          769
+        ],
+        "softwareContains": "",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": true,
+        "modelContains": "BT_RC802A",
+        "manufacturerContains": "TCL"
+      }
+    ],
+    "voice": {
+      "engine": "tcl-rc802a.ico",
+      "transport": "hid-report",
+      "triggerModes": [
+        "hold"
+      ]
+    },
+    "viewBox": {
+      "width": 440,
+      "height": 912
+    },
+    "inputs": [
+      {
+        "id": "tcl-rc802a.mute",
+        "stableId": "tcl-rc802a.mute",
+        "label": "静音",
+        "short": "静音",
+        "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 47 119 A 33 33 0 1 0 113 119 A 33 33 0 1 0 47 119 Z",
+        "anchor": {
+          "x": 80,
+          "y": 119
+        }
+      },
+      {
+        "id": "tcl-rc802a.input",
+        "stableId": "tcl-rc802a.input",
+        "label": "信号源",
+        "short": "信号源",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 215 119 A 33 33 0 1 0 281 119 A 33 33 0 1 0 215 119 Z",
+        "anchor": {
+          "x": 248,
+          "y": 119
+        }
+      },
+      {
+        "id": "tcl-rc802a.red",
+        "stableId": "tcl-rc802a.red",
+        "label": "红色键",
+        "short": "红",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 47 198 A 33 33 0 1 0 113 198 A 33 33 0 1 0 47 198 Z",
+        "anchor": {
+          "x": 80,
+          "y": 198
+        }
+      },
+      {
+        "id": "tcl-rc802a.green",
+        "stableId": "tcl-rc802a.green",
+        "label": "绿色键",
+        "short": "绿",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 131 198 A 33 33 0 1 0 197 198 A 33 33 0 1 0 131 198 Z",
+        "anchor": {
+          "x": 164,
+          "y": 198
+        }
+      },
+      {
+        "id": "tcl-rc802a.blue",
+        "stableId": "tcl-rc802a.blue",
+        "label": "蓝色键",
+        "short": "蓝",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 215 198 A 33 33 0 1 0 281 198 A 33 33 0 1 0 215 198 Z",
+        "anchor": {
+          "x": 248,
+          "y": 198
+        }
+      },
+      {
+        "id": "tcl-rc802a.up",
+        "stableId": "tcl-rc802a.up",
+        "label": "上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 79.147 285.147 A 120 120 0 0 1 248.853 285.147 L 204.305 329.695 A 57 57 0 0 0 123.695 329.695 Z",
+        "anchor": {
+          "x": 164,
+          "y": 281
+        }
+      },
+      {
+        "id": "tcl-rc802a.right",
+        "stableId": "tcl-rc802a.right",
+        "label": "右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 248.853 285.147 A 120 120 0 0 1 248.853 454.853 L 204.305 410.305 A 57 57 0 0 0 204.305 329.695 Z",
+        "anchor": {
+          "x": 253,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc802a.down",
+        "stableId": "tcl-rc802a.down",
+        "label": "下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 248.853 454.853 A 120 120 0 0 1 79.147 454.853 L 123.695 410.305 A 57 57 0 0 0 204.305 410.305 Z",
+        "anchor": {
+          "x": 164,
+          "y": 459
+        }
+      },
+      {
+        "id": "tcl-rc802a.left",
+        "stableId": "tcl-rc802a.left",
+        "label": "左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 79.147 454.853 A 120 120 0 0 1 79.147 285.147 L 123.695 329.695 A 57 57 0 0 0 123.695 410.305 Z",
+        "anchor": {
+          "x": 75,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc802a.confirm",
+        "stableId": "tcl-rc802a.confirm",
+        "label": "确认",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 107 370 A 57 57 0 1 0 221 370 A 57 57 0 1 0 107 370 Z",
+        "anchor": {
+          "x": 164,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc802a.back",
+        "stableId": "tcl-rc802a.back",
+        "label": "返回",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 46 548 A 34 34 0 1 0 114 548 A 34 34 0 1 0 46 548 Z",
+        "anchor": {
+          "x": 80,
+          "y": 548
+        }
+      },
+      {
+        "id": "tcl-rc802a.volumeUp",
+        "stableId": "tcl-rc802a.volumeUp",
+        "label": "音量加",
+        "short": "音量＋",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 130 592 V 547 A 34 34 0 0 1 198 547 V 592 Z",
+        "anchor": {
+          "x": 164,
+          "y": 548
+        }
+      },
+      {
+        "id": "tcl-rc802a.home",
+        "stableId": "tcl-rc802a.home",
+        "label": "主页",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 214 548 A 34 34 0 1 0 282 548 A 34 34 0 1 0 214 548 Z",
+        "anchor": {
+          "x": 248,
+          "y": 548
+        }
+      },
+      {
+        "id": "tcl-rc802a.menu",
+        "stableId": "tcl-rc802a.menu",
+        "label": "菜单",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 46 636 A 34 34 0 1 0 114 636 A 34 34 0 1 0 46 636 Z",
+        "anchor": {
+          "x": 80,
+          "y": 636
+        }
+      },
+      {
+        "id": "tcl-rc802a.volumeDown",
+        "stableId": "tcl-rc802a.volumeDown",
+        "label": "音量减",
+        "short": "音量－",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 130 592 H 198 V 637 A 34 34 0 0 1 130 637 Z",
+        "anchor": {
+          "x": 164,
+          "y": 636
+        }
+      },
+      {
+        "id": "tcl-rc802a.settings",
+        "stableId": "tcl-rc802a.settings",
+        "label": "设置",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 214 636 A 34 34 0 1 0 282 636 A 34 34 0 1 0 214 636 Z",
+        "anchor": {
+          "x": 248,
+          "y": 636
+        }
+      },
+      {
+        "id": "tcl-rc802a.appB",
+        "stableId": "tcl-rc802a.appB",
+        "label": "应用 B",
+        "short": "B",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 18,
+        "path": "M 72 694 H 128 A 28 28 0 0 1 156 722 V 724 A 28 28 0 0 1 128 752 H 72 A 28 28 0 0 1 44 724 V 722 A 28 28 0 0 1 72 694 Z",
+        "anchor": {
+          "x": 100,
+          "y": 723
+        }
+      },
+      {
+        "id": "tcl-rc802a.appK",
+        "stableId": "tcl-rc802a.appK",
+        "label": "应用 K",
+        "short": "K",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 19,
+        "path": "M 202 694 H 258 A 28 28 0 0 1 286 722 V 724 A 28 28 0 0 1 258 752 H 202 A 28 28 0 0 1 174 724 V 722 A 28 28 0 0 1 202 694 Z",
+        "anchor": {
+          "x": 230,
+          "y": 723
+        }
+      },
+      {
+        "id": "tcl-rc802a.voice",
+        "stableId": "tcl-rc802a.voice",
+        "label": "麦克风键",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 20,
+        "path": "M 130 803 A 34 34 0 1 0 198 803 A 34 34 0 1 0 130 803 Z",
+        "anchor": {
+          "x": 164,
+          "y": 803
+        }
+      },
+      {
+        "id": "tcl-rc802a.sideUpper",
+        "stableId": "tcl-rc802a.sideUpper",
+        "label": "侧边上键",
+        "short": "侧上",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 21,
+        "path": "M 366 381 V 313 A 14 14 0 0 1 394 313 V 381 Z",
+        "anchor": {
+          "x": 380,
+          "y": 340
+        }
+      },
+      {
+        "id": "tcl-rc802a.sideLower",
+        "stableId": "tcl-rc802a.sideLower",
+        "label": "侧边下键",
+        "short": "侧下",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 22,
+        "path": "M 366 381 H 394 V 449 A 14 14 0 0 1 366 449 Z",
+        "anchor": {
+          "x": 380,
+          "y": 422
+        }
+      },
+      {
+        "id": "tcl-rc802a.sideFunction",
+        "stableId": "tcl-rc802a.sideFunction",
+        "label": "侧边功能键",
+        "short": "侧键",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 23,
+        "path": "M 366 597 A 14 14 0 0 1 394 597 V 613 A 14 14 0 0 1 366 613 Z",
+        "anchor": {
+          "x": 380,
+          "y": 605
+        }
+      }
+    ]
+  },
+  "tcl-rc902n": {
+    "id": "tcl-rc902n",
+    "ariaLabel": "TCL RC902N",
+    "artworkUrl": "/device-descriptors/tcl-rc902n.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1047
+        ],
+        "productIds": [
+          772
+        ],
+        "softwareContains": "RC902N",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": true,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": {
+      "engine": "tcl-rc902v-atvv",
+      "transport": "gatt",
+      "triggerModes": [
+        "hold",
+        "click"
+      ]
+    },
+    "viewBox": {
+      "width": 440,
+      "height": 904
+    },
+    "inputs": [
+      {
+        "id": "tcl-rc902n.menu",
+        "stableId": "tcl-rc902n.menu",
+        "label": "菜单",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 1,
+        "path": "M 41 102 A 35 35 0 1 0 111 102 A 35 35 0 1 0 41 102 Z",
+        "anchor": {
+          "x": 76,
+          "y": 102
+        }
+      },
+      {
+        "id": "tcl-rc902n.bookmark",
+        "stableId": "tcl-rc902n.bookmark",
+        "label": "书签图标键",
+        "short": "书签",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 41 190 A 35 35 0 1 0 111 190 A 35 35 0 1 0 41 190 Z",
+        "anchor": {
+          "x": 76,
+          "y": 190
+        }
+      },
+      {
+        "id": "tcl-rc902n.assistant",
+        "stableId": "tcl-rc902n.assistant",
+        "label": "语音键（A）",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 129 190 A 35 35 0 1 0 199 190 A 35 35 0 1 0 129 190 Z",
+        "anchor": {
+          "x": 164,
+          "y": 190
+        }
+      },
+      {
+        "id": "tcl-rc902n.settings",
+        "stableId": "tcl-rc902n.settings",
+        "label": "设置",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 217 190 A 35 35 0 1 0 287 190 A 35 35 0 1 0 217 190 Z",
+        "anchor": {
+          "x": 252,
+          "y": 190
+        }
+      },
+      {
+        "id": "tcl-rc902n.up",
+        "stableId": "tcl-rc902n.up",
+        "label": "上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 76.318759 282.318759 A 124 124 0 0 1 251.681241 282.318759 L 202.183766 331.816234 A 54 54 0 0 0 125.816234 331.816234 Z",
+        "anchor": {
+          "x": 164,
+          "y": 281
+        }
+      },
+      {
+        "id": "tcl-rc902n.right",
+        "stableId": "tcl-rc902n.right",
+        "label": "右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 251.681241 282.318759 A 124 124 0 0 1 251.681241 457.681241 L 202.183766 408.183766 A 54 54 0 0 0 202.183766 331.816234 Z",
+        "anchor": {
+          "x": 253,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc902n.down",
+        "stableId": "tcl-rc902n.down",
+        "label": "下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 251.681241 457.681241 A 124 124 0 0 1 76.318759 457.681241 L 125.816234 408.183766 A 54 54 0 0 0 202.183766 408.183766 Z",
+        "anchor": {
+          "x": 164,
+          "y": 459
+        }
+      },
+      {
+        "id": "tcl-rc902n.left",
+        "stableId": "tcl-rc902n.left",
+        "label": "左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 76.318759 457.681241 A 124 124 0 0 1 76.318759 282.318759 L 125.816234 331.816234 A 54 54 0 0 0 125.816234 408.183766 Z",
+        "anchor": {
+          "x": 75,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc902n.confirm",
+        "stableId": "tcl-rc902n.confirm",
+        "label": "确认",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 125.816234 331.816234 A 54 54 0 0 1 202.183766 331.816234 A 54 54 0 0 1 202.183766 408.183766 A 54 54 0 0 1 125.816234 408.183766 A 54 54 0 0 1 125.816234 331.816234 Z",
+        "anchor": {
+          "x": 164,
+          "y": 370
+        }
+      },
+      {
+        "id": "tcl-rc902n.back",
+        "stableId": "tcl-rc902n.back",
+        "label": "返回",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 40 552 A 36 36 0 1 0 112 552 A 36 36 0 1 0 40 552 Z",
+        "anchor": {
+          "x": 76,
+          "y": 552
+        }
+      },
+      {
+        "id": "tcl-rc902n.home",
+        "stableId": "tcl-rc902n.home",
+        "label": "主页",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 128 552 A 36 36 0 1 0 200 552 A 36 36 0 1 0 128 552 Z",
+        "anchor": {
+          "x": 164,
+          "y": 552
+        }
+      },
+      {
+        "id": "tcl-rc902n.tv",
+        "stableId": "tcl-rc902n.tv",
+        "label": "电视图标键",
+        "short": "电视",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 216 552 A 36 36 0 1 0 288 552 A 36 36 0 1 0 216 552 Z",
+        "anchor": {
+          "x": 252,
+          "y": 552
+        }
+      },
+      {
+        "id": "tcl-rc902n.keypad",
+        "stableId": "tcl-rc902n.keypad",
+        "label": "键盘与四色点图标键",
+        "short": "键盘",
+        "icon": "number",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 40 646 A 36 36 0 1 0 112 646 A 36 36 0 1 0 40 646 Z",
+        "anchor": {
+          "x": 76,
+          "y": 646
+        }
+      },
+      {
+        "id": "tcl-rc902n.layers",
+        "stableId": "tcl-rc902n.layers",
+        "label": "双层菱形图标键",
+        "short": "菱形",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 128 646 A 36 36 0 1 0 200 646 A 36 36 0 1 0 128 646 Z",
+        "anchor": {
+          "x": 164,
+          "y": 646
+        }
+      },
+      {
+        "id": "tcl-rc902n.tiles",
+        "stableId": "tcl-rc902n.tiles",
+        "label": "方块图标键",
+        "short": "方块",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 216 646 A 36 36 0 1 0 288 646 A 36 36 0 1 0 216 646 Z",
+        "anchor": {
+          "x": 252,
+          "y": 646
+        }
+      },
+      {
+        "id": "tcl-rc902n.appN",
+        "stableId": "tcl-rc902n.appN",
+        "label": "应用 N（Netflix）",
+        "short": "N",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 164 706 V 774 H 72 A 34 34 0 0 1 72 706 Z",
+        "anchor": {
+          "x": 101,
+          "y": 740
+        }
+      },
+      {
+        "id": "tcl-rc902n.appY",
+        "stableId": "tcl-rc902n.appY",
+        "label": "应用 Y（YouTube）",
+        "short": "Y",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 18,
+        "path": "M 164 706 H 256 A 34 34 0 0 1 256 774 H 164 Z",
+        "anchor": {
+          "x": 227,
+          "y": 740
+        }
+      },
+      {
+        "id": "tcl-rc902n.appT",
+        "stableId": "tcl-rc902n.appT",
+        "label": "应用 T（TCL Channel）",
+        "short": "T",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 19,
+        "path": "M 164 794 V 862 H 72 A 34 34 0 0 1 72 794 Z",
+        "anchor": {
+          "x": 101,
+          "y": 828
+        }
+      },
+      {
+        "id": "tcl-rc902n.appP",
+        "stableId": "tcl-rc902n.appP",
+        "label": "应用 P（Prime Video）",
+        "short": "P",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 20,
+        "path": "M 164 794 H 256 A 34 34 0 0 1 256 862 H 164 Z",
+        "anchor": {
+          "x": 227,
+          "y": 828
+        }
+      },
+      {
+        "id": "tcl-rc902n.volumeUp",
+        "stableId": "tcl-rc902n.volumeUp",
+        "label": "音量加",
+        "short": "音量＋",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 21,
+        "path": "M 358 385 V 308 A 22 22 0 0 1 402 308 V 385 Z",
+        "anchor": {
+          "x": 380,
+          "y": 335
+        }
+      },
+      {
+        "id": "tcl-rc902n.volumeDown",
+        "stableId": "tcl-rc902n.volumeDown",
+        "label": "音量减",
+        "short": "音量－",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 22,
+        "path": "M 358 385 H 402 V 462 A 22 22 0 0 1 358 462 Z",
+        "anchor": {
+          "x": 380,
+          "y": 435
+        }
+      },
+      {
+        "id": "tcl-rc902n.mute",
+        "stableId": "tcl-rc902n.mute",
+        "label": "静音",
+        "short": "静音",
+        "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 23,
+        "path": "M 356 552 A 24 24 0 1 0 404 552 A 24 24 0 1 0 356 552 Z",
+        "anchor": {
+          "x": 380,
+          "y": 552
+        }
+      }
+    ]
+  },
+  "tcl-rc902v": {
+    "id": "tcl-rc902v",
+    "ariaLabel": "TCL RC902V",
+    "artworkUrl": "/device-descriptors/tcl-rc902v.svg",
+    "identities": [
+      {
+        "vendorIds": [
+          1047
+        ],
+        "productIds": [
+          772
+        ],
+        "softwareContains": "RC902V",
+        "softwareFallback": false,
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": true,
+        "modelContains": "",
+        "manufacturerContains": ""
+      }
+    ],
+    "voice": {
+      "engine": "tcl-rc902v-atvv",
+      "transport": "gatt",
+      "triggerModes": [
+        "hold",
+        "click"
+      ]
+    },
+    "viewBox": {
+      "width": 328,
+      "height": 1152
+    },
+    "inputs": [
+      {
+        "id": "tcl-rc902v.mute",
+        "stableId": "tcl-rc902v.mute",
+        "label": "静音",
+        "short": "静音",
+        "icon": "mute",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 0,
+        "path": "M 45 118 A 35 35 0 1 0 115 118 A 35 35 0 1 0 45 118 Z",
+        "anchor": {
+          "x": 80,
+          "y": 118
+        }
+      },
+      {
+        "id": "tcl-rc902v.bookmark",
+        "stableId": "tcl-rc902v.bookmark",
+        "label": "书签图标键",
+        "short": "书签",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 2,
+        "path": "M 45 208 A 35 35 0 1 0 115 208 A 35 35 0 1 0 45 208 Z",
+        "anchor": {
+          "x": 80,
+          "y": 208
+        }
+      },
+      {
+        "id": "tcl-rc902v.assistant",
+        "stableId": "tcl-rc902v.assistant",
+        "label": "语音键（A）",
+        "short": "语音",
+        "icon": "mic",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 3,
+        "path": "M 129 208 A 35 35 0 1 0 199 208 A 35 35 0 1 0 129 208 Z",
+        "anchor": {
+          "x": 164,
+          "y": 208
+        }
+      },
+      {
+        "id": "tcl-rc902v.settings",
+        "stableId": "tcl-rc902v.settings",
+        "label": "设置",
+        "short": "设置",
+        "icon": "settings",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 4,
+        "path": "M 215 208 A 35 35 0 1 0 285 208 A 35 35 0 1 0 215 208 Z",
+        "anchor": {
+          "x": 250,
+          "y": 208
+        }
+      },
+      {
+        "id": "tcl-rc902v.up",
+        "stableId": "tcl-rc902v.up",
+        "label": "上",
+        "short": "上",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 5,
+        "path": "M 79.1472 299.1472 A 120 120 0 0 1 248.8528 299.1472 L 200.0624 347.9376 A 51 51 0 0 0 127.9376 347.9376 Z",
+        "anchor": {
+          "x": 164,
+          "y": 298
+        }
+      },
+      {
+        "id": "tcl-rc902v.right",
+        "stableId": "tcl-rc902v.right",
+        "label": "右",
+        "short": "右",
+        "icon": "right",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 6,
+        "path": "M 248.8528 299.1472 A 120 120 0 0 1 248.8528 468.8528 L 200.0624 420.0624 A 51 51 0 0 0 200.0624 347.9376 Z",
+        "anchor": {
+          "x": 250,
+          "y": 384
+        }
+      },
+      {
+        "id": "tcl-rc902v.down",
+        "stableId": "tcl-rc902v.down",
+        "label": "下",
+        "short": "下",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 7,
+        "path": "M 248.8528 468.8528 A 120 120 0 0 1 79.1472 468.8528 L 127.9376 420.0624 A 51 51 0 0 0 200.0624 420.0624 Z",
+        "anchor": {
+          "x": 164,
+          "y": 470
+        }
+      },
+      {
+        "id": "tcl-rc902v.left",
+        "stableId": "tcl-rc902v.left",
+        "label": "左",
+        "short": "左",
+        "icon": "left",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 8,
+        "path": "M 79.1472 468.8528 A 120 120 0 0 1 79.1472 299.1472 L 127.9376 347.9376 A 51 51 0 0 0 127.9376 420.0624 Z",
+        "anchor": {
+          "x": 78,
+          "y": 384
+        }
+      },
+      {
+        "id": "tcl-rc902v.confirm",
+        "stableId": "tcl-rc902v.confirm",
+        "label": "确认",
+        "short": "确认",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 9,
+        "path": "M 113 384 A 51 51 0 1 0 215 384 A 51 51 0 1 0 113 384 Z",
+        "anchor": {
+          "x": 164,
+          "y": 384
+        }
+      },
+      {
+        "id": "tcl-rc902v.back",
+        "stableId": "tcl-rc902v.back",
+        "label": "返回",
+        "short": "返回",
+        "icon": "back",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 10,
+        "path": "M 45 559 A 35 35 0 1 0 115 559 A 35 35 0 1 0 45 559 Z",
+        "anchor": {
+          "x": 80,
+          "y": 559
+        }
+      },
+      {
+        "id": "tcl-rc902v.home",
+        "stableId": "tcl-rc902v.home",
+        "label": "主页",
+        "short": "主页",
+        "icon": "home",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 11,
+        "path": "M 129 559 A 35 35 0 1 0 199 559 A 35 35 0 1 0 129 559 Z",
+        "anchor": {
+          "x": 164,
+          "y": 559
+        }
+      },
+      {
+        "id": "tcl-rc902v.tv",
+        "stableId": "tcl-rc902v.tv",
+        "label": "电视图标键",
+        "short": "电视",
+        "icon": "tv",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 12,
+        "path": "M 215 559 A 35 35 0 1 0 285 559 A 35 35 0 1 0 215 559 Z",
+        "anchor": {
+          "x": 250,
+          "y": 559
+        }
+      },
+      {
+        "id": "tcl-rc902v.input",
+        "stableId": "tcl-rc902v.input",
+        "label": "信号源",
+        "short": "信号源",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 13,
+        "path": "M 45 649 A 35 35 0 1 0 115 649 A 35 35 0 1 0 45 649 Z",
+        "anchor": {
+          "x": 80,
+          "y": 649
+        }
+      },
+      {
+        "id": "tcl-rc902v.volumeUp",
+        "stableId": "tcl-rc902v.volumeUp",
+        "label": "音量加",
+        "short": "音量+",
+        "icon": "volumeUp",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 14,
+        "path": "M 129 694 V 649 A 35 35 0 0 1 199 649 V 694 Z",
+        "anchor": {
+          "x": 164,
+          "y": 649
+        }
+      },
+      {
+        "id": "tcl-rc902v.channelUp",
+        "stableId": "tcl-rc902v.channelUp",
+        "label": "频道加（P+）",
+        "short": "P+",
+        "icon": "up",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 15,
+        "path": "M 215 649 A 35 35 0 1 0 285 649 A 35 35 0 1 0 215 649 Z",
+        "anchor": {
+          "x": 250,
+          "y": 649
+        }
+      },
+      {
+        "id": "tcl-rc902v.menu",
+        "stableId": "tcl-rc902v.menu",
+        "label": "菜单",
+        "short": "菜单",
+        "icon": "menu",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 16,
+        "path": "M 45 739 A 35 35 0 1 0 115 739 A 35 35 0 1 0 45 739 Z",
+        "anchor": {
+          "x": 80,
+          "y": 739
+        }
+      },
+      {
+        "id": "tcl-rc902v.volumeDown",
+        "stableId": "tcl-rc902v.volumeDown",
+        "label": "音量减",
+        "short": "音量−",
+        "icon": "volumeDown",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 17,
+        "path": "M 129 694 H 199 V 739 A 35 35 0 0 1 129 739 Z",
+        "anchor": {
+          "x": 164,
+          "y": 739
+        }
+      },
+      {
+        "id": "tcl-rc902v.channelDown",
+        "stableId": "tcl-rc902v.channelDown",
+        "label": "频道减（P−）",
+        "short": "P−",
+        "icon": "down",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 18,
+        "path": "M 215 739 A 35 35 0 1 0 285 739 A 35 35 0 1 0 215 739 Z",
+        "anchor": {
+          "x": 250,
+          "y": 739
+        }
+      },
+      {
+        "id": "tcl-rc902v.layers",
+        "stableId": "tcl-rc902v.layers",
+        "label": "叠层图标键",
+        "short": "叠层",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 19,
+        "path": "M 45 829 A 35 35 0 1 0 115 829 A 35 35 0 1 0 45 829 Z",
+        "anchor": {
+          "x": 80,
+          "y": 829
+        }
+      },
+      {
+        "id": "tcl-rc902v.keypad",
+        "stableId": "tcl-rc902v.keypad",
+        "label": "键盘和彩色点图标键",
+        "short": "键盘",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 20,
+        "path": "M 129 829 A 35 35 0 1 0 199 829 A 35 35 0 1 0 129 829 Z",
+        "anchor": {
+          "x": 164,
+          "y": 829
+        }
+      },
+      {
+        "id": "tcl-rc902v.tiles",
+        "stableId": "tcl-rc902v.tiles",
+        "label": "方格图标键",
+        "short": "方格",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 21,
+        "path": "M 215 829 A 35 35 0 1 0 285 829 A 35 35 0 1 0 215 829 Z",
+        "anchor": {
+          "x": 250,
+          "y": 829
+        }
+      },
+      {
+        "id": "tcl-rc902v.netflix",
+        "stableId": "tcl-rc902v.netflix",
+        "label": "Netflix",
+        "short": "Netflix",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 22,
+        "path": "M 164 883 V 945 H 75 A 31 31 0 0 1 75 883 Z",
+        "anchor": {
+          "x": 104,
+          "y": 914
+        }
+      },
+      {
+        "id": "tcl-rc902v.primeVideo",
+        "stableId": "tcl-rc902v.primeVideo",
+        "label": "Prime Video",
+        "short": "Prime Video",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 23,
+        "path": "M 164 883 H 253 A 31 31 0 0 1 253 945 H 164 Z",
+        "anchor": {
+          "x": 224,
+          "y": 914
+        }
+      },
+      {
+        "id": "tcl-rc902v.guard",
+        "stableId": "tcl-rc902v.guard",
+        "label": "Guard",
+        "short": "Guard",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 24,
+        "path": "M 164 966 V 1028 H 75 A 31 31 0 0 1 75 966 Z",
+        "anchor": {
+          "x": 104,
+          "y": 997
+        }
+      },
+      {
+        "id": "tcl-rc902v.media",
+        "stableId": "tcl-rc902v.media",
+        "label": "Media",
+        "short": "Media",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 25,
+        "path": "M 164 966 H 253 A 31 31 0 0 1 253 1028 H 164 Z",
+        "anchor": {
+          "x": 224,
+          "y": 997
+        }
+      },
+      {
+        "id": "tcl-rc902v.youtube",
+        "stableId": "tcl-rc902v.youtube",
+        "label": "YouTube",
+        "short": "YouTube",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 26,
+        "path": "M 164 1049 V 1111 H 75 A 31 31 0 0 1 75 1049 Z",
+        "anchor": {
+          "x": 104,
+          "y": 1080
+        }
+      },
+      {
+        "id": "tcl-rc902v.tclChannel",
+        "stableId": "tcl-rc902v.tclChannel",
+        "label": "TCL Channel",
+        "short": "TCL Channel",
+        "icon": "center",
+        "kind": "button",
+        "threshold": 0.55,
+        "releaseThreshold": 0.35,
+        "order": 27,
+        "path": "M 164 1049 H 253 A 31 31 0 0 1 253 1111 H 164 Z",
+        "anchor": {
+          "x": 224,
+          "y": 1080
+        }
+      }
+    ]
+  },
   "xbox": {
     "id": "xbox.wireless",
     "ariaLabel": "Xbox Wireless Controller",
@@ -1149,7 +2955,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "HID\\"
+        "windowsPrefix": "HID\\",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -1160,7 +2969,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "",
         "softwareFallback": false,
-        "windowsPrefix": "HID\\"
+        "windowsPrefix": "HID\\",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": null,
@@ -1599,7 +3411,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "XFRSD0D_M_R01_761",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -1610,7 +3425,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "XFRSD0D_M_R01_761",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       },
       {
         "vendorIds": [
@@ -1621,7 +3439,10 @@ export const deviceDescriptors = {
         ],
         "softwareContains": "XFRSD0D_M_R01_761",
         "softwareFallback": false,
-        "windowsPrefix": "BTHLEDEVICE"
+        "windowsPrefix": "BTHLEDEVICE",
+        "informationRequired": false,
+        "modelContains": "",
+        "manufacturerContains": ""
       }
     ],
     "voice": {

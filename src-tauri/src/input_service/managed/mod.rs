@@ -34,6 +34,16 @@ use tauri::Emitter;
 use tauri::Manager;
 
 fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
+    if crate::devices::descriptor_registry::requires_information(kind) {
+        return crate::devices::descriptor_registry::matches_information(
+            kind,
+            device.vendor_id,
+            device.product_id,
+            device.device_info.model_number.as_deref(),
+            device.device_info.manufacturer.as_deref(),
+            device.device_info.software_revision.as_deref(),
+        );
+    }
     device.kind == kind
         || crate::devices::descriptor_registry::matches_hardware(
             kind,
@@ -47,7 +57,7 @@ fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
 fn uses_hid_voice(kind: &str) -> bool {
     matches!(
         crate::devices::descriptor_registry::voice_engine(kind),
-        Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc")
+        Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico")
     )
 }
 
@@ -1168,6 +1178,14 @@ pub(crate) fn driver_target(
     if instance.binding.is_none() {
         return None;
     }
+    if crate::devices::descriptor_registry::requires_information(&instance.kind)
+        && !discovered.iter().any(|device| {
+            Some(&device.id) == instance.binding.as_ref()
+                && device_kind_matches(device, &instance.kind)
+        })
+    {
+        return None;
+    }
     if let Some(device) = instance.quarbor_target.as_ref().and_then(|target| {
         devices
             .iter()
@@ -1552,8 +1570,23 @@ fn run(shared: Arc<Shared>) {
             }
             registry.sync(&registrations);
         }
+        let information_matches: HashSet<_> = {
+            let snapshot = shared.snapshot.lock().unwrap();
+            configs
+                .iter()
+                .filter(|instance| {
+                    !crate::devices::descriptor_registry::requires_information(&instance.kind)
+                        || snapshot.discovered.iter().any(|device| {
+                            Some(&device.id) == instance.binding.as_ref()
+                                && device_kind_matches(device, &instance.kind)
+                        })
+                })
+                .map(|instance| instance.id.clone())
+                .collect()
+        };
         readers.retain(|id, reader| {
             let keep = enabled
+                && information_matches.contains(id)
                 && configs.iter().any(|instance| {
                     &instance.id == id
                         && instance.enabled
@@ -1564,6 +1597,14 @@ fn run(shared: Arc<Shared>) {
                         && reader.update_config(&shared, instance)
                 });
             if !keep {
+                if reader
+                    .descriptor
+                    .voices
+                    .iter()
+                    .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                {
+                    notify_rc902_voice_key_edge(&shared, id, false);
+                }
                 emit(&shared, id, BTreeMap::new(), vec![]);
             }
             keep
@@ -1576,7 +1617,11 @@ fn run(shared: Arc<Shared>) {
         let mut statuses = BTreeMap::new();
         for instance in &configs {
             let mut status = RuntimeStatus::default();
-            let path = instance.binding.as_ref().and_then(|id| paths.get(id));
+            let path = instance
+                .binding
+                .as_ref()
+                .and_then(|id| paths.get(id))
+                .filter(|_| information_matches.contains(&instance.id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
             } else if uses_hid_voice(&instance.kind) && !cfg!(any(windows, target_os = "macos")) {
@@ -1708,9 +1753,17 @@ fn run(shared: Arc<Shared>) {
                         Ok(0) => break,
                         Ok(len) => {
                             reader.reports += 1;
+                            if accept_direct_pointer_report(&instance.kind, &buffer[..len]) {
+                                continue;
+                            }
                             for (id, down) in
                                 reader.engine.accept(reader.descriptor, &buffer[..len])
                             {
+                                if reader.descriptor.voices.iter().any(|voice| {
+                                    voice.engine == "tcl-rc902v-atvv" && voice.trigger_key == id
+                                }) {
+                                    notify_rc902_voice_key_edge(&shared, &instance.id, down);
+                                }
                                 let key = reader
                                     .descriptor
                                     .inputs
@@ -1751,6 +1804,14 @@ fn run(shared: Arc<Shared>) {
                     status.error = Some("动作队列已满，已丢弃本次动作".into());
                 }
                 if failed {
+                    if reader
+                        .descriptor
+                        .voices
+                        .iter()
+                        .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                    {
+                        notify_rc902_voice_key_edge(&shared, &instance.id, false);
+                    }
                     readers.remove(&instance.id);
                     emit(&shared, &instance.id, BTreeMap::new(), vec![]);
                 }
@@ -1805,7 +1866,12 @@ fn run(shared: Arc<Shared>) {
                     .get(&instance.id)
                     .is_some_and(|status| status.recording);
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
-                if instance.kind == "rc003" && enabled && instance.enabled {
+                if matches!(
+                    crate::devices::descriptor_registry::voice_engine(&instance.kind),
+                    Some("rc003-atvv" | "tcl-rc902v-atvv")
+                ) && enabled
+                    && instance.enabled
+                {
                     let app = shared.app.lock().unwrap();
                     active = app
                         .as_ref()
@@ -1911,6 +1977,39 @@ fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<
         }
     }
     *previous = current;
+}
+
+fn notify_rc902_voice_key_edge(shared: &Shared, instance_id: &str, pressed: bool) {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let app = shared.app.lock().unwrap();
+        if let Some(audio) = app
+            .as_ref()
+            .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+        {
+            audio.handle_voice_key_edge(Some(instance_id), pressed);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = (shared, instance_id, pressed);
+}
+
+fn accept_direct_pointer_report(kind: &str, bytes: &[u8]) -> bool {
+    if kind != crate::devices::hisense_rcf3b65::KIND {
+        return false;
+    }
+    let Some(position) = crate::devices::hisense_rcf3b65::parse_pointer_report(bytes) else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    if super::InputService::accessibility_granted() {
+        super::macos::post_absolute_cursor_move(position.x, position.y);
+    }
+    #[cfg(windows)]
+    super::windows::send_absolute_mouse_move(position.x, position.y);
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = position;
+    true
 }
 
 fn spawn_action_worker(
@@ -2582,6 +2681,95 @@ mod tests {
             worker: Mutex::new(None),
         }
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn tcl_information_controls_binding_and_saved_driver_targets() {
+        for (kind, vendor, product, model, manufacturer, software) in [
+            (
+                "tclRc802a",
+                0x0416,
+                0x0301,
+                Some("BT_RC802A"),
+                Some("TCL"),
+                None,
+            ),
+            (
+                "tclRc902n",
+                0x0417,
+                0x0304,
+                None,
+                None,
+                Some("TCL_RC902N_v1"),
+            ),
+            (
+                "tclRc902v",
+                0x0417,
+                0x0304,
+                None,
+                None,
+                Some("TCL_RC902V_v1"),
+            ),
+        ] {
+            let devices = vec![crate::quarbor_installer::Device {
+                instance_id: format!(
+                    r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&01{vendor:04X}_PID&{product:04X}_AABBCCDDEEFF\instance"
+                ),
+                hardware_id: String::new(),
+                bluetooth_address: None,
+                name: "TCL".into(),
+                present: true,
+                bound: true,
+                recovery_active: false,
+                inf: String::new(),
+                section: String::new(),
+            }];
+            let mut discovered = vec![];
+            merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+            assert_eq!(discovered.len(), 1);
+            discovered[0].device_info.detected_kind = Some(kind.into());
+            let mut remote = instance("remote", &discovered[0].id);
+            remote.kind = kind.into();
+            remote.quarbor_target = Some(devices[0].instance_id.clone());
+            remote.voice_target = discovered[0].bluetooth_address.clone();
+            assert!(!device_kind_matches(&discovered[0], kind));
+            assert!(driver_target(&remote, &[remote.clone()], &discovered, &devices).is_none());
+            let manager = offline_manager(vec![]);
+            manager.shared.snapshot.lock().unwrap().discovered = discovered.clone();
+            assert!(manager.put(0, remote.clone()).is_err());
+            let mut info = device_info::DeviceInformation {
+                status: "ready".into(),
+                model_number: model.map(str::to_owned),
+                manufacturer: manufacturer.map(str::to_owned),
+                software_revision: software.map(str::to_owned),
+                ..Default::default()
+            };
+            device_info::apply_information(&manager.shared, &discovered[0], info.clone());
+            let snapshot = manager.snapshot();
+            assert_eq!(snapshot.discovered[0].kind, kind);
+            assert_eq!(
+                snapshot.discovered[0].device_info.detected_kind.as_deref(),
+                Some(kind)
+            );
+            assert!(manager.put(0, remote.clone()).is_ok());
+            assert_eq!(
+                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices),
+                Some((devices[0].instance_id.clone(), true))
+            );
+            info.model_number = Some("other".into());
+            info.manufacturer = Some("other".into());
+            info.software_revision = Some("other".into());
+            device_info::apply_information(&manager.shared, &snapshot.discovered[0], info);
+            assert!(driver_target(
+                &remote,
+                &[remote.clone()],
+                &manager.snapshot().discovered,
+                &devices
+            )
+            .is_none());
+            let _ = std::fs::remove_file(&manager.shared.path);
+        }
+    }
     #[test]
     fn configuration_change_cancels_only_its_own_pending_actions() {
         let first = instance("first", "a");
@@ -2863,7 +3051,7 @@ mod tests {
 
     #[test]
     fn hold_recording_modes_are_always_saved_as_hold() {
-        for kind in ["xmBt29", "rc313", "obeRcuR5"] {
+        for kind in ["xmBt29", "rc313", "obeRcuR5", "tclRc802a"] {
             let mut remote = instance(kind, "unused");
             remote.kind = kind.into();
             remote.binding = None;
@@ -2887,6 +3075,7 @@ mod tests {
             ("xmBt29", RecordingMode::Click),
             ("rc313", RecordingMode::Click),
             ("obeRcuR5", RecordingMode::Click),
+            ("tclRc802a", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Hold),
         ]
@@ -2910,6 +3099,7 @@ mod tests {
                 .map(|remote| remote.cmiot_a15_recording_mode)
                 .collect::<Vec<_>>(),
             [
+                RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
@@ -3487,5 +3677,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn hisense_rcf3b65_direct_pointer_reports_bypass_button_decoding() {
+        assert!(accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x01, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "tclRc802a",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
     }
 }

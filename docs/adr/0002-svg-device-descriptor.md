@@ -34,3 +34,6 @@
 
 已有配置保持原 Key，内部 stable ID 在配置边界转为 `legacy-key`。云端分发、运行时下载、定义版本持久化与显式升级迁移留待后续实施。
 
+TCL 接入继续沿用上述边界：`ak:match` 的 `information-required="true"`、`model-contains`、`manufacturer-contains` 和 `software-contains` 声明联合条件；平台层只负责读取相应 GATT 特征。条件缺失或不符时不能绑定、安装到已保存目标或启动输入。
+
+显式 `binding="pending"` 的输入可没有 source，用于保留已绘制、尚缺真实按下采集的单个按键；引擎对此不生成边沿，其他缺失 source 的输入继续拒绝解析。RC802A 的 `tcl-rc802a.ico`（仅声明 `hold` 模式）与 RC902N/RC902V 共用的 GATT `tcl-rc902v-atvv`（绑定各自 `.assistant` 键、以 On-request `0x00` 协商并声明 `hold click` 两种触发模式）均为原生白名单音频适配器。

@@ -108,6 +108,7 @@ pub(crate) struct HidSession {
     recording: recording::RecordingControl,
     voice: VoiceDecoder,
     voice_key: Option<&'static str>,
+    command_report_id: u8,
 }
 
 #[cfg(any(target_os = "macos", test))]
@@ -125,10 +126,12 @@ impl HidSession {
             recording: Default::default(),
             voice: match super::descriptor_registry::voice_engine(kind) {
                 Some("cmiot-a15.g7221") => VoiceDecoder::A15(Default::default()),
+                Some("tcl-rc802a.ico") => VoiceDecoder::A15(super::tcl_rc802a::voice_stream()),
                 Some("obe-rcu-r5.sbc") => VoiceDecoder::Obe(Default::default()),
                 _ => VoiceDecoder::None,
             },
             voice_key: super::descriptor_registry::voice_key(kind),
+            command_report_id: if kind == "tclRc802a" { 0xeb } else { 0xfb },
         }
     }
 
@@ -142,9 +145,11 @@ impl HidSession {
     pub fn set_recording_mode(
         &mut self,
         mode: recording::RecordingMode,
-        send: impl FnMut([u8; 2]) -> Result<(), String>,
+        mut send: impl FnMut([u8; 2]) -> Result<(), String>,
     ) -> Result<(), String> {
-        self.recording.synchronize(mode, true, send)?;
+        self.recording.synchronize(mode, true, |report| {
+            send([self.command_report_id, report[1]])
+        })?;
         self.voice.synchronize(self.recording());
         Ok(())
     }
@@ -155,9 +160,11 @@ impl HidSession {
 
     pub fn toggle_recording(
         &mut self,
-        send: impl FnMut([u8; 2]) -> Result<(), String>,
+        mut send: impl FnMut([u8; 2]) -> Result<(), String>,
     ) -> Result<bool, String> {
-        let recording = self.recording.toggle(send)?;
+        let recording = self
+            .recording
+            .toggle(|report| send([self.command_report_id, report[1]]))?;
         self.voice.synchronize(recording);
         Ok(recording)
     }
@@ -171,7 +178,8 @@ impl HidSession {
         for &(button, pressed) in &edges {
             if Some(button) == self.voice_key {
                 if matches!(self.voice, VoiceDecoder::A15(_)) {
-                    self.recording.edge(pressed, &mut send)?;
+                    self.recording
+                        .edge(pressed, |report| send([self.command_report_id, report[1]]))?;
                 } else {
                     self.recording.edge(pressed, |_| Ok::<_, String>(()))?;
                 }
@@ -190,15 +198,21 @@ impl HidSession {
 
     pub fn stop_recording(
         &mut self,
-        send: impl FnMut([u8; 2]) -> Result<(), String>,
+        mut send: impl FnMut([u8; 2]) -> Result<(), String>,
     ) -> Result<bool, String> {
-        self.recording.stop(send)?;
+        self.recording
+            .stop(|report| send([self.command_report_id, report[1]]))?;
         self.voice.synchronize(false);
         Ok(false)
     }
 
-    pub fn stop(&mut self, send: impl FnMut([u8; 2]) -> Result<(), String>) -> Result<(), String> {
-        let result = self.recording.stop(send);
+    pub fn stop(
+        &mut self,
+        mut send: impl FnMut([u8; 2]) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let result = self
+            .recording
+            .stop(|report| send([self.command_report_id, report[1]]));
         self.recording.reset();
         self.voice.reset();
         self.reports.release_all();

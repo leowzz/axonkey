@@ -11,7 +11,7 @@ src/devices/
   pages.ts                  型号到设置页组件的注册
   shared/
     DeviceWorkspaceHeader.tsx
-    RemoteControl.tsx         六种协议 SVG 共用的按键交互图
+    RemoteControl.tsx         协议 SVG 共用的按键交互图
     descriptorSvg.ts         生成索引到设备视图的通用适配
   generatedDescriptors.ts   从协议 SVG 生成，不手工编辑
   xiaomi-remote/
@@ -56,7 +56,7 @@ src-tauri/src/devices/
     siren.rs                A15 使用的 G.722.1 解码封装
     README.md               音频协议与平台实现说明
   device_descriptor.rs     SVG 元数据入口解析和校验
-  descriptor_registry.rs    内置六种设备、身份和配置兼容键
+  descriptor_registry.rs    内置设备、身份和配置兼容键
   engine.rs                 通用报告解码、状态分组和阈值
   xbox/
     mod.rs                  使用真实 Xbox 报告的引擎回归测试
@@ -98,3 +98,28 @@ A15 的 macOS 输入适配位于 `input_service/managed/a15.rs`，平台按键�
 `input_service/macos/remote_output.rs`，音频桥以 external-input 模式复用现有 PCM 播放器。
 Windows RC003 输入和语音服务都按实例维护；每个实例注册自己的 Quarbor pipe 和蓝牙会话，Windows GATT 会话按绑定的
 蓝牙地址筛选。具体支持边界不能仅凭目录是否存在判断，参见集成约定中的平台支持说明。
+
+## TCL 遥控器
+
+关联 [Issue #67](https://github.com/leowzz/axonkey/issues/67)。图稿和 HID 采集来自 `feat/leo/proto` 的三个 `docs/device-drafts/tcl-*.svg`；运行时资源是 `public/device-descriptors/tcl-*.svg`。
+
+| 型号   | 前端目录                         | Rust 入口                           | 联合身份条件                                                    | 已采集按键 | 语音                                       |
+| ------ | -------------------------------- | ----------------------------------- | --------------------------------------------------------------- | ---------- | ------------------------------------------ |
+| RC802A | `src/devices/tcl-rc802a-remote/` | `src-tauri/src/devices/tcl_rc802a/` | `DEV_VID&010416_PID&0301` + 2A24 含 `BT_RC802A` + 2A29 含 `TCL` | 22         | EB 启停 / EC ICO 按住语音                  |
+| RC902N | `src/devices/tcl-rc902n-remote/` | `src-tauri/src/devices/tcl_rc902n/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902N`                    | 22         | ATVV BLE On-request 语音（A 键，按住 / 点击启停） |
+| RC902V | `src/devices/tcl-rc902v-remote/` | `src-tauri/src/devices/tcl_rc902v/` | `DEV_VID&010417_PID&0304` + 2A28 含 `RC902V`                    | 27         | ATVV BLE On-request 语音（A 键，按住 / 点击启停） |
+
+型号匹配声明来自 SVG。Windows/macOS 读取 Device Information 的 `2A24/modelNumber`、`2A29/manufacturer` 和 `2A28/softwareRevision`，发现候选不代表已确认型号。绑定、驱动目标和输入启动都要求真实信息字段匹配，不能仅凭名称或 `detectedKind` 回退。RC902N/V 共用硬件候选身份，识别后只更新型号，不重算已发现实物 ID。
+
+按键通过现有描述引擎处理原始字段，未知 Usage Page 不补写成标准键盘或 Consumer usage，未配置输入不承诺原始按键转发。
+
+RC802A 仅支持按住录音、松开停止（`hold`），复用现有 CMIOT-A15 的按住录音控制、G.722.1 解码和每实例 PCM 输出。协议细节及验证边界见 [RC802A 音频说明](../src-tauri/src/devices/tcl_rc802a/README.md)。
+
+RC902N 与 RC902V 通过 `AB5E0001` Google ATVV BLE GATT 服务以 On-request (`0x00`) 模式接入各自 `A` 键（`tcl-rc902n.assistant` / `tcl-rc902v.assistant`）语音，保留 HID `A` 键边沿上报，支持按住录音、松开停止（`hold`）和按下开始、再次按下停止（`click`）两种模式，复用 `xiaomi_remote::voice` 的实例级蓝牙工作线程与虚拟麦克风输出。协议细节及验证边界见 [RC902N 音频说明](../src-tauri/src/devices/tcl_rc902n/README.md) 与 [RC902V 音频说明](../src-tauri/src/devices/tcl_rc902v/README.md)。
+
+## 投影仪语音遥控器（按键 HID 已采集，音频待接入）
+
+| 品牌 / 型号     | 前端目录                              | Rust 入口                                | 硬件匹配条件              | 输入状态                                                               | 语音   |
+| --------------- | ------------------------------------- | ---------------------------------------- | ------------------------- | ---------------------------------------------------------------------- | ------ |
+| Hisense RCF3B65 | `src/devices/hisense-rcf3b65-remote/` | `src-tauri/src/devices/hisense_rcf3b65/` | `DEV_VID&01109B_PID&3837` | 18 个正面按键已采集（`0x01` / `0x6F` 九字节）                          | 待接入 |
+| 斐讯 DB1-R      | `src/devices/phicomm-db1-r-remote/`   | `src-tauri/src/devices/phicomm_db1_r/`   | `DEV_VID&01005D_PID&0001` | 12 个正面按键已采集（`0x01` 九字节 / `0x02` 三字节，红外 TV 键已移除） | 待接入 |
