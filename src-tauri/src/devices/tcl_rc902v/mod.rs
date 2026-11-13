@@ -1,4 +1,4 @@
-//! TCL RC902V uses the captured report layout in its SVG descriptor and Google ATVV PTT voice.
+//! TCL RC902V uses the captured report layout in its SVG descriptor and Google ATVV On-request voice.
 pub(crate) mod atvv;
 
 use super::device_descriptor::DeviceDescriptor;

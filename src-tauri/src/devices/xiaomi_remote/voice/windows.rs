@@ -1423,7 +1423,7 @@ mod tests {
     }
 
     #[test]
-    fn rc902_ptt_bridge_supports_hold_and_click_toggle_modes() {
+    fn rc902_on_request_bridge_supports_hold_and_click_toggle_modes() {
         use crate::devices::cmiot_a15::recording::RecordingMode;
         for (kind, label) in [("tclRc902n", "TCL RC902N"), ("tclRc902v", "TCL RC902V")] {
             let audio = AudioService::without_workers_rc902(kind, Some("A1:B2:C3:D4:E5:F6".into()));
@@ -1441,13 +1441,13 @@ mod tests {
                 .begin_negotiation(Instant::now());
             assert_eq!(
                 init.tx_commands,
-                vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x01]]
+                vec![vec![0x0a, 0x01, 0x00, 0x00, 0x03, 0x00]]
             );
 
-            // Synthetic CAPS_RESP (v1.0, 16k ADPCM, PTT model=0x01, frame_size=160).
+            // Synthetic CAPS_RESP (v1.0, 16k ADPCM, On-request model=0x00, frame_size=160).
             handle_rc902v_control_packet(
                 &audio.shared,
-                &[0x0b, 0x01, 0x00, 0x02, 0x01, 0x00, 0xa0, 0x01, 0x00],
+                &[0x0b, 0x01, 0x00, 0x02, 0x00, 0x00, 0xa0, 0x01, 0x00],
                 &tx,
             );
             assert_eq!(audio.status_with_driver(ready_driver()).state, "ready");
@@ -1457,36 +1457,42 @@ mod tests {
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 0);
 
-            // 1. Hold mode: press -> PTT AUDIO_START(reason=0x01) -> PCM -> release sends MIC_CLOSE(5).
+            // 1. Hold mode: START_SEARCH + HID press -> MIC_OPEN([0x0c, 0x00]) -> AUDIO_START -> PCM -> HID release sends MIC_CLOSE([0x0d, 0x00]).
             audio.set_recording_mode(RecordingMode::Hold);
+            handle_rc902v_control_packet(&audio.shared, &[0x08], &tx);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0c, 0x00]);
             audio.handle_voice_key_edge(true);
-            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x01, 0x02, 0x05], &tx);
+            assert!(rx.try_recv().is_err());
+            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x00, 0x02, 0x00], &tx);
             assert!(audio.shared.recording_indicator.is_active());
             handle_rc902v_audio_packet(&audio.shared, &[0x7f; 160], &tx);
             assert_eq!(audio.shared.source.queued_samples(), 320);
             assert!(audio.status_with_driver(ready_driver()).forwarding);
 
             audio.handle_voice_key_edge(false);
-            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x05]);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x00]);
             assert!(!audio.shared.recording_indicator.is_active());
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
             assert_eq!(audio.shared.source.queued_samples(), 0);
             handle_rc902v_control_packet(&audio.shared, &[0x00, 0x00], &tx);
 
-            // 2. Click mode ("按下录音，再次按下停止录音"): 1st press + release keeps recording; 2nd press stops.
+            // 2. Click mode ("按下录音，再次按下停止录音"): 1st press + release keeps recording; 2nd press (START_SEARCH + HID) stops cleanly.
             audio.set_recording_mode(RecordingMode::Click);
+            handle_rc902v_control_packet(&audio.shared, &[0x08], &tx);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0c, 0x00]);
             audio.handle_voice_key_edge(true);
-            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x01, 0x02, 0x06], &tx);
+            handle_rc902v_control_packet(&audio.shared, &[0x04, 0x00, 0x02, 0x00], &tx);
             audio.handle_voice_key_edge(false);
             handle_rc902v_audio_packet(&audio.shared, &[0x7f; 160], &tx);
             assert!(audio.shared.recording_indicator.is_active());
             assert!(audio.status_with_driver(ready_driver()).forwarding);
             assert!(rx.try_recv().is_err());
 
-            audio.handle_voice_key_edge(true);
-            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x06]);
+            handle_rc902v_control_packet(&audio.shared, &[0x08], &tx);
+            assert_eq!(rx.try_recv().unwrap(), vec![0x0d, 0x00]);
             assert!(!audio.shared.recording_indicator.is_active());
             assert!(!audio.status_with_driver(ready_driver()).forwarding);
+            audio.handle_voice_key_edge(true);
             audio.handle_voice_key_edge(false);
             handle_rc902v_control_packet(&audio.shared, &[0x00, 0x00], &tx);
             assert!(rx.try_recv().is_err());
