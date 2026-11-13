@@ -37,7 +37,7 @@
         <ak:input id="tcl-rc802a.sideLower" label="侧边下键" short="侧下" icon="center" kind="button" target="#key-side-lower" order="22" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x9F"/><ak:hid-capture version="1" press="01 00 00 9F 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
         <ak:input id="tcl-rc802a.sideFunction" label="侧边功能键" short="侧键" icon="center" kind="button" target="#key-side-function" order="23" original="false" binding="captured"><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xAA"/><ak:hid-capture version="1" press="01 00 00 AA 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/></ak:input>
       </ak:inputs>
-      <ak:voice id="voice" trigger-key="tcl-rc802a.voice" engine="tcl-rc802a.ico" transport="hid-report" trigger-modes="hold click" required="true" />
+      <ak:voice id="voice" trigger-key="tcl-rc802a.voice" engine="tcl-rc802a.ico" transport="hid-report" trigger-modes="hold" required="true" />
     </ak:device>
   </metadata>
 

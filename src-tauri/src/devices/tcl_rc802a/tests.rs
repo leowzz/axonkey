@@ -90,6 +90,15 @@ fn captured_tcl_reports_drive_the_real_descriptor_engine() {
         .find(|input| input.id == "tcl-rc902n.confirm")
         .unwrap();
     assert!(!confirm.pending && confirm.sources.len() == 1);
+    assert_eq!(
+        descriptor_for_kind("tclRc802a")
+            .unwrap()
+            .voices
+            .first()
+            .and_then(|voice| voice.attributes.get("trigger-modes"))
+            .map(String::as_str),
+        Some("hold")
+    );
     assert_eq!(voice_engine("tclRc902n"), Some("tcl-rc902v-atvv"));
     assert_eq!(voice_key("tclRc902n"), Some("tcl-rc902n.assistant"));
     assert_eq!(voice_engine("tclRc902v"), Some("tcl-rc902v-atvv"));
@@ -204,55 +213,44 @@ fn tcl_identity_requires_hardware_and_every_information_marker() {
 }
 
 #[test]
-fn rc802a_hold_and_click_send_eb_commands_with_independent_key_edges() {
-    for mode in [RecordingMode::Hold, RecordingMode::Click] {
-        let mut session = HidSession::for_kind("tclRc802a");
-        session.start(mode);
-        let mut writes = Vec::new();
-        for (index, pressed) in [true, false, true, false].into_iter().enumerate() {
-            let report = [1, 0, 0, if pressed { 0xad } else { 0 }, 0, 0, 0, 0, 0];
-            let mut send = |command| {
-                writes.push(command);
-                Ok(())
-            };
-            assert_eq!(
-                session.accept(&report, &mut send).unwrap().0,
-                [("tcl-rc802a.voice", pressed)]
-            );
-            assert!(session.accept(&report, &mut send).unwrap().0.is_empty());
-            assert_eq!(
-                session.recording(),
-                if mode == RecordingMode::Hold {
-                    pressed
-                } else {
-                    index < 2
-                }
-            );
-        }
+fn rc802a_hold_mode_sends_eb_commands_with_independent_key_edges() {
+    let mut session = HidSession::for_kind("tclRc802a");
+    session.start(RecordingMode::Hold);
+    let mut writes = Vec::new();
+    for pressed in [true, false, true, false] {
+        let report = [1, 0, 0, if pressed { 0xad } else { 0 }, 0, 0, 0, 0, 0];
+        let mut send = |command| {
+            writes.push(command);
+            Ok(())
+        };
         assert_eq!(
-            writes,
-            if mode == RecordingMode::Hold {
-                vec![[0xeb, 1], [0xeb, 0], [0xeb, 1], [0xeb, 0]]
-            } else {
-                vec![[0xeb, 1], [0xeb, 0]]
-            }
+            session.accept(&report, &mut send).unwrap().0,
+            [("tcl-rc802a.voice", pressed)]
         );
-        assert!(session
-            .toggle_recording(|command| {
+        assert!(session.accept(&report, &mut send).unwrap().0.is_empty());
+        assert_eq!(session.recording(), pressed);
+    }
+    assert_eq!(writes, vec![[0xeb, 1], [0xeb, 0], [0xeb, 1], [0xeb, 0]]);
+    assert_eq!(
+        session
+            .accept(&[1, 0, 0, 0xad, 0, 0, 0, 0, 0], &mut |command| {
                 assert_eq!(command, [0xeb, 1]);
                 Ok(())
             })
-            .unwrap());
-        assert!(session
-            .stop_recording(|_| Err("write failed".into()))
-            .is_err());
-        assert!(session.recording());
-        session
-            .stop(|command| {
-                assert_eq!(command, [0xeb, 0]);
-                Ok(())
-            })
-            .unwrap();
-        assert!(!session.recording());
-    }
+            .unwrap()
+            .0,
+        [("tcl-rc802a.voice", true)]
+    );
+    assert!(session.recording());
+    assert!(session
+        .stop_recording(|_| Err("write failed".into()))
+        .is_err());
+    assert!(session.recording());
+    session
+        .stop(|command| {
+            assert_eq!(command, [0xeb, 0]);
+            Ok(())
+        })
+        .unwrap();
+    assert!(!session.recording());
 }

@@ -418,7 +418,7 @@ test('bundled capabilities retain recording defaults and platform support for al
   for (const [kind, mode, hidVoice] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
-    ['tclRc802a', 'click', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
+    ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
     ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
@@ -839,7 +839,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     for (const [kind, battery, manualRecording, recordingModes, voiceCalibration] of [
       ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
       ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
-      ['tclRc802a', true, true, true, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
+      ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
       ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
     ]) {
       act(() => {

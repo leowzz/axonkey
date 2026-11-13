@@ -113,6 +113,8 @@ extern "C" {
     fn axonkey_macos_post_mouse_click(button: i32) -> bool;
     #[cfg(not(test))]
     fn axonkey_macos_post_mouse_move(dx: i32, dy: i32) -> bool;
+    #[cfg(not(test))]
+    fn axonkey_macos_post_absolute_mouse_move(abs_x: u16, abs_y: u16) -> bool;
     fn axonkey_macos_post_text(text: *const u16, length: usize) -> bool;
 }
 
@@ -1437,6 +1439,7 @@ fn wheel_axes(direction: WheelDirection) -> (i32, i32) {
 thread_local! {
     static TEST_WHEELS: std::cell::RefCell<Vec<WheelDirection>> = const { std::cell::RefCell::new(Vec::new()) };
     static TEST_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static TEST_ABSOLUTE_MOVES: std::cell::RefCell<Vec<(u16, u16)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
@@ -1462,6 +1465,18 @@ fn post_cursor_move(direction: WheelDirection, distance: u32) {
     let (dx, dy) = cursor_delta(direction, distance);
     if !unsafe { axonkey_macos_post_mouse_move(dx, dy) } {
         log::warn!(target: "axonkey::input", "Cursor move injection failed: {direction:?}, distance={distance}");
+    }
+}
+
+#[cfg(test)]
+pub(super) fn post_absolute_cursor_move(abs_x: u16, abs_y: u16) {
+    TEST_ABSOLUTE_MOVES.with(|events| events.borrow_mut().push((abs_x, abs_y)));
+}
+
+#[cfg(not(test))]
+pub(super) fn post_absolute_cursor_move(abs_x: u16, abs_y: u16) {
+    if !unsafe { axonkey_macos_post_absolute_mouse_move(abs_x, abs_y) } {
+        log::warn!(target: "axonkey::input", "Absolute cursor move injection failed: x={abs_x}, y={abs_y}");
     }
 }
 
@@ -3045,5 +3060,18 @@ mod tests {
         );
         assert!(!effective_input_monitoring_granted(true, &status));
         assert_eq!(status.error.as_deref(), Some(STALE_INPUT_MONITORING_ERROR));
+    }
+
+    #[test]
+    fn absolute_pointer_helper_records_normalized_coordinates() {
+        TEST_ABSOLUTE_MOVES.with(|events| events.borrow_mut().clear());
+        let position = crate::devices::hisense_rcf3b65::parse_pointer_report(&[
+            0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00,
+        ])
+        .unwrap();
+        post_absolute_cursor_move(position.x, position.y);
+        TEST_ABSOLUTE_MOVES.with(|events| {
+            assert_eq!(*events.borrow(), vec![(50_977, 6_734)]);
+        });
     }
 }

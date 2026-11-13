@@ -462,11 +462,7 @@ export function InstanceWorkspace({
           {voice && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
-              onToggle={
-                voice.engine === 'cmiot-a15.g7221' || voice.engine === 'tcl-rc802a.ico'
-                  ? () => void toggleRecording()
-                  : undefined
-              }
+              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
               disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
             />
           )}

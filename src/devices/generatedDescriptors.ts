@@ -1725,8 +1725,7 @@ export const deviceDescriptors = {
       "engine": "tcl-rc802a.ico",
       "transport": "hid-report",
       "triggerModes": [
-        "hold",
-        "click"
+        "hold"
       ]
     },
     "viewBox": {

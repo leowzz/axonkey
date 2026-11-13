@@ -24,7 +24,9 @@ struct QuarborContext {
     keyboard: RemoteKeyboard,
     events: std::collections::VecDeque<super::windows_quarbor::Event>,
     keys: std::collections::VecDeque<RemoteKeyEvent>,
+    pointer_moves: std::collections::VecDeque<crate::devices::hisense_rcf3b65::PointerPosition>,
     device_id: Option<String>,
+    device_kind: Option<String>,
     descriptor: Option<&'static crate::devices::device_descriptor::DeviceDescriptor>,
     descriptor_engine: Option<crate::devices::engine::DescriptorEngine>,
     a15_voice: crate::devices::cmiot_a15::voice::VoiceStream,
@@ -52,7 +54,9 @@ impl Default for QuarborContext {
             keyboard: RemoteKeyboard::default(),
             events: std::collections::VecDeque::new(),
             keys: std::collections::VecDeque::new(),
+            pointer_moves: std::collections::VecDeque::new(),
             device_id: None,
+            device_kind: None,
             descriptor: crate::devices::descriptor_registry::descriptor_for_kind("rc003"),
             descriptor_engine: None,
             a15_voice: Default::default(),
@@ -165,7 +169,7 @@ impl RemoteKeyboard {
 
 #[cfg(windows)]
 fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
-    if !context.keys.is_empty() {
+    if !context.keys.is_empty() || !context.pointer_moves.is_empty() {
         return;
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
@@ -254,6 +258,18 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             }
             context.last_sequence = Some(metadata.sequence);
             context.dropped = metadata.dropped;
+            if is_hisense_rcf3b65(context) {
+                if let Some(position) = crate::devices::hisense_rcf3b65::parse_pointer_report(bytes)
+                {
+                    context.usage_error = None;
+                    if context.pointer_moves.len() == 64 {
+                        context.pointer_moves.pop_front();
+                    }
+                    context.pointer_moves.push_back(position);
+                    context.events.push_back(event);
+                    return;
+                }
+            }
             if let Some(descriptor) = context.descriptor {
                 context.usage_error = None;
                 let engine = context
@@ -372,7 +388,16 @@ enum ReleaseReason {
 }
 
 #[cfg(windows)]
+fn is_hisense_rcf3b65(context: &QuarborContext) -> bool {
+    context.device_kind.as_deref() == Some(crate::devices::hisense_rcf3b65::KIND)
+        || context.descriptor.is_some_and(|descriptor| {
+            descriptor.id == crate::devices::hisense_rcf3b65::DESCRIPTOR_ID
+        })
+}
+
+#[cfg(windows)]
 fn quarbor_release_inputs(context: &mut QuarborContext, reason: ReleaseReason) {
+    context.pointer_moves.clear();
     let voice_engine = recording_voice(context).map(|voice| voice.engine.as_str());
     let voice = recording_voice(context);
     let voice_key = recording_voice(context).and_then(|voice| {
@@ -714,6 +739,7 @@ impl ManagedQuarborChannel {
                     } else {
                         Default::default()
                     },
+                    device_kind: Some(descriptor_kind),
                     ..Default::default()
                 };
                 run_context(&mut context, &worker_shared, target);
@@ -1079,6 +1105,13 @@ fn process_remote_actions_inner(
         .synchronize(context.a15_recording.is_recording());
     if !context.a15_recording.is_recording() {
         context.obe_pcm_accumulator.clear();
+    }
+    if settings.enabled {
+        while let Some(position) = context.pointer_moves.pop_front() {
+            send_absolute_mouse_move(position.x, position.y);
+        }
+    } else {
+        context.pointer_moves.clear();
     }
     while let Some(key) = context.keys.pop_front() {
         if shared.managed_input.is_none() {
@@ -1879,6 +1912,7 @@ thread_local! {
     static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32)>> = const { std::cell::RefCell::new(Vec::new()) };
+    static ABSOLUTE_MOUSE_MOVES: std::cell::RefCell<Vec<(i32, i32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_BUTTON_EVENTS: std::cell::RefCell<Vec<(u32, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
     static UNICODE_EVENTS: std::cell::RefCell<Vec<(u16, u32)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
@@ -1985,6 +2019,42 @@ fn send_mouse_move(dx: i32, dy: i32) {
         let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
         if sent != 1 {
             log::warn!(target: "axonkey::input", "Cursor move injection failed: dx={dx}, dy={dy}, error={}", std::io::Error::last_os_error());
+        }
+    }
+}
+
+pub(super) fn send_absolute_mouse_move(abs_x: u16, abs_y: u16) {
+    const MOUSEEVENTF_MOVE: u32 = 0x0001;
+    const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
+    let input = Input {
+        kind: 0,
+        value: InputValue {
+            mouse: MouseInput {
+                dx: i32::from(abs_x),
+                dy: i32::from(abs_y),
+                mouse_data: 0,
+                flags: MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE,
+                time: 0,
+                extra_info: 0,
+            },
+        },
+    };
+    #[cfg(test)]
+    {
+        ABSOLUTE_MOUSE_MOVES.with(|events| {
+            let mouse = unsafe { input.value.mouse };
+            events.borrow_mut().push((mouse.dx, mouse.dy, mouse.flags));
+        });
+    }
+    #[cfg(not(test))]
+    {
+        let sent = unsafe { SendInput(1, &input, std::mem::size_of::<Input>() as i32) };
+        if sent != 1 {
+            log::warn!(
+                target: "axonkey::input",
+                "Absolute cursor move injection failed: x={abs_x}, y={abs_y}, error={}",
+                std::io::Error::last_os_error()
+            );
         }
     }
 }
@@ -2529,39 +2599,32 @@ mod tests {
 
         #[test]
         fn rc802a_windows_channel_sends_eb_and_decodes_ec_into_the_audio_queue() {
-            for mode in ["hold", "click"] {
-                A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
-                let settings: NativeSettings = serde_json::from_value(json!({
-                    "enabled": true, "cmiotA15RecordingMode": mode,
-                    "behaviors": {"tcl-rc802a.voice": {"click": [{"type":"key", "key":"RAlt"}]}}
-                }))
-                .unwrap();
-                let mut harness = Harness::new(settings.clone());
-                harness.context.descriptor =
-                    crate::devices::descriptor_registry::descriptor_for_kind("tclRc802a");
-                harness.context.a15_voice = crate::devices::tcl_rc802a::voice_stream();
-                let reports = crate::devices::cmiot_a15::voice::ico_test_reports(0xec);
-                a15_report(&mut harness.context, 1, vec![1, 0, 0, 0xad, 0, 0, 0, 0, 0]);
-                harness.tick(&settings, 0, &[]);
-                assert!(harness.context.a15_recording.is_recording());
-                for (index, report) in reports[0].iter().enumerate() {
-                    a15_report(&mut harness.context, index as u64 + 2, report.to_vec());
-                }
-                let pcm = harness.context.a15_pcm.front().unwrap();
-                assert_eq!(pcm.samples.len(), 320);
-                assert_eq!(pcm.sample_rate, 16000);
-                assert!(pcm.samples.iter().all(|sample| sample & 3 == 0));
-                a15_report(&mut harness.context, 5, vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
-                harness.tick(&settings, 100, &[]);
-                if mode == "click" {
-                    assert!(harness.context.a15_recording.is_recording());
-                    a15_report(&mut harness.context, 6, vec![1, 0, 0, 0xad, 0, 0, 0, 0, 0]);
-                    harness.tick(&settings, 200, &[]);
-                }
-                assert!(!harness.context.a15_recording.is_recording());
-                A15_RECORDING_REPORTS
-                    .with(|reports| assert_eq!(*reports.borrow(), [[0xeb, 1], [0xeb, 0]]));
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true, "cmiotA15RecordingMode": "hold",
+                "behaviors": {"tcl-rc802a.voice": {"click": [{"type":"key", "key":"RAlt"}]}}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("tclRc802a");
+            harness.context.a15_voice = crate::devices::tcl_rc802a::voice_stream();
+            let reports = crate::devices::cmiot_a15::voice::ico_test_reports(0xec);
+            a15_report(&mut harness.context, 1, vec![1, 0, 0, 0xad, 0, 0, 0, 0, 0]);
+            harness.tick(&settings, 0, &[]);
+            assert!(harness.context.a15_recording.is_recording());
+            for (index, report) in reports[0].iter().enumerate() {
+                a15_report(&mut harness.context, index as u64 + 2, report.to_vec());
             }
+            let pcm = harness.context.a15_pcm.front().unwrap();
+            assert_eq!(pcm.samples.len(), 320);
+            assert_eq!(pcm.sample_rate, 16000);
+            assert!(pcm.samples.iter().all(|sample| sample & 3 == 0));
+            a15_report(&mut harness.context, 5, vec![1, 0, 0, 0, 0, 0, 0, 0, 0]);
+            harness.tick(&settings, 100, &[]);
+            assert!(!harness.context.a15_recording.is_recording());
+            A15_RECORDING_REPORTS
+                .with(|reports| assert_eq!(*reports.borrow(), [[0xeb, 1], [0xeb, 0]]));
         }
 
         #[test]
@@ -2807,6 +2870,68 @@ mod tests {
                 harness.tick(&settings, 100, &[]);
                 UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
             }
+        }
+
+        #[test]
+        fn hisense_rcf3b65_pointer_reports_drive_absolute_mouse_without_key_edges() {
+            let mut settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {}
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.device_kind = Some("hisenseRcf3b65".into());
+            harness.context.descriptor = None;
+            ABSOLUTE_MOUSE_MOVES.with(|events| events.borrow_mut().clear());
+
+            a15_report(
+                &mut harness.context,
+                1,
+                vec![0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00],
+            );
+            a15_report(
+                &mut harness.context,
+                2,
+                vec![0x3f, 0x10, 0x90, 0x63, 0xd5, 0x0d, 0x00, 0x00, 0x00],
+            );
+            assert!(harness.context.keys.is_empty());
+            harness.tick(&settings, 0, &[]);
+            ABSOLUTE_MOUSE_MOVES.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    vec![(50_977, 6_734, 0x8001), (50_977, 7_082, 0x8001)]
+                );
+            });
+            MOUSE_KEY_BATCHES.with(|events| assert!(events.borrow().is_empty()));
+
+            ABSOLUTE_MOUSE_MOVES.with(|events| events.borrow_mut().clear());
+            settings.enabled = false;
+            a15_report(
+                &mut harness.context,
+                3,
+                vec![0x3f, 0x10, 0x90, 0x63, 0xd5, 0x0d, 0x00, 0x00, 0x00],
+            );
+            harness.tick(&settings, 16, &[]);
+            ABSOLUTE_MOUSE_MOVES.with(|events| assert!(events.borrow().is_empty()));
+
+            let mut other = Harness::new(
+                serde_json::from_value(json!({"enabled": true, "behaviors": {}})).unwrap(),
+            );
+            other.context.device_kind = Some("cmiotA15".into());
+            other.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
+            a15_report(
+                &mut other.context,
+                1,
+                vec![0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00],
+            );
+            other.tick(
+                &serde_json::from_value(json!({"enabled": true, "behaviors": {}})).unwrap(),
+                0,
+                &[],
+            );
+            ABSOLUTE_MOUSE_MOVES.with(|events| assert!(events.borrow().is_empty()));
+            assert!(other.context.keys.is_empty());
         }
     }
 

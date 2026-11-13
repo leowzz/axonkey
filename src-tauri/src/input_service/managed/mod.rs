@@ -1733,6 +1733,9 @@ fn run(shared: Arc<Shared>) {
                         Ok(0) => break,
                         Ok(len) => {
                             reader.reports += 1;
+                            if accept_direct_pointer_report(&instance.kind, &buffer[..len]) {
+                                continue;
+                            }
                             for (id, down) in
                                 reader.engine.accept(reader.descriptor, &buffer[..len])
                             {
@@ -1969,6 +1972,24 @@ fn notify_rc902_voice_key_edge(shared: &Shared, instance_id: &str, pressed: bool
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = (shared, instance_id, pressed);
+}
+
+fn accept_direct_pointer_report(kind: &str, bytes: &[u8]) -> bool {
+    if kind != crate::devices::hisense_rcf3b65::KIND {
+        return false;
+    }
+    let Some(position) = crate::devices::hisense_rcf3b65::parse_pointer_report(bytes) else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    if super::InputService::accessibility_granted() {
+        super::macos::post_absolute_cursor_move(position.x, position.y);
+    }
+    #[cfg(windows)]
+    super::windows::send_absolute_mouse_move(position.x, position.y);
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = position;
+    true
 }
 
 fn spawn_action_worker(
@@ -3010,7 +3031,7 @@ mod tests {
 
     #[test]
     fn hold_recording_modes_are_always_saved_as_hold() {
-        for kind in ["xmBt29", "rc313", "obeRcuR5"] {
+        for kind in ["xmBt29", "rc313", "obeRcuR5", "tclRc802a"] {
             let mut remote = instance(kind, "unused");
             remote.kind = kind.into();
             remote.binding = None;
@@ -3034,6 +3055,7 @@ mod tests {
             ("xmBt29", RecordingMode::Click),
             ("rc313", RecordingMode::Click),
             ("obeRcuR5", RecordingMode::Click),
+            ("tclRc802a", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Hold),
         ]
@@ -3057,6 +3079,7 @@ mod tests {
                 .map(|remote| remote.cmiot_a15_recording_mode)
                 .collect::<Vec<_>>(),
             [
+                RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
@@ -3634,5 +3657,21 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid");
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn hisense_rcf3b65_direct_pointer_reports_bypass_button_decoding() {
+        assert!(accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x01, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "tclRc802a",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
     }
 }
