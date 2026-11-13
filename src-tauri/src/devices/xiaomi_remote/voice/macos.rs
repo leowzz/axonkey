@@ -696,4 +696,23 @@ mod tests {
         assert!(report.contains("notification_read_errors=1"));
         assert!(report.contains("discarded_pending_buffers=2"));
     }
+
+    #[test]
+    fn worker_thread_audio_calls_complete_while_joining_without_main_runloop() {
+        let worker = std::thread::Builder::new()
+            .name("Axonkey devices".into())
+            .spawn(|| {
+                let service = AudioService::start_a15();
+                let status = service.status();
+                assert_eq!(status.state, "stopped");
+                service.set_a15_input_state(true, true);
+                service.push_a15_pcm(&[0; 160]);
+                service.set_a15_input_state(false, false);
+                let status = service.status();
+                assert!(!status.bluetooth_connected);
+                assert!(!status.forwarding);
+            })
+            .unwrap();
+        worker.join().unwrap();
+    }
 }
