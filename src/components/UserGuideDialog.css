@@ -78,8 +78,7 @@ body:has(.user-guide-dialog[open]),
   font-size: 14px;
 }
 .user-guide-supported ul {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
   gap: 12px;
   margin: 0;
   padding: 0;
@@ -87,12 +86,15 @@ body:has(.user-guide-dialog[open]),
 }
 .user-guide-supported .managed-package {
   margin: 0;
-  padding: 12px;
-  gap: 12px;
+  padding: 10px 10px 12px;
+  gap: 8px;
   font-size: 13px;
 }
+.user-guide-supported .managed-package-artwork {
+  height: 164px;
+}
 .user-guide-supported .managed-package img {
-  width: 52px;
+  height: 140px;
 }
 .user-guide-welcome p {
   max-width: 440px;

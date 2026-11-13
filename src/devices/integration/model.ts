@@ -80,7 +80,6 @@ export type DeviceSnapshot = {
   scanning: boolean
 }
 export const supportPackages: readonly DeviceSupportPackage[] = [
-  xboxSupportPackage,
   xiaomiRemoteSupportPackage,
   cmiotA15SupportPackage,
   xmBt29SupportPackage,
@@ -91,6 +90,7 @@ export const supportPackages: readonly DeviceSupportPackage[] = [
   tclRc902vSupportPackage,
   hisenseRcf3b65SupportPackage,
   phicommDb1RSupportPackage,
+  xboxSupportPackage,
 ]
 const mobileRemotePackages = supportPackages.filter(pkg =>
   pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),

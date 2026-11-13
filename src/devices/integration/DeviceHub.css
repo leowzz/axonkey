@@ -99,6 +99,12 @@
   background: transparent;
   overflow: hidden;
 }
+.managed-integration-modal:has(.managed-package-grid) {
+  width: min(860px, calc(100vw - 48px));
+}
+.managed-integration-modal:has(.managed-mobile-models) {
+  width: min(680px, calc(100vw - 48px));
+}
 .managed-integration-modal::backdrop {
   background: rgb(15 23 42 / 36%);
   backdrop-filter: blur(2px);
@@ -112,9 +118,9 @@
   font-size: 14px;
   line-height: 1.7;
 }
-:root:has(.managed-discovery-help-dialog[open]),
-body:has(.managed-discovery-help-dialog[open]),
-.app-shell:has(.managed-discovery-help-dialog[open]) .main-content {
+:root:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),
+body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),
+.app-shell:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]) .main-content {
   overflow: hidden;
 }
 .managed-discovery-refresh {
@@ -273,8 +279,6 @@ body:has(.managed-discovery-help-dialog[open]),
   font-size: 13px;
 }
 .behavior-dialog.managed-integration-dialog {
-  width: min(560px, calc(100vw - 48px));
-  max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
 }
@@ -331,27 +335,39 @@ body:has(.managed-discovery-help-dialog[open]),
   padding: 16px 24px 20px;
 }
 
+.managed-package-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 14px;
+}
 .managed-package {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 20px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
-  margin-top: 10px;
-  padding: 14px 16px;
-  text-align: left;
+  margin: 0;
+  padding: 12px 12px 14px;
+  box-sizing: border-box;
+  text-align: center;
   border: 1px solid var(--line);
   background: #fff;
   box-shadow: var(--shadow-card);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--ink);
   transition:
+    transform 0.15s ease,
     border-color 0.15s ease,
     background-color 0.15s ease,
     box-shadow 0.15s ease;
 }
-.managed-package:hover:not(:disabled) {
+button.managed-package:hover:not(:disabled) {
   border-color: var(--blue-border);
   background: #fafcff;
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
 }
 .managed-package[data-selected='true'] {
   border-color: var(--blue);
@@ -359,17 +375,56 @@ body:has(.managed-discovery-help-dialog[open]),
   color: var(--blue);
   box-shadow: 0 0 0 2px rgb(0 102 255 / 12%);
 }
+.managed-package-artwork {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 212px;
+  padding: 12px 10px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgb(241 245 249 / 88%) 0%, rgb(248 250 252 / 48%) 100%);
+}
+.managed-package img {
+  display: block;
+  width: 100%;
+  height: 188px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgb(15 23 42 / 9%));
+}
+.managed-package-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 36px;
+}
+.managed-package-meta strong {
+  color: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.managed-package small {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
+}
 .managed-mobile-models {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 18px;
 }
-.managed-mobile-models .managed-package {
-  margin-top: 0;
-}
 .managed-mobile-models .managed-package > svg {
-  flex-shrink: 0;
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
   color: var(--blue);
 }
 .managed-mobile-identify {
@@ -384,17 +439,6 @@ body:has(.managed-discovery-help-dialog[open]),
   color: #fff;
   background: var(--blue);
   font-weight: 500;
-}
-.managed-package img {
-  width: 72px;
-  height: 64px;
-  object-fit: contain;
-}
-.managed-package small {
-  display: block;
-  margin-top: 5px;
-  color: var(--muted);
-  font-size: 12px;
 }
 .macos-vibrancy .managed-device-grid .my-devices-card {
   background: rgb(255 255 255 / 54%);

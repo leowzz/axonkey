@@ -348,16 +348,21 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
       {guide && (
         <section className="user-guide-supported" aria-labelledby="user-guide-supported-title">
           <h3 id="user-guide-supported-title">支持的设备</h3>
-          <ul>
-            {supportPackages.map(pkg => (
-              <li key={pkg.kind} className="managed-package">
-                <img src={pkg.artwork} alt="" />
-                <span>
-                  <strong>{pkg.name}</strong>
-                  <small>{pkg.model.split(' · ')[0]}</small>
-                </span>
-              </li>
-            ))}
+          <ul className="managed-package-grid">
+            {supportPackages.map(pkg => {
+              const subtitle = packageSubtitle(pkg)
+              return (
+                <li key={pkg.kind} className="managed-package" data-kind={pkg.kind}>
+                  <span className="managed-package-artwork">
+                    <img src={pkg.artwork} alt="" />
+                  </span>
+                  <span className="managed-package-meta">
+                    <strong>{pkg.name}</strong>
+                    {subtitle && <small>{subtitle}</small>}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         </section>
       )}
@@ -633,6 +638,16 @@ function DeviceCard({
 }
 type IntegrationStep = 'kind' | 'mobile-model' | 'details'
 
+function packageSubtitle(pkg: { kind: DeviceKind; name: string; model: string }, platform?: Platform) {
+  const model = pkg.model.split(' · ')[0]
+  return [
+    pkg.name.includes(model) ? '' : model,
+    usesHidVoice(pkg.kind) && platform && platform !== 'windows' && platform !== 'macos' ? '仅配置' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 function IntegrationDialog({
   initial,
   controller,
@@ -744,28 +759,32 @@ function IntegrationDialog({
         </header>
         <div className="behavior-dialog-body managed-integration-body">
           {step === 'kind' ? (
-            <>
-              {supportPackages.map(pkg => (
-                <button
-                  className="managed-package"
-                  key={pkg.kind}
-                  onClick={() => {
-                    setKind(pkg.kind)
-                    setName(pkg.name)
-                    setStep('details')
-                  }}
-                >
-                  <img src={pkg.artwork} alt="" />
-                  <span>
-                    <strong>{pkg.name}</strong>
-                    <small>
-                      {pkg.model.split(' · ')[0]}
-                      {usesHidVoice(pkg.kind) && platform !== 'windows' && platform !== 'macos' ? ' · 仅配置' : ''}
-                    </small>
-                  </span>
-                </button>
-              ))}
-            </>
+            <div className="managed-package-grid">
+              {supportPackages.map(pkg => {
+                const subtitle = packageSubtitle(pkg, platform)
+                return (
+                  <button
+                    type="button"
+                    className="managed-package"
+                    data-kind={pkg.kind}
+                    key={pkg.kind}
+                    onClick={() => {
+                      setKind(pkg.kind)
+                      setName(pkg.name)
+                      setStep('details')
+                    }}
+                  >
+                    <span className="managed-package-artwork">
+                      <img src={pkg.artwork} alt="" />
+                    </span>
+                    <span className="managed-package-meta">
+                      <strong>{pkg.name}</strong>
+                      {subtitle && <small>{subtitle}</small>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           ) : step === 'mobile-model' ? (
             <>
               <div className="managed-integration-product">
@@ -778,21 +797,25 @@ function IntegrationDialog({
               <div className="managed-mobile-models" role="radiogroup" aria-label="移动系列遥控器型号">
                 {mobileRemoteKinds.map(modelKind => {
                   const pkg = packageFor(modelKind)
+                  const subtitle = packageSubtitle(pkg)
                   return (
                     <button
                       key={modelKind}
                       type="button"
                       className="managed-package"
+                      data-kind={pkg.kind}
                       data-selected={kind === modelKind || undefined}
                       role="radio"
                       aria-checked={kind === modelKind}
                       disabled={recognizing}
                       onClick={() => setKind(modelKind)}
                     >
-                      <img src={pkg.artwork} alt="" />
-                      <span>
+                      <span className="managed-package-artwork">
+                        <img src={pkg.artwork} alt="" />
+                      </span>
+                      <span className="managed-package-meta">
                         <strong>{pkg.name}</strong>
-                        <small>{pkg.model}</small>
+                        {subtitle && <small>{subtitle}</small>}
                       </span>
                       {kind === modelKind && <Check size={18} aria-hidden="true" />}
                     </button>
@@ -816,7 +839,9 @@ function IntegrationDialog({
                 <img src={selectedPackage!.artwork} alt="" />
                 <div>
                   <h3>{needsMobileModelSelection ? '移动系列遥控器' : selectedPackage!.name}</h3>
-                  {!needsMobileModelSelection && <p>{selectedPackage!.model.split(' · ')[0]}</p>}
+                  {!needsMobileModelSelection && packageSubtitle(selectedPackage!) && (
+                    <p>{packageSubtitle(selectedPackage!)}</p>
+                  )}
                 </div>
               </div>
               <div className="settings-form-fields">
