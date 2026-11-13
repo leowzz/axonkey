@@ -5,6 +5,7 @@ use crate::devices::tcl_rc902v::atvv::{
     approved_rc902_service_id, hex_bytes, upsample_8k_to_16k, AtvvSession as Rc902vAtvvSession,
     SessionAction as Rc902vSessionAction, SessionEvent as Rc902vSessionEvent,
 };
+use crate::windows_runtime::BluetoothRequest;
 use crate::windows_vmic::{self, AudioSource, DriverSnapshot};
 use std::{
     sync::{
@@ -38,6 +39,7 @@ const AUDIO_UUID: GUID = GUID::from_u128(0xab5e0003_5a21_4f05_bc7d_af01f617b664)
 const CONTROL_UUID: GUID = GUID::from_u128(0xab5e0004_5a21_4f05_bc7d_af01f617b664);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const CONNECTION_POLL: Duration = Duration::from_millis(100);
+const BLUETOOTH_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GattRemoteKind {
@@ -47,6 +49,14 @@ enum GattRemoteKind {
 }
 
 impl GattRemoteKind {
+    fn from_kind(kind: &str) -> Self {
+        match kind {
+            "tclRc902n" => Self::TclRc902n,
+            "tclRc902v" => Self::TclRc902v,
+            _ => Self::Rc003,
+        }
+    }
+
     fn from_tcl_kind(kind: &str) -> Self {
         if kind == "tclRc902n" {
             Self::TclRc902n
@@ -253,6 +263,13 @@ impl AudioService {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_worker(worker: JoinHandle<()>) -> Self {
+        let service = Self::without_workers();
+        *service.ble_worker.lock().unwrap() = Some(worker);
+        service
+    }
+
     pub(crate) fn set_a15_recording(&self, active: bool) {
         self.shared.set_a15_recording(active);
     }
@@ -278,34 +295,52 @@ impl AudioService {
     pub fn start() -> Self {
         // Saved instances own their BLE sessions; the legacy service must not
         // connect to the same remote a second time.
-        let service = Self::start_workers(GattRemoteKind::Rc003, None, false);
-        service.set_enabled(false);
-        service
+        Self::start_workers(GattRemoteKind::Rc003, None, false, false)
     }
 
+    #[allow(dead_code)]
     pub fn start_for(target_bluetooth_address: Option<String>) -> Self {
-        Self::start_workers(GattRemoteKind::Rc003, target_bluetooth_address, true)
+        Self::start_workers(GattRemoteKind::Rc003, target_bluetooth_address, true, true)
     }
 
+    #[allow(dead_code)]
     pub fn start_rc902(kind: &str, target_bluetooth_address: Option<String>) -> Self {
         Self::start_workers(
             GattRemoteKind::from_tcl_kind(kind),
             target_bluetooth_address,
             true,
+            true,
         )
     }
 
     pub fn start_a15() -> Self {
-        Self::start_workers(GattRemoteKind::Rc003, None, false)
+        Self::start_workers(GattRemoteKind::Rc003, None, false, true)
+    }
+
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn start_paused(target_bluetooth_address: Option<String>) -> Self {
+        Self::start_paused_for("rc003", target_bluetooth_address)
+    }
+
+    pub(crate) fn start_paused_for(kind: &str, target_bluetooth_address: Option<String>) -> Self {
+        let bluetooth = target_bluetooth_address.is_some();
+        Self::start_workers(
+            GattRemoteKind::from_kind(kind),
+            target_bluetooth_address,
+            bluetooth,
+            false,
+        )
     }
 
     fn start_workers(
         remote_kind: GattRemoteKind,
         target_bluetooth_address: Option<String>,
         bluetooth: bool,
+        enabled: bool,
     ) -> Self {
         log::info!(target: "axonkey::audio", "Starting Windows virtual microphone source");
         let shared = Arc::new(Shared::new(remote_kind, target_bluetooth_address));
+        shared.enabled.store(enabled, Ordering::Release);
         let ble_worker = if bluetooth {
             let ble_shared = Arc::clone(&shared);
             let thread_name = format!("Axonkey {} voice BLE", remote_kind.label());
@@ -483,17 +518,17 @@ fn ble_worker_loop(shared: Arc<Shared>) {
             status.forwarding = false;
             status.error = None;
         });
-        let connection = {
-            let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
-            VoiceConnection::connect(Arc::clone(&shared))
-        };
         let label = shared.remote_kind.label();
+        let connection = VoiceConnection::connect(Arc::clone(&shared));
         match connection {
             Ok(mut connection) => {
                 last_connection_error = None;
                 log::info!(target: "axonkey::audio", "{label} voice GATT connected");
                 let result = connection.run(&shared);
                 connection.close(&shared);
+                if shared.stop.load(Ordering::Acquire) {
+                    break;
+                }
                 if let Err(error) = result {
                     log::warn!(target: "axonkey::audio", "{label} voice bridge stopped: {error}");
                     shared.update_status(|status| {
@@ -503,6 +538,9 @@ fn ble_worker_loop(shared: Arc<Shared>) {
                 }
             }
             Err(error) => {
+                if shared.stop.load(Ordering::Acquire) {
+                    break;
+                }
                 if last_connection_error.as_deref() != Some(error.as_str()) {
                     log::warn!(target: "axonkey::audio", "{label} voice bridge waiting: {error}");
                     last_connection_error = Some(error.clone());
@@ -525,15 +563,16 @@ struct VoiceConnection {
     transmit: GattCharacteristic,
     audio: GattCharacteristic,
     control: GattCharacteristic,
-    audio_token: i64,
-    control_token: i64,
+    audio_token: Option<i64>,
+    control_token: Option<i64>,
     commands: Receiver<Vec<u8>>,
 }
 
 impl VoiceConnection {
     fn connect(shared: Arc<Shared>) -> Result<Self, String> {
+        let request = BluetoothRequest::new(BLUETOOTH_TIMEOUT, Some(&shared.stop));
         let target = shared.target_bluetooth_address.as_deref();
-        let (device, service) = find_remote(shared.remote_kind, target)?;
+        let (device, service) = find_remote(shared.remote_kind, target, &request)?;
         shared.update_status(|status| {
             status.bluetooth_connected = true;
             status.state = "connecting".into();
@@ -550,39 +589,59 @@ impl VoiceConnection {
         }
         shared.reset_rc003_output();
 
-        let transmit = find_characteristic(&service, TRANSMIT_UUID, "transmit")?;
-        let audio = find_characteristic(&service, AUDIO_UUID, "audio")?;
-        let control = find_characteristic(&service, CONTROL_UUID, "control")?;
+        let characteristics = (|| {
+            Ok::<_, String>((
+                find_characteristic(&service, TRANSMIT_UUID, "transmit", &request)?,
+                find_characteristic(&service, AUDIO_UUID, "audio", &request)?,
+                find_characteristic(&service, CONTROL_UUID, "control", &request)?,
+            ))
+        })();
+        let (transmit, audio, control) = match characteristics {
+            Ok(characteristics) => characteristics,
+            Err(error) => {
+                let _ = service.Close();
+                let _ = device.Close();
+                return Err(error);
+            }
+        };
         let (command_tx, commands) = mpsc::channel();
         let rc902_tx = shared
             .remote_kind
             .is_tcl_rc902()
             .then(|| command_tx.clone());
-
-        let (audio_token, control_token) = if shared.remote_kind.is_tcl_rc902() {
+        let mut connection = Self {
+            device,
+            service,
+            transmit,
+            audio,
+            control,
+            audio_token: None,
+            control_token: None,
+            commands,
+        };
+        if shared.remote_kind.is_tcl_rc902() {
             let audio_tx = command_tx.clone();
-            let audio_token = watch_packets(
-                &audio,
+            connection.audio_token = Some(watch_packets(
+                &connection.audio,
                 Arc::clone(&shared),
                 "audio packets",
                 move |shared, bytes| handle_rc902v_audio_packet(shared, bytes, &audio_tx),
-            )?;
-            let control_token = watch_packets(
-                &control,
+            )?);
+            connection.control_token = Some(watch_packets(
+                &connection.control,
                 Arc::clone(&shared),
                 "voice controls",
                 move |shared, bytes| handle_rc902v_control_packet(shared, bytes, &command_tx),
-            )?;
-            (audio_token, control_token)
+            )?);
         } else {
-            let audio_token = watch_packets(
-                &audio,
+            connection.audio_token = Some(watch_packets(
+                &connection.audio,
                 Arc::clone(&shared),
                 "audio packets",
                 handle_audio_packet,
-            )?;
-            let control_token = watch_packets(
-                &control,
+            )?);
+            connection.control_token = Some(watch_packets(
+                &connection.control,
                 Arc::clone(&shared),
                 "voice controls",
                 move |shared, bytes| {
@@ -590,12 +649,11 @@ impl VoiceConnection {
                         let _ = command_tx.send(command);
                     }
                 },
-            )?;
-            (audio_token, control_token)
-        };
+            )?);
+        }
 
-        enable_notifications(&audio, "audio")?;
-        enable_notifications(&control, "control")?;
+        enable_notifications(&connection.audio, "audio", &request)?;
+        enable_notifications(&connection.control, "control", &request)?;
         if shared.remote_kind.is_tcl_rc902() {
             let label = shared.remote_kind.label();
             let action = shared
@@ -610,25 +668,20 @@ impl VoiceConnection {
                     command.len(),
                     hex_bytes(&command)
                 );
-                write_characteristic(&transmit, &command)?;
+                write_characteristic(&connection.transmit, &command, &request)?;
             }
             if let Ok(mut slot) = shared.rc902v_command_tx.lock() {
                 *slot = rc902_tx;
             }
         } else {
-            write_characteristic(&transmit, &[0x0a, 0x01, 0x00, 0x00, 0x03, 0x03])?;
+            write_characteristic(
+                &connection.transmit,
+                &[0x0a, 0x01, 0x00, 0x00, 0x03, 0x03],
+                &request,
+            )?;
         }
 
-        Ok(Self {
-            device,
-            service,
-            transmit,
-            audio,
-            control,
-            audio_token,
-            control_token,
-            commands,
-        })
+        Ok(connection)
     }
 
     fn run(&mut self, shared: &Shared) -> Result<(), String> {
@@ -665,7 +718,8 @@ impl VoiceConnection {
                         command.len(),
                         hex_bytes(&command)
                     );
-                    write_characteristic(&self.transmit, &command)?;
+                    let request = BluetoothRequest::new(BLUETOOTH_TIMEOUT, Some(&shared.stop));
+                    write_characteristic(&self.transmit, &command, &request)?;
                 }
             }
             match self.commands.recv_timeout(CONNECTION_POLL) {
@@ -678,7 +732,8 @@ impl VoiceConnection {
                             hex_bytes(&command)
                         );
                     }
-                    write_characteristic(&self.transmit, &command)?;
+                    let request = BluetoothRequest::new(BLUETOOTH_TIMEOUT, Some(&shared.stop));
+                    write_characteristic(&self.transmit, &command, &request)?;
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
@@ -727,13 +782,12 @@ impl VoiceConnection {
                 })
                 .unwrap_or_default()
         };
-        for command in close_commands {
-            let _ = write_characteristic(&self.transmit, &command);
+        if !close_commands.is_empty() {
+            let request = BluetoothRequest::new(BLUETOOTH_TIMEOUT, Some(&shared.stop));
+            for command in close_commands {
+                let _ = write_characteristic(&self.transmit, &command, &request);
+            }
         }
-        let _ = self.audio.RemoveValueChanged(self.audio_token);
-        let _ = self.control.RemoveValueChanged(self.control_token);
-        let _ = self.service.Close();
-        let _ = self.device.Close();
         shared.reset_voice_session();
         shared.update_status(|status| {
             status.bluetooth_connected = false;
@@ -745,9 +799,23 @@ impl VoiceConnection {
     }
 }
 
+impl Drop for VoiceConnection {
+    fn drop(&mut self) {
+        if let Some(token) = self.audio_token.take() {
+            let _ = self.audio.RemoveValueChanged(token);
+        }
+        if let Some(token) = self.control_token.take() {
+            let _ = self.control.RemoveValueChanged(token);
+        }
+        let _ = self.service.Close();
+        let _ = self.device.Close();
+    }
+}
+
 fn find_remote(
     remote_kind: GattRemoteKind,
     target_bluetooth_address: Option<&str>,
+    request: &BluetoothRequest<'_>,
 ) -> Result<(BluetoothLEDevice, GattDeviceService), String> {
     let label = remote_kind.label();
     if remote_kind.is_tcl_rc902() {
@@ -759,8 +827,10 @@ fn find_remote(
     }
     let selector = GattDeviceService::GetDeviceSelectorFromUuid(VOICE_SERVICE_UUID)
         .map_err(|error| format!("Cannot create the {label} voice service selector: {error}"))?;
-    let devices = DeviceInformation::FindAllAsyncAqsFilter(&selector)
-        .and_then(|operation| operation.get())
+    let devices = request
+        .run(&format!("{label} voice service enumeration"), || {
+            DeviceInformation::FindAllAsyncAqsFilter(&selector)
+        })
         .map_err(|error| format!("Cannot enumerate Bluetooth voice services: {error}"))?;
     let mut failures = Vec::new();
     for index in 0..devices.Size().unwrap_or_default() {
@@ -791,16 +861,23 @@ fn find_remote(
             // A service can be shared with the HID side of the remote. The
             // default sharing mode is left unspecified by Windows and can
             // produce a null object (reported as HRESULT 0) on those paths.
-            let service = GattDeviceService::FromIdWithSharingModeAsync(
-                &id,
-                GattSharingMode::SharedReadAndWrite,
-            )?
-            .get()?;
+            let service = request.run("RC003 voice service open", || {
+                GattDeviceService::FromIdWithSharingModeAsync(
+                    &id,
+                    GattSharingMode::SharedReadAndWrite,
+                )
+            })?;
             // The service already owns the BluetoothLEDevice for the same
             // instance. Re-opening it from GattSession.DeviceId() is not
             // equivalent: that ID is a Bluetooth device ID on some Windows
             // builds and a service/session ID on others.
-            let device = service.Device()?;
+            let device = match service.Device() {
+                Ok(device) => device,
+                Err(error) => {
+                    let _ = service.Close();
+                    return Err(error);
+                }
+            };
             Ok::<_, windows::core::Error>((device, service))
         })();
         match result {
@@ -849,10 +926,12 @@ fn find_characteristic(
     service: &GattDeviceService,
     uuid: GUID,
     name: &str,
+    request: &BluetoothRequest<'_>,
 ) -> Result<GattCharacteristic, String> {
-    let result = service
-        .GetCharacteristicsForUuidAsync(uuid)
-        .and_then(|operation| operation.get())
+    let result = request
+        .run(&format!("RC003 {name} discovery"), || {
+            service.GetCharacteristicsForUuidAsync(uuid)
+        })
         .map_err(|error| format!("Cannot discover the RC003 {name} characteristic: {error}"))?;
     if result
         .Status()
@@ -872,7 +951,11 @@ fn find_characteristic(
         .map_err(|error| format!("Cannot open RC003 {name} characteristic: {error}"))
 }
 
-fn enable_notifications(characteristic: &GattCharacteristic, name: &str) -> Result<(), String> {
+fn enable_notifications(
+    characteristic: &GattCharacteristic,
+    name: &str,
+    request: &BluetoothRequest<'_>,
+) -> Result<(), String> {
     let properties = characteristic
         .CharacteristicProperties()
         .map_err(|error| format!("Cannot read RC003 {name} properties: {error}"))?;
@@ -883,9 +966,10 @@ fn enable_notifications(characteristic: &GattCharacteristic, name: &str) -> Resu
     } else {
         return Err(format!("RC003 {name} characteristic cannot notify"));
     };
-    let status = characteristic
-        .WriteClientCharacteristicConfigurationDescriptorAsync(value)
-        .and_then(|operation| operation.get())
+    let status = request
+        .run(&format!("RC003 {name} subscription"), || {
+            characteristic.WriteClientCharacteristicConfigurationDescriptorAsync(value)
+        })
         .map_err(|error| format!("Cannot subscribe to RC003 {name}: {error}"))?;
     if status != GattCommunicationStatus::Success {
         return Err(format!("RC003 {name} subscription failed: {status:?}"));
@@ -893,7 +977,11 @@ fn enable_notifications(characteristic: &GattCharacteristic, name: &str) -> Resu
     Ok(())
 }
 
-fn write_characteristic(characteristic: &GattCharacteristic, bytes: &[u8]) -> Result<(), String> {
+fn write_characteristic(
+    characteristic: &GattCharacteristic,
+    bytes: &[u8],
+    request: &BluetoothRequest<'_>,
+) -> Result<(), String> {
     let writer = DataWriter::new().map_err(|error| format!("Cannot create GATT data: {error}"))?;
     writer
         .WriteBytes(bytes)
@@ -909,9 +997,10 @@ fn write_characteristic(characteristic: &GattCharacteristic, bytes: &[u8]) -> Re
     } else {
         GattWriteOption::WriteWithResponse
     };
-    let status = characteristic
-        .WriteValueWithOptionAsync(&buffer, option)
-        .and_then(|operation| operation.get())
+    let status = request
+        .run("RC003 voice command", || {
+            characteristic.WriteValueWithOptionAsync(&buffer, option)
+        })
         .map_err(|error| format!("Cannot write RC003 voice command: {error}"))?;
     if status != GattCommunicationStatus::Success {
         return Err(format!("RC003 voice command failed: {status:?}"));
@@ -1387,6 +1476,23 @@ mod tests {
         let legacy = AudioService::start();
         assert!(legacy.ble_worker.lock().unwrap().is_none());
         assert!(!legacy.shared.enabled.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn paused_instances_wait_for_configuration_and_external_sources_keep_their_default() {
+        let paused = AudioService::start_paused(Some("AA:BB:CC:DD:EE:FF".into()));
+        assert!(!paused.shared.enabled.load(Ordering::Acquire));
+        assert!(paused.ble_worker.lock().unwrap().is_some());
+        assert_eq!(
+            paused.shared.target_bluetooth_address.as_deref(),
+            Some("AA:BB:CC:DD:EE:FF")
+        );
+        let external = AudioService::start_a15();
+        assert!(external.shared.enabled.load(Ordering::Acquire));
+        external.set_a15_input_state(true, true);
+        external.push_a15_pcm(&[1000; 320]);
+        assert!(external.status().received_data);
+        assert!(external.ble_worker.lock().unwrap().is_none());
     }
 
     #[test]

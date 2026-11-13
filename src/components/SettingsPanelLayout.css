@@ -47,3 +47,7 @@
   border-radius: 0;
   background: transparent;
 }
+
+.macos-vibrancy .settings-side-panel .settings-nav {
+  border-radius: 0;
+}

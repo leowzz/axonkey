@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
 import type { RemoteView } from '../types.ts'
 
@@ -65,10 +65,22 @@ export function RemoteControl({
     onSelect(id)
   }
 
+  const aspectRatio = remoteView.viewBox.width / remoteView.viewBox.height
+
   return (
-    <div className="remote-control-view">
+    <div
+      className="remote-control-view"
+      style={
+        {
+          '--remote-ratio': String(aspectRatio),
+          '--remote-aspect': `${remoteView.viewBox.width} / ${remoteView.viewBox.height}`,
+        } as CSSProperties
+      }
+    >
       <svg
         className="remote-control"
+        width={remoteView.viewBox.width}
+        height={remoteView.viewBox.height}
         viewBox={`0 0 ${remoteView.viewBox.width} ${remoteView.viewBox.height}`}
         role="group"
         aria-label={remoteView.ariaLabel}

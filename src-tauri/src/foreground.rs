@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -10,12 +11,21 @@ use std::{
 };
 
 const RECENT_LIMIT: usize = 20;
+const ICON_CACHE_LIMIT: usize = 256;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Application {
     pub id: String,
     pub name: String,
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplicationIconQuery {
+    pub id: String,
+    #[serde(default)]
     pub path: String,
 }
 
@@ -74,6 +84,13 @@ pub fn foreground_applications() -> Snapshot {
 #[tauri::command]
 pub fn resolve_application_path(path: String) -> Result<Application, String> {
     application_from_path(Path::new(path.trim()))
+}
+
+#[tauri::command]
+pub async fn application_icons(applications: Vec<ApplicationIconQuery>) -> HashMap<String, String> {
+    tauri::async_runtime::spawn_blocking(move || resolve_application_icons(&applications))
+        .await
+        .unwrap_or_default()
 }
 
 pub struct Monitor {
@@ -306,6 +323,301 @@ fn application_from_path(_path: &Path) -> Result<Application, String> {
     Err("当前系统不支持应用识别。".into())
 }
 
+static ICON_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
+fn icon_cache() -> &'static Mutex<HashMap<String, Option<String>>> {
+    ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn resolve_application_icons(applications: &[ApplicationIconQuery]) -> HashMap<String, String> {
+    let mut result = HashMap::new();
+    for query in applications {
+        let id = query.id.trim();
+        if id.is_empty() || result.contains_key(id) {
+            continue;
+        }
+        let path = query.path.trim();
+        let cache_key = format!("{id}\0{path}");
+        if let Some(cached) = icon_cache().lock().unwrap().get(&cache_key).cloned() {
+            if let Some(icon) = cached {
+                result.insert(id.to_owned(), icon);
+            }
+            continue;
+        }
+        let icon = platform_application_icon(id, path);
+        {
+            let mut cache = icon_cache().lock().unwrap();
+            if cache.len() >= ICON_CACHE_LIMIT {
+                cache.clear();
+            }
+            cache.insert(cache_key, icon.clone());
+        }
+        if let Some(icon) = icon {
+            result.insert(id.to_owned(), icon);
+        }
+    }
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn platform_application_icon(id: &str, path: &str) -> Option<String> {
+    use std::ffi::{CStr, CString};
+    unsafe extern "C" {
+        fn axonkey_application_icon(
+            app_id: *const std::ffi::c_char,
+            path: *const std::ffi::c_char,
+            output: *mut std::ffi::c_char,
+            capacity: usize,
+        ) -> i32;
+    }
+    let id_cstr = CString::new(id).ok()?;
+    let path_cstr = (!path.is_empty())
+        .then(|| CString::new(path).ok())
+        .flatten();
+    let mut output = vec![0i8; 65536];
+    let status = unsafe {
+        axonkey_application_icon(
+            id_cstr.as_ptr(),
+            path_cstr.as_ref().map_or(std::ptr::null(), |p| p.as_ptr()),
+            output.as_mut_ptr(),
+            output.len(),
+        )
+    };
+    if status != 1 {
+        return None;
+    }
+    unsafe { CStr::from_ptr(output.as_ptr()) }
+        .to_str()
+        .ok()
+        .filter(|value| value.starts_with("data:image/png;base64,"))
+        .map(str::to_owned)
+}
+
+#[cfg(windows)]
+fn platform_application_icon(id: &str, path: &str) -> Option<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::Win32::{
+        Graphics::Gdi::{
+            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GdiFlush, SelectObject,
+            BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+        },
+        System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED},
+        UI::WindowsAndMessaging::{DestroyIcon, DrawIconEx, DI_NORMAL, HICON},
+    };
+
+    #[repr(C)]
+    struct ShFileInfoW {
+        h_icon: HICON,
+        i_icon: i32,
+        dw_attributes: u32,
+        sz_display_name: [u16; 260],
+        sz_type_name: [u16; 80],
+    }
+    const SHGFI_ICON: u32 = 0x0000_0100;
+    const SHGFI_LARGEICON: u32 = 0x0000_0000;
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn SHGetFileInfoW(
+            psz_path: *const u16,
+            dw_file_attributes: u32,
+            psfi: *mut ShFileInfoW,
+            cb_file_info: u32,
+            u_flags: u32,
+        ) -> usize;
+    }
+
+    let candidate = if !path.is_empty() {
+        path
+    } else {
+        id.strip_prefix("windows:")?.trim()
+    };
+    let file_path = Path::new(candidate);
+    if !file_path.is_file() {
+        return None;
+    }
+    let wide: Vec<u16> = file_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    unsafe {
+        let com_initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+        let mut file_info: ShFileInfoW = std::mem::zeroed();
+        let resolved = SHGetFileInfoW(
+            wide.as_ptr(),
+            0,
+            &mut file_info,
+            std::mem::size_of::<ShFileInfoW>() as u32,
+            SHGFI_ICON | SHGFI_LARGEICON,
+        );
+        if resolved == 0 || file_info.h_icon.0.is_null() {
+            if com_initialized {
+                CoUninitialize();
+            }
+            return None;
+        }
+        let hicon = file_info.h_icon;
+        let render_on_bg = |bg: u8| -> Option<Vec<u8>> {
+            let dc = CreateCompatibleDC(None);
+            if dc.0.is_null() {
+                return None;
+            }
+            let info = BITMAPINFO {
+                bmiHeader: BITMAPINFOHEADER {
+                    biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                    biWidth: 32,
+                    biHeight: -32,
+                    biPlanes: 1,
+                    biBitCount: 32,
+                    biCompression: BI_RGB.0,
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let mut bits = std::ptr::null_mut();
+            let bitmap = match CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0)
+            {
+                Ok(bitmap) if !bits.is_null() => bitmap,
+                _ => {
+                    let _ = DeleteDC(dc);
+                    return None;
+                }
+            };
+            let pixels = std::slice::from_raw_parts_mut(bits.cast::<u8>(), 32 * 32 * 4);
+            pixels.fill(bg);
+            let previous = SelectObject(dc, bitmap.into());
+            let ok = DrawIconEx(dc, 0, 0, hicon, 32, 32, 0, None, DI_NORMAL).is_ok();
+            let _ = GdiFlush();
+            let captured = ok.then(|| pixels.to_vec());
+            let _ = SelectObject(dc, previous);
+            let _ = DeleteObject(bitmap.into());
+            let _ = DeleteDC(dc);
+            captured
+        };
+        let black = render_on_bg(0);
+        let white = render_on_bg(255);
+        let _ = DestroyIcon(hicon);
+        if com_initialized {
+            CoUninitialize();
+        }
+        let (black, white) = (black?, white?);
+        let mut rgba = vec![0u8; 32 * 32 * 4];
+        for ((b_px, w_px), out) in black
+            .chunks_exact(4)
+            .zip(white.chunks_exact(4))
+            .zip(rgba.chunks_exact_mut(4))
+        {
+            let diff_b = w_px[0].saturating_sub(b_px[0]);
+            let diff_g = w_px[1].saturating_sub(b_px[1]);
+            let diff_r = w_px[2].saturating_sub(b_px[2]);
+            let alpha =
+                255u8.saturating_sub(((diff_r as u16 + diff_g as u16 + diff_b as u16) / 3) as u8);
+            if alpha > 0 {
+                let a = alpha as u32;
+                out[0] = ((b_px[2] as u32 * 255 + a / 2) / a).min(255) as u8;
+                out[1] = ((b_px[1] as u32 * 255 + a / 2) / a).min(255) as u8;
+                out[2] = ((b_px[0] as u32 * 255 + a / 2) / a).min(255) as u8;
+                out[3] = alpha;
+            }
+        }
+        Some(rgba_to_png_data_url(32, 32, &rgba))
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn platform_application_icon(_id: &str, _path: &str) -> Option<String> {
+    None
+}
+
+#[cfg(any(windows, test))]
+fn rgba_to_png_data_url(width: u32, height: u32, rgba: &[u8]) -> String {
+    fn crc32(bytes: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &byte in bytes {
+            crc ^= byte as u32;
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 {
+                    (crc >> 1) ^ 0xEDB8_8320
+                } else {
+                    crc >> 1
+                };
+            }
+        }
+        !crc
+    }
+
+    fn write_chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(data);
+        let checksum = crc32(&out[start..]);
+        out.extend_from_slice(&checksum.to_be_bytes());
+    }
+
+    let row_bytes = (width as usize) * 4;
+    let mut scanlines = Vec::with_capacity((height as usize) * (1 + row_bytes));
+    for row in rgba.chunks_exact(row_bytes).take(height as usize) {
+        scanlines.push(0);
+        scanlines.extend_from_slice(row);
+    }
+
+    let mut zlib = Vec::with_capacity(scanlines.len() + 16);
+    zlib.extend_from_slice(&[0x78, 0x01]);
+    let chunks: Vec<&[u8]> = if scanlines.is_empty() {
+        vec![&[]]
+    } else {
+        scanlines.chunks(65_535).collect()
+    };
+    for (index, block) in chunks.iter().enumerate() {
+        let last = index + 1 == chunks.len();
+        zlib.push(if last { 0x01 } else { 0x00 });
+        let len = block.len() as u16;
+        zlib.extend_from_slice(&len.to_le_bytes());
+        zlib.extend_from_slice(&(!len).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
+    let (mut s1, mut s2) = (1u32, 0u32);
+    for &byte in &scanlines {
+        s1 = (s1 + byte as u32) % 65_521;
+        s2 = (s2 + s1) % 65_521;
+    }
+    zlib.extend_from_slice(&((s2 << 16) | s1).to_be_bytes());
+
+    let mut png = Vec::with_capacity(zlib.len() + 64);
+    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
+    let mut ihdr = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]);
+    write_chunk(&mut png, b"IHDR", &ihdr);
+    write_chunk(&mut png, b"IDAT", &zlib);
+    write_chunk(&mut png, b"IEND", &[]);
+
+    const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(22 + png.len().div_ceil(3) * 4);
+    out.push_str("data:image/png;base64,");
+    for triple in png.chunks(3) {
+        let b0 = triple[0] as usize;
+        let b1 = triple.get(1).copied().unwrap_or(0) as usize;
+        let b2 = triple.get(2).copied().unwrap_or(0) as usize;
+        out.push(BASE64[b0 >> 2] as char);
+        out.push(BASE64[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
+        out.push(if triple.len() > 1 {
+            BASE64[((b1 & 0x0f) << 2) | (b2 >> 6)] as char
+        } else {
+            '='
+        });
+        out.push(if triple.len() > 2 {
+            BASE64[b2 & 0x3f] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,5 +696,39 @@ mod tests {
         assert!(saved.iter().any(|entry| entry.application.id == app.id));
         drop(monitor);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn png_data_url_encodes_valid_rgba_png_header_and_iend() {
+        let rgba = vec![128u8; 32 * 32 * 4];
+        let url = rgba_to_png_data_url(32, 32, &rgba);
+        assert!(url.starts_with("data:image/png;base64,iVBORw0KGgo"));
+        assert!(url.len() > 200);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_application_icons_resolve_by_path_and_bundle_identifier() {
+        let icons = resolve_application_icons(&[
+            ApplicationIconQuery {
+                id: "macos:com.apple.TextEdit".into(),
+                path: "/System/Applications/TextEdit.app".into(),
+            },
+            ApplicationIconQuery {
+                id: "macos:com.apple.Finder".into(),
+                path: String::new(),
+            },
+            ApplicationIconQuery {
+                id: "macos:com.axonkey.nonexistent.invalid".into(),
+                path: "/tmp/does-not-exist-axonkey.app".into(),
+            },
+        ]);
+        assert!(icons
+            .get("macos:com.apple.TextEdit")
+            .is_some_and(|url| url.starts_with("data:image/png;base64,iVBORw0KGgo")));
+        assert!(icons
+            .get("macos:com.apple.Finder")
+            .is_some_and(|url| url.starts_with("data:image/png;base64,iVBORw0KGgo")));
+        assert!(!icons.contains_key("macos:com.axonkey.nonexistent.invalid"));
     }
 }

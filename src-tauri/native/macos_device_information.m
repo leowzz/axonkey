@@ -1,9 +1,8 @@
 #import <Foundation/Foundation.h>
 #import <CoreBluetooth/CoreBluetooth.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 static NSString *AKCompactAddress(NSString *value) {
     return [[[value stringByReplacingOccurrencesOfString:@":" withString:@""]
@@ -14,16 +13,25 @@ static NSString *AKCompactAddress(NSString *value) {
 @property(nonatomic, strong) CBPeripheral *peripheral;
 @property(nonatomic, strong) NSMutableDictionary *values;
 @property(nonatomic, strong) NSMutableArray<NSString *> *errors;
+@property(nonatomic, strong) NSMutableArray<CBCharacteristic *> *details;
 @property(nonatomic) uint16_t vendor;
 @property(nonatomic) uint16_t product;
 @property(nonatomic) BOOL identified;
 @property(nonatomic) NSUInteger pending;
+@property(nonatomic) NSUInteger servicesPending;
+@property(nonatomic) NSUInteger identityPending;
+@property(nonatomic) BOOL servicesDiscovered;
 @property(nonatomic) BOOL done;
 - (void)acceptValue:(NSData *)data UUID:(NSString *)uuid;
+- (BOOL)identityReady;
 @end
 @implementation AKDeviceInformation
 - (instancetype)init {
-    if ((self = [super init])) { _values = [NSMutableDictionary dictionary]; _errors = [NSMutableArray array]; }
+    if ((self = [super init])) {
+        _values = [NSMutableDictionary dictionary];
+        _errors = [NSMutableArray array];
+        _details = [NSMutableArray array];
+    }
     return self;
 }
 - (void)acceptValue:(NSData *)data UUID:(NSString *)uuid {
@@ -56,10 +64,13 @@ static NSString *AKCompactAddress(NSString *value) {
     value = [value stringByTrimmingCharactersInSet:trim];
     if (value.length) self.values[key] = value;
 }
+- (BOOL)identityReady {
+    return self.done || (self.servicesDiscovered && self.identityPending == 0);
+}
 @end
 
-static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *devices,
-    NSString *address, uint16_t vendor, uint16_t product, BOOL uniqueModel) {
+static AKDeviceInformation *AKMatchDeviceInformation(NSArray<AKDeviceInformation *> *devices,
+    NSString *address, uint16_t vendor, uint16_t product, BOOL uniqueModel, NSString **error) {
     NSMutableArray<AKDeviceInformation *> *matches = [NSMutableArray array];
     for (AKDeviceInformation *device in devices) {
         if (device.identified && device.vendor == vendor && device.product == product) [matches addObject:device];
@@ -68,7 +79,10 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     for (AKDeviceInformation *device in matches) {
         NSString *serial = device.values[@"serialNumber"];
         if (serial.length && [AKCompactAddress(serial) isEqualToString:AKCompactAddress(address)]) {
-            if (selected != nil) return @{@"error": @"设备序列号冲突，无法匹配设备信息"};
+            if (selected != nil) {
+                *error = @"设备序列号冲突，无法匹配设备信息";
+                return nil;
+            }
             selected = device;
         }
     }
@@ -79,21 +93,34 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
         for (AKDeviceInformation *device in devices) if (!device.identified) unknown = YES;
         if (!unknown) selected = matches.firstObject;
     }
-    if (selected == nil) return @{@"error": @"无法唯一匹配蓝牙设备信息"};
-    NSMutableDictionary *result = [selected.values mutableCopy];
-    if (selected.errors.count) result[@"error"] = [selected.errors componentsJoinedByString:@"；"];
+    if (selected == nil) *error = @"无法唯一匹配蓝牙设备信息";
+    return selected;
+}
+
+static NSDictionary *AKDeviceInformationValues(AKDeviceInformation *device, NSString *terminalError) {
+    NSMutableDictionary *result = [device.values mutableCopy];
+    NSMutableArray *errors = [device.errors mutableCopy];
+    if (terminalError && !device.done) [errors addObject:terminalError];
+    if (errors.count) result[@"error"] = [errors componentsJoinedByString:@"；"];
     return result;
 }
+
+typedef void (*AKDeviceInformationCallback)(void *context, size_t index, const char *json, bool complete);
 
 @interface AKDeviceInformationReader : NSObject <CBCentralManagerDelegate, CBPeripheralDelegate>
 @property(nonatomic, strong) CBCentralManager *central;
 @property(nonatomic, strong) NSMutableDictionary<NSUUID *, AKDeviceInformation *> *devices;
 @property(nonatomic, strong) dispatch_queue_t queue;
 @property(nonatomic, strong) dispatch_semaphore_t completed;
-@property(nonatomic, strong) NSString *failure;
+@property(nonatomic, strong) NSArray<NSDictionary *> *requests;
+@property(nonatomic, strong) NSMutableIndexSet *completedRequests;
+@property(nonatomic, strong) NSMutableDictionary<NSNumber *, NSDictionary *> *publishedValues;
+@property(nonatomic) void *context;
+@property(nonatomic) AKDeviceInformationCallback callback;
 @property(nonatomic) BOOL started;
 @property(nonatomic) BOOL finished;
 - (void)finish;
+- (void)publishUpdatesWithError:(NSString *)terminalError;
 @end
 @implementation AKDeviceInformationReader
 - (instancetype)init {
@@ -101,6 +128,8 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
         _queue = dispatch_queue_create("com.axonkey.device-information", DISPATCH_QUEUE_SERIAL);
         _completed = dispatch_semaphore_create(0);
         _devices = [NSMutableDictionary dictionary];
+        _completedRequests = [NSMutableIndexSet indexSet];
+        _publishedValues = [NSMutableDictionary dictionary];
     }
     return self;
 }
@@ -109,16 +138,45 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     self.finished = YES;
     dispatch_semaphore_signal(self.completed);
 }
-- (void)checkCompletion {
-    for (AKDeviceInformation *device in self.devices.allValues) if (!device.done) return;
-    [self finish];
+- (void)publishUpdatesWithError:(NSString *)terminalError {
+    if (self.finished) return;
+    NSArray<AKDeviceInformation *> *devices = self.devices.allValues;
+    // Identity reads must settle before a result is exposed: a later PnP/serial
+    // value could otherwise turn an apparent match into a duplicate or fallback conflict.
+    for (NSUInteger index = 0; index < self.requests.count; index++) {
+        if ([self.completedRequests containsIndex:index]) continue;
+        NSDictionary *request = self.requests[index];
+        uint16_t vendor = [request[@"vendor"] unsignedShortValue];
+        uint16_t product = [request[@"product"] unsignedShortValue];
+        BOOL identityReady = self.started;
+        for (AKDeviceInformation *device in devices) {
+            if (!device.identityReady && (!device.identified || (device.vendor == vendor && device.product == product))) {
+                identityReady = NO;
+            }
+        }
+        if (!identityReady && terminalError == nil) continue;
+        NSString *error = nil;
+        AKDeviceInformation *selected = identityReady ? AKMatchDeviceInformation(devices,
+            request[@"address"], vendor, product, [request[@"uniqueModel"] boolValue], &error) : nil;
+        BOOL complete = terminalError != nil || selected == nil || selected.done;
+        NSString *failure = devices.count == 0 && terminalError ? terminalError : error ?: terminalError;
+        NSDictionary *result = selected ? AKDeviceInformationValues(selected, terminalError)
+            : @{@"error": failure};
+        if (!complete && [self.publishedValues[@(index)] isEqualToDictionary:result]) continue;
+        self.publishedValues[@(index)] = result;
+        if (complete) [self.completedRequests addIndex:index];
+        NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
+        NSString *string = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
+        self.callback(self.context, index, string.UTF8String, complete);
+    }
+    if (self.completedRequests.count == self.requests.count) [self finish];
 }
 - (void)centralManagerDidUpdateState:(CBCentralManager *)central {
     if (self.finished || self.started) return;
     if (central.state == CBManagerStateUnknown || central.state == CBManagerStateResetting) return;
     if (central.state != CBManagerStatePoweredOn) {
-        self.failure = central.state == CBManagerStateUnauthorized ? @"请授予蓝牙访问权限" : @"蓝牙不可用";
-        [self finish]; return;
+        [self publishUpdatesWithError:central.state == CBManagerStateUnauthorized ? @"请授予蓝牙访问权限" : @"蓝牙不可用"];
+        return;
     }
     self.started = YES;
     NSArray *peripherals = [central retrieveConnectedPeripheralsWithServices:@[
@@ -134,55 +192,84 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
         peripheral.delegate = self;
         [central connectPeripheral:peripheral options:nil];
     }
-    if (peripherals.count == 0) { self.failure = @"未发现已连接的蓝牙设备"; [self finish]; }
+    if (peripherals.count == 0) [self publishUpdatesWithError:@"未发现已连接的蓝牙设备"];
 }
 - (void)centralManager:(CBCentralManager *)central didConnectPeripheral:(CBPeripheral *)peripheral {
     if (self.finished) return;
-    [peripheral discoverServices:@[[CBUUID UUIDWithString:@"180A"], [CBUUID UUIDWithString:@"180F"]]];
+    [peripheral discoverServices:@[[CBUUID UUIDWithString:@"180F"], [CBUUID UUIDWithString:@"180A"]]];
 }
 - (void)centralManager:(CBCentralManager *)central didFailToConnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error {
+    if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
     [device.errors addObject:error.localizedDescription ?: @"蓝牙连接失败"];
     device.done = YES;
-    [self checkCompletion];
+    [self publishUpdatesWithError:nil];
 }
 - (void)centralManager:(CBCentralManager *)central didDisconnectPeripheral:(CBPeripheral *)peripheral error:(NSError *)error {
     if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
+    if (device.done) return;
     [device.errors addObject:@"设备已断开"];
     device.done = YES;
-    [self checkCompletion];
+    [self publishUpdatesWithError:nil];
 }
 - (void)peripheral:(CBPeripheral *)peripheral didDiscoverServices:(NSError *)error {
     if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
-    if (error) { [device.errors addObject:error.localizedDescription]; device.done = YES; [self checkCompletion]; return; }
+    if (device.done) return;
+    if (error) { [device.errors addObject:error.localizedDescription]; device.done = YES; [self publishUpdatesWithError:nil]; return; }
+    device.servicesDiscovered = YES;
     NSArray *wanted = @[[CBUUID UUIDWithString:@"2A50"], [CBUUID UUIDWithString:@"2A19"],
         [CBUUID UUIDWithString:@"2A29"], [CBUUID UUIDWithString:@"2A24"], [CBUUID UUIDWithString:@"2A25"], [CBUUID UUIDWithString:@"2A27"],
         [CBUUID UUIDWithString:@"2A26"], [CBUUID UUIDWithString:@"2A28"]];
     for (CBService *service in peripheral.services) {
         if (![service.UUID isEqual:[CBUUID UUIDWithString:@"180A"]] && ![service.UUID isEqual:[CBUUID UUIDWithString:@"180F"]]) continue;
         device.pending += 1;
+        device.servicesPending += 1;
+        if ([service.UUID isEqual:[CBUUID UUIDWithString:@"180A"]]) device.identityPending += 1;
         [peripheral discoverCharacteristics:wanted forService:service];
     }
-    if (!device.pending) { device.done = YES; [self checkCompletion]; }
+    device.done = device.pending == 0;
+    [self publishUpdatesWithError:nil];
 }
 - (void)peripheral:(CBPeripheral *)peripheral didDiscoverCharacteristicsForService:(CBService *)service error:(NSError *)error {
     if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
+    if (device.done) return;
     device.pending -= 1;
+    device.servicesPending -= 1;
+    if ([service.UUID isEqual:[CBUUID UUIDWithString:@"180A"]]) device.identityPending -= 1;
     if (error) [device.errors addObject:error.localizedDescription];
     else for (CBCharacteristic *characteristic in service.characteristics) {
         if (!(characteristic.properties & CBCharacteristicPropertyRead)) continue;
+        NSString *uuid = characteristic.UUID.UUIDString;
+        BOOL identity = [uuid isEqualToString:@"2A50"] || [uuid isEqualToString:@"2A25"];
+        if (!identity && ![uuid isEqualToString:@"2A19"]) {
+            [device.details addObject:characteristic];
+            continue;
+        }
         device.pending += 1;
+        if (identity) device.identityPending += 1;
         [peripheral readValueForCharacteristic:characteristic];
     }
-    if (!device.pending) { device.done = YES; [self checkCompletion]; }
+    if (device.servicesPending == 0) {
+        // Queue identity and battery reads before static details on the same peripheral.
+        for (CBCharacteristic *characteristic in device.details) {
+            device.pending += 1;
+            [peripheral readValueForCharacteristic:characteristic];
+        }
+        [device.details removeAllObjects];
+    }
+    device.done = device.pending == 0;
+    [self publishUpdatesWithError:nil];
 }
 - (void)peripheral:(CBPeripheral *)peripheral didUpdateValueForCharacteristic:(CBCharacteristic *)characteristic error:(NSError *)error {
     if (self.finished) return;
     AKDeviceInformation *device = self.devices[peripheral.identifier];
+    if (device.done) return;
     device.pending -= 1;
+    NSString *uuid = characteristic.UUID.UUIDString;
+    if ([uuid isEqualToString:@"2A50"] || [uuid isEqualToString:@"2A25"]) device.identityPending -= 1;
     if (error) {
         if (![characteristic.UUID.UUIDString isEqualToString:@"2A28"]) {
             [device.errors addObject:error.localizedDescription];
@@ -190,39 +277,34 @@ static NSDictionary *AKSelectDeviceInformation(NSArray<AKDeviceInformation *> *d
     } else {
         [device acceptValue:characteristic.value UUID:characteristic.UUID.UUIDString];
     }
-    if (!device.pending) { device.done = YES; [self checkCompletion]; }
+    device.done = device.pending == 0;
+    [self publishUpdatesWithError:nil];
 }
 @end
 
-char *axonkey_device_information(const char *requests_json) {
+void axonkey_device_information_stream(const char *requests_json, void *context, AKDeviceInformationCallback callback) {
     @autoreleasepool {
         AKDeviceInformationReader *reader = [AKDeviceInformationReader new];
+        reader.requests = [NSJSONSerialization JSONObjectWithData:
+            [[NSString stringWithUTF8String:requests_json] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+        reader.context = context;
+        reader.callback = callback;
+        if (reader.requests.count == 0) return;
         dispatch_async(reader.queue, ^{
             reader.central = [[CBCentralManager alloc] initWithDelegate:reader queue:reader.queue
                 options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
         });
-        long timeout = dispatch_semaphore_wait(reader.completed, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC));
-        NSArray *requests = [NSJSONSerialization JSONObjectWithData:
-            [[NSString stringWithUTF8String:requests_json] dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
-        NSMutableArray *result = [NSMutableArray array];
+        dispatch_semaphore_wait(reader.completed, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC));
         dispatch_sync(reader.queue, ^{
+            [reader publishUpdatesWithError:@"设备信息读取超时"];
             reader.finished = YES;
-            for (NSDictionary *request in requests) {
-                if (timeout) [result addObject:@{@"error": @"设备信息读取超时"}];
-                else if (reader.failure) [result addObject:@{@"error": reader.failure}];
-                else [result addObject:AKSelectDeviceInformation(reader.devices.allValues,
-                    request[@"address"], [request[@"vendor"] unsignedShortValue],
-                    [request[@"product"] unsignedShortValue], [request[@"uniqueModel"] boolValue])];
-            }
             for (AKDeviceInformation *device in reader.devices.allValues) {
                 device.peripheral.delegate = nil;
                 [reader.central cancelPeripheralConnection:device.peripheral];
             }
             reader.central.delegate = nil;
+            reader.callback = NULL;
+            reader.context = NULL;
         });
-        NSData *json = [NSJSONSerialization dataWithJSONObject:result options:0 error:nil];
-        NSString *string = [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding];
-        return strdup(string.UTF8String ?: "[]");
     }
 }
-void axonkey_device_information_free(char *value) { free(value); }

@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 
-test('macOS device information parses GATT fields and refuses ambiguous identities', {
+test('macOS device information streams safe partial readings, completes devices independently and preserves timeout values', {
   skip: process.platform !== 'darwin',
 }, () => {
   const temporaryDirectory = mkdtempSync(join(tmpdir(), 'axonkey-battery-'))

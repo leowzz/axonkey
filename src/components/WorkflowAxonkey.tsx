@@ -339,10 +339,10 @@ export function WorkflowAxonkey<Id extends string = InputId>({
             view: {
               paddingLeft: 8,
               paddingRight: 8,
-              paddingY: 10,
+              paddingY: 8,
               textMarginLeft: 8,
               minTextWidth: 20,
-              iconSize: 18,
+              iconSize: 22,
               radius: 5,
               inputSize: 14,
               outputSize: 10,
@@ -685,14 +685,7 @@ export function WorkflowAxonkey<Id extends string = InputId>({
                 <span>拖入删除</span>
               </button>
             </div>
-            <div className={`workflow-canvas-footer${button.icon === 'mic' ? ' has-voice-guidance' : ''}`}>
-              {button.icon === 'mic' && (
-                <div className="workflow-voice-guidance">
-                  <p>要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。</p>
-                  <p>这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。</p>
-                </div>
-              )}
-            </div>
+            <div className="workflow-canvas-footer" />
           </>
         }
         editor={

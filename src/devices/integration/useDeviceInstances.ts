@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { emptySnapshot } from './model'
-import type { DeviceInstance, DeviceSnapshot } from './model'
+import type { DeviceInformation, DeviceInstance, DeviceKind, DeviceSnapshot } from './model'
 const previewKey = 'axonkey.device-instances.preview.v1'
+type InformationUpdate = {
+  id: string
+  kind?: DeviceKind
+  bluetoothAddress: string | null
+  deviceInfo: DeviceInformation
+}
 export function useDeviceInstances(native: boolean) {
   const [snapshot, setSnapshot] = useState<DeviceSnapshot>(emptySnapshot)
   const [error, setError] = useState('')
@@ -10,17 +17,31 @@ export function useDeviceInstances(native: boolean) {
   const [loaded, setLoaded] = useState(false)
   const current = useRef(snapshot)
   const queue = useRef<Promise<unknown>>(Promise.resolve())
-  const accept = useCallback((value: DeviceSnapshot) => {
-    if (value.store.revision < current.current.store.revision) return
-    current.current = value
-    setSnapshot(value)
+  const pendingInformation = useRef(new Set<Map<string, InformationUpdate>>())
+  const accept = useCallback((value: DeviceSnapshot, updates: Iterable<InformationUpdate> = []) => {
+    if (value.store.revision < current.current.store.revision) return current.current
+    const next = applyInformation(value, updates)
+    current.current = next
+    setSnapshot(next)
+    return next
   }, [])
+  const receiveSnapshot = useCallback(
+    async (operation: () => Promise<DeviceSnapshot>) => {
+      const updates = new Map<string, InformationUpdate>()
+      pendingInformation.current.add(updates)
+      try {
+        return accept(await operation(), updates.values())
+      } finally {
+        pendingInformation.current.delete(updates)
+      }
+    },
+    [accept],
+  )
   const refresh = useCallback(
     async (throwOnError = false): Promise<DeviceSnapshot> => {
       if (native) {
         try {
-          const value = await invoke<DeviceSnapshot>('device_snapshot')
-          accept(value)
+          const value = await receiveSnapshot(() => invoke<DeviceSnapshot>('device_snapshot'))
           setLoaded(true)
           return value
         } catch (e) {
@@ -31,7 +52,7 @@ export function useDeviceInstances(native: boolean) {
       }
       return current.current
     },
-    [native, accept],
+    [native, receiveSnapshot],
   )
   useEffect(() => {
     if (!native) {
@@ -49,6 +70,17 @@ export function useDeviceInstances(native: boolean) {
     }
     let active = true
     let timer: ReturnType<typeof setTimeout>
+    let unlisten: (() => void) | undefined
+    void listen<InformationUpdate>('axonkey-device-information', ({ payload }) => {
+      if (!active) return
+      for (const updates of pendingInformation.current) updates.set(payload.id, payload)
+      accept(applyInformation(current.current, [payload]))
+    })
+      .then(stop => {
+        if (active) unlisten = stop
+        else stop()
+      })
+      .catch(() => {})
     const poll = async () => {
       await refresh()
       if (active) timer = setTimeout(() => void poll(), 1000)
@@ -57,20 +89,21 @@ export function useDeviceInstances(native: boolean) {
     return () => {
       active = false
       clearTimeout(timer)
+      unlisten?.()
     }
   }, [native, refresh, accept])
   const refreshInformation = useCallback(
     async (binding: string) => {
       if (!native) return
       try {
-        accept(await invoke<DeviceSnapshot>('refresh_device_information', { binding }))
+        await receiveSnapshot(() => invoke<DeviceSnapshot>('refresh_device_information', { binding }))
         setError('')
       } catch (error) {
         setError(String(error))
         throw error
       }
     },
-    [native, accept],
+    [native, receiveSnapshot],
   )
   const toggleRecording = useCallback(
     async (instanceId: string) => {
@@ -96,9 +129,11 @@ export function useDeviceInstances(native: boolean) {
       const task = queue.current
         .catch(() => {})
         .then(async () => {
-          const value = await operation(current.current)
-          if (!native) localStorage.setItem(previewKey, JSON.stringify(value.store))
-          accept(value)
+          const value = await receiveSnapshot(async () => {
+            const value = await operation(current.current)
+            if (!native) localStorage.setItem(previewKey, JSON.stringify(value.store))
+            return value
+          })
           setError('')
           return value
         })
@@ -110,7 +145,7 @@ export function useDeviceInstances(native: boolean) {
         })
       return task
     },
-    [accept, native],
+    [receiveSnapshot, native],
   )
   const put = useCallback(
     (instance: DeviceInstance) =>
@@ -189,3 +224,20 @@ export function useDeviceInstances(native: boolean) {
   return { snapshot, error, busy, loaded, refresh, refreshInformation, toggleRecording, put, update, remove, reorder }
 }
 export type DeviceController = ReturnType<typeof useDeviceInstances>
+
+function applyInformation(snapshot: DeviceSnapshot, updates: Iterable<InformationUpdate>): DeviceSnapshot {
+  const byId = new Map(Array.from(updates, update => [update.id, update]))
+  if (!byId.size) return snapshot
+  return {
+    ...snapshot,
+    discovered: snapshot.discovered.map(device => {
+      const update = byId.get(device.id)
+      return update &&
+        device.connected &&
+        device.identityQuality !== 'ambiguous' &&
+        device.bluetoothAddress === update.bluetoothAddress
+        ? { ...device, ...(update.kind ? { kind: update.kind } : {}), deviceInfo: update.deviceInfo }
+        : device
+    }),
+  }
+}
