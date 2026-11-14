@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, Radio, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
@@ -32,6 +32,11 @@ import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
 import './DeviceCards.css'
+import '../capture/DeviceCaptureWorkbench.css'
+
+const DeviceCaptureWorkbench = lazy(() =>
+  import('../capture/DeviceCaptureWorkbench').then(mod => ({ default: mod.DeviceCaptureWorkbench })),
+)
 
 type Props = {
   bindInstanceId?: string | null
@@ -72,6 +77,7 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [captureOpen, setCaptureOpen] = useState(false)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
@@ -197,8 +203,8 @@ export function DeviceHub(props: Props) {
     </>
   )
   return (
-    <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
-      {banner}
+    <section className={`managed-hub ${instance || captureOpen ? 'has-workspace mapping-active' : ''}`}>
+      {!captureOpen && banner}
       {instance ? (
         <InstanceWorkspace
           key={instance.id}
@@ -213,6 +219,15 @@ export function DeviceHub(props: Props) {
           onBack={() => setSelected(null)}
           onBind={() => setIntegration({ kind: instance.kind, instance })}
         />
+      ) : captureOpen ? (
+        <Suspense fallback={null}>
+          <DeviceCaptureWorkbench
+            native={native}
+            onBack={() => setCaptureOpen(false)}
+            onDevicesChanged={() => void controller.refresh()}
+            onToast={props.onToast}
+          />
+        </Suspense>
       ) : (
         <>
           <header className="my-devices-heading">
@@ -224,10 +239,16 @@ export function DeviceHub(props: Props) {
               <h1 id="my-devices-title">我的设备</h1>
               <span className="my-devices-total">{orderedCardIds.length} 台已接入</span>
             </div>
-            <button className="my-devices-integrate" onClick={() => setIntegration({})}>
-              <Plus size={15} />
-              手动添加设备
-            </button>
+            <div className="my-devices-heading-actions">
+              <button className="my-devices-integrate" onClick={() => setCaptureOpen(true)}>
+                <Radio size={15} />
+                适配新设备
+              </button>
+              <button className="my-devices-integrate" onClick={() => setIntegration({})}>
+                <Plus size={15} />
+                手动添加设备
+              </button>
+            </div>
           </header>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
@@ -303,6 +324,10 @@ export function DeviceHub(props: Props) {
             {...props}
             initial={integration}
             onClose={() => setIntegration(null)}
+            onOpenCapture={() => {
+              setIntegration(null)
+              setCaptureOpen(true)
+            }}
             onComplete={id => {
               setIntegration(null)
               setSelected(id)
@@ -656,8 +681,14 @@ function IntegrationDialog({
   permissions,
   onPermissions,
   onClose,
+  onOpenCapture,
   onComplete,
-}: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
+}: IntegrationProps & {
+  initial: Integration
+  onClose: () => void
+  onOpenCapture?: () => void
+  onComplete: (id: string) => void
+}) {
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
   const [kind, setKind] = useState<DeviceKind | undefined>(() =>
     mobileModelSelection ? mobileRemoteFallbackKind : initial.kind,
@@ -904,6 +935,11 @@ function IntegrationDialog({
           )}
         </div>
         <footer className="managed-dialog-footer">
+          {step === 'kind' && onOpenCapture && (
+            <button type="button" className="managed-integration-adapt-link" onClick={onOpenCapture}>
+              没有找到型号？适配新设备
+            </button>
+          )}
           <button onClick={onClose}>取消</button>
           {step === 'mobile-model' && (
             <button
