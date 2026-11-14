@@ -90,20 +90,36 @@ test('settings help stays open while selecting or scrolling inside its popover a
     assert.equal(popover.props.style.left, 980 - 280 - 8)
     assert.equal(popover.props.style.top, 640 - 120 - 6)
 
-    // Blurring trigger to click/select text inside popover must not close immediately,
-    // and pointerdown inside popover cancels the delayed close timer.
+    // Real browser W3C event order when clicking/selecting inside popover while trigger is focused:
+    // pointerdown (panel + window) -> mousedown -> trigger blur (relatedTarget: null).
     act(() => {
-      trigger.props.onBlur({ relatedTarget: null })
+      popover.props.onMouseEnter()
       popover.props.onPointerDown()
       windowMock.dispatch('pointerdown', { target: insideNode })
+      trigger.props.onBlur({ relatedTarget: null })
     })
     await new Promise(resolve => setTimeout(resolve, 180))
     assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 1)
 
-    // Scrolling inside the popover does not self-dismiss, while page scroll or Escape does.
+    // Scrolling inside the popover does not self-dismiss.
     act(() => windowMock.dispatch('scroll', { target: insideNode }))
     assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 1)
 
+    // Leaving the popover after trigger already blurred schedules delayed close.
+    act(() => popover.props.onMouseLeave())
+    await new Promise(resolve => setTimeout(resolve, 180))
+    assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 0)
+
+    // Keyboard blur when pointer is not inside popover closes after delay.
+    act(() => trigger.props.onFocus())
+    assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 1)
+    act(() => trigger.props.onBlur({ relatedTarget: null }))
+    await new Promise(resolve => setTimeout(resolve, 180))
+    assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 0)
+
+    // Escape and outside pointerdown close immediately.
+    act(() => trigger.props.onClick())
+    assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 1)
     act(() => windowMock.dispatch('keydown', { key: 'Escape' }))
     assert.equal(view.root.findAllByProps({ className: 'settings-help-popover' }).length, 0)
 
