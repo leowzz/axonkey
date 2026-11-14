@@ -73,7 +73,10 @@
 
 ## 3. CLI `--json` 信封结构
 
-所有 `axonkey-cli capture ... --json` 子命令统一输出 `axonkey.cli/v1` 信封：
+所有 `axonkey-cli capture ... --json` 子命令统一输出与主 CLI 一致的 `axonkey.cli/v1` 信封：
 
-- 成功：退出码 `0`，标准输出 `{"protocolVersion":"axonkey.cli/v1","ok":true,"command":"capture.<subcommand>","result":...}`。
-- 失败：退出码非 `0`（参数错误为 `2`，运行期/硬件/安全拦截错误为 `1`），标准输出 `{"protocolVersion":"axonkey.cli/v1","ok":false,"error":{"code":"...","message":"..."}}`。
+- 成功：退出码 `0`，标准输出 `{"protocol":"axonkey.cli/v1","ok":true,"result":...}`。
+- 失败：标准输出 `{"protocol":"axonkey.cli/v1","ok":false,"error":{"code":"...","message":"..."}}`，退出码与错误码对应如下：
+  - 退出码 `2`（`code: "invalid_arguments"`）：命令行参数缺失或格式无效。
+  - 退出码 `4`（`code: "permission_denied"`）：管理员权限被拒绝；若用户在 Windows UAC 弹窗点击取消（系统退出码 `1223`），`error` 对象额外携带 `"cancelledByUser": true`、`"instanceId"` 与 `"boundToQuarbor"`。
+  - 退出码 `5`（`code: "cli_error"`）：设备未找到、安全分级拦截（如 `blocked` 主输入设备或未加 `--allow-caution`）、管道/HID 打开失败、采样超时或描述符校验失败。

@@ -289,6 +289,8 @@ fn fold_ble_hogp_children(raw_nodes: Vec<RawCandidateNode>) -> Vec<RawCandidateN
     }
 
     for (ble_parent_id, child) in ble_children {
+        let child_is_keyboard = is_keyboard_node(&child);
+        let child_is_mouse = is_mouse_node(&child);
         let key = ble_parent_id.to_ascii_uppercase();
         let entry = ble_parents.entry(key).or_insert_with(|| RawCandidateNode {
             instance_id: ble_parent_id.clone(),
@@ -301,14 +303,16 @@ fn fold_ble_hogp_children(raw_nodes: Vec<RawCandidateNode>) -> Vec<RawCandidateN
             present: child.present,
             bound: child.bound,
             recovery_active: child.recovery_active,
-            is_keyboard_class: false,
-            is_mouse_class: false,
+            is_keyboard_class: child_is_keyboard,
+            is_mouse_class: child_is_mouse,
             vid: child.vid,
             pid: child.pid,
             usage_page: child.usage_page,
             usage: child.usage,
         });
         entry.present |= child.present;
+        entry.is_keyboard_class |= child_is_keyboard;
+        entry.is_mouse_class |= child_is_mouse;
         if entry.product_name.is_none() {
             entry.product_name = child.product_name;
         }
@@ -345,6 +349,7 @@ fn should_prefer_usage(
         return true;
     }
     let rank = |page: Option<u16>, usage: Option<u16>| match (page, usage) {
+        (Some(0x01), Some(0x01 | 0x02)) => 4,
         (Some(0x0C), _) => 3,
         (Some(0x01), Some(0x06)) => 2,
         (Some(p), _) if p >= 0xFF00 => 2,
@@ -388,14 +393,23 @@ fn classify_safety(
     transport: &str,
     physical_keyboard_count: usize,
 ) -> (CaptureSafetyTier, Option<String>) {
-    if transport == "bluetooth-le" {
-        return (CaptureSafetyTier::Safe, None);
-    }
     if is_mouse_node(node) {
         return (
             CaptureSafetyTier::Blocked,
             Some("鼠标或指针设备禁止挂载拦截驱动，避免失去界面点击能力。".into()),
         );
+    }
+    if transport == "bluetooth-le" {
+        if is_keyboard_node(node) && physical_keyboard_count == 0 {
+            return (
+                CaptureSafetyTier::Caution,
+                Some(
+                    "当前未检测到其他实体键盘；若该蓝牙设备是主输入键盘，挂载拦截驱动后会暂停原按键输入。"
+                        .into(),
+                ),
+            );
+        }
+        return (CaptureSafetyTier::Safe, None);
     }
     if is_keyboard_node(node) {
         if physical_keyboard_count <= 1 {
@@ -1261,5 +1275,68 @@ mod tests {
             candidates[0].registered_kind.as_deref(),
             Some("phicommDb1R")
         );
+    }
+
+    #[test]
+    fn blocks_multi_collection_ble_mouse_and_cautions_sole_ble_keyboard_without_other_keyboards() {
+        let ble_mouse_parent_id = r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B034_REV&0012_112233445566\8&aaaa&0&0015";
+        let mut ble_mouse_parent = raw_node(ble_mouse_parent_id);
+        ble_mouse_parent.name = "MX Master 3S".into();
+
+        let mut child_mouse = raw_node(
+            r"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B034&Col01\9&bbbb&0&0000",
+        );
+        child_mouse.parent_chain = vec![ble_mouse_parent_id.into()];
+        child_mouse.is_mouse_class = true;
+        child_mouse.usage_page = Some(0x01);
+        child_mouse.usage = Some(0x02);
+
+        let mut child_vendor = raw_node(
+            r"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B034&Col02\9&bbbb&0&0001",
+        );
+        child_vendor.parent_chain = vec![ble_mouse_parent_id.into()];
+        child_vendor.usage_page = Some(0xFF00);
+        child_vendor.usage = Some(0x01);
+
+        let mut child_consumer = raw_node(
+            r"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B034&Col03\9&bbbb&0&0002",
+        );
+        child_consumer.parent_chain = vec![ble_mouse_parent_id.into()];
+        child_consumer.usage_page = Some(0x0C);
+        child_consumer.usage = Some(0x01);
+
+        let ble_kb_parent_id = r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B350_REV&0001_665544332211\8&cccc&0&0016";
+        let mut ble_kb_child = raw_node(
+            r"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B350&Col01\9&dddd&0&0000",
+        );
+        ble_kb_child.parent_chain = vec![ble_kb_parent_id.into()];
+        ble_kb_child.is_keyboard_class = true;
+        ble_kb_child.usage_page = Some(0x01);
+        ble_kb_child.usage = Some(0x06);
+        ble_kb_child.product_name = Some("MX Keys Mini".into());
+
+        // Zero non-BLE keyboards on PC -> BLE mouse is Blocked, BLE keyboard is Caution
+        let candidates = classify_and_build_candidates(vec![
+            ble_mouse_parent,
+            child_mouse,
+            child_vendor,
+            child_consumer,
+            ble_kb_child,
+        ]);
+        assert_eq!(candidates.len(), 2);
+
+        let mouse = candidates
+            .iter()
+            .find(|c| c.instance_id == ble_mouse_parent_id)
+            .unwrap();
+        assert_eq!(mouse.safety_tier, CaptureSafetyTier::Blocked);
+        assert_eq!(mouse.usage_page, Some(0x01));
+        assert_eq!(mouse.usage, Some(0x02));
+
+        let ble_kb = candidates
+            .iter()
+            .find(|c| c.instance_id == ble_kb_parent_id)
+            .unwrap();
+        assert_eq!(ble_kb.safety_tier, CaptureSafetyTier::Caution);
     }
 }

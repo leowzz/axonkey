@@ -676,6 +676,34 @@ fn run_session_worker(
     });
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn extract_boot_keyboard_usages(data: &[u8]) -> Option<BTreeSet<u16>> {
+    let payload = if data.len() == 8 && data[1] == 0 {
+        &data[..8]
+    } else if data.len() == 9 && data[0] == 1 && data[2] == 0 {
+        &data[1..9]
+    } else {
+        return None;
+    };
+    if payload[2..8].iter().any(|usage| (1..=3).contains(usage)) {
+        return None;
+    }
+
+    let mut current = BTreeSet::new();
+    let modifiers = payload[0];
+    for bit in 0..8u16 {
+        if (modifiers & (1 << bit)) != 0 {
+            current.insert(0xE0 + bit);
+        }
+    }
+    for &usage in &payload[2..8] {
+        if (0x04..=0xA4).contains(&usage) {
+            current.insert(u16::from(usage));
+        }
+    }
+    Some(current)
+}
+
 #[cfg(target_os = "windows")]
 mod windows_pipe {
     use prost::Message;
@@ -714,7 +742,6 @@ mod windows_pipe {
         driver_version: String,
         supports_keysend: bool,
         supports_reset_input: bool,
-        keyboard_report_id: u32,
         frame: Box<[u8; MAX_MESSAGE + 4]>,
         offset: usize,
         target: usize,
@@ -805,7 +832,6 @@ mod windows_pipe {
                 driver_version: String::new(),
                 supports_keysend: false,
                 supports_reset_input: false,
-                keyboard_report_id: 0,
                 frame: Box::new([0; MAX_MESSAGE + 4]),
                 offset: 0,
                 target: 4,
@@ -915,7 +941,6 @@ mod windows_pipe {
                     self.driver_version = info.driver_version;
                     self.supports_keysend = info.supports_keysend;
                     self.supports_reset_input = info.supports_reset_input;
-                    self.keyboard_report_id = info.keyboard_report_id;
                     self.stage = HandshakeStage::Ready;
                     Ok(())
                 }
@@ -924,31 +949,9 @@ mod windows_pipe {
         }
 
         fn forward_standard_boot_keys(&mut self, data: &[u8]) {
-            let payload = if self.keyboard_report_id != 0 {
-                if data.first().copied().map(u32::from) != Some(self.keyboard_report_id)
-                    || data.len() < 9
-                {
-                    return;
-                }
-                &data[1..9]
-            } else if data.len() == 8 {
-                data
-            } else {
+            let Some(current) = super::extract_boot_keyboard_usages(data) else {
                 return;
             };
-
-            let mut current = BTreeSet::new();
-            let modifiers = payload[0];
-            for bit in 0..8u16 {
-                if (modifiers & (1 << bit)) != 0 {
-                    current.insert(0xE0 + bit);
-                }
-            }
-            for &usage in &payload[2..8] {
-                if (0x04..=0xA4).contains(&usage) {
-                    current.insert(u16::from(usage));
-                }
-            }
 
             let released: Vec<u16> = self.forwarded_keys.difference(&current).copied().collect();
             let pressed: Vec<u16> = current.difference(&self.forwarded_keys).copied().collect();
@@ -1067,17 +1070,36 @@ mod windows_pipe {
         }
 
         fn send_reset_before_close(&mut self) {
-            if self.reset_sent || self.stage != HandshakeStage::Ready || !self.supports_reset_input
-            {
+            if self.reset_sent || self.stage != HandshakeStage::Ready {
                 return;
             }
             self.reset_sent = true;
-            if self
-                .enqueue(proto::client_message::Body::ResetInput(
-                    proto::ResetInput {},
-                ))
-                .is_err()
-            {
+            if self.supports_reset_input {
+                if self
+                    .enqueue(proto::client_message::Body::ResetInput(
+                        proto::ResetInput {},
+                    ))
+                    .is_err()
+                {
+                    return;
+                }
+            } else if self.supports_keysend && !self.forwarded_keys.is_empty() {
+                for usage in std::mem::take(&mut self.forwarded_keys) {
+                    if self
+                        .enqueue(proto::client_message::Body::Keysend(proto::KeySend {
+                            keys: vec![proto::Key {
+                                usage_page: 0x07,
+                                usage: u32::from(usage),
+                                report_id: None,
+                            }],
+                            action: 2,
+                        }))
+                        .is_err()
+                    {
+                        return;
+                    }
+                }
+            } else {
                 return;
             }
             let deadline = Instant::now() + Duration::from_millis(80);
@@ -1284,5 +1306,29 @@ mod tests {
         assert_eq!(sample.input_id, "pulse.power");
         assert_eq!(sample.press_hex, "04 30 00");
         assert_eq!(sample.release_hex, "04 00 00");
+    }
+
+    #[test]
+    fn extracts_unnumbered_8byte_and_numbered_9byte_boot_keyboard_frames_and_skips_rollover() {
+        let usb_boot = extract_boot_keyboard_usages(&[0x02, 0x00, 0x04, 0x28, 0, 0, 0, 0]).unwrap();
+        assert_eq!(
+            usb_boot.into_iter().collect::<Vec<_>>(),
+            vec![0x04, 0x28, 0xE1]
+        );
+
+        let numbered =
+            extract_boot_keyboard_usages(&[0x01, 0x05, 0x00, 0x29, 0, 0, 0, 0, 0]).unwrap();
+        assert_eq!(
+            numbered.into_iter().collect::<Vec<_>>(),
+            vec![0x29, 0xE0, 0xE2]
+        );
+
+        // 6KRO phantom/rollover error bytes 0x01..=0x03 must return None so held keys are not cleared
+        assert!(
+            extract_boot_keyboard_usages(&[0x02, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01])
+                .is_none()
+        );
+        // Consumer / vendor reports must be ignored
+        assert!(extract_boot_keyboard_usages(&[0x02, 0xE9, 0x00]).is_none());
     }
 }

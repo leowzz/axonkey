@@ -250,6 +250,7 @@ pub fn compile_svg(
 
     let collisions = detect_collisions(&internal.inputs, &sample_map);
     let reports_by_group = synthesize_reports(&sample_map)?;
+    retain_compatible_preserved_reports_and_sources(&mut internal, &sample_map, &reports_by_group);
 
     let mut adapted_count = 0usize;
     let mut pending_count = 0usize;
@@ -706,6 +707,91 @@ fn synthesize_reports(
         );
     }
     Ok(result)
+}
+
+fn parse_attr_u32(raw: &str) -> Option<u32> {
+    let trimmed = raw.trim();
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        trimmed.parse::<u32>().ok()
+    }
+}
+
+fn retain_compatible_preserved_reports_and_sources(
+    internal: &mut ParsedDraftInternal,
+    sample_map: &BTreeMap<String, ResolvedSample>,
+    reports_by_group: &BTreeMap<(u8, usize), SynthesizedReport>,
+) {
+    let voice_report_ids: BTreeSet<&str> = internal
+        .voices
+        .iter()
+        .flat_map(|v| {
+            [
+                "audio-report",
+                "control-report",
+                "start-report",
+                "stop-report",
+                "sync-report",
+            ]
+            .into_iter()
+            .filter_map(move |key| v.get(key).map(String::as_str))
+        })
+        .collect();
+
+    let referenced_by_unrecaptured: BTreeSet<String> = internal
+        .inputs
+        .iter()
+        .filter(|node| {
+            node.attrs
+                .get("id")
+                .is_none_or(|id| !sample_map.contains_key(id))
+        })
+        .flat_map(|node| {
+            node.existing_sources
+                .iter()
+                .filter_map(|src| src.get("report").cloned())
+        })
+        .collect();
+
+    internal.preserved_reports.retain(|rep| {
+        let id = rep.get("id").map(String::as_str).unwrap_or_default();
+        let direction = rep.get("direction").map(String::as_str).unwrap_or("input");
+        let encoding = rep.get("encoding").map(String::as_str).unwrap_or_default();
+        if direction != "input" || encoding == "gatt-stream" || voice_report_ids.contains(id) {
+            return true;
+        }
+        if !referenced_by_unrecaptured.contains(id) {
+            return false;
+        }
+        let rep_rid = rep
+            .get("report-id")
+            .and_then(|v| parse_attr_u32(v))
+            .and_then(|v| u8::try_from(v).ok());
+        let rep_len = rep
+            .get("length")
+            .and_then(|v| parse_attr_u32(v))
+            .map(|v| v as usize);
+        !reports_by_group.keys().any(|&(syn_rid, syn_len)| {
+            rep_rid.is_none_or(|r| r == syn_rid) && rep_len.is_none_or(|l| l == syn_len)
+        })
+    });
+
+    let retained_ids: BTreeSet<String> = internal
+        .preserved_reports
+        .iter()
+        .filter_map(|rep| rep.get("id").cloned())
+        .collect();
+
+    for node in &mut internal.inputs {
+        node.existing_sources.retain(|src| {
+            src.get("report")
+                .is_some_and(|report_id| retained_ids.contains(report_id))
+        });
+    }
 }
 
 fn source_layout_for_sample(
@@ -1515,6 +1601,52 @@ mod tests {
         assert_eq!(
             engine.accept(&descriptor, &[0x01, 0, 0, 0xEF, 0, 0, 0, 0, 0]),
             vec![("tcl-rc802a.mute".into(), true)]
+        );
+    }
+
+    #[test]
+    fn recapturing_existing_descriptor_replaces_old_input_reports_without_engine_ambiguity() {
+        // Recompiling hisense-rcf3b65.svg (which has non-standard `id="captured-pointer"` for 0x6F)
+        // must drop the old `captured-pointer` report so 0x6F has exactly 1 matching input report.
+        let hisense = include_str!("../../../public/device-descriptors/hisense-rcf3b65.svg");
+        let recompiled_hisense = compile_svg(hisense, None, &[], Some("active")).unwrap();
+        assert!(recompiled_hisense.validated);
+        assert!(!recompiled_hisense
+            .svg_content
+            .contains("id=\"captured-pointer\""));
+        let hisense_desc = parse_svg(&recompiled_hisense.svg_content).unwrap();
+        let mut hisense_engine = DescriptorEngine::default();
+        assert_eq!(
+            hisense_engine.accept(&hisense_desc, &[0x6F, 0x6A, 0x01, 0, 0, 0, 0, 0, 0]),
+            vec![("hisense-rcf3b65.pointer".into(), true)]
+        );
+        assert_eq!(
+            hisense_engine.accept(&hisense_desc, &[0x6F, 0x6A, 0x00, 0, 0, 0, 0, 0, 0]),
+            vec![("hisense-rcf3b65.pointer".into(), false)]
+        );
+
+        // Recapturing a key on rc003.svg (which has `id="keyboard-header"` 9-byte 0x01 AND `gatt-stream` `voice-audio`)
+        // must preserve `voice-audio` while dropping colliding 9-byte 0x01 input reports so DescriptorEngine decodes cleanly.
+        let rc003 = include_str!("../../../public/device-descriptors/rc003.svg");
+        let recaptured = compile_svg(
+            rc003,
+            None,
+            &[sample(
+                "xiaomi.rc003.power",
+                0x01,
+                "01 00 00 66 00 00 00 00 00",
+                "01 00 00 00 00 00 00 00 00",
+            )],
+            Some("draft"),
+        )
+        .unwrap();
+        assert!(recaptured.validated);
+        assert!(recaptured.svg_content.contains("id=\"voice-audio\""));
+        let rc003_desc = parse_svg(&recaptured.svg_content).unwrap();
+        let mut rc003_engine = DescriptorEngine::default();
+        assert_eq!(
+            rc003_engine.accept(&rc003_desc, &[0x01, 0, 0, 0x66, 0, 0, 0, 0, 0]),
+            vec![("xiaomi.rc003.power".into(), true)]
         );
     }
 }

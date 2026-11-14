@@ -1666,7 +1666,17 @@ async fn capture_start_session(
     pause_managed_pipes_for_capture(&app);
     let app_for_events = app.clone();
     let sink = std::sync::Arc::new(move |event: device_capture::CaptureEvent| {
+        let disconnected = matches!(
+            &event,
+            device_capture::CaptureEvent::Status {
+                connected: false,
+                ..
+            }
+        );
         let _ = app_for_events.emit(device_capture::CAPTURE_EVENT_NAME, event);
+        if disconnected {
+            resume_managed_pipes_after_capture(&app_for_events);
+        }
     });
     let task_result = tauri::async_runtime::spawn_blocking(move || {
         device_capture::start_session(

@@ -28,9 +28,9 @@ axonkey-cli capture list --with-gatt --json
 
 向用户展示匹配的候选设备（`displayName`、`transport`、`instanceId`、`vid`/`pid`、`gattInfo`、`boundToQuarbor`、`safetyTier`），由用户明确确认目标 `instanceId` 后再操作驱动或开始采集。严禁遵守以下安全边界：
 
-- `safe`（蓝牙低功耗遥控器、Consumer `0x0C`、厂商自定义页 `0xFF00..`、手柄等）：用户确认目标后可直接挂载采集。
-- `caution`（本机存在至少两把物理键盘时的外接副键盘）：必须提醒用户挂载 Quarbor 后该副键盘原按键在未透传时会被拦截，经确认后才传入 `--allow-caution`。
-- `blocked`（指针/鼠标设备，或当前机器唯一的物理键盘）：默认严禁挂载拦截驱动，防止锁死主输入。除非用户明确备有触控/远程/另一套可用输入并主动要求覆盖，绝不传入 `--allow-primary-input`。
+- `safe`（非鼠标类的蓝牙低功耗遥控器、Consumer `0x0C`、厂商自定义页 `0xFF00..`、手柄等）：用户确认目标后可直接挂载采集。
+- `caution`（本机存在至少两把物理键盘时的外接副键盘，或本机未检测到其他实体键盘时的蓝牙键盘集合）：必须提醒用户挂载 Quarbor 后该键盘原按键在未透传时会被拦截，经确认后才传入 `--allow-caution`。
+- `blocked`（包括 USB/蓝牙/BLE 鼠标与指针设备，或当前机器唯一的非蓝牙遥控器物理键盘）：默认严禁挂载拦截驱动，防止锁死主点击或主输入。除非用户明确备有触控/远程/另一套可用输入并主动要求覆盖，绝不传入 `--allow-primary-input`。
 - 虚拟输出节点（`ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT`、`QUARBOR\*`）、ACPI/PS2 内置节点和触控板已在底层硬排除，不作为采集对象。
 
 ## 3. Windows 驱动挂载与恢复纪律
@@ -39,8 +39,8 @@ axonkey-cli capture list --with-gatt --json
   ```sh
   axonkey-cli capture attach --instance-id "<INSTANCE_ID>" --json
   ```
-  - 用户在 UAC 弹窗点击取消时，返回 `cancelledByUser: true`（退出码 `1223`），礼貌停止或等待用户重试，不反复刷弹窗。
-  - 返回 `rebootRequired: true` 时如实提示重启后再继续采集。
+  - 用户在 UAC 弹窗点击取消（底层系统退出码 `1223`）时，CLI 以退出码 `4` 返回 `ok: false`、`error.code == "permission_denied"` 且 `error.cancelledByUser == true`；礼貌停止或等待用户重试，不反复刷弹窗。
+  - 返回 `result.rebootRequired: true` 时如实提示重启后再继续采集。
 - **卸载与恢复承诺**：采集目标若是尚未正式内置注册的新设备，在完成采样或中途放弃退出前，询问或按约定恢复系统原生驱动，避免新设备留在拦截静默态：
   ```sh
   axonkey-cli capture detach --instance-id "<INSTANCE_ID>" --json
@@ -49,13 +49,14 @@ axonkey-cli capture list --with-gatt --json
 
 ## 4. 逐键引导采集与冲突复核
 
-优先使用可断点续采的向导命令把样本增量写入会话文件（如 `docs/device-drafts/<device-id>.capture.json`）：
+优先使用可断点续采的向导命令把样本增量写入会话文件（如 `docs/device-drafts/<device-id>.capture.json`；省略 `--out` 时默认在采集循环结束后编译输出到同目录 `<device-id>.captured.svg`）：
 
 ```sh
 axonkey-cli capture wizard \
   --instance-id "<INSTANCE_ID>" \
   --draft docs/device-drafts/<device-id>.svg \
-  --session-file docs/device-drafts/<device-id>.capture.json
+  --session-file docs/device-drafts/<device-id>.capture.json \
+  --out docs/device-drafts/<device-id>.captured.svg
 ```
 
 也可在脚本或 AI 逐键对话中每次只采一个指定按键（推荐配合 `--json`）：

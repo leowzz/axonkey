@@ -242,11 +242,12 @@ axonkey-cli capture key \
   --timeout-ms 12000 \
   --json
 
-# 按草稿按键清单执行可断点续采的交互式向导，每采完一键自动保存会话文件
+# 按草稿按键清单执行可断点续采的交互式向导（省略 --out 时默认输出 <draft>.captured.svg）
 axonkey-cli capture wizard \
   --instance-id "<设备实例 ID>" \
   --draft docs/device-drafts/tcl-rc802a.svg \
-  --session-file docs/device-drafts/tcl-rc802a.capture.json
+  --session-file docs/device-drafts/tcl-rc802a.capture.json \
+  --out docs/device-drafts/tcl-rc802a.captured.svg
 
 # 将 SVG 草稿与采集样本编译为带 ak:identity / ak:reports / ak:hid-capture 的正式描述符并校验
 axonkey-cli capture compile \

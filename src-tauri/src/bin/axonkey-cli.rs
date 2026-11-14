@@ -66,11 +66,27 @@ impl CliFailure {
             response: None,
         }
     }
-    fn permission(message: impl Into<String>) -> Self {
+    fn uac_cancelled(
+        message: impl Into<String>,
+        instance_id: &str,
+        bound_to_quarbor: bool,
+    ) -> Self {
+        let message = message.into();
+        let response = serde_json::json!({
+            "protocol": SCHEMA,
+            "ok": false,
+            "error": {
+                "code": exit_code_name(4),
+                "message": message,
+                "cancelledByUser": true,
+                "instanceId": instance_id,
+                "boundToQuarbor": bound_to_quarbor,
+            }
+        });
         Self {
-            message: message.into(),
+            message,
             exit_code: 4,
-            response: None,
+            response: Some(response),
         }
     }
     fn execution(message: impl Into<String>) -> Self {
@@ -396,7 +412,7 @@ fn print_help() {
   axonkey-cli capture attach --instance-id <ID> [--allow-caution] [--allow-primary-input] [--json]
   axonkey-cli capture detach --instance-id <ID> [--json]
   axonkey-cli capture key --instance-id <ID> --input-id <ID> [--label <名称>] [--timeout-ms <毫秒>] [--baseline-ms <毫秒>] [--json]
-  axonkey-cli capture wizard --instance-id <ID> --draft <draft.svg> --out <out.svg> [--session-file <capture.json>] [--markdown-out <out.md>] [--status <active|draft>] [--json]
+  axonkey-cli capture wizard --instance-id <ID> --draft <draft.svg> [--out <out.svg>] [--session-file <capture.json>] [--markdown-out <out.md>] [--status <active|draft>] [--json]
   axonkey-cli capture compile --draft <draft.svg> --session <capture.json> --out <out.svg> [--markdown-out <out.md>] [--status <active|draft>] [--json]
 
 常用参数：
@@ -568,26 +584,35 @@ fn parse_capture_command(args: &[String]) -> Result<CaptureCliCommand, CliFailur
             baseline_ms: opt_u64("baseline-ms", 300)?,
             json,
         }),
-        "wizard" => Ok(CaptureCliCommand::Wizard {
-            instance_id: req_str("instance-id")?,
-            draft: PathBuf::from(req_str("draft")?),
-            out: PathBuf::from(req_str("out")?),
-            session_file: flags
-                .get("session-file")
+        "wizard" => {
+            let draft = PathBuf::from(req_str("draft")?);
+            let out = flags
+                .get("out")
                 .and_then(Value::as_str)
-                .map(PathBuf::from),
-            markdown_out: flags
-                .get("markdown-out")
-                .and_then(Value::as_str)
-                .map(PathBuf::from),
-            status: flags
-                .get("status")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            timeout_ms: opt_u64("timeout-ms", 20_000)?,
-            baseline_ms: opt_u64("baseline-ms", 300)?,
-            json,
-        }),
+                .filter(|v| !v.trim().is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| draft.with_extension("captured.svg"));
+            Ok(CaptureCliCommand::Wizard {
+                instance_id: req_str("instance-id")?,
+                draft,
+                out,
+                session_file: flags
+                    .get("session-file")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from),
+                markdown_out: flags
+                    .get("markdown-out")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from),
+                status: flags
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                timeout_ms: opt_u64("timeout-ms", 20_000)?,
+                baseline_ms: opt_u64("baseline-ms", 300)?,
+                json,
+            })
+        }
         "compile" => Ok(CaptureCliCommand::Compile {
             draft: PathBuf::from(req_str("draft")?),
             session: PathBuf::from(req_str("session")?),
@@ -670,10 +695,12 @@ fn run_capture_command(args: &[String]) -> Result<String, CliFailure> {
             )
             .map_err(CliFailure::execution)?;
             if outcome.cancelled_by_user {
-                return Err(CliFailure::permission(
+                return Err(CliFailure::uac_cancelled(
                     outcome
                         .message
                         .unwrap_or_else(|| "已取消管理员授权，驱动挂载未完成。".into()),
+                    &outcome.instance_id,
+                    outcome.bound_to_quarbor,
                 ));
             }
             if json {
@@ -689,10 +716,12 @@ fn run_capture_command(args: &[String]) -> Result<String, CliFailure> {
             let outcome = device_capture::detach_driver(&instance_id, None, None)
                 .map_err(CliFailure::execution)?;
             if outcome.cancelled_by_user {
-                return Err(CliFailure::permission(
+                return Err(CliFailure::uac_cancelled(
                     outcome
                         .message
                         .unwrap_or_else(|| "已取消管理员授权，驱动恢复未完成。".into()),
+                    &outcome.instance_id,
+                    outcome.bound_to_quarbor,
                 ));
             }
             if json {
@@ -755,7 +784,7 @@ fn run_capture_command(args: &[String]) -> Result<String, CliFailure> {
                 ));
             }
 
-            let session_path = session_file.unwrap_or_else(|| out.with_extension("capture.json"));
+            let session_path = session_file.unwrap_or_else(|| draft.with_extension("capture.json"));
             let mut session_data = if session_path.is_file() {
                 load_capture_session_file(&session_path)?
             } else {
@@ -1176,6 +1205,40 @@ mod tests {
                 json: false,
             }
         );
+        assert_eq!(
+            parse_capture_command(&args(&[
+                "capture",
+                "wizard",
+                "--instance-id",
+                "BTHLEDEVICE\\1",
+                "--draft",
+                "docs/device-drafts/tcl-rc802a.svg",
+                "--session-file",
+                "docs/device-drafts/tcl-rc802a.capture.json",
+            ]))
+            .unwrap(),
+            CaptureCliCommand::Wizard {
+                instance_id: "BTHLEDEVICE\\1".into(),
+                draft: PathBuf::from("docs/device-drafts/tcl-rc802a.svg"),
+                out: PathBuf::from("docs/device-drafts/tcl-rc802a.captured.svg"),
+                session_file: Some(PathBuf::from("docs/device-drafts/tcl-rc802a.capture.json")),
+                markdown_out: None,
+                status: None,
+                timeout_ms: 20_000,
+                baseline_ms: 300,
+                json: false,
+            }
+        );
+
+        let uac_err = CliFailure::uac_cancelled("已取消管理员授权", "BTHLEDEVICE\\1", false);
+        assert_eq!(uac_err.exit_code, 4);
+        let uac_json = uac_err.json_response();
+        assert_eq!(uac_json["protocol"], SCHEMA);
+        assert_eq!(uac_json["ok"], false);
+        assert_eq!(uac_json["error"]["code"], "permission_denied");
+        assert_eq!(uac_json["error"]["cancelledByUser"], true);
+        assert_eq!(uac_json["error"]["instanceId"], "BTHLEDEVICE\\1");
+
         assert_eq!(
             parse_capture_command(&args(&["capture"]))
                 .unwrap_err()
