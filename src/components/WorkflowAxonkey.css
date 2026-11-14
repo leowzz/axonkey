@@ -628,59 +628,109 @@ body:has(.workflow-split-layout[data-resizing]) * {
 }
 
 /* Refined Option A step cards & connectors inside Sequential Workflow Designer */
-.workflow-axonkey .sqd-step-task .sqd-step-task-rect {
+.workflow-axonkey .sqd-step-task .sqd-step-task-rect,
+.workflow-drag-preview .sqd-step-task .sqd-step-task-rect {
   fill: #fff;
   stroke: rgb(24 28 36 / 13%);
   stroke-width: 1;
-  rx: 8px;
-  ry: 8px;
+  rx: 6px;
+  ry: 6px;
   filter: drop-shadow(0 1px 2px rgb(15 23 42 / 5%));
   transition:
     stroke 0.14s ease,
     fill 0.14s ease,
     filter 0.14s ease;
 }
+.workflow-drag-preview .sqd-step-task .sqd-step-task-rect {
+  stroke: rgb(0 102 255 / 45%);
+  filter: drop-shadow(0 4px 10px rgb(15 23 42 / 14%));
+}
 .workflow-axonkey .sqd-step-task:hover .sqd-step-task-rect {
   stroke: rgb(0 102 255 / 42%);
+}
+.workflow-axonkey .workflow-step-editing.sqd-step-task .sqd-step-task-rect {
+  stroke: rgb(0 102 255 / 65%);
+  stroke-width: 1.4;
+  fill: #f6f9ff;
 }
 .workflow-axonkey .workflow-step-selected.sqd-step-task .sqd-step-task-rect,
 .workflow-axonkey .sqd-step-task .sqd-step-task-rect.sqd-selected {
   stroke: var(--blue);
   stroke-width: 1.75;
-  fill: #f2f7ff;
+  fill: #eef5ff;
   filter: drop-shadow(0 2px 8px rgb(0 102 255 / 12%));
 }
-.workflow-axonkey .sqd-step-task .sqd-step-task-text {
+.workflow-axonkey .sqd-step-task .sqd-step-task-text,
+.workflow-drag-preview .sqd-step-task .sqd-step-task-text {
   fill: var(--ink);
+  font-size: 12px;
   font-weight: 500;
 }
-.workflow-axonkey .sqd-step-task .sqd-input {
-  fill: #fff;
+.workflow-axonkey .sqd-step-task .sqd-input,
+.workflow-axonkey .sqd-step-task .sqd-output,
+.workflow-drag-preview .sqd-step-task .sqd-input,
+.workflow-drag-preview .sqd-step-task .sqd-output {
+  display: none;
+}
+.workflow-flow-chevron {
+  fill: none;
   stroke: var(--trigger-color, #94a3b8);
-  stroke-width: 1.8;
+  stroke-opacity: 0.62;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
-.workflow-axonkey .sqd-step-task .sqd-output {
-  fill: var(--trigger-color, #94a3b8);
-  stroke-width: 0;
+.workflow-flow-chevron.is-wrap {
+  stroke-opacity: 0.36;
 }
-.workflow-axonkey .sqd-placeholder .sqd-placeholder-rect {
-  fill: rgb(0 102 255 / 6%);
-  stroke: rgb(0 102 255 / 38%);
-  stroke-width: 1;
-  stroke-dasharray: 3 3;
-  rx: 6px;
-  ry: 6px;
+.workflow-flow-placeholders,
+.workflow-flow-placeholder,
+.workflow-empty-lane-placeholder {
+  pointer-events: none;
 }
-.workflow-axonkey .sqd-placeholder.sqd-hover .sqd-placeholder-rect {
+.workflow-flow-placeholder:not(.is-visible),
+.workflow-empty-lane-placeholder:not(.is-visible) {
+  visibility: hidden;
+}
+.workflow-axonkey .workflow-flow-placeholder .sqd-placeholder-rect {
+  fill: transparent;
+  stroke: none;
+  opacity: 0;
+  transition: opacity 0.08s ease;
+}
+.workflow-axonkey .workflow-flow-placeholder.sqd-hover .sqd-placeholder-rect {
   fill: var(--blue);
+  stroke: none;
+  opacity: 1;
+  filter: drop-shadow(0 0 3px rgb(0 102 255 / 35%));
+}
+.workflow-axonkey .workflow-empty-lane-placeholder .sqd-placeholder-rect {
+  fill: rgb(0 102 255 / 4%);
+  stroke: rgb(0 102 255 / 32%);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  rx: 7px;
+  ry: 7px;
+  transition:
+    fill 0.12s ease,
+    stroke 0.12s ease;
+}
+.workflow-axonkey .workflow-empty-lane-placeholder.sqd-hover .sqd-placeholder-rect {
+  fill: rgb(0 102 255 / 11%);
   stroke: var(--blue);
+  stroke-width: 1.5;
   stroke-dasharray: none;
 }
-.workflow-axonkey .sqd-placeholder-icon-path {
-  fill: var(--blue);
+.workflow-empty-lane-plus {
+  fill: none;
+  stroke: rgb(0 102 255 / 45%);
+  stroke-width: 1.5;
+  stroke-linecap: round;
 }
-.workflow-axonkey .sqd-placeholder.sqd-hover .sqd-placeholder-icon-path {
-  fill: #fff;
+.workflow-empty-lane-placeholder.sqd-hover .workflow-empty-lane-plus {
+  stroke: var(--blue);
+  stroke-width: 1.8;
 }
 .sqd-theme-light.sqd-context-menu {
   padding: 5px;
@@ -733,31 +783,48 @@ body:has(.workflow-split-layout[data-resizing]) * {
   max-height: none;
 }
 .workflow-step-inline .behavior-dialog {
+  --behavior-row-gap: 10px;
+  --behavior-control-height: 32px;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 .workflow-step-inline .behavior-dialog-head {
-  padding: 12px 16px 8px;
+  align-items: center;
+  padding: 8px 14px 6px;
+}
+.workflow-step-inline .behavior-dialog-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
 }
 .workflow-step-inline .behavior-dialog-head h2 {
-  margin-top: 3px;
-  font-size: 14px;
+  order: -1;
+  margin: 0;
+  font-size: 13.5px;
   font-weight: 650;
 }
 .workflow-step-inline .behavior-dialog-body {
   flex: 1;
-  padding: 6px 16px 14px;
+  padding: 4px 14px 10px;
 }
 .workflow-step-inline .behavior-dialog-actions {
-  padding: 8px 16px;
+  padding: 6px 14px;
+}
+.workflow-step-inline .behavior-dialog-field {
+  gap: 6px;
 }
 .workflow-step-inline .behavior-dialog-field:has(.behavior-paste-input) {
-  flex: 1 0 auto;
+  flex: 1 1 0;
+  min-height: 0;
 }
 .workflow-step-inline .behavior-dialog-field .behavior-paste-input {
-  height: 100%;
+  flex: 1 1 68px;
+  min-height: 68px;
+  height: auto;
 }
 .workflow-inline-delete {
   display: inline-flex;
@@ -920,9 +987,14 @@ body:has(.workflow-split-layout[data-resizing]) * {
 }
 .workflow-trigger-title {
   fill: var(--trigger-color);
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 600;
   text-anchor: middle;
+}
+.workflow-trigger-lane[data-compact-header='true'] .workflow-trigger-title {
+  font-size: 13px;
+  font-weight: 650;
+  text-anchor: start;
 }
 .workflow-trigger-line,
 .workflow-trigger-lane .sqd-join {

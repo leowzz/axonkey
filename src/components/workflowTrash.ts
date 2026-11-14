@@ -18,16 +18,21 @@ export function bindWorkflowTrash(
   trash: HTMLElement,
   designer: DraggingDesigner,
   onDelete: (stepId: string) => void,
+  onHoverChange?: (hover: boolean) => void,
 ) {
   let pressedStepId: string | null = null
   let draggedStepId: string | null = null
   let pressedTrigger: string | null = null
   let visible = false
+  let hovered = false
   let pendingDelete = false
 
   const setHover = (hover: boolean) => {
+    const changed = hover !== hovered
+    hovered = hover
     trash.classList.toggle('is-drag-over', hover)
     trash.setAttribute('aria-label', hover ? '松开以删除行为' : '垃圾桶，拖入行为即可删除')
+    if (changed) onHoverChange?.(hover)
   }
 
   const positionTarget = (lane: Element | undefined) => {

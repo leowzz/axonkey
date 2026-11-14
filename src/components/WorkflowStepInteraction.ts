@@ -18,6 +18,23 @@ export function createWorkflowStepInteraction(
         view.g.setAttribute('aria-label', `编辑${context.step.name}`)
         view.g.setAttribute('aria-description', '单击在下方编辑，双击或 Alt+Enter 打开编辑弹窗')
         view.g.addEventListener('keydown', event => {
+          if (
+            !event.altKey &&
+            !event.ctrlKey &&
+            !event.metaKey &&
+            (event.key === 'ArrowRight' || event.key === 'ArrowLeft')
+          ) {
+            const lane = view.g.closest('.workflow-trigger-lane')
+            const focusables = lane ? [...lane.querySelectorAll<SVGElement>('.workflow-editable-step')] : []
+            const index = focusables.indexOf(view.g)
+            const target = focusables[index + (event.key === 'ArrowRight' ? 1 : -1)]
+            if (target) {
+              event.preventDefault()
+              event.stopPropagation()
+              target.focus()
+            }
+            return
+          }
           if (event.key !== 'Enter' && event.key !== ' ') return
           event.preventDefault()
           event.stopPropagation()

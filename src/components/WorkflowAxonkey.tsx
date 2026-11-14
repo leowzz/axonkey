@@ -135,6 +135,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({
     return () => window.clearTimeout(timer)
   }, [laneStatus])
   const [editingStep, setEditingStep] = useState<WorkflowStepEdit | null>(null)
+  const editingStepIdRef = useRef<string | null>(null)
+  editingStepIdRef.current = editingStep?.stepId ?? null
   const [dialogStep, setDialogStep] = useState<WorkflowStepEdit | null>(null)
   const [designerApi, setDesignerApi] = useState<DesignerApi | null>(null)
   const iconUrls = useMemo(() => createWorkflowActionIconUrls(platform), [platform])
@@ -302,10 +304,14 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       theme: 'light',
       textWidthMeasurer: text => {
         const full = text.textContent ?? ''
-        const maxWidth = Math.max(
-          20,
-          workflowLaneLayout(canvasRef.current?.clientWidth ?? 800, 400, triggersRef.current.length).laneWidth - 62,
-        )
+        const maxLabelLength = Math.max(1, ...triggersRef.current.map(trigger => trigger.label.length))
+        const laneWidth = workflowLaneLayout(
+          canvasRef.current?.clientWidth ?? 800,
+          400,
+          triggersRef.current.length,
+          maxLabelLength,
+        ).laneWidth
+        const maxWidth = Math.max(20, Math.min(220, laneWidth - 44))
         if (text.getComputedTextLength() > maxWidth) {
           let end = full.length
           do {
@@ -337,15 +343,15 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         StepsDesignerExtension.create({
           task: {
             view: {
-              paddingLeft: 8,
-              paddingRight: 8,
-              paddingY: 8,
-              textMarginLeft: 8,
-              minTextWidth: 20,
-              iconSize: 22,
-              radius: 5,
-              inputSize: 14,
-              outputSize: 10,
+              paddingLeft: 5,
+              paddingRight: 6,
+              paddingY: 5,
+              textMarginLeft: 4,
+              minTextWidth: 10,
+              iconSize: 15,
+              radius: 6,
+              inputSize: 0,
+              outputSize: 0,
             },
           },
         }),
@@ -437,26 +443,90 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       },
       () => workflowApi?.workspace,
     )
+    const syncEditingClass = () => {
+      const editingId = editingStepIdRef.current
+      for (const node of canvasRef.current?.querySelectorAll<SVGElement>('[data-step-id]') ?? []) {
+        node.classList.toggle('workflow-step-editing', node.getAttribute('data-step-id') === editingId)
+      }
+    }
+    designer.onRootComponentUpdated.subscribe(syncEditingClass)
+    const invalidateViewport = () => {
+      const workspace = workflowApi?.workspace
+      if (workspace) workspace.setViewport(workspace.getViewport())
+    }
     const unbindTrash = trashRef.current
-      ? bindWorkflowTrash(canvasRef.current, trashRef.current, designer, stepId => {
-          const api = workflowApi
-          if (!active || !api || api.editor.isReadonly()) return
-          const definition = api.editor.getDefinition()
-          const selectedIds = new Set(selectionBinding?.getSelectedIds())
-          const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
-          let removed = false
-          for (const branch of Object.values(workflowBranches(definition))) {
-            for (let index = branch.length - 1; index >= 0; index--) {
-              if (!idsToDelete.has(branch[index].id) || isWorkflowStepLocked(branch[index], branch)) continue
-              branch.splice(index, 1)
-              removed = true
+      ? bindWorkflowTrash(
+          canvasRef.current,
+          trashRef.current,
+          designer,
+          stepId => {
+            const api = workflowApi
+            if (!active || !api || api.editor.isReadonly()) return
+            const definition = api.editor.getDefinition()
+            const selectedIds = new Set(selectionBinding?.getSelectedIds())
+            const idsToDelete = selectedIds.has(stepId) ? selectedIds : new Set([stepId])
+            let removed = false
+            for (const branch of Object.values(workflowBranches(definition))) {
+              for (let index = branch.length - 1; index >= 0; index--) {
+                if (!idsToDelete.has(branch[index].id) || isWorkflowStepLocked(branch[index], branch)) continue
+                branch.splice(index, 1)
+                removed = true
+              }
             }
-          }
-          if (!removed) return
-          designer.clearSelectedStep()
-          api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
-        })
+            if (!removed) return
+            designer.clearSelectedStep()
+            api.editor.createStepEditorContext('axonkey-triggers').notifyChildrenChanged()
+          },
+          invalidateViewport,
+        )
       : () => {}
+    let dragScrollFrame = 0
+    let dragPointerX = -1
+    let dragPointerY = -1
+    const onDragPointerMove = (event: MouseEvent) => {
+      dragPointerX = event.clientX
+      dragPointerY = event.clientY
+    }
+    const tickDragAutoScroll = () => {
+      if (!designer.isDragging()) {
+        dragScrollFrame = 0
+        return
+      }
+      if (!trashRef.current?.classList.contains('is-drag-over')) {
+        const lane = [...(canvasRef.current?.querySelectorAll<SVGSVGElement>('[data-trigger-scroll]') ?? [])].find(
+          element => {
+            const bounds = element.querySelector('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
+            return (
+              bounds &&
+              dragPointerX >= bounds.left &&
+              dragPointerX <= bounds.right &&
+              dragPointerY >= bounds.top &&
+              dragPointerY <= bounds.bottom
+            )
+          },
+        )
+        if (lane) {
+          const bounds = lane.querySelector('.workflow-trigger-viewport-bounds')!.getBoundingClientRect()
+          const edge = 22
+          const delta = dragPointerY < bounds.top + edge ? -8 : dragPointerY > bounds.bottom - edge ? 8 : 0
+          if (delta) lane.dispatchEvent(new CustomEvent('workflow-lane-scroll', { detail: delta }))
+        }
+      }
+      dragScrollFrame = window.requestAnimationFrame(tickDragAutoScroll)
+    }
+    const onDesignerDragState = (isDragging: boolean) => {
+      if (isDragging) {
+        window.addEventListener('mousemove', onDragPointerMove, true)
+        if (!dragScrollFrame) dragScrollFrame = window.requestAnimationFrame(tickDragAutoScroll)
+      } else {
+        window.removeEventListener('mousemove', onDragPointerMove, true)
+        if (dragScrollFrame) {
+          window.cancelAnimationFrame(dragScrollFrame)
+          dragScrollFrame = 0
+        }
+      }
+    }
+    designer.onIsDraggingChanged.subscribe(onDesignerDragState)
     let ready = false
     designer.onReady.subscribe(() => {
       ready = true
@@ -603,11 +673,21 @@ export function WorkflowAxonkey<Id extends string = InputId>({
       setSequenceDialog(null)
       setDesignerApi(null)
       resizeObserver.disconnect()
+      onDesignerDragState(false)
+      designer.onIsDraggingChanged.unsubscribe(onDesignerDragState)
+      designer.onRootComponentUpdated.unsubscribe(syncEditingClass)
       selectionBinding?.()
       unbindTrash()
       designer.destroy()
     }
   }, [platform, button.id, reload, iconUrls])
+
+  useLayoutEffect(() => {
+    const editingId = editingStep?.stepId ?? null
+    for (const node of canvasRef.current?.querySelectorAll<SVGElement>('[data-step-id]') ?? []) {
+      node.classList.toggle('workflow-step-editing', node.getAttribute('data-step-id') === editingId)
+    }
+  }, [editingStep?.stepId])
 
   useLayoutEffect(() => {
     // When switching inputs, the outgoing designer flushes against its last committed sequence.
