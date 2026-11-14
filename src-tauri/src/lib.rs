@@ -2,6 +2,7 @@ mod app_restart;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
+pub mod device_capture;
 mod devices;
 mod driver_migration;
 mod foreground;
@@ -1537,6 +1538,7 @@ async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn shutdown_device_services(app: &tauri::AppHandle) {
+    let _ = device_capture::stop_session();
     if let Some(service) = app.try_state::<DeviceManager>() {
         service.shutdown();
     }
@@ -1547,6 +1549,189 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
     if let Some(service) = app.try_state::<InputService>() {
         service.shutdown();
     }
+}
+
+fn pause_managed_pipes_for_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(input) = app.try_state::<InputService>() {
+            let _ = input.pause_for_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.pause_for_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+fn resume_managed_pipes_after_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    if !device_capture::session_status().active {
+        if let Some(input) = app.try_state::<InputService>() {
+            input.resume_after_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.resume_after_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+#[tauri::command]
+async fn capture_list_candidates(
+    include_gatt: Option<bool>,
+) -> Result<Vec<device_capture::CaptureCandidate>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        device_capture::list_candidates(include_gatt.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("枚举采集设备任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_attach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+    allow_caution: Option<bool>,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-install").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::attach_driver(
+            &instance_id,
+            allow_caution.unwrap_or(false),
+            false,
+            resource_dir.as_deref(),
+            log_path.as_deref(),
+        )
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("挂载拦截驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_detach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-uninstall").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::detach_driver(&instance_id, resource_dir.as_deref(), log_path.as_deref())
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("恢复系统驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+fn capture_parse_draft_svg(
+    svg_content: String,
+) -> Result<device_capture::ParsedCaptureDraft, String> {
+    device_capture::parse_draft_svg(&svg_content)
+}
+
+#[tauri::command]
+async fn capture_start_session(
+    app: tauri::AppHandle,
+    target_id: String,
+    instance_id: String,
+    passthrough_standard_keys: Option<bool>,
+) -> Result<device_capture::CaptureSessionStatus, String> {
+    use tauri::Emitter;
+
+    pause_managed_pipes_for_capture(&app);
+    let app_for_events = app.clone();
+    let sink = std::sync::Arc::new(move |event: device_capture::CaptureEvent| {
+        let _ = app_for_events.emit(device_capture::CAPTURE_EVENT_NAME, event);
+    });
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        device_capture::start_session(
+            target_id,
+            instance_id,
+            passthrough_standard_keys.unwrap_or(false),
+            sink,
+        )
+    })
+    .await
+    .map_err(|error| format!("启动输入采集任务异常：{error}"))?;
+
+    if task_result.is_err() {
+        resume_managed_pipes_after_capture(&app);
+    }
+    task_result
+}
+
+#[tauri::command]
+async fn capture_stop_session(app: tauri::AppHandle) -> Result<bool, String> {
+    let result = tauri::async_runtime::spawn_blocking(device_capture::stop_session)
+        .await
+        .map_err(|error| format!("停止输入采集任务异常：{error}"))?;
+    resume_managed_pipes_after_capture(&app);
+    result
+}
+
+#[tauri::command]
+fn capture_arm_key(input_id: Option<String>) -> Result<bool, String> {
+    device_capture::arm_key(input_id)
+}
+
+#[tauri::command]
+fn capture_set_live_preview_svg(svg_content: Option<String>) -> Result<bool, String> {
+    device_capture::set_live_preview_svg(svg_content)
+}
+
+#[tauri::command]
+fn capture_compile_svg(
+    draft_svg: String,
+    candidate: Option<device_capture::CaptureCandidate>,
+    samples: Vec<device_capture::CapturedKeySample>,
+    target_status: Option<String>,
+) -> Result<device_capture::CompiledCaptureResult, String> {
+    device_capture::compile_svg(
+        &draft_svg,
+        candidate.as_ref(),
+        &samples,
+        target_status.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn capture_save_export(
+    svg_path: String,
+    svg_content: String,
+    markdown_path: Option<String>,
+    markdown_content: Option<String>,
+) -> Result<bool, String> {
+    device_capture::save_export(
+        &svg_path,
+        &svg_content,
+        markdown_path.as_deref(),
+        markdown_content.as_deref(),
+    )
 }
 
 fn apply_gatt_recording_status(snapshot: &mut DeviceSnapshot, audio_service: &AudioServiceManager) {
@@ -1950,6 +2135,16 @@ pub fn run() {
             cli_ipc::cli_poll_requests,
             cli_ipc::cli_write_response,
             cli_ipc::cli_cancel_request,
+            capture_list_candidates,
+            capture_attach_driver,
+            capture_detach_driver,
+            capture_parse_draft_svg,
+            capture_start_session,
+            capture_stop_session,
+            capture_arm_key,
+            capture_set_live_preview_svg,
+            capture_compile_svg,
+            capture_save_export,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
