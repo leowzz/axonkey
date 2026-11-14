@@ -9,7 +9,7 @@ mod paired;
 mod remote;
 #[cfg(test)]
 mod report;
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 use super::windows::ManagedQuarborChannel;
 use super::{NativeBehavior, NativeSettings, ProfileDirection, TriggerBehaviors};
 use app_profiles::{application_binding, effective_instance, ApplicationProfile};
@@ -162,16 +162,19 @@ struct QuarborRegistration {
     settings: NativeSettings,
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 struct QuarborRegistry {
+    #[cfg(not(test))]
     app: tauri::AppHandle,
+    #[cfg(not(test))]
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
     channels: Mutex<BTreeMap<String, (String, ManagedQuarborChannel)>>,
     gate: Arc<AtomicBool>,
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 impl QuarborRegistry {
+    #[cfg(not(test))]
     fn new(app: tauri::AppHandle, emit: Arc<dyn Fn(InputEvent) + Send + Sync>) -> Self {
         Self {
             app,
@@ -181,6 +184,15 @@ impl QuarborRegistry {
         }
     }
 
+    #[cfg(test)]
+    fn new_for_test() -> Self {
+        Self {
+            channels: Mutex::new(BTreeMap::new()),
+            gate: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[cfg(not(test))]
     fn sync(&self, registrations: &BTreeMap<String, QuarborRegistration>) {
         let Ok(mut channels) = self.channels.lock() else {
             return;
@@ -249,6 +261,20 @@ impl QuarborRegistry {
         }
     }
 
+    fn pause(&self) {
+        self.gate.store(true, Ordering::Release);
+        if let Ok(mut channels) = self.channels.lock() {
+            self.gate.store(true, Ordering::Release);
+            // Dropping a channel joins its worker and releases the driver handle.
+            channels.clear();
+        }
+    }
+
+    fn resume(&self) {
+        self.gate.store(false, Ordering::Release);
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
     fn status(&self, id: &str) -> Option<super::InputServiceStatus> {
         self.channels
             .lock()
@@ -272,7 +298,7 @@ struct Shared {
     stop: AtomicBool,
     enabled: AtomicBool,
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
-    #[cfg(all(windows, not(test)))]
+    #[cfg(windows)]
     quarbor: Option<Arc<QuarborRegistry>>,
     legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
 }
@@ -562,6 +588,8 @@ impl DeviceManager {
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
             emit,
+            #[cfg(windows)]
+            quarbor: Some(Arc::new(QuarborRegistry::new_for_test())),
             legacy_remote,
         });
         Self::spawn(shared)
@@ -655,25 +683,24 @@ impl DeviceManager {
 
     #[cfg(windows)]
     pub fn pause_for_driver_migration(&self) {
-        #[cfg(not(test))]
         if let Some(registry) = &self.shared.quarbor {
-            let mut channels = registry.channels.lock().unwrap();
-            registry.gate.store(true, Ordering::Release);
-            // Dropping a channel joins its worker and releases the driver handle.
-            channels.clear();
+            registry.pause();
         }
     }
     #[cfg(windows)]
     pub fn resume_after_driver_migration(&self) {
-        #[cfg(not(test))]
         if let Some(registry) = &self.shared.quarbor {
-            registry.gate.store(false, Ordering::Release);
+            registry.resume();
         }
     }
     pub fn shutdown(&self) {
         self.shared.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.lock().unwrap().take() {
             let _ = worker.join();
+        }
+        #[cfg(windows)]
+        if let Some(registry) = &self.shared.quarbor {
+            registry.pause();
         }
     }
     pub(crate) fn switch_instance_profile(
@@ -859,10 +886,7 @@ impl DeviceManager {
 }
 impl Drop for DeviceManager {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.lock().unwrap().take() {
-            let _ = worker.join();
-        }
+        self.shutdown();
     }
 }
 
@@ -1947,6 +1971,10 @@ fn run(shared: Arc<Shared>) {
         thread::sleep(Duration::from_millis(8));
     }
     drop(readers);
+    #[cfg(windows)]
+    if let Some(registry) = &shared.quarbor {
+        registry.pause();
+    }
     sync_voice_sessions(&mut voice_sessions, HashMap::new());
     (shared.legacy_remote)(false);
 }
@@ -2675,8 +2703,8 @@ mod tests {
                 enabled: AtomicBool::new(true),
                 emit: Arc::new(|_| {}),
                 legacy_remote: Box::new(|_| true),
-                #[cfg(all(windows, not(test)))]
-                quarbor: None,
+                #[cfg(windows)]
+                quarbor: Some(Arc::new(QuarborRegistry::new_for_test())),
             }),
             worker: Mutex::new(None),
         }
@@ -3693,5 +3721,55 @@ mod tests {
             "tclRc802a",
             &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
         ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shutdown_pauses_quarbor_registry_and_releases_channel_inputs() {
+        let path =
+            std::env::temp_dir().join(format!("axonkey-quarbor-shutdown-{}.json", unique_id()));
+        for live_worker in [true, false] {
+            let manager = if live_worker {
+                DeviceManager::start_with_emitter(path.clone(), Box::new(|_| {}))
+            } else {
+                offline_manager(vec![])
+            };
+            let registry = manager.shared.quarbor.as_ref().unwrap().clone();
+            let released_batches = Arc::new(Mutex::new(Vec::new()));
+            let descriptor_updates = Arc::new(Mutex::new(Vec::new()));
+            let updates = Arc::clone(&descriptor_updates);
+            let channel = ManagedQuarborChannel::start_for_test(
+                Arc::clone(&registry.gate),
+                Arc::clone(&released_batches),
+                Arc::new(move |values, pressed| {
+                    updates.lock().unwrap().push((values, pressed));
+                }),
+            );
+            registry
+                .channels
+                .lock()
+                .unwrap()
+                .insert("test-quarbor".into(), ("target".into(), channel));
+
+            manager.shutdown();
+
+            assert!(registry.gate.load(Ordering::Acquire));
+            assert!(registry.channels.lock().unwrap().is_empty());
+            assert_eq!(
+                *released_batches.lock().unwrap(),
+                vec![vec![(0x41, 2)]],
+                "shutdown must join Quarbor channels and release held virtual keys"
+            );
+            assert!(
+                descriptor_updates
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .is_some_and(|(_, pressed)| pressed.is_empty()),
+                "shutdown must publish cleared descriptor input state"
+            );
+        }
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
     }
 }
