@@ -39,12 +39,17 @@ impl RemoteOutput {
             }
             Output::Key(key, down) => {
                 if down {
-                    self.held.push(key);
+                    if !self.held.contains(&key) {
+                        self.held.push(key);
+                    }
                     if key.modifier_flag() == 0 {
                         self.repeat_due = Some(Instant::now() + Duration::from_millis(400));
                     }
                 } else {
                     self.held.retain(|held| *held != key);
+                    if !self.held.iter().any(|held| held.modifier_flag() == 0) {
+                        self.repeat_due = None;
+                    }
                 }
                 let flags = self
                     .held
