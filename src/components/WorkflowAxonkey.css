@@ -843,8 +843,31 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-inline-delete:hover {
   background: #fef2f2;
 }
+.workflow-inline-delete:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+@media (max-height: 720px) {
+  .mapping-flow-page .mapping-device-rail {
+    margin: 8px 0 8px 12px;
+    padding: 11px;
+  }
+  .mapping-active .mapping-flow-page .remote-stage {
+    min-height: 180px;
+    margin: 6px 0;
+    padding: 8px 6px;
+  }
+  .mapping-flow-page .key-picker {
+    padding: 2px 2px 7px;
+  }
+  .workflow-axonkey {
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
 @media (max-width: 1100px) {
   .workflow-axonkey {
+    grid-template-columns: minmax(0, 1fr) clamp(224px, 26%, 316px);
     gap: 10px;
     padding-inline: 10px;
   }
@@ -1026,16 +1049,17 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-lane-status {
   position: absolute;
   z-index: 4;
-  bottom: 22px;
-  left: 28px;
-  max-width: calc(100% - 380px);
-  padding: 8px 14px;
+  bottom: 18px;
+  right: calc(clamp(224px, 27%, 316px) + 26px);
+  max-width: calc(100% - 360px);
+  padding: 7px 13px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   color: var(--ink);
   background: rgb(255 255 255 / 95%);
   box-shadow: var(--shadow-popover);
   font-size: 13px;
+  pointer-events: none;
 }
 
 .profile-switch-overwrites {

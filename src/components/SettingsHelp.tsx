@@ -9,13 +9,16 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
   const button = useRef<HTMLButtonElement>(null)
   const panel = useRef<HTMLDivElement>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>()
-  const close = () => { clearTimeout(timer.current); setOpen(false) }
-  const leave = () => { clearTimeout(timer.current); timer.current = setTimeout(() => setOpen(false), 140) }
-  useEffect(() => () => clearTimeout(timer.current), [])
+  const cancel = () => clearTimeout(timer.current)
+  const close = () => { cancel(); setOpen(false) }
+  const leave = () => { cancel(); timer.current = setTimeout(() => setOpen(false), 140) }
+  useEffect(() => cancel, [])
   useEffect(() => {
     if (!open) return
     const dismiss = (event: Event) => {
-      if ((event.type === 'pointerdown' || event.type === 'focusin') && (button.current?.contains(event.target as Node) || panel.current?.contains(event.target as Node))) return
+      const target = event.target as Node | null
+      if ((event.type === 'pointerdown' || event.type === 'focusin') && (button.current?.contains(target) || panel.current?.contains(target))) return
+      if (event.type === 'scroll' && target && panel.current?.contains(target)) return
       close()
     }
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); close() } }
@@ -39,10 +42,13 @@ export function SettingsHelp({ id, label, children }: { id: string; label: strin
   }, [open])
   return <>
     <button ref={button} type="button" className="settings-help" aria-label={`${label}说明`} aria-expanded={open} aria-describedby={open ? id : undefined}
-      onMouseEnter={() => { clearTimeout(timer.current); setOpen(true) }} onMouseLeave={leave}
-      onFocus={() => { clearTimeout(timer.current); setOpen(true) }} onBlur={close}
-      onClick={() => { clearTimeout(timer.current); setOpen(true) }}><CircleHelp size={15} /></button>
+      onMouseEnter={() => { cancel(); setOpen(true) }} onMouseLeave={leave}
+      onFocus={() => { cancel(); setOpen(true) }} onBlur={event => {
+        if (event.relatedTarget && panel.current?.contains(event.relatedTarget as Node)) return
+        leave()
+      }}
+      onClick={() => { cancel(); setOpen(true) }}><CircleHelp size={15} /></button>
     {open && createPortal(<div ref={panel} id={id} role="tooltip" className="settings-help-popover" style={position}
-      onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={leave}>{children}</div>, button.current?.closest('dialog') ?? document.body)}
+      onPointerDown={cancel} onMouseEnter={cancel} onMouseLeave={leave}>{children}</div>, button.current?.closest('dialog') ?? document.body)}
   </>
 }

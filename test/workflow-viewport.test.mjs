@@ -128,10 +128,9 @@ test('2D wrapped lane drop slots partition every row and trailing area into disj
     wrapped.items.map(item => item.row),
     [0, 0, 1, 1],
   )
-  assert.equal(wrapped.connectors.length, 3)
+  assert.equal(wrapped.connectors.length, 2)
   assert.equal(wrapped.connectors[0].wraps, false)
-  assert.equal(wrapped.connectors[1].wraps, true)
-  assert.equal(wrapped.connectors[2].wraps, false)
+  assert.equal(wrapped.connectors[1].wraps, false)
 
   const hitAt = (px, py) =>
     wrapped.slots.filter(

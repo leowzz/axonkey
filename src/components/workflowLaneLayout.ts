@@ -33,8 +33,8 @@ export type WorkflowDropSlot = {
 }
 
 export function workflowLaneLayout(width: number, height: number, laneCount = 3, maxLabelLength = 2) {
-  const gap = 7
-  const padding = 6
+  const gap = 6
+  const padding = 4
   const laneWidth = Math.max(1, (width - padding * 2 - gap * (laneCount - 1)) / laneCount)
   const laneHeight = Math.max(160, height - padding * 2)
   const titleSpan = 18 + Math.max(1, maxLabelLength) * 13.5
@@ -62,11 +62,11 @@ export function layoutWorkflowFlow(
 ) {
   const safeLaneWidth = Math.max(24, laneWidth)
   const safeBodyHeight = Math.max(24, bodyHeight)
-  const padLeft = 6
-  const padRight = 7
+  const padLeft = 5
+  const padRight = 5
   const padTop = 5
   const padBottom = 7
-  const colGap = 7
+  const colGap = 5
   const rowGap = 5
 
   if (sizes.length === 0) {
@@ -129,12 +129,12 @@ export function layoutWorkflowFlow(
   for (let i = 0; i < items.length - 1; i++) {
     const current = items[i]
     const next = items[i + 1]
-    const wraps = current.row !== next.row
-    const x = wraps
-      ? Math.min(safeLaneWidth - 5, current.x + current.width + colGap / 2)
-      : current.x + current.width + colGap / 2
-    if (!wraps || x >= current.x + current.width + 3) {
-      connectors.push({ x, y: current.y + current.height / 2, wraps })
+    if (current.row === next.row) {
+      connectors.push({
+        x: current.x + current.width + colGap / 2,
+        y: current.y + current.height / 2,
+        wraps: false,
+      })
     }
   }
 
