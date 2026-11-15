@@ -1337,6 +1337,19 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
         resolvedNow: false,
         matchingChipSignature: '005D;8762',
       },
+      ...Array.from({ length: 7 }, (_, i) => ({
+        timestampIso: `2026-11-15T01:0${i}:00Z`,
+        timestampMs: 1794700000000 - i * 60000,
+        provider: 'DeviceAssociationService',
+        eventId: 3501,
+        kind: 'pairing_failed',
+        targetAddress: `AA:BB:CC:DD:EE:0${i + 1}`,
+        errorCodeHex: `0x8007000${i + 1}`,
+        title: `历史配对记录 #${i + 2}`,
+        explanation: `历史事件说明 #${i + 2}`,
+        resolvedNow: true,
+        matchingChipSignature: null,
+      })),
     ],
     pairedDevices: [
       {
@@ -1425,6 +1438,28 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
     assert.ok(content.includes('Realtek Bluetooth Adapter'))
     assert.ok(content.includes('0x80090003 (NTE_BAD_KEY)'))
     assert.deepEqual(diagnoseCalls, ['diagnose_connection_issues'])
+
+    // Verify independent scroll containers keep headers/actions fixed and do not truncate >6 failure records.
+    const summaryScroll = page.findByProps({ className: 'troubleshoot-summary-scroll' })
+    assert.ok(text(summaryScroll).includes('YYYKQ'))
+    assert.ok(page.findByProps({ className: 'troubleshoot-actions-row' }))
+
+    for (const cardClass of [
+      'troubleshoot-card troubleshoot-card-devices',
+      'troubleshoot-card troubleshoot-card-adapters',
+      'troubleshoot-card troubleshoot-card-failures',
+      'troubleshoot-card troubleshoot-card-checklist',
+    ]) {
+      const card = page.findByProps({ className: cardClass })
+      const titleNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-title')
+      const bodyNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-body')
+      assert.ok(titleNode, `${cardClass} keeps fixed card title outside scroll body`)
+      assert.ok(bodyNode, `${cardClass} provides independent .troubleshoot-card-body scroll container`)
+    }
+    const failuresBody = page.findByProps({ className: 'troubleshoot-card troubleshoot-card-failures' }).findByProps({
+      className: 'troubleshoot-card-body',
+    })
+    assert.ok(text(failuresBody).includes('历史配对记录 #8'), 'all >6 failure records render inside independent scroll container')
 
     const copyBtn = page.findAllByType('button').find(b => text(b).includes('复制排查信息'))
     assert.ok(copyBtn)
