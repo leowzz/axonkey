@@ -22,16 +22,34 @@ export function createWorkflowStepInteraction(
             !event.altKey &&
             !event.ctrlKey &&
             !event.metaKey &&
-            (event.key === 'ArrowRight' || event.key === 'ArrowLeft')
+            (event.key === 'ArrowDown' ||
+              event.key === 'ArrowUp' ||
+              event.key === 'ArrowRight' ||
+              event.key === 'ArrowLeft')
           ) {
             const lane = view.g.closest('.workflow-trigger-lane')
             const focusables = lane ? [...lane.querySelectorAll<SVGElement>('.workflow-editable-step')] : []
             const index = focusables.indexOf(view.g)
-            const target = focusables[index + (event.key === 'ArrowRight' ? 1 : -1)]
+            const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+            const target = focusables[index + delta]
             if (target) {
               event.preventDefault()
               event.stopPropagation()
               target.focus()
+              const scrollViewport = lane?.querySelector<SVGSVGElement>('[data-trigger-scroll]')
+              const bounds = scrollViewport?.querySelector('.workflow-trigger-viewport-bounds')?.getBoundingClientRect()
+              const rect = target.getBoundingClientRect?.()
+              if (scrollViewport && bounds && bounds.height > 0 && rect && rect.height > 0) {
+                if (rect.top < bounds.top + 8) {
+                  scrollViewport.dispatchEvent(
+                    new CustomEvent('workflow-lane-scroll', { detail: rect.top - (bounds.top + 8) }),
+                  )
+                } else if (rect.bottom > bounds.bottom - 8) {
+                  scrollViewport.dispatchEvent(
+                    new CustomEvent('workflow-lane-scroll', { detail: rect.bottom - (bounds.bottom - 8) }),
+                  )
+                }
+              }
             }
             return
           }

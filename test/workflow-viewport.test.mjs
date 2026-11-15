@@ -77,63 +77,95 @@ test('wheel scrolls vertically within the overflowing flow, with fixed horizonta
   assert.equal(viewport.position.y, 100)
 })
 
-test('compact behavior lanes lay out sub-actions side-by-side with zero spurious overflow for short sequences and scroll cleanly for 18+ items', () => {
+test('behavior lanes stack cards strictly one per row, horizontally centered, with zero overflow for 3-5 items and clean scroll for 18+ items', () => {
   const threeSubActions = [
-    { width: 78, height: 25 },
-    { width: 88, height: 25 },
-    { width: 54, height: 25 },
+    { width: 148, height: 32 },
+    { width: 112, height: 32 },
+    { width: 78, height: 32 },
   ]
-  for (const [canvasWidth, canvasHeight, lanes, expectedMaxRows] of [
-    [512, 260, 3, 2], // 980x680 3-lane
-    [680, 310, 3, 2], // 1180x820 3-lane
-    [910, 350, 3, 1], // 1440x900 3-lane: all 3 fit on 1 row
-    [512, 260, 1, 1], // 980x680 single-lane controller: all 3 fit on 1 row
+  const fiveSubActions = [
+    { width: 136, height: 32 },
+    { width: 108, height: 32 },
+    { width: 84, height: 32 },
+    { width: 120, height: 32 },
+    { width: 92, height: 32 },
+  ]
+  for (const [canvasWidth, canvasHeight, lanes] of [
+    [512, 260, 3], // 980x680 3-lane minimum upper height
+    [680, 310, 3], // 1180x820 3-lane
+    [910, 350, 3], // 1440x900 3-lane
+    [512, 260, 1], // 980x680 single-lane controller
+    [910, 350, 1], // 1440x900 single-lane controller
   ]) {
     const layout = workflowLaneLayout(canvasWidth, canvasHeight, lanes, 2)
     assert.equal(layout.compactHeader, true)
     assert.equal(layout.headerHeight, 36)
-    const flow = layoutWorkflowFlow(threeSubActions, layout.laneWidth, layout.bodyHeight)
-    assert.equal(flow.overflow, 0, `3 sub-actions must never overflow at ${canvasWidth}x${canvasHeight}`)
-    assert.equal(flow.contentHeight, layout.bodyHeight)
-    const rowCount = flow.items[flow.items.length - 1].row + 1
-    assert.ok(rowCount <= expectedMaxRows, `expected <= ${expectedMaxRows} rows, got ${rowCount}`)
+
+    for (const seq of [threeSubActions, fiveSubActions]) {
+      const flow = layoutWorkflowFlow(seq, layout.laneWidth, layout.bodyHeight)
+      assert.equal(flow.overflow, 0, `${seq.length} sub-actions must never overflow at ${canvasWidth}x${canvasHeight}`)
+      assert.equal(flow.contentHeight, layout.bodyHeight)
+      assert.deepEqual(
+        flow.items.map(item => item.row),
+        seq.map((_, index) => index),
+        'strictly one behavior per row',
+      )
+      for (let i = 0; i < flow.items.length; i++) {
+        const item = flow.items[i]
+        assert.ok(
+          Math.abs(item.x + item.width / 2 - layout.laneWidth / 2) < 0.001,
+          'horizontally centered on lane centerline',
+        )
+        assert.ok(item.x >= 12 - 0.001 && item.x + item.width <= layout.laneWidth - 12 + 0.001, '12px side margins')
+        if (i > 0) {
+          const prev = flow.items[i - 1]
+          assert.equal(item.y - (prev.y + prev.height), 8, 'consistent 8px vertical gap between adjacent rows')
+        }
+      }
+    }
   }
 
-  // 20 mixed sub-actions overflow cleanly and clamp scroll to the exact bottom row.
+  // Overwide item clamps cleanly with 12px side margins while remaining centered.
+  const clamped = layoutWorkflowFlow([{ width: 400, height: 32 }], 180, 220)
+  assert.equal(clamped.items[0].width, 156)
+  assert.equal(clamped.items[0].x, 12)
+
+  // 20 stacked sub-actions overflow cleanly and clamp scroll to the exact bottom row.
   const narrow3Lane = workflowLaneLayout(512, 260, 3, 2)
-  const manyItems = Array.from({ length: 20 }, (_, index) => ({ width: index % 2 === 0 ? 84 : 72, height: 26 }))
+  const manyItems = Array.from({ length: 20 }, (_, index) => ({ width: index % 2 === 0 ? 116 : 92, height: 32 }))
   const longFlow = layoutWorkflowFlow(manyItems, narrow3Lane.laneWidth, narrow3Lane.bodyHeight)
   assert.ok(longFlow.overflow > 0, '20 items in a 980x680 lane must be scrollable')
   assert.equal(clampLaneScroll(99999, longFlow.contentHeight, narrow3Lane.bodyHeight), longFlow.overflow)
 })
 
-test('2D wrapped lane drop slots partition every row and trailing area into disjoint insertion indices', () => {
+test('1D centered vertical drop slots partition the lane into disjoint row bands and append in the open bottom area', () => {
   const empty = layoutWorkflowFlow([], 220, 180)
   assert.equal(empty.slots.length, 1)
   assert.equal(empty.slots[0].empty, true)
   assert.equal(empty.slots[0].index, 0)
+  assert.ok(Math.abs(empty.slots[0].bar.x + empty.slots[0].bar.width / 2 - 110) < 0.001)
 
-  const wrapped = layoutWorkflowFlow(
+  const stacked = layoutWorkflowFlow(
     [
-      { width: 82, height: 26 },
-      { width: 94, height: 26 },
-      { width: 58, height: 26 },
-      { width: 76, height: 26 },
+      { width: 132, height: 32 },
+      { width: 104, height: 32 },
+      { width: 76, height: 32 },
     ],
-    218,
-    200,
+    220,
+    220,
   )
-  // Row 0: items 0, 1; Row 1: items 2, 3
   assert.deepEqual(
-    wrapped.items.map(item => item.row),
-    [0, 0, 1, 1],
+    stacked.items.map(item => item.row),
+    [0, 1, 2],
   )
-  assert.equal(wrapped.connectors.length, 2)
-  assert.equal(wrapped.connectors[0].wraps, false)
-  assert.equal(wrapped.connectors[1].wraps, false)
+  assert.equal(stacked.slots.length, 4)
+  for (const slot of stacked.slots) {
+    assert.ok(Math.abs(slot.bar.x + slot.bar.width / 2 - 110) < 0.001, 'horizontal insertion bar is centered')
+    assert.equal(slot.bar.height, 3)
+  }
 
   const hitAt = (px, py) =>
-    wrapped.slots.filter(
+    stacked.slots.filter(
       slot =>
         px > slot.hit.x &&
         px < slot.hit.x + slot.hit.width &&
@@ -141,15 +173,18 @@ test('2D wrapped lane drop slots partition every row and trailing area into disj
         py < slot.hit.y + slot.hit.height,
     )
 
-  const row0Y = wrapped.items[0].y + 13
-  const row1Y = wrapped.items[2].y + 13
-  assert.deepEqual(hitAt(4, row0Y).map(s => s.index), [0])
-  assert.deepEqual(hitAt(wrapped.items[0].x + wrapped.items[0].width + 4, row0Y).map(s => s.index), [1])
-  assert.deepEqual(hitAt(210, row0Y).map(s => s.index), [2])
-  assert.deepEqual(hitAt(4, row1Y).map(s => s.index), [2])
-  assert.deepEqual(hitAt(wrapped.items[2].x + wrapped.items[2].width + 4, row1Y).map(s => s.index), [3])
-  assert.deepEqual(hitAt(210, row1Y).map(s => s.index), [4])
-  assert.deepEqual(hitAt(100, 165).map(s => s.index), [4], 'open area below wrapped rows appends to end')
+  const gap01Y = (stacked.items[0].y + stacked.items[0].height + stacked.items[1].y) / 2
+  const gap12Y = (stacked.items[1].y + stacked.items[1].height + stacked.items[2].y) / 2
+  assert.deepEqual(hitAt(110, 4).map(s => s.index), [0], 'above first card inserts at 0')
+  assert.deepEqual(hitAt(110, gap01Y).map(s => s.index), [1], 'gap between row 0 and row 1 inserts at 1')
+  assert.deepEqual(hitAt(110, gap12Y).map(s => s.index), [2], 'gap between row 1 and row 2 inserts at 2')
+  assert.deepEqual(
+    hitAt(110, stacked.items[2].y + stacked.items[2].height + 4).map(s => s.index),
+    [3],
+    'just below last card appends at end',
+  )
+  assert.deepEqual(hitAt(30, 195).map(s => s.index), [3], 'open area anywhere below last card appends at end')
+  assert.deepEqual(hitAt(190, 195).map(s => s.index), [3], 'full lane width in open area below appends at end')
 })
 
 test('trigger root omits no-op self-move indices, excludes disabled lanes, and zeroes drop rects over trash', () => {

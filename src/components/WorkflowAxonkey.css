@@ -627,14 +627,14 @@ body:has(.workflow-split-layout[data-resizing]) * {
   outline-offset: 3px;
 }
 
-/* Refined Option A step cards & connectors inside Sequential Workflow Designer */
+/* Refined Option A step cards & placeholders inside Sequential Workflow Designer */
 .workflow-axonkey .sqd-step-task .sqd-step-task-rect,
 .workflow-drag-preview .sqd-step-task .sqd-step-task-rect {
   fill: #fff;
-  stroke: rgb(24 28 36 / 13%);
+  stroke: rgb(24 28 36 / 12%);
   stroke-width: 1;
-  rx: 6px;
-  ry: 6px;
+  rx: 8px;
+  ry: 8px;
   filter: drop-shadow(0 1px 2px rgb(15 23 42 / 5%));
   transition:
     stroke 0.14s ease,
@@ -663,7 +663,7 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-axonkey .sqd-step-task .sqd-step-task-text,
 .workflow-drag-preview .sqd-step-task .sqd-step-task-text {
   fill: var(--ink);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
 }
 .workflow-axonkey .sqd-step-task .sqd-input,
@@ -671,18 +671,6 @@ body:has(.workflow-split-layout[data-resizing]) * {
 .workflow-drag-preview .sqd-step-task .sqd-input,
 .workflow-drag-preview .sqd-step-task .sqd-output {
   display: none;
-}
-.workflow-flow-chevron {
-  fill: none;
-  stroke: var(--trigger-color, #94a3b8);
-  stroke-opacity: 0.62;
-  stroke-width: 1.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-.workflow-flow-chevron.is-wrap {
-  stroke-opacity: 0.36;
 }
 .workflow-flow-placeholders,
 .workflow-flow-placeholder,
@@ -710,8 +698,8 @@ body:has(.workflow-split-layout[data-resizing]) * {
   stroke: rgb(0 102 255 / 32%);
   stroke-width: 1;
   stroke-dasharray: 4 3;
-  rx: 7px;
-  ry: 7px;
+  rx: 8px;
+  ry: 8px;
   transition:
     fill 0.12s ease,
     stroke 0.12s ease;
@@ -891,21 +879,18 @@ body:has(.workflow-split-layout[data-resizing]) * {
   }
 }
 
-/* Option A Trigger Lanes: Clean neutral glass lanes + semantic accent dot & wire */
+/* Option A Trigger Lanes: Clean neutral glass lanes + semantic accent dot */
 .workflow-trigger-click {
   --trigger-color: #0066ff;
   --trigger-background: #ffffff;
-  --trigger-dash: none;
 }
 .workflow-trigger-doubleClick {
   --trigger-color: #7c3aed;
   --trigger-background: #ffffff;
-  --trigger-dash: 7 4;
 }
 .workflow-trigger-longPress {
   --trigger-color: #d97706;
   --trigger-background: #ffffff;
-  --trigger-dash: 2 5;
 }
 .workflow-trigger-disabled {
   --trigger-color: #94a3b8;
@@ -1018,23 +1003,6 @@ body:has(.workflow-split-layout[data-resizing]) * {
   font-size: 13px;
   font-weight: 650;
   text-anchor: start;
-}
-.workflow-trigger-line,
-.workflow-trigger-lane .sqd-join {
-  fill: none;
-  stroke: var(--trigger-color);
-  stroke-opacity: 0.5;
-  stroke-width: 2;
-  stroke-dasharray: var(--trigger-dash);
-  stroke-linecap: round;
-}
-.workflow-trigger-start {
-  fill: var(--trigger-color);
-}
-.workflow-trigger-end {
-  fill: #fff;
-  stroke: var(--trigger-color);
-  stroke-width: 2;
 }
 
 .workflow-axonkey .workflow-saved-remove {

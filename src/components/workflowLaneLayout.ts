@@ -12,12 +12,6 @@ export type WorkflowFlowItem = {
   row: number
 }
 
-export type WorkflowFlowConnector = {
-  x: number
-  y: number
-  wraps: boolean
-}
-
 export type WorkflowDropRect = {
   x: number
   y: number
@@ -55,30 +49,25 @@ export function clampLaneScroll(top: number, contentHeight: number, viewportHeig
   return Math.max(0, Math.min(Math.max(0, contentHeight - viewportHeight), top))
 }
 
-export function layoutWorkflowFlow(
-  sizes: readonly WorkflowItemSize[],
-  laneWidth: number,
-  bodyHeight: number,
-) {
+export function layoutWorkflowFlow(sizes: readonly WorkflowItemSize[], laneWidth: number, bodyHeight: number) {
   const safeLaneWidth = Math.max(24, laneWidth)
   const safeBodyHeight = Math.max(24, bodyHeight)
-  const padLeft = 5
-  const padRight = 5
-  const padTop = 5
-  const padBottom = 7
-  const colGap = 5
-  const rowGap = 5
+  const sideMargin = 12
+  const padTop = 10
+  const padBottom = 10
+  const rowGap = 8
+  const maxItemWidth = Math.max(16, safeLaneWidth - sideMargin * 2)
 
   if (sizes.length === 0) {
-    const emptyHeight = Math.min(38, Math.max(26, safeBodyHeight - 12))
+    const emptyWidth = Math.min(180, maxItemWidth)
+    const emptyHeight = Math.min(32, Math.max(24, safeBodyHeight - padTop - padBottom))
     return {
       items: [] as WorkflowFlowItem[],
-      connectors: [] as WorkflowFlowConnector[],
       slots: [
         {
           index: 0,
           hit: { x: 2, y: 2, width: Math.max(8, safeLaneWidth - 4), height: Math.max(8, safeBodyHeight - 4) },
-          bar: { x: padLeft, y: padTop, width: Math.max(12, safeLaneWidth - padLeft - padRight), height: emptyHeight },
+          bar: { x: (safeLaneWidth - emptyWidth) / 2, y: padTop, width: emptyWidth, height: emptyHeight },
           empty: true,
         },
       ] as WorkflowDropSlot[],
@@ -87,137 +76,62 @@ export function layoutWorkflowFlow(
     }
   }
 
-  type Row = { start: number; end: number; y: number; height: number; bottom: number }
-  const rows: Row[] = []
   const items: WorkflowFlowItem[] = new Array(sizes.length)
-  const maxRight = Math.max(padLeft + 16, safeLaneWidth - padRight)
-
-  let rowStart = 0
-  let cursorX = padLeft
   let cursorY = padTop
-  let rowHeight = 0
 
   for (let i = 0; i < sizes.length; i++) {
-    const w = Math.max(16, sizes[i].width)
+    const w = Math.min(maxItemWidth, Math.max(16, sizes[i].width))
     const h = Math.max(18, sizes[i].height)
-    if (i > rowStart && cursorX + colGap + w > maxRight + 0.5) {
-      const rowIndex = rows.length
-      rows.push({ start: rowStart, end: i - 1, y: cursorY, height: rowHeight, bottom: cursorY + rowHeight })
-      for (let j = rowStart; j < i; j++) {
-        items[j].y = cursorY + (rowHeight - items[j].height) / 2
-        items[j].row = rowIndex
-      }
-      cursorY += rowHeight + rowGap
-      cursorX = padLeft
-      rowStart = i
-      rowHeight = 0
-    }
-    const x = i === rowStart ? padLeft : cursorX + colGap
-    items[i] = { index: i, x, y: cursorY, width: w, height: h, row: rows.length }
-    cursorX = x + w
-    rowHeight = Math.max(rowHeight, h)
+    const x = (safeLaneWidth - w) / 2
+    items[i] = { index: i, x, y: cursorY, width: w, height: h, row: i }
+    cursorY += h + (i < sizes.length - 1 ? rowGap : 0)
   }
 
-  const lastRowIndex = rows.length
-  rows.push({ start: rowStart, end: sizes.length - 1, y: cursorY, height: rowHeight, bottom: cursorY + rowHeight })
-  for (let j = rowStart; j < sizes.length; j++) {
-    items[j].y = cursorY + (rowHeight - items[j].height) / 2
-    items[j].row = lastRowIndex
-  }
-
-  const connectors: WorkflowFlowConnector[] = []
-  for (let i = 0; i < items.length - 1; i++) {
-    const current = items[i]
-    const next = items[i + 1]
-    if (current.row === next.row) {
-      connectors.push({
-        x: current.x + current.width + colGap / 2,
-        y: current.y + current.height / 2,
-        wraps: false,
-      })
-    }
-  }
-
-  const rawHeight = rows[rows.length - 1].bottom + padBottom
+  const rawHeight = cursorY + padBottom
   const contentHeight = rawHeight <= safeBodyHeight + 0.5 ? safeBodyHeight : Math.ceil(rawHeight)
   const overflow = Math.max(0, contentHeight - safeBodyHeight)
 
-  const slots: WorkflowDropSlot[] = []
-  const barWidth = 2.5
+  const slots: WorkflowDropSlot[] = new Array(items.length + 1)
+  const barHeight = 3
+  const midY = (index: number) => items[index].y + items[index].height / 2
 
-  for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]
-    const bandTop = r === 0 ? 0 : (rows[r - 1].bottom + row.y) / 2
-    const bandBottom =
-      r === rows.length - 1 ? Math.min(contentHeight, row.bottom + rowGap) : (row.bottom + rows[r + 1].y) / 2
-    const bandHeight = Math.max(4, bandBottom - bandTop)
+  for (let index = 0; index <= items.length; index++) {
+    const bandTop = index === 0 ? 0 : midY(index - 1)
+    const bandBottom = index === items.length ? contentHeight : midY(index)
+    const refWidth =
+      index === 0
+        ? items[0].width
+        : index === items.length
+          ? items[items.length - 1].width
+          : Math.max(items[index - 1].width, items[index].width)
+    const barWidth = Math.min(maxItemWidth, Math.max(64, refWidth))
+    const barX = (safeLaneWidth - barWidth) / 2
+    const barY =
+      index === 0
+        ? Math.max(2, items[0].y + 0.5 - rowGap / 2 - barHeight / 2)
+        : index === items.length
+          ? Math.min(
+              contentHeight - barHeight - 2,
+              items[items.length - 1].y + items[items.length - 1].height + 0.5 + rowGap / 2 - barHeight / 2,
+            )
+          : (items[index - 1].y + items[index - 1].height + items[index].y) / 2 + 0.5 - barHeight / 2
 
-    const mids: number[] = []
-    let prevMid = 0.5
-    for (let i = row.start; i <= row.end; i++) {
-      const visibleWidth = Math.max(4, Math.min(items[i].width, safeLaneWidth - items[i].x))
-      const rawMid = items[i].x + visibleWidth / 2
-      const mid = Math.min(safeLaneWidth - 0.5, Math.max(prevMid + 0.5, rawMid))
-      mids.push(mid)
-      prevMid = mid
-    }
-
-    const first = items[row.start]
-    slots.push({
-      index: row.start,
-      hit: { x: 0, y: bandTop, width: mids[0], height: bandHeight },
-      bar: {
-        x: Math.max(1.5, first.x - (barWidth + 1.5)),
-        y: first.y + 1,
-        width: barWidth,
-        height: Math.max(12, first.height - 2),
+    slots[index] = {
+      index,
+      hit: {
+        x: 0,
+        y: bandTop,
+        width: safeLaneWidth,
+        height: Math.max(4, bandBottom - bandTop),
       },
-    })
-
-    for (let k = 1; k < mids.length; k++) {
-      const prev = items[row.start + k - 1]
-      const curr = items[row.start + k]
-      slots.push({
-        index: row.start + k,
-        hit: { x: mids[k - 1], y: bandTop, width: Math.max(1, mids[k] - mids[k - 1]), height: bandHeight },
-        bar: {
-          x: prev.x + prev.width + (colGap - barWidth) / 2,
-          y: curr.y + 1,
-          width: barWidth,
-          height: Math.max(12, curr.height - 2),
-        },
-      })
-    }
-
-    const last = items[row.end]
-    const lastMid = mids[mids.length - 1]
-    slots.push({
-      index: row.end + 1,
-      hit: { x: lastMid, y: bandTop, width: Math.max(1, safeLaneWidth - lastMid), height: bandHeight },
       bar: {
-        x: Math.min(safeLaneWidth - barWidth - 3, last.x + last.width + (colGap - barWidth) / 2),
-        y: last.y + 1,
+        x: barX,
+        y: barY,
         width: barWidth,
-        height: Math.max(12, last.height - 2),
+        height: barHeight,
       },
-    })
+    }
   }
 
-  const lastRow = rows[rows.length - 1]
-  const tailTop = Math.min(contentHeight, lastRow.bottom + rowGap)
-  if (contentHeight - tailTop > 2) {
-    const last = items[items.length - 1]
-    slots.push({
-      index: items.length,
-      hit: { x: 0, y: tailTop, width: safeLaneWidth, height: contentHeight - tailTop },
-      bar: {
-        x: Math.min(safeLaneWidth - barWidth - 3, last.x + last.width + (colGap - barWidth) / 2),
-        y: last.y + 1,
-        width: barWidth,
-        height: Math.max(12, last.height - 2),
-      },
-    })
-  }
-
-  return { items, connectors, slots, contentHeight, overflow }
+  return { items, slots, contentHeight, overflow }
 }

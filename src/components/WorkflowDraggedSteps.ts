@@ -2,7 +2,7 @@ import { Dom } from 'sequential-workflow-designer'
 import type { DraggedComponentExtension, Step } from 'sequential-workflow-designer'
 
 // Render all group members in the moving preview while returning a subpixel
-// cursor hitbox so 2D wrapped lane slots resolve the exact pointer target.
+// cursor hitbox so vertical lane slots resolve the exact pointer target.
 export function createWorkflowDraggedSteps(getSteps: (step: Step) => Step[]): DraggedComponentExtension {
   return {
     create(parent, step, isAttached, context) {
@@ -37,14 +37,14 @@ export function createWorkflowDraggedSteps(getSteps: (step: Step) => Step[]): Dr
           primaryY = height
         }
         Dom.translate(view.g, 8 + (width - view.width) / 2, height)
-        height += view.height + 4
+        height += view.height + 8
       }
       const primary = components[primaryIndex].view
       const primaryCenterX = 8 + width / 2
       const primaryCenterY = primaryY + primary.height / 2
       Dom.attrs(svg, {
         width: width + 16,
-        height: height + 2,
+        height: Math.max(8, height - 2),
         style: `transform: scale(${scale}) translate(${0.25 - primaryCenterX}px, ${0.25 - primaryCenterY}px); transform-origin: 0 0; overflow: visible;`,
       })
       return {

@@ -70,8 +70,8 @@ function createFlowPlaceholder(
     y: slot.bar.y,
     width: slot.bar.width,
     height: slot.bar.height,
-    rx: slot.empty ? 7 : 1.5,
-    ry: slot.empty ? 7 : 1.5,
+    rx: slot.empty ? 8 : 1.5,
+    ry: slot.empty ? 8 : 1.5,
   })
   g.appendChild(hitRect)
   g.appendChild(barRect)
@@ -182,10 +182,8 @@ export function createTriggerRootExtension(
         )
         const content = Dom.svg('g')
         viewport.appendChild(content)
-        const connectorsLayer = Dom.svg('g', { class: 'workflow-flow-connectors', 'aria-hidden': 'true' })
         const itemsLayer = Dom.svg('g', { class: 'workflow-flow-items' })
         const placeholdersLayer = Dom.svg('g', { class: 'workflow-flow-placeholders' })
-        content.appendChild(connectorsLayer)
         content.appendChild(itemsLayer)
         content.appendChild(placeholdersLayer)
 
@@ -211,14 +209,6 @@ export function createTriggerRootExtension(
         )
         for (let i = 0; i < stepComponents.length; i++) {
           Dom.translate(stepComponents[i].view.g, flow.items[i].x, flow.items[i].y)
-        }
-        for (const connector of flow.connectors) {
-          connectorsLayer.appendChild(
-            Dom.svg('path', {
-              class: `workflow-flow-chevron${connector.wraps ? ' is-wrap' : ''}`,
-              d: `M ${connector.x - 1.3} ${connector.y - 2.7} L ${connector.x + 1.3} ${connector.y} L ${connector.x - 1.3} ${connector.y + 2.7}`,
-            }),
-          )
         }
         const placeholders: Placeholder[] = disabled
           ? []

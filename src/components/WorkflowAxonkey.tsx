@@ -311,7 +311,8 @@ export function WorkflowAxonkey<Id extends string = InputId>({
           triggersRef.current.length,
           maxLabelLength,
         ).laneWidth
-        const maxWidth = Math.max(20, Math.min(220, laneWidth - 44))
+        const maxCardWidth = Math.min(340, laneWidth - 24)
+        const maxWidth = Math.max(20, maxCardWidth - 47)
         if (text.getComputedTextLength() > maxWidth) {
           let end = full.length
           do {
@@ -343,13 +344,13 @@ export function WorkflowAxonkey<Id extends string = InputId>({
         StepsDesignerExtension.create({
           task: {
             view: {
-              paddingLeft: 5,
-              paddingRight: 6,
-              paddingY: 5,
-              textMarginLeft: 4,
-              minTextWidth: 10,
-              iconSize: 15,
-              radius: 6,
+              paddingLeft: 11,
+              paddingRight: 12,
+              paddingY: 7,
+              textMarginLeft: 6,
+              minTextWidth: 16,
+              iconSize: 18,
+              radius: 8,
               inputSize: 0,
               outputSize: 0,
             },
