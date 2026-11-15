@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, Radio, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
@@ -32,6 +32,14 @@ import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
 import './DeviceCards.css'
+import '../capture/DeviceCaptureWorkbench.css'
+
+const DeviceCaptureWorkbench = lazy(() =>
+  import('../capture/DeviceCaptureWorkbench').then(mod => ({ default: mod.DeviceCaptureWorkbench })),
+)
+const ConnectionTroubleshootPage = lazy(() =>
+  import('./ConnectionTroubleshootPage').then(mod => ({ default: mod.ConnectionTroubleshootPage })),
+)
 
 type Props = {
   bindInstanceId?: string | null
@@ -49,6 +57,7 @@ type Props = {
   onOpenAudioDriver: () => void
   onOpenBluetoothSettings: () => void
   onOpenDeviceManager: () => void
+  onOpenLogs?: () => void
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
@@ -72,6 +81,8 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [captureOpen, setCaptureOpen] = useState(false)
+  const [troubleshootOpen, setTroubleshootOpen] = useState(false)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
@@ -197,8 +208,10 @@ export function DeviceHub(props: Props) {
     </>
   )
   return (
-    <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
-      {banner}
+    <section
+      className={`managed-hub ${instance || captureOpen || troubleshootOpen ? 'has-workspace mapping-active' : ''}`}
+    >
+      {!captureOpen && !troubleshootOpen && banner}
       {instance ? (
         <InstanceWorkspace
           key={instance.id}
@@ -213,6 +226,27 @@ export function DeviceHub(props: Props) {
           onBack={() => setSelected(null)}
           onBind={() => setIntegration({ kind: instance.kind, instance })}
         />
+      ) : captureOpen ? (
+        <Suspense fallback={null}>
+          <DeviceCaptureWorkbench
+            native={native}
+            onBack={() => setCaptureOpen(false)}
+            onDevicesChanged={() => void controller.refresh()}
+            onToast={props.onToast}
+          />
+        </Suspense>
+      ) : troubleshootOpen ? (
+        <Suspense fallback={null}>
+          <ConnectionTroubleshootPage
+            native={native}
+            platform={props.platform}
+            onBack={() => setTroubleshootOpen(false)}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenLogs={props.onOpenLogs}
+            onToast={props.onToast}
+          />
+        </Suspense>
       ) : (
         <>
           <header className="my-devices-heading">
@@ -224,10 +258,16 @@ export function DeviceHub(props: Props) {
               <h1 id="my-devices-title">我的设备</h1>
               <span className="my-devices-total">{orderedCardIds.length} 台已接入</span>
             </div>
-            <button className="my-devices-integrate" onClick={() => setIntegration({})}>
-              <Plus size={15} />
-              手动添加设备
-            </button>
+            <div className="my-devices-heading-actions">
+              <button className="my-devices-integrate" onClick={() => setCaptureOpen(true)}>
+                <Radio size={15} />
+                适配新设备
+              </button>
+              <button className="my-devices-integrate" onClick={() => setIntegration({})}>
+                <Plus size={15} />
+                手动添加设备
+              </button>
+            </div>
           </header>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
@@ -293,7 +333,11 @@ export function DeviceHub(props: Props) {
                 })}
               </div>
             </section>
-            <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
+            <DeviceDiscoverySection
+              {...props}
+              onIntegrated={setSelected}
+              onOpenTroubleshoot={() => setTroubleshootOpen(true)}
+            />
           </div>
         </>
       )}
@@ -303,6 +347,10 @@ export function DeviceHub(props: Props) {
             {...props}
             initial={integration}
             onClose={() => setIntegration(null)}
+            onOpenCapture={() => {
+              setIntegration(null)
+              setCaptureOpen(true)
+            }}
             onComplete={id => {
               setIntegration(null)
               setSelected(id)
@@ -320,9 +368,10 @@ export function DeviceHub(props: Props) {
 }
 type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'>
 export type DeviceDiscoveryProps = IntegrationProps &
-  Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+  Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager' | 'onOpenLogs' | 'onToast'> & {
     guide?: boolean
     onIntegrated: (id: string) => void
+    onOpenTroubleshoot?: () => void
   }
 
 export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
@@ -330,6 +379,7 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   const { snapshot, error, busy } = controller
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
+  const [troubleshootModalOpen, setTroubleshootModalOpen] = useState(false)
   const [discoveredExpanded, setDiscoveredExpanded] = useState(() => guide || getDiscoveredDevicesExpanded())
   const unboundDevices = snapshot.discovered.filter(
     d => deviceMatchesKind(d, d.kind) && !snapshot.store.instances.some(i => i.binding === d.id),
@@ -438,7 +488,29 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
             platform={props.platform}
             onOpenBluetoothSettings={props.onOpenBluetoothSettings}
             onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenTroubleshoot={() => {
+              setDiscoveryHelpOpen(false)
+              if (props.onOpenTroubleshoot) {
+                props.onOpenTroubleshoot()
+              } else {
+                setTroubleshootModalOpen(true)
+              }
+            }}
             onClose={() => setDiscoveryHelpOpen(false)}
+          />,
+          document.body,
+        )}
+
+      {troubleshootModalOpen &&
+        createPortal(
+          <TroubleshootModalDialog
+            native={native}
+            platform={props.platform}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenLogs={props.onOpenLogs}
+            onToast={props.onToast}
+            onClose={() => setTroubleshootModalOpen(false)}
           />,
           document.body,
         )}
@@ -470,8 +542,10 @@ function DiscoveryHelpDialog({
   platform,
   onOpenBluetoothSettings,
   onOpenDeviceManager,
+  onOpenTroubleshoot,
   onClose,
 }: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+  onOpenTroubleshoot: () => void
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -504,6 +578,9 @@ function DiscoveryHelpDialog({
           <p id="managed-discovery-help-description">蓝牙设备需要先在 {system}中进行蓝牙配对。</p>
         </div>
         <footer className="managed-dialog-footer">
+          <button type="button" className="managed-discovery-troubleshoot" onClick={onOpenTroubleshoot}>
+            设备无法连接排查
+          </button>
           {platform === 'windows' && (
             <button type="button" onClick={onOpenDeviceManager} disabled={!native}>
               打开设备管理器
@@ -521,6 +598,55 @@ function DiscoveryHelpDialog({
             关闭
           </button>
         </footer>
+      </div>
+    </dialog>
+  )
+}
+
+function TroubleshootModalDialog({
+  native,
+  platform,
+  onOpenBluetoothSettings,
+  onOpenDeviceManager,
+  onOpenLogs,
+  onToast,
+  onClose,
+}: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings' | 'onOpenDeviceManager' | 'onOpenLogs' | 'onToast'> & {
+  onClose: () => void
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const previousFocus = document.activeElement
+    dialog?.showModal()
+    return () => {
+      dialog?.close()
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
+    }
+  }, [])
+  return (
+    <dialog
+      ref={dialogRef}
+      className="troubleshoot-dialog"
+      aria-label="设备无法连接排查"
+      onCancel={onClose}
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="troubleshoot-dialog-shell">
+        <Suspense fallback={null}>
+          <ConnectionTroubleshootPage
+            native={native}
+            platform={platform}
+            backLabel="关闭"
+            onBack={onClose}
+            onOpenBluetoothSettings={onOpenBluetoothSettings}
+            onOpenDeviceManager={onOpenDeviceManager}
+            onOpenLogs={onOpenLogs}
+            onToast={onToast}
+          />
+        </Suspense>
       </div>
     </dialog>
   )
@@ -656,8 +782,14 @@ function IntegrationDialog({
   permissions,
   onPermissions,
   onClose,
+  onOpenCapture,
   onComplete,
-}: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
+}: IntegrationProps & {
+  initial: Integration
+  onClose: () => void
+  onOpenCapture?: () => void
+  onComplete: (id: string) => void
+}) {
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
   const [kind, setKind] = useState<DeviceKind | undefined>(() =>
     mobileModelSelection ? mobileRemoteFallbackKind : initial.kind,
@@ -904,6 +1036,11 @@ function IntegrationDialog({
           )}
         </div>
         <footer className="managed-dialog-footer">
+          {step === 'kind' && onOpenCapture && (
+            <button type="button" className="managed-integration-adapt-link" onClick={onOpenCapture}>
+              没有找到型号？适配新设备
+            </button>
+          )}
           <button onClick={onClose}>取消</button>
           {step === 'mobile-model' && (
             <button

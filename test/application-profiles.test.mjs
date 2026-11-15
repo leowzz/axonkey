@@ -304,3 +304,158 @@ test('workspace edits the explicitly selected app while paused and does not foll
     assert.equal(workflow().props.sequences.click[0].ms, 100)
   } finally { await act(async () => view.unmount()) }
 })
+
+test('windows toolbar keeps loading added and recent icons across StrictMode remounts, polling re-renders, transient failures and image decode errors', async () => {
+  const nebulume = {
+    id: 'windows:c:\\users\\leo\\appdata\\local\\lumen\\nebulume.exe',
+    name: 'nebulume',
+    path: 'C:\\Users\\leo\\AppData\\Local\\Lumen\\nebulume.exe',
+  }
+  const explorer = {
+    id: 'windows:c:\\windows\\explorer.exe',
+    name: 'explorer',
+    path: 'C:\\Windows\\explorer.exe',
+  }
+  const chatgpt = {
+    id: 'windows:c:\\program files\\windowsapps\\openai.codex\\app\\chatgpt.exe',
+    name: 'ChatGPT',
+    path: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\ChatGPT.exe',
+  }
+  const broken = {
+    id: 'windows:c:\\app\\broken.exe',
+    name: 'broken',
+    path: 'C:\\app\\broken.exe',
+  }
+  const iconsById = {
+    [nebulume.id]: 'data:image/png;base64,iVBORw0KGgoNebulume',
+    [explorer.id]: 'data:image/png;base64,iVBORw0KGgoExplorer',
+    [chatgpt.id]: 'data:image/png;base64,iVBORw0KGgoChatGPT',
+    [broken.id]: 'data:image/png;base64,corrupt',
+  }
+  const pendingCalls = []
+  let failOnce = false
+  const { SelectControl } = compile('src/components/SelectControl.tsx')
+  const { ProfileManager } = compile('src/components/ProfileManager.tsx', { './SelectControl': { SelectControl } })
+  const toolbarModule = compile('src/components/ApplicationProfileToolbar.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/core': {
+      invoke: (command, args) => {
+        assert.equal(command, 'application_icons')
+        if (failOnce) {
+          failOnce = false
+          return Promise.reject(new Error('temporary IPC error'))
+        }
+        return new Promise(resolve => {
+          pendingCalls.push({
+            applications: args.applications,
+            resolve: () =>
+              resolve(
+                Object.fromEntries(
+                  args.applications.flatMap(({ id }) => (iconsById[id] ? [[id, iconsById[id]]] : [])),
+                ),
+              ),
+          })
+        })
+      },
+    },
+    '@tauri-apps/plugin-dialog': { open: async () => null },
+    '../devices/integration/instanceProfiles': { addApplicationForEditing },
+    './ProfileManager': { ProfileManager },
+    './SettingsHelp': { SettingsHelp: () => null },
+  })
+  const { ApplicationProfileToolbar } = toolbarModule
+  const nodeText = node => (typeof node === 'string' ? node : (node?.children ?? []).map(nodeText).join(''))
+
+  let rerenderTick = () => {}
+  let setRecentApps = () => {}
+  let setEditingId = () => {}
+  const initialInstance = addApplicationForEditing(instance(), { ...nebulume, path: '' })
+  function StrictPollingHarness() {
+    const [, setTick] = React.useState(0)
+    const [recent, updateRecent] = React.useState([])
+    const [editingId, updateEditingId] = React.useState(nebulume.id)
+    rerenderTick = () => setTick(n => n + 1)
+    setRecentApps = updateRecent
+    setEditingId = updateEditingId
+    return React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(ApplicationProfileToolbar, {
+        instance: initialInstance,
+        editingApplicationId: editingId,
+        profileId: initialInstance.applicationProfiles[0].profileId,
+        applications: { supported: true, current: null, recent, error: null },
+        native: true,
+        platform: 'windows',
+        onUpdate: async () => {},
+        onSelectApplication: updateEditingId,
+        onSwitchProfile() {},
+        onCreateProfile() {},
+        onDuplicateProfile() {},
+        onRenameProfile() {},
+        onDeleteProfile() {},
+      }),
+    )
+  }
+
+  let view
+  await act(async () => {
+    view = Renderer.create(React.createElement(StrictPollingHarness), {
+      createNodeMock: () => ({ showModal() {}, close() {}, contains: () => false, focus() {} }),
+    })
+  })
+  try {
+    // Saved binding without cached icon or path only sends one IPC request even under StrictMode
+    assert.equal(pendingCalls.length, 1)
+    assert.deepEqual(JSON.parse(JSON.stringify(pendingCalls[0].applications)), [{ id: nebulume.id, path: '' }])
+
+    // Foreground poll arrives and multiple workspace polls re-render while both IPC batches are still in flight
+    await act(async () => {
+      setRecentApps([
+        { application: explorer, lastUsedAt: 3 },
+        { application: chatgpt, lastUsedAt: 2 },
+      ])
+    })
+    await act(async () => rerenderTick())
+    await act(async () => rerenderTick())
+    assert.equal(pendingCalls.length, 2, 'polling re-renders must not duplicate in-flight icon requests')
+
+    // Resolve both batches after parent re-renders occurred
+    await act(async () => {
+      for (const call of pendingCalls.splice(0)) call.resolve()
+    })
+
+    const trigger = () => view.root.findByProps({ 'aria-label': '编辑应用' })
+    assert.equal(trigger().findByType('img').props.src, iconsById[nebulume.id])
+
+    await act(async () => trigger().props.onClick())
+    const optionFor = label =>
+      view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes(label))
+    assert.equal(optionFor('nebulume').findByType('img').props.src, iconsById[nebulume.id])
+    assert.equal(optionFor('explorer').findByType('img').props.src, iconsById[explorer.id])
+    assert.equal(optionFor('ChatGPT').findByType('img').props.src, iconsById[chatgpt.id])
+
+    // Transient failure cleans up in-flight key so next poll retries, and broken image falls back cleanly
+    failOnce = true
+    await act(async () => {
+      setRecentApps([
+        { application: explorer, lastUsedAt: 3 },
+        { application: broken, lastUsedAt: 4 },
+      ])
+    })
+    assert.equal(pendingCalls.length, 0)
+    await act(async () => rerenderTick())
+    assert.equal(pendingCalls.length, 1)
+    await act(async () => pendingCalls.pop().resolve())
+
+    const brokenImg = optionFor('broken').findByType('img')
+    assert.equal(brokenImg.props.src, iconsById[broken.id])
+    await act(async () => brokenImg.props.onError())
+    assert.equal(optionFor('broken').findAllByType('img').length, 0)
+
+    await act(async () => setEditingId(''))
+    assert.equal(trigger().findAllByType('img').length, 0)
+  } finally {
+    await act(async () => view.unmount())
+  }
+})

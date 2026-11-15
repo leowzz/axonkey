@@ -19,9 +19,56 @@ export type ApplicationSelectOption = {
 }
 
 const applicationIconCache = new Map<string, string>()
-const requestedApplicationIconKeys = new Set<string>()
+const inFlightApplicationIconKeys = new Set<string>()
+const resolvedApplicationIconKeys = new Set<string>()
+const applicationIconListeners = new Set<() => void>()
+
+function requestApplicationIcons(items: readonly ApplicationSelectOption[]) {
+  const seenIds = new Set<string>()
+  const missing: { id: string; path: string }[] = []
+  const batchKeys: string[] = []
+  for (const item of items) {
+    if (!item.id || seenIds.has(item.id) || applicationIconCache.has(item.id)) continue
+    seenIds.add(item.id)
+    const path = item.path ?? ''
+    const requestKey = `${item.id}\0${path}`
+    if (resolvedApplicationIconKeys.has(requestKey) || inFlightApplicationIconKeys.has(requestKey)) continue
+    inFlightApplicationIconKeys.add(requestKey)
+    batchKeys.push(requestKey)
+    missing.push({ id: item.id, path })
+  }
+  if (missing.length === 0) return
+  void invoke<Record<string, string>>('application_icons', { applications: missing })
+    .then(loaded => {
+      for (const key of batchKeys) {
+        inFlightApplicationIconKeys.delete(key)
+        resolvedApplicationIconKeys.add(key)
+      }
+      if (!loaded || typeof loaded !== 'object') return
+      let updated = false
+      for (const [id, dataUrl] of Object.entries(loaded)) {
+        if (
+          typeof dataUrl === 'string' &&
+          dataUrl.startsWith('data:image/') &&
+          applicationIconCache.get(id) !== dataUrl
+        ) {
+          applicationIconCache.set(id, dataUrl)
+          updated = true
+        }
+      }
+      if (updated) {
+        for (const listener of applicationIconListeners) listener()
+      }
+    })
+    .catch(() => {
+      for (const key of batchKeys) {
+        inFlightApplicationIconKeys.delete(key)
+      }
+    })
+}
 
 function ApplicationIcon({ iconUrl, global = false }: { iconUrl?: string; global?: boolean }) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null)
   if (global) {
     return (
       <span className="application-icon-slot is-global" aria-hidden="true">
@@ -29,10 +76,16 @@ function ApplicationIcon({ iconUrl, global = false }: { iconUrl?: string; global
       </span>
     )
   }
-  if (iconUrl) {
+  if (iconUrl && failedUrl !== iconUrl) {
     return (
       <span className="application-icon-slot has-image" aria-hidden="true">
-        <img className="application-icon-image" src={iconUrl} alt="" draggable={false} />
+        <img
+          className="application-icon-image"
+          src={iconUrl}
+          alt=""
+          draggable={false}
+          onError={() => setFailedUrl(iconUrl)}
+        />
       </span>
     )
   }
@@ -65,9 +118,18 @@ export function ApplicationSelect({
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
 
+  const focusOnOpenRef = useRef(false)
+
   useEffect(() => {
     if (disabled) setMenuOpen(false)
   }, [disabled])
+
+  useEffect(() => {
+    if (menuOpen && focusOnOpenRef.current) {
+      focusOnOpenRef.current = false
+      moveOptionFocus(0)
+    }
+  }, [menuOpen])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -88,50 +150,52 @@ export function ApplicationSelect({
     }
   }, [menuOpen])
 
+  const selected = [...added, ...recent].find(item => item.id === value) ?? (value ? { id: value, name: value } : null)
+
+  useEffect(() => {
+    const sync = () => setIcons(Object.fromEntries(applicationIconCache.entries()))
+    applicationIconListeners.add(sync)
+    sync()
+    return () => {
+      applicationIconListeners.delete(sync)
+    }
+  }, [])
+
   useEffect(() => {
     if (!native) return
-    const seen = new Set<string>()
-    const missing: { id: string; path: string }[] = []
-    for (const item of [...added, ...recent]) {
-      if (!item.id || seen.has(item.id)) continue
-      seen.add(item.id)
-      const path = item.path ?? ''
-      const requestKey = `${item.id}\0${path}`
-      if (!applicationIconCache.has(item.id) && !requestedApplicationIconKeys.has(requestKey)) {
-        requestedApplicationIconKeys.add(requestKey)
-        missing.push({ id: item.id, path })
-      }
-    }
-    if (missing.length === 0) return
-    let active = true
-    void invoke<Record<string, string>>('application_icons', { applications: missing })
-      .then(loaded => {
-        if (!loaded || typeof loaded !== 'object') return
-        let updated = false
-        for (const [id, dataUrl] of Object.entries(loaded)) {
-          if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
-            applicationIconCache.set(id, dataUrl)
-            updated = true
-          }
-        }
-        if (updated && active) {
-          setIcons(Object.fromEntries(applicationIconCache.entries()))
-        }
-      })
-      .catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [native, added, recent])
-
-  const selected = [...added, ...recent].find(item => item.id === value) ?? (value ? { id: value, name: value } : null)
+    requestApplicationIcons(selected ? [...added, ...recent, selected] : [...added, ...recent])
+  }, [native, added, recent, selected])
   const choose = (id: string) => {
     setMenuOpen(false)
     onSelect(id)
   }
+  const moveOptionFocus = (step: number) => {
+    const items = Array.from(
+      rootRef.current?.querySelectorAll?.<HTMLButtonElement>('.application-select-popover button:not(:disabled)') ?? [],
+    )
+    if (items.length === 0) return
+    const active = typeof document !== 'undefined' ? (document.activeElement as HTMLButtonElement) : null
+    const activeIndex = active ? items.indexOf(active) : -1
+    const fallbackIndex = Math.max(
+      0,
+      items.findIndex(item => item.getAttribute('aria-selected') === 'true'),
+    )
+    const nextIndex = activeIndex < 0 ? fallbackIndex : (activeIndex + step + items.length) % items.length
+    items[nextIndex]?.focus()
+  }
 
   return (
-    <div ref={rootRef} className="application-select">
+    <div
+      ref={rootRef}
+      className="application-select"
+      onKeyDown={event => {
+        if (!menuOpen) return
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault()
+          moveOptionFocus(event.key === 'ArrowDown' ? 1 : -1)
+        }
+      }}
+    >
       <button
         ref={triggerRef}
         type="button"
@@ -142,8 +206,10 @@ export function ApplicationSelect({
         disabled={disabled}
         onClick={() => setMenuOpen(current => !current)}
         onKeyDown={event => {
-          if (event.key === 'ArrowDown' && !menuOpen) {
+          if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !menuOpen) {
             event.preventDefault()
+            event.stopPropagation?.()
+            focusOnOpenRef.current = true
             setMenuOpen(true)
           }
         }}

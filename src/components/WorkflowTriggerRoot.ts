@@ -1,7 +1,16 @@
-import { DefaultSequenceComponent, Dom, Vector } from 'sequential-workflow-designer'
-import type { BranchedStep, Definition, Placeholder, RootComponentExtension, Step } from 'sequential-workflow-designer'
+import { Dom } from 'sequential-workflow-designer'
+import type {
+  BranchedStep,
+  Definition,
+  Placeholder,
+  RootComponentExtension,
+  Sequence,
+  Step,
+  StepComponent,
+} from 'sequential-workflow-designer'
 import type { TriggerType } from '../behaviorModel.ts'
-import { clampLaneScroll, workflowLaneLayout } from './workflowLaneLayout.ts'
+import { clampLaneScroll, layoutWorkflowFlow, workflowLaneLayout } from './workflowLaneLayout.ts'
+import type { WorkflowDropSlot } from './workflowLaneLayout.ts'
 
 export const defaultWorkflowTriggers = [
   { id: 'click', label: '单击' },
@@ -37,6 +46,79 @@ export function createTriggerDefinition(): Definition {
 type WorkflowLaneAction = 'save' | 'copy' | 'paste'
 type WorkflowTriggers = readonly { id: TriggerType; label: string }[]
 
+function createFlowPlaceholder(
+  parent: SVGElement,
+  viewport: SVGSVGElement,
+  workspaceRoot: Element | null,
+  parentSequence: Sequence,
+  slot: WorkflowDropSlot,
+): Placeholder {
+  const g = Dom.svg('g', {
+    class: slot.empty ? 'sqd-placeholder workflow-empty-lane-placeholder' : 'sqd-placeholder workflow-flow-placeholder',
+  })
+  const hitRect = Dom.svg('rect', {
+    class: 'workflow-placeholder-hit',
+    x: slot.hit.x,
+    y: slot.hit.y,
+    width: slot.hit.width,
+    height: slot.hit.height,
+    fill: 'transparent',
+  })
+  const barRect = Dom.svg('rect', {
+    class: 'sqd-placeholder-rect',
+    x: slot.bar.x,
+    y: slot.bar.y,
+    width: slot.bar.width,
+    height: slot.bar.height,
+    rx: slot.empty ? 8 : 1.5,
+    ry: slot.empty ? 8 : 1.5,
+  })
+  g.appendChild(hitRect)
+  g.appendChild(barRect)
+  if (slot.empty) {
+    const cx = slot.bar.x + slot.bar.width / 2
+    const cy = slot.bar.y + slot.bar.height / 2
+    g.appendChild(
+      Dom.svg('path', {
+        class: 'workflow-empty-lane-plus',
+        d: `M ${cx} ${cy - 4.5} V ${cy + 4.5} M ${cx - 4.5} ${cy} H ${cx + 4.5}`,
+        'aria-hidden': 'true',
+      }),
+    )
+  }
+  parent.appendChild(g)
+
+  return {
+    parentSequence,
+    index: slot.index,
+    view: { g },
+    getClientRect() {
+      if (workspaceRoot?.querySelector('.workflow-trash.is-drag-over')) {
+        return new DOMRect(0, 0, 0, 0)
+      }
+      const rect = hitRect.getBoundingClientRect()
+      const bounds = viewport.querySelector('.workflow-trigger-viewport-bounds')!.getBoundingClientRect()
+      const x = Math.max(rect.x, bounds.left)
+      const y = Math.max(rect.y, bounds.top)
+      return new DOMRect(
+        x,
+        y,
+        Math.max(0, Math.min(rect.x + rect.width, bounds.right) - x),
+        Math.max(0, Math.min(rect.y + rect.height, bounds.bottom) - y),
+      )
+    },
+    setIsHover(isHover) {
+      Dom.toggleClass(g, isHover, 'sqd-hover')
+    },
+    setIsVisible(isVisible) {
+      Dom.toggleClass(g, isVisible, 'is-visible')
+    },
+    resolveClick() {
+      return null
+    },
+  }
+}
+
 // Render the input's supported triggers as independent lanes in one designer.
 export function createTriggerRootExtension(
   onClear: (trigger: TriggerType) => void,
@@ -56,20 +138,25 @@ export function createTriggerRootExtension(
       // Keep rendering with the SVG's current size instead of dereferencing a
       // canvas that is not in the ancestor chain yet.
       const canvas = parent.closest<HTMLElement>('.workflow-axonkey-canvas')
+      const workspaceRoot = canvas?.parentElement ?? null
       const svg = parent.ownerSVGElement
       const svgBounds = svg?.getBoundingClientRect()
       const width = canvas?.clientWidth ?? svg?.clientWidth ?? svgBounds?.width ?? 800
       const height = canvas?.clientHeight ?? svg?.clientHeight ?? svgBounds?.height ?? 400
-      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight } = workflowLaneLayout(
+      const maxLabelLength = Math.max(1, ...visibleTriggers.map(trigger => trigger.label.length))
+      const { gap, padding, laneWidth, laneHeight, bodyHeight, headerHeight, compactHeader } = workflowLaneLayout(
         width,
         height,
         visibleTriggers.length,
+        maxLabelLength,
       )
       const lanes = visibleTriggers.map(({ id, label }) => {
-        const disabled = isWorkflowLaneDisabled(root.branches[id])
+        const branch = root.branches[id]
+        const disabled = isWorkflowLaneDisabled(branch)
         const lane = Dom.svg('g', {
           class: `workflow-trigger-lane workflow-trigger-${id}${disabled ? ' workflow-trigger-disabled' : ''}`,
           'data-trigger': id,
+          'data-compact-header': String(compactHeader),
         })
         g.appendChild(lane)
         const viewport = Dom.svg('svg', {
@@ -95,25 +182,48 @@ export function createTriggerRootExtension(
         )
         const content = Dom.svg('g')
         viewport.appendChild(content)
-        const component = DefaultSequenceComponent.create(
-          content,
-          {
-            sequence: root.branches[id],
-            depth: 1,
-            isInputConnected: true,
-            isOutputConnected: true,
-            isPreview: false,
-          },
-          context,
+        const itemsLayer = Dom.svg('g', { class: 'workflow-flow-items' })
+        const placeholdersLayer = Dom.svg('g', { class: 'workflow-flow-placeholders' })
+        content.appendChild(itemsLayer)
+        content.appendChild(placeholdersLayer)
+
+        const stepComponents: StepComponent[] = branch.map((step, index) =>
+          context.stepComponentFactory.create(
+            itemsLayer,
+            {
+              parentSequence: branch,
+              step,
+              depth: 1,
+              position: index,
+              isInputConnected: false,
+              isOutputConnected: false,
+              isPreview: false,
+            },
+            context,
+          ),
         )
-        return { id, lane, viewport, content, component, label, disabled, sequence: root.branches[id] }
+        const flow = layoutWorkflowFlow(
+          stepComponents.map(component => ({ width: component.view.width, height: component.view.height })),
+          laneWidth,
+          bodyHeight,
+        )
+        for (let i = 0; i < stepComponents.length; i++) {
+          Dom.translate(stepComponents[i].view.g, flow.items[i].x, flow.items[i].y)
+        }
+        const placeholders: Placeholder[] = disabled
+          ? []
+          : flow.slots
+              .filter(slot => context.placeholderController.canCreate(branch, slot.index))
+              .map(slot => createFlowPlaceholder(placeholdersLayer, viewport, workspaceRoot, branch, slot))
+
+        return { id, lane, viewport, content, stepComponents, placeholders, flow, label, disabled, sequence: branch }
       })
-      const appendPlaceholders: Placeholder[] = []
+
       let offset = padding
-      for (const { id, lane, viewport, content, component, label, disabled, sequence: branch } of lanes) {
+      for (const { id, lane, viewport, content, flow, label, sequence: branch } of lanes) {
         Dom.translate(lane, offset, padding)
         const center = laneWidth / 2
-        const contentHeight = Math.max(bodyHeight, component.view.height + 56)
+        const { contentHeight, overflow } = flow
         const background = Dom.svg('rect', {
           class: 'workflow-trigger-background',
           width: laneWidth,
@@ -121,19 +231,60 @@ export function createTriggerRootExtension(
           rx: 12,
         })
         lane.insertBefore(background, viewport)
-        const titleDot = Dom.svg('circle', {
-          class: 'workflow-trigger-dot',
-          cx: center - label.length * 7 - 3.5,
-          cy: 25,
-          r: 3.5,
-          'aria-hidden': 'true',
+
+        if (compactHeader) {
+          lane.appendChild(
+            Dom.svg('circle', {
+              class: 'workflow-trigger-dot',
+              cx: 12,
+              cy: 18,
+              r: 3.2,
+              'aria-hidden': 'true',
+            }),
+          )
+          const title = Dom.svg('text', {
+            class: 'workflow-trigger-title',
+            x: 20,
+            y: 22.5,
+          })
+          title.textContent = label
+          lane.appendChild(title)
+        } else {
+          lane.appendChild(
+            Dom.svg('circle', {
+              class: 'workflow-trigger-dot',
+              cx: center - label.length * 6.5 - 3.5,
+              cy: 17,
+              r: 3.2,
+              'aria-hidden': 'true',
+            }),
+          )
+          const title = Dom.svg('text', { class: 'workflow-trigger-title', x: center + 6, y: 22 })
+          title.textContent = label
+          lane.appendChild(title)
+        }
+
+        const thumbHeight = Math.max(22, (bodyHeight * bodyHeight) / contentHeight)
+        const scrollbar = Dom.svg('rect', {
+          class: 'workflow-trigger-scrollbar',
+          x: laneWidth - 6,
+          y: headerHeight,
+          width: 4,
+          height: thumbHeight,
+          rx: 2,
+          role: 'scrollbar',
+          tabindex: overflow ? 0 : -1,
+          'aria-label': `滚动${label}流程`,
+          'aria-controls': `workflow-trigger-content-${id}`,
+          'aria-orientation': 'vertical',
+          'aria-valuemin': 0,
+          'aria-valuemax': overflow,
+          visibility: overflow ? 'visible' : 'hidden',
         })
-        lane.appendChild(titleDot)
-        const title = Dom.svg('text', { class: 'workflow-trigger-title', x: center + 6.5, y: 30 })
-        title.textContent = label
-        lane.appendChild(title)
-        // Keep the control in SVG coordinates: WebKit can misplace HTML inside
-        // a foreignObject when the designer transforms the canvas.
+        lane.appendChild(scrollbar)
+
+        // Keep controls in SVG coordinates and append after viewport/scrollbar so
+        // downward tooltips on compact top-row headers paint cleanly above content.
         const actions = [
           { id: 'save', label: '另存', icon: 'm19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z M12 7v6 M9 10h6' },
           {
@@ -152,12 +303,23 @@ export function createTriggerRootExtension(
             icon: 'm7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21 M22 21H7 M5 11l9 9',
           },
         ] as const
-        const columns = headerHeight > 80 ? 2 : 4
-        const actionGap = 6
-        const actionWidth = Math.min(32, (laneWidth - 24 - (columns - 1) * actionGap) / columns)
-        const actionsLeft = center - (columns * actionWidth + (columns - 1) * actionGap) / 2
+        const columns = compactHeader ? 4 : headerHeight > 60 ? 2 : 4
+        const actionGap = compactHeader ? (laneWidth >= 184 ? 4 : 3) : 4
+        const actionHeight = 24
+        const actionWidth = compactHeader
+          ? laneWidth >= 184
+            ? 24
+            : 22
+          : Math.min(28, Math.max(20, (laneWidth - 16 - (columns - 1) * actionGap) / columns))
+        const actionsLeft = compactHeader
+          ? laneWidth - 7 - (4 * actionWidth + 3 * actionGap)
+          : center - (columns * actionWidth + (columns - 1) * actionGap) / 2
+        const iconSize = compactHeader ? 14 : 15
+
         actions.forEach((action, index) => {
           const unavailable = action.id !== 'paste' && branch.length === 0
+          const controlX = actionsLeft + (index % columns) * (actionWidth + actionGap)
+          const controlY = compactHeader ? 6 : 30 + Math.floor(index / columns) * 26
           const control = Dom.svg('g', {
             class: 'workflow-trigger-action',
             role: 'button',
@@ -166,23 +328,26 @@ export function createTriggerRootExtension(
             'aria-disabled': String(unavailable),
             [`data-trigger-${action.id}`]: id,
           })
-          Dom.translate(
-            control,
-            actionsLeft + (index % columns) * (actionWidth + actionGap),
-            40 + Math.floor(index / columns) * 34,
-          )
-          control.appendChild(Dom.svg('rect', { width: actionWidth, height: 28, rx: 5 }))
+          Dom.translate(control, controlX, controlY)
+          control.appendChild(Dom.svg('rect', { width: actionWidth, height: actionHeight, rx: 5 }))
           control.appendChild(
             Dom.svg('path', {
               class: 'workflow-trigger-action-icon',
               d: action.icon,
-              transform: `translate(${(actionWidth - 16) / 2} 6) scale(${16 / 24})`,
+              transform: `translate(${(actionWidth - iconSize) / 2} ${(actionHeight - iconSize) / 2}) scale(${iconSize / 24})`,
               'aria-hidden': 'true',
             }),
           )
+          const tipWidth = 42
+          const tipHeight = 22
+          const tipX = Math.max(
+            3 - controlX,
+            Math.min(laneWidth - tipWidth - 3 - controlX, (actionWidth - tipWidth) / 2),
+          )
+          const tipY = padding + controlY < 28 ? actionHeight + 5 : -(tipHeight + 4)
           const hint = Dom.svg('g', { class: 'workflow-trigger-action-tooltip', role: 'tooltip' })
-          hint.appendChild(Dom.svg('rect', { x: (actionWidth - 44) / 2, y: -30, width: 44, height: 24, rx: 5 }))
-          const hintText = Dom.svg('text', { x: actionWidth / 2, y: -14 })
+          hint.appendChild(Dom.svg('rect', { x: tipX, y: tipY, width: tipWidth, height: tipHeight, rx: 5 }))
+          const hintText = Dom.svg('text', { x: tipX + tipWidth / 2, y: tipY + 15 })
           hintText.textContent = action.label
           hint.appendChild(hintText)
           control.appendChild(hint)
@@ -211,47 +376,9 @@ export function createTriggerRootExtension(
           })
           lane.appendChild(control)
         })
-        content.appendChild(
-          Dom.svg('path', {
-            class: 'workflow-trigger-line',
-            d: `M ${center} 12 V 32 M ${center} ${32 + component.view.height} V ${contentHeight - 16}`,
-          }),
-        )
-        content.appendChild(Dom.svg('circle', { class: 'workflow-trigger-start', cx: center, cy: 12, r: 7 }))
-        content.appendChild(
-          Dom.svg('circle', { class: 'workflow-trigger-end', cx: center, cy: contentHeight - 16, r: 5 }),
-        )
-        Dom.translate(component.view.g, center - component.view.joinX, 32)
-        const dropY = branch.length === 0 ? 24 : 32 + component.view.height
-        const appendPlaceholder = context.services.placeholder.createForArea(
-          content,
-          new Vector(laneWidth - 16, Math.max(8, contentHeight - 16 - dropY)),
-          null,
-          branch,
-          branch.length,
-        )
-        Dom.translate(appendPlaceholder.view.g, 8, dropY)
-        if (!disabled) appendPlaceholders.push(appendPlaceholder)
-        const overflow = Math.max(0, contentHeight - bodyHeight)
-        const thumbHeight = Math.max(24, (bodyHeight * bodyHeight) / contentHeight)
-        const scrollbar = Dom.svg('rect', {
-          class: 'workflow-trigger-scrollbar',
-          x: laneWidth - 7,
-          y: headerHeight,
-          width: 5,
-          height: thumbHeight,
-          rx: 2.5,
-          role: 'scrollbar',
-          tabindex: overflow ? 0 : -1,
-          'aria-label': `滚动${label}流程`,
-          'aria-controls': `workflow-trigger-content-${id}`,
-          'aria-orientation': 'vertical',
-          'aria-valuemin': 0,
-          'aria-valuemax': overflow,
-          visibility: overflow ? 'visible' : 'hidden',
-        })
-        lane.appendChild(scrollbar)
-        const scrollTo = (top: number) => {
+
+        const scrollTo = (top: number, notify = true) => {
+          const prev = scrollPositions.get(id) ?? 0
           const next = clampLaneScroll(top, contentHeight, bodyHeight)
           scrollPositions.set(id, next)
           Dom.translate(content, 0, -next)
@@ -261,7 +388,7 @@ export function createTriggerRootExtension(
             String(headerHeight + (overflow ? (next / overflow) * (bodyHeight - thumbHeight) : 0)),
           )
           scrollbar.setAttribute('aria-valuenow', String(next))
-          onScroll()
+          if (notify && next !== prev) onScroll()
         }
         lane.addEventListener(
           'wheel',
@@ -286,7 +413,9 @@ export function createTriggerRootExtension(
         })
         scrollbar.addEventListener('mousedown', event => event.stopPropagation())
         scrollbar.addEventListener('pointermove', event => {
-          if (drag) scrollTo(drag.top + ((event.clientY - drag.y) * overflow) / (bodyHeight - thumbHeight))
+          if (drag && bodyHeight > thumbHeight) {
+            scrollTo(drag.top + ((event.clientY - drag.y) * overflow) / (bodyHeight - thumbHeight))
+          }
         })
         scrollbar.addEventListener('lostpointercapture', () => {
           drag = null
@@ -295,8 +424,8 @@ export function createTriggerRootExtension(
         scrollbar.addEventListener('keydown', event => {
           const top = scrollPositions.get(id) ?? 0
           const next = {
-            ArrowDown: top + 40,
-            ArrowUp: top - 40,
+            ArrowDown: top + 36,
+            ArrowUp: top - 36,
             PageDown: top + bodyHeight,
             PageUp: top - bodyHeight,
             Home: 0,
@@ -307,38 +436,37 @@ export function createTriggerRootExtension(
           event.stopPropagation()
           scrollTo(next)
         })
-        scrollTo(scrollPositions.get(id) ?? 0)
+        scrollTo(scrollPositions.get(id) ?? 0, false)
         offset += laneWidth + gap
       }
+
       return {
         view: { g, width, height, joinX: width / 2 },
-        findById: id => lanes.map(({ component }) => component.findById(id)).find(Boolean) ?? null,
-        resolveClick: click => lanes.map(({ component }) => component.resolveClick(click)).find(Boolean) ?? null,
+        findById: id =>
+          lanes
+            .flatMap(({ stepComponents }) => stepComponents)
+            .map(component => component.findById(id))
+            .find(Boolean) ?? null,
+        resolveClick: click =>
+          lanes
+            .flatMap(({ stepComponents }) => stepComponents)
+            .map(component => component.resolveClick(click))
+            .find(Boolean) ?? null,
         resolvePlaceholders: (skip, result) => {
-          lanes.forEach(({ component, sequence: branch, disabled }) => {
-            if (!disabled && branch.length > 0) component.resolvePlaceholders(skip, result)
-          })
-          result.placeholders.push(...appendPlaceholders)
-          // Clipped blocks must not remain drop targets outside their lane.
-          result.placeholders = result.placeholders.map(placeholder => {
-            const viewport = placeholder.view.g.closest('.workflow-trigger-content')!
-            const clipped = Object.create(placeholder) as Placeholder
-            clipped.getClientRect = () => {
-              const rect = placeholder.getClientRect()
-              const bounds = viewport.querySelector('.workflow-trigger-viewport-bounds')!.getBoundingClientRect()
-              const x = Math.max(rect.x, bounds.left)
-              const y = Math.max(rect.y, bounds.top)
-              return new DOMRect(
-                x,
-                y,
-                Math.max(0, Math.min(rect.x + rect.width, bounds.right) - x),
-                Math.max(0, Math.min(rect.y + rect.height, bounds.bottom) - y),
-              )
+          for (const { stepComponents, placeholders, sequence: branch, disabled } of lanes) {
+            if (disabled) continue
+            for (const component of stepComponents) component.resolvePlaceholders(skip, result)
+            const sourceIndex = skip && skip.parentSequence === branch ? branch.indexOf(skip.step) : -1
+            for (const placeholder of placeholders) {
+              if (sourceIndex >= 0 && (placeholder.index === sourceIndex || placeholder.index === sourceIndex + 1)) {
+                continue
+              }
+              result.placeholders.push(placeholder)
             }
-            return clipped
-          })
+          }
         },
-        updateBadges: result => lanes.forEach(({ component }) => component.updateBadges(result)),
+        updateBadges: result =>
+          lanes.forEach(({ stepComponents }) => stepComponents.forEach(component => component.updateBadges(result))),
       }
     },
   }

@@ -235,6 +235,26 @@ impl Client {
         )
     }
 
+    pub fn tap_key(&mut self, page: u16, usage: u16) -> io::Result<u64> {
+        if !self.key_injection {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Quarbor driver does not support SendKey",
+            ));
+        }
+        self.command(
+            proto::client_message::Body::Keysend(proto::KeySend {
+                keys: vec![proto::Key {
+                    usage_page: page.into(),
+                    usage: usage.into(),
+                    report_id: None,
+                }],
+                action: 3,
+            }),
+            format!("TapKey({page:#06X}, {usage:#06X})"),
+        )
+    }
+
     pub fn move_mouse(&mut self, x: i32, y: i32, wheel: i32, pan: i32) -> io::Result<u64> {
         if !self.mouse_injection {
             return Err(io::Error::new(
@@ -291,15 +311,19 @@ impl Client {
         )
     }
 
-    /// Give shutdown's physical stop command a bounded opportunity to complete.
+    pub fn has_pending_work(&self) -> bool {
+        !self.outgoing.is_empty() || !self.pending.is_empty()
+    }
+
+    /// Give shutdown commands a bounded opportunity to flush and complete.
     pub fn finish_pending(&mut self, timeout: Duration) -> io::Result<()> {
         let deadline = Instant::now() + timeout;
-        while !self.pending.is_empty() {
+        while self.has_pending_work() {
             self.poll()?;
             if Instant::now() >= deadline {
                 return Err(io::Error::new(
                     io::ErrorKind::TimedOut,
-                    "Physical stop completion timeout",
+                    "Quarbor command completion timeout",
                 ));
             }
             std::thread::sleep(Duration::from_millis(2));
@@ -654,5 +678,31 @@ mod tests {
         assert!(!synthetic_usage_supported(0x07, 0x00A5, &report_ids));
         assert!(!synthetic_usage_supported(0x07, 0xF1, &report_ids));
         assert!(!synthetic_usage_supported(0x0C, 0x0001, &report_ids));
+    }
+
+    #[test]
+    fn encodes_atomic_tap_keysend_command() {
+        let bytes = proto::ClientMessage {
+            request_id: 9,
+            body: Some(proto::client_message::Body::Keysend(proto::KeySend {
+                keys: vec![proto::Key {
+                    usage_page: 0x09,
+                    usage: 1,
+                    report_id: None,
+                }],
+                action: 3,
+            })),
+        }
+        .encode_to_vec();
+        let decoded = proto::ClientMessage::decode(bytes.as_slice()).unwrap();
+        assert_eq!(decoded.request_id, 9);
+        let Some(proto::client_message::Body::Keysend(keysend)) = decoded.body else {
+            panic!("keysend required");
+        };
+        assert_eq!(keysend.action, 3);
+        assert_eq!(keysend.keys.len(), 1);
+        assert_eq!(keysend.keys[0].usage_page, 0x09);
+        assert_eq!(keysend.keys[0].usage, 1);
+        assert_eq!(keysend.keys[0].report_id, None);
     }
 }

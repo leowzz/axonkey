@@ -400,6 +400,10 @@ export function WorkflowToolbox({
             className="behavior-dialog workflow-library-dialog"
             aria-labelledby={previewTitleId}
             onCancel={() => setPreview(null)}
+            onClose={() => setPreview(null)}
+            onClick={event => {
+              if (event.target === event.currentTarget) setPreview(null)
+            }}
           >
             <header className="behavior-dialog-head">
               <h2 id={previewTitleId}>{preview.name}</h2>

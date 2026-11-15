@@ -216,3 +216,78 @@ test('rejected step drags never reach the designer viewport-panning fallback', (
   assert.equal(wrapped.onMove(new Vector(30, 40)), undefined)
   assert.equal(fallbackCalls, 0)
 })
+
+test('ArrowDown and ArrowUp move focus vertically across lane steps and scroll offscreen targets into view', () => {
+  const prevCustomEvent = globalThis.CustomEvent
+  globalThis.CustomEvent = class CustomEvent {
+    constructor(type, init = {}) {
+      this.type = type
+      this.detail = init.detail
+    }
+  }
+  try {
+    const extension = createWorkflowStepInteraction(() => {})
+    let focused = null
+    const scrollDeltas = []
+    const boundsRect = { top: 40, bottom: 200, height: 160 }
+    const scrollViewport = {
+      querySelector: sel =>
+        sel === '.workflow-trigger-viewport-bounds' ? { getBoundingClientRect: () => boundsRect } : null,
+      dispatchEvent: event => scrollDeltas.push(event.detail),
+    }
+    const nodes = []
+    const lane = {
+      querySelectorAll: () => nodes,
+      querySelector: sel => (sel === '[data-trigger-scroll]' ? scrollViewport : null),
+    }
+    const makeStepNode = (id, top, bottom) => {
+      const listeners = new Map()
+      const g = {
+        id,
+        classList: { add() {} },
+        setAttribute() {},
+        addEventListener: (name, fn) => listeners.set(name, fn),
+        closest: sel => (sel === '.workflow-trigger-lane' ? lane : null),
+        focus() {
+          focused = g
+        },
+        getBoundingClientRect: () => ({ top, bottom, height: bottom - top }),
+        press(key) {
+          let prevented = false
+          listeners.get('keydown')({
+            key,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            preventDefault() {
+              prevented = true
+            },
+            stopPropagation() {},
+          })
+          return prevented
+        },
+      }
+      extension.stepComponentViewWrapper.wrap({ g }, { isPreview: false, step: step('paste', {}, id) })
+      nodes.push(g)
+      return g
+    }
+    const first = makeStepNode('s1', 50, 82)
+    const second = makeStepNode('s2', 90, 122)
+    const third = makeStepNode('s3', 190, 222) // extends below bounds.bottom (200)
+
+    assert.equal(first.press('ArrowUp'), false)
+    assert.equal(first.press('ArrowDown'), true)
+    assert.equal(focused, second)
+    assert.deepEqual(scrollDeltas, [])
+
+    assert.equal(second.press('ArrowDown'), true)
+    assert.equal(focused, third)
+    assert.deepEqual(scrollDeltas, [30]) // 222 - (200 - 8) = 30
+
+    assert.equal(third.press('ArrowUp'), true)
+    assert.equal(focused, second)
+  } finally {
+    if (prevCustomEvent) globalThis.CustomEvent = prevCustomEvent
+    else delete globalThis.CustomEvent
+  }
+})

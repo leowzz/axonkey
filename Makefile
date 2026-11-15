@@ -17,7 +17,9 @@ CLI_TARGET_ARGS = $(CLI_DEVICE_ARGS) --button "$(BUTTON)" --trigger "$(TRIGGER)"
 # values from the environment and passes them as an argv item to the binary.
 export CLI_BIN SEQUENCE ACTIONS
 
-dev: kill
+dev:
+	node ./scripts/check-windows-desktop.mjs
+	$(MAKE) kill
 	npm run tauri dev
 
 kill:

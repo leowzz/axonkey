@@ -249,7 +249,12 @@ python -m http.server 8766 --bind 127.0.0.1
 
 ### 3. 采集真实身份、报告与能力
 
-后续采集工作沿用草稿的稳定输入 ID，逐个关联真实信号，记录连接方式、固件、接口/collection、报告描述、原始字节、report ID 是否在包内、长度、端序、偏移、usage page / usage 或厂商字段。样本覆盖按下、释放、中立、组合、长按/重复、轴或摇杆边界，以及断连时的状态释放。
+拿到草稿 SVG 后，可通过桌面应用设备页的**「适配新设备」采集工作台**，或让 Agent 按 [axonkey-device-capture skill](../.agents/skills/axonkey-device-capture/SKILL.md) 调用 `axonkey-cli capture`（详见 [CLI 文档](CLI.md#新设备输入采集capture)）引导完成硬件采样与编译：
+
+1. **安全识别与拦截挂载**：枚举候选 HID / 蓝牙节点及 BLE `0x180A` GATT 特征，自动排除 Quarbor 虚拟输出与内置主控设备，拦截鼠标和唯一物理键盘误绑；Windows 下对需要底层拦截的遥控器或副键盘一键挂载 Quarbor 驱动，并在测试结束或中途退出时支持一键恢复系统原驱动。
+2. **逐键采样与实时试按**：沿用草稿的稳定输入 ID，自动建立空闲基线、隔离陀螺仪/语音等持续高频流式 Report ID（如 `0x6F`、`0xEC`），记录每次按下与松开的完整原始十六进制报文（写入 `<ak:hid-capture version="1" .../>`）并检测双键同码冲突；编译后可在工作台内直接用 `DescriptorEngine` 实时试按点亮 SVG 热区验证。
+
+人工核对与特殊协议补充仍需满足以下要求：样本覆盖按下、释放、中立、组合、长按/重复、轴或摇杆边界，以及断连时的状态释放（退出采集会话或关闭管道前必须发送 `ResetInput` 清空按下状态）。
 
 身份规则保留所有 AND/OR 条件，并验证能命中目标和排除相近型号。以 RC802A 为例，用户给出的 VID/PID、`0x2A24` 包含 `BT_RC802A`、`0x2A29` 包含 `TCL` 必须同时满足；当前运行时尚未实现该组 GATT 联合匹配，不能只填 VID/PID 就启用，也不能把 `ak:pending-identity` 当作可执行规则。
 

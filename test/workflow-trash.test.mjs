@@ -31,7 +31,14 @@ test('dragging a workflow step over the trash schedules deletion and cleans list
   const designer = { isDragging: () => dragging, onIsDraggingChanged: new SimpleEvent() }
   let dragging = false
   const deleted = []
-  const unbind = bindWorkflowTrash(canvas, trash, designer, id => deleted.push(id))
+  const hoverTransitions = []
+  const unbind = bindWorkflowTrash(
+    canvas,
+    trash,
+    designer,
+    id => deleted.push(id),
+    hover => hoverTransitions.push(hover),
+  )
   const marker = { closest: selector => ({ getAttribute: () => selector === '[data-step-id]' ? 'step-1' : 'click' }) }
   canvasHandlers.get('mousedown')({ button: 0, target: marker })
   dragging = true
@@ -59,6 +66,7 @@ test('dragging a workflow step over the trash schedules deletion and cleans list
   handlers.get('mouseup')({ clientX: 550, clientY: 260 })
   assert.equal(classes.has('is-visible'), false, 'library drags never offer deletion')
   assert.deepEqual(deleted, ['step-1'])
+  assert.deepEqual(hoverTransitions, [true, false], 'hover invalidation fires only when entering/leaving trash')
   unbind()
   assert.equal(handlers.size, 0)
   assert.equal(canvasHandlers.size, 0)
