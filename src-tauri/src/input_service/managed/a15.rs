@@ -3,7 +3,7 @@ use crate::audio_service::AudioServiceManager;
 use crate::devices::cmiot_a15::HidSession;
 use crate::input_service::{
     macos::{MacKey, RemoteActionGuard, RemoteOutput},
-    remote_actions::RemoteActions,
+    remote_actions::{Output, RemoteActions},
 };
 
 pub(super) struct A15Reader {
@@ -93,6 +93,7 @@ impl A15Reader {
 
     pub(super) fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         if !(self.is_current)() {
+            self.cancel_actions();
             return Ok(0);
         }
         let len = self
@@ -116,7 +117,7 @@ impl A15Reader {
             }
         }
         self.actions.tick(Instant::now(), |output| {
-            if (self.is_current)() {
+            if matches!(output, Output::Key(_, false)) || (self.is_current)() {
                 self.output.emit(output, &self.instance_id, &*self.switch);
             }
         });

@@ -18,7 +18,7 @@
     "test:cloud": "node --test test/behavior-library.test.mjs test/library-usage.test.mjs test/cloud-sync.test.mjs test/cloud-sync-ui.test.mjs test/captcha.test.mjs test/local-data-reset.test.mjs",
     "generate:devices": "node scripts/generate-device-descriptors.mjs",
     "dev": "npm run generate:devices && vite --config vite.config.ts",
-    "dev:tauri": "npm run generate:devices && vite --config vite.config.ts",
+    "dev:tauri": "node scripts/check-windows-desktop.mjs && npm run generate:devices && vite --config vite.config.ts",
     "build": "npm run generate:devices && tsc -b && vite build",
     "build:tauri": "node scripts/verify-macos-audio-resources.mjs && npm run build",
     "build:uninstall-old-driver": "node scripts/build-uninstall-old-driver.mjs",

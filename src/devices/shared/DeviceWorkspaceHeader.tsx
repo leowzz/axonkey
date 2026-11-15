@@ -37,6 +37,14 @@ export function DeviceWorkspaceHeader({
     setMenuOpen(false)
   }, [activeDeviceId])
 
+  const focusOnOpenRef = useRef(false)
+  useEffect(() => {
+    if (menuOpen && focusOnOpenRef.current) {
+      focusOnOpenRef.current = false
+      moveOptionFocus(0)
+    }
+  }, [menuOpen])
+
   useEffect(() => {
     if (!menuOpen || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return
     const handlePointerDown = (event: PointerEvent) => {
@@ -57,6 +65,22 @@ export function DeviceWorkspaceHeader({
     }
   }, [menuOpen])
 
+  const moveOptionFocus = (step: number) => {
+    const items = Array.from(
+      switcherRef.current?.querySelectorAll?.<HTMLButtonElement>('.device-workspace-switcher-option:not(:disabled)') ?? [],
+    )
+    if (items.length === 0) return
+    const active = typeof document !== 'undefined' ? (document.activeElement as HTMLButtonElement) : null
+    const activeIndex = active ? items.indexOf(active) : -1
+    const fallbackIndex = Math.max(
+      0,
+      items.findIndex(item => item.getAttribute('aria-selected') === 'true'),
+    )
+    const nextIndex =
+      activeIndex < 0 ? fallbackIndex : (activeIndex + step + items.length) % items.length
+    items[nextIndex]?.focus()
+  }
+
   return (
     <header className="device-workspace-header">
       <div className="device-workspace-title">
@@ -65,7 +89,17 @@ export function DeviceWorkspaceHeader({
           我的设备
         </button>
         {canSwitch ? (
-          <div ref={switcherRef} className="device-workspace-switcher">
+          <div
+            ref={switcherRef}
+            className="device-workspace-switcher"
+            onKeyDown={event => {
+              if (!menuOpen) return
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault()
+                moveOptionFocus(event.key === 'ArrowDown' ? 1 : -1)
+              }
+            }}
+          >
             <button
               ref={triggerRef}
               type="button"
@@ -73,10 +107,13 @@ export function DeviceWorkspaceHeader({
               aria-label={`切换设备，当前为${deviceName}`}
               aria-haspopup="listbox"
               aria-expanded={menuOpen}
+              title={deviceName}
               onClick={() => setMenuOpen(current => !current)}
               onKeyDown={event => {
-                if (event.key === 'ArrowDown' && !menuOpen) {
+                if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && !menuOpen) {
                   event.preventDefault()
+                  event.stopPropagation?.()
+                  focusOnOpenRef.current = true
                   setMenuOpen(true)
                 }
               }}
@@ -124,7 +161,7 @@ export function DeviceWorkspaceHeader({
             )}
           </div>
         ) : (
-          <h1>{deviceName}</h1>
+          <h1 title={deviceName}>{deviceName}</h1>
         )}
       </div>
       <div className="device-workspace-controls">{profileControls}</div>

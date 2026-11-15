@@ -66,6 +66,36 @@ impl CliFailure {
             response: None,
         }
     }
+    fn uac_cancelled(
+        message: impl Into<String>,
+        instance_id: &str,
+        bound_to_quarbor: bool,
+    ) -> Self {
+        let message = message.into();
+        let response = serde_json::json!({
+            "protocol": SCHEMA,
+            "ok": false,
+            "error": {
+                "code": exit_code_name(4),
+                "message": message,
+                "cancelledByUser": true,
+                "instanceId": instance_id,
+                "boundToQuarbor": bound_to_quarbor,
+            }
+        });
+        Self {
+            message,
+            exit_code: 4,
+            response: Some(response),
+        }
+    }
+    fn execution(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            exit_code: 5,
+            response: None,
+        }
+    }
 
     fn json_response(&self) -> Value {
         self.response.clone().unwrap_or_else(|| {
@@ -82,6 +112,9 @@ impl CliFailure {
 }
 
 fn run(args: Vec<String>) -> Result<String, CliFailure> {
+    if args.first().map(String::as_str) == Some("capture") {
+        return run_capture_command(&args);
+    }
     let (operation, params) = parse_operation(&args)?;
     let id = request_id();
     let request = serde_json::json!({
@@ -107,7 +140,7 @@ fn parse_operation(args: &[String]) -> Result<(String, Value), CliFailure> {
     let standalone = command == "capabilities" || command == "status";
     if !standalone && !["shortcut", "mapping", "profile", "keymap", "device"].contains(&command) {
         return Err(CliFailure::usage(format!(
-            "未知命令“{command}”，可用命令：capabilities、status、device、keymap、shortcut、mapping、profile"
+            "未知命令“{command}”，可用命令：capabilities、status、device、keymap、shortcut、mapping、profile、capture"
         )));
     }
     let action = if standalone {
@@ -375,6 +408,12 @@ fn print_help() {
     axonkey-cli profile application-set --instance <id> --application <应用 ID> --profile <配置 ID 或名称>
     axonkey-cli profile application-remove --instance <id> --application <应用 ID>
     axonkey-cli profile application-toggle --instance <id> --on|--off
+  axonkey-cli capture list [--with-gatt] [--json]
+  axonkey-cli capture attach --instance-id <ID> [--allow-caution] [--allow-primary-input] [--json]
+  axonkey-cli capture detach --instance-id <ID> [--json]
+  axonkey-cli capture key --instance-id <ID> --input-id <ID> [--label <名称>] [--timeout-ms <毫秒>] [--baseline-ms <毫秒>] [--json]
+  axonkey-cli capture wizard --instance-id <ID> --draft <draft.svg> [--out <out.svg>] [--session-file <capture.json>] [--markdown-out <out.md>] [--status <active|draft>] [--json]
+  axonkey-cli capture compile --draft <draft.svg> --session <capture.json> --out <out.svg> [--markdown-out <out.md>] [--status <active|draft>] [--json]
 
 常用参数：
   --instance <id>            明确指定 device list 返回的设备实例
@@ -395,6 +434,572 @@ fn print_help() {
 
 Mod 在 Windows 上表示 Ctrl，在 macOS 上表示 Cmd。"#
     );
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CaptureCliCommand {
+    List {
+        with_gatt: bool,
+        json: bool,
+    },
+    Attach {
+        instance_id: String,
+        allow_caution: bool,
+        allow_primary_input: bool,
+        json: bool,
+    },
+    Detach {
+        instance_id: String,
+        json: bool,
+    },
+    Key {
+        instance_id: String,
+        input_id: String,
+        label: Option<String>,
+        timeout_ms: u64,
+        baseline_ms: u64,
+        json: bool,
+    },
+    Wizard {
+        instance_id: String,
+        draft: PathBuf,
+        out: PathBuf,
+        session_file: Option<PathBuf>,
+        markdown_out: Option<PathBuf>,
+        status: Option<String>,
+        timeout_ms: u64,
+        baseline_ms: u64,
+        json: bool,
+    },
+    Compile {
+        draft: PathBuf,
+        session: PathBuf,
+        out: PathBuf,
+        markdown_out: Option<PathBuf>,
+        status: Option<String>,
+        json: bool,
+    },
+}
+
+fn parse_capture_command(args: &[String]) -> Result<CaptureCliCommand, CliFailure> {
+    let sub = args
+        .get(1)
+        .ok_or_else(|| {
+            CliFailure::usage(
+                "缺少 capture 子命令，可用：list、attach、detach、key、wizard、compile",
+            )
+        })?
+        .as_str();
+
+    let mut flags: Map<String, Value> = Map::new();
+    let mut index = 2;
+    while index < args.len() {
+        let token = &args[index];
+        if !token.starts_with("--") {
+            return Err(CliFailure::usage(format!("无法识别参数“{token}”")));
+        }
+        let name = token.trim_start_matches('-');
+        if matches!(
+            name,
+            "json" | "with-gatt" | "allow-caution" | "allow-primary-input"
+        ) {
+            flags.insert(name.into(), Value::Bool(true));
+            index += 1;
+            continue;
+        }
+        let value = args
+            .get(index + 1)
+            .filter(|val| !val.starts_with("--"))
+            .ok_or_else(|| CliFailure::usage(format!("参数“{token}”缺少值")))?;
+        if !matches!(
+            name,
+            "instance-id"
+                | "input-id"
+                | "label"
+                | "timeout-ms"
+                | "baseline-ms"
+                | "draft"
+                | "out"
+                | "session-file"
+                | "session"
+                | "markdown-out"
+                | "status"
+        ) {
+            return Err(CliFailure::usage(format!("capture 不支持参数“{token}”")));
+        }
+        flags.insert(name.into(), Value::String(value.clone()));
+        index += 2;
+    }
+
+    let json = flags.get("json").and_then(Value::as_bool).unwrap_or(false);
+    let req_str = |key: &str| -> Result<String, CliFailure> {
+        flags
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|v| !v.trim().is_empty())
+            .map(str::to_owned)
+            .ok_or_else(|| CliFailure::usage(format!("缺少必填参数 --{key}")))
+    };
+    let opt_u64 = |key: &str, default: u64| -> Result<u64, CliFailure> {
+        match flags.get(key).and_then(Value::as_str) {
+            Some(raw) => raw
+                .parse::<u64>()
+                .map_err(|_| CliFailure::usage(format!("--{key} 需要非负整数：{raw}"))),
+            None => Ok(default),
+        }
+    };
+
+    match sub {
+        "list" => Ok(CaptureCliCommand::List {
+            with_gatt: flags
+                .get("with-gatt")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            json,
+        }),
+        "attach" => Ok(CaptureCliCommand::Attach {
+            instance_id: req_str("instance-id")?,
+            allow_caution: flags
+                .get("allow-caution")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            allow_primary_input: flags
+                .get("allow-primary-input")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            json,
+        }),
+        "detach" => Ok(CaptureCliCommand::Detach {
+            instance_id: req_str("instance-id")?,
+            json,
+        }),
+        "key" => Ok(CaptureCliCommand::Key {
+            instance_id: req_str("instance-id")?,
+            input_id: req_str("input-id")?,
+            label: flags
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            timeout_ms: opt_u64("timeout-ms", 20_000)?,
+            baseline_ms: opt_u64("baseline-ms", 300)?,
+            json,
+        }),
+        "wizard" => {
+            let draft = PathBuf::from(req_str("draft")?);
+            let out = flags
+                .get("out")
+                .and_then(Value::as_str)
+                .filter(|v| !v.trim().is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| draft.with_extension("captured.svg"));
+            Ok(CaptureCliCommand::Wizard {
+                instance_id: req_str("instance-id")?,
+                draft,
+                out,
+                session_file: flags
+                    .get("session-file")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from),
+                markdown_out: flags
+                    .get("markdown-out")
+                    .and_then(Value::as_str)
+                    .map(PathBuf::from),
+                status: flags
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                timeout_ms: opt_u64("timeout-ms", 20_000)?,
+                baseline_ms: opt_u64("baseline-ms", 300)?,
+                json,
+            })
+        }
+        "compile" => Ok(CaptureCliCommand::Compile {
+            draft: PathBuf::from(req_str("draft")?),
+            session: PathBuf::from(req_str("session")?),
+            out: PathBuf::from(req_str("out")?),
+            markdown_out: flags
+                .get("markdown-out")
+                .and_then(Value::as_str)
+                .map(PathBuf::from),
+            status: flags
+                .get("status")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            json,
+        }),
+        other => Err(CliFailure::usage(format!(
+            "不支持的子命令：capture {other}"
+        ))),
+    }
+}
+
+fn wrap_cli_ok(result: Value) -> Result<String, CliFailure> {
+    serde_json::to_string_pretty(&serde_json::json!({
+        "protocol": SCHEMA,
+        "ok": true,
+        "result": result,
+    }))
+    .map_err(|e| CliFailure::execution(format!("格式化 JSON 失败：{e}")))
+}
+
+fn run_capture_command(args: &[String]) -> Result<String, CliFailure> {
+    use axonkey_lib::device_capture::{
+        self, CaptureEvent, CaptureSafetyTier, CaptureSessionFile, CapturedKeySample,
+    };
+
+    match parse_capture_command(args)? {
+        CaptureCliCommand::List { with_gatt, json } => {
+            let candidates =
+                device_capture::list_candidates(with_gatt).map_err(CliFailure::execution)?;
+            if json {
+                wrap_cli_ok(serde_json::json!({ "candidates": candidates }))
+            } else if candidates.is_empty() {
+                Ok("未检测到可用物理输入候选设备。".into())
+            } else {
+                let mut lines = Vec::with_capacity(candidates.len());
+                for c in candidates {
+                    let tier = match c.safety_tier {
+                        CaptureSafetyTier::Safe => "safe",
+                        CaptureSafetyTier::Caution => "caution",
+                        CaptureSafetyTier::Blocked => "blocked",
+                    };
+                    let vp = match (c.vid, c.pid) {
+                        (Some(v), Some(p)) => format!("{v:04X}:{p:04X}"),
+                        _ => "----:----".into(),
+                    };
+                    let bound = if c.bound_to_quarbor {
+                        " [已挂载Quarbor]"
+                    } else {
+                        ""
+                    };
+                    lines.push(format!(
+                        "[{tier}] {} ({}, {vp}){bound}\n  instanceId: {}",
+                        c.display_name, c.transport, c.instance_id
+                    ));
+                }
+                Ok(lines.join("\n"))
+            }
+        }
+        CaptureCliCommand::Attach {
+            instance_id,
+            allow_caution,
+            allow_primary_input,
+            json,
+        } => {
+            let outcome = device_capture::attach_driver(
+                &instance_id,
+                allow_caution,
+                allow_primary_input,
+                None,
+                None,
+            )
+            .map_err(CliFailure::execution)?;
+            if outcome.cancelled_by_user {
+                return Err(CliFailure::uac_cancelled(
+                    outcome
+                        .message
+                        .unwrap_or_else(|| "已取消管理员授权，驱动挂载未完成。".into()),
+                    &outcome.instance_id,
+                    outcome.bound_to_quarbor,
+                ));
+            }
+            if json {
+                wrap_cli_ok(serde_json::to_value(&outcome).unwrap_or(Value::Null))
+            } else {
+                Ok(format!(
+                    "已为节点 {} 挂载 Quarbor 拦截驱动（bound={}，rebootRequired={}）。",
+                    outcome.instance_id, outcome.bound_to_quarbor, outcome.reboot_required
+                ))
+            }
+        }
+        CaptureCliCommand::Detach { instance_id, json } => {
+            let outcome = device_capture::detach_driver(&instance_id, None, None)
+                .map_err(CliFailure::execution)?;
+            if outcome.cancelled_by_user {
+                return Err(CliFailure::uac_cancelled(
+                    outcome
+                        .message
+                        .unwrap_or_else(|| "已取消管理员授权，驱动恢复未完成。".into()),
+                    &outcome.instance_id,
+                    outcome.bound_to_quarbor,
+                ));
+            }
+            if json {
+                wrap_cli_ok(serde_json::to_value(&outcome).unwrap_or(Value::Null))
+            } else {
+                Ok(format!(
+                    "已恢复节点 {} 的系统原驱动（bound={}，rebootRequired={}）。",
+                    outcome.instance_id, outcome.bound_to_quarbor, outcome.reboot_required
+                ))
+            }
+        }
+        CaptureCliCommand::Key {
+            instance_id,
+            input_id,
+            label,
+            timeout_ms,
+            baseline_ms,
+            json,
+        } => {
+            let display = label.as_deref().unwrap_or(&input_id);
+            eprintln!("请按下并松开【{display}】（{input_id}）…");
+            let (sample, streaming_ids) = device_capture::capture_single_key(
+                &instance_id,
+                &input_id,
+                baseline_ms,
+                timeout_ms,
+            )
+            .map_err(CliFailure::execution)?;
+            if json {
+                wrap_cli_ok(serde_json::json!({
+                    "sample": sample,
+                    "streamingReportIds": streaming_ids,
+                }))
+            } else {
+                Ok(format!(
+                    "{input_id}: report=0x{:02X} press=[{}] release=[{}] hold={}",
+                    sample.report_id, sample.press_hex, sample.release_hex, sample.hold_count
+                ))
+            }
+        }
+        CaptureCliCommand::Wizard {
+            instance_id,
+            draft,
+            out,
+            session_file,
+            markdown_out,
+            status,
+            timeout_ms,
+            baseline_ms,
+            json,
+        } => {
+            let draft_svg = fs::read_to_string(&draft).map_err(|e| {
+                CliFailure::execution(format!("无法读取草稿 SVG {}：{e}", draft.display()))
+            })?;
+            let parsed_draft =
+                device_capture::parse_draft_svg(&draft_svg).map_err(CliFailure::execution)?;
+            if parsed_draft.inputs.is_empty() {
+                return Err(CliFailure::execution(
+                    "草稿 SVG 中未找到任何待采集的按键输入项。",
+                ));
+            }
+
+            let session_path = session_file.unwrap_or_else(|| draft.with_extension("capture.json"));
+            let mut session_data = if session_path.is_file() {
+                load_capture_session_file(&session_path)?
+            } else {
+                CaptureSessionFile {
+                    schema: device_capture::CAPTURE_SESSION_SCHEMA.into(),
+                    candidate: None,
+                    samples: Vec::new(),
+                }
+            };
+
+            if session_data.candidate.is_none() {
+                if let Ok(list) = device_capture::list_candidates(true) {
+                    session_data.candidate = list
+                        .into_iter()
+                        .find(|c| c.instance_id.eq_ignore_ascii_case(&instance_id));
+                }
+            }
+
+            let (sample_tx, sample_rx) = std::sync::mpsc::channel::<CapturedKeySample>();
+            let sink = std::sync::Arc::new(move |event: CaptureEvent| {
+                if let CaptureEvent::KeyCaptured { sample } = event {
+                    let _ = sample_tx.send(sample);
+                }
+            });
+
+            device_capture::start_session(
+                format!("wizard:{instance_id}"),
+                instance_id.clone(),
+                false,
+                sink,
+            )
+            .map_err(CliFailure::execution)?;
+
+            let loop_result = (|| -> Result<(), CliFailure> {
+                if baseline_ms > 0 {
+                    thread::sleep(Duration::from_millis(baseline_ms.min(5_000)));
+                }
+                let total = parsed_draft.inputs.len();
+                for (idx, item) in parsed_draft.inputs.iter().enumerate() {
+                    let already_captured = item.binding == "captured"
+                        || session_data.samples.iter().any(|s| s.input_id == item.id);
+                    if already_captured {
+                        eprintln!(
+                            "[{}/{}] 跳过已采集按键【{}】（{}）",
+                            idx + 1,
+                            total,
+                            item.label,
+                            item.id
+                        );
+                        continue;
+                    }
+                    while sample_rx.try_recv().is_ok() {}
+                    eprintln!(
+                        "[{}/{}] 请按下并松开【{}】（{}）…",
+                        idx + 1,
+                        total,
+                        item.label,
+                        item.id
+                    );
+                    device_capture::arm_key(Some(item.id.clone()))
+                        .map_err(CliFailure::execution)?;
+                    match sample_rx.recv_timeout(Duration::from_millis(timeout_ms.max(500))) {
+                        Ok(sample) => {
+                            eprintln!(
+                                "  ✓ {} => press=[{}] release=[{}]",
+                                item.label, sample.press_hex, sample.release_hex
+                            );
+                            session_data.samples.retain(|s| s.input_id != item.id);
+                            session_data.samples.push(sample);
+                            save_capture_session_file(&session_path, &session_data)?;
+                        }
+                        Err(_) => {
+                            let _ = device_capture::arm_key(None);
+                            eprintln!("  ↷ 超时跳过【{}】，保留 pending", item.label);
+                        }
+                    }
+                }
+                Ok(())
+            })();
+
+            let _ = device_capture::stop_session();
+            loop_result?;
+
+            save_capture_session_file(&session_path, &session_data)?;
+            let compiled = device_capture::compile_svg(
+                &draft_svg,
+                session_data.candidate.as_ref(),
+                &session_data.samples,
+                status.as_deref(),
+            )
+            .map_err(CliFailure::execution)?;
+
+            let md_path_str = markdown_out
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned());
+            device_capture::save_export(
+                &out.to_string_lossy(),
+                &compiled.svg_content,
+                md_path_str.as_deref(),
+                Some(&compiled.markdown_summary),
+            )
+            .map_err(CliFailure::execution)?;
+
+            if json {
+                wrap_cli_ok(serde_json::json!({
+                    "out": out,
+                    "sessionFile": session_path,
+                    "markdownOut": markdown_out,
+                    "adaptedCount": compiled.adapted_count,
+                    "pendingCount": compiled.pending_count,
+                    "collisions": compiled.collisions,
+                    "validated": compiled.validated,
+                }))
+            } else {
+                Ok(format!(
+                    "已完成向导采集并写入 {}（已采集 {} 键，待采集 {} 键，会话存档 {}）。",
+                    out.display(),
+                    compiled.adapted_count,
+                    compiled.pending_count,
+                    session_path.display()
+                ))
+            }
+        }
+        CaptureCliCommand::Compile {
+            draft,
+            session,
+            out,
+            markdown_out,
+            status,
+            json,
+        } => {
+            let draft_svg = fs::read_to_string(&draft).map_err(|e| {
+                CliFailure::execution(format!("无法读取草稿 SVG {}：{e}", draft.display()))
+            })?;
+            let session_data = load_capture_session_file(&session)?;
+            let compiled = device_capture::compile_svg(
+                &draft_svg,
+                session_data.candidate.as_ref(),
+                &session_data.samples,
+                status.as_deref(),
+            )
+            .map_err(CliFailure::execution)?;
+
+            let md_path_str = markdown_out
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned());
+            device_capture::save_export(
+                &out.to_string_lossy(),
+                &compiled.svg_content,
+                md_path_str.as_deref(),
+                Some(&compiled.markdown_summary),
+            )
+            .map_err(CliFailure::execution)?;
+
+            if json {
+                wrap_cli_ok(serde_json::json!({
+                    "out": out,
+                    "markdownOut": markdown_out,
+                    "adaptedCount": compiled.adapted_count,
+                    "pendingCount": compiled.pending_count,
+                    "collisions": compiled.collisions,
+                    "validated": compiled.validated,
+                }))
+            } else {
+                Ok(format!(
+                    "已编译设备描述 SVG 至 {}（已适配 {} 键，待适配 {} 键，冲突 {} 项）。",
+                    out.display(),
+                    compiled.adapted_count,
+                    compiled.pending_count,
+                    compiled.collisions.len()
+                ))
+            }
+        }
+    }
+}
+
+fn load_capture_session_file(
+    path: &Path,
+) -> Result<axonkey_lib::device_capture::CaptureSessionFile, CliFailure> {
+    let raw = fs::read_to_string(path).map_err(|e| {
+        CliFailure::execution(format!("无法读取采集会话文件 {}：{e}", path.display()))
+    })?;
+    let trimmed = raw.trim_start_matches('\u{feff}').trim();
+    if trimmed.starts_with('[') {
+        let samples: Vec<axonkey_lib::device_capture::CapturedKeySample> =
+            serde_json::from_str(trimmed)
+                .map_err(|e| CliFailure::execution(format!("采集样本数组 JSON 格式无效：{e}")))?;
+        Ok(axonkey_lib::device_capture::CaptureSessionFile {
+            schema: axonkey_lib::device_capture::CAPTURE_SESSION_SCHEMA.into(),
+            candidate: None,
+            samples,
+        })
+    } else {
+        serde_json::from_str(trimmed)
+            .map_err(|e| CliFailure::execution(format!("采集会话 JSON 格式无效：{e}")))
+    }
+}
+
+fn save_capture_session_file(
+    path: &Path,
+    session: &axonkey_lib::device_capture::CaptureSessionFile,
+) -> Result<(), CliFailure> {
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).map_err(|e| {
+                CliFailure::execution(format!("无法创建会话目录 {}：{e}", parent.display()))
+            })?;
+        }
+    }
+    let content = serde_json::to_vec_pretty(session)
+        .map_err(|e| CliFailure::execution(format!("无法序列化采集会话：{e}")))?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, content)
+        .map_err(|e| CliFailure::execution(format!("无法写入采集会话临时文件：{e}")))?;
+    fs::rename(&temp, path).map_err(|e| CliFailure::execution(format!("无法保存采集会话文件：{e}")))
 }
 
 #[cfg(test)]
@@ -547,5 +1152,213 @@ mod tests {
         let expected = fs::canonicalize(&macos).unwrap().join("axonkey");
         assert_eq!(app_executable_for_cli(&path_cli), Some(expected));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn parses_capture_subcommands_and_validates_flags() {
+        assert_eq!(
+            parse_capture_command(&args(&["capture", "list", "--with-gatt", "--json"])).unwrap(),
+            CaptureCliCommand::List {
+                with_gatt: true,
+                json: true
+            }
+        );
+        assert_eq!(
+            parse_capture_command(&args(&[
+                "capture",
+                "attach",
+                "--instance-id",
+                "BTHLEDEVICE\\1",
+                "--allow-caution",
+                "--json"
+            ]))
+            .unwrap(),
+            CaptureCliCommand::Attach {
+                instance_id: "BTHLEDEVICE\\1".into(),
+                allow_caution: true,
+                allow_primary_input: false,
+                json: true,
+            }
+        );
+        assert_eq!(
+            parse_capture_command(&args(&[
+                "capture",
+                "key",
+                "--instance-id",
+                "BTHLEDEVICE\\1",
+                "--input-id",
+                "rc.mute",
+                "--label",
+                "静音",
+                "--timeout-ms",
+                "12000",
+                "--baseline-ms",
+                "250",
+            ]))
+            .unwrap(),
+            CaptureCliCommand::Key {
+                instance_id: "BTHLEDEVICE\\1".into(),
+                input_id: "rc.mute".into(),
+                label: Some("静音".into()),
+                timeout_ms: 12_000,
+                baseline_ms: 250,
+                json: false,
+            }
+        );
+        assert_eq!(
+            parse_capture_command(&args(&[
+                "capture",
+                "wizard",
+                "--instance-id",
+                "BTHLEDEVICE\\1",
+                "--draft",
+                "docs/device-drafts/tcl-rc802a.svg",
+                "--session-file",
+                "docs/device-drafts/tcl-rc802a.capture.json",
+            ]))
+            .unwrap(),
+            CaptureCliCommand::Wizard {
+                instance_id: "BTHLEDEVICE\\1".into(),
+                draft: PathBuf::from("docs/device-drafts/tcl-rc802a.svg"),
+                out: PathBuf::from("docs/device-drafts/tcl-rc802a.captured.svg"),
+                session_file: Some(PathBuf::from("docs/device-drafts/tcl-rc802a.capture.json")),
+                markdown_out: None,
+                status: None,
+                timeout_ms: 20_000,
+                baseline_ms: 300,
+                json: false,
+            }
+        );
+
+        let uac_err = CliFailure::uac_cancelled("已取消管理员授权", "BTHLEDEVICE\\1", false);
+        assert_eq!(uac_err.exit_code, 4);
+        let uac_json = uac_err.json_response();
+        assert_eq!(uac_json["protocol"], SCHEMA);
+        assert_eq!(uac_json["ok"], false);
+        assert_eq!(uac_json["error"]["code"], "permission_denied");
+        assert_eq!(uac_json["error"]["cancelledByUser"], true);
+        assert_eq!(uac_json["error"]["instanceId"], "BTHLEDEVICE\\1");
+
+        assert_eq!(
+            parse_capture_command(&args(&["capture"]))
+                .unwrap_err()
+                .exit_code,
+            2
+        );
+        assert_eq!(
+            parse_capture_command(&args(&["capture", "attach"]))
+                .unwrap_err()
+                .exit_code,
+            2
+        );
+        assert_eq!(
+            parse_capture_command(&args(&[
+                "capture",
+                "key",
+                "--instance-id",
+                "X",
+                "--input-id",
+                "Y",
+                "--timeout-ms",
+                "bad"
+            ]))
+            .unwrap_err()
+            .exit_code,
+            2
+        );
+    }
+
+    #[test]
+    fn executes_capture_compile_end_to_end_with_json_envelope() {
+        let dir = env::temp_dir().join(format!("axonkey-cli-capture-{}", request_id()));
+        fs::create_dir_all(&dir).unwrap();
+        let draft_path = dir.join("draft.svg");
+        let session_path = dir.join("session.json");
+        let out_svg = dir.join("out.svg");
+        let out_md = dir.join("out.md");
+
+        let draft = r##"<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" viewBox="0 0 200 400" data-ak-schema="axonkey.device/1" data-ak-device="cli-test" data-ak-revision="1" data-ak-status="draft">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="cli-test" vendor="CLI" model="T1" revision="1" display-name="CLI T1" status="draft">
+      <ak:inputs>
+        <ak:input id="cli-test.mute" label="静音" kind="button" target="#key-mute" order="0" original="false" binding="pending"/>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="key-mute" data-ak-key="cli-test.mute"><circle cx="50" cy="50" r="20"/></g>
+</svg>"##;
+        fs::write(&draft_path, draft).unwrap();
+
+        let session_json = serde_json::json!({
+            "schema": "axonkey.capture-session/v1",
+            "samples": [{
+                "inputId": "cli-test.mute",
+                "reportId": 1,
+                "pressHex": "01 00 00 EF 00 00 00 00 00",
+                "releaseHex": "01 00 00 00 00 00 00 00 00",
+                "pressLength": 9,
+                "releaseLength": 9,
+                "holdCount": 2,
+                "durationMs": 95
+            }]
+        });
+        fs::write(
+            &session_path,
+            serde_json::to_vec_pretty(&session_json).unwrap(),
+        )
+        .unwrap();
+
+        let raw_output = run(args(&[
+            "capture",
+            "compile",
+            "--draft",
+            &draft_path.to_string_lossy(),
+            "--session",
+            &session_path.to_string_lossy(),
+            "--out",
+            &out_svg.to_string_lossy(),
+            "--markdown-out",
+            &out_md.to_string_lossy(),
+            "--status",
+            "active",
+            "--json",
+        ]))
+        .unwrap();
+
+        let parsed: Value = serde_json::from_str(&raw_output).unwrap();
+        assert_eq!(parsed["protocol"], SCHEMA);
+        assert_eq!(parsed["ok"], true);
+        assert_eq!(parsed["result"]["adaptedCount"], 1);
+        assert_eq!(parsed["result"]["pendingCount"], 0);
+        assert_eq!(parsed["result"]["validated"], true);
+        assert!(out_svg.is_file());
+        assert!(out_md.is_file());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn compiles_cleared_svg_inputs_as_pending_without_resurrecting_old_bindings() {
+        let rc902n = include_str!("../../../public/device-descriptors/tcl-rc902n.svg");
+        let single_cleared = rc902n.replace(
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0059"/><ak:hid-capture version="1" press="03 59 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>"##,
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="pending"/>"##,
+        );
+        let parsed = axonkey_lib::device_capture::parse_draft_svg(&single_cleared).unwrap();
+        let bookmark = parsed
+            .inputs
+            .iter()
+            .find(|i| i.id == "tcl-rc902n.bookmark")
+            .unwrap();
+        assert_eq!(bookmark.binding, "pending");
+        assert!(bookmark.press_hex.is_none());
+
+        let compiled =
+            axonkey_lib::device_capture::compile_svg(&single_cleared, None, &[], Some("draft"))
+                .unwrap();
+        assert!(compiled.validated);
+        assert_eq!(compiled.adapted_count, 21);
+        assert_eq!(compiled.pending_count, 1);
+        assert!(compiled.svg_content.contains("id=\"voice-audio\""));
+        assert!(!compiled.svg_content.contains("press=\"03 59 00\""));
     }
 }

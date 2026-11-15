@@ -239,13 +239,16 @@ test('discovery help opens without toggling the device list and routes Bluetooth
       const buttons = dialog.findAllByType('button')
       assert.deepEqual(
         buttons.map(text),
-        platform === 'windows' ? ['打开设备管理器', '打开系统蓝牙设置', '关闭'] : ['打开系统蓝牙设置', '关闭'],
+        platform === 'windows'
+          ? ['设备无法连接排查', '打开设备管理器', '打开系统蓝牙设置', '关闭']
+          : ['设备无法连接排查', '打开系统蓝牙设置', '关闭'],
       )
-      const bluetoothButtonIndex = platform === 'windows' ? 1 : 0
+      assert.equal(buttons[0].props.disabled, undefined)
+      const bluetoothButtonIndex = platform === 'windows' ? 2 : 1
       if (platform === 'windows') {
-        assert.equal(buttons[0].props.disabled, !native)
+        assert.equal(buttons[1].props.disabled, !native)
         if (native) {
-          act(() => buttons[0].props.onClick())
+          act(() => buttons[1].props.onClick())
           assert.equal(deviceManagerOpened, 1)
         }
       }
@@ -1298,5 +1301,215 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     assert.equal(workflow().props.sequences.click.length, 0)
   } finally {
     act(() => view.unmount())
+  }
+})
+
+test('discovery help troubleshoot button opens ConnectionTroubleshootPage in DeviceHub and fallback modal in guide mode', async () => {
+  const modal = { showModal() {}, close() {} }
+  const clipboardWrites = []
+  const diagnoseCalls = []
+  const sampleReport = {
+    platform: 'windows',
+    checkedAtMs: 1794711000000,
+    summaryKind: 'irk_conflict',
+    headline: '检测到蓝牙配对被拦截：0C:E2:90:2E:27:4C 可能发生 IRK 身份密钥冲突',
+    detail: 'Windows 日志记录了最近的 蓝牙 IRK 身份密钥冲突 (BTHUSB 事件 35)。',
+    bluetoothAdapters: [
+      {
+        name: 'Realtek Bluetooth Adapter',
+        instanceId: 'USB\\VID_0BDA&PID_0852\\1',
+        status: 'OK',
+        problemCode: null,
+        leSupported: true,
+      },
+    ],
+    pairingFailures: [
+      {
+        timestampIso: '2026-11-15T02:48:28.9417738Z',
+        timestampMs: 1794710908941,
+        provider: 'BTHUSB',
+        eventId: 35,
+        kind: 'irk_collision',
+        targetAddress: '0C:E2:90:2E:27:4C',
+        errorCodeHex: '0x80090003 (NTE_BAD_KEY)',
+        title: '蓝牙 IRK 身份密钥冲突 (BTHUSB 事件 35)',
+        explanation: '新设备与已配对设备返回相同的 IRK 身份密钥。',
+        resolvedNow: false,
+        matchingChipSignature: '005D;8762',
+      },
+      ...Array.from({ length: 7 }, (_, i) => ({
+        timestampIso: `2026-11-15T01:0${i}:00Z`,
+        timestampMs: 1794700000000 - i * 60000,
+        provider: 'DeviceAssociationService',
+        eventId: 3501,
+        kind: 'pairing_failed',
+        targetAddress: `AA:BB:CC:DD:EE:0${i + 1}`,
+        errorCodeHex: `0x8007000${i + 1}`,
+        title: `历史配对记录 #${i + 2}`,
+        explanation: `历史事件说明 #${i + 2}`,
+        resolvedNow: true,
+        matchingChipSignature: null,
+      })),
+    ],
+    pairedDevices: [
+      {
+        address: '0C:F3:CE:7F:24:1E',
+        name: 'YYYKQ',
+        vidHex: '0x0416',
+        pidHex: '0x0300',
+        chipSignature: '005D;8762',
+        chipVendorLabel: 'Realtek (005D;8762)',
+        lastConnectedMs: 1794600000000,
+        lastSeenMs: 1794600000000,
+        present: true,
+        boundToQuarbor: true,
+        recoveryActive: false,
+        supportedKind: 'cmiotA15',
+        suspectReason: '与配对失败设备芯片指纹相同 (005D;8762)',
+      },
+    ],
+    warnings: [],
+  }
+
+  const troubleshootMod = compile('src/devices/integration/ConnectionTroubleshootPage.tsx', {
+    '@tauri-apps/api/core': {
+      invoke: async cmd => {
+        diagnoseCalls.push(cmd)
+        return sampleReport
+      },
+    },
+    '../../clipboard': {
+      writeClipboardText: async content => {
+        clipboardWrites.push(content)
+      },
+    },
+    './model': model,
+  })
+  const { DeviceHub: TestHub, DeviceDiscoverySection: TestDiscovery } = compile('src/devices/integration/DeviceHub.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
+    './IntegrationControls': controls,
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    './model': model,
+    './ConnectionTroubleshootPage': troubleshootMod,
+  }, {
+    window: new EventTarget(),
+  })
+
+  // 1. Inside DeviceHub: clicking 设备无法连接排查 switches into full troubleshoot page and back returns cleanly.
+  let toasts = []
+  let hubView
+  const hubProps = {
+    selectedInstanceId: null,
+    onSelectInstance() {},
+    controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
+    native: true,
+    platform: 'windows',
+    permissions: {},
+    onOpenBluetoothSettings() {},
+    onOpenDeviceManager() {},
+    onOpenLogs() {},
+    onToast: msg => toasts.push(msg),
+  }
+  await act(async () => {
+    hubView = Renderer.create(React.createElement(TestHub, hubProps), {
+      createNodeMock: node => (node.type === 'dialog' ? modal : null),
+    })
+  })
+  try {
+    const helpBtn = hubView.root.findByProps({ className: 'managed-discovery-help' })
+    act(() => helpBtn.props.onClick({ preventDefault() {}, stopPropagation() {} }))
+    const dialog = hubView.root.findByType('dialog')
+    const troubleshootBtn = dialog.findAllByType('button').find(b => text(b) === '设备无法连接排查')
+    assert.ok(troubleshootBtn)
+    await act(async () => {
+      troubleshootBtn.props.onClick()
+      await Promise.resolve()
+    })
+    assert.equal(hubView.root.findAllByType('dialog').length, 0, 'help dialog closes after opening troubleshoot page')
+    const page = hubView.root.findByProps({ 'aria-label': '设备无法连接排查' })
+    const content = text(page)
+    assert.ok(content.includes('0C:E2:90:2E:27:4C'))
+    assert.ok(content.includes('YYYKQ'))
+    assert.ok(content.includes('0C:F3:CE:7F:24:1E'))
+    assert.ok(content.includes('恢复原驱动'))
+    assert.ok(content.includes('Realtek Bluetooth Adapter'))
+    assert.ok(content.includes('0x80090003 (NTE_BAD_KEY)'))
+    assert.deepEqual(diagnoseCalls, ['diagnose_connection_issues'])
+
+    // Verify independent scroll containers keep headers/actions fixed and do not truncate >6 failure records.
+    const summaryScroll = page.findByProps({ className: 'troubleshoot-summary-scroll' })
+    assert.ok(text(summaryScroll).includes('YYYKQ'))
+    assert.ok(page.findByProps({ className: 'troubleshoot-actions-row' }))
+
+    for (const cardClass of [
+      'troubleshoot-card troubleshoot-card-devices',
+      'troubleshoot-card troubleshoot-card-adapters',
+      'troubleshoot-card troubleshoot-card-failures',
+      'troubleshoot-card troubleshoot-card-checklist',
+    ]) {
+      const card = page.findByProps({ className: cardClass })
+      const titleNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-title')
+      const bodyNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-body')
+      assert.ok(titleNode, `${cardClass} keeps fixed card title outside scroll body`)
+      assert.ok(bodyNode, `${cardClass} provides independent .troubleshoot-card-body scroll container`)
+    }
+    const failuresBody = page.findByProps({ className: 'troubleshoot-card troubleshoot-card-failures' }).findByProps({
+      className: 'troubleshoot-card-body',
+    })
+    assert.ok(text(failuresBody).includes('历史配对记录 #8'), 'all >6 failure records render inside independent scroll container')
+
+    const copyBtn = page.findAllByType('button').find(b => text(b).includes('复制排查信息'))
+    assert.ok(copyBtn)
+    await act(async () => {
+      await copyBtn.props.onClick()
+    })
+    assert.equal(clipboardWrites.length, 1)
+    assert.ok(clipboardWrites[0].includes('0C:F3:CE:7F:24:1E'))
+    assert.ok(clipboardWrites[0].includes('005D;8762'))
+    assert.equal(toasts.at(-1), '已复制设备排查信息')
+
+    const backBtn = page.findByProps({ className: 'device-workspace-back' })
+    act(() => backBtn.props.onClick())
+    assert.equal(hubView.root.findAllByProps({ 'aria-label': '设备无法连接排查' }).length, 0)
+  } finally {
+    act(() => hubView.unmount())
+  }
+
+  // 2. Inside standalone DeviceDiscoverySection (e.g. UserGuideDialog) in browser preview: opens fallback modal cleanly.
+  let guideView
+  await act(async () => {
+    guideView = Renderer.create(
+      React.createElement(TestDiscovery, {
+        guide: true,
+        controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
+        native: false,
+        platform: 'windows',
+        permissions: {},
+        onOpenBluetoothSettings() {},
+        onOpenDeviceManager() {},
+        onIntegrated() {},
+      }),
+      { createNodeMock: node => (node.type === 'dialog' ? modal : null) },
+    )
+  })
+  try {
+    const helpBtn = guideView.root.findByProps({ className: 'managed-discovery-help' })
+    act(() => helpBtn.props.onClick({ preventDefault() {}, stopPropagation() {} }))
+    const helpDialog = guideView.root.findByType('dialog')
+    const troubleshootBtn = helpDialog.findAllByType('button').find(b => text(b) === '设备无法连接排查')
+    await act(async () => {
+      troubleshootBtn.props.onClick()
+      await Promise.resolve()
+    })
+    const modalDialog = guideView.root.findByProps({ className: 'troubleshoot-dialog' })
+    assert.ok(text(modalDialog).includes('浏览器预览模式无法读取本机蓝牙日志与驱动信息'))
+    const closeBtn = modalDialog.findByProps({ className: 'device-workspace-back' })
+    act(() => closeBtn.props.onClick())
+    assert.equal(guideView.root.findAllByProps({ className: 'troubleshoot-dialog' }).length, 0)
+  } finally {
+    act(() => guideView.unmount())
   }
 })

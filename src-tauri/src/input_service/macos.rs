@@ -644,6 +644,8 @@ unsafe extern "C" fn event_callback(
                 .is_none_or(RemoteInstance::is_current)
             {
                 context.input.process_timers(&context.shared);
+            } else {
+                context.input.cancel_gestures();
             }
         }
         _ => {}

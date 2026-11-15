@@ -103,20 +103,13 @@ impl RemoteKeyboard {
         let held = self.held.iter().position(|(held, _)| *held == key);
         if !down {
             if let Some(index) = held {
-                match self.held[index].1 {
-                    KeyBackend::Driver(driver_key) => {
-                        if let Err(error) = emit_driver(driver_key, false) {
-                            log::warn!(
-                                target: "axonkey::input",
-                                "Universal driver key release failed; trying SendInput fallback: {error}"
-                            );
-                            let virtual_key = virtual_key_for_hid(driver_key).ok_or(error)?;
-                            emit_virtual(virtual_key, false)?;
-                        }
-                    }
+                let (_, backend) = self.held.remove(index);
+                match backend {
+                    // A key pressed through the persistent Quarbor output device cannot
+                    // be cleared by SendInput; propagate the error so the pipe resets.
+                    KeyBackend::Driver(driver_key) => emit_driver(driver_key, false)?,
                     KeyBackend::Virtual(virtual_key) => emit_virtual(virtual_key, false)?,
                 }
-                self.held.remove(index);
             }
             return Ok(());
         }
@@ -168,15 +161,23 @@ impl RemoteKeyboard {
 }
 
 #[cfg(windows)]
-fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
-    if !context.keys.is_empty() || !context.pointer_moves.is_empty() {
+fn quarbor_wait_with_timeout(
+    context: &mut QuarborContext,
+    timeout_ms: u32,
+    ble_monitor: &BleLinkMonitor,
+    interrupted: impl Fn() -> bool,
+) {
+    if !context.keys.is_empty() || !context.pointer_moves.is_empty() || interrupted() {
         return;
     }
     let deadline = Instant::now() + Duration::from_millis(timeout_ms as u64);
     let Some(device_id) = context.device_id.as_deref() else {
         return;
     };
-    if context.reader.is_none() && context.last_pipe_attempt.elapsed() >= DEVICE_POLL_INTERVAL {
+    if context.reader.is_none()
+        && !device_id.is_empty()
+        && context.last_pipe_attempt.elapsed() >= DEVICE_POLL_INTERVAL
+    {
         context.last_pipe_attempt = Instant::now();
         match super::windows_quarbor::Client::connect(device_id) {
             Ok(reader) => {
@@ -199,13 +200,16 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
         };
         match reader.poll() {
             Ok(Some(event)) => {
+                if matches!(event, super::windows_quarbor::Event::Report { .. }) {
+                    ble_monitor.note_connected();
+                }
                 quarbor_accept_event(context, event);
                 if !context.keys.is_empty() {
                     return;
                 }
             }
             Ok(None) => {
-                if !context.events.is_empty() || Instant::now() >= deadline {
+                if !context.events.is_empty() || interrupted() || Instant::now() >= deadline {
                     break;
                 }
                 thread::sleep(
@@ -214,14 +218,14 @@ fn quarbor_wait_with_timeout(context: &mut QuarborContext, timeout_ms: u32) {
                 );
             }
             Err(error) => {
-                quarbor_read_error(context, format!("Quarbor Universal receive: {error}"));
                 context.reader = None;
                 quarbor_release_inputs(context, ReleaseReason::PipeError);
+                quarbor_read_error(context, format!("Quarbor Universal receive: {error}"));
                 break;
             }
         }
     }
-    if context.reader.is_none() {
+    if context.reader.is_none() && !interrupted() {
         thread::sleep(deadline.saturating_duration_since(Instant::now()));
     }
 }
@@ -341,6 +345,7 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
             context.dropped = metadata.dropped;
             if metadata.status != 0 {
                 quarbor_release_inputs(context, ReleaseReason::StatusError);
+                quarbor_reset_driver_output(context);
                 quarbor_read_error(
                     context,
                     format!("Quarbor HID read NTSTATUS=0x{:08X}", metadata.status),
@@ -361,11 +366,7 @@ fn quarbor_accept_event(context: &mut QuarborContext, event: super::windows_quar
                 context.obe_pcm_accumulator.clear();
             }
             // Each connection starts with a neutral output state.
-            if let Some(client) = context.reader.as_mut() {
-                if let Err(error) = client.reset_input() {
-                    quarbor_output_error(context, error);
-                }
-            }
+            quarbor_reset_driver_output(context);
         }
         Event::CommandAccepted(id) => {
             log::debug!(target: "axonkey::input", "Quarbor command accepted: request_id={id}");
@@ -380,11 +381,21 @@ enum ReleaseReason {
     ReportGap,
     StatusDropped,
     StatusError,
+    BleDisconnect,
     PipeError,
     OutputError,
     Shutdown,
     #[cfg(test)]
     Test,
+}
+
+#[cfg(windows)]
+fn quarbor_reset_driver_output(context: &mut QuarborContext) {
+    if let Some(client) = context.reader.as_mut().filter(|client| client.ready()) {
+        if let Err(error) = client.reset_input() {
+            quarbor_output_error(context, error);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -405,18 +416,24 @@ fn quarbor_release_inputs(context: &mut QuarborContext, reason: ReleaseReason) {
             .descriptor
             .and_then(|descriptor| descriptor_event_key(descriptor, &voice.trigger_key))
     });
-    let preserve_recording = matches!(
+    let gap_recovery = matches!(
         reason,
         ReleaseReason::ReportGap | ReleaseReason::StatusDropped
-    ) && context.a15_recording.preserves_recording_on_gap();
+    );
+    let preserve_recording = gap_recovery && context.a15_recording.preserves_recording_on_gap();
+    if !gap_recovery {
+        context.keys.retain(|key| !key.pressed);
+    }
     if !preserve_recording {
         // Never replay a queued start after recording has been reset.
         context.keys.retain(|key| Some(key.button) != voice_key);
-        if let Err(error) = context
-            .a15_recording
-            .stop(|report| send_recording_report(voice_engine, &mut context.reader, report))
-        {
-            quarbor_read_error(context, format!("A15 recording stop: {error}"));
+        if !matches!(reason, ReleaseReason::BleDisconnect) {
+            if let Err(error) = context
+                .a15_recording
+                .stop(|report| send_recording_report(voice_engine, &mut context.reader, report))
+            {
+                quarbor_read_error(context, format!("A15 recording stop: {error}"));
+            }
         }
         context.a15_recording.reset();
     }
@@ -431,16 +448,28 @@ fn quarbor_release_inputs(context: &mut QuarborContext, reason: ReleaseReason) {
     context.a15_pcm.clear();
     context.obe_pcm.clear();
     context.obe_pcm_accumulator.clear();
+    let mut driver_release_error = None;
     context.keyboard.reset(
         |key, down| {
             if let Some(client) = context.reader.as_mut() {
-                let _ = client.send_key(key.page, key.usage, down);
+                if let Err(error) = client.send_key(key.page, key.usage, down) {
+                    if driver_release_error.is_none() {
+                        driver_release_error = Some(error);
+                    }
+                }
             }
         },
         |key, down| {
             let _ = send_remote_virtual_key(key, down);
         },
     );
+    if let Some(error) = driver_release_error {
+        context.reader = None;
+        quarbor_read_error(
+            context,
+            format!("Quarbor Universal keyboard release: {error}"),
+        );
+    }
     context.state_epoch = context.state_epoch.wrapping_add(1);
     if let (Some(descriptor), Some(engine)) =
         (context.descriptor, context.descriptor_engine.as_mut())
@@ -804,6 +833,79 @@ impl ManagedQuarborChannel {
             }
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn start_for_test(
+        driver_gate: Arc<AtomicBool>,
+        released_batches: Arc<Mutex<Vec<Vec<(u16, u32)>>>>,
+        input: ManagedInput,
+    ) -> Self {
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
+        let shared = Arc::new(Shared {
+            recording_requests: Mutex::new(Vec::new()),
+            instance_id: Some("test-quarbor".into()),
+            settings: RwLock::new(NativeSettings::default()),
+            settings_revision: AtomicU64::new(0),
+            status: Mutex::new(InputServiceStatus {
+                capture_active: true,
+                cmiot_a15_recording: true,
+                ..InputServiceStatus::default()
+            }),
+            event_app: RwLock::new(None),
+            stop: AtomicBool::new(false),
+            driver_gate,
+            driver_paused: AtomicBool::new(false),
+            managed_event: None,
+            managed_input: Some(input),
+            managed_remote_owned: AtomicBool::new(false),
+        });
+        let worker_shared = Arc::clone(&shared);
+        let worker = thread::Builder::new()
+            .name("Axonkey Quarbor test".into())
+            .spawn(move || {
+                MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+                let mut context = QuarborContext {
+                    descriptor: crate::devices::descriptor_registry::descriptor_for_kind(
+                        "cmiotA15",
+                    ),
+                    descriptor_engine: Some(Default::default()),
+                    device_kind: Some("cmiotA15".into()),
+                    last_pipe_attempt: Instant::now(),
+                    ..Default::default()
+                };
+                if let (Some(descriptor), Some(engine)) =
+                    (context.descriptor, context.descriptor_engine.as_mut())
+                {
+                    let _ = engine.accept(descriptor, &[1, 0, 0, 0x52, 0, 0, 0, 0, 0]);
+                }
+                context
+                    .keyboard
+                    .edge_with(
+                        super::remote_actions::HidKey {
+                            page: 7,
+                            usage: 0x04,
+                        },
+                        true,
+                        false,
+                        |_, _| Ok(()),
+                        send_remote_virtual_key,
+                    )
+                    .unwrap();
+                MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+                let _ = ready_tx.send(());
+                run_context(&mut context, &worker_shared, String::new());
+                MOUSE_KEY_BATCHES.with(|events| {
+                    *released_batches.lock().unwrap() = events.borrow().clone();
+                });
+            })
+            .ok();
+        let _ = ready_rx.recv_timeout(Duration::from_secs(2));
+        Self {
+            kind: "cmiotA15".into(),
+            shared,
+            worker: Mutex::new(worker),
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -826,6 +928,7 @@ fn worker_loop(shared: Arc<Shared>) {
 
 #[cfg(windows)]
 fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
+    let mut ble_monitor = BleLinkMonitor::start(&target, Arc::clone(&shared.driver_gate));
     context.device_id = Some(target);
     let mut actions = super::remote_actions::RemoteActions::default();
     let mut state_epoch = context.state_epoch;
@@ -833,7 +936,14 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
         if shared.driver_gate.load(Ordering::Acquire) {
             break;
         }
-        quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS);
+        quarbor_wait_with_timeout(context, WAIT_TIMEOUT_MS, &ble_monitor, || {
+            shared.stop.load(Ordering::Relaxed)
+                || shared.driver_gate.load(Ordering::Acquire)
+                || ble_monitor.has_disconnect()
+        });
+        if ble_monitor.take_disconnect() {
+            quarbor_handle_ble_disconnect(context);
+        }
         quarbor_publish_events(context, shared);
         process_remote_actions(
             context,
@@ -843,18 +953,47 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
             Instant::now(),
         );
     }
+    quarbor_shutdown_context(context, shared, &mut actions);
+}
+
+#[cfg(windows)]
+fn quarbor_handle_ble_disconnect(context: &mut QuarborContext) {
+    log::info!(
+        target: "axonkey::input",
+        "BLE peripheral link disconnected; releasing active inputs ({:?})",
+        context.device_id
+    );
+    quarbor_release_inputs(context, ReleaseReason::BleDisconnect);
+    quarbor_reset_driver_output(context);
+}
+
+#[cfg(windows)]
+fn quarbor_shutdown_context(
+    context: &mut QuarborContext,
+    shared: &Shared,
+    actions: &mut super::remote_actions::RemoteActions,
+) {
+    actions.cancel();
     quarbor_release_inputs(context, ReleaseReason::Shutdown);
     if recording_voice(context).is_some() {
         shared.status.lock().unwrap().capture_active = false;
         publish_a15_recording(shared, false);
-        if let Some(client) = context.reader.as_mut() {
-            if let Err(error) = client.finish_pending(Duration::from_millis(300)) {
-                quarbor_read_error(context, format!("A15 shutdown stop not confirmed: {error}"));
-            }
-        }
     }
     if rc902_voice(context).is_some() {
         publish_rc902_voice_key_edge(shared, false);
+    }
+    if let Some(client) = context.reader.as_mut() {
+        if client.ready() {
+            let _ = client.reset_input();
+        }
+        if client.has_pending_work() {
+            if let Err(error) = client.finish_pending(Duration::from_millis(300)) {
+                quarbor_read_error(
+                    context,
+                    format!("Quarbor shutdown flush not confirmed: {error}"),
+                );
+            }
+        }
     }
     context.reader = None; // Driver disconnect cleanup releases delivered keys.
     while let Some(key) = context.keys.pop_front() {
@@ -864,6 +1003,189 @@ fn run_context(context: &mut QuarborContext, shared: &Shared, target: String) {
     }
     publish_descriptor_input(context, shared);
     shared.status.lock().unwrap().capture_active = false;
+}
+
+#[cfg(windows)]
+fn ble_address_for_device_id(target: &str) -> Option<u64> {
+    let id = target.to_ascii_uppercase();
+    let segment = crate::devices::shared::bluetooth_hid_service(&id)?
+        .split('\\')
+        .next()?;
+    let address = segment.rsplit('_').next()?;
+    (address.len() == 12 && address.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| u64::from_str_radix(address, 16).ok())
+        .flatten()
+}
+
+#[cfg(windows)]
+fn record_ble_connection_status(
+    was_connected: &AtomicBool,
+    disconnects: &AtomicU64,
+    armed: bool,
+    connected: bool,
+) {
+    if connected {
+        was_connected.store(true, Ordering::Release);
+    } else if armed && was_connected.swap(false, Ordering::AcqRel) {
+        disconnects.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+#[cfg(windows)]
+struct BleLinkMonitor {
+    was_connected: Arc<AtomicBool>,
+    disconnects: Arc<AtomicU64>,
+    observed: u64,
+    stop: Arc<AtomicBool>,
+    worker: Option<JoinHandle<()>>,
+}
+
+#[cfg(windows)]
+impl BleLinkMonitor {
+    fn start(target: &str, driver_gate: Arc<AtomicBool>) -> Self {
+        let was_connected = Arc::new(AtomicBool::new(false));
+        let disconnects = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+        #[cfg(not(test))]
+        let worker = ble_address_for_device_id(target).and_then(|address| {
+            let monitor_connected = Arc::clone(&was_connected);
+            let monitor_disconnects = Arc::clone(&disconnects);
+            let monitor_stop = Arc::clone(&stop);
+            thread::Builder::new()
+                .name("Axonkey BLE link monitor".into())
+                .spawn(move || {
+                    ble_link_monitor_loop(
+                        address,
+                        monitor_connected,
+                        monitor_disconnects,
+                        monitor_stop,
+                        driver_gate,
+                    );
+                })
+                .ok()
+        });
+        #[cfg(test)]
+        let worker = {
+            let _ = (target, driver_gate);
+            None
+        };
+        Self {
+            was_connected,
+            disconnects,
+            observed: 0,
+            stop,
+            worker,
+        }
+    }
+
+    fn note_connected(&self) {
+        if !self.was_connected.swap(true, Ordering::AcqRel) {
+            if let Some(worker) = &self.worker {
+                worker.thread().unpark();
+            }
+        }
+    }
+
+    fn has_disconnect(&self) -> bool {
+        self.disconnects.load(Ordering::Acquire) != self.observed
+    }
+
+    fn take_disconnect(&mut self) -> bool {
+        let current = self.disconnects.load(Ordering::Acquire);
+        if current == self.observed {
+            return false;
+        }
+        self.observed = current;
+        true
+    }
+}
+
+#[cfg(windows)]
+impl Drop for BleLinkMonitor {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            worker.thread().unpark();
+            let _ = worker.join();
+        }
+    }
+}
+
+#[cfg(all(windows, not(test)))]
+fn ble_link_monitor_loop(
+    address: u64,
+    was_connected: Arc<AtomicBool>,
+    disconnects: Arc<AtomicU64>,
+    stop: Arc<AtomicBool>,
+    driver_gate: Arc<AtomicBool>,
+) {
+    use windows::{
+        Devices::Bluetooth::{BluetoothConnectionStatus, BluetoothLEDevice},
+        Foundation::TypedEventHandler,
+    };
+
+    // Paired BTHLEDevice nodes stay present and keep their Quarbor pipe open
+    // when the BLE peripheral sleeps or loses radio link; watch the live ACL
+    // connection status passively without opening GATT services.
+    let Ok(_apartment) = crate::windows_runtime::initialize_mta() else {
+        return;
+    };
+    while !stop.load(Ordering::Acquire) && !driver_gate.load(Ordering::Acquire) {
+        let request =
+            crate::windows_runtime::BluetoothRequest::new(Duration::from_secs(5), Some(&stop));
+        let Ok(device) = request.run("BLE link monitor open", || {
+            BluetoothLEDevice::FromBluetoothAddressAsync(address)
+        }) else {
+            thread::park_timeout(Duration::from_secs(2));
+            continue;
+        };
+        let event_connected = Arc::clone(&was_connected);
+        let event_disconnects = Arc::clone(&disconnects);
+        let handler = TypedEventHandler::<BluetoothLEDevice, _>::new(move |sender, _| {
+            if let Some(device) = sender.as_ref() {
+                let armed = event_connected.load(Ordering::Acquire);
+                if let Ok(status) = device.ConnectionStatus() {
+                    record_ble_connection_status(
+                        &event_connected,
+                        &event_disconnects,
+                        armed,
+                        status == BluetoothConnectionStatus::Connected,
+                    );
+                }
+            }
+            Ok(())
+        });
+        let token = device.ConnectionStatusChanged(&handler).ok();
+        let armed = was_connected.load(Ordering::Acquire);
+        if let Ok(status) = device.ConnectionStatus() {
+            record_ble_connection_status(
+                &was_connected,
+                &disconnects,
+                armed,
+                status == BluetoothConnectionStatus::Connected,
+            );
+        }
+        while !stop.load(Ordering::Acquire) && !driver_gate.load(Ordering::Acquire) {
+            thread::park_timeout(Duration::from_millis(100));
+            let armed = was_connected.load(Ordering::Acquire);
+            match device.ConnectionStatus() {
+                Ok(status) => record_ble_connection_status(
+                    &was_connected,
+                    &disconnects,
+                    armed,
+                    status == BluetoothConnectionStatus::Connected,
+                ),
+                Err(_) => {
+                    record_ble_connection_status(&was_connected, &disconnects, armed, false);
+                    break;
+                }
+            }
+        }
+        if let Some(token) = token {
+            let _ = device.RemoveConnectionStatusChanged(token);
+        }
+        let _ = device.Close();
+    }
 }
 
 #[cfg(windows)]
@@ -924,6 +1246,12 @@ fn send_a15_recording_report(
     _reader: &mut Option<super::windows_quarbor::Client>,
     report: [u8; 2],
 ) -> std::io::Result<()> {
+    if FAIL_NEXT_A15_RECORDING_REPORT.with(|fail| fail.replace(false)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "A15 recording control write failed",
+        ));
+    }
     A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().push(report));
     Ok(())
 }
@@ -1194,6 +1522,9 @@ fn emit_remote_output(
                             target: "axonkey::input",
                             "Universal driver cursor movement failed; trying SendInput fallback: {error}"
                         );
+                        if !client.ready() {
+                            quarbor_output_error(context, error);
+                        }
                     } else {
                         sent_by_driver = true;
                     }
@@ -1204,23 +1535,24 @@ fn emit_remote_output(
             }
         }
         Output::MouseClick(button) => {
-            let driver_supported = mouse_button_usage(button).is_some()
-                && context.reader.as_ref().is_some_and(|client| {
-                    mouse_button_usage(button).is_some_and(|usage| client.supports_key(0x09, usage))
-                });
+            let driver_usage = mouse_button_usage(button).filter(|usage| {
+                context
+                    .reader
+                    .as_ref()
+                    .is_some_and(|client| client.supports_key(0x09, *usage))
+            });
             let mut sent_by_driver = false;
-            if driver_supported {
-                let usage = mouse_button_usage(button).expect("driver mouse button usage");
-                if let Some(client) = context.reader.as_mut() {
-                    match client
-                        .send_key(0x09, usage, true)
-                        .and_then(|_| client.send_key(0x09, usage, false))
-                    {
-                        Ok(_) => sent_by_driver = true,
-                        Err(error) => log::warn!(
+            if let (Some(usage), Some(client)) = (driver_usage, context.reader.as_mut()) {
+                match client.tap_key(0x09, usage) {
+                    Ok(_) => sent_by_driver = true,
+                    Err(error) => {
+                        log::warn!(
                             target: "axonkey::input",
                             "Universal driver mouse button failed; trying SendInput fallback: {error}"
-                        ),
+                        );
+                        if !client.ready() {
+                            quarbor_output_error(context, error);
+                        }
                     }
                 }
             }
@@ -1242,6 +1574,9 @@ fn emit_remote_output(
                             target: "axonkey::input",
                             "Universal driver wheel failed; trying SendInput fallback: {error}"
                         );
+                        if !client.ready() {
+                            quarbor_output_error(context, error);
+                        }
                     } else {
                         sent_by_driver = true;
                     }
@@ -1908,6 +2243,7 @@ fn wheel_input(delta: i32, horizontal: bool) -> Input {
 #[cfg(test)]
 thread_local! {
     static A15_RECORDING_REPORTS: std::cell::RefCell<Vec<[u8; 2]>> = const { std::cell::RefCell::new(Vec::new()) };
+    static FAIL_NEXT_A15_RECORDING_REPORT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static RC902_VOICE_KEY_EDGES: std::cell::RefCell<Vec<bool>> = const { std::cell::RefCell::new(Vec::new()) };
     static MOUSE_KEY_BATCHES: std::cell::RefCell<Vec<Vec<(u16, u32)>>> = const { std::cell::RefCell::new(Vec::new()) };
     static WHEEL_EVENTS: std::cell::RefCell<Vec<i32>> = const { std::cell::RefCell::new(Vec::new()) };
@@ -2933,6 +3269,178 @@ mod tests {
             );
             ABSOLUTE_MOUSE_MOVES.with(|events| assert!(events.borrow().is_empty()));
             assert!(other.context.keys.is_empty());
+        }
+
+        #[test]
+        fn ble_link_disconnect_releases_held_keys_repeats_and_voice_without_dead_radio_write() {
+            A15_RECORDING_REPORTS.with(|reports| reports.borrow_mut().clear());
+            WHEEL_EVENTS.with(|events| events.borrow_mut().clear());
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "cmiotA15RecordingMode": "click",
+                "behaviors": {
+                    "cmiotA15.up": {"click": [{"type": "key", "key": "A"}]},
+                    "cmiotA15.down": {"click": [{"type": "wheel", "direction": "down"}]}
+                }
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.device_id = Some(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0300_REV&0100_AABBCCDDEEFF\instance".into(),
+            );
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
+            let updates = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&updates);
+            Arc::get_mut(&mut harness.channel.shared)
+                .unwrap()
+                .managed_input = Some(Arc::new(move |values, pressed| {
+                captured.lock().unwrap().push((values, pressed));
+            }));
+
+            a15_report(
+                &mut harness.context,
+                1,
+                vec![1, 0, 0, 0x52, 0x51, 0, 0, 0, 0],
+            );
+            let mut voice = vec![0; 21];
+            voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+            a15_report(&mut harness.context, 2, voice);
+            harness.tick(&settings, 0, &[]);
+
+            assert_eq!(harness.context.keyboard.held.len(), 1);
+            assert!(harness.context.a15_recording.is_recording());
+            MOUSE_KEY_BATCHES.with(|events| assert_eq!(*events.borrow(), vec![vec![(0x41, 0)]]));
+            WHEEL_EVENTS.with(|events| assert_eq!(*events.borrow(), [-120]));
+            A15_RECORDING_REPORTS.with(|reports| assert_eq!(*reports.borrow(), [[0xfb, 1]]));
+            assert_eq!(updates.lock().unwrap().last().unwrap().1.len(), 3);
+
+            // Simulate BLE peripheral radio drop while buttons and recording remain active.
+            quarbor_handle_ble_disconnect(&mut harness.context);
+            harness.tick(&settings, 500, &[]);
+            harness.tick(&settings, 600, &[]);
+
+            assert!(harness.context.keyboard.held.is_empty());
+            assert!(!harness.context.a15_recording.is_recording());
+            assert!(!harness.channel.status().cmiot_a15_recording);
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0x41, 0)], vec![(0x41, 2)]]);
+            });
+            WHEEL_EVENTS.with(|events| {
+                assert_eq!(
+                    *events.borrow(),
+                    [-120],
+                    "wheel repeat must stop on BLE disconnect"
+                );
+            });
+            A15_RECORDING_REPORTS.with(|reports| {
+                assert_eq!(
+                    *reports.borrow(),
+                    [[0xfb, 1]],
+                    "must not write FB 00 to an offline BLE peripheral"
+                );
+            });
+            assert!(updates.lock().unwrap().last().unwrap().1.is_empty());
+
+            // RC902V voice hold must also emit a false edge and release its held key on BLE drop.
+            RC902_VOICE_KEY_EDGES.with(|edges| edges.borrow_mut().clear());
+            MOUSE_KEY_BATCHES.with(|events| events.borrow_mut().clear());
+            let rc902_settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {"tcl-rc902v.assistant": {"click": [{"type": "key", "key": "RAlt"}]}}
+            }))
+            .unwrap();
+            let mut rc902 = Harness::new(rc902_settings.clone());
+            rc902.context.device_id = Some(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010417_PID&0304_REV&0001_A1B2C3D4E5F6\8&1&0&001F".into(),
+            );
+            rc902.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("tclRc902v");
+            a15_report(&mut rc902.context, 1, vec![0x03, 0x21, 0x02]);
+            rc902.tick(&rc902_settings, 0, &[]);
+            assert_eq!(rc902.context.keyboard.held.len(), 1);
+            quarbor_handle_ble_disconnect(&mut rc902.context);
+            rc902.tick(&rc902_settings, 100, &[]);
+            assert!(rc902.context.keyboard.held.is_empty());
+            RC902_VOICE_KEY_EDGES.with(|edges| assert_eq!(*edges.borrow(), [true, false]));
+            MOUSE_KEY_BATCHES.with(|events| {
+                assert_eq!(*events.borrow(), vec![vec![(0xa5, 1)], vec![(0xa5, 3)]])
+            });
+        }
+
+        #[test]
+        fn shutdown_cancels_delayed_sequences_and_releases_held_inputs() {
+            UNICODE_EVENTS.with(|events| events.borrow_mut().clear());
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "behaviors": {
+                    "up": {"click": [
+                        {"type": "delay", "ms": 100},
+                        {"type": "typeText", "text": "must not run"}
+                    ]},
+                    "cmiotA15.confirm": {"click": [{"type": "key", "key": "Enter"}]}
+                }
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
+            a15_report(&mut harness.context, 1, vec![3, 0x41, 0]);
+            harness.tick(&settings, 0, &[true, false]);
+            assert_eq!(harness.context.keyboard.held.len(), 1);
+
+            quarbor_shutdown_context(
+                &mut harness.context,
+                &harness.channel.shared,
+                &mut harness.actions,
+            );
+            assert!(harness.context.keyboard.held.is_empty());
+            harness.tick(&settings, 200, &[]);
+            UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+        }
+
+        #[test]
+        fn unconsumed_presses_are_dropped_on_disconnect_and_output_errors() {
+            let settings: NativeSettings = serde_json::from_value(json!({
+                "enabled": true,
+                "cmiotA15RecordingMode": "click",
+                "behaviors": {
+                    "cmiotA15.up": {
+                        "click": [{"type": "key", "key": "A"}],
+                        "doubleClick": [{"type": "typeText", "text": "phantom"}]
+                    }
+                }
+            }))
+            .unwrap();
+            let mut harness = Harness::new(settings.clone());
+            harness.context.descriptor =
+                crate::devices::descriptor_registry::descriptor_for_kind("cmiotA15");
+
+            // Press arrives in context.keys, then BLE disconnects before process_remote_actions runs.
+            a15_report(&mut harness.context, 1, vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0]);
+            assert_eq!(harness.context.keys.len(), 1);
+            quarbor_handle_ble_disconnect(&mut harness.context);
+            assert!(harness.context.keys.iter().all(|key| !key.pressed));
+
+            harness.tick(&settings, 0, &[]);
+            harness.tick(&settings, 100, &[]);
+            harness.tick(&settings, 400, &[]);
+            MOUSE_KEY_BATCHES.with(|events| assert!(events.borrow().is_empty()));
+            UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
+
+            // OutputError during a15_recording.edge must also drop trailing unconsumed presses.
+            FAIL_NEXT_A15_RECORDING_REPORT.with(|fail| fail.set(true));
+            let mut voice = vec![0; 21];
+            voice[..4].copy_from_slice(&[0xf8, 0x82, 3, 1]);
+            a15_report(&mut harness.context, 2, voice);
+            a15_report(&mut harness.context, 3, vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0]);
+            assert_eq!(harness.context.keys.len(), 2);
+            harness.tick(&settings, 500, &[]);
+            assert!(harness.context.keys.iter().all(|key| !key.pressed));
+            harness.tick(&settings, 600, &[]);
+            harness.tick(&settings, 950, &[]);
+            MOUSE_KEY_BATCHES.with(|events| assert!(events.borrow().is_empty()));
+            UNICODE_EVENTS.with(|events| assert!(events.borrow().is_empty()));
         }
     }
 
@@ -4046,5 +4554,121 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![(7, 0xe4), (7, 0xe1), (7, 0xe6), (7, 0xe3)]
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn failed_driver_key_release_propagates_error_without_send_input_fallback() {
+        let key = super::super::remote_actions::HidKey {
+            page: 7,
+            usage: 0x04,
+        };
+        let mut keyboard = RemoteKeyboard::default();
+        let mut virtual_events = Vec::new();
+        keyboard
+            .edge_with(
+                key,
+                true,
+                true,
+                |_key, _down| Ok(()),
+                |virtual_key, down| {
+                    virtual_events.push((virtual_key, down));
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let result = keyboard.edge_with(
+            key,
+            false,
+            true,
+            |_key, _down| {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "Quarbor command queue full",
+                ))
+            },
+            |virtual_key, down| {
+                virtual_events.push((virtual_key, down));
+                Ok(())
+            },
+        );
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
+        assert!(virtual_events.is_empty());
+        assert!(keyboard.held.is_empty());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn ble_address_parser_and_disconnect_monitor_track_falling_edges_only() {
+        assert_eq!(
+            ble_address_for_device_id(
+                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055"
+            ),
+            Some(0xc05d_39c2_cf83)
+        );
+        assert_eq!(
+            ble_address_for_device_id(
+                r"bthledevice{00001812-0000-1000-8000-00805f9b34fb}_dev_vid&050416_pid&0300_rev&0505_0cf3ce7f241e\8&11237c06&0&0025"
+            ),
+            Some(0x0cf3_ce7f_241e)
+        );
+        assert_eq!(
+            ble_address_for_device_id(
+                r"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002045E_PID&02E0\C&1B61B8A0&0&0000"
+            ),
+            None
+        );
+        assert_eq!(
+            ble_address_for_device_id(r"ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT\0000"),
+            None
+        );
+
+        let mut monitor = BleLinkMonitor::start(
+            r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&012717_PID&32B8_REV&00A4_C05D39C2CF83\8&7CE84E7&0&0055",
+            Arc::new(AtomicBool::new(false)),
+        );
+        let armed = monitor.was_connected.load(Ordering::Acquire);
+        record_ble_connection_status(&monitor.was_connected, &monitor.disconnects, armed, false);
+        assert!(!monitor.take_disconnect());
+
+        let armed = monitor.was_connected.load(Ordering::Acquire);
+        record_ble_connection_status(&monitor.was_connected, &monitor.disconnects, armed, true);
+        assert!(!monitor.take_disconnect());
+
+        let armed = monitor.was_connected.load(Ordering::Acquire);
+        record_ble_connection_status(&monitor.was_connected, &monitor.disconnects, armed, false);
+        assert!(monitor.has_disconnect());
+        assert!(monitor.take_disconnect());
+        assert!(!monitor.take_disconnect());
+
+        let armed = monitor.was_connected.load(Ordering::Acquire);
+        record_ble_connection_status(&monitor.was_connected, &monitor.disconnects, armed, false);
+        assert!(!monitor.take_disconnect());
+
+        // Waking from sleep via a physical report before WinRT observes Connected:
+        // a stale pre-wake poll (armed == false) must not clobber was_connected,
+        // while a post-wake Disconnected poll (armed == true) must trigger disconnect.
+        let pre_wake_armed = monitor.was_connected.load(Ordering::Acquire);
+        assert!(!pre_wake_armed);
+        monitor.note_connected();
+        record_ble_connection_status(
+            &monitor.was_connected,
+            &monitor.disconnects,
+            pre_wake_armed,
+            false,
+        );
+        assert!(monitor.was_connected.load(Ordering::Acquire));
+        assert!(!monitor.take_disconnect());
+
+        let post_wake_armed = monitor.was_connected.load(Ordering::Acquire);
+        assert!(post_wake_armed);
+        record_ble_connection_status(
+            &monitor.was_connected,
+            &monitor.disconnects,
+            post_wake_armed,
+            false,
+        );
+        assert!(monitor.take_disconnect());
+        assert!(!monitor.take_disconnect());
     }
 }

@@ -223,6 +223,44 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 
 设备型号与按键 ID 以 `capabilities` 和 `keymap get` 返回值为准，实际设备实例以 `device list` 为准。触发方式为 `click`、`doubleClick`、`longPress`，省略时为 `click`。
 
+## 新设备输入采集（capture）
+
+`axonkey-cli capture` 用于连接未知新型号遥控器、副键盘或手柄，枚举本机候选 HID / Quarbor 节点、安全挂载或卸载拦截驱动、逐键采集原始按下/松开报文，并把 `axonkey-device-svg` 产出的待采集 SVG 草稿编译为通过引擎校验的 `axonkey.device/1` 描述符。该命令族直接在 CLI 进程内调用原生采集引擎，不要求 Axonkey 桌面应用处于运行状态。
+
+```bash
+# 列出候选输入设备；--with-gatt 同时读取蓝牙低功耗 0x180A 厂商/型号/固件特征
+axonkey-cli capture list --with-gatt --json
+
+# Windows 下为目标设备挂载或恢复 Quarbor 拦截驱动（会触发系统 UAC 授权）
+axonkey-cli capture attach --instance-id "<设备实例 ID>" --json
+axonkey-cli capture detach --instance-id "<设备实例 ID>" --json
+
+# 单独采集一个按键的按下与松开原始报文
+axonkey-cli capture key \
+  --instance-id "<设备实例 ID>" \
+  --input-id "tcl.rc802a.home" \
+  --timeout-ms 12000 \
+  --json
+
+# 按草稿按键清单执行可断点续采的交互式向导（省略 --out 时默认输出 <draft>.captured.svg）
+axonkey-cli capture wizard \
+  --instance-id "<设备实例 ID>" \
+  --draft docs/device-drafts/tcl-rc802a.svg \
+  --session-file docs/device-drafts/tcl-rc802a.capture.json \
+  --out docs/device-drafts/tcl-rc802a.captured.svg
+
+# 将 SVG 草稿与采集样本编译为带 ak:identity / ak:reports / ak:hid-capture 的正式描述符并校验
+axonkey-cli capture compile \
+  --draft docs/device-drafts/tcl-rc802a.svg \
+  --session docs/device-drafts/tcl-rc802a.capture.json \
+  --out docs/device-drafts/tcl-rc802a.captured.svg \
+  --markdown-out docs/device-drafts/tcl-rc802a.captured.md \
+  --status active \
+  --json
+```
+
+候选设备按风险分为三级：`safe`（蓝牙遥控器、Consumer `0x0C`、厂商页、手柄）可直接挂载；`caution`（存在多把物理键盘时的外接副键盘）需确认后加 `--allow-caution`；`blocked`（鼠标/指针设备或机器唯一的物理键盘）默认拒绝挂载，避免锁死主输入。虚拟输出节点（`ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT`）与内置 ACPI/PS2 设备自动排除。完整引导步骤见 [axonkey-device-capture skill](../.agents/skills/axonkey-device-capture/SKILL.md)。
+
 ## 给 Agent 的简短说明
 
 ```text

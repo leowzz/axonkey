@@ -2,6 +2,8 @@ mod app_restart;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
+mod connection_troubleshoot;
+pub mod device_capture;
 mod devices;
 mod driver_migration;
 mod foreground;
@@ -254,10 +256,113 @@ fn show_main_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
+    #[cfg(target_os = "windows")]
+    warn_if_isolated_windows_desktop();
+
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+// Windows 10/11 Virtual Desktops (Win+Tab) still bind processes to the `Default`
+// Win32 desktop. Sandboxes created with `CreateDesktopW` (such as `exebox-*`)
+// run without `explorer.exe` / `Shell_TrayWnd`, so windows and tray icons are
+// invisible while `tauri_plugin_single_instance` blocks normal desktop launches.
+#[cfg(any(target_os = "windows", test))]
+fn is_isolated_windows_desktop(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("Default")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_thread_desktop_name() -> Option<String> {
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetThreadDesktop(dw_thread_id: u32) -> *mut std::ffi::c_void;
+        fn GetUserObjectInformationW(
+            h_obj: *mut std::ffi::c_void,
+            n_index: i32,
+            pv_info: *mut std::ffi::c_void,
+            n_length: u32,
+            lpn_length_needed: *mut u32,
+        ) -> i32;
+    }
+
+    const UOI_NAME: i32 = 2;
+    let mut buf = [0u16; 128];
+    let mut needed = 0u32;
+    let ok = unsafe {
+        let desk = GetThreadDesktop(GetCurrentThreadId());
+        !desk.is_null()
+            && GetUserObjectInformationW(
+                desk,
+                UOI_NAME,
+                buf.as_mut_ptr().cast(),
+                (buf.len() * std::mem::size_of::<u16>()) as u32,
+                &mut needed,
+            ) != 0
+    };
+    if !ok {
+        return None;
+    }
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..end]))
+}
+
+#[cfg(target_os = "windows")]
+fn warn_if_isolated_windows_desktop() {
+    if let Some(desktop) =
+        windows_thread_desktop_name().filter(|name| is_isolated_windows_desktop(name))
+    {
+        log::warn!(
+            target: "axonkey::runtime",
+            "Axonkey is running inside an isolated Windows desktop ({desktop}); GUI windows and tray icons will not appear on the main desktop."
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_interactive_windows_desktop() {
+    if std::env::var_os("AXONKEY_ALLOW_ISOLATED_DESKTOP").is_some() {
+        return;
+    }
+    let Some(desktop) =
+        windows_thread_desktop_name().filter(|name| is_isolated_windows_desktop(name))
+    else {
+        return;
+    };
+    let message = format!(
+        "拒绝在隔离的 Windows 桌面 ({desktop}) 中启动 Axonkey：该环境没有主桌面任务栏，窗体与托盘图标均不可见，且继续驻留会占用全局单实例锁与设备通道，导致主桌面也无法打开软件。请改在系统独立终端（如 Win+R 输入 wt 或 powershell）中运行。"
+    );
+    eprintln!("\n[Axonkey] {message}\n");
+    append_early_windows_runtime_log(&message);
+    std::process::exit(1);
+}
+
+#[cfg(target_os = "windows")]
+fn append_early_windows_runtime_log(message: &str) {
+    use std::io::Write;
+
+    let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let log_dir = std::path::PathBuf::from(local_app_data)
+        .join("com.axonkey.app")
+        .join("logs");
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let log_path = log_dir.join(format!("{RUNTIME_LOG_FILE_BASENAME}.log"));
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        let _ = writeln!(file, "[ERROR][axonkey::runtime] {message}");
     }
 }
 
@@ -1537,6 +1642,8 @@ async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn shutdown_device_services(app: &tauri::AppHandle) {
+    device_capture::set_workbench_active(false);
+    let _ = device_capture::stop_session();
     if let Some(service) = app.try_state::<DeviceManager>() {
         service.shutdown();
     }
@@ -1547,6 +1654,212 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
     if let Some(service) = app.try_state::<InputService>() {
         service.shutdown();
     }
+}
+
+fn pause_managed_pipes_for_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(input) = app.try_state::<InputService>() {
+            let _ = input.pause_for_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.pause_for_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+fn resume_managed_pipes_after_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    if !device_capture::is_workbench_active() && !device_capture::session_status().active {
+        if let Some(input) = app.try_state::<InputService>() {
+            input.resume_after_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.resume_after_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+#[tauri::command]
+async fn capture_set_workbench_active(app: tauri::AppHandle, active: bool) -> Result<bool, String> {
+    device_capture::set_workbench_active(active);
+    if active {
+        pause_managed_pipes_for_capture(&app);
+        Ok(true)
+    } else {
+        let _ = tauri::async_runtime::spawn_blocking(device_capture::stop_session).await;
+        resume_managed_pipes_after_capture(&app);
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+async fn capture_list_candidates(
+    include_gatt: Option<bool>,
+) -> Result<Vec<device_capture::CaptureCandidate>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        device_capture::list_candidates(include_gatt.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("枚举采集设备任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_attach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+    allow_caution: Option<bool>,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-install").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::attach_driver(
+            &instance_id,
+            allow_caution.unwrap_or(false),
+            false,
+            resource_dir.as_deref(),
+            log_path.as_deref(),
+        )
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("挂载拦截驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_detach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-uninstall").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::detach_driver(&instance_id, resource_dir.as_deref(), log_path.as_deref())
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("恢复系统驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+fn capture_parse_draft_svg(
+    svg_content: String,
+) -> Result<device_capture::ParsedCaptureDraft, String> {
+    device_capture::parse_draft_svg(&svg_content)
+}
+
+#[tauri::command]
+async fn capture_start_session(
+    app: tauri::AppHandle,
+    target_id: String,
+    instance_id: String,
+    passthrough_standard_keys: Option<bool>,
+) -> Result<device_capture::CaptureSessionStatus, String> {
+    use tauri::Emitter;
+
+    pause_managed_pipes_for_capture(&app);
+    let app_for_events = app.clone();
+    let sink = std::sync::Arc::new(move |event: device_capture::CaptureEvent| {
+        let disconnected = matches!(
+            &event,
+            device_capture::CaptureEvent::Status {
+                connected: false,
+                ..
+            }
+        );
+        let _ = app_for_events.emit(device_capture::CAPTURE_EVENT_NAME, event);
+        if disconnected {
+            resume_managed_pipes_after_capture(&app_for_events);
+        }
+    });
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        device_capture::start_session(
+            target_id,
+            instance_id,
+            passthrough_standard_keys.unwrap_or(false),
+            sink,
+        )
+    })
+    .await
+    .map_err(|error| format!("启动输入采集任务异常：{error}"))?;
+
+    if task_result.is_err() {
+        resume_managed_pipes_after_capture(&app);
+    }
+    task_result
+}
+
+#[tauri::command]
+async fn capture_stop_session(app: tauri::AppHandle) -> Result<bool, String> {
+    let result = tauri::async_runtime::spawn_blocking(device_capture::stop_session)
+        .await
+        .map_err(|error| format!("停止输入采集任务异常：{error}"))?;
+    resume_managed_pipes_after_capture(&app);
+    result
+}
+
+#[tauri::command]
+fn capture_arm_key(input_id: Option<String>) -> Result<bool, String> {
+    device_capture::arm_key(input_id)
+}
+
+#[tauri::command]
+fn capture_set_live_preview_svg(svg_content: Option<String>) -> Result<bool, String> {
+    device_capture::set_live_preview_svg(svg_content)
+}
+
+#[tauri::command]
+fn capture_compile_svg(
+    draft_svg: String,
+    candidate: Option<device_capture::CaptureCandidate>,
+    samples: Vec<device_capture::CapturedKeySample>,
+    target_status: Option<String>,
+) -> Result<device_capture::CompiledCaptureResult, String> {
+    device_capture::compile_svg(
+        &draft_svg,
+        candidate.as_ref(),
+        &samples,
+        target_status.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn capture_save_export(
+    svg_path: String,
+    svg_content: String,
+    markdown_path: Option<String>,
+    markdown_content: Option<String>,
+) -> Result<bool, String> {
+    device_capture::save_export(
+        &svg_path,
+        &svg_content,
+        markdown_path.as_deref(),
+        markdown_content.as_deref(),
+    )
 }
 
 fn apply_gatt_recording_status(snapshot: &mut DeviceSnapshot, audio_service: &AudioServiceManager) {
@@ -1750,6 +2063,9 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    ensure_interactive_windows_desktop();
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1950,6 +2266,18 @@ pub fn run() {
             cli_ipc::cli_poll_requests,
             cli_ipc::cli_write_response,
             cli_ipc::cli_cancel_request,
+            connection_troubleshoot::diagnose_connection_issues,
+            capture_set_workbench_active,
+            capture_list_candidates,
+            capture_attach_driver,
+            capture_detach_driver,
+            capture_parse_draft_svg,
+            capture_start_session,
+            capture_stop_session,
+            capture_arm_key,
+            capture_set_live_preview_svg,
+            capture_compile_svg,
+            capture_save_export,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
@@ -2143,5 +2471,15 @@ mod tests {
             app_bundle_for_executable(std::path::Path::new("/tmp/axonkey")),
             None
         );
+    }
+
+    #[test]
+    fn detects_non_default_isolated_windows_desktops() {
+        assert!(!super::is_isolated_windows_desktop(""));
+        assert!(!super::is_isolated_windows_desktop("Default"));
+        assert!(!super::is_isolated_windows_desktop("default"));
+        assert!(super::is_isolated_windows_desktop(
+            "exebox-CRC73DZUUINT6EMROH7UDNSSIH"
+        ));
     }
 }
