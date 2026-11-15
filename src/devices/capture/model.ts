@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
 export const CAPTURE_EVENT_NAME = 'axonkey-device-capture'
+export const HID_EVENT_DRAG_MIME = 'application/x-axonkey-hid-event'
 
 export type CaptureSafetyTier = 'safe' | 'caution' | 'blocked'
 
@@ -12,6 +13,11 @@ export type CaptureGattInfo = {
   modelNumber: string | null
   softwareRevision: string | null
   bluetoothAddress: string | null
+}
+
+export type CaptureAncestorNode = {
+  id: string
+  label: string
 }
 
 export type CaptureCandidate = {
@@ -29,6 +35,7 @@ export type CaptureCandidate = {
   safetyTier: CaptureSafetyTier
   safetyReason: string | null
   gattInfo: CaptureGattInfo | null
+  ancestors?: CaptureAncestorNode[]
 }
 
 export type CaptureDriverActionResult = {
@@ -80,6 +87,40 @@ export type CapturedKeySample = {
   releaseLength: number
   holdCount: number
   durationMs: number
+  sourceTargetId?: string | null
+  sourceInstanceId?: string | null
+  sourceDeviceName?: string | null
+  sourceVid?: number | null
+  sourcePid?: number | null
+}
+
+export type PairedHidEventSource = {
+  targetId: string | null
+  instanceId: string | null
+  deviceName: string | null
+  vid: number | null
+  pid: number | null
+}
+
+export type PairedHidEventItem = {
+  id: string
+  reportId: number
+  pressHex: string
+  pressLength: number
+  releaseHex: string
+  releaseLength: number
+  hasObservedRelease: boolean
+  isPressed: boolean
+  hitCount: number
+  firstSequence: number
+  lastSequence: number
+  source: PairedHidEventSource
+}
+
+export type HidPairTrackerState = {
+  neutralByReportKey: Map<string, string>
+  idleCandidateByReportKey: Map<string, { hex: string; count: number }>
+  activeEventIdByReportKey: Map<string, string>
 }
 
 export type CaptureCollisionWarning = {
@@ -217,6 +258,11 @@ export async function captureStartSession(
 export async function captureStopSession(native?: boolean): Promise<boolean> {
   if (!isTauriCaptureRuntime(native)) return false
   return invoke<boolean>('capture_stop_session')
+}
+
+export async function captureSetWorkbenchActive(active: boolean, native?: boolean): Promise<boolean> {
+  if (!isTauriCaptureRuntime(native)) return false
+  return invoke<boolean>('capture_set_workbench_active', { active })
 }
 
 export async function captureArmKey(inputId: string | null, native?: boolean): Promise<boolean> {
@@ -379,7 +425,7 @@ export function compileCaptureSvgLocal(
   const draft = parseCaptureDraftSvgLocal(draftSvg)
   const sampleMap = new Map(samples.map(sample => [sample.inputId, sample]))
   const collisions = detectSampleCollisions(sampleMap.values())
-  const adaptedCount = draft.inputs.filter(input => sampleMap.has(input.id)).length
+  const adaptedCount = draft.inputs.filter(input => isInputDefined(input, sampleMap)).length
   const pendingCount = Math.max(0, draft.inputs.length - adaptedCount)
   const resolvedStatus = targetStatus ?? (pendingCount === 0 && adaptedCount > 0 ? 'active' : 'draft')
 
@@ -401,14 +447,15 @@ export function compileCaptureSvgLocal(
     '',
     '## 按键报文清单',
     '',
-    '| 按键 | 输入 ID | Report ID | 按下报文 | 抬起报文 |',
-    '| --- | --- | --- | --- | --- |',
+    '| 按键 | 输入 ID | 来源设备 | Report ID | 按下报文 | 抬起报文 |',
+    '| --- | --- | --- | --- | --- | --- |',
     ...draft.inputs.map(item => {
       const sample = sampleMap.get(item.id)
       if (!sample) {
-        return `| ${item.label} | \`${item.id}\` | — | 待采集 | — |`
+        return `| ${item.label} | \`${item.id}\` | — | — | 待采集 | — |`
       }
-      return `| ${item.label} | \`${item.id}\` | \`${formatReportIdHex(sample.reportId)}\` | \`${sample.pressHex}\` | \`${sample.releaseHex || '—'}\` |`
+      const sourceLabel = sample.sourceDeviceName || candidate?.displayName || '—'
+      return `| ${item.label} | \`${item.id}\` | ${sourceLabel} | \`${formatReportIdHex(sample.reportId)}\` | \`${sample.pressHex}\` | \`${sample.releaseHex || '—'}\` |`
     }),
   ]
 
@@ -475,6 +522,83 @@ export function detectSampleCollisions(samples: Iterable<CapturedKeySample>): Ca
   return warnings
 }
 
+export function isInputDefined(
+  input: Pick<CaptureDraftInputItem, 'id' | 'binding'>,
+  samples: ReadonlyMap<string, CapturedKeySample>,
+): boolean {
+  return samples.has(input.id) || input.binding === 'captured'
+}
+
+export function clearSvgKeyDefinitions(svgContent: string, targetInputIds?: ReadonlySet<string>): string {
+  let clearedAny = false
+  let nextSvg = svgContent.replace(/<ak:input\b[^>]*\/>|<ak:input\b[^>]*>[\s\S]*?<\/ak:input>/gi, block => {
+    const openTag = block.match(/^<ak:input\b[^>]*>/i)?.[0] ?? ''
+    const attrs = parseXmlAttributes(openTag)
+    const id = attrs.id?.trim()
+    const shouldClear = !targetInputIds || (Boolean(id) && targetInputIds.has(id!))
+    if (!shouldClear) return block
+
+    clearedAny = true
+    let cleanedOpen = openTag
+      .replace(/\/\s*>$/, '>')
+      .replace(/\s+(?:report|page|usage|engine|field|offset|bit|width|equals)\s*=\s*(["']).*?\1/gis, '')
+
+    if (/\bbinding\s*=/i.test(cleanedOpen)) {
+      cleanedOpen = cleanedOpen.replace(/(\bbinding\s*=\s*(["']))[^"']*(\2)/i, '$1pending$3')
+    } else {
+      cleanedOpen = cleanedOpen.replace(/>$/, ' binding="pending">')
+    }
+
+    const inner = block.endsWith('/>')
+      ? ''
+      : block
+          .slice(openTag.length, block.lastIndexOf('</ak:input>'))
+          .replace(/<ak:source\b[^>]*>[\s\S]*?<\/ak:source>|<ak:source\b[^>]*\/?>/gi, '')
+          .replace(/<ak:hid-capture\b[^>]*>[\s\S]*?<\/ak:hid-capture>|<ak:hid-capture\b[^>]*\/?>/gi, '')
+          .trim()
+
+    return inner ? `${cleanedOpen}${inner}</ak:input>` : cleanedOpen.replace(/>$/, '/>')
+  })
+
+  if (!clearedAny) return svgContent
+
+  const hasRemainingInputSources = [
+    ...nextSvg.matchAll(/<ak:input\b[^>]*\/>|<ak:input\b[^>]*>[\s\S]*?<\/ak:input>/gi),
+  ].some(match => {
+    const block = match[0]
+    const openTag = block.match(/^<ak:input\b[^>]*>/i)?.[0] ?? ''
+    const attrs = parseXmlAttributes(openTag)
+    return Boolean(attrs.report) || /<ak:(?:source|hid-capture)\b/i.test(block)
+  })
+
+  if (!hasRemainingInputSources) {
+    const voiceReportIds = new Set<string>()
+    for (const voiceMatch of nextSvg.matchAll(/<ak:voice\b[^>]*>/gi)) {
+      const vAttrs = parseXmlAttributes(voiceMatch[0])
+      for (const key of ['audio-report', 'control-report', 'start-report', 'stop-report', 'sync-report']) {
+        if (vAttrs[key]) voiceReportIds.add(vAttrs[key])
+      }
+    }
+    nextSvg = nextSvg.replace(/<ak:reports\b[^>]*>([\s\S]*?)<\/ak:reports>/gi, (_full, body: string) => {
+      const keptReports: string[] = []
+      for (const repMatch of body.matchAll(/<ak:report\b[^>]*\/?>/gi)) {
+        const repAttrs = parseXmlAttributes(repMatch[0])
+        const id = repAttrs.id ?? ''
+        const direction = repAttrs.direction ?? 'input'
+        const encoding = repAttrs.encoding ?? ''
+        if (direction !== 'input' || encoding === 'gatt-stream' || voiceReportIds.has(id)) {
+          keptReports.push(`        ${repMatch[0].trim()}`)
+        }
+      }
+      return keptReports.length > 0
+        ? `<ak:reports>\n${keptReports.join('\n')}\n      </ak:reports>`
+        : '<ak:reports>\n      </ak:reports>'
+    })
+  }
+
+  return replaceRootOrDeviceStatus(nextSvg, 'draft')
+}
+
 export function nextPendingInputId(
   inputs: readonly CaptureDraftInputItem[],
   samples: ReadonlyMap<string, CapturedKeySample>,
@@ -486,13 +610,13 @@ export function nextPendingInputId(
 
   for (let offset = 0; offset < inputs.length; offset++) {
     const candidate = inputs[(startIndex + offset) % inputs.length]
-    if (!samples.has(candidate.id) && !skippedIds?.has(candidate.id)) {
+    if (!isInputDefined(candidate, samples) && !skippedIds?.has(candidate.id)) {
       return candidate.id
     }
   }
   for (let offset = 0; offset < inputs.length; offset++) {
     const candidate = inputs[(startIndex + offset) % inputs.length]
-    if (!samples.has(candidate.id)) {
+    if (!isInputDefined(candidate, samples)) {
       return candidate.id
     }
   }
@@ -567,6 +691,38 @@ export function safetyBadgeLabel(tier: CaptureSafetyTier): string {
   }
 }
 
+/** 将常见 HID UsagePage/Usage 转换为简短的功能分类标签。 */
+export function formatHidUsageRole(usagePage: number | null, usage: number | null): string | null {
+  if (usagePage === null) return null
+  if (usagePage === 0x01) {
+    switch (usage) {
+      case 0x01:
+        return '指针设备'
+      case 0x02:
+        return '鼠标'
+      case 0x04:
+        return '摇杆'
+      case 0x05:
+        return '游戏手柄'
+      case 0x06:
+        return '键盘'
+      case 0x07:
+        return '小键盘'
+      case 0x0c:
+        return '无线射频控制'
+      case 0x80:
+        return '系统控制'
+      default:
+        return null
+    }
+  }
+  if (usagePage === 0x05) return '游戏控制'
+  if (usagePage === 0x0c) return '多媒体 / 功能键'
+  if (usagePage === 0x0d) return '触控 / 数位板'
+  if (usagePage >= 0xff00) return '厂商自定义'
+  return null
+}
+
 export function accumulateProbeFrame(
   existing: readonly DiscoveredProbeButton[],
   neutralByReport: Map<number, string>,
@@ -620,6 +776,160 @@ export function accumulateProbeFrame(
       lastSequence: frame.sequence,
     },
   ]
+}
+
+const EMPTY_HID_SOURCE: PairedHidEventSource = {
+  targetId: null,
+  instanceId: null,
+  deviceName: null,
+  vid: null,
+  pid: null,
+}
+
+export function createHidPairTrackerState(): HidPairTrackerState {
+  return {
+    neutralByReportKey: new Map(),
+    idleCandidateByReportKey: new Map(),
+    activeEventIdByReportKey: new Map(),
+  }
+}
+
+/** 将连续 HID 原始帧配对为包含「按下 + 抬起」与来源设备的单条可拖拽事件。 */
+export function accumulatePairedHidEvent(
+  existing: readonly PairedHidEventItem[],
+  tracker: HidPairTrackerState,
+  frame: { sequence: number; reportId: number; hex: string; isStreamingNoise: boolean },
+  source: PairedHidEventSource = EMPTY_HID_SOURCE,
+  maxItems = 60,
+): PairedHidEventItem[] {
+  if (frame.isStreamingNoise) return [...existing]
+  const norm = normalizeHexBytes(frame.hex)
+  if (!norm || norm.bytes.length === 0) return [...existing]
+
+  const sourceKey = source.targetId || source.instanceId || 'default'
+  const reportKey = `${sourceKey}:${frame.reportId}`
+  const allZeroAfterId = norm.bytes.length <= 1 || norm.bytes.slice(1).every(byte => byte === 0)
+
+  if (allZeroAfterId) {
+    tracker.neutralByReportKey.set(reportKey, norm.hex)
+  } else if (!tracker.activeEventIdByReportKey.has(reportKey) && !tracker.neutralByReportKey.has(reportKey)) {
+    const idleCand = tracker.idleCandidateByReportKey.get(reportKey)
+    if (idleCand && idleCand.hex === norm.hex) {
+      const nextCount = idleCand.count + 1
+      tracker.idleCandidateByReportKey.set(reportKey, { hex: norm.hex, count: nextCount })
+      if (nextCount >= 3) {
+        tracker.neutralByReportKey.set(reportKey, norm.hex)
+      }
+    } else {
+      tracker.idleCandidateByReportKey.set(reportKey, { hex: norm.hex, count: 1 })
+    }
+  }
+
+  const knownNeutral = tracker.neutralByReportKey.get(reportKey)
+  const isReleaseFrame = allZeroAfterId || (knownNeutral !== undefined && norm.hex === knownNeutral)
+
+  if (isReleaseFrame) {
+    const activeEventId = tracker.activeEventIdByReportKey.get(reportKey)
+    if (!activeEventId) return [...existing]
+    tracker.activeEventIdByReportKey.delete(reportKey)
+    const idx = existing.findIndex(item => item.id === activeEventId)
+    if (idx < 0) return [...existing]
+    const next = [...existing]
+    next[idx] = {
+      ...next[idx],
+      releaseHex: norm.hex,
+      releaseLength: norm.bytes.length,
+      hasObservedRelease: true,
+      isPressed: false,
+      lastSequence: frame.sequence,
+    }
+    return next
+  }
+
+  const fallbackReleaseHex =
+    knownNeutral ??
+    [norm.bytes[0], ...norm.bytes.slice(1).map(() => 0)]
+      .map(byte => byte.toString(16).padStart(2, '0').toUpperCase())
+      .join(' ')
+
+  const eventId = `${sourceKey}:${frame.reportId}:${norm.hex}`
+  const prevActiveId = tracker.activeEventIdByReportKey.get(reportKey)
+  const isHoldRepeat = prevActiveId === eventId
+  tracker.activeEventIdByReportKey.set(reportKey, eventId)
+
+  const list =
+    prevActiveId && !isHoldRepeat
+      ? existing.map(item => (item.id === prevActiveId ? { ...item, isPressed: false } : item))
+      : [...existing]
+
+  const existingIndex = list.findIndex(item => item.id === eventId)
+  if (existingIndex >= 0) {
+    const current = list[existingIndex]
+    const updated: PairedHidEventItem = {
+      ...current,
+      releaseHex: current.hasObservedRelease ? current.releaseHex : fallbackReleaseHex,
+      releaseLength: current.hasObservedRelease ? current.releaseLength : norm.bytes.length,
+      isPressed: true,
+      hitCount: isHoldRepeat ? current.hitCount : current.hitCount + 1,
+      lastSequence: frame.sequence,
+      source: source.targetId || source.instanceId ? source : current.source,
+    }
+    if (isHoldRepeat || existingIndex === 0) {
+      list[existingIndex] = updated
+      return list
+    }
+    list.splice(existingIndex, 1)
+    return [updated, ...list].slice(0, maxItems)
+  }
+
+  const created: PairedHidEventItem = {
+    id: eventId,
+    reportId: frame.reportId,
+    pressHex: norm.hex,
+    pressLength: norm.bytes.length,
+    releaseHex: fallbackReleaseHex,
+    releaseLength: norm.bytes.length,
+    hasObservedRelease: false,
+    isPressed: true,
+    hitCount: 1,
+    firstSequence: frame.sequence,
+    lastSequence: frame.sequence,
+    source,
+  }
+  return [created, ...list].slice(0, maxItems)
+}
+
+/** 在测试阶段将原始 HID 报文与已采集样本比对，返回触发按下和抬起的输入 ID。 */
+export function matchSamplesAgainstRawFrame(
+  samples: Iterable<CapturedKeySample>,
+  currentlyPressedIds: ReadonlySet<string>,
+  frame: { reportId: number; hex: string; isStreamingNoise?: boolean },
+): { pressedIds: string[]; releasedIds: string[] } {
+  if (frame.isStreamingNoise) return { pressedIds: [], releasedIds: [] }
+  const norm = normalizeHexBytes(frame.hex)
+  if (!norm || norm.bytes.length === 0) return { pressedIds: [], releasedIds: [] }
+
+  const allZeroAfterId = norm.bytes.length <= 1 || norm.bytes.slice(1).every(byte => byte === 0)
+  const pressedIds: string[] = []
+  const releasedIds: string[] = []
+
+  for (const sample of samples) {
+    if (sample.reportId !== frame.reportId) continue
+    const pressHex = normalizeHexBytes(sample.pressHex)?.hex ?? sample.pressHex.trim().toUpperCase()
+    const releaseHex = normalizeHexBytes(sample.releaseHex)?.hex ?? sample.releaseHex.trim().toUpperCase()
+
+    if (pressHex && norm.hex === pressHex) {
+      if (!currentlyPressedIds.has(sample.inputId)) {
+        pressedIds.push(sample.inputId)
+      }
+    } else if (currentlyPressedIds.has(sample.inputId)) {
+      if ((releaseHex && norm.hex === releaseHex) || allZeroAfterId || norm.hex !== pressHex) {
+        releasedIds.push(sample.inputId)
+      }
+    }
+  }
+
+  return { pressedIds, releasedIds }
 }
 
 function assertSafeSvgMarkup(svgContent: string) {
@@ -846,4 +1156,235 @@ function injectIdentityIfMissing(svg: string, candidate: CaptureCandidate): stri
     : ''
   const identityBlock = `\n      <ak:identity>\n        <ak:match vid="${vid}" pid="${pid}"${prefixAttr}${modelAttr}/>\n      </ak:identity>`
   return svg.replace(/(<ak:device\b[^>]*>)/i, `$1${identityBlock}`)
+}
+
+export const CAPTURE_TEMP_SNAPSHOT_TTL_MS = 15 * 60 * 1000
+
+export type CaptureSnapshotEntry = {
+  targetId: string
+  instanceId: string
+  displayName: string
+  transport: string
+  vid: number | null
+  pid: number | null
+  usagePage: number | null
+  usage: number | null
+  ancestors: CaptureAncestorNode[]
+}
+
+export type CaptureDeviceSnapshot = {
+  version: 1
+  savedAtMs: number
+  entries: CaptureSnapshotEntry[]
+}
+
+export type CaptureSnapshotDiff = {
+  addedIds: Set<string>
+  removedEntries: CaptureSnapshotEntry[]
+  unchangedCount: number
+}
+
+export type CaptureTreeLeafItem =
+  | {
+      kind: 'live'
+      key: string
+      diff: 'added' | 'unchanged'
+      displayName: string
+      transport: string
+      vid: number | null
+      pid: number | null
+      usagePage: number | null
+      usage: number | null
+      ancestors: CaptureAncestorNode[]
+      candidate: CaptureCandidate
+    }
+  | {
+      kind: 'removed'
+      key: string
+      diff: 'removed'
+      displayName: string
+      transport: string
+      vid: number | null
+      pid: number | null
+      usagePage: number | null
+      usage: number | null
+      ancestors: CaptureAncestorNode[]
+      entry: CaptureSnapshotEntry
+    }
+
+export type CaptureTreeFolderNode = {
+  id: string
+  label: string
+  kind: 'bus' | 'device'
+  children: CaptureTreeFolderNode[]
+  items: CaptureTreeLeafItem[]
+  totalCount: number
+  addedCount: number
+  removedCount: number
+}
+
+let tempCaptureSnapshotCache: CaptureDeviceSnapshot | null = null
+
+/** 从当前候选列表生成用于短期对比新出现/消失设备的内存快照。 */
+export function createCaptureSnapshot(
+  candidates: readonly CaptureCandidate[],
+  savedAtMs = Date.now(),
+): CaptureDeviceSnapshot {
+  return {
+    version: 1,
+    savedAtMs,
+    entries: candidates.map(c => ({
+      targetId: c.targetId,
+      instanceId: c.instanceId,
+      displayName: c.displayName,
+      transport: c.transport,
+      vid: c.vid,
+      pid: c.pid,
+      usagePage: c.usagePage,
+      usage: c.usage,
+      ancestors: (c.ancestors ?? []).map(a => ({ id: a.id, label: a.label })),
+    })),
+  }
+}
+
+export function getTempCaptureSnapshot(nowMs = Date.now()): CaptureDeviceSnapshot | null {
+  if (!tempCaptureSnapshotCache) return null
+  if (nowMs - tempCaptureSnapshotCache.savedAtMs > CAPTURE_TEMP_SNAPSHOT_TTL_MS) {
+    tempCaptureSnapshotCache = null
+    return null
+  }
+  return tempCaptureSnapshotCache
+}
+
+export function setTempCaptureSnapshot(
+  candidates: readonly CaptureCandidate[],
+  nowMs = Date.now(),
+): CaptureDeviceSnapshot {
+  const snapshot = createCaptureSnapshot(candidates, nowMs)
+  tempCaptureSnapshotCache = snapshot
+  return snapshot
+}
+
+export function clearTempCaptureSnapshot(): void {
+  tempCaptureSnapshotCache = null
+}
+
+export function diffCandidatesWithSnapshot(
+  candidates: readonly CaptureCandidate[],
+  snapshot: CaptureDeviceSnapshot | null,
+): CaptureSnapshotDiff {
+  if (!snapshot) {
+    return {
+      addedIds: new Set<string>(),
+      removedEntries: [],
+      unchangedCount: candidates.length,
+    }
+  }
+  const snapshotTargets = new Set(snapshot.entries.map(entry => entry.targetId))
+  const liveTargets = new Set(candidates.map(candidate => candidate.targetId))
+  const addedIds = new Set(
+    candidates.filter(candidate => !snapshotTargets.has(candidate.targetId)).map(candidate => candidate.targetId),
+  )
+  const removedEntries = snapshot.entries.filter(entry => !liveTargets.has(entry.targetId))
+  return {
+    addedIds,
+    removedEntries,
+    unchangedCount: candidates.length - addedIds.size,
+  }
+}
+
+type MutableTreeFolder = {
+  id: string
+  label: string
+  kind: 'bus' | 'device'
+  childMap: Map<string, MutableTreeFolder>
+  children: MutableTreeFolder[]
+  items: CaptureTreeLeafItem[]
+}
+
+const BUS_META: Record<string, { id: string; label: string; order: number }> = {
+  'usb-hid': { id: 'bus:usb-hid', label: 'USB 总线', order: 0 },
+  'bluetooth-le': { id: 'bus:bluetooth-le', label: '低功耗蓝牙 (BLE)', order: 1 },
+  'bluetooth-hid': { id: 'bus:bluetooth-hid', label: '经典蓝牙 (HID)', order: 2 },
+}
+
+function getBusMeta(transport: string) {
+  return BUS_META[transport] ?? { id: 'bus:hid-other', label: '其他 HID 接口', order: 3 }
+}
+
+function createMutableFolder(id: string, label: string, kind: 'bus' | 'device'): MutableTreeFolder {
+  return { id, label, kind, childMap: new Map(), children: [], items: [] }
+}
+
+function finalizeTreeFolder(node: MutableTreeFolder): CaptureTreeFolderNode {
+  const children: CaptureTreeFolderNode[] = []
+  const items: CaptureTreeLeafItem[] = [...node.items]
+
+  for (const child of node.children) {
+    const finalizedChild = finalizeTreeFolder(child)
+    // Collapse single-child Bluetooth/device container whose name duplicates its only child leaf.
+    const canUnwrapRedundantSingle =
+      finalizedChild.kind === 'device' &&
+      finalizedChild.children.length === 0 &&
+      finalizedChild.items.length === 1 &&
+      finalizedChild.label.trim().toLowerCase() === finalizedChild.items[0].displayName.trim().toLowerCase()
+    if (canUnwrapRedundantSingle) {
+      items.push(finalizedChild.items[0])
+    } else {
+      children.push(finalizedChild)
+    }
+  }
+
+  let totalCount = items.length
+  let addedCount = items.filter(item => item.diff === 'added').length
+  let removedCount = items.filter(item => item.diff === 'removed').length
+  for (const child of children) {
+    totalCount += child.totalCount
+    addedCount += child.addedCount
+    removedCount += child.removedCount
+  }
+
+  return {
+    id: node.id,
+    label: node.label,
+    kind: node.kind,
+    children,
+    items,
+    totalCount,
+    addedCount,
+    removedCount,
+  }
+}
+
+/** 按传输总线与 Windows PnP 父级设备树构建文件目录式层级树。 */
+export function buildCaptureDeviceTree(items: readonly CaptureTreeLeafItem[]): CaptureTreeFolderNode[] {
+  const busFolders = new Map<string, { order: number; folder: MutableTreeFolder }>()
+
+  for (const item of items) {
+    const busMeta = getBusMeta(item.transport)
+    let busEntry = busFolders.get(busMeta.id)
+    if (!busEntry) {
+      busEntry = {
+        order: busMeta.order,
+        folder: createMutableFolder(busMeta.id, busMeta.label, 'bus'),
+      }
+      busFolders.set(busMeta.id, busEntry)
+    }
+
+    let cursor = busEntry.folder
+    for (const ancestor of item.ancestors) {
+      const normalizedId = ancestor.id.trim().toUpperCase() || ancestor.label.trim()
+      const childKey = `${cursor.id}::${normalizedId}`
+      let next = cursor.childMap.get(childKey)
+      if (!next) {
+        next = createMutableFolder(childKey, ancestor.label, 'device')
+        cursor.childMap.set(childKey, next)
+        cursor.children.push(next)
+      }
+      cursor = next
+    }
+    cursor.items.push(item)
+  }
+
+  return [...busFolders.values()].sort((a, b) => a.order - b.order).map(entry => finalizeTreeFolder(entry.folder))
 }

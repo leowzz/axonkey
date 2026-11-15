@@ -428,6 +428,9 @@ pub(crate) fn arm_global_key(input_id: Option<String>) -> Result<bool, String> {
     if !guard.status.active {
         return Err("采集会话已断开，请重新开始采集。".into());
     }
+    if input_id.as_deref().is_some_and(|id| !id.trim().is_empty()) {
+        guard.live_preview = None;
+    }
     guard.sampler.arm(input_id);
     Ok(true)
 }
@@ -442,9 +445,13 @@ pub(crate) fn set_global_live_preview_svg(svg_content: Option<String>) -> Result
         _ => None,
     };
     let slot = global_slot().lock().unwrap();
-    let session = slot
-        .as_ref()
-        .ok_or_else(|| "当前没有运行中的采集会话，请先开始采集。".to_string())?;
+    let Some(session) = slot.as_ref() else {
+        return if parsed.is_none() {
+            Ok(false)
+        } else {
+            Err("当前没有运行中的采集会话，请先开始采集。".to_string())
+        };
+    };
     let mut guard = session.shared.lock().unwrap();
     guard.live_preview = parsed;
     Ok(true)
@@ -622,7 +629,7 @@ fn run_session_worker(
                         if let Some(sample) = outcome.captured {
                             events_to_emit.push(CaptureEvent::KeyCaptured { sample });
                         }
-                        if !outcome.is_streaming_noise {
+                        if !outcome.is_streaming_noise && guard.sampler.armed_input_id().is_none() {
                             if let Some((descriptor, engine)) = guard.live_preview.as_mut() {
                                 for (input_id, pressed) in engine.accept(descriptor, &bytes) {
                                     events_to_emit.push(CaptureEvent::LiveHit {

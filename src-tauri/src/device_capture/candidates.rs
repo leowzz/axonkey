@@ -1,4 +1,7 @@
-use super::{CaptureCandidate, CaptureDriverActionResult, CaptureGattInfo, CaptureSafetyTier};
+use super::{
+    CaptureAncestorNode, CaptureCandidate, CaptureDriverActionResult, CaptureGattInfo,
+    CaptureSafetyTier,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -7,6 +10,7 @@ pub(crate) struct RawCandidateNode {
     pub instance_id: String,
     pub hardware_id: String,
     pub parent_chain: Vec<String>,
+    pub ancestors: Vec<CaptureAncestorNode>,
     pub name: String,
     pub product_name: Option<String>,
     pub manufacturer_name: Option<String>,
@@ -84,6 +88,7 @@ pub(crate) fn classify_and_build_candidates(
     raw_nodes: Vec<RawCandidateNode>,
 ) -> Vec<CaptureCandidate> {
     let physical_keyboard_count = count_physical_keyboards(&raw_nodes);
+    let hid_parent_ids = collect_hid_parent_ids(&raw_nodes);
     let folded_nodes = fold_ble_hogp_children(raw_nodes);
 
     let mut candidates = Vec::new();
@@ -92,6 +97,9 @@ pub(crate) fn classify_and_build_candidates(
             continue;
         }
         if is_hard_excluded(&node) {
+            continue;
+        }
+        if is_superseded_bus_wrapper(&node, &hid_parent_ids) {
             continue;
         }
         let transport = infer_transport(&node);
@@ -128,6 +136,7 @@ pub(crate) fn classify_and_build_candidates(
             safety_tier,
             safety_reason,
             gatt_info,
+            ancestors: node.ancestors,
         });
     }
 
@@ -171,6 +180,21 @@ pub(crate) fn is_hard_excluded_id(id: &str, hardware_id: &str) -> bool {
         || hw_upper.contains("PNP0F")
 }
 
+fn is_virtual_ancestor(parent: &str) -> bool {
+    let p = parent.to_ascii_uppercase();
+    // Physical hardware on Windows ascends through ROOT\ACPI_HAL\0000 (and USB/IP uses ROOT\USB\).
+    // Exclude software/virtual input buses without dropping physical devices.
+    p.starts_with("QUARBOR\\")
+        || p.starts_with("SWD\\")
+        || p.starts_with("VHF\\")
+        || p.starts_with("UMB\\")
+        || p.starts_with("ROOT\\QUARBOR")
+        || p.starts_with("ROOT\\SYSTEM\\")
+        || p.starts_with("ROOT\\RDPBUS\\")
+        || p.starts_with("ROOT\\DEVGEN\\")
+        || p.starts_with("ROOT\\UMBUS\\")
+}
+
 fn is_virtual_node(node: &RawCandidateNode) -> bool {
     let upper = node.instance_id.to_ascii_uppercase();
     upper.starts_with("ROOT\\")
@@ -179,10 +203,34 @@ fn is_virtual_node(node: &RawCandidateNode) -> bool {
         || upper.starts_with("VHF\\")
         || upper.starts_with("UMB\\")
         || upper.starts_with("HID\\VIRTUAL")
-        || node.parent_chain.iter().any(|parent| {
-            let p = parent.to_ascii_uppercase();
-            p.starts_with("ROOT\\") || p.starts_with("SWD\\") || p.starts_with("VHF\\")
-        })
+        || node
+            .parent_chain
+            .iter()
+            .any(|parent| is_virtual_ancestor(parent))
+}
+
+fn collect_hid_parent_ids(raw_nodes: &[RawCandidateNode]) -> BTreeSet<String> {
+    let mut parents = BTreeSet::new();
+    for node in raw_nodes {
+        if !node.present || is_virtual_node(node) {
+            continue;
+        }
+        if node.instance_id.to_ascii_uppercase().starts_with("HID\\") {
+            for parent in &node.parent_chain {
+                parents.insert(parent.to_ascii_uppercase());
+            }
+        }
+    }
+    parents
+}
+
+fn is_superseded_bus_wrapper(node: &RawCandidateNode, hid_parent_ids: &BTreeSet<String>) -> bool {
+    if node.bound || node.recovery_active {
+        return false;
+    }
+    let upper = node.instance_id.to_ascii_uppercase();
+    (upper.starts_with("USB\\") || upper.starts_with("BTHENUM\\"))
+        && hid_parent_ids.contains(&upper)
 }
 
 fn is_hard_excluded(node: &RawCandidateNode) -> bool {
@@ -195,12 +243,12 @@ fn is_hard_excluded(node: &RawCandidateNode) -> bool {
     let has_external_bus = node.instance_id.to_ascii_uppercase().starts_with("BTH")
         || node.parent_chain.iter().any(|parent| {
             let p = parent.to_ascii_uppercase();
-            p.starts_with("USB\\") || p.starts_with("BTH")
+            p.starts_with("USB\\") || p.starts_with("BTH") || p.starts_with("PCI\\")
         });
-    let has_acpi_parent = node
-        .parent_chain
-        .iter()
-        .any(|parent| parent.to_ascii_uppercase().starts_with("ACPI\\"));
+    let has_acpi_parent = node.parent_chain.iter().any(|parent| {
+        let p = parent.to_ascii_uppercase();
+        p.starts_with("ACPI\\") && !p.starts_with("ACPI\\PNP0A")
+    });
     has_acpi_parent && !has_external_bus
 }
 
@@ -294,8 +342,19 @@ fn fold_ble_hogp_children(raw_nodes: Vec<RawCandidateNode>) -> Vec<RawCandidateN
         let key = ble_parent_id.to_ascii_uppercase();
         let entry = ble_parents.entry(key).or_insert_with(|| RawCandidateNode {
             instance_id: ble_parent_id.clone(),
-            hardware_id: ble_parent_id,
-            parent_chain: Vec::new(),
+            hardware_id: ble_parent_id.clone(),
+            parent_chain: child
+                .parent_chain
+                .iter()
+                .filter(|p| !p.eq_ignore_ascii_case(&ble_parent_id))
+                .cloned()
+                .collect(),
+            ancestors: child
+                .ancestors
+                .iter()
+                .filter(|a| !a.id.eq_ignore_ascii_case(&ble_parent_id))
+                .cloned()
+                .collect(),
             name: child.name.clone(),
             product_name: child.product_name.clone(),
             manufacturer_name: child.manufacturer_name.clone(),
@@ -574,10 +633,13 @@ mod windows_impl {
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         CM_Get_Device_IDW, CM_Get_Parent, CM_Locate_DevNodeW, SetupDiDestroyDeviceInfoList,
         SetupDiEnumDeviceInfo, SetupDiGetClassDevsW, SetupDiGetDeviceInstanceIdW,
-        CM_LOCATE_DEVNODE_PHANTOM, CR_SUCCESS, DIGCF_ALLCLASSES, DIGCF_PRESENT, HDEVINFO,
+        SetupDiGetDeviceRegistryPropertyW, CM_LOCATE_DEVNODE_PHANTOM, CR_SUCCESS, DIGCF_ALLCLASSES,
+        DIGCF_PRESENT, HDEVINFO, SETUP_DI_REGISTRY_PROPERTY, SPDRP_DEVICEDESC, SPDRP_FRIENDLYNAME,
         SP_DEVINFO_DATA,
     };
-    use windows::Win32::Foundation::ERROR_NO_MORE_ITEMS;
+    use windows::Win32::Foundation::{
+        ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_DATA, ERROR_NO_MORE_ITEMS,
+    };
 
     const KEYBOARD_CLASS: GUID = GUID::from_u128(0x4d36e96b_e325_11ce_bfc1_08002be10318);
     const MOUSE_CLASS: GUID = GUID::from_u128(0x4d36e96f_e325_11ce_bfc1_08002be10318);
@@ -593,7 +655,7 @@ mod windows_impl {
 
     pub(super) fn list_candidates(include_gatt: bool) -> Result<Vec<CaptureCandidate>, String> {
         let driver_devices = crate::windows_driver_devices::list()?;
-        let class_map = read_pnp_classes();
+        let (class_map, pnp_names) = read_pnp_metadata();
         let hid_hints = read_hidapi_hints();
 
         let mut raw_nodes = Vec::with_capacity(driver_devices.len());
@@ -605,13 +667,16 @@ mod windows_impl {
             let (is_keyboard_class, is_mouse_class) =
                 class_map.get(&upper).copied().unwrap_or((false, false));
             let parent_chain = query_parent_chain(&dev.instance_id);
+            let ancestors = build_ancestors(&dev.instance_id, &parent_chain, &pnp_names);
+            let bt_parent_name = bluetooth_parent_name(&parent_chain, &pnp_names);
             let mut node = RawCandidateNode {
                 bluetooth_address: dev.bluetooth_address(),
                 instance_id: dev.instance_id,
                 hardware_id: dev.hardware_id,
                 parent_chain,
+                ancestors,
                 name: dev.name,
-                product_name: None,
+                product_name: bt_parent_name,
                 manufacturer_name: None,
                 present: dev.present,
                 bound: dev.bound,
@@ -797,9 +862,17 @@ mod windows_impl {
 
     fn enrich_from_hidapi(node: &mut RawCandidateNode, hints: &[HidHint]) {
         // Windows HID device interface paths replace `\` in the PnP instance ID with `#`.
-        let needle = node.instance_id.to_ascii_uppercase().replace('\\', "#");
+        let upper = node.instance_id.to_ascii_uppercase();
+        let needle = upper.replace('\\', "#");
+        let ble_service = crate::devices::shared::bluetooth_hid_service(&upper)
+            .and_then(|rest| rest.split('\\').next())
+            .map(|seg| format!("HID#{seg}"));
         for hint in hints {
-            if hint.path_upper.contains(&needle) {
+            let matched = hint.path_upper.contains(&needle)
+                || ble_service
+                    .as_deref()
+                    .is_some_and(|svc| hint.path_upper.contains(svc));
+            if matched {
                 node.vid = Some(hint.vid);
                 node.pid = Some(hint.pid);
                 if should_prefer_usage(
@@ -811,8 +884,13 @@ mod windows_impl {
                     node.usage_page = Some(hint.usage_page);
                     node.usage = Some(hint.usage);
                 }
-                if node.product_name.is_none() {
-                    node.product_name = hint.product.clone();
+                if node.product_name.is_none()
+                    || node
+                        .product_name
+                        .as_deref()
+                        .is_some_and(is_generic_windows_name)
+                {
+                    node.product_name = hint.product.clone().or(node.product_name.clone());
                 }
                 if node.manufacturer_name.is_none() {
                     node.manufacturer_name = hint.manufacturer.clone();
@@ -821,12 +899,54 @@ mod windows_impl {
         }
     }
 
-    fn read_pnp_classes() -> BTreeMap<String, (bool, bool)> {
+    fn read_dev_property(
+        set: HDEVINFO,
+        info: &mut SP_DEVINFO_DATA,
+        key: SETUP_DI_REGISTRY_PROPERTY,
+    ) -> String {
+        let mut size = 0u32;
+        match unsafe {
+            SetupDiGetDeviceRegistryPropertyW(set, info, key, None, None, Some(&mut size))
+        } {
+            Err(e)
+                if e.code() == ERROR_INVALID_DATA.to_hresult()
+                    || e.code() != ERROR_INSUFFICIENT_BUFFER.to_hresult() =>
+            {
+                return String::new();
+            }
+            Ok(()) if size == 0 => return String::new(),
+            _ => {}
+        }
+        if size == 0 {
+            return String::new();
+        }
+        let mut bytes = vec![0u8; size as usize];
+        if unsafe {
+            SetupDiGetDeviceRegistryPropertyW(set, info, key, None, Some(&mut bytes), None)
+        }
+        .is_err()
+        {
+            return String::new();
+        }
+        let units: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+            .split('\0')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+
+    fn read_pnp_metadata() -> (BTreeMap<String, (bool, bool)>, BTreeMap<String, String>) {
         let mut classes = BTreeMap::new();
+        let mut names = BTreeMap::new();
         let Ok(handle) = (unsafe {
             SetupDiGetClassDevsW(None, PCWSTR::null(), None, DIGCF_ALLCLASSES | DIGCF_PRESENT)
         }) else {
-            return classes;
+            return (classes, names);
         };
         let set = DevInfoGuard(handle);
         for index in 0.. {
@@ -839,29 +959,117 @@ mod windows_impl {
                 Err(e) if e.code() == ERROR_NO_MORE_ITEMS.to_hresult() => break,
                 Err(_) => break,
             }
-            if info.ClassGuid != KEYBOARD_CLASS && info.ClassGuid != MOUSE_CLASS {
-                continue;
-            }
             let mut size = 0u32;
             let _ = unsafe { SetupDiGetDeviceInstanceIdW(set.0, &info, None, Some(&mut size)) };
             if size == 0 {
                 continue;
             }
             let mut buf = vec![0u16; size as usize];
-            if unsafe { SetupDiGetDeviceInstanceIdW(set.0, &info, Some(&mut buf), None) }.is_ok() {
-                let id = String::from_utf16_lossy(&buf)
-                    .trim_end_matches('\0')
-                    .to_ascii_uppercase();
+            if unsafe { SetupDiGetDeviceInstanceIdW(set.0, &info, Some(&mut buf), None) }.is_err() {
+                continue;
+            }
+            let id = String::from_utf16_lossy(&buf)
+                .trim_end_matches('\0')
+                .to_ascii_uppercase();
+            if info.ClassGuid == KEYBOARD_CLASS || info.ClassGuid == MOUSE_CLASS {
                 classes.insert(
-                    id,
+                    id.clone(),
                     (
                         info.ClassGuid == KEYBOARD_CLASS,
                         info.ClassGuid == MOUSE_CLASS,
                     ),
                 );
             }
+            let mut label = read_dev_property(set.0, &mut info, SPDRP_FRIENDLYNAME);
+            if label.is_empty() {
+                label = read_dev_property(set.0, &mut info, SPDRP_DEVICEDESC);
+            }
+            if !label.is_empty() {
+                names.insert(id, label);
+            }
         }
-        classes
+        (classes, names)
+    }
+
+    fn is_tree_stop_node(upper_id: &str) -> bool {
+        upper_id.starts_with("HTREE\\")
+            || upper_id.starts_with("PCI\\")
+            || upper_id.starts_with("ACPI\\")
+            || upper_id.starts_with("ACPI_HAL\\")
+            || upper_id.starts_with("ROOT\\ACPI_HAL\\")
+            || upper_id.starts_with("BTH\\MS_BTHLE")
+            || upper_id.starts_with("BTH\\MS_BTHBRB")
+            || upper_id.starts_with("BTH\\MS_RFCOMM")
+            || upper_id.starts_with("BTH\\MS_BTHPAN")
+    }
+
+    fn format_ancestor_label(parent_id: &str, pnp_names: &BTreeMap<String, String>) -> String {
+        let upper = parent_id.to_ascii_uppercase();
+        let raw = pnp_names
+            .get(&upper)
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(parent_id);
+        let vid = parse_hex_token_after(&upper, "VID");
+        let pid = parse_hex_token_after(&upper, "PID");
+        let mi = upper
+            .split(['\\', '&'])
+            .find(|tok| tok.starts_with("MI_"))
+            .map(str::to_string);
+
+        if let Some(mi_tag) = mi {
+            if !raw.to_ascii_uppercase().contains(&mi_tag) {
+                return format!("{raw} · {mi_tag}");
+            }
+        }
+        if let (Some(v), Some(p)) = (vid, pid) {
+            let vp = format!("{v:04X}:{p:04X}");
+            if !raw.to_ascii_uppercase().contains(&vp) {
+                return format!("{raw} ({vp})");
+            }
+        }
+        raw.to_string()
+    }
+
+    fn build_ancestors(
+        _instance_id: &str,
+        parent_chain: &[String],
+        pnp_names: &BTreeMap<String, String>,
+    ) -> Vec<CaptureAncestorNode> {
+        let mut kept = Vec::new();
+        for parent in parent_chain {
+            let upper = parent.to_ascii_uppercase();
+            if is_tree_stop_node(&upper) {
+                break;
+            }
+            kept.push(CaptureAncestorNode {
+                id: parent.clone(),
+                label: format_ancestor_label(parent, pnp_names),
+            });
+        }
+        kept.reverse();
+        kept
+    }
+
+    fn bluetooth_parent_name(
+        parent_chain: &[String],
+        pnp_names: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        for parent in parent_chain {
+            let upper = parent.to_ascii_uppercase();
+            if upper.starts_with("BTHLE\\DEV_") || upper.starts_with("BTHENUM\\DEV_") {
+                if let Some(name) = pnp_names
+                    .get(&upper)
+                    .map(String::as_str)
+                    .map(str::trim)
+                    .filter(|n| !n.is_empty() && !is_generic_windows_name(n))
+                {
+                    return Some(name.to_string());
+                }
+            }
+        }
+        None
     }
 
     fn query_parent_chain(instance_id: &str) -> Vec<String> {
@@ -1097,6 +1305,7 @@ mod non_windows_impl {
                         info.product_id()
                     )]
                 },
+                ancestors: Vec::new(),
                 name: info.product_string().unwrap_or_default().to_string(),
                 product_name: info.product_string().map(str::to_owned),
                 manufacturer_name: info.manufacturer_string().map(str::to_owned),
@@ -1338,5 +1547,104 @@ mod tests {
             .find(|c| c.instance_id == ble_kb_parent_id)
             .unwrap();
         assert_eq!(ble_kb.safety_tier, CaptureSafetyTier::Caution);
+    }
+
+    #[test]
+    fn retains_physical_nodes_whose_ancestor_chain_reaches_root_acpi_hal_or_root_usb() {
+        let mut usb_consumer = raw_node(r"HID\VID_046D&PID_C52B&MI_01&Col02\7&1111&0&0001");
+        usb_consumer.name = "HID-compliant consumer control device".into();
+        usb_consumer.usage_page = Some(0x0C);
+        usb_consumer.usage = Some(0x01);
+        usb_consumer.parent_chain = vec![
+            r"USB\VID_046D&PID_C52B&MI_01\6&2222&0&0001".into(),
+            r"USB\VID_046D&PID_C52B\5&3333&0&1".into(),
+            r"USB\ROOT_HUB30\4&4444&0&0".into(),
+            r"PCI\VEN_8086&DEV_A12F\3&11583659&0&A0".into(),
+            r"ACPI\PNP0A08\0".into(),
+            r"ACPI_HAL\PNP0C08\0".into(),
+            r"ROOT\ACPI_HAL\0000".into(),
+            r"HTREE\ROOT\0".into(),
+        ];
+
+        let mut usbip_hid = raw_node(r"HID\VID_1209&PID_0001\7&5555&0&0000");
+        usbip_hid.name = "USBip Remote".into();
+        usbip_hid.usage_page = Some(0xFF00);
+        usbip_hid.usage = Some(0x01);
+        usbip_hid.parent_chain = vec![
+            r"USB\VID_1209&PID_0001\6&6666&0&1".into(),
+            r"ROOT\USB\0000".into(),
+            r"HTREE\ROOT\0".into(),
+        ];
+
+        let mut ghub_virtual = raw_node(r"HID\VID_046D&PID_C232\2&7777&0&0000");
+        ghub_virtual.name = "G HUB Virtual Keyboard".into();
+        ghub_virtual.parent_chain = vec![r"ROOT\SYSTEM\0002".into(), r"HTREE\ROOT\0".into()];
+
+        let mut quarbor_child = raw_node(r"HID\QUARBOR_SYNTH\1&8888&0&0000");
+        quarbor_child.parent_chain = vec![
+            r"ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT\0000".into(),
+            r"HTREE\ROOT\0".into(),
+        ];
+
+        let candidates = classify_and_build_candidates(vec![
+            usb_consumer,
+            usbip_hid,
+            ghub_virtual,
+            quarbor_child,
+        ]);
+        let ids: Vec<&str> = candidates.iter().map(|c| c.instance_id.as_str()).collect();
+        assert_eq!(candidates.len(), 2, "got candidates: {ids:?}");
+        assert!(ids.contains(&r"HID\VID_046D&PID_C52B&MI_01&Col02\7&1111&0&0001"));
+        assert!(ids.contains(&r"HID\VID_1209&PID_0001\7&5555&0&0000"));
+    }
+
+    #[test]
+    fn suppresses_usb_and_bthenum_bus_wrappers_when_hid_children_exist() {
+        let usb_iface_id = r"USB\VID_046D&PID_C52B&MI_00\6&2222&0&0000";
+        let mut usb_wrapper = raw_node(usb_iface_id);
+        usb_wrapper.name = "USB Input Device".into();
+        usb_wrapper.parent_chain = vec![r"USB\VID_046D&PID_C52B\5&3333&0&1".into()];
+
+        let mut usb_hid_child = raw_node(r"HID\VID_046D&PID_C52B&MI_00\7&1111&0&0000");
+        usb_hid_child.name = "HID Keyboard Device".into();
+        usb_hid_child.is_keyboard_class = true;
+        usb_hid_child.usage_page = Some(0x01);
+        usb_hid_child.usage = Some(0x06);
+        usb_hid_child.parent_chain = vec![usb_iface_id.into()];
+
+        let bthenum_id = r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002057E_PID&2009\8&aaaa&0&AABBCCDDEEFF";
+        let mut bthenum_wrapper = raw_node(bthenum_id);
+        bthenum_wrapper.name = "Bluetooth HID Device".into();
+        bthenum_wrapper.parent_chain = vec![r"BTH\MS_BTHBRB\7&bbbb&0&1".into()];
+
+        let mut bt_hid_child = raw_node(
+            r"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002057E_PID&2009\9&cccc&0&0000",
+        );
+        bt_hid_child.name = "HID-compliant game controller".into();
+        bt_hid_child.usage_page = Some(0x01);
+        bt_hid_child.usage = Some(0x05);
+        bt_hid_child.parent_chain = vec![bthenum_id.into()];
+
+        let standalone_bt_id = r"BTHENUM\{00001124-0000-1000-8000-00805F9B34FB}_VID&00021915_PID&EEEE\8&dddd&0&112233445566";
+        let mut standalone_bt = raw_node(standalone_bt_id);
+        standalone_bt.name = "Standalone BT Remote".into();
+        standalone_bt.parent_chain = vec![r"BTH\MS_BTHBRB\7&bbbb&0&1".into()];
+
+        let candidates = classify_and_build_candidates(vec![
+            usb_wrapper,
+            usb_hid_child,
+            bthenum_wrapper,
+            bt_hid_child,
+            standalone_bt,
+        ]);
+        let ids: Vec<&str> = candidates.iter().map(|c| c.instance_id.as_str()).collect();
+        assert_eq!(candidates.len(), 3, "got candidates: {ids:?}");
+        assert!(!ids.contains(&usb_iface_id));
+        assert!(!ids.contains(&bthenum_id));
+        assert!(ids.contains(&r"HID\VID_046D&PID_C52B&MI_00\7&1111&0&0000"));
+        assert!(ids.contains(
+            &r"HID\{00001124-0000-1000-8000-00805F9B34FB}_VID&0002057E_PID&2009\9&cccc&0&0000"
+        ));
+        assert!(ids.contains(&standalone_bt_id));
     }
 }

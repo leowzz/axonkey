@@ -1335,4 +1335,30 @@ mod tests {
         assert!(out_md.is_file());
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn compiles_cleared_svg_inputs_as_pending_without_resurrecting_old_bindings() {
+        let rc902n = include_str!("../../../public/device-descriptors/tcl-rc902n.svg");
+        let single_cleared = rc902n.replace(
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0059"/><ak:hid-capture version="1" press="03 59 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>"##,
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="pending"/>"##,
+        );
+        let parsed = axonkey_lib::device_capture::parse_draft_svg(&single_cleared).unwrap();
+        let bookmark = parsed
+            .inputs
+            .iter()
+            .find(|i| i.id == "tcl-rc902n.bookmark")
+            .unwrap();
+        assert_eq!(bookmark.binding, "pending");
+        assert!(bookmark.press_hex.is_none());
+
+        let compiled =
+            axonkey_lib::device_capture::compile_svg(&single_cleared, None, &[], Some("draft"))
+                .unwrap();
+        assert!(compiled.validated);
+        assert_eq!(compiled.adapted_count, 21);
+        assert_eq!(compiled.pending_count, 1);
+        assert!(compiled.svg_content.contains("id=\"voice-audio\""));
+        assert!(!compiled.svg_content.contains("press=\"03 59 00\""));
+    }
 }

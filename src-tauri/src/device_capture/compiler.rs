@@ -111,7 +111,10 @@ pub fn parse_draft_svg(svg_content: &str) -> Result<ParsedCaptureDraft, String> 
                 .and_then(|c| c.get("release"))
                 .cloned();
             let binding = node.attrs.get("binding").cloned().unwrap_or_else(|| {
-                if !node.existing_sources.is_empty() || press_hex.is_some() {
+                if !node.existing_sources.is_empty()
+                    || node.attrs.contains_key("report")
+                    || press_hex.is_some()
+                {
                     "captured".into()
                 } else {
                     "pending".into()
@@ -498,10 +501,26 @@ fn handle_ak_open(
             }
         }
         "input" => {
+            let mut existing_sources = Vec::new();
+            if let Some(report) = attrs
+                .get("report")
+                .filter(|r| !r.starts_with("captured-buttons"))
+            {
+                let mut inline_src = BTreeMap::new();
+                inline_src.insert("report".into(), report.clone());
+                for key in [
+                    "page", "usage", "engine", "field", "offset", "bit", "width", "equals",
+                ] {
+                    if let Some(val) = attrs.get(key) {
+                        inline_src.insert(key.into(), val.clone());
+                    }
+                }
+                existing_sources.push(inline_src);
+            }
             let node = DraftInputNode {
                 attrs,
                 capture_attrs: None,
-                existing_sources: Vec::new(),
+                existing_sources,
             };
             if is_empty_element {
                 out.inputs.push(node);
@@ -1505,6 +1524,7 @@ mod tests {
                 software_revision: None,
                 bluetooth_address: Some("11:22:33:44:55:66".into()),
             }),
+            ancestors: Vec::new(),
         };
 
         // Mix of 9-byte report 0x01 and 3-byte LE consumer report 0x02 (just like phicomm-db1-r.svg),
@@ -1647,6 +1667,31 @@ mod tests {
         assert_eq!(
             rc003_engine.accept(&rc003_desc, &[0x01, 0, 0, 0x66, 0, 0, 0, 0, 0]),
             vec![("xiaomi.rc003.power".into(), true)]
+        );
+    }
+
+    #[test]
+    fn cleared_single_and_all_key_drafts_compile_cleanly_without_intercepting_cleared_keys() {
+        let rc902n = include_str!("../../../public/device-descriptors/tcl-rc902n.svg");
+        let single_cleared = rc902n.replace(
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0059"/><ak:hid-capture version="1" press="03 59 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>"##,
+            r##"<ak:input id="tcl-rc902n.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="3" target="#key-bookmark" original="false" binding="pending"/>"##,
+        );
+        let compiled_21 = compile_svg(&single_cleared, None, &[], Some("draft")).unwrap();
+        assert!(compiled_21.validated);
+        assert_eq!(compiled_21.adapted_count, 21);
+        assert_eq!(compiled_21.pending_count, 1);
+        assert!(compiled_21.svg_content.contains("id=\"voice-audio\""));
+
+        let desc_21 = parse_svg(&compiled_21.svg_content).unwrap();
+        let mut engine = DescriptorEngine::default();
+        assert!(
+            engine.accept(&desc_21, &[0x03, 0x59, 0x00]).is_empty(),
+            "cleared key must not be intercepted by DescriptorEngine"
+        );
+        assert_eq!(
+            engine.accept(&desc_21, &[0x03, 0x41, 0x00]),
+            vec![("tcl-rc902n.confirm".into(), true)]
         );
     }
 }

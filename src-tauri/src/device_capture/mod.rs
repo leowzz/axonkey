@@ -5,10 +5,21 @@ pub mod session;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 pub const CAPTURE_EVENT_NAME: &str = "axonkey-device-capture";
 pub const CAPTURE_SESSION_SCHEMA: &str = "axonkey.capture-session/v1";
+
+static WORKBENCH_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_workbench_active(active: bool) {
+    WORKBENCH_ACTIVE.store(active, Ordering::Release);
+}
+
+pub fn is_workbench_active() -> bool {
+    WORKBENCH_ACTIVE.load(Ordering::Acquire)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,6 +36,13 @@ pub struct CaptureGattInfo {
     pub model_number: Option<String>,
     pub software_revision: Option<String>,
     pub bluetooth_address: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureAncestorNode {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +62,8 @@ pub struct CaptureCandidate {
     pub safety_tier: CaptureSafetyTier,
     pub safety_reason: Option<String>,
     pub gatt_info: Option<CaptureGattInfo>,
+    #[serde(default)]
+    pub ancestors: Vec<CaptureAncestorNode>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -367,6 +387,7 @@ mod tests {
                 software_revision: Some("1.0".into()),
                 bluetooth_address: Some("AA:BB:CC:DD:EE:FF".into()),
             }),
+            ancestors: Vec::new(),
         };
         let json = serde_json::to_value(&candidate).unwrap();
         assert_eq!(json["targetId"], "ble:tcl");
