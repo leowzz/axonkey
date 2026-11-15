@@ -75,7 +75,7 @@
   text-underline-offset: 2px;
 }
 .managed-discovery-help-dialog {
-  width: min(480px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   max-height: calc(100dvh - 48px);
   padding: 0;
   overflow-y: auto;
@@ -117,6 +117,12 @@
   margin: 0;
   font-size: 14px;
   line-height: 1.7;
+}
+.managed-discovery-help-dialog .managed-dialog-footer {
+  flex-wrap: wrap;
+}
+.managed-discovery-troubleshoot {
+  margin-right: auto;
 }
 :root:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),
 body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),

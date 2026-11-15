@@ -2,6 +2,7 @@ mod app_restart;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
+mod connection_troubleshoot;
 pub mod device_capture;
 mod devices;
 mod driver_migration;
@@ -2145,6 +2146,7 @@ pub fn run() {
             cli_ipc::cli_poll_requests,
             cli_ipc::cli_write_response,
             cli_ipc::cli_cancel_request,
+            connection_troubleshoot::diagnose_connection_issues,
             capture_list_candidates,
             capture_attach_driver,
             capture_detach_driver,

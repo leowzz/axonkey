@@ -2626,6 +2626,7 @@ function AppController({
                     onOpenAudioDriver={openAudioDriver}
                     onOpenBluetoothSettings={() => void openSystemSettings('bluetooth')}
                     onOpenDeviceManager={() => void openSystemSettings('deviceManager')}
+                    onOpenLogs={() => void openLogDirectory()}
                     controller={deviceInstances}
                     onBrandClick={handleBrandClick}
                     native={nativeRuntime}
@@ -2938,6 +2939,7 @@ function AppController({
             },
             onOpenBluetoothSettings: () => void openSystemSettings('bluetooth'),
             onOpenDeviceManager: () => void openSystemSettings('deviceManager'),
+            onOpenLogs: () => void openLogDirectory(),
           }}
           windowsAudioDriver={windowsAudioDriver}
           nativeRuntime={nativeRuntime}
