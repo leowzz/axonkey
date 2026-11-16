@@ -783,13 +783,12 @@ button.managed-package:hover:not(:disabled) {
 }
 
 .managed-instance-workspace.is-controller {
-  --controller-lane-width: clamp(242px, 20vw, 280px);
-  --controller-library-width: clamp(266px, 24vw, 360px);
+  --controller-stage-width: clamp(380px, 38vw, 520px);
+  --controller-library-width: clamp(266px, 22vw, 340px);
 }
-/* Reserve a compact lane and library; the diagram gets the remaining width.
-   The workflow has 32px horizontal padding and a 12px column gap. */
+/* Cap the device stage once large enough so extra window width expands the middle editor column. */
 .managed-instance-workspace.is-controller .mapping-workbench {
-  grid-template-columns: minmax(0, 1fr) calc(var(--controller-lane-width) + var(--controller-library-width) + 44px);
+  grid-template-columns: var(--controller-stage-width) minmax(0, 1fr);
 }
 .managed-instance-workspace.is-controller .managed-controller-stage {
   flex: 1 1 0;
@@ -823,12 +822,12 @@ button.managed-package:hover:not(:disabled) {
   flex-shrink: 0;
 }
 .managed-instance-workspace.is-controller .workflow-axonkey {
-  grid-template-columns: var(--controller-lane-width) minmax(0, 1fr);
+  grid-template-columns: minmax(242px, 1fr) var(--controller-library-width);
 }
 .managed-workflow-triggers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: var(--controller-lane-width);
+  width: min(100%, 420px);
   max-width: 100%;
   gap: 6px;
 }
