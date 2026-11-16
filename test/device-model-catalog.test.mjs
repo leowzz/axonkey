@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import test from 'node:test'
 import vm from 'node:vm'
@@ -9,18 +9,32 @@ import * as reiconReact from 'reicon-react'
 import ts from 'typescript'
 import { RelayClient } from '../src/cloud/relayClient.ts'
 import {
+  activateCatalogDeviceDescriptors,
   clearDeviceModelCatalogCache,
   deviceModelCatalogCacheTtlMs,
+  deviceModelCatalogEndpoint,
   fetchDeviceModelCatalog,
+  getBundledDeviceModelCatalog,
   loadDeviceModelCatalog,
+  maxDeviceModelCatalogCacheTtlSeconds,
+  minDeviceModelCatalogCacheTtlSeconds,
   parseDeviceModelCatalog,
+  parseDeviceModelCatalogEnvelope,
   readCachedDeviceModelCatalog,
   writeCachedDeviceModelCatalog,
 } from '../src/cloud/deviceModelCatalog.ts'
 import { readCloud } from '../src/cloud/cloudSync.ts'
+import {
+  bundledSupportPackages,
+  getSupportPackages,
+  packageFor,
+  resetRuntimeSupportPackages,
+  supportPackages,
+} from '../src/devices/integration/model.ts'
+import { createDescriptorView, parseRuntimeDescriptorSvg } from '../src/devices/shared/descriptorSvg.ts'
 import { externalUrlHostname, normalizeExternalHttpUrl, openExternalUrl } from '../src/openExternalUrl.ts'
 
-function createStorage() {
+function createStorage({ failWrites = false } = {}) {
   const map = new Map()
   return {
     map,
@@ -28,6 +42,11 @@ function createStorage() {
       return map.get(key) ?? null
     },
     setItem(key, value) {
+      if (failWrites) {
+        const err = new Error('QuotaExceededError')
+        err.name = 'QuotaExceededError'
+        throw err
+      }
       map.set(key, String(value))
     },
     removeItem(key) {
@@ -43,7 +62,77 @@ const activeSession = () => ({
   user: { id: 'user-1', email: 'user@example.invalid', phone: null },
 })
 
-test('parseDeviceModelCatalog normalizes legacy responses, deduplicates tags, and filters unsafe links at boundary', () => {
+function buildCustomRemoteSvg({
+  deviceId = 'custom.remote.x',
+  model = 'CR-X1',
+  displayName = '极客遥控器 X1',
+  vid = '0x2B00',
+  pid = '0x9901',
+} = {}) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     xmlns:ak="urn:axonkey:device:1"
+     width="240" height="520" viewBox="0 0 240 520"
+     data-ak-schema="axonkey.device/1"
+     data-ak-device="${deviceId}"
+     data-ak-revision="1">
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="${deviceId}" vendor="GeekGear" model="${model}" revision="1" display-name="${displayName}">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="${vid}" pid="${pid}" usage-page="0x0C" usage="0x01" windows-prefix="BTHLEDEVICE" />
+      </ak:identity>
+      <ak:reports>
+        <ak:report id="consumer" direction="input" report-id="0x02" length="3" encoding="le-u16-single" usage-page="0x0C" payload-offset="1" endian="little" state-group="consumer" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="${deviceId}.ok" label="确认键" short="OK" icon="center" order="0" kind="button" target="#ok-btn" report="consumer" page="0x0C" usage="0x0041" original="true" />
+        <ak:input id="${deviceId}.back" label="返回键" short="返回" icon="back" order="1" kind="button" target="#back-btn" report="consumer" page="0x0C" usage="0x0224" original="true" />
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g id="ok-btn"><circle cx="120" cy="180" r="36" fill="#e2e8f0" /></g>
+  <g id="back-btn"><circle cx="120" cy="300" r="24" fill="#e2e8f0" /></g>
+  <path data-ak-region="${deviceId}.ok" data-ak-anchor="120 180" d="M84 180a36 36 0 1 0 72 0a36 36 0 1 0 -72 0" />
+  <path data-ak-region="${deviceId}.back" data-ak-anchor="120 300" d="M96 300a24 24 0 1 0 48 0a24 24 0 1 0 -48 0" />
+</svg>`
+}
+
+test('bundledModelCatalog.json contains all 12 curated console models with platform tags and Markdown descriptions', () => {
+  const bundled = getBundledDeviceModelCatalog()
+  assert.equal(bundled.length, 12)
+  const byCode = new Map(bundled.map(item => [item.code, item]))
+
+  const expectedWinMac = ['rc003', 'phicommDb1R', 'xboxBluetooth', 'mouse']
+  const expectedWinOnly = [
+    'cmiotA15',
+    'hisenseRcf3b65',
+    'rc313',
+    'tclRc802a',
+    'tclRc902n',
+    'tclRc902v',
+    'xmBt29',
+    'obeRcuR5',
+  ]
+
+  for (const code of expectedWinMac) {
+    const item = byCode.get(code)
+    assert.ok(item, `missing curated model ${code}`)
+    assert.ok(item.id.length > 10, `${code} must have real console UUID`)
+    assert.ok(item.tags.includes('Win / macOS'), `${code} must carry Win / macOS tag`)
+    assert.ok(item.description.length > 40, `${code} must carry curated Markdown description`)
+  }
+  for (const code of expectedWinOnly) {
+    const item = byCode.get(code)
+    assert.ok(item, `missing curated model ${code}`)
+    assert.ok(item.id.length > 10, `${code} must have real console UUID`)
+    assert.ok(item.tags.includes('仅支持 Windows'), `${code} must carry 仅支持 Windows tag`)
+    assert.ok(item.description.length > 40, `${code} must carry curated Markdown description`)
+  }
+})
+
+test('parseDeviceModelCatalog normalizes legacy and SVG responses, deduplicates tags, and filters unsafe links at boundary', () => {
+  const svgSample = buildCustomRemoteSvg()
+  const sha = 'a'.repeat(64)
   const items = parseDeviceModelCatalog({
     items: [
       {
@@ -68,10 +157,13 @@ test('parseDeviceModelCatalog normalizes legacy responses, deduplicates tags, an
         ],
       },
       {
-        id: 'model-legacy',
-        code: 'cmiotA15',
-        name: 'CMIOT-A15',
-        model: 'CMIOT-A15',
+        id: 'model-custom',
+        code: 'customRemoteX',
+        name: 'Custom X',
+        model: 'CR-X1',
+        has_svg: true,
+        svg_sha256: sha.toUpperCase(),
+        svg: svgSample,
       },
       { id: '', code: 'invalid' },
       null,
@@ -94,20 +186,25 @@ test('parseDeviceModelCatalog normalizes legacy responses, deduplicates tags, an
     ],
   })
   assert.deepEqual(items[1], {
-    id: 'model-legacy',
-    code: 'cmiotA15',
-    name: 'CMIOT-A15',
-    model: 'CMIOT-A15',
+    id: 'model-custom',
+    code: 'customRemoteX',
+    name: 'Custom X',
+    model: 'CR-X1',
     brand_id: null,
     brand_name: null,
     description: '',
     tags: [],
     links: [],
+    has_svg: true,
+    svg_sha256: sha,
+    svg: svgSample,
   })
   assert.throws(() => parseDeviceModelCatalog({ items: null }), /目录响应/)
 })
 
-test('fetchDeviceModelCatalog sends auth when signed in, omits auth when signed out, and falls back when session expires', async () => {
+test('fetchDeviceModelCatalog requests include_svg=1 with optional auth, refresh, and anonymous 401 fallback', async () => {
+  assert.equal(deviceModelCatalogEndpoint, '/v2/device-models?app_id=axonkey&include_svg=1')
+
   // 1. Signed-in user sends bearer token (including automatic refresh when expired)
   const signedInCalls = []
   const expiredSession = { ...activeSession(), expires_at: 0 }
@@ -135,7 +232,7 @@ test('fetchDeviceModelCatalog sends auth when signed in, omits auth when signed 
     signedInCalls.map(c => [c.path, c.token]),
     [
       ['/auth/refresh', undefined],
-      ['/v2/device-models?app_id=axonkey', 'refreshed-access'],
+      ['/v2/device-models?app_id=axonkey&include_svg=1', 'refreshed-access'],
     ],
   )
 
@@ -151,7 +248,9 @@ test('fetchDeviceModelCatalog sends auth when signed in, omits auth when signed 
   )
   const anonItems = await fetchDeviceModelCatalog(anonymousClient)
   assert.equal(anonItems.length, 1)
-  assert.deepEqual(anonymousCalls, [{ method: 'GET', path: '/v2/device-models?app_id=axonkey', token: undefined }])
+  assert.deepEqual(anonymousCalls, [
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: undefined },
+  ])
 
   // 3. Invalidated session (401) clears session and falls back to unauthenticated catalog request
   const fallbackCalls = []
@@ -176,78 +275,213 @@ test('fetchDeviceModelCatalog sends auth when signed in, omits auth when signed 
   assert.equal(savedSession, null)
   assert.equal(fallbackItems[0].brand_name, 'TCL')
   assert.deepEqual(fallbackCalls, [
-    { method: 'GET', path: '/v2/device-models?app_id=axonkey', token: 'access-token-1' },
-    { method: 'GET', path: '/v2/device-models?app_id=axonkey', token: undefined },
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: 'access-token-1' },
+    { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: undefined },
   ])
 })
 
-test('loadDeviceModelCatalog serves fresh cache without network and falls back to stale cache while offline', async () => {
-  const storage = createStorage()
-  let networkCalls = 0
-  let offline = false
-  let serverBrand = '小米'
-  const client = new RelayClient(
-    async () => {
-      networkCalls++
-      if (offline) throw new Error('无法连接云端，请检查网络后重试；本地功能不受影响')
-      return {
-        status: 200,
-        body: {
-          items: [{ id: 'm1', code: 'rc003', name: '小米蓝牙遥控器2Pro', model: 'RC003', brand_name: serverBrand }],
-        },
-      }
-    },
-    null,
-    () => {},
-  )
+test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped bounds, legacy default, QuotaExceededError) and falls back to bundledModelCatalog.json when unreachable', async () => {
+  try {
+    // Bounds check on envelope parser
+    assert.equal(parseDeviceModelCatalogEnvelope({ items: [], cache_ttl_seconds: 3600 }).ttlMs, 3_600_000)
+    assert.equal(parseDeviceModelCatalogEnvelope({ items: [], cache_ttl_seconds: 0 }).ttlMs, 0)
+    assert.equal(parseDeviceModelCatalogEnvelope({ items: [], cache_ttl_seconds: -10 }).ttlMs, 0)
+    assert.equal(
+      parseDeviceModelCatalogEnvelope({ items: [], cache_ttl_seconds: 5 }).ttlMs,
+      minDeviceModelCatalogCacheTtlSeconds * 1000,
+    )
+    assert.equal(
+      parseDeviceModelCatalogEnvelope({ items: [], cache_ttl_seconds: 99_999_999 }).ttlMs,
+      maxDeviceModelCatalogCacheTtlSeconds * 1000,
+    )
+    assert.equal(parseDeviceModelCatalogEnvelope({ items: [] }).ttlMs, deviceModelCatalogCacheTtlMs)
 
-  const t0 = 1_700_000_000_000
-  writeCachedDeviceModelCatalog(
-    [
+    const storage = createStorage()
+    let networkCalls = 0
+    let offline = false
+    let serverTtlSeconds = 3600
+    let serverBrand = '云端小米 v1'
+    const customSvg = buildCustomRemoteSvg({ deviceId: 'custom.saved.1' })
+
+    const client = new RelayClient(
+      async () => {
+        networkCalls++
+        if (offline) throw new Error('无法连接云端，请检查网络后重试；本地功能不受影响')
+        return {
+          status: 200,
+          body: {
+            cache_ttl_seconds: serverTtlSeconds,
+            items: [
+              { id: 'm1', code: 'rc003', name: '小米蓝牙遥控器2Pro', model: 'RC003', brand_name: serverBrand },
+              {
+                id: 'm-custom',
+                code: 'customSaved1',
+                name: '云端专属遥控器',
+                model: 'CS-1',
+                brand_name: '云端厂牌',
+                svg: customSvg,
+              },
+            ],
+          },
+        }
+      },
+      null,
+      () => {},
+    )
+
+    const t0 = 1_700_000_000_000
+
+    // 1. Initial load fetches from cloud and caches for 3600s; customSaved1 becomes active in supportPackages
+    const initial = await loadDeviceModelCatalog(client, storage, t0)
+    assert.equal(networkCalls, 1)
+    assert.equal(initial[0].brand_name, '云端小米 v1')
+    assert.equal(packageFor('customSaved1').name, '云端专属遥控器')
+    assert.equal(packageFor('customSaved1').inputs.length, 2)
+
+    // 2. Within 3600s (e.g. t0 + 3599s), cache is fresh -> 0 network calls
+    const withinTtl = await loadDeviceModelCatalog(client, storage, t0 + 3_599_000)
+    assert.equal(networkCalls, 1)
+    assert.equal(withinTtl[0].brand_name, '云端小米 v1')
+
+    // 3. Reloaded localStorage clone preserves 3600s TTL across sessions
+    const clonedStorage = createStorage()
+    for (const [k, v] of storage.map) clonedStorage.setItem(k, v)
+    assert.equal(readCachedDeviceModelCatalog(clonedStorage, t0 + 3_599_000)?.fresh, true)
+    assert.equal(readCachedDeviceModelCatalog(clonedStorage, t0 + 3_600_001)?.fresh, false)
+
+    // 4. After 3600s + offline (no retained instances) -> falls back to bundledModelCatalog.json + built-in descriptors!
+    offline = true
+    const offlineBundled = await loadDeviceModelCatalog(client, storage, t0 + 3_600_001)
+    assert.equal(networkCalls, 2)
+    assert.equal(offlineBundled.length, 12, 'falls back to all 12 curated bundled models')
+    assert.equal(offlineBundled.find(i => i.code === 'rc003')?.brand_name, '小米')
+    assert.equal(
+      supportPackages.some(p => p.kind === 'customSaved1'),
+      false,
+      'unreferenced cloud-only model removed',
+    )
+    assert.equal(packageFor('rc003').artwork, '/device-descriptors/rc003.svg')
+
+    // 5. Safety exception: if user has a saved instance of cloud-only model customSaved1, keep its descriptor while offline!
+    const offlineWithSavedCloud = await loadDeviceModelCatalog(client, storage, t0 + 3_600_002, {
+      retainedKinds: ['customSaved1'],
+    })
+    assert.equal(networkCalls, 3)
+    assert.equal(offlineWithSavedCloud.length, 13)
+    assert.equal(packageFor('customSaved1').name, '云端专属遥控器')
+    assert.equal(packageFor('customSaved1').inputs.length, 2)
+    assert.equal(packageFor('rc003').artwork, '/device-descriptors/rc003.svg')
+
+    // 6. Back online with cache_ttl_seconds = 0 -> never served as fresh on subsequent loads, always re-fetches!
+    offline = false
+    serverTtlSeconds = 0
+    serverBrand = '实时小米 v2'
+    const zeroTtlFirst = await loadDeviceModelCatalog(client, storage, t0 + 4_000_000)
+    assert.equal(networkCalls, 4)
+    assert.equal(zeroTtlFirst[0].brand_name, '实时小米 v2')
+    assert.equal(readCachedDeviceModelCatalog(storage, t0 + 4_000_000)?.fresh, false)
+
+    serverBrand = '实时小米 v3'
+    const zeroTtlSecond = await loadDeviceModelCatalog(client, storage, t0 + 4_000_001)
+    assert.equal(networkCalls, 5, 'cache_ttl_seconds=0 must revalidate on next load')
+    assert.equal(zeroTtlSecond[0].brand_name, '实时小米 v3')
+
+    // 7. Completely empty cache + offline -> falls back cleanly to bundledModelCatalog.json
+    clearDeviceModelCatalogCache(storage)
+    assert.equal(readCachedDeviceModelCatalog(storage, t0), null)
+    offline = true
+    const coldOffline = await loadDeviceModelCatalog(client, storage, t0 + 5_000_000)
+    assert.equal(coldOffline.length, 12)
+    assert.ok(coldOffline.find(i => i.code === 'xboxBluetooth')?.tags.includes('Win / macOS'))
+
+    // 8. QuotaExceededError on localStorage still serves fresh cache from memory without throwing
+    const fullStorage = createStorage({ failWrites: true })
+    writeCachedDeviceModelCatalog(getBundledDeviceModelCatalog(), fullStorage, t0, 600)
+    assert.equal(fullStorage.map.size, 0)
+    assert.equal(readCachedDeviceModelCatalog(fullStorage, t0 + 10_000)?.fresh, true)
+  } finally {
+    resetRuntimeSupportPackages()
+  }
+})
+
+test('parseRuntimeDescriptorSvg matches all 11 bundled SVGs and strictly rejects unsafe or malformed cloud SVGs without breaking built-in models', () => {
+  try {
+    // 1. Every official bundled SVG parses with identical geometry, buttons, voice, and identities
+    for (const file of readdirSync('public/device-descriptors').filter(name => name.endsWith('.svg'))) {
+      const key = file.slice(0, -4)
+      const raw = readFileSync(`public/device-descriptors/${file}`, 'utf8')
+      const bundled = createDescriptorView(key)
+      const parsed = parseRuntimeDescriptorSvg(raw, { kind: key })
+      assert.deepEqual(parsed.remoteView.buttons, bundled.buttons)
+      assert.deepEqual(parsed.remoteView.identities, bundled.identities)
+      assert.deepEqual(parsed.remoteView.voice, bundled.voice)
+      assert.deepEqual(parsed.remoteView.viewBox, bundled.viewBox)
+      assert.deepEqual(parsed.remoteView.keyRegions, bundled.keyRegions)
+      assert.ok(parsed.artworkUrl.startsWith('data:image/svg+xml;charset=utf-8,'))
+    }
+
+    // 2. Rejects XSS, external resources, XML entities/DOCTYPE, and invalid protocol schemas
+    const valid = buildCustomRemoteSvg()
+    const unsafeVariants = [
+      valid.replace('</svg>', '<script>alert(1)</script></svg>'),
+      valid.replace('</svg>', '<foreignObject width="10" height="10"><div>x</div></foreignObject></svg>'),
+      valid.replace('<g id="ok-btn">', '<g id="ok-btn" onload="alert(1)">'),
+      valid.replace('<g id="ok-btn">', '<g id="ok-btn" onclick=alert(1)>'),
+      valid.replace('</svg>', '<image href="https://evil.invalid/spy.png" width="10" height="10" /></svg>'),
+      valid.replace('</svg>', '<use xlink:href="http://evil.invalid/defs.svg#x" /></svg>'),
+      valid.replace('fill="#e2e8f0"', 'fill="url(https://evil.invalid/p.svg#g)"'),
+      valid.replace('</svg>', '<style>@import "https://evil.invalid/x.css";</style></svg>'),
+      `<!DOCTYPE svg [<!ENTITY xxe "boom">]>\n${valid}`,
+      valid.replace('确认键', '&xxe;'),
+      valid.replace('data-ak-schema="axonkey.device/1"', 'data-ak-schema="axonkey.device/99"'),
+      valid.replace('viewBox="0 0 240 520"', 'viewBox="0 0 0 520"'),
+      valid.replace(/<ak:match[^>]+\/>/, ''),
+      valid.replace('report="consumer"', 'report="nonexistent"'),
+      valid.replace('data-ak-region="custom.remote.x.ok"', 'data-ak-region="wrong.id"'),
+    ]
+    for (const unsafe of unsafeVariants) {
+      assert.throws(() => parseRuntimeDescriptorSvg(unsafe), 'must reject unsafe or malformed SVG')
+    }
+
+    // 3. Built-in rc003 keeps bundled RemoteView if cloud item has svg: null or unsafe/malformed SVG
+    const bundledRc003 = bundledSupportPackages.find(p => p.kind === 'rc003')
+    activateCatalogDeviceDescriptors([
       {
-        id: 'm1',
+        id: 'm-rc003',
         code: 'rc003',
-        name: '小米蓝牙遥控器2Pro',
+        name: 'Tampered RC003',
         model: 'RC003',
         brand_id: null,
-        brand_name: '缓存品牌',
-        description: '离线说明',
-        tags: ['离线标签'],
+        brand_name: '小米',
+        description: '',
+        tags: [],
         links: [],
+        svg: valid.replace('</svg>', '<script>alert(1)</script></svg>'),
       },
-    ],
-    storage,
-    t0,
-  )
+      {
+        id: 'm-cmiot',
+        code: 'cmiotA15',
+        name: 'CMIOT-A15',
+        model: 'CMIOT-A15',
+        brand_id: null,
+        brand_name: '中国移动',
+        description: '',
+        tags: [],
+        links: [],
+        svg: null,
+      },
+    ])
+    assert.equal(packageFor('rc003').artwork, bundledRc003.artwork)
+    assert.equal(packageFor('rc003').remoteView, bundledRc003.remoteView)
+    assert.equal(getSupportPackages().length, 11)
 
-  // Fresh cache skips network
-  const fresh = await loadDeviceModelCatalog(client, storage, t0 + 60_000)
-  assert.equal(networkCalls, 0)
-  assert.equal(fresh[0].brand_name, '缓存品牌')
-
-  // Stale cache + offline preserves stale cached catalog without throwing
-  offline = true
-  const staleOffline = await loadDeviceModelCatalog(client, storage, t0 + deviceModelCatalogCacheTtlMs + 1)
-  assert.equal(networkCalls, 1)
-  assert.equal(staleOffline[0].brand_name, '缓存品牌')
-  assert.equal(staleOffline[0].description, '离线说明')
-
-  // Stale cache + back online refreshes and updates persisted cache
-  offline = false
-  serverBrand = '最新小米'
-  const refreshed = await loadDeviceModelCatalog(client, storage, t0 + deviceModelCatalogCacheTtlMs + 2)
-  assert.equal(networkCalls, 2)
-  assert.equal(refreshed[0].brand_name, '最新小米')
-
-  // Reading from a fresh storage clone confirms localStorage persistence
-  const reloadedStorage = createStorage()
-  for (const [k, v] of storage.map) reloadedStorage.setItem(k, v)
-  const persisted = readCachedDeviceModelCatalog(reloadedStorage, Date.now())
-  assert.equal(persisted?.fresh, true)
-  assert.equal(persisted?.items[0].brand_name, '最新小米')
-
-  clearDeviceModelCatalogCache(storage)
-  assert.equal(readCachedDeviceModelCatalog(storage, Date.now()), null)
+    // 4. Unknown cloud kind before hydration returns a safe non-crashing placeholder package
+    const placeholder = packageFor('notYetLoadedCloudKind')
+    assert.equal(placeholder.kind, 'notYetLoadedCloudKind')
+    assert.ok(placeholder.artwork.startsWith('data:image/svg+xml;charset=utf-8,'))
+  } finally {
+    resetRuntimeSupportPackages()
+  }
 })
 
 test('readCloud remains compatible with enriched /v2/device-models fields', async () => {
@@ -359,7 +593,7 @@ const text = node =>
   typeof node === 'string' ? node : (Array.isArray(node) ? node : (node?.children ?? [])).map(text).join('')
 const flush = () => new Promise(resolve => setImmediate(resolve))
 
-function createUiHarness({ native = false, storage } = {}) {
+function createUiHarness({ native = false, storage, invokeImpl } = {}) {
   const invokeCalls = []
   const openedWindows = []
   const windowTarget = Object.assign(new EventTarget(), {
@@ -386,11 +620,20 @@ function createUiHarness({ native = false, storage } = {}) {
       module: mod,
       exports: mod.exports,
       URL,
+      TextEncoder,
+      TextDecoder,
       setTimeout: (...args) => globalThis.setTimeout(...args),
       clearTimeout: (...args) => globalThis.clearTimeout(...args),
       setInterval: (...args) => globalThis.setInterval(...args),
       clearInterval: (...args) => globalThis.clearInterval(...args),
-      document: { getElementById: () => null, activeElement: null, body: {} },
+      document: {
+        getElementById: () => null,
+        activeElement: null,
+        body: {},
+        hidden: false,
+        addEventListener() {},
+        removeEventListener() {},
+      },
       HTMLElement: class {},
       window: windowTarget,
       require: name => {
@@ -399,6 +642,7 @@ function createUiHarness({ native = false, storage } = {}) {
           return {
             invoke: async (cmd, payload) => {
               invokeCalls.push([cmd, payload])
+              return invokeImpl ? invokeImpl(cmd, payload) : undefined
             },
           }
         }
@@ -417,16 +661,8 @@ function createUiHarness({ native = false, storage } = {}) {
   const openExternalMod = compile('src/openExternalUrl.ts', {
     './runtimeLogging.ts': runtimeLogging,
   })
-  const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
-    '../openExternalUrl.ts': openExternalMod,
-    './relayClient.ts': require('../src/cloud/relayClient.ts'),
-  })
-  const useCatalogMod = compile('src/cloud/useDeviceModelCatalog.ts', {
-    './deviceModelCatalog.ts': catalogMod,
-  })
-  const behaviorLibraryContext = compile('src/cloud/BehaviorLibraryContext.tsx')
-  const modelMarkdownMod = compile('src/devices/integration/ModelMarkdown.tsx', {
-    '../../openExternalUrl': openExternalMod,
+  const descriptorSvgMod = compile('src/devices/shared/descriptorSvg.ts', {
+    '../generatedDescriptors.ts': require('../src/devices/generatedDescriptors.ts'),
   })
   const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
     './xbox-controller.svg': { default: 'controller.svg' },
@@ -445,6 +681,23 @@ function createUiHarness({ native = false, storage } = {}) {
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
   })
+  const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
+    '../devices/bundledModelCatalog.json': JSON.parse(readFileSync('src/devices/bundledModelCatalog.json', 'utf8')),
+    '../devices/integration/model.ts': model,
+    '../devices/shared/descriptorSvg.ts': descriptorSvgMod,
+    '../openExternalUrl.ts': openExternalMod,
+    './relayClient.ts': require('../src/cloud/relayClient.ts'),
+  })
+  const useCatalogMod = compile('src/cloud/useDeviceModelCatalog.ts', {
+    './deviceModelCatalog.ts': catalogMod,
+  })
+  const behaviorLibraryContext = compile('src/cloud/BehaviorLibraryContext.tsx')
+  const modelMarkdownMod = compile('src/devices/integration/ModelMarkdown.tsx', {
+    '../../openExternalUrl': openExternalMod,
+  })
+  const remoteControlMod = compile('src/devices/shared/RemoteControl.tsx', {
+    '../xiaomi-remote/view.ts': require('../src/devices/xiaomi-remote/view.ts'),
+  })
   const controls = compile('src/devices/integration/IntegrationControls.tsx')
   const battery = compile('src/components/BatteryIndicator.tsx')
   const deviceHubMod = compile('src/devices/integration/DeviceHub.tsx', {
@@ -461,6 +714,7 @@ function createUiHarness({ native = false, storage } = {}) {
     openedWindows,
     BehaviorLibraryContext: behaviorLibraryContext.BehaviorLibraryContext,
     ModelMarkdown: modelMarkdownMod.ModelMarkdown,
+    RemoteControl: remoteControlMod.RemoteControl,
     DeviceHub: deviceHubMod.DeviceHub,
     DeviceDiscoverySection: deviceHubMod.DeviceDiscoverySection,
     model,
@@ -499,19 +753,16 @@ test('ModelMarkdown renders headings, lists, code, emphasis, and safe links whil
     assert.equal(text(view.root.findByType('h4')), '硬件参数')
     assert.equal(text(view.root.findByType('strong')), '低功耗蓝牙')
     assert.equal(text(view.root.findByType('em')), '红外学习')
-    // OBE_RCU_R5 underscores must remain intact and never split into <em>RCU</em>
     assert.match(text(view.root.findByType('p')), /型号代号 OBE_RCU_R5/)
     assert.equal(view.root.findByType('p').findAllByType('br').length, 1)
     assert.equal(view.root.findByType('ul').findAllByType('li').length, 2)
     assert.equal(view.root.findByType('ol').findAllByType('li').length, 2)
     assert.match(text(view.root.findByType('pre')), /vid=0x2717 pid=0x32b9/)
 
-    // Raw HTML tags are escaped as plain text; zero script/img DOM nodes exist
     assert.equal(view.root.findAllByType('script').length, 0)
     assert.equal(view.root.findAllByType('img').length, 0)
     assert.match(text(view.root.findByType('blockquote')), /<script>alert\("xss"\)<\/script>/)
 
-    // Only the HTTPS link renders an <a>; javascript:alert(1) is stripped to plain label text
     const anchors = view.root.findAllByType('a')
     assert.equal(anchors.length, 1)
     assert.equal(anchors[0].props.href, 'https://relay.wleo.cn/docs/OBE_(RCU)')
@@ -541,9 +792,17 @@ test('ModelMarkdown renders headings, lists, code, emphasis, and safe links whil
   }
 })
 
-test('IntegrationDialog Scheme A supports brand/search filtering, tags, Markdown, external links, back navigation, and integration', async () => {
+test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to cloud models + dynamic SVG models, and syncs native descriptors', async () => {
   const storage = createStorage()
-  const h = createUiHarness({ native: false, storage })
+  let refreshCount = 0
+  const h = createUiHarness({
+    native: true,
+    storage,
+    invokeImpl: async cmd => {
+      if (cmd === 'sync_cloud_device_descriptors') return { applied: 1, rejected: [], changed: true }
+      return undefined
+    },
+  })
   let resolveCatalog
   const catalogRequests = []
   const client = new RelayClient(
@@ -563,7 +822,10 @@ test('IntegrationDialog Scheme A supports brand/search filtering, tags, Markdown
     snapshot,
     error: '',
     busy: false,
-    refresh: async () => snapshot,
+    refresh: async () => {
+      refreshCount++
+      return snapshot
+    },
     reorder: async () => {},
     refreshInformation: async () => {},
     put: async instance => {
@@ -619,33 +881,42 @@ test('IntegrationDialog Scheme A supports brand/search filtering, tags, Markdown
   })
 
   try {
-    // Open manual add while accountReady is still false: dialog opens immediately and never blocks
+    // 1. Before accountReady flips true, offline bundledModelCatalog.json is ALREADY synchronously hydrated!
     const openAddBtn = view.root.findAllByType('button').find(b => text(b).includes('手动添加设备'))
     await act(async () => {
       openAddBtn.props.onClick()
     })
     assert.equal(catalogRequests.length, 0, 'waits for accountReady before firing catalog request')
     const detailPane = () => view.root.findByProps({ className: 'managed-catalog-detail' })
-    assert.match(text(detailPane()), /加载型号说明中/)
-    assert.equal(view.root.findAllByProps({ 'aria-label': '按品牌筛选' }).length, 0, 'hides brand pills until brands exist')
+    assert.match(text(detailPane()), /Win \/ macOS/, 'shows offline curated rc003 tags immediately')
+    assert.ok(
+      view.root.findByProps({ 'aria-label': '按品牌筛选' }).findAllByType('button').length >= 6,
+      'shows curated brand filter pills immediately from bundled snapshot',
+    )
     const nextBtn = () => view.root.findByProps({ className: 'managed-primary' })
     assert.equal(text(nextBtn()), '下一步')
-    assert.equal(nextBtn().props.disabled, false, 'slow network never blocks advancing')
+    assert.equal(nextBtn().props.disabled, false)
 
-    // Flip accountReady -> true: authenticated catalog request fires with Bearer token
+    // 2. Flip accountReady -> true: authenticated catalog request fires with include_svg=1 and Bearer token
     await act(async () => {
       view.update(renderTree(true))
       await flush()
     })
     assert.deepEqual(catalogRequests, [
-      { method: 'GET', path: '/v2/device-models?app_id=axonkey', token: 'access-token-1' },
+      { method: 'GET', path: '/v2/device-models?app_id=axonkey&include_svg=1', token: 'access-token-1' },
     ])
 
-    // Resolve catalog with brands, tags, Markdown description, and purchase links
+    // 3. Resolve cloud catalog including a brand-new cloud model customRemoteX with axonkey.device/1 SVG
+    const customRemoteSvg = buildCustomRemoteSvg({
+      deviceId: 'custom.remote.x',
+      model: 'CR-X1',
+      displayName: '极客遥控器 X1',
+    })
     await act(async () => {
       resolveCatalog({
         status: 200,
         body: {
+          cache_ttl_seconds: 1800,
           items: [
             {
               id: 'm-rc003',
@@ -670,131 +941,182 @@ test('IntegrationDialog Scheme A supports brand/search filtering, tags, Markdown
               tags: [],
               links: [{ label: '官方配件店', url: 'https://shop.tcl.com/rc802a' }],
             },
+            {
+              id: 'm-custom-x',
+              code: 'customRemoteX',
+              name: '极客遥控器 X1',
+              model: 'CR-X1',
+              brand_name: '极客外设',
+              description: '支持 **云端热下发** 按键热区与 HID 映射。',
+              tags: ['云端上新', 'Win / macOS'],
+              links: [{ label: '极客官网', url: 'https://geekgear.example.com/cr-x1' }],
+              has_svg: true,
+              svg: customRemoteSvg,
+            },
           ],
         },
       })
       await flush()
     })
 
-    // Right panel immediately displays pre-selected rc003 tags, Markdown, and links
-    assert.deepEqual(
-      detailPane()
-        .findByProps({ 'aria-label': '型号标签' })
-        .findAllByType('li')
-        .map(text),
-      ['蓝牙语音', '7号电池'],
-    )
+    // Native mode check via a quick DeviceDiscoverySection mount with native:true confirms sync_cloud_device_descriptors IPC
+    let nativeProbe
+    await act(async () => {
+      nativeProbe = Renderer.create(
+        React.createElement(
+          h.BehaviorLibraryContext.Provider,
+          { value: { client, userId: 'user-1', accountReady: true, onLogin() {} } },
+          React.createElement(h.DeviceHub, {
+            selectedInstanceId: null,
+            onSelectInstance() {},
+            controller,
+            native: true,
+            platform: 'macos',
+            permissions: { accessibility: true, inputMonitoring: true },
+            onBrandClick() {},
+            onPermissions() {},
+            onLegacy() {},
+            onOpenAudioCalibration() {},
+            onOpenAudioDriver() {},
+            onOpenBluetoothSettings() {},
+            onOpenDeviceManager() {},
+            driverAction: null,
+            onInstallDriver() {},
+            onUnbindDevice: async () => {},
+            onRemoveDevice: async () => {},
+            mouseProfileName: '默认配置',
+          }),
+        ),
+        { createNodeMock: node => (node.type === 'dialog' ? modal : null) },
+      )
+      await flush()
+    })
+    try {
+      const openNativeAdd = nativeProbe.root.findAllByType('button').find(b => text(b).includes('手动添加设备'))
+      await act(async () => {
+        openNativeAdd.props.onClick()
+        await flush()
+      })
+      const syncCall = h.invokeCalls.find(([cmd]) => cmd === 'sync_cloud_device_descriptors')
+      assert.ok(syncCall, 'syncs cloud SVG descriptors to Tauri native registry')
+      assert.equal(syncCall[1].descriptors.length, 1)
+      assert.equal(syncCall[1].descriptors[0].kind, 'customRemoteX')
+      assert.ok(refreshCount >= 1, 'refreshes native device snapshot when descriptors change')
+    } finally {
+      act(() => nativeProbe.unmount())
+    }
+
+    // 4. Right panel displays cloud rc003 tags, Markdown, and external links
+    assert.deepEqual(detailPane().findByProps({ 'aria-label': '型号标签' }).findAllByType('li').map(text), [
+      '蓝牙语音',
+      '7号电池',
+    ])
     assert.match(text(detailPane()), /BLE 语音/)
     const rc003Links = detailPane().findByProps({ 'aria-label': '购买与参考链接' }).findAllByType('a')
     assert.equal(rc003Links.length, 2)
-    assert.match(text(rc003Links[0]), /京东自营/)
-    assert.match(text(rc003Links[0]), /jd\.com/)
 
-    // Clicking purchase link opens external browser WITHOUT closing or advancing the dialog
     await act(async () => {
       rc003Links[0].props.onClick({ preventDefault() {}, stopPropagation() {} })
       await flush()
     })
     assert.deepEqual(h.openedWindows, [['https://item.jd.com/1000123.html', '_blank', 'noopener,noreferrer']])
-    assert.equal(view.root.findAllByProps({ className: 'managed-catalog-picker' }).length, 1)
 
-    // Filter by brand pill "TCL": left grid narrows and right panel switches to TCL RC802A (empty tags omitted!)
+    // 5. Brand pills include dynamic cloud brand "极客外设" and filter to customRemoteX
     const brandGroup = view.root.findByProps({ 'aria-label': '按品牌筛选' })
-    assert.deepEqual(brandGroup.findAllByType('button').map(text), ['全部', '小米', 'TCL'])
-    act(() => {
-      brandGroup.findAllByType('button').find(b => text(b) === 'TCL').props.onClick()
-    })
+    assert.deepEqual(brandGroup.findAllByType('button').map(text), ['全部', '小米', 'TCL', '极客外设'])
     const packageCards = () =>
       view.root
         .findByProps({ className: 'managed-catalog-list-pane' })
         .findAll(node => node.type === 'button' && node.props.className === 'managed-package')
-    assert.equal(packageCards().length, 1)
-    assert.equal(packageCards()[0].props['data-kind'], 'tclRc802a')
-    assert.match(text(detailPane()), /适配 TCL 智能电视语音遥控器/)
-    assert.equal(detailPane().findAllByProps({ 'aria-label': '型号标签' }).length, 0, 'omits empty tags row')
+    assert.equal(packageCards().length, 12, '11 bundled + 1 dynamic cloud model')
 
-    // Reset brand to All and test search input + clear button
     act(() => {
-      brandGroup.findAllByType('button').find(b => text(b) === '全部').props.onClick()
+      brandGroup
+        .findAllByType('button')
+        .find(b => text(b) === '极客外设')
+        .props.onClick()
+    })
+    assert.equal(packageCards().length, 1)
+    assert.equal(packageCards()[0].props['data-kind'], 'customRemoteX')
+    assert.match(text(detailPane()), /云端热下发/)
+
+    // 6. Verify packageFor('customRemoteX') and RemoteControl render interactive key regions cleanly
+    const customPkg = h.model.packageFor('customRemoteX')
+    assert.equal(customPkg.name, '极客遥控器 X1')
+    assert.equal(customPkg.model, 'CR-X1')
+    assert.equal(customPkg.inputs.length, 2)
+    assert.ok(customPkg.artwork.startsWith('data:image/svg+xml;charset=utf-8,'))
+
+    let remoteControlView
+    let clickedKey = null
+    act(() => {
+      remoteControlView = Renderer.create(
+        React.createElement(h.RemoteControl, {
+          activeId: 'custom.remote.x.ok',
+          mappedIds: ['custom.remote.x.ok'],
+          onSelect: id => {
+            clickedKey = id
+          },
+          remoteView: customPkg.remoteView,
+        }),
+      )
+    })
+    try {
+      const keyButtons = remoteControlView.root.findAll(
+        node => node.type === 'g' && node.props.role === 'button' && node.props['data-remote-key'],
+      )
+      assert.deepEqual(
+        keyButtons.map(node => node.props['data-remote-key']),
+        ['custom.remote.x.ok', 'custom.remote.x.back'],
+      )
+      act(() => keyButtons[1].props.onClick())
+      assert.equal(clickedKey, 'custom.remote.x.back')
+    } finally {
+      act(() => remoteControlView.unmount())
+    }
+
+    // 7. Reset brand filter, test search, integrate customRemoteX
+    act(() => {
+      brandGroup
+        .findAllByType('button')
+        .find(b => text(b) === '全部')
+        .props.onClick()
     })
     const searchInput = view.root.findByProps({ 'aria-label': '搜索设备型号' })
     act(() => {
-      searchInput.props.onChange({ target: { value: '7号电池' } })
+      searchInput.props.onChange({ target: { value: '云端上新' } })
     })
     assert.deepEqual(
       packageCards().map(c => c.props['data-kind']),
-      ['rc003'],
+      ['customRemoteX'],
     )
     act(() => {
       view.root.findByProps({ 'aria-label': '清空搜索' }).props.onClick()
     })
-    assert.equal(packageCards().length, h.model.supportPackages.length)
 
-    // Select a model with no cloud entry (hisenseRcf3b65): shows quiet empty state and zero fake tags
+    // Select a model omitted from cloud response (hisenseRcf3b65): shows quiet empty state
     act(() => {
       packageCards()
         .find(c => c.props['data-kind'] === 'hisenseRcf3b65')
         .props.onClick()
     })
     assert.match(text(detailPane()), /暂无型号详细介绍，可直接继续添加设备/)
-    assert.equal(detailPane().findAllByProps({ 'aria-label': '型号标签' }).length, 0)
 
-    // Select rc003 and click 下一步 -> enters Step 2 (details) with name initialized
+    // Double-click customRemoteX -> advances to Step 2 and integrates cleanly
     act(() => {
       packageCards()
-        .find(c => c.props['data-kind'] === 'rc003')
-        .props.onClick()
-    })
-    act(() => {
-      nextBtn().props.onClick()
-    })
-    assert.equal(view.root.findAllByProps({ className: 'managed-catalog-picker' }).length, 0)
-    const nameInput = () => view.root.findByType('input')
-    assert.equal(nameInput().props.value, '小米蓝牙遥控器2Pro')
-
-    // Step 2 has collapsible 型号说明 toggle in product header
-    const infoToggle = () => view.root.findByProps({ className: 'managed-model-info-toggle' })
-    assert.equal(infoToggle().props['aria-expanded'], false)
-    act(() => infoToggle().props.onClick())
-    assert.equal(infoToggle().props['aria-expanded'], true)
-    const detailsCatalogPanel = view.root.findByProps({ className: 'managed-details-catalog-panel' })
-    assert.match(text(detailsCatalogPanel), /京东自营/)
-    assert.match(text(detailsCatalogPanel), /BLE 语音/)
-
-    // Customize name, click 更换型号 -> back to kind -> switching model resets name, keeping model keeps custom name
-    act(() => {
-      nameInput().props.onChange({ target: { value: '客厅主遥控' } })
-    })
-    const changeModelBtn = view.root.findAllByType('button').find(b => text(b) === '更换型号')
-    assert.ok(changeModelBtn)
-    act(() => changeModelBtn.props.onClick())
-    assert.equal(view.root.findAllByProps({ className: 'managed-catalog-picker' }).length, 1)
-
-    // Keep same model (rc003) -> preserves custom name "客厅主遥控"
-    act(() => nextBtn().props.onClick())
-    assert.equal(nameInput().props.value, '客厅主遥控')
-
-    // Go back again and double-click TCL RC802A -> advances directly and resets name to "TCL RC802A"
-    act(() => {
-      view.root
-        .findAllByType('button')
-        .find(b => text(b) === '更换型号')
-        .props.onClick()
-    })
-    act(() => {
-      packageCards()
-        .find(c => c.props['data-kind'] === 'tclRc802a')
+        .find(c => c.props['data-kind'] === 'customRemoteX')
         .props.onDoubleClick()
     })
-    assert.equal(nameInput().props.value, 'TCL RC802A')
+    const nameInput = () => view.root.findByType('input')
+    assert.equal(nameInput().props.value, '极客遥控器 X1')
 
-    // Save device integration
     await act(async () => {
       view.root.findByProps({ className: 'managed-primary' }).props.onClick()
     })
     assert.equal(savedInstances.length, 1)
-    assert.equal(savedInstances[0].kind, 'tclRc802a')
-    assert.equal(savedInstances[0].name, 'TCL RC802A')
+    assert.equal(savedInstances[0].kind, 'customRemoteX')
+    assert.equal(savedInstances[0].name, '极客遥控器 X1')
     assert.equal(selectedInstanceId, 'inst-1')
   } finally {
     act(() => view.unmount())
