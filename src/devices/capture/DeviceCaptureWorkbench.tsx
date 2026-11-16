@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import {
   buildPreviewLocalCustomDeviceEntry,
+  getLocalCloudDescriptorOverrides,
   upsertLocalCustomDevice,
   type LocalCustomDeviceEntry,
 } from '../../cloud/deviceModelCatalog'
@@ -1211,7 +1212,12 @@ export function DeviceCaptureWorkbench({
       setLocalDeviceEntry(installed)
       setExportedPath(installed.filePath)
       onDevicesChanged?.()
-      onToast?.(`已放入本机可用目录（${installed.name}）`)
+      const overridesCloud = getLocalCloudDescriptorOverrides().some(item => item.kind === installed.kind)
+      onToast?.(
+        overridesCloud
+          ? `已放入本机可用目录（${installed.name}），当前将覆盖同型号云端配置`
+          : `已放入本机可用目录（${installed.name}）`,
+      )
 
       await captureSetLivePreviewSvg(null, nativeRuntime).catch(() => {})
       await captureStopSession(nativeRuntime).catch(() => {})

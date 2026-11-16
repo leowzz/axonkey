@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { createPortal } from 'react-dom'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { ChevronDown, Info, RefreshCw, Settings2 } from 'lucide-react'
+import { ChevronDown, Info, RefreshCw, Settings2, TriangleAlert } from 'lucide-react'
 import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import { BehaviorSummaryPopover } from '../../components/BehaviorSummaryPopover'
 import { iconFor } from '../../components/InputIcon'
@@ -36,8 +36,10 @@ import {
   deviceMatchesKind,
   deviceScreenSelectionId,
   emptyTriggers,
+  getLocalCloudDescriptorOverrides,
   getSupportPackages,
   instanceState,
+  localCloudOverrideWarningText,
   packageFor,
   stateLabel,
   subscribeSupportPackages,
@@ -101,6 +103,7 @@ export function InstanceWorkspace({
 }: Props) {
   useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const pkg = packageFor(instance.kind)
+  const localCloudOverride = getLocalCloudDescriptorOverrides().find(item => item.kind === instance.kind)
   const singleLaneWorkspace = usesSingleLaneWorkspace(instance.kind)
   const voice = pkg.remoteView?.voice
   const voiceModes = voice?.triggerModes ?? []
@@ -736,6 +739,20 @@ export function InstanceWorkspace({
                 .join('、')}
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
+          )}
+          {localCloudOverride && (
+            <div className="managed-warning" role="status">
+              <TriangleAlert size={15} aria-hidden="true" />
+              <span>{localCloudOverrideWarningText([localCloudOverride])}</span>
+              {native && (
+                <button
+                  type="button"
+                  onClick={() => void invoke('open_local_custom_devices_dir', { highlightFile: null }).catch(() => {})}
+                >
+                  打开本机目录
+                </button>
+              )}
+            </div>
           )}
           {isScreenSelected ? (
             <KivoScreenEditor

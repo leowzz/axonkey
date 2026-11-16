@@ -236,6 +236,50 @@ body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open])
   color: #b91c1c;
   overflow-wrap: anywhere;
 }
+.managed-warning {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  border-radius: 9px;
+  border: 1px solid rgb(217 119 6 / 26%);
+  background: rgb(254 243 199 / 76%);
+  color: #92400e;
+}
+.managed-warning > svg {
+  flex-shrink: 0;
+  color: #b45309;
+}
+.managed-warning > span {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.managed-warning > button {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid rgb(180 83 9 / 28%);
+  border-radius: 6px;
+  background: rgb(255 255 255 / 88%);
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.managed-warning > button:hover {
+  background: #fff;
+  border-color: rgb(180 83 9 / 45%);
+}
+.managed-catalog-detail > .managed-warning {
+  margin: 0;
+}
+.managed-integration-body > .managed-warning {
+  margin: 14px 0 0;
+}
 .managed-saving {
   position: fixed;
   right: 24px;
@@ -987,7 +1031,8 @@ button.managed-package:hover:not(:disabled) {
   padding: 0;
 }
 .managed-hub.has-workspace > .managed-notice,
-.managed-hub.has-workspace > .managed-error {
+.managed-hub.has-workspace > .managed-error,
+.managed-hub.has-workspace > .managed-warning {
   flex-shrink: 0;
   margin: 8px 16px;
 }
@@ -1124,7 +1169,8 @@ button.managed-package:hover:not(:disabled) {
   opacity: 0.6;
 }
 .managed-instance-workspace .mapping-main > .managed-error,
-.managed-instance-workspace .mapping-main > .managed-notice {
+.managed-instance-workspace .mapping-main > .managed-notice,
+.managed-instance-workspace .mapping-main > .managed-warning {
   flex-shrink: 0;
   margin: 8px 16px;
 }

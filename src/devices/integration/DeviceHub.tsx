@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { invoke } from '@tauri-apps/api/core'
 import {
   ChevronDown,
   ChevronRight,
@@ -50,6 +51,8 @@ import {
   newInstance,
   packageFor,
   batteryForDevice,
+  getLocalCloudDescriptorOverrides,
+  localCloudOverrideWarningText,
   saveDeviceCardOrder,
   subscribeSupportPackages,
   supportsWindowsDriver,
@@ -227,6 +230,7 @@ export function DeviceHub(props: Props) {
       window.removeEventListener('pointercancel', finishOutsideCard)
     }
   })
+  const localCloudOverrides = getLocalCloudDescriptorOverrides()
   const banner = (
     <>
       {!native && <p className="managed-notice">浏览器预览 · 设备连接需使用桌面应用</p>}
@@ -235,6 +239,7 @@ export function DeviceHub(props: Props) {
           {error || snapshot.error || snapshot.scanError}
         </p>
       )}
+      {!instance && renderLocalCloudOverrideWarning(localCloudOverrides, native)}
     </>
   )
   return (
@@ -829,6 +834,29 @@ function packageSubtitle(pkg: { kind: DeviceKind; name: string; model: string },
     .join(' · ')
 }
 
+function renderLocalCloudOverrideWarning(
+  overrides: ReturnType<typeof getLocalCloudDescriptorOverrides>,
+  native: boolean,
+) {
+  if (overrides.length === 0) return null
+  return (
+    <div className="managed-warning" role="status">
+      <TriangleAlert size={15} aria-hidden="true" />
+      <span>{localCloudOverrideWarningText(overrides)}</span>
+      {native && (
+        <button
+          type="button"
+          onClick={() => {
+            void invoke('open_local_custom_devices_dir', { highlightFile: null }).catch(() => {})
+          }}
+        >
+          打开本机目录
+        </button>
+      )}
+    </div>
+  )
+}
+
 function catalogCardSubtitle(
   pkg: { kind: DeviceKind; name: string; model: string },
   catalogModel: CatalogDeviceModel | undefined,
@@ -939,6 +967,10 @@ function IntegrationDialog({
   const effectivePackage =
     (kind ? filteredPackages.find(p => p.kind === kind) : undefined) ?? filteredPackages[0] ?? null
   const activeCatalogModel = effectivePackage ? modelsByCode.get(effectivePackage.kind) : undefined
+  const localCloudOverrides = getLocalCloudDescriptorOverrides()
+  const effectiveOverrides = effectivePackage
+    ? localCloudOverrides.filter(item => item.kind === effectivePackage.kind)
+    : []
   const candidates = controller.snapshot.discovered.filter(
     d =>
       (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : kind && deviceMatchesKind(d, kind)) &&
@@ -948,6 +980,9 @@ function IntegrationDialog({
   const device = candidates.find(d => d.id === binding)
   const needsMobileModelSelection = !initial.instance && Boolean(device && isMobileRemoteDevice(device))
   const selectedPackage = kind ? packageFor(kind) : null
+  const selectedOverrides = selectedPackage
+    ? localCloudOverrides.filter(item => item.kind === selectedPackage.kind)
+    : []
   const selectedCatalog = kind ? modelsByCode.get(kind) : undefined
   const hasSelectedCatalogDetails =
     !needsMobileModelSelection &&
@@ -1169,6 +1204,7 @@ function IntegrationDialog({
                           {activeCatalogModel && <ModelTagPills tags={activeCatalogModel.tags} />}
                         </div>
                       </div>
+                      {renderLocalCloudOverrideWarning(effectiveOverrides, native)}
                       <ModelCatalogBody model={activeCatalogModel} loading={catalogLoading} native={native} />
                     </>
                   ) : (
@@ -1311,6 +1347,7 @@ function IntegrationDialog({
                 </p>
               )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
+              {renderLocalCloudOverrideWarning(selectedOverrides, native)}
             </>
           )}
           {localError && (

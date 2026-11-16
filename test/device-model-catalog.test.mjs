@@ -640,6 +640,8 @@ const flush = () => new Promise(resolve => setImmediate(resolve))
 
 function createUiHarness({ native = false, storage, invokeImpl } = {}) {
   const invokeCalls = []
+  const warnLogs = []
+  const consoleWarns = []
   const openedWindows = []
   const windowTarget = Object.assign(new EventTarget(), {
     ...(native ? { __TAURI_INTERNALS__: {} } : {}),
@@ -681,6 +683,10 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
       },
       HTMLElement: class {},
       window: windowTarget,
+      console: {
+        ...console,
+        warn: (...args) => consoleWarns.push(args.join(' ')),
+      },
       require: name => {
         if (name in imports) return imports[name]
         if (name === '@tauri-apps/api/core') {
@@ -692,7 +698,13 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
           }
         }
         if (name === '@tauri-apps/api/event') return { listen: async () => () => {} }
-        if (name === '@tauri-apps/plugin-log') return { info: async () => {}, error: async () => {} }
+        if (name === '@tauri-apps/plugin-log') {
+          return {
+            info: async () => {},
+            warn: async msg => warnLogs.push(msg),
+            error: async () => {},
+          }
+        }
         if (name === 'react-dom') return { createPortal: node => node }
         if (name === 'reicon-react') return reiconReact
         if (name.endsWith('.css')) return {}
@@ -732,6 +744,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../devices/integration/model.ts': model,
     '../devices/shared/descriptorSvg.ts': descriptorSvgMod,
     '../openExternalUrl.ts': openExternalMod,
+    '../runtimeLogging.ts': runtimeLogging,
     './relayClient.ts': require('../src/cloud/relayClient.ts'),
   })
   const useCatalogMod = compile('src/cloud/useDeviceModelCatalog.ts', {
@@ -757,6 +770,8 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
   })
   return {
     invokeCalls,
+    warnLogs,
+    consoleWarns,
     openedWindows,
     BehaviorLibraryContext: behaviorLibraryContext.BehaviorLibraryContext,
     ModelMarkdown: modelMarkdownMod.ModelMarkdown,
@@ -765,6 +780,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     DeviceDiscoverySection: deviceHubMod.DeviceDiscoverySection,
     model,
     catalogMod,
+    useCatalogMod,
   }
 }
 
@@ -1343,5 +1359,169 @@ test('forceRefresh pulls newly Console-added minimal button-only models immediat
   } finally {
     resetRuntimeSupportPackages()
     clearDeviceModelCatalogCache(storage)
+  }
+})
+
+test('local custom-devices overriding cloud SVG emits warn logs and displays actionable UI warnings in DeviceHub and IntegrationDialog', async () => {
+  const storage = createStorage()
+  let localEntries = [
+    {
+      kind: 'customRemoteX',
+      deviceId: 'custom.remote.x',
+      name: '极客遥控器 X1（本地改版）',
+      model: 'CR-X1',
+      vendor: 'Geek',
+      svg: buildCustomRemoteSvg({
+        deviceId: 'custom.remote.x',
+        model: 'CR-X1',
+        displayName: '极客遥控器 X1（本地改版）',
+      }),
+      filePath: '/Users/test/Library/Application Support/com.axonkey.app/custom-devices/custom.remote.x.svg',
+    },
+  ]
+
+  const h = createUiHarness({
+    native: true,
+    storage,
+    invokeImpl: async cmd => {
+      if (cmd === 'list_local_custom_devices') return localEntries
+      if (cmd === 'sync_cloud_device_descriptors') return { applied: 1, rejected: [], changed: true }
+      if (cmd === 'open_local_custom_devices_dir') return '/Users/test/Library/Application Support/com.axonkey.app/custom-devices'
+      return undefined
+    },
+  })
+  h.useCatalogMod.resetNativeDescriptorSyncCache()
+
+  const cloudSvg = buildCustomRemoteSvg({
+    deviceId: 'custom.remote.x',
+    model: 'CR-X1',
+    displayName: '极客遥控器 X1',
+  })
+  const cloudItems = [
+    {
+      id: 'm-custom-x',
+      code: 'customRemoteX',
+      name: '极客遥控器 X1',
+      model: 'CR-X1',
+      brand_id: null,
+      brand_name: '极客外设',
+      description: '云端下发版本',
+      tags: ['云端上新'],
+      links: [],
+      has_svg: true,
+      svg: cloudSvg,
+    },
+  ]
+  const client = new RelayClient(
+    async () => ({ status: 200, body: { cache_ttl_seconds: 600, items: cloudItems } }),
+    activeSession(),
+    () => {},
+  )
+
+  const overrides = h.catalogMod.findLocalCloudDescriptorOverrides(cloudItems, localEntries)
+  assert.equal(overrides.length, 1)
+  assert.equal(overrides[0].kind, 'customRemoteX')
+  assert.equal(overrides[0].differsFromCloud, true)
+  const merged = h.catalogMod.mergeCatalogWithLocalCustomDevices(cloudItems, localEntries)
+  assert.ok(merged[0].tags.includes('覆盖云端'))
+
+  const snapshot = h.model.emptySnapshot()
+  const controller = {
+    snapshot,
+    error: '',
+    busy: false,
+    refresh: async () => snapshot,
+    reorder: async () => {},
+    refreshInformation: async () => {},
+    put: async () => snapshot,
+  }
+
+  let view
+  try {
+    await act(async () => {
+      view = Renderer.create(
+        React.createElement(
+          h.BehaviorLibraryContext.Provider,
+          { value: { client, userId: 'user-1', accountReady: true, onLogin() {} } },
+          React.createElement(h.DeviceHub, {
+            selectedInstanceId: null,
+            onSelectInstance() {},
+            controller,
+            native: true,
+            platform: 'macos',
+            permissions: { accessibility: true, inputMonitoring: true },
+            onBrandClick() {},
+            onPermissions() {},
+            onLegacy() {},
+            onOpenAudioCalibration() {},
+            onOpenAudioDriver() {},
+            onOpenBluetoothSettings() {},
+            onOpenDeviceManager() {},
+            driverAction: null,
+            onInstallDriver() {},
+            onUnbindDevice: async () => {},
+            onRemoveDevice: async () => {},
+            mouseProfileName: '默认配置',
+          }),
+        ),
+        { createNodeMock: node => (node.type === 'dialog' ? { showModal() {}, close() {} } : null) },
+      )
+      await flush()
+    })
+
+    // Emits console.warn + plugin-log warn
+    assert.ok(
+      h.consoleWarns.some(msg => msg.includes('customRemoteX') && msg.includes('custom.remote.x.svg')),
+      'emits console.warn mentioning overridden kind and file path',
+    )
+    assert.ok(
+      h.warnLogs.some(msg => msg.includes('customRemoteX') && msg.includes('覆盖')),
+      'emits native plugin-log warn',
+    )
+
+    // Home page shows warning banner with 打开本机目录 action
+    const homeWarnings = view.root.findAll(node => node.props?.className === 'managed-warning')
+    assert.equal(homeWarnings.length, 1)
+    assert.match(text(homeWarnings[0]), /极客遥控器 X1（本地改版）/)
+    assert.match(text(homeWarnings[0]), /覆盖/)
+
+    await act(async () => {
+      homeWarnings[0].findByType('button').props.onClick()
+      await flush()
+    })
+    assert.ok(h.invokeCalls.some(([cmd]) => cmd === 'open_local_custom_devices_dir'))
+
+    // IntegrationDialog shows 覆盖云端 tag and detail pane warning
+    const openAddBtn = view.root.findAllByType('button').find(b => text(b).includes('手动添加设备'))
+    await act(async () => {
+      openAddBtn.props.onClick()
+      await flush()
+    })
+    const customCard = view.root
+      .findByProps({ className: 'managed-catalog-list-pane' })
+      .findAllByType('button')
+      .find(b => b.props['data-kind'] === 'customRemoteX')
+    act(() => {
+      customCard.props.onClick()
+    })
+    const detailPane = view.root.findByProps({ className: 'managed-catalog-detail' })
+    assert.ok(text(detailPane).includes('覆盖云端'))
+    assert.equal(detailPane.findAll(node => node.props?.className === 'managed-warning').length, 1)
+
+    // Removing the local custom file and clicking refresh clears the warning and restores cloud model
+    localEntries = []
+    const refreshBtn = view.root.findByProps({ 'aria-label': '刷新型号列表' })
+    await act(async () => {
+      refreshBtn.props.onClick()
+      await flush()
+    })
+    assert.equal(view.root.findAll(node => node.props?.className === 'managed-warning').length, 0)
+    assert.equal(h.model.getLocalCloudDescriptorOverrides().length, 0)
+  } finally {
+    if (view) act(() => view.unmount())
+    h.catalogMod.resetLocalCustomDevicesForTest()
+    h.model.resetRuntimeSupportPackages()
+    h.catalogMod.clearDeviceModelCatalogCache(storage)
+    h.useCatalogMod.resetNativeDescriptorSyncCache()
   }
 })

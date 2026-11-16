@@ -192,6 +192,9 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         });
     let applied = next_active.len();
     guard.cloud_active = next_active;
+    if changed {
+        warn_local_cloud_overrides(&guard);
+    }
 
     (
         CloudDescriptorSyncResult {
@@ -201,6 +204,43 @@ pub(crate) fn sync_cloud_descriptors_with_valid(
         },
         valid_items,
     )
+}
+
+fn collect_local_cloud_overrides(guard: &DynamicRegistry) -> Vec<(String, String, bool)> {
+    guard
+        .local_active
+        .iter()
+        .filter_map(|(&kind, (local_hash, _))| {
+            let (cloud_hash, _) = guard.cloud_active.get(kind)?;
+            let file_path = guard
+                .local_entries
+                .iter()
+                .find(|entry| entry.kind == kind)
+                .map(|entry| entry.file_path.as_str())
+                .unwrap_or("<custom-devices>");
+            Some((
+                kind.to_owned(),
+                file_path.to_owned(),
+                local_hash != cloud_hash,
+            ))
+        })
+        .collect()
+}
+
+fn warn_local_cloud_overrides(guard: &DynamicRegistry) {
+    for (kind, file_path, differs_from_cloud) in collect_local_cloud_overrides(guard) {
+        if differs_from_cloud {
+            log::warn!(
+                target: "axonkey::devices",
+                "Local custom descriptor overrides cloud descriptor with different SVG content: kind={kind}, file={file_path}; cloud updates for this device will not take effect until the local file is removed"
+            );
+        } else {
+            log::warn!(
+                target: "axonkey::devices",
+                "Local custom descriptor shadows cloud descriptor: kind={kind}, file={file_path}; future cloud updates will be overridden until the local file is removed"
+            );
+        }
+    }
 }
 
 pub(crate) fn derive_kind_from_device_id(device_id: &str) -> Option<String> {
@@ -454,6 +494,9 @@ pub(crate) fn load_local_custom_descriptors(
         });
     guard.local_active = next_local;
     guard.local_entries = next_entries.clone();
+    if changed {
+        warn_local_cloud_overrides(&guard);
+    }
     (changed, next_entries)
 }
 
@@ -1197,11 +1240,44 @@ mod tests {
         assert!(registered_kinds().contains(&"localTestPad"));
         assert!(descriptor_for_kind("localTestPad").is_some());
 
+        // When cloud registers the same kind, local custom overrides cloud and is reported by collect_local_cloud_overrides.
+        let _ = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "localTestPad".into(),
+            svg: active_svg.clone(),
+        }]);
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert_eq!(
+                collect_local_cloud_overrides(&guard),
+                vec![("localTestPad".into(), installed.file_path.clone(), false)]
+            );
+        }
+
+        let updated_cloud_svg = active_svg.replace("自定义遥控器 X", "云端更新版遥控器");
+        let _ = sync_cloud_descriptors(&[CloudDescriptorSvg {
+            kind: "localTestPad".into(),
+            svg: updated_cloud_svg,
+        }]);
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert_eq!(
+                collect_local_cloud_overrides(&guard),
+                vec![("localTestPad".into(), installed.file_path.clone(), true)]
+            );
+        }
+        assert_eq!(descriptor_for_kind("localTestPad").unwrap().model, "CR-X1");
+
         // Deleting the file from custom-devices and reloading removes the local custom device cleanly.
         fs::remove_file(&installed.file_path).unwrap();
         let (removed_changed, remaining) = load_local_custom_descriptors(&dir);
         assert!(removed_changed);
         assert!(remaining.is_empty());
+        {
+            let guard = dynamic_registry().read().unwrap();
+            assert!(collect_local_cloud_overrides(&guard).is_empty());
+        }
+        assert!(descriptor_for_kind("localTestPad").is_some());
+        let _ = sync_cloud_descriptors(&[]);
         assert!(descriptor_for_kind("localTestPad").is_none());
 
         clear_local_custom_descriptors_for_test();

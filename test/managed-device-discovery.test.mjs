@@ -2052,7 +2052,24 @@ test('rail configured overview shows only configured buttons, excludes sticks/tr
     })
     assert.equal(levelCalls.length, countWhileRecording)
     assert.equal(text(view.root.findByProps({ role: 'status', 'aria-live': 'polite' })), '语音待机')
+
+    // Local custom descriptor overriding cloud shows warning banner inside matching InstanceWorkspace only
+    const { parseRuntimeDescriptorSvg } = require('../src/devices/shared/descriptorSvg.ts')
+    const baseRc003Svg = readFileSync('public/device-descriptors/rc003.svg', 'utf8')
+    const localRc003Svg = baseRc003Svg.replace('小米 RC003', '小米 RC003 本地测试版')
+    model.setRuntimeSupportPackages([parseRuntimeDescriptorSvg(baseRc003Svg, { kind: 'rc003', name: '小米 RC003', model: 'RC003' }).supportPackage])
+    model.setLocalCustomSupportPackages([parseRuntimeDescriptorSvg(localRc003Svg, { kind: 'rc003', name: '小米 RC003 本地测试版', model: 'RC003' }).supportPackage])
+    act(() => view.update(render('macos')))
+    const wsWarnings = view.root.findAll(node => node.props?.className === 'managed-warning')
+    assert.equal(wsWarnings.length, 1)
+    assert.match(text(wsWarnings[0]), /小米 RC003 本地测试版/)
+
+    // Switching to another kind without local override hides the warning
+    instance = { ...model.newInstance('kivoK18Lite', null), id: 'kivo-one' }
+    act(() => view.update(render('macos')))
+    assert.equal(view.root.findAll(node => node.props?.className === 'managed-warning').length, 0)
   } finally {
+    model.resetRuntimeSupportPackages()
     act(() => view.unmount())
   }
 })

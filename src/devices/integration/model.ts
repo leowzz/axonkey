@@ -160,20 +160,53 @@ export const mobileRemoteFallbackKind: DeviceKind =
   getMobileRemotePackages().find(pkg => pkg.remoteView?.identities.some(identity => identity.softwareFallback))?.kind ??
   'rc313'
 
+export type LocalCloudDescriptorOverride = {
+  kind: string
+  name: string
+  cloudName: string
+  differsFromCloud: boolean
+}
+
 let cloudOverlayPackages: readonly DeviceSupportPackage[] = []
 let localCustomOverlayPackages: readonly DeviceSupportPackage[] = []
+let localCloudOverridesSnapshot: readonly LocalCloudDescriptorOverride[] = Object.freeze([])
+
+export function getLocalCloudDescriptorOverrides(): readonly LocalCloudDescriptorOverride[] {
+  return localCloudOverridesSnapshot
+}
+
+export function localCloudOverrideWarningText(overrides: readonly LocalCloudDescriptorOverride[]): string {
+  if (overrides.length === 0) return ''
+  const names = overrides.map(item => item.name).join('、')
+  if (overrides.some(item => item.differsFromCloud)) {
+    return `本机目录文件正在覆盖「${names}」的云端配置（内容与云端不同），云端更新暂不生效。`
+  }
+  return `本机目录文件正在覆盖「${names}」的云端配置，后续云端更新将不会自动生效。`
+}
 
 function rebuildSupportPackages(): boolean {
   const overlayByKind = new Map<string, DeviceSupportPackage>()
+  const cloudByKind = new Map<string, DeviceSupportPackage>()
   for (const pkg of cloudOverlayPackages) {
     const kind = pkg?.kind?.trim()
     if (!kind || kind === 'mouse') continue
+    cloudByKind.set(kind, pkg)
     overlayByKind.set(kind, pkg)
   }
+  const nextOverrides: LocalCloudDescriptorOverride[] = []
   for (const pkg of localCustomOverlayPackages) {
     const kind = pkg?.kind?.trim()
     if (!kind || kind === 'mouse') continue
     overlayByKind.set(kind, pkg)
+    const cloudPkg = cloudByKind.get(kind)
+    if (cloudPkg) {
+      nextOverrides.push({
+        kind,
+        name: pkg.name,
+        cloudName: cloudPkg.name,
+        differsFromCloud: pkg.artwork !== cloudPkg.artwork,
+      })
+    }
   }
 
   const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => {
@@ -192,7 +225,7 @@ function rebuildSupportPackages(): boolean {
   for (const [kind, pkg] of overlayByKind) {
     if (!builtinKindSet.has(kind)) next.push(pkg)
   }
-  const unchanged =
+  const packagesUnchanged =
     next.length === supportPackagesSnapshot.length &&
     next.every((pkg, index) => {
       const prev = supportPackagesSnapshot[index]
@@ -208,12 +241,24 @@ function rebuildSupportPackages(): boolean {
         prev.screenRegion?.path === pkg.screenRegion?.path
       )
     })
-  if (unchanged) return false
+  const overridesUnchanged =
+    nextOverrides.length === localCloudOverridesSnapshot.length &&
+    nextOverrides.every((item, index) => {
+      const prev = localCloudOverridesSnapshot[index]
+      return (
+        prev.kind === item.kind &&
+        prev.name === item.name &&
+        prev.cloudName === item.cloudName &&
+        prev.differsFromCloud === item.differsFromCloud
+      )
+    })
+  if (packagesUnchanged && overridesUnchanged) return false
 
   mutableSupportPackages.splice(0, mutableSupportPackages.length, ...next)
   const nextMobileKinds = getMobileRemotePackages(next).map(pkg => pkg.kind)
   mutableMobileRemoteKinds.splice(0, mutableMobileRemoteKinds.length, ...nextMobileKinds)
   supportPackagesSnapshot = Object.freeze([...next])
+  localCloudOverridesSnapshot = Object.freeze(nextOverrides)
   for (const listener of supportPackageListeners) listener()
   return true
 }

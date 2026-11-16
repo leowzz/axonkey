@@ -5,6 +5,7 @@ import {
   applyLocalCustomDevices,
   buildOfflineFallbackCatalog,
   extractCatalogRuntimeDescriptors,
+  findLocalCloudDescriptorOverrides,
   getLocalCustomDevices,
   hydratePreviewLocalCustomDevices,
   loadDeviceModelCatalog,
@@ -12,6 +13,7 @@ import {
   readCachedDeviceModelCatalog,
   subscribeDeviceModelCatalog,
   subscribeLocalCustomDevices,
+  warnLocalCloudOverrides,
   type CatalogCacheStorage,
   type CatalogDeviceModel,
   type CloudDescriptorSvgPayload,
@@ -28,9 +30,11 @@ export type UseDeviceModelCatalogOptions = {
 }
 
 let lastSyncedNativeSignature: string | null = null
+let lastWarnedLocalOverrideSignature: string | null = null
 
 export function resetNativeDescriptorSyncCache() {
   lastSyncedNativeSignature = null
+  lastWarnedLocalOverrideSignature = null
 }
 
 function localStorageOrUndefined(): CatalogCacheStorage | undefined {
@@ -218,7 +222,22 @@ export function useDeviceModelCatalog(
     }
   }, [client, native])
 
+  const localCloudOverrides = useMemo(
+    () => findLocalCloudDescriptorOverrides(items, localDevices),
+    [items, localDevices],
+  )
+  useEffect(() => {
+    if (localCloudOverrides.length === 0) {
+      lastWarnedLocalOverrideSignature = null
+      return
+    }
+    const signature = JSON.stringify(localCloudOverrides.map(item => [item.kind, item.filePath, item.differsFromCloud]))
+    if (signature === lastWarnedLocalOverrideSignature) return
+    lastWarnedLocalOverrideSignature = signature
+    warnLocalCloudOverrides(localCloudOverrides)
+  }, [localCloudOverrides])
+
   const mergedItems = useMemo(() => mergeCatalogWithLocalCustomDevices(items, localDevices), [items, localDevices])
   const modelsByCode = useMemo(() => new Map(mergedItems.map(item => [item.code, item])), [mergedItems])
-  return { items: mergedItems, modelsByCode, loading, refresh }
+  return { items: mergedItems, modelsByCode, localCloudOverrides, loading, refresh }
 }

@@ -1,6 +1,7 @@
 import * as bundledCatalogModule from '../devices/bundledModelCatalog.json' with { type: 'json' }
 import {
   deriveDeviceKindFromId,
+  getLocalCloudDescriptorOverrides,
   isBuiltinDeviceKind,
   setLocalCustomSupportPackages,
   setRuntimeSupportPackages,
@@ -8,6 +9,7 @@ import {
 import { parseRuntimeDescriptorSvg, tryParseRuntimeDescriptorSvg } from '../devices/shared/descriptorSvg.ts'
 import type { DeviceSupportPackage } from '../devices/types.ts'
 import { normalizeExternalHttpUrl } from '../openExternalUrl.ts'
+import { logWarn } from '../runtimeLogging.ts'
 import type { RelayClient } from './relayClient.ts'
 import { RelayError } from './relayClient.ts'
 
@@ -543,7 +545,69 @@ export function buildPreviewLocalCustomDeviceEntry(svgContent: string): LocalCus
   }
 }
 
-export function localCustomDeviceToCatalogModel(entry: LocalCustomDeviceEntry): CatalogDeviceModel {
+export type LocalCloudOverride = {
+  kind: string
+  name: string
+  model: string
+  filePath: string
+  cloudName: string
+  differsFromCloud: boolean
+}
+
+export { getLocalCloudDescriptorOverrides }
+
+export function warnLocalCloudOverrides(overrides: readonly LocalCloudOverride[]) {
+  for (const item of overrides) {
+    const message = item.differsFromCloud
+      ? `[axonkey] 本机目录文件覆盖了云端设备描述符（内容与云端不同）：kind=${item.kind}, file=${item.filePath}；删除该本机文件并刷新前，云端更新不会生效`
+      : `[axonkey] 本机目录文件正在覆盖云端设备描述符：kind=${item.kind}, file=${item.filePath}；删除该本机文件并刷新前，后续云端更新不会生效`
+    logWarn(message)
+  }
+}
+
+export function hasCloudDescriptorSvg(item: CatalogDeviceModel): boolean {
+  if (item.has_svg === true) return true
+  const svg = typeof item.svg === 'string' ? item.svg.trim() : ''
+  return svg.length > 0 && Boolean(tryParseRuntimeDescriptorSvg(svg, { kind: item.code }))
+}
+
+export function findLocalCloudDescriptorOverrides(
+  catalogItems: readonly CatalogDeviceModel[],
+  localDevices: readonly LocalCustomDeviceEntry[],
+): LocalCloudOverride[] {
+  if (localDevices.length === 0 || catalogItems.length === 0) return []
+  const cloudByCode = new Map<string, CatalogDeviceModel>()
+  for (const item of catalogItems) {
+    const code = item.code.trim()
+    if (!code || !hasCloudDescriptorSvg(item)) continue
+    cloudByCode.set(code, item)
+  }
+  const overrides: LocalCloudOverride[] = []
+  const seenKinds = new Set<string>()
+  for (const entry of localDevices) {
+    const kind = entry.kind?.trim()
+    if (!kind || seenKinds.has(kind)) continue
+    const cloud = cloudByCode.get(kind)
+    if (!cloud) continue
+    seenKinds.add(kind)
+    const cloudSvg = typeof cloud.svg === 'string' ? cloud.svg.trim() : ''
+    const localSvg = entry.svg.trim()
+    overrides.push({
+      kind,
+      name: entry.name,
+      model: entry.model,
+      filePath: entry.filePath,
+      cloudName: cloud.name || cloud.model || kind,
+      differsFromCloud: cloudSvg ? localSvg !== cloudSvg : true,
+    })
+  }
+  return overrides
+}
+
+export function localCustomDeviceToCatalogModel(
+  entry: LocalCustomDeviceEntry,
+  shadowedCatalogItem?: CatalogDeviceModel,
+): CatalogDeviceModel {
   const parsed = tryParseRuntimeDescriptorSvg(entry.svg, {
     kind: entry.kind,
     name: entry.name,
@@ -551,7 +615,9 @@ export function localCustomDeviceToCatalogModel(entry: LocalCustomDeviceEntry): 
   })
   const inputCount = parsed?.supportPackage.inputs.length ?? 0
   const hasVoice = Boolean(parsed?.supportPackage.remoteView?.voice)
+  const shadowsCloud = Boolean(shadowedCatalogItem && hasCloudDescriptorSvg(shadowedCatalogItem))
   const tags: string[] = ['本机测试']
+  if (shadowsCloud) tags.push('覆盖云端')
   if (inputCount > 0) tags.push(`${inputCount} 键`)
   if (parsed?.supportPackage.remoteView?.usesVendorUsbHid) {
     tags.push('USB-C 免驱')
@@ -583,7 +649,8 @@ export function mergeCatalogWithLocalCustomDevices(
   localDevices: readonly LocalCustomDeviceEntry[],
 ): CatalogDeviceModel[] {
   if (localDevices.length === 0) return [...catalogItems]
-  const localModels = localDevices.map(localCustomDeviceToCatalogModel)
+  const catalogByCode = new Map(catalogItems.map(item => [item.code.trim(), item]))
+  const localModels = localDevices.map(entry => localCustomDeviceToCatalogModel(entry, catalogByCode.get(entry.kind)))
   const localByCode = new Map(localModels.map(item => [item.code, item]))
   const merged: CatalogDeviceModel[] = catalogItems.map(item => localByCode.get(item.code) ?? item)
   const existingCodes = new Set(catalogItems.map(item => item.code))
