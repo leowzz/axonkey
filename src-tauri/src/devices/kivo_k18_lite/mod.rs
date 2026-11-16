@@ -3,7 +3,9 @@
 pub(crate) mod font;
 
 use super::device_descriptor::DeviceDescriptor;
-use crate::input_service::{MouseButton, NativeBehavior, WheelDirection};
+use crate::input_service::{
+    managed::DeviceDisplaySettings, MouseButton, NativeBehavior, WheelDirection,
+};
 use hidapi::HidDevice;
 use std::{
     collections::VecDeque,
@@ -153,6 +155,7 @@ pub(crate) fn encode_control_lease(
     packet
 }
 
+#[cfg(test)]
 pub(crate) fn lease_acquire_packet() -> [u8; OUTPUT_REPORT_LEN] {
     encode_control_lease(1, LEASE_SECONDS, UNCHANGED_SETTING, 0)
 }
@@ -340,11 +343,20 @@ fn summarize_single_behavior(behavior: &NativeBehavior, macos_labels: bool) -> S
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ToastKind {
+    Key,
+    Profile,
+}
+
 struct DisplayState {
     stop: bool,
     write_failed: bool,
+    settings: DeviceDisplaySettings,
+    sleeping: bool,
+    last_activity: Instant,
     idle: (String, String),
-    toast: Option<(String, String, Instant)>,
+    toast: Option<(ToastKind, String, String, Instant)>,
     dirty: bool,
     outbox: VecDeque<[u8; OUTPUT_REPORT_LEN]>,
 }
@@ -356,7 +368,12 @@ pub(crate) struct DisplayController {
 }
 
 impl DisplayController {
-    pub(crate) fn open(device: &HidDevice, idle_top: String, idle_bottom: String) -> Option<Self> {
+    pub(crate) fn open(
+        device: &HidDevice,
+        idle_top: String,
+        idle_bottom: String,
+        settings: DeviceDisplaySettings,
+    ) -> Option<Self> {
         let caps = probe_capabilities(device);
         if !caps.has_display
             || caps.width != DEFAULT_WIDTH
@@ -365,16 +382,36 @@ impl DisplayController {
         {
             return None;
         }
-        Some(Self::start_worker(idle_top, idle_bottom, TOAST_DURATION))
+        Some(Self::start_worker(
+            idle_top,
+            idle_bottom,
+            settings,
+            TOAST_DURATION,
+            Duration::from_secs(1),
+        ))
     }
 
-    fn start_worker(idle_top: String, idle_bottom: String, toast_duration: Duration) -> Self {
+    pub(crate) fn start_worker(
+        idle_top: String,
+        idle_bottom: String,
+        settings: DeviceDisplaySettings,
+        toast_duration: Duration,
+        sleep_unit: Duration,
+    ) -> Self {
         let mut outbox = VecDeque::with_capacity(16);
-        outbox.push_back(lease_acquire_packet());
+        outbox.push_back(encode_control_lease(
+            1,
+            LEASE_SECONDS,
+            settings.brightness,
+            0,
+        ));
         let shared = Arc::new((
             Mutex::new(DisplayState {
                 stop: false,
                 write_failed: false,
+                settings,
+                sleeping: false,
+                last_activity: Instant::now(),
                 idle: (idle_top, idle_bottom),
                 toast: None,
                 dirty: true,
@@ -385,7 +422,7 @@ impl DisplayController {
         let worker_shared = Arc::clone(&shared);
         let worker = thread::Builder::new()
             .name("Axonkey K18 OLED".into())
-            .spawn(move || display_worker(worker_shared))
+            .spawn(move || display_worker(worker_shared, sleep_unit))
             .ok();
         Self {
             shared,
@@ -394,24 +431,92 @@ impl DisplayController {
         }
     }
 
+    pub(crate) fn record_activity(&self) {
+        let (lock, cvar) = &*self.shared;
+        let mut state = lock.lock().unwrap();
+        if record_activity_locked(&mut state, Instant::now()) {
+            cvar.notify_one();
+        }
+    }
+
+    pub(crate) fn set_settings(&self, settings: DeviceDisplaySettings) {
+        let (lock, cvar) = &*self.shared;
+        let mut state = lock.lock().unwrap();
+        if state.settings == settings {
+            return;
+        }
+        let brightness_changed = state.settings.brightness != settings.brightness;
+        let sleep_timeout_changed = state.settings.sleep_timeout_sec != settings.sleep_timeout_sec;
+        state.settings = settings;
+
+        let mut notify = record_activity_locked(&mut state, Instant::now());
+        if brightness_changed && !notify {
+            enqueue_control_lease(&mut state);
+        }
+        if let Some((kind, _, _, _)) = &state.toast {
+            let keep = match kind {
+                ToastKind::Key => state.settings.show_key_toast,
+                ToastKind::Profile => state.settings.show_profile_toast,
+            };
+            if !keep {
+                state.toast = None;
+                state.dirty = true;
+                notify = true;
+            }
+        }
+        if sleep_timeout_changed {
+            notify = true;
+        }
+        if notify {
+            cvar.notify_one();
+        }
+    }
+
     pub(crate) fn set_idle(&self, top: String, bottom: String) {
         let (lock, cvar) = &*self.shared;
         let mut state = lock.lock().unwrap();
         if state.idle.0 != top || state.idle.1 != bottom {
             state.idle = (top, bottom);
+            let woke = record_activity_locked(&mut state, Instant::now());
             if state.toast.is_none() {
                 state.dirty = true;
+            }
+            if woke || state.dirty {
                 cvar.notify_one();
             }
         }
     }
 
-    pub(crate) fn show_toast(&self, top: String, bottom: String) {
+    pub(crate) fn show_key_toast(&self, top: String, bottom: String) {
+        self.show_toast_kind(ToastKind::Key, top, bottom);
+    }
+
+    pub(crate) fn show_profile_toast(&self, top: String, bottom: String) {
+        self.show_toast_kind(ToastKind::Profile, top, bottom);
+    }
+
+    fn show_toast_kind(&self, kind: ToastKind, top: String, bottom: String) {
         let (lock, cvar) = &*self.shared;
         let mut state = lock.lock().unwrap();
-        state.toast = Some((top, bottom, Instant::now() + self.toast_duration));
-        state.dirty = true;
-        cvar.notify_one();
+        let now = Instant::now();
+        let woke = record_activity_locked(&mut state, now);
+        let enabled = match kind {
+            ToastKind::Key => state.settings.show_key_toast,
+            ToastKind::Profile => state.settings.show_profile_toast,
+        };
+        if enabled {
+            state.toast = Some((kind, top, bottom, now + self.toast_duration));
+            state.dirty = true;
+            cvar.notify_one();
+        } else if woke {
+            cvar.notify_one();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn drain_queued_packets_for_test(&self) -> Vec<[u8; OUTPUT_REPORT_LEN]> {
+        let mut state = self.shared.0.lock().unwrap();
+        state.outbox.drain(..).collect()
     }
 
     pub(crate) fn drain_to(&self, device: &HidDevice) {
@@ -469,7 +574,46 @@ impl Drop for DisplayController {
     }
 }
 
-fn display_worker(shared: Arc<(Mutex<DisplayState>, Condvar)>) {
+fn enqueue_control_lease(state: &mut DisplayState) {
+    if state.write_failed {
+        return;
+    }
+    let packet = encode_control_lease(
+        1,
+        LEASE_SECONDS,
+        state.settings.brightness,
+        u8::from(state.sleeping),
+    );
+    if let Some(existing) = state
+        .outbox
+        .iter_mut()
+        .find(|pkt| pkt[1] == OP_CONTROL_LEASE)
+    {
+        *existing = packet;
+    } else {
+        state.outbox.push_front(packet);
+    }
+}
+
+fn record_activity_locked(state: &mut DisplayState, now: Instant) -> bool {
+    state.last_activity = now;
+    if state.sleeping {
+        state.sleeping = false;
+        state.dirty = true;
+        enqueue_control_lease(state);
+        return true;
+    }
+    false
+}
+
+fn sleep_deadline(state: &DisplayState, sleep_unit: Duration) -> Option<Instant> {
+    if state.sleeping || state.settings.sleep_timeout_sec == 0 {
+        return None;
+    }
+    Some(state.last_activity + sleep_unit.saturating_mul(state.settings.sleep_timeout_sec))
+}
+
+fn display_worker(shared: Arc<(Mutex<DisplayState>, Condvar)>, sleep_unit: Duration) {
     let (lock, cvar) = &*shared;
     let mut next_lease = Instant::now() + LEASE_HEARTBEAT;
     let mut frame_id = 0u8;
@@ -486,10 +630,20 @@ fn display_worker(shared: Arc<(Mutex<DisplayState>, Condvar)>) {
         if state
             .toast
             .as_ref()
-            .is_some_and(|(_, _, expires_at)| now >= *expires_at)
+            .is_some_and(|(_, _, _, expires_at)| now >= *expires_at)
         {
             state.toast = None;
             state.dirty = true;
+        }
+
+        if let Some(deadline) = sleep_deadline(&state, sleep_unit) {
+            if now >= deadline {
+                state.sleeping = true;
+                state.outbox.retain(|packet| packet[1] != OP_FRAME_CHUNK);
+                rendered_lines = None;
+                enqueue_control_lease(&mut state);
+                next_lease = now + LEASE_HEARTBEAT;
+            }
         }
 
         if now >= next_lease {
@@ -499,15 +653,21 @@ fn display_worker(shared: Arc<(Mutex<DisplayState>, Condvar)>) {
                     .iter()
                     .any(|packet| packet[1] == OP_CONTROL_LEASE)
             {
-                state.outbox.push_back(lease_acquire_packet());
+                let heartbeat = encode_control_lease(
+                    1,
+                    LEASE_SECONDS,
+                    state.settings.brightness,
+                    u8::from(state.sleeping),
+                );
+                state.outbox.push_back(heartbeat);
             }
             next_lease = now + LEASE_HEARTBEAT;
         }
 
-        if state.dirty {
+        if !state.sleeping && state.dirty {
             state.dirty = false;
             let desired = match &state.toast {
-                Some((top, bottom, _)) => (top.clone(), bottom.clone()),
+                Some((_, top, bottom, _)) => (top.clone(), bottom.clone()),
                 None => state.idle.clone(),
             };
             let write_failed = state.write_failed;
@@ -524,22 +684,22 @@ fn display_worker(shared: Arc<(Mutex<DisplayState>, Condvar)>) {
                 if state.stop {
                     return;
                 }
-                state.outbox.retain(|packet| packet[1] != OP_FRAME_CHUNK);
-                state.outbox.extend(chunks);
-                rendered_lines = Some(desired);
+                if !state.sleeping {
+                    state.outbox.retain(|packet| packet[1] != OP_FRAME_CHUNK);
+                    state.outbox.extend(chunks);
+                    rendered_lines = Some(desired);
+                }
             }
             continue;
         }
 
-        let toast_wait = state
-            .toast
-            .as_ref()
-            .map(|(_, _, expires_at)| expires_at.saturating_duration_since(now));
-        let lease_wait = next_lease.saturating_duration_since(now);
-        let timeout = match toast_wait {
-            Some(wait) => wait.min(lease_wait),
-            None => lease_wait,
-        };
+        let mut timeout = next_lease.saturating_duration_since(now);
+        if let Some((_, _, _, expires_at)) = &state.toast {
+            timeout = timeout.min(expires_at.saturating_duration_since(now));
+        }
+        if let Some(deadline) = sleep_deadline(&state, sleep_unit) {
+            timeout = timeout.min(deadline.saturating_duration_since(now));
+        }
         let _ = cvar.wait_timeout(state, timeout);
     }
 }
@@ -747,54 +907,176 @@ mod tests {
         );
     }
 
+    fn reassemble_frame(chunks: &[[u8; OUTPUT_REPORT_LEN]]) -> [u8; FRAME_BYTES] {
+        assert_eq!(chunks.len(), 10);
+        assert_eq!(chunks[0][3], CHUNK_FLAG_CLEAR_STAGING);
+        assert_eq!(chunks[9][3], CHUNK_FLAG_COMMIT);
+        let mut fb = [0u8; FRAME_BYTES];
+        for pkt in chunks {
+            assert_eq!(pkt[1], OP_FRAME_CHUNK);
+            let off = u16::from_le_bytes([pkt[4], pkt[5]]) as usize;
+            let len = pkt[6] as usize;
+            fb[off..off + len].copy_from_slice(&pkt[7..7 + len]);
+        }
+        fb
+    }
+
+    fn wait_packets(
+        controller: &DisplayController,
+        expected: usize,
+    ) -> Vec<[u8; OUTPUT_REPORT_LEN]> {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut state = controller.shared.0.lock().unwrap();
+            if state.outbox.len() >= expected {
+                return state.outbox.drain(..).collect();
+            }
+            drop(state);
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {expected} OLED packets"
+            );
+            thread::sleep(Duration::from_millis(5));
+        }
+    }
+
     #[test]
     fn display_worker_enqueues_lease_idle_toast_supersede_and_toast_expiry_non_blockingly() {
         let controller = DisplayController::start_worker(
             "Kivo K18 Lite".into(),
             "默认配置".into(),
+            DeviceDisplaySettings::default(),
             Duration::from_millis(60),
+            Duration::from_secs(1),
         );
-        let wait_packets = |expected: usize| -> Vec<[u8; OUTPUT_REPORT_LEN]> {
-            let deadline = Instant::now() + Duration::from_secs(2);
-            loop {
-                let mut state = controller.shared.0.lock().unwrap();
-                if state.outbox.len() >= expected {
-                    return state.outbox.drain(..).collect();
-                }
-                drop(state);
-                assert!(Instant::now() < deadline, "timed out waiting for OLED packets");
-                thread::sleep(Duration::from_millis(5));
-            }
-        };
 
-        // Initial lease packet + 10 frame chunks for Idle screen.
-        let initial = wait_packets(11);
-        assert_eq!(initial[0][1], OP_CONTROL_LEASE);
-        assert_eq!(initial[0][2], 1);
-        assert_eq!(initial[1][1], OP_FRAME_CHUNK);
-        assert_eq!(initial[1][3], CHUNK_FLAG_CLEAR_STAGING);
-        assert_eq!(initial[10][3], CHUNK_FLAG_COMMIT);
+        // Initial lease packet (default brightness=100, power_save=0) + 10 frame chunks for Idle screen.
+        let initial = wait_packets(&controller, 11);
+        assert_eq!(&initial[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 100, 0]);
+        assert_eq!(
+            reassemble_frame(&initial[1..]),
+            font::render_two_lines_128x32("Kivo K18 Lite", "默认配置")
+        );
 
         // Superseding toast replaces unsent frame chunks and then reverts to Idle after expiry.
-        controller.show_toast("K01 按住".into(), "Ctrl".into());
-        controller.show_toast("K03 按住".into(), "Ctrl+Cmd+A".into());
-        let toast_packets = wait_packets(10);
-        assert_eq!(toast_packets.len(), 10);
-        assert_eq!(toast_packets[0][3], CHUNK_FLAG_CLEAR_STAGING);
-        assert_eq!(toast_packets[9][3], CHUNK_FLAG_COMMIT);
+        controller.show_key_toast("K01 按住".into(), "Ctrl".into());
+        controller.show_key_toast("K03 按住".into(), "Ctrl+Cmd+A".into());
+        let toast_packets = wait_packets(&controller, 10);
+        assert_eq!(
+            reassemble_frame(&toast_packets),
+            font::render_two_lines_128x32("K03 按住", "Ctrl+Cmd+A")
+        );
 
         // Wait for 60ms toast to expire and restore Idle frame automatically.
-        let restored = wait_packets(10);
-        assert_eq!(restored.len(), 10);
-        let mut idle_fb = [0u8; FRAME_BYTES];
-        for pkt in &restored {
-            let off = u16::from_le_bytes([pkt[4], pkt[5]]) as usize;
-            let len = pkt[6] as usize;
-            idle_fb[off..off + len].copy_from_slice(&pkt[7..7 + len]);
-        }
+        let restored = wait_packets(&controller, 10);
         assert_eq!(
-            idle_fb,
+            reassemble_frame(&restored),
             font::render_two_lines_128x32("Kivo K18 Lite", "默认配置")
+        );
+    }
+
+    #[test]
+    fn display_controller_applies_brightness_idle_sleep_activity_wake_and_toast_gating() {
+        let controller = DisplayController::start_worker(
+            "Kivo K18 Lite".into(),
+            "默认".into(),
+            DeviceDisplaySettings {
+                brightness: 80,
+                sleep_timeout_sec: 4,
+                show_key_toast: false,
+                show_profile_toast: true,
+            },
+            Duration::from_millis(200),
+            Duration::from_millis(15),
+        );
+
+        let initial = wait_packets(&controller, 11);
+        assert_eq!(&initial[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 80, 0]);
+
+        // Live brightness update (including 0) sends immediate CONTROL_LEASE and supersedes stale unsent lease.
+        controller.set_settings(DeviceDisplaySettings {
+            brightness: 45,
+            sleep_timeout_sec: 4,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        controller.set_settings(DeviceDisplaySettings {
+            brightness: 0,
+            sleep_timeout_sec: 4,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        let brightness_pkts = wait_packets(&controller, 1);
+        assert_eq!(brightness_pkts.len(), 1);
+        assert_eq!(
+            &brightness_pkts[0][..6],
+            &[0x02, OP_CONTROL_LEASE, 1, 5, 0, 0]
+        );
+
+        // Toast gating: key toast is suppressed when show_key_toast=false, profile toast is shown.
+        controller.show_key_toast("K01 单击".into(), "Ctrl".into());
+        thread::sleep(Duration::from_millis(20));
+        assert!(controller.drain_queued_packets_for_test().is_empty());
+
+        controller.show_profile_toast("切换配置".into(), "悬浮终端".into());
+        let profile_toast = wait_packets(&controller, 10);
+        assert_eq!(
+            reassemble_frame(&profile_toast),
+            font::render_two_lines_128x32("切换配置", "悬浮终端")
+        );
+
+        // Turning off show_profile_toast while profile toast is active immediately restores Idle.
+        controller.set_settings(DeviceDisplaySettings {
+            brightness: 65,
+            sleep_timeout_sec: 4,
+            show_key_toast: true,
+            show_profile_toast: false,
+        });
+        let cleared = wait_packets(&controller, 11);
+        assert_eq!(&cleared[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 0]);
+        assert_eq!(
+            reassemble_frame(&cleared[1..]),
+            font::render_two_lines_128x32("Kivo K18 Lite", "默认")
+        );
+
+        controller.show_profile_toast("切换配置".into(), "游戏".into());
+        thread::sleep(Duration::from_millis(20));
+        assert!(controller.drain_queued_packets_for_test().is_empty());
+
+        // Idle timeout (4 * 15ms = 60ms) enters sleep (`power_save = 1`).
+        let sleep_pkt = wait_packets(&controller, 1);
+        assert_eq!(&sleep_pkt[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 1]);
+
+        // Physical key activity (`record_activity`) wakes immediately (`power_save = 0`) and restores visible frame.
+        controller.record_activity();
+        let wake_pkts = wait_packets(&controller, 11);
+        assert_eq!(&wake_pkts[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 0]);
+        assert_eq!(
+            reassemble_frame(&wake_pkts[1..]),
+            font::render_two_lines_128x32("Kivo K18 Lite", "默认")
+        );
+
+        // Let it sleep again, then verify setting `sleep_timeout_sec = 0` wakes immediately and never re-sleeps.
+        let sleep_again = wait_packets(&controller, 1);
+        assert_eq!(&sleep_again[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 1]);
+
+        controller.set_settings(DeviceDisplaySettings {
+            brightness: 65,
+            sleep_timeout_sec: 0,
+            show_key_toast: true,
+            show_profile_toast: false,
+        });
+        let wake_never = wait_packets(&controller, 11);
+        assert_eq!(&wake_never[0][..6], &[0x02, OP_CONTROL_LEASE, 1, 5, 65, 0]);
+        assert_eq!(
+            reassemble_frame(&wake_never[1..]),
+            font::render_two_lines_128x32("Kivo K18 Lite", "默认")
+        );
+
+        thread::sleep(Duration::from_millis(90));
+        assert!(
+            controller.drain_queued_packets_for_test().is_empty(),
+            "sleep_timeout_sec = 0 must never enter idle sleep"
         );
     }
 }

@@ -246,6 +246,22 @@ impl ManagedHolds {
         let edges = self.pool.lock().unwrap().release_instance(instance_id);
         emit_platform_edges(&edges);
     }
+
+    #[cfg(test)]
+    pub fn has_leases_for_test(&self, instance_id: &str) -> bool {
+        self.pool
+            .lock()
+            .unwrap()
+            .leases
+            .iter()
+            .any(|lease| lease.instance_id == instance_id)
+    }
+}
+
+#[cfg(test)]
+pub(super) fn test_platform_hold_lock() -> MutexGuard<'static, ()> {
+    static SERIALIZE: Mutex<()> = Mutex::new(());
+    SERIALIZE.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]
@@ -429,8 +445,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_hold_and_pressed_chord_aggregate_modifier_flags_across_buttons() {
-        static SERIALIZE: Mutex<()> = Mutex::new(());
-        let _guard = SERIALIZE.lock().unwrap();
+        let _guard = test_platform_hold_lock();
         use super::super::super::macos::{
             clear_managed_held_keys_for_test, execute_behaviors, FLAG_COMMAND, FLAG_CONTROL,
             FLAG_DEVICE_LEFT_COMMAND, FLAG_DEVICE_LEFT_CONTROL, FLAG_DEVICE_LEFT_SHIFT, FLAG_SHIFT,
