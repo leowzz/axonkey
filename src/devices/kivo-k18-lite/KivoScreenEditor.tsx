@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ChangeEvent,
+  type CompositionEvent,
+} from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { ChevronDown } from 'lucide-react'
 import {
@@ -34,13 +42,52 @@ type Props = {
   onUpdate: (change: (item: DeviceInstance) => DeviceInstance) => void
 }
 
+type DisplayLineField = 'line1' | 'line2'
+
 export function KivoScreenEditor({ instance, profile, applicationName, native, onUpdate }: Props) {
   const baseId = useId()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const profileDisplay = profile.display ?? defaultProfileDisplay
   const deviceDisplay: DeviceDisplaySettings = { ...defaultDeviceDisplaySettings, ...instance.display }
-  const previewTop = profileDisplay.mode === 'custom' ? profileDisplay.line1 : (applicationName ?? instance.name)
-  const previewBottom = profileDisplay.mode === 'custom' ? profileDisplay.line2 : profile.name
+
+  const [draftLines, setDraftLines] = useState({ line1: profileDisplay.line1, line2: profileDisplay.line2 })
+  const [composing, setComposing] = useState({ line1: false, line2: false })
+  const composingRef = useRef({ line1: false, line2: false })
+  const pendingLineRef = useRef<{ line1: string | null; line2: string | null }>({ line1: null, line2: null })
+  const lastProfileIdRef = useRef(profile.id)
+
+  useEffect(() => {
+    const profileSwitched = lastProfileIdRef.current !== profile.id
+    if (profileSwitched) {
+      lastProfileIdRef.current = profile.id
+      composingRef.current = { line1: false, line2: false }
+      pendingLineRef.current = { line1: null, line2: null }
+      setComposing({ line1: false, line2: false })
+      setDraftLines({ line1: profileDisplay.line1, line2: profileDisplay.line2 })
+      return
+    }
+    setDraftLines(prev => {
+      let nextLine1 = prev.line1
+      let nextLine2 = prev.line2
+      if (!composingRef.current.line1) {
+        if (pendingLineRef.current.line1 === null || pendingLineRef.current.line1 === profileDisplay.line1) {
+          pendingLineRef.current.line1 = null
+          nextLine1 = profileDisplay.line1
+        }
+      }
+      if (!composingRef.current.line2) {
+        if (pendingLineRef.current.line2 === null || pendingLineRef.current.line2 === profileDisplay.line2) {
+          pendingLineRef.current.line2 = null
+          nextLine2 = profileDisplay.line2
+        }
+      }
+      return nextLine1 === prev.line1 && nextLine2 === prev.line2 ? prev : { line1: nextLine1, line2: nextLine2 }
+    })
+  }, [profile.id, profileDisplay.line1, profileDisplay.line2])
+
+  const previewTop = profileDisplay.mode === 'custom' ? draftLines.line1 : (applicationName ?? instance.name)
+  const previewBottom = profileDisplay.mode === 'custom' ? draftLines.line2 : profile.name
+  const isAnyComposing = composing.line1 || composing.line2
   const [nativeFrame, setNativeFrame] = useState<Uint8Array | null>(null)
 
   useEffect(() => {
@@ -48,6 +95,7 @@ export function KivoScreenEditor({ instance, profile, applicationName, native, o
       setNativeFrame(null)
       return
     }
+    if (isAnyComposing) return
     let active = true
     const timer = setTimeout(() => {
       void invoke<number[]>('render_kivo_oled_preview', { line1: previewTop, line2: previewBottom })
@@ -64,7 +112,7 @@ export function KivoScreenEditor({ instance, profile, applicationName, native, o
       active = false
       clearTimeout(timer)
     }
-  }, [native, previewTop, previewBottom])
+  }, [native, previewTop, previewBottom, isAnyComposing])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -82,6 +130,43 @@ export function KivoScreenEditor({ instance, profile, applicationName, native, o
         return { ...p, display: { ...current, ...patch } }
       }),
     }))
+  }
+
+  const commitLine = (field: DisplayLineField, rawValue: string) => {
+    const clamped = rawValue.slice(0, 64)
+    setDraftLines(prev => (prev[field] === clamped ? prev : { ...prev, [field]: clamped }))
+    const baseline = pendingLineRef.current[field] ?? profileDisplay[field]
+    if (clamped === baseline) return
+    pendingLineRef.current[field] = clamped
+    updateProfileDisplay({ [field]: clamped })
+  }
+
+  const handleLineCompositionStart = (field: DisplayLineField) => {
+    composingRef.current[field] = true
+    setComposing(prev => (prev[field] ? prev : { ...prev, [field]: true }))
+  }
+
+  const handleLineChange = (field: DisplayLineField, event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value
+    const nativeComposing = Boolean((event.nativeEvent as InputEvent | undefined)?.isComposing)
+    if (composingRef.current[field] || nativeComposing) {
+      setDraftLines(prev => (prev[field] === value ? prev : { ...prev, [field]: value }))
+      return
+    }
+    commitLine(field, value)
+  }
+
+  const handleLineCompositionEnd = (field: DisplayLineField, event: CompositionEvent<HTMLInputElement>) => {
+    composingRef.current[field] = false
+    setComposing(prev => (prev[field] ? { ...prev, [field]: false } : prev))
+    commitLine(field, event.currentTarget.value)
+  }
+
+  const handleLineBlur = (field: DisplayLineField, rawValue: string) => {
+    if (!composingRef.current[field]) return
+    composingRef.current[field] = false
+    setComposing(prev => (prev[field] ? { ...prev, [field]: false } : prev))
+    commitLine(field, rawValue)
   }
 
   const updateDeviceDisplay = (patch: Partial<DeviceDisplaySettings>) => {
@@ -148,10 +233,12 @@ export function KivoScreenEditor({ instance, profile, applicationName, native, o
                   id={`${baseId}-line1`}
                   className="kivo-screen-text-input"
                   type="text"
-                  maxLength={64}
                   placeholder={applicationName ?? instance.name}
-                  value={profileDisplay.line1}
-                  onChange={event => updateProfileDisplay({ line1: event.target.value.slice(0, 64) })}
+                  value={draftLines.line1}
+                  onCompositionStart={() => handleLineCompositionStart('line1')}
+                  onCompositionEnd={event => handleLineCompositionEnd('line1', event)}
+                  onBlur={event => handleLineBlur('line1', event.currentTarget.value)}
+                  onChange={event => handleLineChange('line1', event)}
                 />
               </div>
             </div>
@@ -164,10 +251,12 @@ export function KivoScreenEditor({ instance, profile, applicationName, native, o
                   id={`${baseId}-line2`}
                   className="kivo-screen-text-input"
                   type="text"
-                  maxLength={64}
                   placeholder={profile.name}
-                  value={profileDisplay.line2}
-                  onChange={event => updateProfileDisplay({ line2: event.target.value.slice(0, 64) })}
+                  value={draftLines.line2}
+                  onCompositionStart={() => handleLineCompositionStart('line2')}
+                  onCompositionEnd={event => handleLineCompositionEnd('line2', event)}
+                  onBlur={event => handleLineBlur('line2', event.currentTarget.value)}
+                  onChange={event => handleLineChange('line2', event)}
                 />
               </div>
             </div>

@@ -1672,17 +1672,33 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
     const textInputs = () => editor().findAll(node => node.type === 'input' && node.props.type === 'text')
     assert.equal(textInputs().length, 2)
     await act(async () => {
-      textInputs()[0].props.onChange({ target: { value: '开发模式' } })
+      textInputs()[0].props.onCompositionStart()
+      textInputs()[0].props.onChange({ target: { value: 'kai' }, nativeEvent: { isComposing: true } })
+      textInputs()[0].props.onChange({ target: { value: 'kaifa' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[0].props.value, 'kaifa')
+    assert.equal(instance.profiles[0].display.line1, '')
+    await act(async () => {
+      textInputs()[0].props.onCompositionEnd({ currentTarget: { value: '开发模式' } })
+      textInputs()[0].props.onChange({ target: { value: '开发模式' }, nativeEvent: { isComposing: false } })
     })
     act(() => view.update(render()))
     await act(async () => {
-      textInputs()[1].props.onChange({ target: { value: 'VS Code' } })
+      textInputs()[1].props.onCompositionStart()
+      textInputs()[1].props.onChange({ target: { value: 'zhongwen' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[1].props.value, 'zhongwen')
+    assert.equal(instance.profiles[0].display.line2, '')
+    await act(async () => {
+      textInputs()[1].props.onCompositionEnd({ currentTarget: { value: '中文屏幕' } })
     })
     act(() => view.update(render()))
     assert.deepEqual(structuredClone(instance.profiles[0].display), {
       mode: 'custom',
       line1: '开发模式',
-      line2: 'VS Code',
+      line2: '中文屏幕',
     })
     assert.equal(instance.profiles[1].display, undefined)
 
