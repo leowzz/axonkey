@@ -1,7 +1,12 @@
 use super::NativeBehavior;
 use std::path::Path;
 
+const MAX_WEBSITE_URL_BYTES: usize = 2048;
+
 fn website_target(value: &str) -> Result<String, String> {
+    if value.is_empty() || value.len() > MAX_WEBSITE_URL_BYTES {
+        return Err("Invalid website address".into());
+    }
     if value
         .chars()
         .any(|ch| ch.is_control() || ch.is_whitespace())
@@ -17,6 +22,11 @@ fn website_target(value: &str) -> Result<String, String> {
         return Err("Website address must be an HTTP or HTTPS URL without credentials".into());
     }
     Ok(url.into())
+}
+
+pub(crate) fn open_website(url: &str) -> Result<(), String> {
+    let target = website_target(url)?;
+    open_target(&target, false)
 }
 
 fn path_target(value: &str) -> Result<String, String> {
@@ -211,6 +221,27 @@ mod tests {
                 url: url.into(),
             };
             assert!(execute_with(&behavior, |_, _| panic!("invalid target was launched")).is_err());
+        }
+
+        OPENED_TARGETS.with(|targets| targets.borrow_mut().clear());
+        open_website("https://item.jd.com/10001234.html?sku=1&from=axonkey").unwrap();
+        OPENED_TARGETS.with(|targets| {
+            assert_eq!(
+                targets.borrow().as_slice(),
+                &[(
+                    "https://item.jd.com/10001234.html?sku=1&from=axonkey".to_owned(),
+                    false
+                )]
+            );
+        });
+        for invalid in [
+            "javascript:alert(1)".to_owned(),
+            "data:text/html,<script>alert(1)</script>".to_owned(),
+            "ftp://example.com/item".to_owned(),
+            "/relative/path".to_owned(),
+            format!("https://example.com/{}", "a".repeat(MAX_WEBSITE_URL_BYTES)),
+        ] {
+            assert!(open_website(&invalid).is_err(), "{invalid}");
         }
     }
 

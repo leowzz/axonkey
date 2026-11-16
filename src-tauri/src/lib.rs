@@ -1237,6 +1237,18 @@ fn request_macos_permission(kind: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    if let Ok(parsed) = tauri::Url::parse(&url) {
+        log::info!(
+            target: "axonkey::runtime",
+            "Opening external URL host={}",
+            parsed.host_str().unwrap_or("")
+        );
+    }
+    input_service::launch::open_website(&url)
+}
+
+#[tauri::command]
 fn open_external_page(page: String, ticket: Option<String>) -> Result<(), String> {
     let url = match page.as_str() {
         "github" => "https://github.com/leowzz/axonkey".to_owned(),
@@ -2238,6 +2250,7 @@ pub fn run() {
             open_system_settings,
             set_permission_helper_mode,
             reveal_current_app,
+            open_external_url,
             open_external_page,
             request_macos_permission,
             probe_system_state,

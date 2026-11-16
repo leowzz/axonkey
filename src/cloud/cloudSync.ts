@@ -1,4 +1,5 @@
 import { RelayClient, RelayError } from './relayClient.ts'
+import type { CloudDeviceModel } from './deviceModelCatalog.ts'
 
 export type CloudDocument = { key: string; kind: string; config: Record<string, unknown> }
 export type SourcePlatform = 'windows' | 'macos' | 'unknown'
@@ -21,7 +22,7 @@ export type RemoteDocument = Partial<CloudSource> & {
 type RemoteSettings = { etag?: string; schema_version: number; revision: number; settings: Record<string, unknown> }
 export type SyncMemory = Record<string, { revision: number }>
 export type CloudState = {
-  models: { id: string; code: string }[]
+  models: (Pick<CloudDeviceModel, 'id' | 'code'> & Partial<Omit<CloudDeviceModel, 'id' | 'code'>>)[]
   documents: RemoteDocument[]
   settings: RemoteSettings | null
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-mod launch;
+pub(crate) mod launch;
 pub mod managed;
 pub mod mouse;
 mod profile_switch;
