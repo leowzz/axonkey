@@ -100,6 +100,7 @@ extern "C" {
     fn axonkey_macos_accessibility_granted() -> bool;
     fn axonkey_macos_request_input_monitoring() -> bool;
     fn axonkey_macos_request_accessibility() -> bool;
+    #[cfg(not(test))]
     fn axonkey_macos_post_key(
         code: u16,
         down: bool,
@@ -107,6 +108,7 @@ extern "C" {
         autorepeat: bool,
         modifier: bool,
     ) -> bool;
+    #[cfg(not(test))]
     fn axonkey_macos_post_system_key(kind: i32, down: bool) -> bool;
     #[cfg(not(test))]
     fn axonkey_macos_post_wheel(vertical: i32, horizontal: i32) -> bool;
@@ -746,19 +748,19 @@ impl MacKey {
     }
 }
 
-const FLAG_SHIFT: u64 = 1 << 17;
-const FLAG_CONTROL: u64 = 1 << 18;
-const FLAG_OPTION: u64 = 1 << 19;
-const FLAG_COMMAND: u64 = 1 << 20;
-const FLAG_FN: u64 = 1 << 23;
-const FLAG_DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
-const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
-const FLAG_DEVICE_LEFT_SHIFT: u64 = 0x0000_0002;
-const FLAG_DEVICE_RIGHT_SHIFT: u64 = 0x0000_0004;
-const FLAG_DEVICE_LEFT_COMMAND: u64 = 0x0000_0008;
-const FLAG_DEVICE_RIGHT_COMMAND: u64 = 0x0000_0010;
-const FLAG_DEVICE_LEFT_OPTION: u64 = 0x0000_0020;
-const FLAG_DEVICE_RIGHT_OPTION: u64 = 0x0000_0040;
+pub(super) const FLAG_SHIFT: u64 = 1 << 17;
+pub(super) const FLAG_CONTROL: u64 = 1 << 18;
+pub(super) const FLAG_OPTION: u64 = 1 << 19;
+pub(super) const FLAG_COMMAND: u64 = 1 << 20;
+pub(super) const FLAG_FN: u64 = 1 << 23;
+pub(super) const FLAG_DEVICE_LEFT_CONTROL: u64 = 0x0000_0001;
+pub(super) const FLAG_DEVICE_RIGHT_CONTROL: u64 = 0x0000_2000;
+pub(super) const FLAG_DEVICE_LEFT_SHIFT: u64 = 0x0000_0002;
+pub(super) const FLAG_DEVICE_RIGHT_SHIFT: u64 = 0x0000_0004;
+pub(super) const FLAG_DEVICE_LEFT_COMMAND: u64 = 0x0000_0008;
+pub(super) const FLAG_DEVICE_RIGHT_COMMAND: u64 = 0x0000_0010;
+pub(super) const FLAG_DEVICE_LEFT_OPTION: u64 = 0x0000_0020;
+pub(super) const FLAG_DEVICE_RIGHT_OPTION: u64 = 0x0000_0040;
 
 #[derive(Clone, Copy)]
 struct SourceKey {
@@ -876,6 +878,72 @@ fn source_for_usage(usage: u16) -> Option<SourceKey> {
         .find(|source| source.usage == usage)
 }
 
+static MANAGED_HELD_KEYS: Mutex<Vec<MacKey>> = Mutex::new(Vec::new());
+
+#[cfg(test)]
+pub(super) static TEST_POSTED_KEYS: Mutex<Vec<(MacKey, bool, u64, bool)>> = Mutex::new(Vec::new());
+
+pub(super) fn managed_held_modifier_flags() -> u64 {
+    MANAGED_HELD_KEYS
+        .lock()
+        .unwrap()
+        .iter()
+        .fold(0, |flags, key| flags | key.modifier_flag())
+}
+
+fn managed_key_is_held(key: MacKey) -> bool {
+    MANAGED_HELD_KEYS.lock().unwrap().contains(&key)
+}
+
+pub(super) fn managed_hold_chord(behavior: &NativeBehavior) -> Option<Vec<MacKey>> {
+    behavior_chord(behavior)
+}
+
+pub(super) fn post_managed_held_key(key: MacKey, down: bool) {
+    if down && !managed_output_permitted() {
+        return;
+    }
+    let (should_post, flags) = {
+        let mut held = MANAGED_HELD_KEYS.lock().unwrap();
+        let should_post = if down {
+            if held.contains(&key) {
+                false
+            } else {
+                held.push(key);
+                true
+            }
+        } else {
+            let before = held.len();
+            held.retain(|item| *item != key);
+            held.len() != before
+        };
+        let flags = held
+            .iter()
+            .fold(0, |flags, item| flags | item.modifier_flag());
+        (should_post, flags)
+    };
+    if should_post {
+        post_key(key, down, flags, false);
+    }
+}
+
+fn managed_output_permitted() -> bool {
+    #[cfg(test)]
+    {
+        true
+    }
+    #[cfg(not(test))]
+    {
+        InputService::accessibility_granted()
+    }
+}
+
+#[cfg(test)]
+pub(super) fn clear_managed_held_keys_for_test() {
+    MANAGED_HELD_KEYS.lock().unwrap().clear();
+    TEST_POSTED_KEYS.lock().unwrap().clear();
+}
+
 struct PressedChord {
     keys: Vec<MacKey>,
 }
@@ -904,10 +972,16 @@ fn release_flags(keys: &[MacKey]) -> Vec<u64> {
 impl PressedChord {
     fn press(keys: &[MacKey]) -> Self {
         log::info!(target: "axonkey::input", "Mapped chord press: keys={keys:?}");
-        let flags = press_flags(keys);
+        let base = managed_held_modifier_flags();
+        let active: Vec<MacKey> = keys
+            .iter()
+            .copied()
+            .filter(|key| !managed_key_is_held(*key))
+            .collect();
+        let flags = press_flags(&active);
         let mut pressed = Vec::new();
-        for (key, flags) in keys.iter().zip(flags) {
-            if post_key(*key, true, flags, false) {
+        for (key, flags) in active.iter().zip(flags) {
+            if post_key(*key, true, base | flags, false) {
                 pressed.push(*key);
             }
         }
@@ -916,6 +990,7 @@ impl PressedChord {
 
     fn release(&mut self) {
         log::info!(target: "axonkey::input", "Mapped chord release: keys={:?}", self.keys);
+        let base = managed_held_modifier_flags();
         // Left/right modifiers share a flag; retain it until both sides are released.
         for (key, flags) in self
             .keys
@@ -924,7 +999,7 @@ impl PressedChord {
             .rev()
             .zip(release_flags(&self.keys))
         {
-            post_key(key, false, flags, false);
+            post_key(key, false, base | flags, false);
         }
         self.keys.clear();
     }
@@ -933,7 +1008,9 @@ impl PressedChord {
         let flags = self
             .keys
             .iter()
-            .fold(0, |flags, key| flags | key.modifier_flag());
+            .fold(managed_held_modifier_flags(), |flags, key| {
+                flags | key.modifier_flag()
+            });
         if let Some(key) = self
             .keys
             .iter()
@@ -951,6 +1028,15 @@ impl PressedChord {
 }
 
 fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
+    #[cfg(test)]
+    let posted = {
+        TEST_POSTED_KEYS
+            .lock()
+            .unwrap()
+            .push((key, down, flags, autorepeat));
+        true
+    };
+    #[cfg(not(test))]
     let posted = unsafe {
         match key {
             MacKey::Keyboard { code, modifier } => {
@@ -967,8 +1053,9 @@ fn post_key(key: MacKey, down: bool, flags: u64, autorepeat: bool) -> bool {
 }
 
 fn tap_key(key: MacKey) {
-    post_key(key, true, key.modifier_flag(), false);
-    post_key(key, false, 0, false);
+    let base = managed_held_modifier_flags();
+    post_key(key, true, base | key.modifier_flag(), false);
+    post_key(key, false, base, false);
 }
 
 struct PressState {
