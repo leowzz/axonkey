@@ -277,6 +277,6 @@ switchProfile 必须是单独的行为，会应用到全部配置并由新配置
 
 ## 安装后的命令入口
 
-Windows 安装器会把 Axonkey 安装目录加入当前用户的 PATH。安装前已经打开的终端需要重新打开，然后直接运行 `axonkey-cli`。
+Windows 安装器不会修改系统或用户的 `PATH`。`axonkey-cli.exe` 位于应用安装目录（默认 `%LOCALAPPDATA%\Axonkey\axonkey-cli.exe`；自定义安装路径可从注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Axonkey` 的 `InstallLocation` 读取），可直接按完整路径调用，或自行将安装目录加入 `PATH`。
 
 macOS 的 DMG 是拖拽安装，首次打开 Axonkey 时会自动把应用包内的 CLI 注册到 `~/.local/bin/axonkey-cli`。确认 `~/.local/bin` 已在 PATH 后，重新打开终端即可。若该路径已有自己的 CLI 文件或链接，Axonkey 不会覆盖它；也可以直接调用 `/Applications/Axonkey.app/Contents/MacOS/axonkey-cli`。
