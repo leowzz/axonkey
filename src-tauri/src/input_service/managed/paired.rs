@@ -2,7 +2,7 @@
 use super::{digest, Discovered};
 use std::collections::{HashMap, HashSet};
 
-pub(super) struct Device {
+pub(crate) struct Device {
     pub address: String,
     pub name: String,
     pub vendor_id: u16,
@@ -194,7 +194,7 @@ fn parse_macos(bytes: &[u8]) -> Result<Vec<Device>, String> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
     use std::{
         io::Read,
         process::{Command, Stdio},
@@ -235,7 +235,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 }
 
 #[cfg(windows)]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
     use std::time::Duration;
     use windows::{
         core::{Interface, HSTRING},
@@ -333,7 +333,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
     Ok(vec![])
 }
 

@@ -4,7 +4,7 @@ mod a15;
 mod app_profiles;
 mod device_info;
 mod gesture;
-mod paired;
+pub(crate) mod paired;
 #[cfg(target_os = "macos")]
 mod remote;
 #[cfg(test)]

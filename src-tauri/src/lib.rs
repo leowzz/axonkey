@@ -1715,6 +1715,7 @@ async fn capture_attach_driver(
     allow_caution: Option<bool>,
 ) -> Result<device_capture::CaptureDriverActionResult, String> {
     pause_managed_pipes_for_capture(&app);
+    #[cfg(target_os = "windows")]
     let app_for_task = app.clone();
     let task_result = tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
@@ -1746,6 +1747,7 @@ async fn capture_detach_driver(
     instance_id: String,
 ) -> Result<device_capture::CaptureDriverActionResult, String> {
     pause_managed_pipes_for_capture(&app);
+    #[cfg(target_os = "windows")]
     let app_for_task = app.clone();
     let task_result = tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "windows")]
