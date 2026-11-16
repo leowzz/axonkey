@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { audioCalibrationThresholds, calibrationWaveform, audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone, suggestedAudioGain } from '../src/audioGain.ts'
+import { audioCalibrationThresholds, calibrationWaveform, audioTestMeasurementReducer, initialAudioTestMeasurement, gainAdjustedLevel, gainLevelTone, idleVoiceBarLevels, nextVoiceAmplitudeBars, normalizeAudioAmplitude, suggestedAudioGain } from '../src/audioGain.ts'
 
 test('gain estimate preserves silence and exposes clipping instead of hiding it', () => {
   assert.equal(gainAdjustedLevel(0, 30), 0)
@@ -69,4 +69,28 @@ test('calibration waveform follows gain, keeps missing intervals and freezes at 
   assert.equal(audioCalibrationThresholds.low, -24)
   assert.equal(audioCalibrationThresholds.high, -6)
   assert.equal(audioCalibrationThresholds.clipping, 0)
+})
+
+test('rail voice amplitude normalizes dBFS with gain and tracks rolling bars and tone', () => {
+  assert.equal(idleVoiceBarLevels.length, 7)
+  assert.equal(normalizeAudioAmplitude(0, 20), 0)
+  assert.equal(normalizeAudioAmplitude(0.0005, 0), 0)
+  assert.ok(normalizeAudioAmplitude(0.2, 0) > 0.65)
+  assert.equal(normalizeAudioAmplitude(1, 6), 1)
+
+  const initial = [0, 0, 0, 0, 0, 0, 0]
+  const step1 = nextVoiceAmplitudeBars(initial, 0.1, 0.2, 0)
+  assert.equal(step1.bars.length, 7)
+  assert.equal(step1.tone, 'good')
+  assert.equal(step1.bars[0], 0)
+  assert.ok(step1.bars[6] > 0.5)
+
+  const step2 = nextVoiceAmplitudeBars(step1.bars, 0.6, 0.6, 6)
+  assert.equal(step2.tone, 'clipping')
+  assert.equal(step2.bars[5], step1.bars[6])
+  assert.equal(step2.bars[6], 1)
+
+  const silence = nextVoiceAmplitudeBars(step2.bars, 0, 0, 0)
+  assert.equal(silence.tone, 'silent')
+  assert.equal(silence.bars[6], 0)
 })

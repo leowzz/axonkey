@@ -621,6 +621,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '@tauri-apps/api/event': { listen: async (_, listener) => { listeners.push(listener); return () => {} } },
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: {} },
+    '../../audioGain': require('../src/audioGain.ts'),
+    '../../components/InputIcon': compile('src/components/InputIcon.tsx'),
+    './railOverview': require('../src/devices/integration/railOverview.ts'),
     '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
     '../../telemetry': { reportTencentEvent() {} },
     '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
@@ -635,6 +638,12 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/BehaviorSummaryPopover': compile('src/components/BehaviorSummaryPopover.tsx', {
+      'react-dom': { createPortal: node => node },
+      '../behaviorSummary': require('../src/behaviorSummary.ts'),
+    }, {
+      window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -866,7 +875,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
           views[1].update(React.createElement(InstanceWorkspace, props(1)))
         })
         const indicator = views[1].root.findByProps({ role: 'status', 'aria-live': 'polite', 'aria-atomic': 'true' })
-        assert.equal(text(indicator), recording ? '正在录音' : '未录音')
+        assert.equal(text(indicator), recording ? '正在录音' : '语音待机')
         assert.equal(indicator.props.className.includes('is-recording'), recording)
       }
     }
@@ -1149,6 +1158,9 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     '@tauri-apps/api/event': { listen: async () => () => {} },
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../audioGain': require('../src/audioGain.ts'),
+    '../../components/InputIcon': compile('src/components/InputIcon.tsx'),
+    './railOverview': require('../src/devices/integration/railOverview.ts'),
     '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
     '../../telemetry': { reportTencentEvent() {} },
     '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
@@ -1162,6 +1174,12 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/BehaviorSummaryPopover': compile('src/components/BehaviorSummaryPopover.tsx', {
+      'react-dom': { createPortal: node => node },
+      '../behaviorSummary': require('../src/behaviorSummary.ts'),
+    }, {
+      window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1564,6 +1582,9 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
     '@tauri-apps/api/event': { listen: async () => () => {} },
     '../../behaviorModel': require('../src/behaviorModel.ts'),
     '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../audioGain': require('../src/audioGain.ts'),
+    '../../components/InputIcon': compile('src/components/InputIcon.tsx'),
+    './railOverview': require('../src/devices/integration/railOverview.ts'),
     '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
     '../../telemetry': { reportTencentEvent() {} },
     '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
@@ -1577,6 +1598,12 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
     '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/BehaviorSummaryPopover': compile('src/components/BehaviorSummaryPopover.tsx', {
+      'react-dom': { createPortal: node => node },
+      '../behaviorSummary': require('../src/behaviorSummary.ts'),
+    }, {
+      window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    }),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -1743,6 +1770,288 @@ test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows
     act(() => view.root.findByType(RemoteControl).props.onSelect('kivo.k18Lite.k02'))
     assert.equal(view.root.findAllByProps({ className: 'kivo-screen-editor' }).length, 0)
     assert.equal(view.root.findByType(WorkflowAxonkey).props.button.id, 'kivo.k18Lite.k02')
+  } finally {
+    act(() => view.unmount())
+  }
+})
+
+test('rail configured overview shows only configured buttons, excludes sticks/triggers/screens, and syncs live voice amplitude bars', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  const listeners = []
+  const levelQueue = [
+    { peak: 0.2, rms: 0.1 },
+    { peak: 0.9, rms: 0.6 },
+  ]
+  const levelCalls = []
+  const RemoteControl = () => null
+  const WorkflowAxonkey = ({ button }) => React.createElement('workflow-stub', { buttonId: button.id })
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/core': {
+      invoke: async (cmd, args) => {
+        levelCalls.push([cmd, args])
+        if (cmd === 'get_audio_level') return levelQueue.shift() ?? { peak: 0, rms: 0 }
+        return null
+      },
+    },
+    '@tauri-apps/api/event': {
+      listen: async (_, listener) => {
+        listeners.push(listener)
+        return () => {}
+      },
+    },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../audioGain': require('../src/audioGain.ts'),
+    '../../components/InputIcon': compile('src/components/InputIcon.tsx'),
+    './railOverview': require('../src/devices/integration/railOverview.ts'),
+    '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
+    '../../telemetry': { reportTencentEvent() {} },
+    '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../shared/RemoteControl': { RemoteControl },
+    '../../components/ProfileManager': { ProfileManager: () => null },
+    '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar: () => null },
+    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/BehaviorSummaryPopover': compile('src/components/BehaviorSummaryPopover.tsx', {
+      'react-dom': { createPortal: node => node },
+      '../behaviorSummary': require('../src/behaviorSummary.ts'),
+    }, {
+      window: { innerWidth: 1280, innerHeight: 800, addEventListener() {}, removeEventListener() {} },
+    }),
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+      '../integration/model': model,
+    }),
+    './IntegrationControls': controls,
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  })
+
+  let instance = {
+    ...model.newInstance('rc003', 'phys-rc003'),
+    id: 'rc003-one',
+    audioGainDb: 6,
+    profiles: [
+      {
+        id: 'default',
+        name: '默认配置',
+        behaviors: {
+          power: {
+            click: [{ id: 'p1', type: 'key', enabled: true, key: 'Esc' }],
+            doubleClick: [],
+            longPress: [
+              { id: 'p2', type: 'shortcut', enabled: true, keys: ['Win', 'A'] },
+              { id: 'p3', type: 'delay', enabled: true, ms: 30 },
+            ],
+          },
+          confirm: {
+            click: [{ id: 'c1', type: 'key', enabled: false, key: 'Enter' }],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
+      },
+    ],
+  }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [instance]
+  snapshot.discovered = [{ ...device, id: 'phys-rc003', kind: 'rc003', connected: true }]
+  snapshot.runtime['rc003-one'] = { state: 'exclusive', recording: false }
+
+  const render = (platform = 'macos') =>
+    React.createElement(InstanceWorkspace, {
+      instance,
+      controller: {
+        snapshot,
+        refreshInformation: async () => {},
+        toggleRecording: async () => {},
+        update: async (_id, change) => {
+          instance = change(instance)
+          snapshot.store.instances = [instance]
+          return snapshot
+        },
+      },
+      native: true,
+      platform,
+      permissions: { accessibility: true, inputMonitoring: true },
+      onPermissions() {},
+      onBack() {},
+      onBind() {},
+      onUnbindDevice: async () => {},
+      onRemoveDevice: async () => {},
+      onOpenAudioCalibration() {},
+      onOpenAudioDriver() {},
+      driverAction: null,
+      onInstallDriver() {},
+      batteryLevel: 85,
+    })
+
+  let view
+  await act(async () => {
+    view = Renderer.create(render('macos'))
+  })
+  try {
+    const tabs = () => view.root.findAllByProps({ role: 'tab' })
+    assert.deepEqual(tabs().map(text), ['遥控器', '已配速览 (2)'])
+    assert.equal(levelCalls.length, 0)
+    const barsContainer = () => view.root.findByProps({ className: 'device-recording-bars' })
+    assert.equal(barsContainer().findAllByType('i').length, 7)
+    assert.equal(text(view.root.findByProps({ role: 'status', 'aria-live': 'polite' })), '语音待机')
+
+    // Switch to 已配速览
+    act(() => tabs()[1].props.onClick())
+    const rows = () => view.root.findAllByProps({ role: 'option' })
+    assert.equal(rows().length, 2)
+    assert.ok(text(rows()[0]).includes('电源键'))
+    assert.ok(text(rows()[0]).includes('单击: 退出（Esc） · 长按: Cmd + A 等2步'))
+    assert.ok(text(rows()[1]).includes('确认键'))
+    assert.ok(text(rows()[1]).includes('OK'))
+    assert.ok(text(rows()[1]).includes('单击: 已停用'))
+
+    // Short single-step item does not open popover when not overflowing; truncated URL or multi-step opens floating popover
+    const shortAnchor = { querySelector: () => ({ scrollWidth: 80, clientWidth: 160 }), getBoundingClientRect: () => ({ left: 14, right: 200, top: 120, bottom: 164 }) }
+    act(() => {
+      rows()[1].props.onMouseEnter({ currentTarget: shortAnchor })
+      t.mock.timers.tick(300)
+    })
+    assert.equal(view.root.findAllByProps({ className: 'behavior-summary-popover' }).length, 0)
+
+    instance = {
+      ...instance,
+      profiles: [
+        {
+          id: 'default',
+          name: '默认配置',
+          behaviors: {
+            ...instance.profiles[0].behaviors,
+            volumeDown: {
+              click: [{ id: 'v1', type: 'openWebsite', enabled: true, url: 'https://orbit.wleo.cn/very/long/path/demo' }],
+              doubleClick: [],
+              longPress: [],
+            },
+          },
+        },
+      ],
+    }
+    act(() => view.update(render('macos')))
+    const longAnchor = { querySelector: () => ({ scrollWidth: 260, clientWidth: 160 }), getBoundingClientRect: () => ({ left: 14, right: 200, top: 200, bottom: 244 }) }
+    act(() => {
+      rows()[2].props.onMouseEnter({ currentTarget: longAnchor })
+      t.mock.timers.tick(260)
+    })
+    const popovers = view.root.findAllByProps({ className: 'behavior-summary-popover' })
+    assert.equal(popovers.length, 1)
+    assert.ok(text(popovers[0]).includes('https://orbit.wleo.cn/very/long/path/demo'))
+    act(() => {
+      rows()[2].props.onMouseLeave({})
+      t.mock.timers.tick(150)
+    })
+    assert.equal(view.root.findAllByProps({ className: 'behavior-summary-popover' }).length, 0)
+
+    // Select power row & verify physical key press highlights row
+    act(() => rows()[0].props.onClick())
+    assert.equal(view.root.findByType('workflow-stub').props.buttonId, 'power')
+    assert.match(rows()[0].props.className, /\bselected\b/)
+    act(() => {
+      for (const listener of listeners) listener({ payload: { instanceId: 'rc003-one', pressed: ['power'], values: {} } })
+    })
+    assert.match(rows()[0].props.className, /\bpressed\b/)
+
+    // Empty state returns cleanly to diagram tab
+    instance = { ...instance, profiles: [{ id: 'default', name: '默认配置', behaviors: {} }] }
+    act(() => view.update(render('macos')))
+    assert.equal(text(tabs()[1]), '已配速览')
+    const emptyGoBtn = view.root.findByProps({ className: 'rail-keymap-empty' }).findByType('button')
+    act(() => emptyGoBtn.props.onClick())
+    assert.equal(tabs()[0].props['aria-selected'], true)
+
+    // Xbox excludes analog sticks (axis) & triggers (trigger), keeping only buttons & D-pad (hat)
+    instance = {
+      ...model.newInstance('xboxBluetooth', 'phys-xbox'),
+      id: 'xbox-one',
+      profiles: [
+        {
+          id: 'default',
+          name: '默认配置',
+          behaviors: {
+            'xbox.a': { click: [{ id: 'a1', type: 'key', enabled: true, key: 'Space' }], doubleClick: [], longPress: [] },
+            'xbox.dpad.up': { click: [{ id: 'd1', type: 'key', enabled: true, key: 'Up' }], doubleClick: [], longPress: [] },
+            'xbox.ls.left': { click: [{ id: 'l1', type: 'key', enabled: true, key: 'A' }], doubleClick: [], longPress: [] },
+            'xbox.lt': { click: [{ id: 't1', type: 'key', enabled: true, key: 'B' }], doubleClick: [], longPress: [] },
+          },
+        },
+      ],
+    }
+    act(() => view.update(render('macos')))
+    assert.deepEqual(tabs().map(text), ['手柄', '已配速览 (2)'])
+    act(() => tabs()[1].props.onClick())
+    assert.equal(rows().length, 2)
+    assert.ok(rows().every(row => !text(row).includes('摇杆') && !text(row).includes('扳机')))
+
+    // Kivo K18 Lite excludes OLED screenRegion even when configured
+    instance = {
+      ...model.newInstance('kivoK18Lite', null),
+      id: 'kivo-one',
+      profiles: [
+        {
+          id: 'default',
+          name: '默认配置',
+          display: { mode: 'custom', line1: 'Line 1', line2: 'Line 2' },
+          behaviors: {
+            'kivo.k18Lite.k01': { click: [{ id: 'k1', type: 'key', enabled: true, key: 'Enter' }], doubleClick: [], longPress: [] },
+          },
+        },
+      ],
+    }
+    act(() => view.update(render('macos')))
+    assert.deepEqual(tabs().map(text), ['控制器', '已配速览 (1)'])
+    act(() => tabs()[1].props.onClick())
+    assert.equal(rows().length, 1)
+    assert.ok(!text(rows()[0]).includes('OLED'))
+
+    // Recording polls get_audio_level, scales amplitude with audioGainDb (+6 dB), and stops on release
+    instance = { ...model.newInstance('rc003', 'phys-rc003'), id: 'rc003-one', audioGainDb: 6 }
+    snapshot.runtime['rc003-one'] = { state: 'exclusive', recording: true }
+    await act(async () => {
+      view.update(render('macos'))
+      await Promise.resolve()
+    })
+    assert.deepEqual(structuredClone(levelCalls[0]), ['get_audio_level', { instanceId: 'rc003-one' }])
+    assert.match(view.root.findByProps({ role: 'status', 'aria-live': 'polite' }).props.className, /\btone-good\b/)
+    const barHeights1 = barsContainer().findAllByType('i').map(bar => parseFloat(bar.props.style.height))
+    assert.ok(barHeights1[6] > 3)
+
+    await act(async () => {
+      t.mock.timers.tick(80)
+      await Promise.resolve()
+    })
+    // peak=0.9 with +6 dB gain => ~1.79 => clipping
+    assert.match(view.root.findByProps({ role: 'status', 'aria-live': 'polite' }).props.className, /\btone-clipping\b/)
+    const countWhileRecording = levelCalls.length
+
+    snapshot.runtime['rc003-one'] = { state: 'exclusive', recording: false }
+    await act(async () => {
+      view.update(render('macos'))
+    })
+    await act(async () => {
+      t.mock.timers.tick(300)
+      await Promise.resolve()
+    })
+    assert.equal(levelCalls.length, countWhileRecording)
+    assert.equal(text(view.root.findByProps({ role: 'status', 'aria-live': 'polite' })), '语音待机')
   } finally {
     act(() => view.unmount())
   }

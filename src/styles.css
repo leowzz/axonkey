@@ -4159,7 +4159,7 @@ body:has(.audio-test-dialog[open]) {
   position: fixed;
   z-index: 1000;
   width: max-content;
-  max-width: min(260px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
   max-height: min(420px, calc(100dvh - 16px));
   overflow: auto;
   padding: 12px 14px;
@@ -4199,9 +4199,9 @@ body:has(.audio-test-dialog[open]) {
 }
 .behavior-summary-popover li span {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .behavior-summary-popover li.paused {
   color: var(--muted);

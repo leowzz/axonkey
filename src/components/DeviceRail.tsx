@@ -14,20 +14,38 @@ export function DeviceRecordingStatus({
   recording,
   onToggle,
   disabled = false,
+  idleLabel = '未录音',
+  title,
+  amplitudes,
+  levelTone,
 }: {
   recording: boolean
   onToggle?: () => void
   disabled?: boolean
+  idleLabel?: string
+  title?: string
+  amplitudes?: readonly number[]
+  levelTone?: 'silent' | 'low' | 'good' | 'hot' | 'clipping'
 }) {
+  const toneClass = recording && levelTone ? ` tone-${levelTone}` : ''
   const content = (
     <span
-      className={`device-recording-status${recording ? ' is-recording' : ''}`}
+      className={`device-recording-status${recording ? ' is-recording' : ''}${toneClass}`}
       role="status"
       aria-live="polite"
       aria-atomic="true"
+      title={!onToggle ? title : undefined}
     >
-      <Mic size={18} aria-hidden="true" />
-      <span>{recording ? '正在录音' : '未录音'}</span>
+      {amplitudes ? (
+        <span className="device-recording-bars" aria-hidden="true">
+          {amplitudes.map((level, index) => (
+            <i key={index} style={{ height: `${(3 + Math.max(0, Math.min(1, level)) * 12).toFixed(1)}px` }} />
+          ))}
+        </span>
+      ) : (
+        <Mic size={18} aria-hidden="true" />
+      )}
+      <span>{recording ? '正在录音' : idleLabel}</span>
     </span>
   )
   return onToggle ? (
@@ -36,7 +54,7 @@ export function DeviceRecordingStatus({
       className="device-recording-control"
       aria-label={recording ? '停止录音' : '开始录音'}
       aria-pressed={recording}
-      title={recording ? '点击停止录音' : '点击开始录音'}
+      title={title ?? (recording ? '点击停止录音' : '点击开始录音')}
       disabled={disabled}
       onClick={onToggle}
     >

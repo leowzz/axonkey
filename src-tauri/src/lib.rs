@@ -1598,6 +1598,14 @@ fn get_audio_test_state(
 }
 
 #[tauri::command]
+fn get_audio_level(
+    instance_id: Option<String>,
+    audio_service: tauri::State<'_, AudioServiceManager>,
+) -> audio_service::AudioLevel {
+    audio_service.level(instance_id.as_deref())
+}
+
+#[tauri::command]
 fn set_audio_stretch_compensation(
     enabled: bool,
     instance_id: Option<String>,
@@ -2287,6 +2295,7 @@ pub fn run() {
             probe_windows_audio_driver,
             restart_audio_service,
             get_audio_test_state,
+            get_audio_level,
             set_audio_gain,
             set_audio_stretch_compensation,
             open_signal_monitor,
