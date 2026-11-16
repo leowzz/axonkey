@@ -511,12 +511,12 @@ fn identity_numbers(value: &str) -> impl Iterator<Item = u32> + '_ {
 }
 
 #[cfg(test)]
+pub(crate) static DYNAMIC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::devices::engine::DescriptorEngine;
-    use std::sync::Mutex;
-
-    static DYNAMIC_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn custom_remote_svg(device_id: &str, vid: &str, pid: &str) -> String {
         format!(
