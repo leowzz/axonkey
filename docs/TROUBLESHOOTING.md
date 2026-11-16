@@ -4,6 +4,7 @@
 
 - [macOS 无法打开应用或驱动安装包](#macos-无法打开应用或驱动安装包)
 - [macOS 已授权但仍提示未授权](#macos-已授权但仍提示未授权)
+- [Windows 蓝牙配对提示“请尝试重新连接设备”](#windows-蓝牙配对提示请尝试重新连接设备)
 - [Windows 重连或休眠后按键无响应](#windows-重连或休眠后按键无响应)
 - [语音没有声音或影响其他音频](#语音没有声音或影响其他音频)
 - [长时间说话时音频延迟](#长时间说话时音频延迟)
@@ -31,6 +32,18 @@
 3. 回到 Axonkey 重新检测；系统要求退出并重开时，按提示操作。
 
 macOS 权限与应用签名身份关联。换用不同签名的版本或频繁安装本地构建，都可能需要重新授权。
+
+## Windows 蓝牙配对提示“请尝试重新连接设备”
+
+在 Windows“设置 → 蓝牙和其他设备”中添加遥控器时，若界面直接出现红色提示“请尝试重新连接设备。”且无法完成配对，可用事件查看器（`Windows 日志 → 系统` 筛选事件 ID `35,3501,3505`）或在 PowerShell 快速排查：
+
+```powershell
+Get-WinEvent -FilterHashtable @{LogName='System'; Id=35,3501,3505; StartTime=(Get-Date).AddMinutes(-30)} -ErrorAction SilentlyContinue | Select-Object TimeCreated, ProviderName, Id, Message | Format-List
+```
+
+- 若同时出现 **`BTHUSB` 事件 ID `35`**（“正在尝试分发配对设备已使用的标识解析密钥”）和 **`DeviceAssociationService` 事件 ID `3501`**（`ProtocolError` 为 `2148073475` / `0x80090003`），说明待配对设备发送的 BLE IRK 与本机已有配对记录重复，系统拒绝保存该绑定。
+- 优先排查并删除本机已配对的同芯片或同品牌遥控器（若待删设备当前挂载了 Quarbor 驱动，先按提示卸载／恢复原生驱动再从系统蓝牙列表移除），重启蓝牙或系统后再试。
+- 2026-11-15 的 `TCL_RC902N_M1` 排查记录（实机移除同为 Realtek `005D;8762` 芯片的 `YYYKQ` 后配对成功，含指纹对照命令）见 [Windows BLE IRK 配对冲突排查](WINDOWS_BLE_PAIRING_IRK_CONFLICT.md)。
 
 ## Windows 重连或休眠后按键无响应
 

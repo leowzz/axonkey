@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import React from 'react'
-import Renderer from 'react-test-renderer'
-import { AppBottomBar, text } from './fixtures/home-dashboard.mjs'
+import Renderer, { act } from 'react-test-renderer'
+import { AppBottomBar, AppSettingsPanel, text } from './fixtures/home-dashboard.mjs'
 
 const base = {
   activePanel: null,
@@ -44,13 +44,13 @@ test('bottom bar selects the current workspace or open panel and shows device st
   const props = {
     ...base,
     workspaceName: '小米遥控器',
-    workspaceStatus: { label: '独占拦截中', tone: 'connected' },
+    workspaceStatus: { label: '拦截中', tone: 'connected' },
   }
   try {
     assert.deepEqual(selectedLabels(), ['设备'])
     renderer.update(React.createElement(AppBottomBar, props))
     assert.deepEqual(selectedLabels(), ['小米遥控器'])
-    assert.match(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), /独占拦截中/)
+    assert.match(text(renderer.root.findByProps({ 'aria-label': '设备工作区' })), /拦截中/)
     for (const [panel, label] of [['settings', '设置'], ['cloud', '账号与同步'], ['about', '关于']]) {
       renderer.update(React.createElement(AppBottomBar, { ...props, activePanel: panel }))
       assert.deepEqual(selectedLabels(), [label])
@@ -97,4 +97,37 @@ test('about exposes an available update visually and in its accessible name', ()
     renderer.update(React.createElement(AppBottomBar, base))
     assert.equal(dots().length, 0)
   } finally { renderer.unmount() }
+})
+
+test('settings panel uses full-screen workspace header with top-left back button unified with device workspace', () => {
+  let closes = 0
+  const workspace = { inert: false }
+  let renderer
+  act(() => {
+    renderer = Renderer.create(
+      React.createElement(
+        AppSettingsPanel,
+        { workspaceRef: { current: workspace }, backLabel: '我的设备', onClose: () => closes++ },
+        React.createElement('div', null, '设置内容'),
+      ),
+      { createNodeMock: () => ({ focus() {} }) },
+    )
+  })
+  try {
+    assert.equal(workspace.inert, true)
+    assert.equal(renderer.root.findAllByProps({ className: 'app-settings-panel-dismiss' }).length, 0)
+    const header = renderer.root.findByType('header')
+    assert.match(header.props.className, /\bdevice-workspace-header\b/)
+    const back = header.findByProps({ className: 'device-workspace-back' })
+    assert.equal(back.parent.props.className, 'device-workspace-title')
+    assert.equal(back.props['aria-label'], '返回我的设备')
+    assert.equal(text(back), '我的设备')
+    assert.equal(text(header.findByType('h2')), '设置')
+    assert.equal(header.findAllByType('button').length, 1, 'no duplicate top-right close button')
+    act(() => back.props.onClick())
+    assert.equal(closes, 1)
+  } finally {
+    act(() => renderer.unmount())
+    assert.equal(workspace.inert, false)
+  }
 })

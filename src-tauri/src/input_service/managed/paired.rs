@@ -2,7 +2,7 @@
 use super::{digest, Discovered};
 use std::collections::{HashMap, HashSet};
 
-pub(super) struct Device {
+pub(crate) struct Device {
     pub address: String,
     pub name: String,
     pub vendor_id: u16,
@@ -23,15 +23,12 @@ pub(super) fn address(value: &str) -> Option<String> {
 }
 
 pub(super) fn kind(vendor: u16, product: u16) -> Option<&'static str> {
-    match (vendor, product) {
-        (0x045e, 0x02e0) => Some("xboxBluetooth"),
-        (0x2717, 0x32b8) => Some("rc003"),
-        (0x0416, 0x0300) => Some("cmiotA15"),
-        (0x1d5a, 0xc081) => Some("obeRcuR5"),
-        (0x0416, 0x0301) => Some("tclRc802a"),
-        (0x0417, 0x0304) => Some("tclRc902n"),
-        _ => None,
-    }
+    crate::devices::descriptor_registry::KINDS
+        .iter()
+        .copied()
+        .find(|kind| {
+            crate::devices::descriptor_registry::matches_hardware(kind, vendor, product, None, None)
+        })
 }
 
 pub(super) fn hid_address(info: &hidapi::DeviceInfo) -> Option<String> {
@@ -197,7 +194,7 @@ fn parse_macos(bytes: &[u8]) -> Result<Vec<Device>, String> {
 }
 
 #[cfg(target_os = "macos")]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
     use std::{
         io::Read,
         process::{Command, Stdio},
@@ -238,7 +235,8 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 }
 
 #[cfg(windows)]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
+    use std::time::Duration;
     use windows::{
         core::{Interface, HSTRING},
         Devices::{
@@ -249,7 +247,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
     };
     let _apartment = crate::windows_runtime::initialize_mta()
         .map_err(|e| format!("无法初始化蓝牙配对查询：{e}"))?;
-    let _bluetooth_calls = crate::windows_runtime::bluetooth_call_guard();
+    let request = crate::windows_runtime::BluetoothRequest::new(Duration::from_secs(15), None);
     let result = (|| -> windows::core::Result<Vec<Device>> {
         let mut devices = vec![];
         for (index, selector) in [
@@ -266,11 +264,12 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 HSTRING::from("System.DeviceInterface.Bluetooth.VendorIdSource"),
             ]
             .into();
-            let records = DeviceInformation::FindAllAsyncAqsFilterAndAdditionalProperties(
-                &selector,
-                &properties,
-            )?
-            .get()?;
+            let records = request.run("配对设备枚举", || {
+                DeviceInformation::FindAllAsyncAqsFilterAndAdditionalProperties(
+                    &selector,
+                    &properties,
+                )
+            })?;
             for record in records {
                 let values = record.Properties()?;
                 let property = |key: &str| {
@@ -290,12 +289,10 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 ) else {
                     continue;
                 };
-                if source != Some(2)
-                    && !matches!((vendor_id, product_id), (0x0416, 0x0300) | (0x1d5a, 0xc081))
-                {
+                let Some(kind) = kind(vendor_id, product_id) else {
                     continue;
-                }
-                if kind(vendor_id, product_id).is_none() {
+                };
+                if source != Some(2) && !super::uses_hid_voice(kind) {
                     continue;
                 }
                 let address = if let Some(address) = property("System.Devices.Aep.DeviceAddress")
@@ -306,12 +303,16 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
                 } else {
                     // The paired selector can return a device interface without AEP properties.
                     let address = if index == 0 {
-                        let device = BluetoothDevice::FromIdAsync(&record.Id()?)?.get()?;
+                        let device = request.run("配对设备地址", || {
+                            BluetoothDevice::FromIdAsync(&record.Id()?)
+                        })?;
                         let address = device.BluetoothAddress()?;
                         device.Close()?;
                         address
                     } else {
-                        let device = BluetoothLEDevice::FromIdAsync(&record.Id()?)?.get()?;
+                        let device = request.run("配对 BLE 设备地址", || {
+                            BluetoothLEDevice::FromIdAsync(&record.Id()?)
+                        })?;
                         let address = device.BluetoothAddress()?;
                         device.Close()?;
                         address
@@ -332,7 +333,7 @@ pub(super) fn scan() -> Result<Vec<Device>, String> {
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
-pub(super) fn scan() -> Result<Vec<Device>, String> {
+pub(crate) fn scan() -> Result<Vec<Device>, String> {
     Ok(vec![])
 }
 

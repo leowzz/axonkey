@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { ChevronRight, Check, Clock3, Link2Off, Pause, Plus, Radio, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { MacPermissions, ManagedDriverAction, Platform } from '../../appTypes'
 import type { DeviceId } from '../types.ts'
@@ -8,22 +8,38 @@ import { InstanceWorkspace } from './InstanceWorkspace'
 import { DeviceBindingPicker } from './IntegrationControls'
 import { BatteryIndicator } from '../../components/BatteryIndicator'
 import {
+  buildWorkspaceDeviceOptions,
+  getStoredDeviceCardOrder,
   instanceStatusLabel,
+  deviceMatchesKind,
   instanceState,
   isMobileRemoteDevice,
-  deviceMatchesKind,
   isMobileRemoteKind,
   mobileRemoteKindForSoftware,
   mobileRemoteKinds,
+  mobileRemoteFallbackKind,
   newInstance,
   packageFor,
   batteryForDevice,
+  saveDeviceCardOrder,
   supportPackages,
+  supportsWindowsDriver,
+  supportsDeviceInformation,
+  systemMouseCardId,
+  usesHidVoice,
 } from './model'
 import type { DeviceInstance, DeviceKind, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import './DeviceHub.css'
 import './DeviceCards.css'
+import '../capture/DeviceCaptureWorkbench.css'
+
+const DeviceCaptureWorkbench = lazy(() =>
+  import('../capture/DeviceCaptureWorkbench').then(mod => ({ default: mod.DeviceCaptureWorkbench })),
+)
+const ConnectionTroubleshootPage = lazy(() =>
+  import('./ConnectionTroubleshootPage').then(mod => ({ default: mod.ConnectionTroubleshootPage })),
+)
 
 type Props = {
   bindInstanceId?: string | null
@@ -41,34 +57,16 @@ type Props = {
   onOpenAudioDriver: () => void
   onOpenBluetoothSettings: () => void
   onOpenDeviceManager: () => void
+  onOpenLogs?: () => void
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   onUnbindDevice: (instanceId: string) => Promise<void>
   onRemoveDevice: (instanceId: string) => Promise<void>
   mouseProfileName: string
+  onToast?: (message: string) => void
 }
 type Integration = { kind?: DeviceKind; device?: DiscoveredDevice; instance?: DeviceInstance }
 const discoveredDevicesExpandedKey = 'axonkey.device-hub-discovered-expanded.v1'
-const deviceCardOrderKey = 'axonkey.device-hub-card-order.v1'
-const systemMouseCardId = 'system-mouse'
-
-function getStoredDeviceCardOrder() {
-  if (typeof window === 'undefined') return []
-  try {
-    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
-    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-function saveDeviceCardOrder(order: string[]) {
-  try {
-    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
-  } catch {
-    // UI preference is best-effort.
-  }
-}
 
 function getDiscoveredDevicesExpanded() {
   if (typeof window === 'undefined') return true
@@ -83,6 +81,8 @@ export function DeviceHub(props: Props) {
   const { snapshot, error, busy } = controller
   const { selectedInstanceId: selected, onSelectInstance: setSelected } = props
   const [integration, setIntegration] = useState<Integration | null>(null)
+  const [captureOpen, setCaptureOpen] = useState(false)
+  const [troubleshootOpen, setTroubleshootOpen] = useState(false)
   const [draggingInstanceId, setDraggingInstanceId] = useState<string | null>(null)
   const [dragOverInstanceId, setDragOverInstanceId] = useState<string | null>(null)
   const [savedCardOrder, setSavedCardOrder] = useState<string[]>(getStoredDeviceCardOrder)
@@ -208,17 +208,45 @@ export function DeviceHub(props: Props) {
     </>
   )
   return (
-    <section className={`managed-hub ${instance ? 'has-workspace mapping-active' : ''}`}>
-      {banner}
+    <section
+      className={`managed-hub ${instance || captureOpen || troubleshootOpen ? 'has-workspace mapping-active' : ''}`}
+    >
+      {!captureOpen && !troubleshootOpen && banner}
       {instance ? (
         <InstanceWorkspace
           key={instance.id}
           {...props}
           instance={instance}
+          deviceOptions={buildWorkspaceDeviceOptions(snapshot.store.instances, orderedCardIds)}
+          onSelectDevice={id => {
+            if (id === systemMouseCardId) props.onLegacy('mouse')
+            else setSelected(id)
+          }}
           batteryLevel={batteryForDevice(instance.binding, snapshot.discovered)}
           onBack={() => setSelected(null)}
           onBind={() => setIntegration({ kind: instance.kind, instance })}
         />
+      ) : captureOpen ? (
+        <Suspense fallback={null}>
+          <DeviceCaptureWorkbench
+            native={native}
+            onBack={() => setCaptureOpen(false)}
+            onDevicesChanged={() => void controller.refresh()}
+            onToast={props.onToast}
+          />
+        </Suspense>
+      ) : troubleshootOpen ? (
+        <Suspense fallback={null}>
+          <ConnectionTroubleshootPage
+            native={native}
+            platform={props.platform}
+            onBack={() => setTroubleshootOpen(false)}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenLogs={props.onOpenLogs}
+            onToast={props.onToast}
+          />
+        </Suspense>
       ) : (
         <>
           <header className="my-devices-heading">
@@ -227,18 +255,22 @@ export function DeviceHub(props: Props) {
                 <img src={new URL('../../../src-tauri/icons/128x128@2x.png', import.meta.url).href} alt="" />
                 Axonkey
               </button>
-              <h1>我的设备</h1>
+              <h1 id="my-devices-title">我的设备</h1>
+              <span className="my-devices-total">{orderedCardIds.length} 台已接入</span>
             </div>
-            <button className="my-devices-integrate" onClick={() => setIntegration({})}>
-              <Plus size={16} />
-              手动添加设备
-            </button>
+            <div className="my-devices-heading-actions">
+              <button className="my-devices-integrate" onClick={() => setCaptureOpen(true)}>
+                <Radio size={15} />
+                适配新设备
+              </button>
+              <button className="my-devices-integrate" onClick={() => setIntegration({})}>
+                <Plus size={15} />
+                手动添加设备
+              </button>
+            </div>
           </header>
           <div className="managed-device-sections">
             <section className="managed-device-section" aria-labelledby="my-devices-title">
-              <h2 id="my-devices-title" className="my-devices-section-title">
-                我的设备
-              </h2>
               <div className="managed-device-grid">
                 {orderedCardIds.map(cardId => {
                   const item = instanceById.get(cardId)
@@ -301,7 +333,11 @@ export function DeviceHub(props: Props) {
                 })}
               </div>
             </section>
-            <DeviceDiscoverySection {...props} onIntegrated={setSelected} />
+            <DeviceDiscoverySection
+              {...props}
+              onIntegrated={setSelected}
+              onOpenTroubleshoot={() => setTroubleshootOpen(true)}
+            />
           </div>
         </>
       )}
@@ -311,6 +347,10 @@ export function DeviceHub(props: Props) {
             {...props}
             initial={integration}
             onClose={() => setIntegration(null)}
+            onOpenCapture={() => {
+              setIntegration(null)
+              setCaptureOpen(true)
+            }}
             onComplete={id => {
               setIntegration(null)
               setSelected(id)
@@ -328,9 +368,10 @@ export function DeviceHub(props: Props) {
 }
 type IntegrationProps = Pick<Props, 'controller' | 'native' | 'platform' | 'permissions' | 'onPermissions'>
 export type DeviceDiscoveryProps = IntegrationProps &
-  Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+  Pick<Props, 'onOpenBluetoothSettings' | 'onOpenDeviceManager' | 'onOpenLogs' | 'onToast'> & {
     guide?: boolean
     onIntegrated: (id: string) => void
+    onOpenTroubleshoot?: () => void
   }
 
 export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
@@ -338,6 +379,7 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
   const { snapshot, error, busy } = controller
   const [integration, setIntegration] = useState<Integration | null>(null)
   const [discoveryHelpOpen, setDiscoveryHelpOpen] = useState(false)
+  const [troubleshootModalOpen, setTroubleshootModalOpen] = useState(false)
   const [discoveredExpanded, setDiscoveredExpanded] = useState(() => guide || getDiscoveredDevicesExpanded())
   const unboundDevices = snapshot.discovered.filter(
     d => deviceMatchesKind(d, d.kind) && !snapshot.store.instances.some(i => i.binding === d.id),
@@ -356,16 +398,21 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
       {guide && (
         <section className="user-guide-supported" aria-labelledby="user-guide-supported-title">
           <h3 id="user-guide-supported-title">支持的设备</h3>
-          <ul>
-            {supportPackages.map(pkg => (
-              <li key={pkg.kind} className="managed-package">
-                <img src={pkg.artwork} alt="" />
-                <span>
-                  <strong>{pkg.name}</strong>
-                  <small>{pkg.model.split(' · ')[0]}</small>
-                </span>
-              </li>
-            ))}
+          <ul className="managed-package-grid">
+            {supportPackages.map(pkg => {
+              const subtitle = packageSubtitle(pkg)
+              return (
+                <li key={pkg.kind} className="managed-package" data-kind={pkg.kind}>
+                  <span className="managed-package-artwork">
+                    <img src={pkg.artwork} alt="" />
+                  </span>
+                  <span className="managed-package-meta">
+                    <strong>{pkg.name}</strong>
+                    {subtitle && <small>{subtitle}</small>}
+                  </span>
+                </li>
+              )
+            })}
           </ul>
         </section>
       )}
@@ -441,7 +488,29 @@ export function DeviceDiscoverySection(props: DeviceDiscoveryProps) {
             platform={props.platform}
             onOpenBluetoothSettings={props.onOpenBluetoothSettings}
             onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenTroubleshoot={() => {
+              setDiscoveryHelpOpen(false)
+              if (props.onOpenTroubleshoot) {
+                props.onOpenTroubleshoot()
+              } else {
+                setTroubleshootModalOpen(true)
+              }
+            }}
             onClose={() => setDiscoveryHelpOpen(false)}
+          />,
+          document.body,
+        )}
+
+      {troubleshootModalOpen &&
+        createPortal(
+          <TroubleshootModalDialog
+            native={native}
+            platform={props.platform}
+            onOpenBluetoothSettings={props.onOpenBluetoothSettings}
+            onOpenDeviceManager={props.onOpenDeviceManager}
+            onOpenLogs={props.onOpenLogs}
+            onToast={props.onToast}
+            onClose={() => setTroubleshootModalOpen(false)}
           />,
           document.body,
         )}
@@ -473,8 +542,10 @@ function DiscoveryHelpDialog({
   platform,
   onOpenBluetoothSettings,
   onOpenDeviceManager,
+  onOpenTroubleshoot,
   onClose,
 }: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings' | 'onOpenDeviceManager'> & {
+  onOpenTroubleshoot: () => void
   onClose: () => void
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -507,6 +578,9 @@ function DiscoveryHelpDialog({
           <p id="managed-discovery-help-description">蓝牙设备需要先在 {system}中进行蓝牙配对。</p>
         </div>
         <footer className="managed-dialog-footer">
+          <button type="button" className="managed-discovery-troubleshoot" onClick={onOpenTroubleshoot}>
+            设备无法连接排查
+          </button>
           {platform === 'windows' && (
             <button type="button" onClick={onOpenDeviceManager} disabled={!native}>
               打开设备管理器
@@ -524,6 +598,55 @@ function DiscoveryHelpDialog({
             关闭
           </button>
         </footer>
+      </div>
+    </dialog>
+  )
+}
+
+function TroubleshootModalDialog({
+  native,
+  platform,
+  onOpenBluetoothSettings,
+  onOpenDeviceManager,
+  onOpenLogs,
+  onToast,
+  onClose,
+}: Pick<Props, 'native' | 'platform' | 'onOpenBluetoothSettings' | 'onOpenDeviceManager' | 'onOpenLogs' | 'onToast'> & {
+  onClose: () => void
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    const previousFocus = document.activeElement
+    dialog?.showModal()
+    return () => {
+      dialog?.close()
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus()
+    }
+  }, [])
+  return (
+    <dialog
+      ref={dialogRef}
+      className="troubleshoot-dialog"
+      aria-label="设备无法连接排查"
+      onCancel={onClose}
+      onClick={event => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div className="troubleshoot-dialog-shell">
+        <Suspense fallback={null}>
+          <ConnectionTroubleshootPage
+            native={native}
+            platform={platform}
+            backLabel="关闭"
+            onBack={onClose}
+            onOpenBluetoothSettings={onOpenBluetoothSettings}
+            onOpenDeviceManager={onOpenDeviceManager}
+            onOpenLogs={onOpenLogs}
+            onToast={onToast}
+          />
+        </Suspense>
       </div>
     </dialog>
   )
@@ -614,28 +737,18 @@ function DeviceCard({
               ) : (
                 <i className="my-devices-status-dot" aria-hidden="true" />
               )}
-              {status}
+              <span>{status}</span>
             </span>
           )}
-          {!unbound &&
-            (kind === 'rc003' ||
-              kind === 'cmiotA15' ||
-              kind === 'xmBt29' ||
-              kind === 'rc313' ||
-              kind === 'obeRcuR5' ||
-              kind === 'tclRc802a' ||
-              kind === 'tclRc902n') && (
-              <span className="my-devices-power">
-                <BatteryIndicator level={batteryLevel} />
-              </span>
-            )}
         </span>
+        {!unbound && kind !== 'mouse' && supportsDeviceInformation(kind) && (
+          <span className="my-devices-power">
+            <BatteryIndicator level={batteryLevel} />
+          </span>
+        )}
         <span className="my-devices-profile">
           {profile ? (
-            <span className="my-devices-profile-current">
-              <span>当前配置</span>
-              <strong>{profile}</strong>
-            </span>
+            <strong className="my-devices-profile-current">{profile}</strong>
           ) : (
             <ChevronRight size={15} aria-hidden="true" />
           )}
@@ -651,6 +764,16 @@ function DeviceCard({
 }
 type IntegrationStep = 'kind' | 'mobile-model' | 'details'
 
+function packageSubtitle(pkg: { kind: DeviceKind; name: string; model: string }, platform?: Platform) {
+  const model = pkg.model.split(' · ')[0]
+  return [
+    pkg.name.includes(model) ? '' : model,
+    usesHidVoice(pkg.kind) && platform && platform !== 'windows' && platform !== 'macos' ? '仅配置' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 function IntegrationDialog({
   initial,
   controller,
@@ -659,15 +782,27 @@ function IntegrationDialog({
   permissions,
   onPermissions,
   onClose,
+  onOpenCapture,
   onComplete,
-}: IntegrationProps & { initial: Integration; onClose: () => void; onComplete: (id: string) => void }) {
+}: IntegrationProps & {
+  initial: Integration
+  onClose: () => void
+  onOpenCapture?: () => void
+  onComplete: (id: string) => void
+}) {
   const mobileModelSelection = Boolean(initial.device && isMobileRemoteDevice(initial.device) && !initial.instance)
-  const [kind, setKind] = useState<DeviceKind | undefined>(() => (mobileModelSelection ? 'rc313' : initial.kind))
+  const [kind, setKind] = useState<DeviceKind | undefined>(() =>
+    mobileModelSelection ? mobileRemoteFallbackKind : initial.kind,
+  )
   const [step, setStep] = useState<IntegrationStep>(() => (initial.kind ? 'details' : 'kind'))
   const [name, setName] = useState(
     () =>
       initial.instance?.name ??
-      (mobileModelSelection ? packageFor('rc313').name : initial.kind ? packageFor(initial.kind).name : ''),
+      (mobileModelSelection
+        ? packageFor(mobileRemoteFallbackKind).name
+        : initial.kind
+          ? packageFor(initial.kind).name
+          : ''),
   )
   // null follows discovery defaults; an empty string is the user's explicit “bind later” choice.
   const [bindingChoice, setBindingChoice] = useState<string | null>(
@@ -687,7 +822,7 @@ function IntegrationDialog({
   }, [])
   const candidates = controller.snapshot.discovered.filter(
     d =>
-      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : deviceMatchesKind(d, kind)) &&
+      (isMobileRemoteKind(kind) ? isMobileRemoteDevice(d) : kind && deviceMatchesKind(d, kind)) &&
       !controller.snapshot.store.instances.some(i => i.id !== initial.instance?.id && i.binding === d.id),
   )
   const binding = bindingChoice ?? candidates.find(d => d.identityQuality !== 'ambiguous')?.id ?? ''
@@ -711,7 +846,7 @@ function IntegrationDialog({
           const detectedKind = information.detectedKind ?? undefined
           const detected = isMobileRemoteKind(detectedKind)
             ? detectedKind
-            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? 'rc313')
+            : (mobileRemoteKindForSoftware(information.softwareRevision) ?? mobileRemoteFallbackKind)
           setKind(detected)
           return
         }
@@ -756,41 +891,36 @@ function IntegrationDialog({
         </header>
         <div className="behavior-dialog-body managed-integration-body">
           {step === 'kind' ? (
-            <>
-              {supportPackages.map(pkg => (
-                <button
-                  className="managed-package"
-                  key={pkg.kind}
-                  onClick={() => {
-                    setKind(pkg.kind)
-                    setName(pkg.name)
-                    setStep('details')
-                  }}
-                >
-                  <img src={pkg.artwork} alt="" />
-                  <span>
-                    <strong>{pkg.name}</strong>
-                    <small>
-                      {pkg.model.split(' · ')[0]}
-                      {(pkg.kind === 'cmiotA15' ||
-                        pkg.kind === 'xmBt29' ||
-                        pkg.kind === 'rc313' ||
-                        pkg.kind === 'obeRcuR5' ||
-                        pkg.kind === 'tclRc802a' ||
-                        pkg.kind === 'tclRc902n') &&
-                      platform !== 'windows' &&
-                      platform !== 'macos'
-                        ? ' · 仅配置'
-                        : ''}
-                    </small>
-                  </span>
-                </button>
-              ))}
-            </>
+            <div className="managed-package-grid">
+              {supportPackages.map(pkg => {
+                const subtitle = packageSubtitle(pkg, platform)
+                return (
+                  <button
+                    type="button"
+                    className="managed-package"
+                    data-kind={pkg.kind}
+                    key={pkg.kind}
+                    onClick={() => {
+                      setKind(pkg.kind)
+                      setName(pkg.name)
+                      setStep('details')
+                    }}
+                  >
+                    <span className="managed-package-artwork">
+                      <img src={pkg.artwork} alt="" />
+                    </span>
+                    <span className="managed-package-meta">
+                      <strong>{pkg.name}</strong>
+                      {subtitle && <small>{subtitle}</small>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           ) : step === 'mobile-model' ? (
             <>
               <div className="managed-integration-product">
-                <img src={packageFor('rc313').artwork} alt="" />
+                <img src={packageFor(mobileRemoteFallbackKind).artwork} alt="" />
                 <div>
                   <h3>选择遥控器型号</h3>
                   <p>移动系列遥控器</p>
@@ -799,21 +929,25 @@ function IntegrationDialog({
               <div className="managed-mobile-models" role="radiogroup" aria-label="移动系列遥控器型号">
                 {mobileRemoteKinds.map(modelKind => {
                   const pkg = packageFor(modelKind)
+                  const subtitle = packageSubtitle(pkg)
                   return (
                     <button
                       key={modelKind}
                       type="button"
                       className="managed-package"
+                      data-kind={pkg.kind}
                       data-selected={kind === modelKind || undefined}
                       role="radio"
                       aria-checked={kind === modelKind}
                       disabled={recognizing}
                       onClick={() => setKind(modelKind)}
                     >
-                      <img src={pkg.artwork} alt="" />
-                      <span>
+                      <span className="managed-package-artwork">
+                        <img src={pkg.artwork} alt="" />
+                      </span>
+                      <span className="managed-package-meta">
                         <strong>{pkg.name}</strong>
-                        <small>{pkg.model}</small>
+                        {subtitle && <small>{subtitle}</small>}
                       </span>
                       {kind === modelKind && <Check size={18} aria-hidden="true" />}
                     </button>
@@ -837,7 +971,9 @@ function IntegrationDialog({
                 <img src={selectedPackage!.artwork} alt="" />
                 <div>
                   <h3>{needsMobileModelSelection ? '移动系列遥控器' : selectedPackage!.name}</h3>
-                  {!needsMobileModelSelection && <p>{selectedPackage!.model.split(' · ')[0]}</p>}
+                  {!needsMobileModelSelection && packageSubtitle(selectedPackage!) && (
+                    <p>{packageSubtitle(selectedPackage!)}</p>
+                  )}
                 </div>
               </div>
               <div className="settings-form-fields">
@@ -882,26 +1018,14 @@ function IntegrationDialog({
                   </button>
                 </div>
               )}
-              {(kind === 'cmiotA15' ||
-                kind === 'xmBt29' ||
-                kind === 'rc313' ||
-                kind === 'obeRcuR5' ||
-                kind === 'tclRc802a' ||
-                kind === 'tclRc902n') &&
-                platform !== 'windows' &&
-                platform !== 'macos' && <p className="integration-attention">此设备暂不支持输入监听。</p>}
-              {platform === 'windows' &&
-                (kind === 'rc003' ||
-                  kind === 'cmiotA15' ||
-                  kind === 'xmBt29' ||
-                  kind === 'rc313' ||
-                  kind === 'obeRcuR5' ||
-                  kind === 'tclRc802a' ||
-                  kind === 'tclRc902n') && (
-                  <p className="integration-attention">
-                    添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
-                  </p>
-                )}
+              {usesHidVoice(kind) && platform !== 'windows' && platform !== 'macos' && (
+                <p className="integration-attention">此设备暂不支持输入监听。</p>
+              )}
+              {platform === 'windows' && supportsWindowsDriver(kind) && (
+                <p className="integration-attention">
+                  添加完成后，这台设备会单独连接 Quarbor Universal 驱动；如果未安装，进入设备工作区时会显示安装引导。
+                </p>
+              )}
               {!native && <p className="integration-preview">预览模式，不会连接真实设备。</p>}
             </>
           )}
@@ -912,6 +1036,11 @@ function IntegrationDialog({
           )}
         </div>
         <footer className="managed-dialog-footer">
+          {step === 'kind' && onOpenCapture && (
+            <button type="button" className="managed-integration-adapt-link" onClick={onOpenCapture}>
+              没有找到型号？适配新设备
+            </button>
+          )}
           <button onClick={onClose}>取消</button>
           {step === 'mobile-model' && (
             <button

@@ -1,30 +1,32 @@
-import { useEffect, useRef, useState } from 'react'
-import type { ButtonId } from '../../behaviorModel'
-import type { RemoteButton } from '../../appTypes'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
-import type { RemoteView } from '../types.ts'
+import type { DeviceScreenRegion, RemoteView } from '../types.ts'
+
+export const deviceScreenSelectionId = '__screen__'
 
 type Props = {
-  buttons: Pick<RemoteButton, 'id' | 'label'>[]
-  activeId: ButtonId
-  pressedId: ButtonId | null
-  mappedIds: ButtonId[]
-  onSelect: (id: ButtonId) => void
+  activeId: string
+  pressedId?: string | null
+  pressedIds?: readonly string[]
+  mappedIds: readonly string[]
+  onSelect: (id: string) => void
   remoteView?: RemoteView
+  screenRegion?: DeviceScreenRegion
 }
 
 const hintDismissedKey = 'axonkey.remote-interaction-hint.v1'
 
 export function RemoteControl({
-  buttons,
   activeId,
   pressedId,
+  pressedIds = [],
   mappedIds,
   onSelect,
   remoteView = xiaomiRemoteView,
+  screenRegion,
 }: Props) {
-  const [keyboardPressedId, setKeyboardPressedId] = useState<ButtonId | null>(null)
-  const [pointerPressedId, setPointerPressedId] = useState<ButtonId | null>(null)
+  const [keyboardPressedId, setKeyboardPressedId] = useState<string | null>(null)
+  const [pointerPressedId, setPointerPressedId] = useState<string | null>(null)
   const [hintDismissed, setHintDismissed] = useState(() => {
     try {
       return window.localStorage.getItem(hintDismissedKey) === '1'
@@ -32,7 +34,7 @@ export function RemoteControl({
       return false
     }
   })
-  const spaceKeyRef = useRef<ButtonId | null>(null)
+  const spaceKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -57,7 +59,7 @@ export function RemoteControl({
     }
   }, [])
 
-  const selectKey = (id: ButtonId) => {
+  const selectKey = (id: string) => {
     setHintDismissed(true)
     try {
       window.localStorage.setItem(hintDismissedKey, '1')
@@ -67,10 +69,22 @@ export function RemoteControl({
     onSelect(id)
   }
 
+  const aspectRatio = remoteView.viewBox.width / remoteView.viewBox.height
+
   return (
-    <div className="remote-control-view">
+    <div
+      className="remote-control-view"
+      style={
+        {
+          '--remote-ratio': String(aspectRatio),
+          '--remote-aspect': `${remoteView.viewBox.width} / ${remoteView.viewBox.height}`,
+        } as CSSProperties
+      }
+    >
       <svg
         className="remote-control"
+        width={remoteView.viewBox.width}
+        height={remoteView.viewBox.height}
         viewBox={`0 0 ${remoteView.viewBox.width} ${remoteView.viewBox.height}`}
         role="group"
         aria-label={remoteView.ariaLabel}
@@ -82,7 +96,54 @@ export function RemoteControl({
           aria-hidden="true"
           pointerEvents="none"
         />
-        {buttons.map(button => (
+        {screenRegion && (
+          <g
+            data-remote-key={deviceScreenSelectionId}
+            data-remote-screen="true"
+            role="button"
+            tabIndex={0}
+            aria-label={screenRegion.label}
+            aria-pressed={activeId === deviceScreenSelectionId}
+            className={`remote-key remote-screen-region${activeId === deviceScreenSelectionId ? ' selected' : ''}${keyboardPressedId === deviceScreenSelectionId ? ' keyboard-pressed' : ''}${pointerPressedId === deviceScreenSelectionId ? ' pointer-pressed' : ''}`}
+            onClick={() => selectKey(deviceScreenSelectionId)}
+            onPointerDown={event => {
+              if (event.button === 0 && event.isPrimary) setPointerPressedId(deviceScreenSelectionId)
+            }}
+            onPointerUp={() => setPointerPressedId(null)}
+            onPointerCancel={() => setPointerPressedId(null)}
+            onPointerLeave={() => setPointerPressedId(null)}
+            onBlur={() => {
+              spaceKeyRef.current = null
+              setKeyboardPressedId(null)
+            }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              event.stopPropagation()
+              if (event.repeat) return
+              setKeyboardPressedId(deviceScreenSelectionId)
+              if (event.key === 'Enter') selectKey(deviceScreenSelectionId)
+              else {
+                spaceKeyRef.current = deviceScreenSelectionId
+              }
+            }}
+            onKeyUp={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              event.stopPropagation()
+              const activate = event.key === ' ' && spaceKeyRef.current === deviceScreenSelectionId
+              spaceKeyRef.current = null
+              setKeyboardPressedId(null)
+              if (activate) selectKey(deviceScreenSelectionId)
+            }}
+          >
+            <title>{screenRegion.label}</title>
+            <path className="remote-key-halo" d={screenRegion.path} aria-hidden="true" />
+            <path className="remote-key-outline" d={screenRegion.path} aria-hidden="true" />
+            <path className="remote-key-surface" d={screenRegion.path} aria-hidden="true" />
+          </g>
+        )}
+        {remoteView.buttons.map(button => (
           <g
             key={button.id}
             data-remote-key={button.id}
@@ -90,7 +151,7 @@ export function RemoteControl({
             tabIndex={0}
             aria-label={button.label}
             aria-pressed={activeId === button.id}
-            className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
+            className={`remote-key${activeId === button.id ? ' selected' : ''}${pressedId === button.id || pressedIds.includes(button.id) ? ' pressed' : ''}${mappedIds.includes(button.id) ? ' mapped' : ''}${keyboardPressedId === button.id ? ' keyboard-pressed' : ''}${pointerPressedId === button.id ? ' pointer-pressed' : ''}`}
             onClick={() => selectKey(button.id)}
             onPointerDown={event => {
               if (event.button === 0 && event.isPrimary) setPointerPressedId(button.id)
@@ -124,9 +185,24 @@ export function RemoteControl({
             }}
           >
             <title>{button.label}</title>
-            <path className="remote-key-halo" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
-            <path className="remote-key-outline" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
-            <path className="remote-key-surface" d={remoteView.keyRegions[button.id].path} aria-hidden="true" />
+            <path
+              className="remote-key-halo"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
+            <path
+              className="remote-key-outline"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
+            <path
+              className="remote-key-surface"
+              d={remoteView.keyRegions[button.id].path}
+              transform={remoteView.keyRegions[button.id].transform}
+              aria-hidden="true"
+            />
           </g>
         ))}
       </svg>

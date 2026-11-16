@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { listen } from '@tauri-apps/api/event'
 import { ChevronDown, Info, RefreshCw, Settings2, SlidersHorizontal } from 'lucide-react'
+import { BehaviorHistoryActions } from '../../components/BehaviorHistoryActions'
 import type { MacPermissions, ManagedDriverAction, MappingInput, Platform } from '../../appTypes'
 import type { ButtonId, SwitchProfileBehavior, TriggerBehaviors, TriggerType } from '../../behaviorModel'
 import { triggerTypes } from '../../behaviorModel'
@@ -22,19 +23,34 @@ import { recordLibraryAdditions } from '../../cloud/libraryUsage'
 import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
-import { DeviceWorkspaceHeader } from '../shared/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
+import { KivoScreenEditor } from '../kivo-k18-lite/KivoScreenEditor'
 import { DeviceBindingPicker } from './IntegrationControls'
-import { ControllerDiagram } from '../xbox-controller/ControllerDiagram'
-import { deviceMatchesKind, emptyTriggers, instanceStatusLabel, packageFor } from './model'
+import {
+  defaultRecordingMode,
+  deviceMatchesKind,
+  deviceScreenSelectionId,
+  emptyTriggers,
+  instanceState,
+  packageFor,
+  stateLabel,
+  supportsWindowsDriver,
+  supportsDeviceInformation,
+  usesHidVoice,
+  usesSingleLaneWorkspace,
+} from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
 import {
   addInstanceProfile,
   deleteInstanceProfile,
   applyInstanceProfileSwitch,
+  createInstanceBehaviorHistory,
+  instanceBehaviorHistoryReducer,
   removeInstanceProfileSwitch,
-  updateInstanceSequence,
+  replaceInstanceProfileBehaviors,
 } from './instanceProfiles'
+import type { InstanceBehaviorHistoryAction, InstanceProfileBehaviors } from './instanceProfiles'
 
 type Props = {
   instance: DeviceInstance
@@ -52,6 +68,9 @@ type Props = {
   driverAction: ManagedDriverAction | null
   onInstallDriver: (instanceId: string) => void
   batteryLevel: number | null
+  onToast?: (message: string) => void
+  deviceOptions?: WorkspaceDeviceOption[]
+  onSelectDevice?: (id: string) => void
 }
 export function InstanceWorkspace({
   instance,
@@ -69,15 +88,23 @@ export function InstanceWorkspace({
   onInstallDriver,
   driverAction,
   batteryLevel,
+  onToast,
+  deviceOptions,
+  onSelectDevice,
 }: Props) {
   const pkg = packageFor(instance.kind)
+  const singleLaneWorkspace = usesSingleLaneWorkspace(instance.kind)
+  const voice = pkg.remoteView?.voice
+  const voiceModes = voice?.triggerModes ?? []
+  const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [selected, setSelected] = useState<string>(() =>
-    getStoredDeviceInput(
-      instance.id,
-      pkg.inputs.map(input => input.id),
-    ),
+    getStoredDeviceInput(instance.id, [
+      ...pkg.inputs.map(input => input.id),
+      ...(pkg.screenRegion ? [deviceScreenSelectionId] : []),
+    ]),
   )
+  const isScreenSelected = Boolean(pkg.screenRegion && selected === deviceScreenSelectionId)
   const selectInput = (inputId: string) => {
     setSelected(inputId)
     storeDeviceInput(instance.id, inputId)
@@ -235,31 +262,81 @@ export function InstanceWorkspace({
   useEffect(() => {
     setInput({ pressed: [], values: {} })
   }, [instance.enabled, profile.id, status?.state])
+  const [history, setHistory] = useState(() => createInstanceBehaviorHistory(profile.id, profile.behaviors))
+  const historyRef = useRef(history)
+  historyRef.current = history
+  const pendingSavesRef = useRef(0)
+  const applyHistoryAction = useCallback((action: InstanceBehaviorHistoryAction) => {
+    const current = historyRef.current
+    const next = instanceBehaviorHistoryReducer(current, action)
+    if (next === current) return null
+    historyRef.current = next
+    setHistory(next)
+    return next
+  }, [])
+  useEffect(() => {
+    if (profile.id !== historyRef.current.profileId) {
+      applyHistoryAction({ type: 'replace', profileId: profile.id, present: profile.behaviors })
+      return
+    }
+    if (pendingSavesRef.current === 0) {
+      applyHistoryAction({ type: 'sync', profileId: profile.id, present: profile.behaviors })
+    }
+  }, [applyHistoryAction, profile.behaviors, profile.id])
+  const saveProfileBehaviors = useCallback(
+    (profileId: string, behaviors: InstanceProfileBehaviors) => {
+      pendingSavesRef.current += 1
+      void controller
+        .update(instance.id, item => replaceInstanceProfileBehaviors(item, profileId, behaviors))
+        .catch(() => {})
+        .finally(() => {
+          pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+        })
+    },
+    [controller, instance.id],
+  )
+  const activeBehaviors = history.profileId === profile.id ? history.present : profile.behaviors
+  const canUndo = history.profileId === profile.id && history.past.length > 0
+  const canRedo = history.profileId === profile.id && history.future.length > 0
+  const undoBehaviorChange = useCallback(() => {
+    if (historyRef.current.profileId !== profile.id) return
+    const next = applyHistoryAction({ type: 'undo' })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
+    onToast?.('已撤销行为更改')
+  }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
+  const redoBehaviorChange = useCallback(() => {
+    if (historyRef.current.profileId !== profile.id) return
+    const next = applyHistoryAction({ type: 'redo' })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
+    onToast?.('已重做行为更改')
+  }, [applyHistoryAction, onToast, profile.id, saveProfileBehaviors])
   const changeSequence = (id: string, sequences: TriggerBehaviors) => {
-    const triggers = removedProfileSwitchTriggers(profile.behaviors[id] ?? emptyTriggers(), sequences)
+    if (historyRef.current.profileId !== profile.id) {
+      const replaced = createInstanceBehaviorHistory(profile.id, profile.behaviors)
+      historyRef.current = replaced
+      setHistory(replaced)
+    }
+    const triggers = removedProfileSwitchTriggers(historyRef.current.present[id] ?? emptyTriggers(), sequences)
     if (triggers.length) {
       setPendingDeletion({ profileId: profile.id, inputId: id, triggers, sequences })
       return false
     }
-    update(item => updateInstanceSequence(item, profile.id, id, sequences))
+    const next = applyHistoryAction({ type: 'change', inputId: id, sequences })
+    if (!next) return
+    saveProfileBehaviors(profile.id, next.present)
   }
   const renameProfile = (name: string) =>
     update(item => ({ ...item, profiles: item.profiles.map(p => (p.id === profile.id ? { ...p, name } : p)) }))
   const deleteProfile = () => update(item => deleteInstanceProfile(item, profile.id))
-  const mapped = Object.keys(profile.behaviors).filter(id =>
-    Object.values(profile.behaviors[id]).some(sequence => sequence.some(b => b.enabled)),
+  const mapped = Object.keys(activeBehaviors).filter(id =>
+    Object.values(activeBehaviors[id]).some(sequence => sequence.some(b => b.enabled)),
   )
-  const supportsDriver = [
-    'rc003',
-    'cmiotA15',
-    'xmBt29',
-    'rc313',
-    'obeRcuR5',
-    'tclRc802a',
-    'tclRc902n',
-    'xboxBluetooth',
-  ].includes(instance.kind)
+  const supportsDriver = supportsWindowsDriver(instance.kind)
   const ready = status?.state === 'exclusive'
+  const connectionState = native ? instanceState(instance, controller.snapshot) : undefined
+  const connectionLabel = native ? stateLabel(connectionState) : '预览模式'
   const deviceOffline =
     native && platform === 'windows' && supportsDriver && !!instance.binding && status?.driverState === 'offline'
   const driverMissing =
@@ -280,6 +357,46 @@ export function InstanceWorkspace({
     : null
   const showDriverNotice =
     !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
+    if (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected) return
+    const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      )
+        return
+      if (
+        typeof document !== 'undefined' &&
+        document.querySelector?.('dialog[open], [aria-modal="true"], .app-settings-panel, .record-key-button.capturing')
+      )
+        return
+      const key = event.key.toLowerCase()
+      const undo = key === 'z' && !event.shiftKey
+      const redo = (key === 'z' && event.shiftKey) || (key === 'y' && event.ctrlKey && !event.metaKey)
+      if (undo && canUndo) {
+        event.preventDefault()
+        undoBehaviorChange()
+      } else if (redo && canRedo) {
+        event.preventDefault()
+        redoBehaviorChange()
+      }
+    }
+    window.addEventListener('keydown', handleHistoryShortcut)
+    return () => window.removeEventListener('keydown', handleHistoryShortcut)
+  }, [
+    canRedo,
+    canUndo,
+    isScreenSelected,
+    pendingDeletion,
+    pendingSwitch,
+    redoBehaviorChange,
+    settings,
+    showDriverNotice,
+    undoBehaviorChange,
+  ])
   const driverNoticeMessage = driverErrorDetail
     ? '驱动错误，请重新安装。'
     : driverRestartRequired
@@ -294,11 +411,14 @@ export function InstanceWorkspace({
   return (
     <div
       ref={workspaceRef}
-      className={`mapping-page mapping-flow-page managed-instance-workspace ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}
+      className={`mapping-page mapping-flow-page managed-instance-workspace ${singleLaneWorkspace ? 'is-controller' : ''}`}
     >
       <div className="mapping-workbench">
         <DeviceWorkspaceHeader
           deviceName={instance.name}
+          activeDeviceId={instance.id}
+          deviceOptions={deviceOptions}
+          onSelectDevice={onSelectDevice}
           onBackToDevices={onBack}
           onOpenSettings={() => setSettings(v => !v)}
           profileControls={
@@ -411,102 +531,81 @@ export function InstanceWorkspace({
           )}
         <aside className="mapping-device-rail panel-surface">
           <section className="managed-instance-status" aria-label="设备状态">
-            <div>
-              <span className={ready ? 'ready' : status?.error ? 'warning' : ''}>
-                {native ? instanceStatusLabel(instance, controller.snapshot) : '预览模式'}
-              </span>
-              <button
-                type="button"
-                role="switch"
-                className={`switch ${instance.enabled ? 'on' : ''}`}
-                aria-label="启用此设备"
-                aria-checked={instance.enabled}
-                onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
+            {instance.binding ? (
+              <span
+                className={`managed-instance-connection${connectionState === 'exclusive' ? ' ready' : status?.error ? ' warning' : ''}`}
+                title={connectionLabel}
               >
-                <span />
+                {connectionState === 'needsRebind' ? '需重新绑定' : connectionLabel}
+              </span>
+            ) : (
+              <button type="button" className="managed-instance-bind" onClick={onBind}>
+                绑定设备
               </button>
-            </div>
-            {(instance.kind === 'rc003' ||
-              instance.kind === 'cmiotA15' ||
-              instance.kind === 'xmBt29' ||
-              instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5' ||
-              instance.kind === 'tclRc802a' ||
-              instance.kind === 'tclRc902n') && (
+            )}
+            {supportsDeviceInformation(instance.kind) && (
               <span className="managed-instance-power">
-                <BatteryIndicator level={batteryLevel} />
+                <BatteryIndicator level={batteryLevel} compact />
               </span>
             )}
-            <button className="managed-instance-bind" onClick={onBind}>
-              {instance.binding ? '重新绑定' : '绑定设备'}
+            <button
+              type="button"
+              role="switch"
+              className={`switch ${instance.enabled ? 'on' : ''}`}
+              aria-label="启用此设备"
+              aria-checked={instance.enabled}
+              onClick={() => update(item => ({ ...item, enabled: !item.enabled }))}
+            >
+              <span />
             </button>
           </section>
-          <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
+          <div className={`remote-stage ${singleLaneWorkspace ? 'managed-controller-stage' : ''}`}>
             <div className="remote-art">
-              {instance.kind === 'xboxBluetooth' ? (
-                <ControllerDiagram selected={selected} pressed={input.pressed} mapped={mapped} onSelect={selectInput} />
-              ) : (
-                <RemoteControl
-                  buttons={[...pkg.inputs] as { id: ButtonId; label: string }[]}
-                  activeId={selected as ButtonId}
-                  pressedId={(input.pressed[0] ?? null) as ButtonId | null}
-                  mappedIds={mapped as ButtonId[]}
-                  onSelect={selectInput}
-                  remoteView={pkg.remoteView}
-                />
-              )}
+              <RemoteControl
+                activeId={selected}
+                pressedIds={input.pressed}
+                mappedIds={mapped}
+                onSelect={selectInput}
+                remoteView={pkg.remoteView}
+                screenRegion={pkg.screenRegion}
+              />
             </div>
           </div>
-          {(instance.kind === 'rc003' ||
-            instance.kind === 'cmiotA15' ||
-            instance.kind === 'xmBt29' ||
-            instance.kind === 'rc313' ||
-            instance.kind === 'obeRcuR5' ||
-            instance.kind === 'tclRc802a' ||
-            instance.kind === 'tclRc902n') && (
+          {voice && (
             <DeviceRecordingStatus
               recording={native && !!status?.recording}
-              onToggle={
-                instance.kind === 'cmiotA15' ||
-                instance.kind === 'xmBt29' ||
-                instance.kind === 'rc313' ||
-                instance.kind === 'tclRc802a' ||
-                instance.kind === 'tclRc902n'
-                  ? () => void toggleRecording()
-                  : undefined
-              }
+              onToggle={voice.engine === 'cmiot-a15.g7221' ? () => void toggleRecording() : undefined}
               disabled={!native || !instance.enabled || !informationAvailable || !ready || recordingPending}
             />
           )}
-          {(instance.kind === 'rc003' ||
-            ((instance.kind === 'cmiotA15' ||
-              instance.kind === 'xmBt29' ||
-              instance.kind === 'rc313' ||
-              instance.kind === 'obeRcuR5' ||
-              instance.kind === 'tclRc802a' ||
-              instance.kind === 'tclRc902n') &&
-              (platform === 'windows' || platform === 'macos'))) && (
-            <button
-              type="button"
-              className="managed-audio-calibration"
-              disabled={!native}
-              title={!native ? '请在桌面应用中校准音量' : undefined}
-              onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
-            >
-              <SlidersHorizontal size={16} aria-hidden="true" />
-              校准音量
-            </button>
-          )}
-          {instance.kind === 'xboxBluetooth' && (
+          {voice &&
+            (voice.transport === 'gatt' ||
+              (usesHidVoice(instance.kind) && (platform === 'windows' || platform === 'macos'))) && (
+              <button
+                type="button"
+                className="managed-audio-calibration"
+                disabled={!native}
+                title={!native ? '请在桌面应用中校准音量' : undefined}
+                onClick={native ? () => onOpenAudioCalibration(instance.id) : undefined}
+              >
+                <SlidersHorizontal size={16} aria-hidden="true" />
+                校准音量
+              </button>
+            )}
+          {analogInputs.length > 0 && (
             <div className="managed-analog">
-              <label>
-                LT <meter min={0} max={1} value={input.values['xbox.lt'] ?? 0} />
-              </label>
-              <label>
-                RT <meter min={0} max={1} value={input.values['xbox.rt'] ?? 0} />
-              </label>
+              {analogInputs.map(button => (
+                <label key={button.id}>
+                  {button.short} <meter min={0} max={1} value={input.values[button.id] ?? 0} />
+                </label>
+              ))}
               <SettingsHelp id="managed-analog-help" label="摇杆与扳机映射">
-                摇杆方向与扳机超过 55% 时触发，低于 35% 时释放。
+                {analogInputs.map(button => (
+                  <p key={button.id}>
+                    {button.short} 超过 {Math.round(button.threshold * 100)}% 时触发，低于{' '}
+                    {Math.round(button.releaseThreshold * 100)}% 时释放。
+                  </p>
+                ))}
               </SettingsHelp>
             </div>
           )}
@@ -526,44 +625,71 @@ export function InstanceWorkspace({
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
           )}
-          <WorkflowAxonkey
-            header={
-              <section className="key-picker">
-                <div className="key-picker-head">
-                  <h2>{selectedInput.label}</h2>
-                </div>
-                {instance.kind === 'xboxBluetooth' && (
-                  <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
-                    {triggerTypes.map(trigger => (
-                      <button
-                        type="button"
-                        key={trigger}
-                        className={`workflow-trigger-${trigger}`}
-                        aria-pressed={controllerTrigger === trigger}
-                        onClick={() => setControllerTrigger(trigger)}
-                      >
-                        {triggerLabels[trigger]}
-                        <span>{profile.behaviors[selected]?.[trigger].length ?? 0}</span>
-                      </button>
-                    ))}
+          {isScreenSelected ? (
+            <KivoScreenEditor
+              instance={instance}
+              profile={profile}
+              applicationName={applicationProfile?.application.name}
+              native={native}
+              onUpdate={update}
+            />
+          ) : (
+            <WorkflowAxonkey
+              header={
+                <section className="key-picker">
+                  <div className="key-picker-head">
+                    <div className="key-picker-heading">
+                      <h2>{selectedInput.label}</h2>
+                      {selectedInput.icon === 'mic' && (
+                        <span
+                          className="key-picker-voice-guidance"
+                          title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
+                        >
+                          要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
+                        </span>
+                      )}
+                    </div>
+                    <div className="key-picker-actions">
+                      <BehaviorHistoryActions
+                        canUndo={canUndo}
+                        canRedo={canRedo}
+                        onUndo={undoBehaviorChange}
+                        onRedo={redoBehaviorChange}
+                      />
+                    </div>
                   </div>
-                )}
-              </section>
-            }
-            splitRatio={splitRatio}
-            onSplitRatioChange={setSplitRatio}
-            key={profile.id + selected}
-            platform={platform}
-            button={selectedInput}
-            sequences={profile.behaviors[selected] ?? emptyTriggers()}
-            activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
-            onChange={changeSequence}
-            onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
-              setPendingSwitch({ inputId, trigger, behavior, additionItemId })
-            }
-            toolboxCategory={toolboxCategory}
-            onToolboxCategoryChange={setToolboxCategory}
-          />
+                  {singleLaneWorkspace && (
+                    <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
+                      {triggerTypes.map(trigger => (
+                        <button
+                          type="button"
+                          key={trigger}
+                          className={`workflow-trigger-${trigger}`}
+                          aria-pressed={controllerTrigger === trigger}
+                          onClick={() => setControllerTrigger(trigger)}
+                        >
+                          {triggerLabels[trigger]}
+                          <span>{activeBehaviors[selected]?.[trigger].length ?? 0}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              }
+              splitRatio={splitRatio}
+              onSplitRatioChange={setSplitRatio}
+              platform={platform}
+              button={selectedInput}
+              sequences={activeBehaviors[selected] ?? emptyTriggers()}
+              activeTrigger={singleLaneWorkspace ? controllerTrigger : undefined}
+              onChange={changeSequence}
+              onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
+                setPendingSwitch({ inputId, trigger, behavior, additionItemId })
+              }
+              toolboxCategory={toolboxCategory}
+              onToolboxCategoryChange={setToolboxCategory}
+            />
+          )}
         </section>
       </div>
       {settings && (
@@ -577,7 +703,7 @@ export function InstanceWorkspace({
               <Settings2 size={16} />
               <span>设备设置</span>
             </button>
-            {instance.kind !== 'xboxBluetooth' && (
+            {supportsDeviceInformation(instance.kind) && (
               <button
                 type="button"
                 aria-current={settingsSection === 'information' ? 'page' : undefined}
@@ -654,7 +780,7 @@ export function InstanceWorkspace({
                   </div>
                 )}
                 <div className="settings-form-fields">
-                  {instance.kind !== 'xboxBluetooth' && (platform === 'windows' || platform === 'macos') && (
+                  {voice && (platform === 'windows' || platform === 'macos') && (
                     <div className="settings-form-row">
                       <span className="settings-form-label">虚拟麦克风：</span>
                       <div className="settings-form-control">
@@ -664,14 +790,15 @@ export function InstanceWorkspace({
                       </div>
                     </div>
                   )}
-                  {(instance.kind === 'cmiotA15' || instance.kind === 'tclRc802a' || instance.kind === 'tclRc902n') &&
+                  {voiceModes.includes('hold') &&
+                    voiceModes.includes('click') &&
                     (platform === 'windows' || platform === 'macos') && (
                       <label className="settings-form-row">
                         <span className="settings-form-label">语音录制：</span>
                         <span className="settings-form-control">
                           <span className="manual-key-select cmiot-recording-select">
                             <select
-                              value={instance.cmiotA15RecordingMode ?? 'click'}
+                              value={instance.cmiotA15RecordingMode ?? defaultRecordingMode(instance.kind)}
                               onChange={event => {
                                 const cmiotA15RecordingMode = event.target.value === 'click' ? 'click' : 'hold'
                                 update(item => ({ ...item, cmiotA15RecordingMode }))
@@ -712,6 +839,7 @@ export function InstanceWorkspace({
                         <BoundDeviceInfo
                           binding={instance.binding}
                           device={boundDevice}
+                          onRebind={onBind}
                           onUnbind={unbindDevice}
                           disabled={pendingPhysicalAction !== null}
                         />
@@ -755,21 +883,39 @@ export function InstanceWorkspace({
             targets={instance.profiles.map(p => ({
               id: p.id,
               name: p.name,
-              behaviors: p.behaviors[pendingSwitch.inputId]?.[pendingSwitch.trigger] ?? [],
+              behaviors:
+                (p.id === profile.id ? activeBehaviors : p.behaviors)[pendingSwitch.inputId]?.[pendingSwitch.trigger] ??
+                [],
             }))}
             activeProfileId={profile.id}
             platform={platform}
             onCancel={() => setPendingSwitch(null)}
             onConfirm={behavior => {
+              pendingSavesRef.current += 1
+              let nextProfileBehaviors: InstanceProfileBehaviors | undefined
               void controller
-                .update(instance.id, item =>
-                  applyInstanceProfileSwitch(item, pendingSwitch.inputId, pendingSwitch.trigger, behavior),
-                )
+                .update(instance.id, item => {
+                  const updated = applyInstanceProfileSwitch(
+                    item,
+                    pendingSwitch.inputId,
+                    pendingSwitch.trigger,
+                    behavior,
+                  )
+                  nextProfileBehaviors = updated.profiles.find(p => p.id === profile.id)?.behaviors
+                  return updated
+                })
                 .then(() => {
+                  if (nextProfileBehaviors && historyRef.current.profileId === profile.id) {
+                    applyHistoryAction({ type: 'replace', profileId: profile.id, present: nextProfileBehaviors })
+                  }
                   if (pendingSwitch.additionItemId && behavior.enabled)
                     recordLibraryAdditions([pendingSwitch.additionItemId])
+                  onToast?.('已应用到此设备的所有配置文件')
                 })
                 .catch(() => {})
+                .finally(() => {
+                  pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+                })
               setPendingSwitch(null)
             }}
           />,
@@ -782,20 +928,41 @@ export function InstanceWorkspace({
             targets={pendingDeletion.triggers.map(trigger => ({
               trigger,
               profiles: instance.profiles.filter(p =>
-                p.behaviors[pendingDeletion.inputId]?.[trigger].some(b => b.type === 'switchProfile'),
+                (p.id === profile.id ? activeBehaviors : p.behaviors)[pendingDeletion.inputId]?.[trigger].some(
+                  b => b.type === 'switchProfile',
+                ),
               ),
             }))}
             onCancel={() => setPendingDeletion(null)}
             onConfirm={() => {
-              update(item =>
-                removeInstanceProfileSwitch(
-                  item,
-                  pendingDeletion.profileId,
-                  pendingDeletion.inputId,
-                  pendingDeletion.triggers,
-                  pendingDeletion.sequences,
-                ),
-              )
+              pendingSavesRef.current += 1
+              let nextProfileBehaviors: InstanceProfileBehaviors | undefined
+              void controller
+                .update(instance.id, item => {
+                  const updated = removeInstanceProfileSwitch(
+                    item,
+                    pendingDeletion.profileId,
+                    pendingDeletion.inputId,
+                    pendingDeletion.triggers,
+                    pendingDeletion.sequences,
+                  )
+                  nextProfileBehaviors = updated.profiles.find(p => p.id === pendingDeletion.profileId)?.behaviors
+                  return updated
+                })
+                .then(() => {
+                  if (nextProfileBehaviors && historyRef.current.profileId === pendingDeletion.profileId) {
+                    applyHistoryAction({
+                      type: 'replace',
+                      profileId: pendingDeletion.profileId,
+                      present: nextProfileBehaviors,
+                    })
+                  }
+                  onToast?.('已同步删除切换配置文件行为')
+                })
+                .catch(() => {})
+                .finally(() => {
+                  pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1)
+                })
               setPendingDeletion(null)
             }}
           />,
@@ -808,11 +975,13 @@ export function InstanceWorkspace({
 function BoundDeviceInfo({
   binding,
   device,
+  onRebind,
   onUnbind,
   disabled,
 }: {
   binding: string
   device?: DiscoveredDevice
+  onRebind: () => void
   onUnbind: () => void
   disabled: boolean
 }) {
@@ -830,9 +999,14 @@ function BoundDeviceInfo({
           {status}
         </span>
       </div>
-      <button type="button" onClick={onUnbind} disabled={disabled}>
-        {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
-      </button>
+      <div className="managed-bound-device-actions">
+        <button type="button" className="dialog-secondary" onClick={onRebind} disabled={disabled}>
+          重新绑定
+        </button>
+        <button type="button" className="dialog-secondary" onClick={onUnbind} disabled={disabled}>
+          {disabled ? '正在解除绑定…' : '解除绑定，保留配置'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -876,8 +1050,8 @@ function DeviceInformationPanel({
         unavailable
       ),
     ],
-    ['型号', value(info?.modelNumber)],
     ['制造商', value(info?.manufacturer)],
+    ['型号', value(info?.modelNumber)],
     ['序列号', value(info?.serialNumber)],
     ['硬件版本', value(info?.hardwareRevision)],
     ['固件版本', value(info?.firmwareRevision)],

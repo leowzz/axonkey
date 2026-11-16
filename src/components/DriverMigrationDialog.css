@@ -5,7 +5,8 @@
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(24 32 48 / 38%);
+  background: rgb(15 23 42 / 34%);
+  backdrop-filter: blur(3px);
 }
 
 .driver-migration-dialog {
@@ -13,24 +14,26 @@
   max-height: calc(100dvh - 48px);
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 28px;
-  border: 1px solid #dbe2ed;
-  border-radius: 16px;
+  padding: 26px 28px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
   background: #fff;
-  color: #263247;
-  box-shadow: 0 20px 70px rgb(15 23 42 / 22%);
+  color: var(--ink);
+  box-shadow: var(--shadow-popover);
 }
 .driver-migration-dialog:focus {
   outline: none;
 }
 .driver-migration-icon {
-  color: #3976cf;
+  color: var(--blue);
 }
 .driver-migration-dialog h2 {
   margin: 12px 0 8px;
-  font-size: 21px;
+  font-size: 20px;
+  font-weight: 700;
 }
 .driver-migration-dialog p {
+  color: var(--ink-secondary);
   font-size: 13px;
   line-height: 1.65;
 }
@@ -41,21 +44,23 @@
   gap: 8px;
   padding: 14px 0;
   font-size: 12px;
-  color: #66758c;
+  color: var(--muted);
 }
 .driver-migration-status {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 14px;
+  border: 1px solid var(--line);
   border-radius: 9px;
-  background: #f1f5fb;
-  font-size: 14px;
+  background: var(--surface-subtle);
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .driver-migration-status[role='alert'] {
-  color: #ad3434;
-  background: #fff1f1;
+  border-color: rgb(220 38 38 / 24%);
+  color: #b91c1c;
+  background: #fef2f2;
 }
 .driver-migration-status svg {
   flex-shrink: 0;

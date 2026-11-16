@@ -26,11 +26,23 @@ impl PcmFrame {
 #[derive(Default)]
 pub(crate) struct VoiceStream {
     active: bool,
+    clear_low_bits: bool,
     assembler: Reassembler,
     decoder: Option<super::siren::Decoder>,
 }
 
 impl VoiceStream {
+    pub(crate) fn with_ico_report(report_id: u8, clear_low_bits: bool) -> Self {
+        Self {
+            assembler: Reassembler {
+                report_id,
+                ..Default::default()
+            },
+            clear_low_bits,
+            ..Default::default()
+        }
+    }
+
     pub fn synchronize(&mut self, active: bool) {
         if self.active != active {
             self.reset();
@@ -65,11 +77,20 @@ impl VoiceStream {
             .unwrap()
             .decode_g7221(&unscramble_ico(&frame.data))
         {
-            Ok(samples) => samples.to_vec(),
+            Ok(samples) => samples
+                .into_iter()
+                .map(|sample| {
+                    if self.clear_low_bits {
+                        sample & !3
+                    } else {
+                        sample
+                    }
+                })
+                .collect(),
             Err(code) => {
                 self.decoder = None;
                 return Err(format!(
-                    "libsiren rejected FC group {} (code {code})",
+                    "libsiren rejected ICO group {} (code {code})",
                     frame.group
                 ));
             }
@@ -92,13 +113,26 @@ pub(crate) struct EncodedFrame {
     pub headers: [[u8; 4]; 3],
 }
 
-#[derive(Default)]
 pub(crate) struct Reassembler {
+    report_id: u8,
     synchronized: bool,
     group: Option<u16>,
     count: usize,
     reports: [[u8; 21]; 3],
     last_report: Option<[u8; 21]>,
+}
+
+impl Default for Reassembler {
+    fn default() -> Self {
+        Self {
+            report_id: 0xfc,
+            synchronized: false,
+            group: None,
+            count: 0,
+            reports: [[0; 21]; 3],
+            last_report: None,
+        }
+    }
 }
 
 impl Reassembler {
@@ -111,12 +145,12 @@ impl Reassembler {
     }
 
     pub(crate) fn feed(&mut self, report: &[u8]) -> Result<Option<EncodedFrame>, &'static str> {
-        if report.first().is_some_and(|id| *id != 0xfc) {
+        if report.first().is_some_and(|id| *id != self.report_id) {
             return Ok(None);
         }
         if report.len() != 21 {
             self.reset();
-            return Err("FC report must contain exactly 21 bytes including report ID");
+            return Err("ICO report must contain exactly 21 bytes including report ID");
         }
         if self.last_report.as_ref().is_some_and(|last| last == report) {
             return Ok(None);
@@ -190,8 +224,91 @@ pub(crate) fn unscramble_ico(block: &[u8; 40]) -> [u8; 40] {
 }
 
 #[cfg(test)]
+pub(crate) fn ico_test_reports(report_id: u8) -> Vec<[[u8; 21]; 3]> {
+    super::siren::encode_test_frames(true)
+        .iter()
+        .enumerate()
+        .map(|(group, encoded)| {
+            let mut words = [0u16; 20];
+            for (word, pair) in words.iter_mut().zip(encoded.chunks_exact(2)) {
+                *word = u16::from_be_bytes(pair.try_into().unwrap()) ^ 0x0416;
+            }
+            for (a, b, c) in [(4, 16, 9), (8, 3, 11), (2, 6, 18), (7, 13, 17)] {
+                (words[a], words[b], words[c]) = (words[b], words[c], words[a]);
+            }
+            let mut payload = [0x99; 48];
+            for (pair, word) in payload[..40].chunks_exact_mut(2).zip(words) {
+                pair.copy_from_slice(&word.to_le_bytes());
+            }
+            std::array::from_fn(|part| {
+                let mut report = [0; 21];
+                report[0] = report_id;
+                report[1..3].copy_from_slice(&(group as u16).to_le_bytes());
+                report[3] = part as u8;
+                report[5..].copy_from_slice(&payload[part * 16..part * 16 + 16]);
+                report
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rc802a_ec_stream_decodes_continuously_aligns_pcm_and_resets_per_recording() {
+        let reports = ico_test_reports(0xec);
+        let mut stream = crate::devices::tcl_rc802a::voice_stream();
+        assert!(stream.feed(&reports[0][0]).unwrap().is_none());
+        stream.synchronize(true);
+        let mut reference = super::super::siren::Decoder::new().unwrap();
+        let mut decoded = Vec::new();
+        for (group, (reports, encoded)) in reports
+            .iter()
+            .zip(super::super::siren::encode_test_frames(true))
+            .enumerate()
+        {
+            for report in &reports[..2] {
+                assert!(stream.feed(report).unwrap().is_none());
+                assert!(stream.feed(report).unwrap().is_none());
+            }
+            let pcm = stream.feed(&reports[2]).unwrap().unwrap();
+            assert_eq!(pcm.group, group as u16);
+            assert_eq!(pcm.sample_rate, 16000);
+            assert_eq!(pcm.samples.len(), 320);
+            assert_eq!(pcm.tail, [0x99; 8]);
+            assert_eq!(
+                pcm.samples,
+                reference
+                    .decode_g7221(&encoded)
+                    .unwrap()
+                    .map(|sample| sample & !3)
+            );
+            decoded.push(pcm.samples);
+        }
+        assert!(decoded.iter().flatten().any(|sample| *sample != 0));
+        stream.synchronize(false);
+        stream.synchronize(true);
+        assert!(stream.feed(&reports[0][1]).unwrap().is_none());
+        assert!(stream.feed(&reports[0][2]).unwrap().is_none());
+        let mut wrong_id = reports[0][0];
+        wrong_id[0] = 0xfc;
+        assert!(stream.feed(&wrong_id).unwrap().is_none());
+        assert!(stream.feed(&reports[0][0][..20]).is_err());
+        let mut padded = reports[0][0].to_vec();
+        padded.push(0);
+        assert!(stream.feed(&padded).is_err());
+        stream.feed(&reports[0][0]).unwrap();
+        assert!(stream.feed(&reports[1][1]).is_err());
+        for report in &reports[0][..2] {
+            stream.feed(report).unwrap();
+        }
+        assert_eq!(
+            stream.feed(&reports[0][2]).unwrap().unwrap().samples,
+            decoded[0]
+        );
+    }
 
     #[test]
     fn captured_a15_group_uses_headerless_g7221_and_ignores_driver_duplicates() {

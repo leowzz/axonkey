@@ -24,6 +24,9 @@ enum {
     AKAudioEventOutputReset = 12,
     AKAudioEventRSSI = 13,
     AKAudioEventConnectionReset = 14,
+    AKAudioEventNegotiate = 15,
+    AKAudioEventTimerTick = 16,
+    AKAudioEventStopping = 17,
 };
 
 enum {
@@ -63,12 +66,40 @@ static NSString *const AKServiceUUIDString = @"AB5E0001-5A21-4F05-BC7D-AF01F617B
 static NSString *const AKTransmitUUIDString = @"AB5E0002-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKAudioUUIDString = @"AB5E0003-5A21-4F05-BC7D-AF01F617B664";
 static NSString *const AKControlUUIDString = @"AB5E0004-5A21-4F05-BC7D-AF01F617B664";
-static void AKOnMainSync(dispatch_block_t block) {
-    if ([NSThread isMainThread]) {
+static const void *const AKAudioQueueKey = &AKAudioQueueKey;
+
+// Run Bluetooth, Core Audio setup, and FFI state queries on a dedicated serial
+// queue instead of the main queue so background worker threads cannot deadlock
+// when the main thread joins them during app shutdown.
+static dispatch_queue_t AKAudioQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        queue = dispatch_queue_create("com.axonkey.macos-audio", DISPATCH_QUEUE_SERIAL);
+        dispatch_queue_set_specific(queue, AKAudioQueueKey, (void *)AKAudioQueueKey, NULL);
+    });
+    return queue;
+}
+
+static void AKOnAudioQueueSync(dispatch_block_t block) {
+    if (dispatch_get_specific(AKAudioQueueKey) != NULL) {
         block();
     } else {
-        dispatch_sync(dispatch_get_main_queue(), block);
+        dispatch_sync(AKAudioQueue(), block);
     }
+}
+
+static dispatch_source_t AKStartRepeatingTimer(uint64_t intervalNanoseconds, dispatch_block_t handler) {
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, AKAudioQueue());
+    dispatch_source_set_timer(
+        timer,
+        dispatch_time(DISPATCH_TIME_NOW, (int64_t)intervalNanoseconds),
+        intervalNanoseconds,
+        intervalNanoseconds / 10
+    );
+    dispatch_source_set_event_handler(timer, handler);
+    dispatch_resume(timer);
+    return timer;
 }
 
 static NSString *AKAudioObjectStringProperty(
@@ -220,7 +251,12 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 - (void)configureTargetAddress:(NSString *)address;
 - (BOOL)matchesTargetPeripheral:(CBPeripheral *)peripheral;
 @property(nonatomic) BOOL externalInput;
+@property(nonatomic) BOOL rc902Mode;
 - (void)setExternalRecording:(BOOL)recording;
+- (BOOL)sendCommandData:(NSData *)data;
+- (void)markRc902Ready;
+- (void)setRc902SessionActive:(BOOL)active sessionID:(uint8_t)sessionID;
+- (void)setRc902Error:(NSString *)message;
 - (void)start;
 - (void)refresh;
 - (BOOL)restart;
@@ -262,6 +298,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     BOOL _streaming;
     uint16_t _protocolVersion;
     uint8_t _selectedCodec;
+    uint8_t _activeCodec;
     uint8_t _sessionID;
     NSUInteger _frameSize;
     NSUInteger _connectionGeneration;
@@ -287,9 +324,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     AKAudioPCMStorage *_pcmStorage;
     NSMutableArray<NSNumber *> *_pendingSampleCounts;
     uint64_t _reportedSamples;
-    NSTimer *_playbackTimer;
+    dispatch_source_t _playbackTimer;
     AVAudioFormat *_sourceFormat;
-    NSTimer *_diagnosticsTimer;
+    dispatch_source_t _diagnosticsTimer;
     NSTimeInterval _lastDiagnosticsTime;
     AKAudioPacketTrace *_packetTrace;
 }
@@ -450,11 +487,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     }
     _lastDiagnosticsTime = NSProcessInfo.processInfo.systemUptime;
     __weak AKMacAudioBridge *weakSelf = self;
-    _diagnosticsTimer = [NSTimer timerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *timer) {
-        (void)timer;
+    _diagnosticsTimer = AKStartRepeatingTimer(NSEC_PER_SEC, ^{
         [weakSelf reportDiagnostics];
-    }];
-    [[NSRunLoop mainRunLoop] addTimer:_diagnosticsTimer forMode:NSRunLoopCommonModes];
+    });
 }
 
 - (void)reportDiagnostics {
@@ -502,6 +537,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
              value1:((_streaming || _microphoneOpened || _pendingAudioBuffers > 0) ? 1 : 0) |
                     (nativeActivity ? 2 : 0)
              value2:windowMilliseconds];
+    if (_rc902Mode && _shouldRun) {
+        [self emitEvent:AKAudioEventTimerTick data:nil value1:0 value2:0];
+    }
 }
 
 - (void)refresh {
@@ -531,9 +569,14 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 
 - (void)stop {
     [self finishPacketTrace];
-    [_diagnosticsTimer invalidate];
-    _diagnosticsTimer = nil;
+    if (_diagnosticsTimer != nil) {
+        dispatch_source_cancel(_diagnosticsTimer);
+        _diagnosticsTimer = nil;
+    }
     _shouldRun = NO;
+    if (_rc902Mode) {
+        [self emitEvent:AKAudioEventStopping data:nil value1:0 value2:0];
+    }
     [self closeMicrophoneIfNeeded];
     [self emitEvent:AKAudioEventSessionStop data:nil value1:0 value2:0];
     [self stopBluetooth];
@@ -544,7 +587,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 
 - (BOOL)restart {
     [self logAudio:@"Manually restarting macOS audio connections" error:NO];
-    // Run teardown and rebuild together on the main queue, so Bluetooth events
+    // Run teardown and rebuild together on the audio queue, so Bluetooth events
     // cannot enqueue into the old graph between these operations.
     [self stop];
     _shouldRun = YES;
@@ -560,7 +603,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     _connectionGeneration += 1;
     _central = [[CBCentralManager alloc]
         initWithDelegate:self
-        queue:dispatch_get_main_queue()
+        queue:AKAudioQueue()
         options:@{CBCentralManagerOptionShowPowerAlertKey: @NO}];
 }
 
@@ -637,7 +680,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     [_central connectPeripheral:peripheral options:nil];
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
+        AKAudioQueue(),
         ^{
             if (self->_shouldRun && self->_connectionGeneration == generation &&
                 self->_peripheral != nil &&
@@ -667,7 +710,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     NSUInteger generation = _connectionGeneration;
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
+        AKAudioQueue(),
         ^{
             if (!self->_shouldRun || self->_connectionGeneration != generation) {
                 return;
@@ -705,10 +748,54 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         ![_subscribedUUIDs containsObject:_controlUUID]) {
         return;
     }
+    if (_rc902Mode) {
+        _capabilitiesRequested = YES;
+        [self emitEvent:AKAudioEventNegotiate data:nil value1:0 value2:0];
+        return;
+    }
     const uint8_t bytes[] = {0x0a, 0x01, 0x00, 0x00, 0x03, 0x03};
     if ([self writeData:[NSData dataWithBytes:bytes length:sizeof(bytes)]]) {
         _capabilitiesRequested = YES;
     }
+}
+
+- (BOOL)sendCommandData:(NSData *)data {
+    if (data.length == 0) {
+        return NO;
+    }
+    return [self writeData:data];
+}
+
+- (void)markRc902Ready {
+    _capabilitiesConfirmed = YES;
+    if ([self ensureAudioOutput]) {
+        [self setState:AKAudioStateReady error:nil];
+        [self scheduleAudioIdle];
+    }
+}
+
+- (void)setRc902SessionActive:(BOOL)active sessionID:(uint8_t)sessionID {
+    if (!_rc902Mode || !_shouldRun) {
+        return;
+    }
+    if (active) {
+        if (_streaming) {
+            [self endVoiceSession];
+        }
+        _sessionID = sessionID;
+        [self resetAudioQueue];
+        [self beginVoiceSession];
+    } else {
+        [self endVoiceSession];
+    }
+}
+
+- (void)setRc902Error:(NSString *)message {
+    if (!_rc902Mode) {
+        return;
+    }
+    [self endVoiceSession];
+    [self setState:AKAudioStateError error:message ?: @"TCL RC902 voice error"];
 }
 
 - (BOOL)openMicrophone {
@@ -726,7 +813,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 }
 
 - (void)closeMicrophoneIfNeeded {
-    if (_externalInput) return;
+    if (_externalInput || _rc902Mode) return;
     if (!_microphoneOpened && !_streaming) {
         return;
     }
@@ -789,7 +876,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     }
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
+        AKAudioQueue(),
         ^{
             if (self->_drainRequested && self->_drainGeneration == generation &&
                 !self->_streaming) {
@@ -839,7 +926,10 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         return;
     }
     const uint8_t *bytes = data.bytes;
-    [self emitEvent:AKAudioEventControl data:nil value1:bytes[0] value2:0];
+    [self emitEvent:AKAudioEventControl data:data value1:bytes[0] value2:0];
+    if (_rc902Mode) {
+        return;
+    }
     switch (bytes[0]) {
         case 0x0b:
             [self handleCapabilities:data];
@@ -856,6 +946,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
                 [self closeMicrophoneIfNeeded];
                 return;
             }
+            _activeCodec = 0x02;
             _sessionID = data.length >= 4 ? bytes[3] : 0;
             [self beginVoiceSession];
             break;
@@ -866,7 +957,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
             if (data.length >= 7) {
                 int16_t predictor = (int16_t)(((uint16_t)bytes[4] << 8) | bytes[5]);
                 [self emitEvent:AKAudioEventCodecSync
-                           data:nil
+                           data:data
                          value1:predictor
                          value2:bytes[6]];
             }
@@ -885,8 +976,8 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         return;
     }
     if (!_streaming) {
-        if (_lastVoiceStopTime > 0 &&
-            CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3) {
+        if (_rc902Mode || (_lastVoiceStopTime > 0 &&
+            CFAbsoluteTimeGetCurrent() - _lastVoiceStopTime < 0.3)) {
             _audioWindow.afterStop += 1;
             [self emitEvent:AKAudioEventRejected data:nil value1:0 value2:0];
             return;
@@ -911,7 +1002,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     [self emitEvent:AKAudioEventPacket
                data:data
              value1:(int)_frameSize
-             value2:0];
+             value2:(int)(_rc902Mode ? _activeCodec : _selectedCodec)];
 }
 
 - (AudioDeviceID)driverDeviceID {
@@ -1096,11 +1187,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     _pendingAudioBuffers += 1;
     if (_playbackTimer == nil) {
         __weak AKMacAudioBridge *weakSelf = self;
-        _playbackTimer = [NSTimer timerWithTimeInterval:0.01 repeats:YES block:^(NSTimer *timer) {
-            (void)timer;
+        _playbackTimer = AKStartRepeatingTimer(10 * NSEC_PER_MSEC, ^{
             [weakSelf collectRenderedAudio];
-        }];
-        [[NSRunLoop mainRunLoop] addTimer:_playbackTimer forMode:NSRunLoopCommonModes];
+        });
     }
     return YES;
 }
@@ -1124,8 +1213,10 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
         [self emitEvent:AKAudioEventRendered data:nil value1:(int)count value2:0];
     }
     if (_pendingAudioBuffers == 0 && !_streaming) {
-        [_playbackTimer invalidate];
-        _playbackTimer = nil;
+        if (_playbackTimer != nil) {
+            dispatch_source_cancel(_playbackTimer);
+            _playbackTimer = nil;
+        }
         if (_drainRequested) {
             _drainRequested = NO;
             [self scheduleAudioIdle];
@@ -1138,7 +1229,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     // indefinitely (which can prevent idle sleep). Pause retains the graph.
     NSUInteger generation = ++_drainGeneration;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC),
-                   dispatch_get_main_queue(), ^{
+                   AKAudioQueue(), ^{
         if (self->_drainGeneration == generation && !self->_streaming &&
             !self->_microphoneOpened && self->_pendingAudioBuffers == 0) {
             if (self->_pcmStorage != nil)
@@ -1151,8 +1242,10 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 - (void)resetAudioQueue {
     // Stop the render thread before resetting its single-consumer state.
     [_engine stop];
-    [_playbackTimer invalidate];
-    _playbackTimer = nil;
+    if (_playbackTimer != nil) {
+        dispatch_source_cancel(_playbackTimer);
+        _playbackTimer = nil;
+    }
     if (_pendingAudioBuffers > 0) {
         [self emitEvent:AKAudioEventOutputReset data:nil value1:(int)_pendingAudioBuffers value2:0];
     }
@@ -1220,7 +1313,9 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     }
     NSString *advertisedName = advertisementData[CBAdvertisementDataLocalNameKey];
     NSArray<CBUUID *> *services = advertisementData[CBAdvertisementDataServiceUUIDsKey];
-    if ([services containsObject:_serviceUUID] || AKRemoteNameMatches(peripheral.name) ||
+    if ([services containsObject:_serviceUUID] ||
+        (_requiresTargetAddress && [self matchesTargetPeripheral:peripheral]) ||
+        AKRemoteNameMatches(peripheral.name) ||
         AKRemoteNameMatches(advertisedName)) {
         [self connectPeripheral:peripheral];
     }
@@ -1235,7 +1330,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     NSUInteger generation = _connectionGeneration;
     dispatch_after(
         dispatch_time(DISPATCH_TIME_NOW, (int64_t)(8 * NSEC_PER_SEC)),
-        dispatch_get_main_queue(),
+        AKAudioQueue(),
         ^{
             if (self->_shouldRun && self->_connectionGeneration == generation &&
                 self->_peripheral == peripheral && !self->_capabilitiesConfirmed) {
@@ -1375,7 +1470,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
             session:_sessionID flags:flags];
         if (first) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC),
-                dispatch_get_main_queue(), ^{ [self finishPacketTrace]; });
+                AKAudioQueue(), ^{ [self finishPacketTrace]; });
         }
     }
     if (audio) {
@@ -1407,7 +1502,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
     [trace seal];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         BOOL saved = [trace writeCSV];
-        dispatch_async(dispatch_get_main_queue(), ^{
+        dispatch_async(AKAudioQueue(), ^{
             [self logAudio:[NSString stringWithFormat:
                 @"macOS packet trace: callbacks=%lu saved=%d (one-shot capture ended)",
                 (unsigned long)trace.count, saved] error:!saved];
@@ -1440,7 +1535,7 @@ static NSData *AKParseBluetoothAddress(NSString *address) {
 void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externalInput,
                                const char *targetAddress) {
     __block AKMacAudioBridge *bridge = nil;
-    AKOnMainSync(^{
+    AKOnAudioQueueSync(^{
         bridge = [[AKMacAudioBridge alloc] initWithCallbacks:callbacks];
         bridge.externalInput = externalInput;
         [bridge configureTargetAddress:targetAddress == NULL ? nil :
@@ -1452,7 +1547,41 @@ void *axonkey_macos_audio_create(const AKAudioCallbacks *callbacks, bool externa
 void axonkey_macos_audio_set_recording(void *rawBridge, bool recording) {
     if (rawBridge == NULL) return;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ [bridge setExternalRecording:recording]; });
+    AKOnAudioQueueSync(^{ [bridge setExternalRecording:recording]; });
+}
+
+void axonkey_macos_audio_set_rc902_mode(void *rawBridge, bool rc902Mode) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnAudioQueueSync(^{ bridge.rc902Mode = rc902Mode; });
+}
+
+bool axonkey_macos_audio_send_command(void *rawBridge, const uint8_t *bytes, size_t length) {
+    if (rawBridge == NULL || bytes == NULL || length == 0) return false;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    NSData *payload = [NSData dataWithBytes:bytes length:length];
+    __block BOOL sent = NO;
+    AKOnAudioQueueSync(^{ sent = [bridge sendCommandData:payload]; });
+    return sent;
+}
+
+void axonkey_macos_audio_rc902_ready(void *rawBridge) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnAudioQueueSync(^{ [bridge markRc902Ready]; });
+}
+
+void axonkey_macos_audio_rc902_session_state(void *rawBridge, bool active, uint8_t sessionID) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    AKOnAudioQueueSync(^{ [bridge setRc902SessionActive:active sessionID:sessionID]; });
+}
+
+void axonkey_macos_audio_rc902_error(void *rawBridge, const char *message) {
+    if (rawBridge == NULL) return;
+    AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
+    NSString *text = message == NULL ? nil : [NSString stringWithUTF8String:message];
+    AKOnAudioQueueSync(^{ [bridge setRc902Error:text]; });
 }
 
 void axonkey_macos_audio_start(void *rawBridge) {
@@ -1460,7 +1589,7 @@ void axonkey_macos_audio_start(void *rawBridge) {
         return;
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ [bridge start]; });
+    AKOnAudioQueueSync(^{ [bridge start]; });
 }
 
 void axonkey_macos_audio_refresh(void *rawBridge) {
@@ -1468,14 +1597,14 @@ void axonkey_macos_audio_refresh(void *rawBridge) {
         return;
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ [bridge refresh]; });
+    AKOnAudioQueueSync(^{ [bridge refresh]; });
 }
 
 bool axonkey_macos_audio_restart(void *rawBridge) {
     if (rawBridge == NULL) return false;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     __block BOOL restarted = NO;
-    AKOnMainSync(^{ restarted = [bridge restart]; });
+    AKOnAudioQueueSync(^{ restarted = [bridge restart]; });
     return restarted;
 }
 
@@ -1484,14 +1613,14 @@ void axonkey_macos_audio_stop(void *rawBridge) {
         return;
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ [bridge stop]; });
+    AKOnAudioQueueSync(^{ [bridge stop]; });
 }
 
 void axonkey_macos_audio_destroy(void *rawBridge) {
     if (rawBridge == NULL) {
         return;
     }
-    AKOnMainSync(^{
+    AKOnAudioQueueSync(^{
         AKMacAudioBridge *bridge = (__bridge_transfer AKMacAudioBridge *)rawBridge;
         [bridge stop];
     });
@@ -1507,7 +1636,7 @@ int axonkey_macos_audio_state(void *rawBridge) {
     }
     __block int state = AKAudioStateError;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ state = [bridge currentState]; });
+    AKOnAudioQueueSync(^{ state = [bridge currentState]; });
     return state;
 }
 
@@ -1517,7 +1646,7 @@ bool axonkey_macos_audio_bluetooth_connected(void *rawBridge) {
     }
     __block BOOL connected = NO;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ connected = [bridge isBluetoothConnected]; });
+    AKOnAudioQueueSync(^{ connected = [bridge isBluetoothConnected]; });
     return connected;
 }
 
@@ -1525,7 +1654,7 @@ bool axonkey_macos_audio_request_rssi(void *rawBridge) {
     if (rawBridge == NULL) return false;
     __block BOOL connected = NO;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ connected = [bridge requestRSSI]; });
+    AKOnAudioQueueSync(^{ connected = [bridge requestRSSI]; });
     return connected;
 }
 
@@ -1535,7 +1664,7 @@ bool axonkey_macos_audio_forwarding(void *rawBridge) {
     }
     __block BOOL forwarding = NO;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ forwarding = [bridge isForwarding]; });
+    AKOnAudioQueueSync(^{ forwarding = [bridge isForwarding]; });
     return forwarding;
 }
 
@@ -1545,7 +1674,7 @@ size_t axonkey_macos_audio_copy_error(void *rawBridge, char *buffer, size_t capa
     }
     __block NSString *error = nil;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ error = [bridge currentError]; });
+    AKOnAudioQueueSync(^{ error = [bridge currentError]; });
     NSData *data = [error dataUsingEncoding:NSUTF8StringEncoding];
     if (data.length == 0) {
         buffer[0] = '\0';
@@ -1563,7 +1692,7 @@ bool axonkey_macos_audio_enqueue(void *rawBridge, const int16_t *samples, size_t
     }
     __block BOOL accepted = NO;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ accepted = [bridge enqueueSamples:samples count:count]; });
+    AKOnAudioQueueSync(^{ accepted = [bridge enqueueSamples:samples count:count]; });
     return accepted;
 }
 
@@ -1572,14 +1701,14 @@ void axonkey_macos_audio_set_gain_db(void *rawBridge, float gain_db) {
         return;
     }
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
-    AKOnMainSync(^{ [bridge setGainDecibels:gain_db]; });
+    AKOnAudioQueueSync(^{ [bridge setGainDecibels:gain_db]; });
 }
 
 bool axonkey_macos_audio_set_stretch_compensation(void *rawBridge, bool enabled) {
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     if (bridge == nil) return false;
     __block BOOL accepted = NO;
-    AKOnMainSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
+    AKOnAudioQueueSync(^{ accepted = [bridge setStretchCompensation:enabled]; });
     return accepted;
 }
 
@@ -1587,7 +1716,7 @@ bool axonkey_macos_audio_monitor(void *rawBridge, AKMonitorSnapshot *snapshot) {
     if (rawBridge == NULL || snapshot == NULL) return false;
     AKMacAudioBridge *bridge = (__bridge AKMacAudioBridge *)rawBridge;
     __block BOOL connected = NO;
-    AKOnMainSync(^{
+    AKOnAudioQueueSync(^{
         connected = [bridge requestRSSI];
         [bridge readMonitor:snapshot];
     });

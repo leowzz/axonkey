@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -21,4 +21,20 @@ test('NSIS preparation requires an explicit cache directory', () => {
   const result = spawnSync(process.execPath, ['scripts/prepare-windows-nsis.mjs'], { encoding: 'utf8' })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /Usage:/)
+})
+
+test('Windows NSIS installer never reads or modifies user or system Environment/Path', () => {
+  const template = readFileSync('src-tauri/windows/installer.nsi', 'utf8')
+  const tauriConfig = JSON.parse(readFileSync('src-tauri/tauri.conf.json', 'utf8'))
+  const windowsConfig = JSON.parse(readFileSync('src-tauri/tauri.windows.conf.json', 'utf8'))
+
+  assert.equal(windowsConfig.bundle?.windows?.nsis?.template, 'windows/installer.nsi')
+  assert.equal(windowsConfig.bundle?.windows?.nsis?.installerHooks, undefined)
+  assert.equal(tauriConfig.bundle?.windows?.nsis?.installerHooks, undefined)
+
+  assert.doesNotMatch(template, /\b(ReadReg\w*|WriteReg\w*|DeleteReg\w*)\b[^\r\n]*"Environment"/i)
+  assert.doesNotMatch(template, /Session Manager\\Environment/i)
+  assert.doesNotMatch(template, /\bEnVar::/i)
+  assert.doesNotMatch(template, /STR:Environment/i)
+  assert.doesNotMatch(template, /\bsetx\b/i)
 })

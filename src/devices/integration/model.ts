@@ -6,12 +6,45 @@ import { cmiotA15SupportPackage } from '../cmiot-a15-remote/definition.ts'
 import { xmBt29SupportPackage } from '../xm-bt-29-remote/definition.ts'
 import { obeRcuR5SupportPackage } from '../obe-rcu-r5-remote/definition.ts'
 import { rc313SupportPackage } from '../rc-313-remote/definition.ts'
+import { xboxSupportPackage } from '../xbox-controller/index.ts'
 import { tclRc802aSupportPackage } from '../tcl-rc802a-remote/definition.ts'
 import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
-import { xboxSupportPackage } from '../xbox-controller/index.ts'
+import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
+import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
+import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
+import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 
 export type { DeviceKind } from '../types.ts'
-export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
+export const deviceScreenSelectionId = '__screen__'
+export type ProfileDisplayMode = 'auto' | 'custom'
+export type ProfileDisplayConfig = {
+  mode: ProfileDisplayMode
+  line1: string
+  line2: string
+}
+export type DeviceDisplaySettings = {
+  brightness: number
+  sleepTimeoutSec: number
+  showKeyToast: boolean
+  showProfileToast: boolean
+}
+export const defaultProfileDisplay: ProfileDisplayConfig = {
+  mode: 'auto',
+  line1: '',
+  line2: '',
+}
+export const defaultDeviceDisplaySettings: DeviceDisplaySettings = {
+  brightness: 100,
+  sleepTimeoutSec: 180,
+  showKeyToast: true,
+  showProfileToast: true,
+}
+export type InstanceProfile = {
+  id: string
+  name: string
+  behaviors: Record<string, TriggerBehaviors>
+  display?: ProfileDisplayConfig
+}
 export type DeviceInstance = {
   id: string
   kind: DeviceKind
@@ -23,6 +56,7 @@ export type DeviceInstance = {
   cmiotA15RecordingMode?: 'hold' | 'click'
   quarborTarget?: string | null
   hideDriverMissingReminder?: boolean
+  display?: DeviceDisplaySettings
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
@@ -33,8 +67,8 @@ export type DeviceInformation = {
   status: 'pending' | 'ready' | 'retrying' | 'error' | 'disconnected'
   bluetoothName?: string | null
   batteryLevel?: number | null
-  modelNumber?: string | null
   manufacturer?: string | null
+  modelNumber?: string | null
   serialNumber?: string | null
   hardwareRevision?: string | null
   firmwareRevision?: string | null
@@ -76,37 +110,47 @@ export type DeviceSnapshot = {
   scanError: string | null
   scanning: boolean
 }
-export const mobileRemoteKinds = ['cmiotA15', 'xmBt29', 'rc313'] as const
+export const supportPackages: readonly DeviceSupportPackage[] = [
+  xiaomiRemoteSupportPackage,
+  cmiotA15SupportPackage,
+  xmBt29SupportPackage,
+  rc313SupportPackage,
+  obeRcuR5SupportPackage,
+  tclRc802aSupportPackage,
+  tclRc902nSupportPackage,
+  tclRc902vSupportPackage,
+  hisenseRcf3b65SupportPackage,
+  phicommDb1RSupportPackage,
+  kivoK18LiteSupportPackage,
+  xboxSupportPackage,
+]
+const mobileRemotePackages = supportPackages.filter(pkg =>
+  pkg.remoteView?.identities.some(identity => identity.softwareContains && !identity.informationRequired),
+)
+export const mobileRemoteKinds = mobileRemotePackages.map(pkg => pkg.kind)
+export const mobileRemoteFallbackKind = mobileRemotePackages.find(pkg =>
+  pkg.remoteView?.identities.some(identity => identity.softwareFallback),
+)!.kind
 export function isMobileRemoteDevice(device: Pick<DiscoveredDevice, 'vendorId' | 'productId'>) {
-  return device.vendorId === 0x0416 && device.productId === 0x0300
+  return mobileRemotePackages.some(pkg =>
+    pkg.remoteView!.identities.some(
+      identity => identity.vendorIds.includes(device.vendorId) && identity.productIds.includes(device.productId),
+    ),
+  )
 }
 export function isMobileRemoteKind(kind: DeviceKind | undefined): kind is (typeof mobileRemoteKinds)[number] {
   return kind !== undefined && mobileRemoteKinds.includes(kind as (typeof mobileRemoteKinds)[number])
 }
 export function mobileRemoteKindForSoftware(software: string | null | undefined): DeviceKind | null {
   if (!software) return null
-  if (software.includes('CMIOT3_B311')) return 'cmiotA15'
-  if (software.includes('XFRSD0D_M_R01_761')) return 'xmBt29'
-  if (software.includes('CMIOT18_B302')) return 'rc313'
-  return null
-}
-export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind | undefined): boolean {
-  if (kind === 'tclRc802a') {
-    return (
-      device.vendorId === 0x0416 &&
-      device.productId === 0x0301 &&
-      !!device.deviceInfo?.modelNumber?.includes('BT_RC802A') &&
-      !!device.deviceInfo?.manufacturer?.includes('TCL')
-    )
-  }
-  if (kind === 'tclRc902n') {
-    return (
-      device.vendorId === 0x0417 &&
-      device.productId === 0x0304 &&
-      !!device.deviceInfo?.softwareRevision?.includes('RC902N')
-    )
-  }
-  return device.kind === kind
+  return (
+    mobileRemotePackages.find(pkg =>
+      pkg.remoteView!.identities.some(
+        identity =>
+          identity.softwareContains && identity.softwareContains.split('|').some(marker => software.includes(marker)),
+      ),
+    )?.kind ?? null
+  )
 }
 export const emptySnapshot = (): DeviceSnapshot => ({
   store: { version: 1, revision: 0, instances: [] },
@@ -116,17 +160,42 @@ export const emptySnapshot = (): DeviceSnapshot => ({
   scanError: null,
   scanning: false,
 })
-export const supportPackages: readonly DeviceSupportPackage[] = [
-  xboxSupportPackage,
-  xiaomiRemoteSupportPackage,
-  cmiotA15SupportPackage,
-  xmBt29SupportPackage,
-  rc313SupportPackage,
-  obeRcuR5SupportPackage,
-  tclRc802aSupportPackage,
-  tclRc902nSupportPackage,
-]
 export const packageFor = (kind: DeviceKind) => supportPackages.find(p => p.kind === kind)!
+export function usesSingleLaneWorkspace(kind: DeviceKind | undefined) {
+  return kind !== undefined && packageFor(kind).workspaceLayout === 'single-lane'
+}
+export function usesHidVoice(kind: DeviceKind | undefined) {
+  const engine = kind && packageFor(kind).remoteView?.voice?.engine
+  return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc' || engine === 'tcl-rc802a.ico'
+}
+export function deviceMatchesKind(device: DiscoveredDevice, kind: DeviceKind) {
+  const identities = packageFor(kind).remoteView?.identities ?? []
+  if (!identities.some(identity => identity.informationRequired)) return device.kind === kind
+  return identities.some(
+    identity =>
+      identity.vendorIds.includes(device.vendorId) &&
+      identity.productIds.includes(device.productId) &&
+      [
+        [identity.modelContains, device.deviceInfo?.modelNumber],
+        [identity.manufacturerContains, device.deviceInfo?.manufacturer],
+        [identity.softwareContains, device.deviceInfo?.softwareRevision],
+      ].every(([marker, value]) => !marker || Boolean(value && marker.split('|').some(part => value.includes(part)))),
+  )
+}
+export function supportsWindowsDriver(kind: DeviceKind | undefined) {
+  return kind !== undefined && packageFor(kind).remoteView!.identities.some(identity => identity.windowsPrefix)
+}
+export function supportsDeviceInformation(kind: DeviceKind) {
+  const view = packageFor(kind).remoteView
+  return Boolean(
+    view?.voice ||
+    view?.identities.some(identity => identity.informationRequired || identity.windowsPrefix === 'BTHLEDEVICE'),
+  )
+}
+export function defaultRecordingMode(kind: DeviceKind): 'hold' | 'click' {
+  const modes = packageFor(kind).remoteView?.voice?.triggerModes ?? []
+  return modes.length && !modes.includes('click') ? 'hold' : 'click'
+}
 export const emptyTriggers = (): TriggerBehaviors => ({ click: [], doubleClick: [], longPress: [] })
 export function newInstance(kind: DeviceKind, binding: string | null): DeviceInstance {
   return {
@@ -135,7 +204,7 @@ export function newInstance(kind: DeviceKind, binding: string | null): DeviceIns
     name: packageFor(kind).name,
     binding,
     audioGainDb: 0,
-    cmiotA15RecordingMode: kind === 'xmBt29' || kind === 'rc313' || kind === 'obeRcuR5' ? 'hold' : 'click',
+    cmiotA15RecordingMode: defaultRecordingMode(kind),
     enabled: true,
     activeProfileId: 'default',
     profiles: [{ id: 'default', name: '默认配置', behaviors: {} }],
@@ -156,7 +225,7 @@ export function stateLabel(state?: string): string {
         needsRebind: '未连接 · 需重新绑定',
         opening: '正在连接',
         error: '需要处理',
-        exclusive: '独占拦截中',
+        exclusive: '拦截中',
         unsupported: '等待输入适配',
       } as Record<string, string>
     )[state ?? ''] ?? '等待启动'
@@ -175,4 +244,52 @@ export function instanceState(instance: DeviceInstance, snapshot: DeviceSnapshot
     return state === 'needsRebind' ? state : 'disconnected'
   }
   return state
+}
+
+export const deviceCardOrderKey = 'axonkey.device-hub-card-order.v1'
+export const systemMouseCardId = 'system-mouse'
+
+export function getStoredDeviceCardOrder(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const value = JSON.parse(window.localStorage.getItem(deviceCardOrderKey) ?? '[]')
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+export function saveDeviceCardOrder(order: string[]) {
+  try {
+    window.localStorage.setItem(deviceCardOrderKey, JSON.stringify(order))
+  } catch {
+    /* UI preference is best-effort. */
+  }
+}
+
+export function buildWorkspaceDeviceOptions(
+  instances: DeviceInstance[],
+  savedOrder: string[] = getStoredDeviceCardOrder(),
+) {
+  const byId = new Map(instances.map(item => [item.id, item]))
+  const allIds = [...instances.map(item => item.id), systemMouseCardId]
+  const available = new Set(allIds)
+  const orderedIds = [...savedOrder.filter(id => available.has(id)), ...allIds.filter(id => !savedOrder.includes(id))]
+  const nameCounts = new Map<string, number>([['系统鼠标', 1]])
+  for (const item of instances) {
+    nameCounts.set(item.name, (nameCounts.get(item.name) ?? 0) + 1)
+  }
+  return orderedIds.map(id => {
+    const item = byId.get(id)
+    if (!item) {
+      return { id: systemMouseCardId, name: '系统鼠标', artwork: '/mouse-device.svg' }
+    }
+    const duplicate = (nameCounts.get(item.name) ?? 0) > 1
+    return {
+      id: item.id,
+      name: item.name,
+      artwork: packageFor(item.kind).artwork,
+      ...(duplicate ? { detail: `${packageFor(item.kind).model} · ${item.id.slice(-4)}` } : {}),
+    }
+  })
 }

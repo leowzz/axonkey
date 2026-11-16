@@ -1,7 +1,7 @@
 import { mkdirSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const inputArgs = process.argv.slice(2)
@@ -41,21 +41,30 @@ const targetRoot = target
   : join(root, 'src-tauri', 'target', profile)
 
 function runCargo(args) {
-  const result = spawnSync('cargo', ['build', '--manifest-path', cargoManifest, '--bin', 'axonkey-cli', ...args], {
-    cwd: root,
-    env: process.env,
-    stdio: 'inherit',
+  return new Promise((resolve, reject) => {
+    const child = spawn('cargo', ['build', '--manifest-path', cargoManifest, '--bin', 'axonkey-cli', ...args], {
+      cwd: root,
+      env: process.env,
+      stdio: 'inherit',
+    })
+    child.once('error', reject)
+    child.once('close', (code, signal) => {
+      if (code === 0) {
+        resolve()
+      } else {
+        reject(new Error(`cargo build failed with ${signal ? `signal ${signal}` : `exit code ${code}`}`))
+      }
+    })
   })
-  if (result.status !== 0) process.exit(result.status ?? 1)
 }
 
-function buildCliBinary() {
+async function buildCliBinary() {
   if (target === 'universal-apple-darwin') {
     const architectures = ['aarch64-apple-darwin', 'x86_64-apple-darwin']
-    const binaries = architectures.map((architecture) => {
-      runCargo([...cargoProfileArgs, '--target', architecture])
+    const binaries = await Promise.all(architectures.map(async (architecture) => {
+      await runCargo([...cargoProfileArgs, '--target', architecture])
       return join(root, 'src-tauri', 'target', architecture, profile, 'axonkey-cli')
-    })
+    }))
     const universalBinary = join(targetRoot, 'axonkey-cli')
     mkdirSync(targetRoot, { recursive: true })
     const lipo = spawnSync('lipo', ['-create', ...binaries, '-output', universalBinary], {
@@ -67,10 +76,15 @@ function buildCliBinary() {
     return
   }
 
-  runCargo([...cargoProfileArgs, ...(target ? ['--target', target] : [])])
+  await runCargo([...cargoProfileArgs, ...(target ? ['--target', target] : [])])
 }
 
-buildCliBinary()
+try {
+  await buildCliBinary()
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error))
+  process.exit(1)
+}
 
 if (signingIdentity) {
   tauriArgs.push('--config', JSON.stringify({

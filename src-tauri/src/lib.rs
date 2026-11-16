@@ -2,6 +2,8 @@ mod app_restart;
 mod audio_service;
 mod backup_files;
 mod cli_ipc;
+mod connection_troubleshoot;
+pub mod device_capture;
 mod devices;
 mod driver_migration;
 mod foreground;
@@ -254,10 +256,113 @@ fn show_main_window(app: &tauri::AppHandle) {
     #[cfg(target_os = "macos")]
     let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
+    #[cfg(target_os = "windows")]
+    warn_if_isolated_windows_desktop();
+
     if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+    }
+}
+
+// Windows 10/11 Virtual Desktops (Win+Tab) still bind processes to the `Default`
+// Win32 desktop. Sandboxes created with `CreateDesktopW` (such as `exebox-*`)
+// run without `explorer.exe` / `Shell_TrayWnd`, so windows and tray icons are
+// invisible while `tauri_plugin_single_instance` blocks normal desktop launches.
+#[cfg(any(target_os = "windows", test))]
+fn is_isolated_windows_desktop(name: &str) -> bool {
+    let trimmed = name.trim();
+    !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("Default")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_thread_desktop_name() -> Option<String> {
+    use windows::Win32::System::Threading::GetCurrentThreadId;
+
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn GetThreadDesktop(dw_thread_id: u32) -> *mut std::ffi::c_void;
+        fn GetUserObjectInformationW(
+            h_obj: *mut std::ffi::c_void,
+            n_index: i32,
+            pv_info: *mut std::ffi::c_void,
+            n_length: u32,
+            lpn_length_needed: *mut u32,
+        ) -> i32;
+    }
+
+    const UOI_NAME: i32 = 2;
+    let mut buf = [0u16; 128];
+    let mut needed = 0u32;
+    let ok = unsafe {
+        let desk = GetThreadDesktop(GetCurrentThreadId());
+        !desk.is_null()
+            && GetUserObjectInformationW(
+                desk,
+                UOI_NAME,
+                buf.as_mut_ptr().cast(),
+                (buf.len() * std::mem::size_of::<u16>()) as u32,
+                &mut needed,
+            ) != 0
+    };
+    if !ok {
+        return None;
+    }
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..end]))
+}
+
+#[cfg(target_os = "windows")]
+fn warn_if_isolated_windows_desktop() {
+    if let Some(desktop) =
+        windows_thread_desktop_name().filter(|name| is_isolated_windows_desktop(name))
+    {
+        log::warn!(
+            target: "axonkey::runtime",
+            "Axonkey is running inside an isolated Windows desktop ({desktop}); GUI windows and tray icons will not appear on the main desktop."
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_interactive_windows_desktop() {
+    if std::env::var_os("AXONKEY_ALLOW_ISOLATED_DESKTOP").is_some() {
+        return;
+    }
+    let Some(desktop) =
+        windows_thread_desktop_name().filter(|name| is_isolated_windows_desktop(name))
+    else {
+        return;
+    };
+    let message = format!(
+        "拒绝在隔离的 Windows 桌面 ({desktop}) 中启动 Axonkey：该环境没有主桌面任务栏，窗体与托盘图标均不可见，且继续驻留会占用全局单实例锁与设备通道，导致主桌面也无法打开软件。请改在系统独立终端（如 Win+R 输入 wt 或 powershell）中运行。"
+    );
+    eprintln!("\n[Axonkey] {message}\n");
+    append_early_windows_runtime_log(&message);
+    std::process::exit(1);
+}
+
+#[cfg(target_os = "windows")]
+fn append_early_windows_runtime_log(message: &str) {
+    use std::io::Write;
+
+    let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") else {
+        return;
+    };
+    let log_dir = std::path::PathBuf::from(local_app_data)
+        .join("com.axonkey.app")
+        .join("logs");
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let log_path = log_dir.join(format!("{RUNTIME_LOG_FILE_BASENAME}.log"));
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        let _ = writeln!(file, "[ERROR][axonkey::runtime] {message}");
     }
 }
 
@@ -930,19 +1035,7 @@ async fn uninstall_bound_device_drivers(
             .store
             .instances
             .iter()
-            .filter(|instance| {
-                matches!(
-                    instance.kind.as_str(),
-                    "rc003"
-                        | "cmiotA15"
-                        | "xmBt29"
-                        | "rc313"
-                        | "obeRcuR5"
-                        | "tclRc802a"
-                        | "tclRc902n"
-                        | "xboxBluetooth"
-                ) && instance.binding.is_some()
-            })
+            .filter(|instance| supports_quarbor(&instance.kind) && instance.binding.is_some())
             .map(|instance| instance.id.clone())
             .collect::<Vec<_>>();
         let resource_dir = app
@@ -1201,6 +1294,16 @@ struct SystemProbe {
 }
 
 #[cfg(target_os = "windows")]
+fn supports_quarbor(kind: &str) -> bool {
+    devices::descriptor_registry::descriptor_for_kind(kind).is_some_and(|descriptor| {
+        descriptor
+            .identities
+            .iter()
+            .any(|identity| identity.attributes.contains_key("windows-prefix"))
+    })
+}
+
+#[cfg(target_os = "windows")]
 fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<String, String> {
     use tauri::Manager;
 
@@ -1209,20 +1312,7 @@ fn resolve_quarbor_target(app: &tauri::AppHandle, instance_id: &str) -> Result<S
         .store
         .instances
         .iter()
-        .find(|instance| {
-            instance.id == instance_id
-                && matches!(
-                    instance.kind.as_str(),
-                    "rc003"
-                        | "cmiotA15"
-                        | "xmBt29"
-                        | "rc313"
-                        | "obeRcuR5"
-                        | "tclRc802a"
-                        | "tclRc902n"
-                        | "xboxBluetooth"
-                )
-        })
+        .find(|instance| instance.id == instance_id && supports_quarbor(&instance.kind))
         .ok_or_else(|| "未找到要安装驱动的设备实例。".to_string())?;
     if instance.binding.is_none() {
         return Err("请先绑定物理设备。".into());
@@ -1252,18 +1342,7 @@ fn resolve_installed_quarbor_target(
         .iter()
         .find(|instance| instance.id == instance_id)
         .ok_or_else(|| "未找到要解除绑定的设备实例。".to_string())?;
-    if !matches!(
-        instance.kind.as_str(),
-        "rc003"
-            | "cmiotA15"
-            | "xmBt29"
-            | "rc313"
-            | "obeRcuR5"
-            | "tclRc802a"
-            | "tclRc902n"
-            | "xboxBluetooth"
-    ) || instance.binding.is_none()
-    {
+    if !supports_quarbor(&instance.kind) || instance.binding.is_none() {
         return Ok(None);
     }
     let devices = windows_driver_devices::list()?;
@@ -1332,36 +1411,59 @@ fn probe_audio_state(
     audio_service.status(instance_id.as_deref())
 }
 
-fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
+pub(crate) fn audio_targets(snapshot: &DeviceSnapshot) -> Vec<AudioTarget> {
     snapshot
         .store
         .instances
         .iter()
-        .filter(|instance| {
-            instance.kind == "rc003"
-                || (cfg!(any(windows, target_os = "macos"))
-                    && matches!(
-                        instance.kind.as_str(),
-                        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-                    ))
-        })
-        .map(|instance| {
-            let voice_target = instance.voice_target.clone().or_else(|| {
-                instance.binding.as_ref().and_then(|binding| {
-                    snapshot
-                        .discovered
-                        .iter()
-                        .find(|device| &device.id == binding)
-                        .and_then(|device| device.bluetooth_address.clone())
-                })
+        .filter(|instance| instance.binding.is_some())
+        .filter(
+            |instance| match devices::descriptor_registry::voice_engine(&instance.kind) {
+                Some("rc003-atvv" | "tcl-rc902v-atvv") => true,
+                Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico") => {
+                    cfg!(any(windows, target_os = "macos"))
+                }
+                _ => false,
+            },
+        )
+        .filter_map(|instance| {
+            let bound_device = instance.binding.as_ref().and_then(|binding| {
+                snapshot
+                    .discovered
+                    .iter()
+                    .find(|device| &device.id == binding)
             });
-            AudioTarget {
+            let information_ok =
+                !devices::descriptor_registry::requires_information(&instance.kind)
+                    || bound_device.is_none_or(|device| {
+                        devices::descriptor_registry::matches_information(
+                            &instance.kind,
+                            device.vendor_id,
+                            device.product_id,
+                            device.device_info.model_number.as_deref(),
+                            device.device_info.manufacturer.as_deref(),
+                            device.device_info.software_revision.as_deref(),
+                        )
+                    });
+            let voice_target =
+                if matches!(
+                    devices::descriptor_registry::voice_engine(&instance.kind),
+                    Some("rc003-atvv" | "tcl-rc902v-atvv")
+                ) {
+                    Some(instance.voice_target.clone().or_else(|| {
+                        bound_device.and_then(|device| device.bluetooth_address.clone())
+                    })?)
+                } else {
+                    None
+                };
+            Some(AudioTarget {
                 instance_id: instance.id.clone(),
                 kind: instance.kind.clone(),
                 voice_target,
                 gain_db: instance.audio_gain_db,
-                enabled: instance.enabled && instance.binding.is_some(),
-            }
+                recording_mode: instance.cmiot_a15_recording_mode,
+                enabled: instance.enabled && information_ok,
+            })
         })
         .collect()
 }
@@ -1540,6 +1642,8 @@ async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 fn shutdown_device_services(app: &tauri::AppHandle) {
+    device_capture::set_workbench_active(false);
+    let _ = device_capture::stop_session();
     if let Some(service) = app.try_state::<DeviceManager>() {
         service.shutdown();
     }
@@ -1552,20 +1656,234 @@ fn shutdown_device_services(app: &tauri::AppHandle) {
     }
 }
 
+fn pause_managed_pipes_for_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(input) = app.try_state::<InputService>() {
+            let _ = input.pause_for_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.pause_for_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+fn resume_managed_pipes_after_capture(app: &tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    if !device_capture::is_workbench_active() && !device_capture::session_status().active {
+        if let Some(input) = app.try_state::<InputService>() {
+            input.resume_after_driver_migration();
+        }
+        if let Some(manager) = app.try_state::<DeviceManager>() {
+            manager.resume_after_driver_migration();
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = app;
+}
+
+#[tauri::command]
+async fn capture_set_workbench_active(app: tauri::AppHandle, active: bool) -> Result<bool, String> {
+    device_capture::set_workbench_active(active);
+    if active {
+        pause_managed_pipes_for_capture(&app);
+        Ok(true)
+    } else {
+        let _ = tauri::async_runtime::spawn_blocking(device_capture::stop_session).await;
+        resume_managed_pipes_after_capture(&app);
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+async fn capture_list_candidates(
+    include_gatt: Option<bool>,
+) -> Result<Vec<device_capture::CaptureCandidate>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        device_capture::list_candidates(include_gatt.unwrap_or(false))
+    })
+    .await
+    .map_err(|error| format!("枚举采集设备任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_attach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+    allow_caution: Option<bool>,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    #[cfg(target_os = "windows")]
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-install").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::attach_driver(
+            &instance_id,
+            allow_caution.unwrap_or(false),
+            false,
+            resource_dir.as_deref(),
+            log_path.as_deref(),
+        )
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("挂载拦截驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+async fn capture_detach_driver(
+    app: tauri::AppHandle,
+    instance_id: String,
+) -> Result<device_capture::CaptureDriverActionResult, String> {
+    pause_managed_pipes_for_capture(&app);
+    #[cfg(target_os = "windows")]
+    let app_for_task = app.clone();
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(target_os = "windows")]
+        let (resource_dir, log_path) = (
+            app_for_task.path().resource_dir().ok(),
+            driver_log_path(&app_for_task, "input", "capture-uninstall").ok(),
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (resource_dir, log_path): (
+            Option<std::path::PathBuf>,
+            Option<std::path::PathBuf>,
+        ) = (None, None);
+        device_capture::detach_driver(&instance_id, resource_dir.as_deref(), log_path.as_deref())
+    })
+    .await;
+    resume_managed_pipes_after_capture(&app);
+    task_result.map_err(|error| format!("恢复系统驱动任务异常：{error}"))?
+}
+
+#[tauri::command]
+fn capture_parse_draft_svg(
+    svg_content: String,
+) -> Result<device_capture::ParsedCaptureDraft, String> {
+    device_capture::parse_draft_svg(&svg_content)
+}
+
+#[tauri::command]
+async fn capture_start_session(
+    app: tauri::AppHandle,
+    target_id: String,
+    instance_id: String,
+    passthrough_standard_keys: Option<bool>,
+) -> Result<device_capture::CaptureSessionStatus, String> {
+    use tauri::Emitter;
+
+    pause_managed_pipes_for_capture(&app);
+    let app_for_events = app.clone();
+    let sink = std::sync::Arc::new(move |event: device_capture::CaptureEvent| {
+        let disconnected = matches!(
+            &event,
+            device_capture::CaptureEvent::Status {
+                connected: false,
+                ..
+            }
+        );
+        let _ = app_for_events.emit(device_capture::CAPTURE_EVENT_NAME, event);
+        if disconnected {
+            resume_managed_pipes_after_capture(&app_for_events);
+        }
+    });
+    let task_result = tauri::async_runtime::spawn_blocking(move || {
+        device_capture::start_session(
+            target_id,
+            instance_id,
+            passthrough_standard_keys.unwrap_or(false),
+            sink,
+        )
+    })
+    .await
+    .map_err(|error| format!("启动输入采集任务异常：{error}"))?;
+
+    if task_result.is_err() {
+        resume_managed_pipes_after_capture(&app);
+    }
+    task_result
+}
+
+#[tauri::command]
+async fn capture_stop_session(app: tauri::AppHandle) -> Result<bool, String> {
+    let result = tauri::async_runtime::spawn_blocking(device_capture::stop_session)
+        .await
+        .map_err(|error| format!("停止输入采集任务异常：{error}"))?;
+    resume_managed_pipes_after_capture(&app);
+    result
+}
+
+#[tauri::command]
+fn capture_arm_key(input_id: Option<String>) -> Result<bool, String> {
+    device_capture::arm_key(input_id)
+}
+
+#[tauri::command]
+fn capture_set_live_preview_svg(svg_content: Option<String>) -> Result<bool, String> {
+    device_capture::set_live_preview_svg(svg_content)
+}
+
+#[tauri::command]
+fn capture_compile_svg(
+    draft_svg: String,
+    candidate: Option<device_capture::CaptureCandidate>,
+    samples: Vec<device_capture::CapturedKeySample>,
+    target_status: Option<String>,
+) -> Result<device_capture::CompiledCaptureResult, String> {
+    device_capture::compile_svg(
+        &draft_svg,
+        candidate.as_ref(),
+        &samples,
+        target_status.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn capture_save_export(
+    svg_path: String,
+    svg_content: String,
+    markdown_path: Option<String>,
+    markdown_content: Option<String>,
+) -> Result<bool, String> {
+    device_capture::save_export(
+        &svg_path,
+        &svg_content,
+        markdown_path.as_deref(),
+        markdown_content.as_deref(),
+    )
+}
+
+fn apply_gatt_recording_status(snapshot: &mut DeviceSnapshot, audio_service: &AudioServiceManager) {
+    for instance in &snapshot.store.instances {
+        if matches!(
+            devices::descriptor_registry::voice_engine(&instance.kind),
+            Some("rc003-atvv" | "tcl-rc902v-atvv")
+        ) {
+            if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
+                status.recording = audio_service.status(Some(&instance.id)).forwarding;
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn device_snapshot(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> DeviceSnapshot {
     let mut snapshot = manager.snapshot();
-    audio_service.sync_instances(&audio_targets(&snapshot));
-    for instance in &snapshot.store.instances {
-        if instance.kind == "rc003" {
-            if let Some(status) = snapshot.runtime.get_mut(&instance.id) {
-                status.recording = audio_service.status(Some(&instance.id)).forwarding;
-            }
-        }
-    }
+    apply_gatt_recording_status(&mut snapshot, &audio_service);
     snapshot
 }
 
@@ -1576,8 +1894,9 @@ fn put_device_instance(
     manager: tauri::State<'_, DeviceManager>,
     audio_service: tauri::State<'_, AudioServiceManager>,
 ) -> Result<DeviceSnapshot, String> {
-    let snapshot = manager.put(revision, instance)?;
+    let mut snapshot = manager.put(revision, instance)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
+    apply_gatt_recording_status(&mut snapshot, &audio_service);
     Ok(snapshot)
 }
 
@@ -1591,6 +1910,11 @@ fn remove_device_instance(
     let snapshot = manager.remove(revision, &id)?;
     audio_service.sync_instances(&audio_targets(&snapshot));
     Ok(snapshot)
+}
+
+#[tauri::command]
+fn render_kivo_oled_preview(line1: String, line2: String) -> Vec<u8> {
+    devices::kivo_k18_lite::font::render_two_lines_128x32(&line1, &line2).to_vec()
 }
 
 #[tauri::command]
@@ -1746,6 +2070,9 @@ fn start_device_services(app: &tauri::AppHandle) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    ensure_interactive_windows_desktop();
+
     tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -1934,17 +2261,32 @@ pub fn run() {
             device_snapshot,
             foreground::foreground_applications,
             foreground::resolve_application_path,
+            foreground::application_icons,
             refresh_device_information,
             toggle_device_recording,
             restart_app,
             put_device_instance,
             remove_device_instance,
             reorder_device_instances,
+            render_kivo_oled_preview,
             write_mapping_file,
             backup_files::open_backup_location,
+            cli_ipc::cli_executable_path,
             cli_ipc::cli_poll_requests,
             cli_ipc::cli_write_response,
             cli_ipc::cli_cancel_request,
+            connection_troubleshoot::diagnose_connection_issues,
+            capture_set_workbench_active,
+            capture_list_candidates,
+            capture_attach_driver,
+            capture_detach_driver,
+            capture_parse_draft_svg,
+            capture_start_session,
+            capture_stop_session,
+            capture_arm_key,
+            capture_set_live_preview_svg,
+            capture_compile_svg,
+            capture_save_export,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Axonkey")
@@ -1960,6 +2302,157 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{app_bundle_for_executable, args_request_autostart, rc003_connected};
+
+    #[test]
+    fn audio_targets_select_voice_backends_and_preserve_instance_settings() {
+        let instances = super::devices::descriptor_registry::KINDS
+            .iter()
+            .copied()
+            .chain(["unknown"])
+            .map(|kind| {
+                serde_json::from_value(serde_json::json!({
+                    "id": kind,
+                    "kind": kind,
+                    "name": kind,
+                    "binding": "physical-device",
+                    "voiceTarget": "AA:BB:CC:DD:EE:FF",
+                    "audioGainDb": 6,
+                    "enabled": kind != "xmBt29",
+                    "profiles": [],
+                    "activeProfileId": "default"
+                }))
+                .unwrap()
+            })
+            .collect();
+        let snapshot = super::DeviceSnapshot {
+            store: super::input_service::managed::Store {
+                instances,
+                ..Default::default()
+            },
+            discovered: Vec::new(),
+            runtime: Default::default(),
+            error: None,
+            scan_error: None,
+            scanning: false,
+        };
+        let targets = super::audio_targets(&snapshot);
+        let expected = if cfg!(any(windows, target_os = "macos")) {
+            vec![
+                "rc003",
+                "cmiotA15",
+                "xmBt29",
+                "rc313",
+                "obeRcuR5",
+                "tclRc802a",
+                "tclRc902n",
+                "tclRc902v",
+            ]
+        } else {
+            vec!["rc003", "tclRc902n", "tclRc902v"]
+        };
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        for target in targets {
+            let address = matches!(
+                super::devices::descriptor_registry::voice_engine(&target.kind),
+                Some("rc003-atvv" | "tcl-rc902v-atvv")
+            )
+            .then_some("AA:BB:CC:DD:EE:FF");
+            assert_eq!(target.voice_target.as_deref(), address);
+            assert_eq!(target.gain_db, 6);
+            assert_eq!(target.enabled, target.kind != "xmBt29");
+        }
+    }
+
+    #[test]
+    fn audio_targets_wait_for_binding_and_rc003_address_but_keep_disabled_instances() {
+        let instance =
+            |id: &str, kind: &str, binding: Option<&str>, address: Option<&str>, enabled| {
+                serde_json::from_value(serde_json::json!({
+                    "id": id, "kind": kind, "name": id, "binding": binding,
+                    "voiceTarget": address, "enabled": enabled,
+                    "profiles": [], "activeProfileId": "default"
+                }))
+                .unwrap()
+            };
+        let mut snapshot = super::DeviceSnapshot {
+            store: super::input_service::managed::Store {
+                instances: vec![
+                    instance("unbound", "rc003", None, Some("AA:BB:CC:DD:EE:01"), true),
+                    instance("unresolved", "rc003", Some("physical-rc003"), None, true),
+                    instance(
+                        "disabled",
+                        "rc003",
+                        Some("physical-other"),
+                        Some("AA:BB:CC:DD:EE:02"),
+                        false,
+                    ),
+                    instance("pcm", "cmiotA15", Some("physical-pcm"), None, true),
+                    instance("unbound-pcm", "cmiotA15", None, None, true),
+                ],
+                ..Default::default()
+            },
+            discovered: Vec::new(),
+            runtime: Default::default(),
+            error: None,
+            scan_error: None,
+            scanning: false,
+        };
+        let targets = super::audio_targets(&snapshot);
+        let expected = if cfg!(any(windows, target_os = "macos")) {
+            vec!["disabled", "pcm"]
+        } else {
+            vec!["disabled"]
+        };
+        assert_eq!(
+            targets
+                .iter()
+                .map(|target| target.instance_id.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert!(!targets[0].enabled);
+        snapshot
+            .discovered
+            .push(super::input_service::managed::Discovered {
+                id: "physical-rc003".into(),
+                kind: "rc003".into(),
+                name: "RC003".into(),
+                transport: "Bluetooth".into(),
+                identity_quality: "serial".into(),
+                vendor_id: 0x2717,
+                product_id: 0x32b8,
+                connected: true,
+                paired: true,
+                bluetooth_address: Some("AA:BB:CC:DD:EE:03".into()),
+                pairing_id: None,
+                hid_instance_id: None,
+                device_info: Default::default(),
+            });
+        let resolved = super::audio_targets(&snapshot)
+            .into_iter()
+            .find(|target| target.instance_id == "unresolved")
+            .unwrap();
+        assert_eq!(resolved.voice_target.as_deref(), Some("AA:BB:CC:DD:EE:03"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn quarbor_commands_use_declared_windows_identities() {
+        for kind in super::devices::descriptor_registry::KINDS {
+            assert_eq!(
+                super::supports_quarbor(kind),
+                !super::devices::descriptor_registry::uses_vendor_usb_hid(kind),
+                "{kind}"
+            );
+        }
+        assert!(!super::supports_quarbor("unknown"));
+    }
 
     #[test]
     fn recognizes_only_the_autostart_launch_argument() {
@@ -1990,6 +2483,35 @@ mod tests {
         assert_eq!(
             app_bundle_for_executable(std::path::Path::new("/tmp/axonkey")),
             None
+        );
+    }
+
+    #[test]
+    fn detects_non_default_isolated_windows_desktops() {
+        assert!(!super::is_isolated_windows_desktop(""));
+        assert!(!super::is_isolated_windows_desktop("Default"));
+        assert!(!super::is_isolated_windows_desktop("default"));
+        assert!(super::is_isolated_windows_desktop(
+            "exebox-CRC73DZUUINT6EMROH7UDNSSIH"
+        ));
+    }
+
+    #[test]
+    fn render_kivo_oled_preview_returns_exact_512_byte_1bpp_framebuffer() {
+        let blank = super::render_kivo_oled_preview(String::new(), String::new());
+        assert_eq!(blank.len(), super::devices::kivo_k18_lite::FRAME_BYTES);
+        assert!(blank.iter().all(|&b| b == 0));
+
+        let rendered =
+            super::render_kivo_oled_preview("Kivo K18 Lite".into(), "悬浮终端".into());
+        assert_eq!(rendered.len(), 512);
+        assert_eq!(
+            rendered.as_slice(),
+            super::devices::kivo_k18_lite::font::render_two_lines_128x32(
+                "Kivo K18 Lite",
+                "悬浮终端"
+            )
+            .as_slice()
         );
     }
 }

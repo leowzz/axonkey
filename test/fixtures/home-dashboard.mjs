@@ -10,13 +10,19 @@ function loadComponent(name) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
   }).outputText
   vm.runInNewContext(source, {
-    module, exports: module.exports,
+    module,
+    exports: module.exports,
+    document: { activeElement: null },
+    window: { addEventListener() {}, removeEventListener() {}, setTimeout, clearTimeout },
+    Element: class {},
+    HTMLElement: class {},
     require: dependency => dependency.endsWith('.css') ? {} : require(dependency),
   })
   return module.exports
 }
 export const { HomeDashboard } = loadComponent('HomeDashboard')
 export const { AppBottomBar } = loadComponent('AppBottomBar')
+export const { AppSettingsPanel } = loadComponent('AppSettingsPanel')
 export const base = {
   nativeRuntime: true,
   microphoneDriverAbnormal: false,

@@ -3,6 +3,7 @@ import test from 'node:test'
 import { createBehavior, createEmptyBehaviorMap, createMappingExport, parseMappingImport, parseStoredBehaviors } from '../src/behaviorModel.ts'
 import { behaviorToWorkflowStep, behaviorsToWorkflow, clearWorkflowLane, insertedWorkflowSteps, isWorkflowLaneDisabled, updateWorkflowInput, workflowBranches, workflowToBehaviors } from '../src/components/workflowBehaviorBridge.ts'
 import { workflowBehaviorProperties } from '../src/components/workflowStepEditing.ts'
+import { macosShortcutPresets } from '../src/macosShortcutPresets.ts'
 
 const label = behavior => behavior.type
 const empty = () => ({ click: [], doubleClick: [], longPress: [] })
@@ -75,6 +76,26 @@ test('toolbox actions use the same key tokens and macro execution order as the o
       assert.ok(read(preset)[0].enabled)
     }
   }
+})
+
+test('macOS shortcuts save as ordinary shortcut steps and survive export and reload', () => {
+  const expected = {
+    focusDock: ['Ctrl', 'F3'],
+    openControlCenter: ['Fn', 'C'],
+    switchToPreviousApp: ['Win', 'Tab'],
+    openMissionControl: ['Ctrl', 'Up'],
+  }
+  const actions = macosShortcutPresets('macos')
+  assert.deepEqual(actions.map(action => action.preset), Object.keys(expected))
+  assert.deepEqual(macosShortcutPresets('windows'), [])
+  const workflow = behaviorsToWorkflow(empty(), label)
+  workflowBranches(workflow).click = actions.flatMap(({ preset }) => insertedWorkflowSteps(palette(preset), 'macos', label))
+  const saved = workflowToBehaviors(workflow)
+  assert.deepEqual(saved.click, Object.entries(expected).map(([id, keys]) => ({ id, enabled: true, type: 'shortcut', keys })))
+
+  const map = updateWorkflowInput(createEmptyBehaviorMap(), 'menu', saved)
+  const imported = parseMappingImport(JSON.stringify(createMappingExport(map, true)))
+  assert.deepEqual(workflowToBehaviors(behaviorsToWorkflow(imported.behaviors.menu, label)), saved)
 })
 
 test('incomplete drafts, including text-and-enter macros, never leak into stored actions', () => {

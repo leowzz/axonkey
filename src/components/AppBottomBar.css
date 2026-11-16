@@ -7,10 +7,11 @@
   height: 36px;
   min-height: 36px;
   padding: 0 16px;
-  background: #f1f5f9;
-  box-shadow: 0 -1px 0 rgb(86 110 135 / 12%);
-  color: #526c85;
-  font-size: 13px;
+  background: rgb(255 255 255 / 82%);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 -1px 0 rgb(24 28 36 / 8%);
+  color: var(--ink-secondary);
+  font-size: 12.5px;
   line-height: 1;
   white-space: nowrap;
 }
@@ -24,7 +25,7 @@
 
 .app-bottom-bar-context {
   flex: 1 1 auto;
-  gap: 2px;
+  gap: 3px;
 }
 
 .app-bottom-bar-tools {
@@ -38,17 +39,20 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: 27px;
   padding: 0 9px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
 }
 
 .app-bottom-bar-button svg {
@@ -56,28 +60,34 @@
 }
 
 .app-bottom-bar-button:hover:not(:disabled) {
-  background: #e7edf4;
-  color: #2f6cac;
+  background: rgb(24 28 36 / 5%);
+  color: var(--ink);
 }
 
 .app-bottom-bar-button-active {
-  background: #e3edf8;
-  color: #256ab6;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-weight: 600;
+}
+
+.app-bottom-bar-button-active:hover:not(:disabled) {
+  background: rgb(0 102 255 / 13%);
+  color: var(--blue);
 }
 
 .app-bottom-bar-button:focus-visible {
-  outline: 2px solid #2876c5;
+  outline: 2px solid var(--blue);
   outline-offset: 1px;
 }
 
 .app-bottom-bar-button:disabled {
   cursor: default;
-  opacity: 0.5;
+  opacity: 0.45;
 }
 
 .app-bottom-bar-chevron {
   flex-shrink: 0;
-  color: #98a7b5;
+  color: var(--muted);
 }
 
 .app-bottom-bar-workspace {
@@ -96,37 +106,38 @@
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  margin-left: 11px;
-  color: #7a8b9b;
+  margin-left: 10px;
+  color: var(--muted);
   font-size: 12px;
+  font-weight: 500;
 }
 
 .app-bottom-bar-status-connected {
-  color: #568274;
+  color: var(--green);
 }
 
 .app-bottom-bar-status-warning {
-  color: #9a752f;
+  color: var(--warn);
 }
 
 .app-bottom-bar-status-dot,
 .app-bottom-bar-update-dot {
   flex-shrink: 0;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: currentColor;
 }
 
 .app-bottom-bar-status-connected .app-bottom-bar-status-dot {
-  background: #43a780;
+  background: #16a34a;
 }
 
 .app-bottom-bar-update-dot {
-  background: #d88b35;
+  background: #f59e0b;
 }
 
 .macos-vibrancy .app-bottom-bar {
-  background: rgb(255 255 255 / 16%);
-  box-shadow: 0 -1px 0 rgb(70 80 90 / 12%);
+  background: rgb(255 255 255 / 24%);
+  box-shadow: 0 -1px 0 rgb(24 28 36 / 9%);
 }

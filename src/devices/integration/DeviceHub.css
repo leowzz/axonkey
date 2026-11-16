@@ -1,8 +1,8 @@
 .managed-hub {
   flex: 1;
   min-width: 0;
-  padding: 28px;
-  color: #536b85;
+  padding: 28px 32px;
+  color: var(--ink-secondary);
 }
 .managed-device-sections {
   display: flex;
@@ -18,8 +18,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 13px;
-  color: #48627d;
+  margin-bottom: 14px;
+  color: var(--ink);
   font-size: 14px;
   line-height: 1.5;
   font-weight: 600;
@@ -32,63 +32,82 @@
 .managed-discovered-summary::before {
   content: '›';
   width: 14px;
-  color: #7f94a8;
-  font-size: 20px;
+  color: var(--muted);
+  font-size: 19px;
   line-height: 14px;
   transform: rotate(0deg);
-  transition: transform 0.16s;
+  transition: transform 0.16s ease;
 }
 .managed-discovered-section[open] .managed-discovered-summary::before {
   transform: rotate(90deg);
 }
 .managed-discovered-summary:focus-visible {
-  outline: 2px solid #3784ce;
+  outline: 2px solid var(--blue);
   outline-offset: 3px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 .managed-discovered-count {
-  color: #8a9caf;
-  font-size: 10px;
-  font-weight: 400;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgb(24 28 36 / 6%);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 .managed-discovery-help {
   padding: 0;
   border: 0;
   background: transparent;
-  color: #547a9c;
+  color: var(--muted);
   font-size: 12px;
   font-weight: 400;
   cursor: pointer;
+  transition: color 0.14s ease;
 }
 .managed-discovery-help:hover {
+  color: var(--blue);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .managed-discovery-help-dialog {
-  width: min(480px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   max-height: calc(100dvh - 48px);
   padding: 0;
   overflow-y: auto;
-  border: 1px solid #dbe4ed;
-  border-radius: 10px;
-  color: #536b85;
-  background: #f7f9fb;
-  box-shadow: 0 18px 56px rgb(30 50 70 / 18%);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  color: var(--ink-secondary);
+  background: #fff;
+  box-shadow: var(--shadow-popover);
   overscroll-behavior: contain;
 }
 .managed-discovery-help-dialog::backdrop {
-  background: rgb(29 33 38 / 42%);
+  background: rgb(15 23 42 / 36%);
+  backdrop-filter: blur(2px);
 }
 .managed-integration-modal {
   width: min(560px, calc(100vw - 48px));
   max-height: calc(100dvh - 48px);
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: 14px;
   background: transparent;
   overflow: hidden;
 }
+.managed-integration-modal:has(.managed-package-grid) {
+  width: min(860px, calc(100vw - 48px));
+}
+.managed-integration-modal:has(.managed-mobile-models) {
+  width: min(680px, calc(100vw - 48px));
+}
 .managed-integration-modal::backdrop {
-  background: rgb(29 33 38 / 42%);
+  background: rgb(15 23 42 / 36%);
+  backdrop-filter: blur(2px);
 }
 .managed-integration-modal > .behavior-dialog.managed-integration-dialog {
   width: 100%;
@@ -99,9 +118,15 @@
   font-size: 14px;
   line-height: 1.7;
 }
-:root:has(.managed-discovery-help-dialog[open]),
-body:has(.managed-discovery-help-dialog[open]),
-.app-shell:has(.managed-discovery-help-dialog[open]) .main-content {
+.managed-discovery-help-dialog .managed-dialog-footer {
+  flex-wrap: wrap;
+}
+.managed-discovery-troubleshoot {
+  margin-right: auto;
+}
+:root:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),
+body:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]),
+.app-shell:has(.managed-discovery-help-dialog[open], .managed-integration-modal[open]) .main-content {
   overflow: hidden;
 }
 .managed-discovery-refresh {
@@ -109,40 +134,47 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 296px), 1fr));
   gap: 16px;
 }
 .managed-device-grid .my-devices-card {
   width: 100%;
-  min-height: 210px;
+  min-height: 216px;
 }
 .managed-device-grid .my-devices-card-main {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
-  gap: clamp(12px, 1.5vw, 20px);
-  padding: clamp(16px, 1.5vw, 20px);
+  grid-template-columns: minmax(0, 96px) minmax(0, 1fr);
+  gap: clamp(14px, 1.5vw, 18px);
+  padding: clamp(16px, 1.5vw, 18px);
 }
 .managed-device-grid .my-devices-artwork img {
-  height: 118px;
+  height: 112px;
 }
-.managed-device-grid .my-devices-status {
+.managed-device-grid .my-devices-card[data-discovered='true'] .my-devices-status {
+  align-items: center;
   white-space: normal;
+}
+.managed-device-grid .my-devices-card[data-discovered='true'] .my-devices-status > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
   overflow-wrap: anywhere;
 }
 .managed-device-grid .my-devices-count {
   overflow-wrap: anywhere;
 }
 .managed-device-grid .my-devices-card[data-discovered='true'] {
-  animation: managed-discovered-pulse 2.4s ease-in-out infinite;
+  animation: managed-discovered-pulse 2.6s ease-in-out infinite;
 }
 @keyframes managed-discovered-pulse {
   0%,
   100% {
-    border-color: #b8d9c2;
-    box-shadow: 0 2px 4px rgb(53 75 99 / 2%);
+    border-color: rgb(21 128 61 / 28%);
+    box-shadow: var(--shadow-card);
   }
   50% {
-    border-color: #55ad70;
-    box-shadow: 0 0 0 3px rgb(85 173 112 / 16%);
+    border-color: rgb(21 128 61 / 62%);
+    box-shadow: 0 0 0 3px rgb(21 128 61 / 12%);
   }
 }
 :where(.managed-hub button, .managed-hub select, .managed-hub input),
@@ -152,74 +184,89 @@ body:has(.managed-discovery-help-dialog[open]),
   font: inherit;
 }
 .managed-hub button:focus-visible,
-.managed-integration-dialog button:focus-visible,
-.managed-controller-diagram [data-key]:focus-visible {
-  outline: 2px solid #3784ce;
+.managed-integration-dialog button:focus-visible {
+  outline: 2px solid var(--blue);
   outline-offset: 3px;
 }
 .managed-hub button:disabled,
 .managed-integration-dialog button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: default;
+}
+.managed-hub .behavior-history-button:disabled {
+  opacity: 0.32;
 }
 .managed-icon {
   display: inline-flex;
   padding: 5px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
-  color: inherit;
+  color: var(--muted);
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+.managed-icon:hover:not(:disabled) {
+  background: rgb(24 28 36 / 5%);
+  color: var(--ink);
 }
 .managed-notice,
 .managed-error {
   margin: 0 0 14px;
   padding: 10px 14px;
-  font-size: 12px;
-  line-height: 1.8;
-  border-radius: 6px;
-  background: #eef4fa;
-  color: #617c94;
+  font-size: 12.5px;
+  line-height: 1.75;
+  border-radius: 9px;
+  border: 1px solid rgb(0 102 255 / 14%);
+  background: rgb(0 102 255 / 5%);
+  color: var(--ink-secondary);
 }
 .managed-error {
-  background: #fff0ed;
-  color: #ad5144;
+  border-color: rgb(220 38 38 / 18%);
+  background: #fef2f2;
+  color: #b91c1c;
   overflow-wrap: anywhere;
 }
 .managed-saving {
   position: fixed;
   right: 24px;
-  bottom: 12px;
-  border-radius: 6px;
-  padding: 5px 10px;
-  background: #edf4fa;
-  color: #6284a2;
-  font-size: 11px;
+  bottom: 46px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(8px);
+  box-shadow: var(--shadow-card);
+  color: var(--ink-secondary);
+  font-size: 12px;
   z-index: 90;
 }
 .managed-integration-dialog select,
 .managed-integration-dialog input {
-  padding: 7px 9px;
-  border: 1px solid #ccdbe8;
-  border-radius: 5px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
   background: #fff;
-  color: #405f7d;
+  color: var(--ink);
   min-width: 0;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease;
 }
-.managed-controller-diagram svg {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-.managed-controller-diagram [data-key] {
-  cursor: pointer;
+.managed-integration-dialog select:focus,
+.managed-integration-dialog input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(0 102 255 / 11%);
 }
 .managed-analog {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 18px;
-  color: #8194a5;
-  font-size: 11px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .managed-analog label {
   display: flex;
@@ -232,14 +279,12 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-remove {
   display: flex;
-  gap: 15px;
+  gap: 12px;
   align-items: center;
-  margin: 40px 0 0 162px;
-  font-size: 12px;
+  margin: 36px 0 0 162px;
+  font-size: 13px;
 }
 .behavior-dialog.managed-integration-dialog {
-  width: min(560px, calc(100vw - 48px));
-  max-height: calc(100vh - 64px);
   display: flex;
   flex-direction: column;
 }
@@ -248,12 +293,14 @@ body:has(.managed-discovery-help-dialog[open]),
   flex-shrink: 0;
 }
 .managed-integration-body {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   font-size: 13px;
   line-height: 1.7;
-  color: #607a93;
+  color: var(--ink-secondary);
 }
 .managed-integration-body .settings-form-fields {
   margin: 24px 0 8px;
@@ -264,8 +311,8 @@ body:has(.managed-discovery-help-dialog[open]),
   gap: 16px;
 }
 .managed-integration-body .settings-form-label {
-  color: #71869a;
-  font-size: 12px;
+  color: var(--ink-secondary);
+  font-size: 13px;
 }
 .managed-integration-body .settings-form-row > input {
   min-height: 36px;
@@ -281,51 +328,112 @@ body:has(.managed-discovery-help-dialog[open]),
   object-fit: contain;
 }
 .managed-integration-product h3 {
-  margin: 0 0 6px;
-  color: #3d5e7b;
+  margin: 0 0 5px;
+  color: var(--ink);
 }
 .managed-integration-product p {
   margin: 0;
+  color: var(--muted);
   font-size: 12px;
 }
 .managed-dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 9px;
-  padding: 16px 22px;
+  padding: 16px 24px 20px;
 }
 
+.managed-package-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 14px;
+}
 .managed-package {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 24px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 10px;
   width: 100%;
-  margin-top: 12px;
-  padding: 15px;
-  text-align: left;
-  border: 1px solid #dae4ee;
-  background: #f7fafc;
-  border-radius: 7px;
-  color: #466986;
+  margin: 0;
+  padding: 12px 12px 14px;
+  box-sizing: border-box;
+  text-align: center;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: var(--shadow-card);
+  border-radius: 12px;
+  color: var(--ink);
+  transition:
+    transform 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+button.managed-package:hover:not(:disabled) {
+  border-color: var(--blue-border);
+  background: #fafcff;
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
 }
 .managed-package[data-selected='true'] {
-  border-color: #4b93d1;
-  background: #edf6ff;
-  color: #2f6f9f;
-  box-shadow: 0 0 0 2px rgb(75 147 209 / 15%);
+  border-color: var(--blue);
+  background: #f2f7ff;
+  color: var(--blue);
+  box-shadow: 0 0 0 2px rgb(0 102 255 / 12%);
+}
+.managed-package-artwork {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 212px;
+  padding: 12px 10px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgb(241 245 249 / 88%) 0%, rgb(248 250 252 / 48%) 100%);
+}
+.managed-package img {
+  display: block;
+  width: 100%;
+  height: 188px;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 10px rgb(15 23 42 / 9%));
+}
+.managed-package-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 36px;
+}
+.managed-package-meta strong {
+  color: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.managed-package small {
+  display: block;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.3;
 }
 .managed-mobile-models {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   margin-top: 18px;
 }
-.managed-mobile-models .managed-package {
-  margin-top: 0;
-}
 .managed-mobile-models .managed-package > svg {
-  flex-shrink: 0;
-  margin-left: auto;
-  color: #3784ce;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: var(--blue);
 }
 .managed-mobile-identify {
   display: flex;
@@ -334,24 +442,14 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-mobile-identify .managed-primary {
   padding: 8px 18px;
-  border: 1px solid #3784ce;
-  border-radius: 5px;
+  border: 1px solid var(--blue);
+  border-radius: 7px;
   color: #fff;
-  background: #3784ce;
-}
-.managed-package img {
-  width: 72px;
-  height: 64px;
-  object-fit: contain;
-}
-.managed-package small {
-  display: block;
-  margin-top: 6px;
-  color: #8495a5;
-  font-size: 11px;
+  background: var(--blue);
+  font-weight: 500;
 }
 .macos-vibrancy .managed-device-grid .my-devices-card {
-  background: rgb(255 255 255 / 30%);
+  background: rgb(255 255 255 / 54%);
 }
 @media (max-width: 1100px) {
   .managed-hub {
@@ -365,21 +463,22 @@ body:has(.managed-discovery-help-dialog[open]),
   justify-content: space-between;
   gap: 12px;
   margin: 16px 0 0 88px;
-  color: #a17940;
-  font-size: 11px;
+  color: var(--warn);
+  font-size: 12px;
   line-height: 1.7;
 }
 .integration-attention button {
   flex-shrink: 0;
   border: 0;
   padding: 3px 0;
-  color: #367db8;
+  color: var(--blue);
   background: transparent;
+  font-weight: 500;
 }
 .integration-preview {
   margin: 16px 0 0 88px;
-  color: #8d9eae;
-  font-size: 11px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* Use the same full-height workspace and scrolling boundaries as existing mappings. */
@@ -416,10 +515,11 @@ body:has(.managed-discovery-help-dialog[open]),
   align-items: center;
   gap: 12px;
   margin: 8px 16px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: #fff0ef;
-  color: #a33732;
+  padding: 9px 14px;
+  border: 1px solid rgb(220 38 38 / 16%);
+  border-radius: 9px;
+  background: #fef2f2;
+  color: #991b1b;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -430,11 +530,13 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-driver-notice > button {
   flex-shrink: 0;
-  padding: 4px 8px;
-  border: 1px solid #e7b5b2;
-  border-radius: 4px;
-  background: transparent;
+  padding: 5px 10px;
+  border: 1px solid rgb(220 38 38 / 28%);
+  border-radius: 6px;
+  background: #fff;
   color: inherit;
+  font-size: 12px;
+  font-weight: 500;
 }
 .managed-driver-notice > button:disabled {
   opacity: 0.6;
@@ -446,7 +548,8 @@ body:has(.managed-discovery-help-dialog[open]),
   display: grid;
   place-items: center;
   padding: 24px;
-  background: rgb(24 32 48 / 38%);
+  background: rgb(15 23 42 / 38%);
+  backdrop-filter: blur(2px);
 }
 .managed-driver-notice-backdrop > .managed-driver-notice {
   display: block;
@@ -456,11 +559,11 @@ body:has(.managed-discovery-help-dialog[open]),
   box-sizing: border-box;
   margin: 0;
   padding: 28px 30px 24px;
-  border: 1px solid #e7d2d0;
-  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 20px 70px rgb(15 23 42 / 22%);
-  color: #73332f;
+  box-shadow: var(--shadow-popover);
+  color: var(--ink-secondary);
 }
 .managed-driver-notice-backdrop > .managed-driver-notice[data-dismissing] {
   pointer-events: none;
@@ -468,33 +571,34 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-driver-notice-backdrop h2 {
   margin: 0;
-  color: #4b2522;
-  font-size: 20px;
+  color: var(--ink);
+  font-size: 19px;
   line-height: 1.4;
 }
 .managed-driver-notice-backdrop p {
   margin: 10px 0 0;
-  color: #73332f;
+  color: var(--ink-secondary);
   line-height: 1.65;
 }
 .managed-driver-notice-details {
   margin-top: 16px;
-  border-top: 1px solid #eadbd9;
-  color: #73332f;
+  border-top: 1px solid var(--line);
+  color: var(--ink-secondary);
 }
 .managed-driver-notice-details summary {
   cursor: pointer;
   padding: 12px 0 8px;
-  color: #8b4a45;
+  color: var(--ink);
   font-size: 13px;
+  font-weight: 500;
 }
 .managed-driver-notice-details code {
   display: block;
   overflow-x: auto;
   padding: 10px 12px;
-  border-radius: 6px;
-  background: #faf4f3;
-  color: #63322f;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+  color: var(--ink);
   font:
     12px/1.55 ui-monospace,
     SFMono-Regular,
@@ -511,16 +615,17 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-driver-notice-actions > button {
   min-width: 76px;
-  padding: 7px 12px;
-  border: 1px solid #d7aaa6;
-  border-radius: 5px;
-  color: inherit;
-  background: transparent;
+  padding: 7px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink-secondary);
+  background: #fff;
+  font-weight: 500;
 }
 .managed-driver-notice-actions > .managed-driver-notice-install {
-  border-color: #a33732;
+  border-color: var(--blue);
   color: #fff;
-  background: #a33732;
+  background: var(--blue);
 }
 .managed-driver-notice-actions > button:hover:not(:disabled) {
   filter: brightness(0.96);
@@ -535,54 +640,86 @@ body:has(.managed-discovery-help-dialog[open]),
 }
 .managed-instance-workspace .key-picker h2 {
   font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
 }
 .managed-audio-calibration {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 36px;
-  margin-top: 12px;
-  padding: 8px 12px;
-  border: 1px solid #c7d8e8;
-  border-radius: 6px;
-  color: #367db8;
-  background: rgb(255 255 255 / 65%);
+  gap: 7px;
+  min-height: 34px;
+  margin-top: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--blue);
+  background: rgb(255 255 255 / 72%);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition:
+    background-color 0.14s ease,
+    border-color 0.14s ease;
 }
 .managed-audio-calibration:hover:not(:disabled) {
-  border-color: #86b3df;
-  color: #176fcf;
-  background: #edf5ff;
+  border-color: var(--blue-border);
+  color: var(--blue-hover);
+  background: var(--blue-soft);
 }
 .managed-instance-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
   flex-shrink: 0;
-  color: #8192a3;
+  gap: 6px;
+  color: var(--ink-secondary);
   font-size: 12px;
 }
-.managed-instance-status > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.managed-instance-connection {
+  justify-self: start;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
 }
 .managed-instance-status .ready {
-  color: #438164;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-weight: 600;
 }
 .managed-instance-status .warning {
-  color: #ad5144;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-weight: 600;
 }
 .managed-instance-power {
+  grid-column: 2;
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 8px;
+  gap: 3px;
+  white-space: nowrap;
+}
+.managed-instance-power .battery-icon {
+  width: 13px;
+  height: 13px;
+}
+.managed-instance-status > .switch {
+  grid-column: 3;
+  justify-self: end;
 }
 .managed-instance-bind {
+  justify-self: start;
+  min-height: 24px;
+  padding: 0;
   border: 0;
   background: transparent;
-  color: #367db8;
-  padding: 8px 0;
+  color: var(--blue);
+  font-weight: 500;
+  white-space: nowrap;
 }
 .managed-controller-stage .remote-art {
   width: 100%;
@@ -597,7 +734,7 @@ body:has(.managed-discovery-help-dialog[open]),
   gap: 10px;
 }
 .managed-driver-status-control strong {
-  color: #547a9c;
+  color: var(--ink);
   font-size: 13px;
   font-weight: 600;
 }
@@ -617,36 +754,45 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-bound-device .device-binding-copy {
   min-width: 160px;
 }
-.managed-bound-device > button {
-  flex-shrink: 0;
+.managed-bound-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 .managed-dialog-footer button {
-  padding: 7px 10px;
-  color: #547a9c;
-  border: 1px solid #d2dfeb;
+  min-height: 34px;
+  padding: 6px 14px;
+  color: var(--ink-secondary);
+  border: 1px solid var(--line-strong);
   background: #fff;
-  border-radius: 5px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.managed-dialog-footer button:hover:not(:disabled) {
+  border-color: var(--blue-border);
+  color: var(--blue);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .managed-device-grid .my-devices-card[data-discovered='true'] {
     animation: none;
-    border-color: #55ad70;
-    box-shadow: 0 0 0 2px rgb(85 173 112 / 16%);
+    border-color: rgb(21 128 61 / 50%);
+    box-shadow: 0 0 0 2px rgb(21 128 61 / 14%);
   }
 }
 
 .managed-instance-workspace.is-controller {
-  --controller-lane-width: clamp(220px, 20vw, 280px);
-  --controller-library-width: clamp(280px, 24vw, 360px);
+  --controller-stage-width: clamp(380px, 38vw, 520px);
+  --controller-library-width: clamp(266px, 22vw, 340px);
 }
-/* Reserve a compact lane and library; the diagram gets the remaining width.
-   The workflow has 32px horizontal padding and a 12px column gap. */
+/* Cap the device stage once large enough so extra window width expands the middle editor column. */
 .managed-instance-workspace.is-controller .mapping-workbench {
-  grid-template-columns: minmax(0, 1fr) calc(var(--controller-lane-width) + var(--controller-library-width) + 44px);
+  grid-template-columns: var(--controller-stage-width) minmax(0, 1fr);
 }
 .managed-instance-workspace.is-controller .managed-controller-stage {
   flex: 1 1 0;
+  padding: 12px;
   place-items: stretch;
 }
 .managed-instance-workspace.is-controller .managed-controller-stage .remote-art {
@@ -654,22 +800,34 @@ body:has(.managed-discovery-help-dialog[open]),
   height: 100%;
   min-height: 0;
 }
-.managed-instance-workspace.is-controller .managed-controller-diagram {
+.managed-instance-workspace.is-controller .remote-control-view {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
 }
-.managed-instance-workspace.is-controller .managed-controller-diagram svg {
+.managed-instance-workspace.is-controller .remote-control {
+  flex: 1 1 0;
   height: 100%;
+  min-height: 0;
+}
+.managed-instance-workspace.is-controller .remote-control-hint {
+  flex-shrink: 0;
+  margin-inline: 0;
+}
+.remote-key.remote-screen-region.selected .remote-key-surface {
+  fill: rgb(56 189 248 / 12%);
 }
 .managed-instance-workspace.is-controller .managed-analog {
   flex-shrink: 0;
 }
 .managed-instance-workspace.is-controller .workflow-axonkey {
-  grid-template-columns: var(--controller-lane-width) minmax(0, 1fr);
+  grid-template-columns: minmax(242px, 1fr) var(--controller-library-width);
 }
 .managed-workflow-triggers {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  width: var(--controller-lane-width);
+  width: min(100%, 420px);
   max-width: 100%;
   gap: 6px;
 }
@@ -679,14 +837,18 @@ body:has(.managed-discovery-help-dialog[open]),
   justify-content: center;
   gap: 6px;
   min-width: 0;
-  min-height: 34px;
-  padding: 6px 8px;
-  border: 1px solid #d5dfe8;
-  border-radius: 6px;
-  color: #6b7f93;
-  background: rgb(255 255 255 / 50%);
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink-secondary);
+  background: rgb(255 255 255 / 78%);
   font-size: 13px;
   white-space: nowrap;
+  transition:
+    border-color 0.14s ease,
+    color 0.14s ease,
+    background-color 0.14s ease;
 }
 .managed-workflow-triggers button:hover {
   border-color: var(--trigger-color);
@@ -695,18 +857,24 @@ body:has(.managed-discovery-help-dialog[open]),
 .managed-workflow-triggers button[aria-pressed='true'] {
   border-color: var(--trigger-color);
   color: var(--trigger-color);
-  background: var(--trigger-background);
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 7%);
   font-weight: 600;
 }
 .managed-workflow-triggers button > span {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  opacity: 0.8;
+  opacity: 0.78;
 }
 
 .managed-dialog-footer .managed-primary {
-  background: #237dcb;
-  border-color: #237dcb;
+  background: var(--blue);
+  border-color: var(--blue);
+  color: #fff;
+}
+.managed-dialog-footer .managed-primary:hover:not(:disabled) {
+  background: var(--blue-hover);
+  border-color: var(--blue-hover);
   color: #fff;
 }
 

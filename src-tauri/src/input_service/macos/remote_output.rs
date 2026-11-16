@@ -8,33 +8,10 @@ impl RemoteKey for MacKey {
     }
 
     fn original(button: &str) -> Option<Self> {
-        if let Some(button) = button.strip_prefix("obeRcuR5.") {
-            return match button {
-                "back" => mac_key_for_name("Escape"),
-                "locate" | "voice" => None,
-                _ => SOURCE_KEYS
-                    .iter()
-                    .find(|source| source.id == button)
-                    .map(|source| source.original),
-            };
-        }
-        if let Some(button) = button.strip_prefix("xmBt29.") {
-            return match button {
-                "delete" => mac_key_for_name("Backspace"),
-                _ => button.strip_prefix("digit").and_then(mac_key_for_name),
-            };
-        }
-        let button = button.strip_prefix("cmiotA15.")?;
-        if let Some(source) = SOURCE_KEYS.iter().find(|source| source.id == button) {
-            // F8 is a vendor recording signal, not an ordinary keyboard key.
-            return (button != "voice").then_some(source.original);
-        }
-        match button {
-            "mute" => Some(Self::system(7)),
-            "channelUp" => Some(Self::keyboard(116)),
-            "channelDown" => Some(Self::keyboard(121)),
-            _ => None,
-        }
+        let (page, usage) = crate::devices::descriptor_registry::KINDS
+            .iter()
+            .find_map(|kind| crate::devices::descriptor_registry::original_usage(kind, button))?;
+        mac_key_for_hid_usage(page, usage)
     }
 }
 
@@ -62,17 +39,24 @@ impl RemoteOutput {
             }
             Output::Key(key, down) => {
                 if down {
-                    self.held.push(key);
+                    if !self.held.contains(&key) {
+                        self.held.push(key);
+                    }
                     if key.modifier_flag() == 0 {
                         self.repeat_due = Some(Instant::now() + Duration::from_millis(400));
                     }
                 } else {
                     self.held.retain(|held| *held != key);
+                    if !self.held.iter().any(|held| held.modifier_flag() == 0) {
+                        self.repeat_due = None;
+                    }
                 }
                 let flags = self
                     .held
                     .iter()
-                    .fold(0, |flags, key| flags | key.modifier_flag());
+                    .fold(managed_held_modifier_flags(), |flags, key| {
+                        flags | key.modifier_flag()
+                    });
                 post_key(key, down, flags, false);
                 return;
             }
@@ -121,7 +105,9 @@ impl RemoteOutput {
                 let flags = self
                     .held
                     .iter()
-                    .fold(0, |flags, key| flags | key.modifier_flag());
+                    .fold(managed_held_modifier_flags(), |flags, key| {
+                        flags | key.modifier_flag()
+                    });
                 post_key(*key, true, flags, true);
             }
             self.repeat_due = Some(now + Duration::from_millis(50));
@@ -133,6 +119,36 @@ impl RemoteOutput {
 mod tests {
     use super::*;
     use crate::input_service::remote_actions::RemoteActions;
+
+    #[test]
+    fn descriptor_hid_sources_preserve_platform_original_output() {
+        for (key, expected) in [
+            ("cmiotA15.confirm", MacKey::keyboard(36)),
+            ("cmiotA15.home", MacKey::keyboard(115)),
+            ("cmiotA15.back", MacKey::keyboard(51)),
+            ("cmiotA15.volumeUp", MacKey::system(0)),
+            ("cmiotA15.volumeDown", MacKey::system(1)),
+            ("cmiotA15.mute", MacKey::system(7)),
+            ("cmiotA15.channelUp", MacKey::keyboard(116)),
+            ("cmiotA15.channelDown", MacKey::keyboard(121)),
+            ("xmBt29.digit1", MacKey::keyboard(18)),
+            ("xmBt29.digit0", MacKey::keyboard(29)),
+            ("xmBt29.delete", MacKey::keyboard(51)),
+            ("obeRcuR5.back", MacKey::keyboard(53)),
+            ("obeRcuR5.volumeUp", MacKey::system(0)),
+            ("obeRcuR5.up", MacKey::keyboard(126)),
+        ] {
+            assert_eq!(MacKey::original(key), Some(expected), "{key}");
+        }
+        for key in [
+            "cmiotA15.voice",
+            "obeRcuR5.voice",
+            "obeRcuR5.locate",
+            "unknown",
+        ] {
+            assert_eq!(MacKey::original(key), None, "{key}");
+        }
+    }
 
     #[test]
     fn a15_voice_mapping_holds_right_option_until_release() {

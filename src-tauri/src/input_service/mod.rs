@@ -62,7 +62,7 @@ pub struct NativeSettings {
         default = "enabled_by_default"
     )]
     pub(super) mouse_ignore_scroll_acceleration: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_behaviors")]
     pub(super) behaviors: HashMap<String, TriggerBehaviors>,
 }
 
@@ -98,6 +98,29 @@ impl NativeSettings {
                     != next.behaviors.get(input).unwrap_or(&empty)
             })
     }
+}
+
+fn deserialize_behaviors<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<String, TriggerBehaviors>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::devices::descriptor_registry::{profile_key, KINDS};
+    let behaviors = HashMap::<String, TriggerBehaviors>::deserialize(deserializer)?;
+    let mut normalized = HashMap::with_capacity(behaviors.len());
+    for (key, triggers) in behaviors {
+        let canonical = KINDS
+            .iter()
+            .find_map(|kind| profile_key(kind, &key))
+            .unwrap_or(&key);
+        if normalized.insert(canonical.to_owned(), triggers).is_some() {
+            return Err(serde::de::Error::custom(format!(
+                "duplicate mapping for input '{canonical}'"
+            )));
+        }
+    }
+    Ok(normalized)
 }
 
 fn default_mouse_key_hold_ms() -> u64 {
@@ -433,6 +456,35 @@ pub use unsupported::InputService;
 #[cfg(test)]
 mod settings_tests {
     use super::NativeSettings;
+
+    #[test]
+    fn descriptor_ids_are_normalized_at_the_settings_boundary() {
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("rc003").unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let settings: NativeSettings = serde_json::from_value(serde_json::json!({
+            "behaviors": {
+                (up.id.clone()): {"click": [{"type": "key", "key": "A"}]},
+                "mouse.left": {"click": [{"type": "key", "key": "B"}]}
+            }
+        }))
+        .unwrap();
+        assert_eq!(settings.behaviors.len(), 2);
+        assert_eq!(settings.behaviors["up"].click.len(), 1);
+        assert_eq!(settings.behaviors["mouse.left"].click.len(), 1);
+
+        let duplicate = serde_json::from_value::<NativeSettings>(serde_json::json!({
+            "behaviors": {(up.id.clone()): {}, "up": {}}
+        }));
+        assert!(duplicate
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("duplicate mapping"));
+    }
 
     #[test]
     fn library_sources_are_preserved_once_per_enabled_trigger_sequence() {

@@ -101,7 +101,7 @@ test('saved items remain independently draggable and deleting one never starts a
 })
 
 
-test('basic and my tabs isolate their searches and preserve the empty and failed library states', () => {
+test('built-in and my tabs isolate their searches and preserve the empty and failed library states', () => {
   const saved = { ...step('savedSequence', '我的发送序列'), properties: { savedSequenceId: 'mine' } }
   let view
   function Harness({ error = '', savedSteps = [saved] }) {
@@ -111,8 +111,9 @@ test('basic and my tabs isolate their searches and preserve the empty and failed
   act(() => { view = Renderer.create(React.createElement(Harness)) })
   try {
     const tabs = view.root.findByProps({ 'aria-label': '行为来源' })
-    assert.deepEqual(tabs.findAllByType('button').map(text), ['基础', '我的'])
+    assert.deepEqual(tabs.findAllByType('button').map(text), ['内置', '我的'])
     const search = view.root.findByType('input')
+    assert.equal(search.props.placeholder, '搜索内置行为')
     act(() => search.props.onChange({ target: { value: '我的发送序列' } }))
     assert.equal(items(view).length, 0)
     act(() => tabs.findAllByType('button')[1].props.onClick())
@@ -140,7 +141,13 @@ test('preview and add controls use the original palette action without starting 
     act(() => mainButton(items(view)[0]).props.onClick({ detail: 0 }))
     const dialog = view.root.findByType('dialog')
     assert.equal(text(dialog.findByType('li')), '预览：等待')
-    act(() => dialog.findAllByType('button').at(-1).props.onClick())
+    act(() => dialog.props.onClick({ target: dialog.findByType('li'), currentTarget: dialog }))
+    assert.equal(view.root.findAllByType('dialog').length, 1)
+    act(() => dialog.props.onClick({ target: dialog, currentTarget: dialog }))
+    assert.equal(view.root.findAllByType('dialog').length, 0)
+    act(() => mainButton(items(view)[0]).props.onClick({ detail: 0 }))
+    const reopened = view.root.findByType('dialog')
+    act(() => reopened.findAllByType('button').at(-1).props.onClick())
     assert.equal(added[1], delay)
     assert.equal(view.root.findAllByType('dialog').length, 0)
     assert.equal(drags.length, 0)

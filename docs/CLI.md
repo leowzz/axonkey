@@ -189,9 +189,9 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 
 ## 键位图与空间配置
 
-`keymap get --device <型号> --json` 或 `keymap get --instance <ID> --json` 返回设备的 SVG 键位图和结构化按键元数据。遥控器设备的 `result.artwork.svg` 是完整 SVG，`result.artwork.viewBox` 是 SVG 坐标范围；`result.keys` 为每个按键提供 `id`、`label`、`regionPath`、百分比坐标和 SVG 锚点。`position.percent.y` 从上到下取 0 到 100，适合表达“上半部分”等空间条件；`position.zone.vertical` 按三等分提供 `upper`、`middle`、`lower`，`layout.verticalZones` 返回对应边界。
+`keymap get --device <型号> --json` 或 `keymap get --instance <ID> --json` 返回设备的 SVG 键位图和结构化按键元数据。遥控器设备的 `result.artwork.svg` 是完整 SVG，`result.artwork.viewBox` 是 SVG 坐标范围；`result.keys` 为每个按键提供 `id`、`label`、`regionPath`、可选 `regionTransform`、百分比坐标和 SVG 锚点。`position.percent.y` 从上到下取 0 到 100，适合表达“上半部分”等空间条件；`position.zone.vertical` 按三等分提供 `upper`、`middle`、`lower`，`layout.verticalZones` 返回对应边界。
 
-例如，Agent 可以先获取 `rc003` 键位图，筛选 `position.percent.y < 50` 的按键，再对这些按键逐个调用 `mapping set` 或 `shortcut set`。SVG 仅用于展示和定位，实际配置仍使用 `keys[].id` 作为 `--button`。
+例如，Agent 可以先获取 `rc003` 键位图，筛选 `position.percent.y < 50` 的按键，再对这些按键逐个调用 `mapping set` 或 `shortcut set`。当前内置版本使用 SVG 生成的 `keys[].id` 作为 `--button`，保持既有配置键名兼容。`regionTransform` 与 `regionPath` 一起还原局部坐标的手柄热区；百分比位置和锚点始终在根画布中。协议及后续 stable Key 版本迁移规则见 [SVG 设备描述协议](DEVICE_DESCRIPTOR_SVG.md)。
 
 系统鼠标没有固定的物理键位图，因此 `keymap get --device mouse` 返回 `artwork: null`，并通过 `keys[].context` 和语义化输入 ID 描述作用范围。
 
@@ -223,6 +223,44 @@ axonkey-cli profile list --instance "$INSTANCE" --json
 
 设备型号与按键 ID 以 `capabilities` 和 `keymap get` 返回值为准，实际设备实例以 `device list` 为准。触发方式为 `click`、`doubleClick`、`longPress`，省略时为 `click`。
 
+## 新设备输入采集（capture）
+
+`axonkey-cli capture` 用于连接未知新型号遥控器、副键盘或手柄，枚举本机候选 HID / Quarbor 节点、安全挂载或卸载拦截驱动、逐键采集原始按下/松开报文，并把 `axonkey-device-svg` 产出的待采集 SVG 草稿编译为通过引擎校验的 `axonkey.device/1` 描述符。该命令族直接在 CLI 进程内调用原生采集引擎，不要求 Axonkey 桌面应用处于运行状态。
+
+```bash
+# 列出候选输入设备；--with-gatt 同时读取蓝牙低功耗 0x180A 厂商/型号/固件特征
+axonkey-cli capture list --with-gatt --json
+
+# Windows 下为目标设备挂载或恢复 Quarbor 拦截驱动（会触发系统 UAC 授权）
+axonkey-cli capture attach --instance-id "<设备实例 ID>" --json
+axonkey-cli capture detach --instance-id "<设备实例 ID>" --json
+
+# 单独采集一个按键的按下与松开原始报文
+axonkey-cli capture key \
+  --instance-id "<设备实例 ID>" \
+  --input-id "tcl.rc802a.home" \
+  --timeout-ms 12000 \
+  --json
+
+# 按草稿按键清单执行可断点续采的交互式向导（省略 --out 时默认输出 <draft>.captured.svg）
+axonkey-cli capture wizard \
+  --instance-id "<设备实例 ID>" \
+  --draft docs/device-drafts/tcl-rc802a.svg \
+  --session-file docs/device-drafts/tcl-rc802a.capture.json \
+  --out docs/device-drafts/tcl-rc802a.captured.svg
+
+# 将 SVG 草稿与采集样本编译为带 ak:identity / ak:reports / ak:hid-capture 的正式描述符并校验
+axonkey-cli capture compile \
+  --draft docs/device-drafts/tcl-rc802a.svg \
+  --session docs/device-drafts/tcl-rc802a.capture.json \
+  --out docs/device-drafts/tcl-rc802a.captured.svg \
+  --markdown-out docs/device-drafts/tcl-rc802a.captured.md \
+  --status active \
+  --json
+```
+
+候选设备按风险分为三级：`safe`（蓝牙遥控器、Consumer `0x0C`、厂商页、手柄）可直接挂载；`caution`（存在多把物理键盘时的外接副键盘）需确认后加 `--allow-caution`；`blocked`（鼠标/指针设备或机器唯一的物理键盘）默认拒绝挂载，避免锁死主输入。虚拟输出节点（`ROOT\QUARBORUNIVERSALKEYBOARDOUTPUT`）与内置 ACPI/PS2 设备自动排除。完整引导步骤见 [axonkey-device-capture skill](../.agents/skills/axonkey-device-capture/SKILL.md)。
+
 ## 给 Agent 的简短说明
 
 ```text
@@ -239,6 +277,8 @@ switchProfile 必须是单独的行为，会应用到全部配置并由新配置
 
 ## 安装后的命令入口
 
-Windows 安装器会把 Axonkey 安装目录加入当前用户的 PATH。安装前已经打开的终端需要重新打开，然后直接运行 `axonkey-cli`。
+关于页「用 Agent 配置」卡片会自动将当前运行应用的 `axonkey-cli` 绝对路径带入提示词，直接复制给 Agent 即可调用。
+
+Windows 安装器不会修改系统或用户的 `PATH`。`axonkey-cli.exe` 位于应用安装目录（默认 `%LOCALAPPDATA%\Axonkey\axonkey-cli.exe`；自定义安装路径可从注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Axonkey` 的 `InstallLocation` 读取），可直接按完整路径调用，或自行将安装目录加入 `PATH`。
 
 macOS 的 DMG 是拖拽安装，首次打开 Axonkey 时会自动把应用包内的 CLI 注册到 `~/.local/bin/axonkey-cli`。确认 `~/.local/bin` 已在 PATH 后，重新打开终端即可。若该路径已有自己的 CLI 文件或链接，Axonkey 不会覆盖它；也可以直接调用 `/Applications/Axonkey.app/Contents/MacOS/axonkey-cli`。

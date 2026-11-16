@@ -2,7 +2,7 @@
 .main-content:has(> .home-page) {
   display: flex;
   flex-direction: column;
-  background: #f8fafc;
+  background: radial-gradient(120% 90% at 15% 0%, #ffffff 0%, #f4f6f9 58%, #eef1f6 100%);
 }
 .main-content:has(> .home-page) > .mapping-disabled-notice {
   flex-shrink: 0;
@@ -21,8 +21,9 @@
   align-items: center;
   gap: 8px 16px;
   padding: 10px 28px;
-  color: #795a23;
-  background: #fff8e9;
+  color: #92400e;
+  background: #fffbeb;
+  border-bottom: 1px solid rgb(217 119 6 / 18%);
   font-size: 13px;
   line-height: 1.6;
 }
@@ -35,7 +36,7 @@
   margin-left: auto;
   padding: 4px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   color: inherit;
   background: transparent;
 }
@@ -46,7 +47,7 @@
   pointer-events: none;
 }
 .home-microphone-warning-close:hover {
-  background: rgb(121 90 35 / 10%);
+  background: rgb(146 64 14 / 8%);
 }
 .home-microphone-warning-close:focus-visible {
   outline: 2px solid currentColor;
@@ -57,36 +58,37 @@
   align-items: center;
   justify-content: center;
   gap: 7px;
-  min-height: 34px;
-  padding: 8px 11px;
-  border: 1px solid #d5e0eb;
-  border-radius: 6px;
-  color: #577896;
-  background: rgb(255 255 255 / 78%);
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink-secondary);
+  background: rgb(255 255 255 / 88%);
   font-size: 12px;
+  font-weight: 500;
   white-space: nowrap;
   transition:
-    border-color 0.16s,
-    background 0.16s,
-    color 0.16s;
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease;
 }
 .home-utility-button:hover:not(:disabled) {
-  color: #176fcf;
-  border-color: #a5c3e1;
-  background: #f5f9ff;
+  color: var(--blue);
+  border-color: var(--blue-border);
+  background: #fff;
 }
 .home-utility-button:disabled {
   cursor: default;
   opacity: 0.5;
 }
 .home-utility-button:focus-visible {
-  outline: 2px solid #2876c5;
+  outline: 2px solid var(--blue);
   outline-offset: 3px;
 }
 .macos-vibrancy .main-content:has(> .home-page) {
   background: transparent;
 }
 .macos-vibrancy .home-utility-button {
-  background: rgb(255 255 255 / 30%);
-  border-color: rgb(70 80 90 / 12%);
+  background: rgb(255 255 255 / 54%);
+  border-color: rgb(24 28 36 / 12%);
 }

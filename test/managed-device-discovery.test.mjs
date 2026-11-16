@@ -6,6 +6,8 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import * as reiconReact from 'reicon-react'
+import { parseDescriptorSvg } from '../scripts/generate-device-descriptors.mjs'
 
 const require = createRequire(import.meta.url)
 const text = node => typeof node === 'string' ? node : (Array.isArray(node) ? node : node?.children ?? []).map(text).join('')
@@ -20,7 +22,7 @@ function compile(path, imports = {}, globals = {}) {
     setInterval: (...args) => globalThis.setInterval(...args), clearInterval: (...args) => globalThis.clearInterval(...args),
     document: { getElementById: () => null, activeElement: null, body: {} }, HTMLElement: class {},
     ...globals,
-    require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
+    require: name => imports[name] ?? (name === 'reicon-react' ? reiconReact : name.endsWith('.css') ? {} : require(name)),
   })
   return module.exports
 }
@@ -28,7 +30,7 @@ const xboxDefinition = compile('src/devices/xbox-controller/definition.ts', {
   './xbox-controller.svg': { default: 'controller.svg' },
   './inputs.ts': require('../src/devices/xbox-controller/inputs.ts'),
 })
-const model = compile('src/devices/integration/model.ts', {
+const modelImports = {
   '../xiaomi-remote/definition.ts': require('../src/devices/xiaomi-remote/definition.ts'),
   '../cmiot-a15-remote/definition.ts': require('../src/devices/cmiot-a15-remote/definition.ts'),
   '../xm-bt-29-remote/definition.ts': require('../src/devices/xm-bt-29-remote/definition.ts'),
@@ -36,8 +38,13 @@ const model = compile('src/devices/integration/model.ts', {
   '../obe-rcu-r5-remote/definition.ts': require('../src/devices/obe-rcu-r5-remote/definition.ts'),
   '../tcl-rc802a-remote/definition.ts': require('../src/devices/tcl-rc802a-remote/definition.ts'),
   '../tcl-rc902n-remote/definition.ts': require('../src/devices/tcl-rc902n-remote/definition.ts'),
+  '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
+  '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
+  '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+  '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
-})
+}
+const model = compile('src/devices/integration/model.ts', modelImports)
 const controls = compile('src/devices/integration/IntegrationControls.tsx')
 const battery = compile('src/components/BatteryIndicator.tsx')
 const { DeviceHub: ControlledDeviceHub, DeviceDiscoverySection } = compile('src/devices/integration/DeviceHub.tsx', {
@@ -105,13 +112,16 @@ test('binding dropdown stays inside its modal dialog and still works outside a d
 test('parent selection opens the exact integrated device and back returns to the device list', () => {
   const first = { ...model.newInstance('rc003', 'one'), id: 'first' }
   const second = { ...model.newInstance('cmiotA15', 'two'), id: 'second' }
+  const duplicateRc = { ...model.newInstance('rc003', 'three'), id: 'third-abcd' }
   const snapshot = model.emptySnapshot()
-  snapshot.store.instances = [first, second]
+  snapshot.store.instances = [first, second, duplicateRc]
+  const legacyCalls = []
   let select, view
   function Host() {
     const [selectedInstanceId, onSelectInstance] = React.useState(null)
     select = onSelectInstance
     return React.createElement(ControlledDeviceHub, { selectedInstanceId, onSelectInstance,
+      onLegacy: id => legacyCalls.push(id),
       controller: { snapshot, error: '', busy: false }, native: false, platform: 'windows', permissions: {},
     })
   }
@@ -119,8 +129,17 @@ test('parent selection opens the exact integrated device and back returns to the
   try {
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     act(() => select('second'))
-    assert.equal(view.root.findByType('instance-workspace').props.instance.id, 'second')
-    act(() => view.root.findByType('instance-workspace').props.onBack())
+    const workspace = () => view.root.findByType('instance-workspace')
+    assert.equal(workspace().props.instance.id, 'second')
+    assert.deepEqual(
+      Array.from(workspace().props.deviceOptions, item => [item.id, item.detail ?? null]),
+      [['first', 'RC003 · irst'], ['second', null], ['third-abcd', 'RC003 · abcd'], ['system-mouse', null]],
+    )
+    act(() => workspace().props.onSelectDevice('first'))
+    assert.equal(workspace().props.instance.id, 'first')
+    act(() => workspace().props.onSelectDevice('system-mouse'))
+    assert.deepEqual(legacyCalls, ['mouse'])
+    act(() => workspace().props.onBack())
     assert.equal(view.root.findAllByType('instance-workspace').length, 0)
     assert.ok(text(view.toJSON()).includes('我的设备'))
   } finally { act(() => view.unmount()) }
@@ -221,13 +240,16 @@ test('discovery help opens without toggling the device list and routes Bluetooth
       const buttons = dialog.findAllByType('button')
       assert.deepEqual(
         buttons.map(text),
-        platform === 'windows' ? ['打开设备管理器', '打开系统蓝牙设置', '关闭'] : ['打开系统蓝牙设置', '关闭'],
+        platform === 'windows'
+          ? ['设备无法连接排查', '打开设备管理器', '打开系统蓝牙设置', '关闭']
+          : ['设备无法连接排查', '打开系统蓝牙设置', '关闭'],
       )
-      const bluetoothButtonIndex = platform === 'windows' ? 1 : 0
+      assert.equal(buttons[0].props.disabled, undefined)
+      const bluetoothButtonIndex = platform === 'windows' ? 2 : 1
       if (platform === 'windows') {
-        assert.equal(buttons[0].props.disabled, !native)
+        assert.equal(buttons[1].props.disabled, !native)
         if (native) {
-          act(() => buttons[0].props.onClick())
+          act(() => buttons[1].props.onClick())
           assert.equal(deviceManagerOpened, 1)
         }
       }
@@ -361,6 +383,13 @@ test('saved offline instances keep their card and show connection state even whe
   assert.ok(text(card).includes('未连接'))
   snapshot.discovered = [{ ...device, connected: true }]
   assert.equal(model.instanceStatusLabel(instance, snapshot), '已暂停')
+  snapshot.runtime[instance.id] = { state: 'exclusive' }
+  assert.equal(model.instanceStatusLabel(instance, snapshot), '拦截中')
+  act(() => view.update(React.createElement(DeviceHub, {
+    controller: { snapshot, error: '', busy: false }, native: true, platform: 'macos', permissions: {},
+  })))
+  const updatedCard = view.root.find(node => node.type === 'button' && node.props.className === 'my-devices-card')
+  assert.equal(text(updatedCard.findByProps({ className: 'my-devices-status' })), '拦截中')
   act(() => view.unmount())
 })
 
@@ -394,10 +423,103 @@ test('integration saves devices without an input mode on every platform', async 
   }
 })
 
-test('mobile integration selects name and physical device before model and preserves both through recognition', async () => {
-  for (const identify of [false, true]) {
+test('mobile model identity matching retains captured software and hardware behavior', () => {
+  assert.deepEqual(Array.from(model.mobileRemoteKinds), ['cmiotA15', 'xmBt29', 'rc313'])
+  assert.equal(model.mobileRemoteFallbackKind, 'rc313')
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x0416, productId: 0x0300 }), true)
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x0416, productId: 0x0301 }), false)
+  assert.equal(model.isMobileRemoteDevice({ vendorId: 0x1d5a, productId: 0xc081 }), false)
+  for (const [software, kind] of [
+    ['CMIOT3_B311_debug', 'cmiotA15'],
+    ['XFRSD0D_M_R01_761_debug', 'xmBt29'],
+    ['CMIOT18_B302_1601', 'rc313'],
+    ['unknown', null],
+    [null, null],
+  ]) assert.equal(model.mobileRemoteKindForSoftware(software), kind)
+})
+
+test('bundled capabilities retain recording defaults and platform support for all supported devices', () => {
+  for (const [kind, mode, hidVoice, windowsDriver = true, singleLane = false] of [
+    ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
+    ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false, true, true],
+    ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
+    ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
+    ['kivoK18Lite', 'click', false, false, true],
+  ]) {
+    assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
+    assert.equal(model.usesHidVoice(kind), hidVoice)
+    assert.equal(model.supportsWindowsDriver(kind), windowsDriver)
+    assert.equal(model.usesSingleLaneWorkspace(kind), singleLane)
+  }
+})
+
+test('TCL identity requires actual information fields and never trusts kind or detectedKind alone', () => {
+  const rc802a = { ...device, kind: 'tclRc802a', vendorId: 0x0416, productId: 0x0301,
+    deviceInfo: { modelNumber: 'prefix_BT_RC802A_suffix', manufacturer: 'TCL Electronics' } }
+  assert.equal(model.deviceMatchesKind(rc802a, 'tclRc802a'), true)
+  for (const field of ['modelNumber', 'manufacturer']) {
+    for (const value of [null, '', 'other']) {
+      assert.equal(model.deviceMatchesKind({ ...rc802a, deviceInfo: { ...rc802a.deviceInfo,
+        [field]: value, detectedKind: 'tclRc802a' } }, 'tclRc802a'), false)
+    }
+  }
+  assert.equal(model.deviceMatchesKind({ ...rc802a, productId: 0x0300 }, 'tclRc802a'), false)
+  for (const [software, expected] of [['TCL_RC902N_1.0', 'tclRc902n'], ['TCL_RC902V_1.0', 'tclRc902v'], ['', null]]) {
+    const remote = { ...device, kind: 'tclRc902n', vendorId: 0x0417, productId: 0x0304,
+      deviceInfo: { softwareRevision: software, detectedKind: 'tclRc902n' } }
+    for (const kind of ['tclRc902n', 'tclRc902v']) {
+      assert.equal(model.deviceMatchesKind(remote, kind), kind === expected)
+    }
+  }
+})
+
+test('recording defaults and driver support follow changed SVG declarations for the same model', () => {
+  const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
+  const descriptor = parseDescriptorSvg(source
+    .replace('trigger-modes="hold click"', 'trigger-modes="hold"')
+    .replaceAll('windows-prefix="BTHLEDEVICE"', ''), '/test.svg')
+  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const variant = compile('src/devices/integration/model.ts', {
+    ...modelImports,
+    '../cmiot-a15-remote/definition.ts': { ...definition,
+      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
+        remoteView: { ...definition.cmiotA15SupportPackage.remoteView, voice: descriptor.voice, identities: descriptor.identities },
+      },
+    },
+  })
+  assert.equal(variant.newInstance('cmiotA15', null).cmiotA15RecordingMode, 'hold')
+  assert.equal(variant.supportsWindowsDriver('cmiotA15'), false)
+})
+
+test('mobile model recognizes any software marker declared in the SVG identity', () => {
+  const source = readFileSync('public/device-descriptors/cmiot-a15.svg', 'utf8')
+  const descriptor = parseDescriptorSvg(source.replaceAll('CMIOT3_B311', 'unused|CMIOT3_B311|alternate')
+    .replace('software-contains="unused|CMIOT3_B311|alternate"', ''), '/test.svg')
+  const definition = modelImports['../cmiot-a15-remote/definition.ts']
+  const variant = compile('src/devices/integration/model.ts', {
+    ...modelImports,
+    '../cmiot-a15-remote/definition.ts': { ...definition,
+      cmiotA15SupportPackage: { ...definition.cmiotA15SupportPackage,
+        remoteView: { ...definition.cmiotA15SupportPackage.remoteView, identities: descriptor.identities },
+      },
+    },
+  })
+  assert.equal(variant.mobileRemoteKindForSoftware('CMIOT3_B311_debug'), 'cmiotA15')
+  assert.equal(variant.mobileRemoteKindForSoftware('alternate_debug'), 'cmiotA15')
+  assert.equal(variant.mobileRemoteKindForSoftware('unrelated'), null)
+})
+
+test('mobile integration preserves selection and recognizes native, old and unknown software snapshots', async () => {
+  for (const recognition of [null, 'native', 'software', 'unknown', 'missing']) {
+    const identify = recognition !== null
+    const recognizedKind = recognition === 'unknown' || recognition === 'missing' ? 'rc313' : 'xmBt29'
+    const expectedKind = identify ? recognizedKind : 'cmiotA15'
+    const expectedName = identify ? (recognizedKind === 'rc313' ? 'RC-313' : 'XM-BT-29') : 'CMIOT-A15'
     const remote = { ...device, id: 'mobile-one', kind: 'cmiotA15', vendorId: 0x0416, productId: 0x0300, connected: true,
-      deviceInfo: { status: 'ready', softwareRevision: 'XFRSD0D_M_R01_761', detectedKind: 'xmBt29' } }
+      deviceInfo: { status: 'ready',
+        softwareRevision: recognition === 'native' ? 'CMIOT3_B311' : recognition === 'unknown' ? 'unknown' : recognition === 'missing' ? null : 'XFRSD0D_M_R01_761',
+        ...(recognition === 'native' ? { detectedKind: 'xmBt29' } : {}),
+      } }
     const second = { ...remote, id: 'mobile-two' }
     const snapshot = { ...model.emptySnapshot(), discovered: [remote, second] }
     const saved = [], refreshed = []
@@ -429,7 +551,7 @@ test('mobile integration selects name and physical device before model and prese
       if (identify) {
         await act(async () => button('一键识别').props.onClick())
         assert.deepEqual(refreshed, [second.id])
-        assert.ok(text(selectedModel()).includes('XM-BT-29'))
+        assert.ok(text(selectedModel()).includes(expectedName))
         assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 1, 'recognition selects a model without returning to the details page')
       } else {
         act(() => view.root.findAllByProps({ role: 'radio' }).find(node => text(node).includes('CMIOT-A15')).props.onClick())
@@ -438,13 +560,13 @@ test('mobile integration selects name and physical device before model and prese
       assert.equal(view.root.findByType('input').props.value, '客厅遥控器')
       assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, second.id)
       act(() => button('下一步').props.onClick())
-      assert.ok(text(selectedModel()).includes(identify ? 'XM-BT-29' : 'CMIOT-A15'))
+      assert.ok(text(selectedModel()).includes(expectedName))
       assert.equal(saved.length, 0)
       await act(async () => button('集成设备').props.onClick())
       assert.equal(saved.length, 1)
       assert.equal(saved[0].name, '客厅遥控器')
       assert.equal(saved[0].binding, second.id)
-      assert.equal(saved[0].kind, identify ? 'xmBt29' : 'cmiotA15')
+      assert.equal(saved[0].kind, expectedKind)
       assert.equal(saved[0].cmiotA15RecordingMode, identify ? 'hold' : 'click')
       assert.equal(integrated, 'saved-mobile')
     } finally { act(() => view.unmount()) }
@@ -478,66 +600,6 @@ test('OBE_RCU_R5 integrates directly by hardware model without software recognit
   } finally { act(() => view.unmount()) }
 })
 
-test('TCL discovery requires each model’s VID/PID and Device Information markers before binding', async () => {
-  for (const [kind, vendorId, productId, information, invalidInformation] of [
-    ['tclRc802a', 0x0416, 0x0301, { modelNumber: 'prefix_BT_RC802A_suffix', manufacturer: 'TCL Electronics' },
-      [{ manufacturer: 'TCL' }, { modelNumber: 'BT_RC802A' }, { modelNumber: 'BT_RC802A', manufacturer: 'Other' }, { modelNumber: 'BT_RC802B', manufacturer: 'TCL' }]],
-    ['tclRc902n', 0x0417, 0x0304, { softwareRevision: 'TCL_RC902N_1.0' },
-      [{}, { softwareRevision: 'RC902M' }]],
-  ]) {
-    const remote = { ...device, id: 'tcl-one', kind, vendorId, productId, connected: true,
-      deviceInfo: { status: 'ready', ...information } }
-    const rejected = invalidInformation.map((info, index) => ({ ...remote, id: `rejected-${index}`,
-      deviceInfo: { status: 'ready', detectedKind: kind, ...info } }))
-    rejected.push({ ...remote, id: 'wrong-vendor', vendorId: vendorId + 1 }, { ...remote, id: 'wrong-product', productId: productId + 1 })
-    const snapshot = { ...model.emptySnapshot(), discovered: [...rejected, remote] }
-    const saved = []
-    const controller = { snapshot, error: '', busy: false, put: async instance => {
-      saved.push(instance)
-      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-tcl' }] } }
-    } }
-    let view
-    act(() => { view = Renderer.create(React.createElement(DeviceDiscoverySection, {
-      controller, native: true, platform: 'windows', permissions: {}, onIntegrated() {},
-    })) })
-    try {
-      const cards = view.root.findAll(node => node.type === 'button' && node.props['data-discovered'])
-      assert.equal(cards.length, 1, 'VID/PID candidates with missing or contradictory DIS data are not offered as recognized devices')
-      act(() => cards[0].props.onClick())
-      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.devices.length, 1)
-      assert.equal(view.root.findByType(controls.DeviceBindingPicker).props.value, remote.id)
-      assert.equal(view.root.findAllByProps({ role: 'radiogroup' }).length, 0)
-      await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
-      assert.equal(saved[0].kind, kind)
-      assert.equal(saved[0].binding, remote.id)
-      assert.equal(saved[0].cmiotA15RecordingMode, 'click')
-    } finally { act(() => view.unmount()) }
-  }
-})
-
-test('both TCL scaffolds can be added as previews with independent artwork and A15 inputs', async () => {
-  for (const kind of ['tclRc802a', 'tclRc902n']) {
-    const snapshot = model.emptySnapshot(), saved = []
-    const controller = { snapshot, error: '', busy: false, put: async instance => {
-      saved.push(instance)
-      return { ...snapshot, store: { ...snapshot.store, instances: [{ ...instance, id: 'saved-preview' }] } }
-    } }
-    const pkg = model.packageFor(kind)
-    assert.notEqual(pkg.artwork, model.packageFor('cmiotA15').artwork)
-    assert.deepEqual(pkg.inputs.map(input => input.id), model.packageFor('cmiotA15').inputs.map(input => input.id))
-    assert.ok(readFileSync(new URL(`../public${pkg.artwork}`, import.meta.url), 'utf8').includes('<svg'))
-    let view
-    act(() => { view = Renderer.create(React.createElement(DeviceHub, { controller, native: false, platform: 'windows', permissions: {} })) })
-    try {
-      act(() => view.root.findByProps({ className: 'my-devices-integrate' }).props.onClick())
-      act(() => view.root.findAllByProps({ className: 'managed-package' }).find(node => text(node).includes(pkg.name)).props.onClick())
-      await act(async () => view.root.findByProps({ className: 'managed-primary' }).props.onClick())
-      assert.equal(saved[0].kind, kind)
-      assert.equal(saved[0].binding, null)
-    } finally { act(() => view.unmount()) }
-  }
-})
-
 test('A15 workspace scopes driver actions, recording mode and input feedback to its instance', async t => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   const listeners = []
@@ -562,6 +624,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
     '../../components/SettingsHelp': { SettingsHelp: () => null },
     '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
     '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
     '../../components/WorkflowAxonkey': { WorkflowAxonkey },
     '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
@@ -569,8 +632,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
       'react-dom': { createPortal: node => node },
     }),
+    '../kivo-k18-lite/KivoScreenEditor': compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+      '../integration/model': model,
+    }),
     './IntegrationControls': controls,
-    '../xbox-controller/ControllerDiagram': { ControllerDiagram: () => null },
     './model': model,
     './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
   })
@@ -598,6 +663,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
   const props = index => ({ instance: instances[index], controller, native: true, platform: 'windows', permissions: {},
     driverAction: null, batteryLevel: index === 0 ? 15 : 78,
     onInstallDriver: id => actions.push(['install', id]),
+    onBind: () => actions.push(['bind', instances[index].id]),
     onUnbindDevice: async id => actions.push(['unbind', id]),
     onOpenAudioCalibration: id => actions.push(['calibrate', id]),
     onOpenAudioDriver: () => audioDriverRequests.push('open'),
@@ -627,6 +693,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByProps({ className: 'device-recording-control' }).props.disabled, true)
     snapshot.discovered = [{ ...device, id: 'physical-two', kind: 'cmiotA15', connected: true }]
     act(() => views[1].update(React.createElement(InstanceWorkspace, props(1))))
+    const statusRow = views[1].root.findByProps({ 'aria-label': '设备状态' })
+    assert.equal(text(statusRow), '拦截中78%')
+    assert.equal(statusRow.findByProps({ role: 'switch' }).props['aria-checked'], true)
+    assert.equal(statusRow.findAllByType('button').length, 1)
     const recordingButton = () => views[1].root.findByProps({ className: 'device-recording-control' })
     assert.equal(recordingButton().props.disabled, false)
     assert.equal(recordingButton().props['aria-label'], '停止录音')
@@ -657,7 +727,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(views[0].root.findByProps({ className: 'managed-driver-notice' }).props.role, 'status')
 
     const communicationError = 'Quarbor Universal connect (BTHLEDEVICE\\device): 系统找不到指定的文件。(os error 2)'
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind, hideDriverMissingReminder: false }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'connecting', driverInstalled: true, error: communicationError }
@@ -696,7 +766,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
     }
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       act(() => {
         instances[0] = { ...instances[0], kind }
         snapshot.runtime.one = { state: 'disconnected', driverState: 'offline', driverInstalled: false }
@@ -711,6 +781,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       const driverRow = views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })
       const settingsNavigation = views[0].root.findByProps({ className: 'settings-nav device-settings-drawer-nav' })
       assert.deepEqual(settingsNavigation.findAllByType('button').map(text), ['设备设置', '设备信息'])
+      const bindingRow = views[0].root.findByProps({ className: 'settings-form-control managed-instance-binding-control' })
+      assert.deepEqual(bindingRow.findAllByType('button').map(text), ['重新绑定', '解除绑定，保留配置'])
+      act(() => bindingRow.findAllByType('button')[0].props.onClick())
+      assert.deepEqual(actions.at(-1), ['bind', 'one'])
       const manageAudioDriver = views[0].root.findAllByType('button').find(button => text(button) === '管理驱动')
       act(() => manageAudioDriver.props.onClick())
       assert.equal(audioDriverRequests.at(-1), 'open')
@@ -753,8 +827,8 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
 
     act(() => { for (const listener of listeners) listener({ payload: { instanceId: 'two', pressed: ['cmiotA15.up'], values: { 'cmiotA15.up': 1 } } }) })
-    assert.equal(views[0].root.findByType(RemoteControl).props.pressedId, null)
-    assert.equal(views[1].root.findByType(RemoteControl).props.pressedId, 'cmiotA15.up')
+    assert.deepEqual(Array.from(views[0].root.findByType(RemoteControl).props.pressedIds), [])
+    assert.deepEqual(Array.from(views[1].root.findByType(RemoteControl).props.pressedIds), ['cmiotA15.up'])
 
     act(() => views[0].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
@@ -765,14 +839,16 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     assert.equal(views[1].root.findByType('select').props.value, 'click', 'all CMIOT-A15 instances support choosing a recording mode')
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
-    await act(async () => views[0].root.findByProps({ className: 'managed-bound-device' }).findByType('button').props.onClick())
+    const unbind = views[0].root.findByProps({ className: 'managed-bound-device' }).findAllByType('button')
+      .find(button => text(button) === '解除绑定，保留配置')
+    await act(async () => unbind.props.onClick())
     assert.deepEqual(actions.at(-1), ['unbind', 'one'])
     act(() => {
       views[0].update(React.createElement(InstanceWorkspace, props(0)))
     })
     assert.equal(views[0].root.findAllByProps({ className: 'managed-driver-notice' }).length, 1)
     assert.ok(text(views[0].root.findByProps({ className: 'settings-form-row managed-driver-status-row' })).includes('未安装'))
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       for (const recording of [true, false]) {
         act(() => {
           instances[1] = { ...instances[1], kind }
@@ -790,11 +866,33 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     })
     assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, 0)
     assert.equal(views[1].root.findAllByProps({ role: 'status', 'aria-live': 'polite' }).length, 1)
+    for (const [kind, battery, manualRecording, recordingModes, voiceCalibration] of [
+      ['rc003', true, false, false, true], ['cmiotA15', true, true, true, true], ['xmBt29', true, true, false, true],
+      ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
+      ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
+      ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
+      ['kivoK18Lite', false, false, false, false],
+    ]) {
+      act(() => {
+        instances[1] = { ...instances[1], kind }
+        views[1].update(React.createElement(InstanceWorkspace, props(1)))
+      })
+      assert.equal(views[1].root.findAllByProps({ className: 'managed-instance-power' }).length, Number(battery))
+      assert.equal(views[1].root.findAllByProps({ className: 'device-recording-control' }).length, Number(manualRecording))
+      assert.equal(views[1].root.findAllByProps({ className: 'managed-audio-calibration' }).length, Number(voiceCalibration))
+      act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+      assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
+      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, Number(model.supportsWindowsDriver(kind)))
+      act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
+    }
     act(() => {
       instances[1] = { ...instances[1], kind: 'xboxBluetooth' }
       views[1].update(React.createElement(InstanceWorkspace, props(1)))
     })
     assert.equal(views[1].root.findAllByProps({ 'aria-atomic': 'true' }).length, 0)
+    act(() => listeners[1]({ payload: { instanceId: 'two', pressed: [], values: { 'xbox.lt': 0.6, 'xbox.rt': 0.3 } } }))
+    assert.deepEqual(views[1].root.findAllByType('meter').map(meter => meter.props.value), [0.6, 0.3])
+    assert.deepEqual(views[1].root.findByProps({ className: 'managed-analog' }).findAllByType('label').map(text), ['LT ', 'RT '])
     act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     act(() => views[1].root.findAllByType('button').find(node => text(node) === '设备设置').props.onClick())
     for (const [driverState, driverInstalled, label] of [['missing', false, '未安装'], ['connecting', true, '连接中'], ['connected', true, '已连接'], ['offline', false, '设备不在线']]) {
@@ -822,7 +920,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     assert.equal(instances[0].cmiotA15RecordingMode, 'click')
     act(() => views[0].root.findByProps({ className: 'managed-audio-calibration' }).props.onClick())
 
-    for (const kind of ['rc003', 'cmiotA15']) {
+    for (const kind of ['rc003', 'tclRc902n', 'tclRc902v', 'cmiotA15']) {
       const info = { status: 'ready', bluetoothName: 'REMOTE_NATIVE', batteryLevel: 54, manufacturer: 'IFLY_RCU', serialNumber: '20190620', hardwareRevision: 'HW1', firmwareRevision: 'FW1', softwareRevision: 'SW1' }
       act(() => {
         instances[0] = { ...instances[0], kind, binding: 'info-device' }
@@ -869,6 +967,10 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
 
     const workspace = views[0].root
     const workflow = workspace.findByType(WorkflowAxonkey)
+    const bind = workspace.findByProps({ className: 'managed-instance-bind' })
+    assert.equal(text(bind), '绑定设备')
+    act(() => bind.props.onClick())
+    assert.deepEqual(actions.at(-1), ['bind', 'one'])
     const close = () => workspace.findByProps({ 'aria-label': '关闭设备设置' }).props.onClick()
     const open = () => workspace.findByProps({ className: 'device-workspace-settings' }).props.onClick()
     act(close)
@@ -1018,4 +1120,617 @@ test('migration binding request waits for the saved instance then opens its phys
   assert.equal(view.root.findAllByProps({ role: 'dialog' }).length, 0)
   assert.equal(consumed, 1)
   act(() => view.unmount())
+})
+
+test('managed device workspace renders undo/redo header actions, handles shortcuts and resets on profile switch', async () => {
+  const keydownListeners = new Set()
+  class MockHTMLElement {
+    constructor(tagName = 'DIV') {
+      this.tagName = tagName
+      this.isContentEditable = false
+    }
+  }
+  let modalOpen = false
+  const RemoteControl = () => null
+  const WorkflowAxonkey = ({ header }) => header
+  const ApplicationProfileToolbar = () => null
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
+    '../../telemetry': { reportTencentEvent() {} },
+    '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../shared/RemoteControl': { RemoteControl },
+    '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar },
+    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+      '../integration/model': model,
+    }),
+    './IntegrationControls': controls,
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  }, {
+    HTMLElement: MockHTMLElement,
+    document: {
+      body: {},
+      getElementById: () => null,
+      activeElement: null,
+      querySelector: () => (modalOpen ? {} : null),
+    },
+    window: {
+      localStorage: { getItem: () => null, setItem() {} },
+      addEventListener(type, fn) { if (type === 'keydown') keydownListeners.add(fn) },
+      removeEventListener(type, fn) { if (type === 'keydown') keydownListeners.delete(fn) },
+    },
+  })
+
+  let instance = {
+    ...model.newInstance('cmiotA15', null),
+    id: 'a15-history',
+    profiles: [
+      { id: 'p1', name: '默认配置', behaviors: {} },
+      { id: 'p2', name: '影音配置', behaviors: {} },
+    ],
+    activeProfileId: 'p1',
+  }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [instance]
+  const toasts = []
+  let view
+  const render = () => React.createElement(InstanceWorkspace, {
+    instance,
+    controller: {
+      snapshot,
+      refreshInformation: async () => {},
+      toggleRecording: async () => {},
+      update: async (_id, change) => {
+        instance = change(instance)
+        snapshot.store.instances = [instance]
+        return snapshot
+      },
+    },
+    native: false,
+    platform: 'macos',
+    permissions: { accessibility: true, inputMonitoring: true },
+    onPermissions() {},
+    onBack() {},
+    onBind() {},
+    onUnbindDevice: async () => {},
+    onRemoveDevice: async () => {},
+    onOpenAudioCalibration() {},
+    onOpenAudioDriver() {},
+    driverAction: null,
+    onInstallDriver() {},
+    batteryLevel: null,
+    onToast: message => toasts.push(message),
+  })
+
+  act(() => { view = Renderer.create(render(), { createNodeMock: node => node.type === 'dialog' ? { showModal() {}, close() {} } : null }) })
+  try {
+    const undoBtn = () => view.root.findByProps({ 'aria-label': '撤销行为更改' })
+    const redoBtn = () => view.root.findByProps({ 'aria-label': '重做行为更改' })
+    const workflow = () => view.root.findByType(WorkflowAxonkey)
+    const remote = () => view.root.findByType(RemoteControl)
+    const selectedId = workflow().props.button.id
+
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, true)
+    assert.equal(view.root.findAllByProps({ className: 'key-picker-voice-guidance' }).length, 0)
+
+    act(() => remote().props.onSelect('cmiotA15.voice'))
+    const voiceGuidance = view.root.findByProps({ className: 'key-picker-voice-guidance' })
+    assert.equal(voiceGuidance.parent.props.className, 'key-picker-heading')
+    assert.match(text(voiceGuidance), /要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空/)
+    act(() => remote().props.onSelect(selectedId))
+    assert.equal(view.root.findAllByProps({ className: 'key-picker-voice-guidance' }).length, 0)
+
+    const seq1 = { click: [{ id: 's1', type: 'key', enabled: true, key: 'Space' }], doubleClick: [], longPress: [] }
+    const seq2 = { click: [{ id: 's2', type: 'key', enabled: true, key: 'Enter' }], doubleClick: [], longPress: [] }
+
+    await act(async () => { workflow().props.onChange(selectedId, seq1) })
+    act(() => view.update(render()))
+    assert.equal(undoBtn().props.disabled, false)
+    assert.equal(redoBtn().props.disabled, true)
+    assert.deepEqual(Array.from(remote().props.mappedIds), [selectedId])
+
+    await act(async () => { workflow().props.onChange(selectedId, seq2) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Enter')
+
+    await act(async () => { undoBtn().props.onClick() })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Space')
+    assert.equal(undoBtn().props.disabled, false)
+    assert.equal(redoBtn().props.disabled, false)
+    assert.equal(toasts.at(-1), '已撤销行为更改')
+
+    // Typing inside an input or having a modal open must ignore history shortcuts.
+    const fireKey = (key, opts = {}) => {
+      let prevented = false
+      const event = {
+        key,
+        metaKey: true,
+        ctrlKey: false,
+        shiftKey: false,
+        altKey: false,
+        defaultPrevented: false,
+        target: new MockHTMLElement('DIV'),
+        preventDefault() { prevented = true },
+        ...opts,
+      }
+      for (const listener of keydownListeners) listener(event)
+      return prevented
+    }
+
+    assert.equal(fireKey('z', { target: new MockHTMLElement('INPUT') }), false)
+    modalOpen = true
+    assert.equal(fireKey('z'), false)
+    modalOpen = false
+
+    await act(async () => { assert.equal(fireKey('z'), true) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click.length, 0)
+    assert.deepEqual(Array.from(remote().props.mappedIds), [])
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, false)
+
+    await act(async () => { assert.equal(fireKey('z', { shiftKey: true }), true) })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Space')
+    assert.equal(toasts.at(-1), '已重做行为更改')
+
+    await act(async () => { redoBtn().props.onClick() })
+    act(() => view.update(render()))
+    assert.equal(workflow().props.sequences.click[0].key, 'Enter')
+    assert.equal(redoBtn().props.disabled, true)
+
+    // Switching profile resets undo/redo history so undo never restores p1 into p2.
+    act(() => {
+      view.root.findByType(ApplicationProfileToolbar).props.onSwitchProfile('p2')
+    })
+    await act(async () => {})
+    act(() => view.update(render()))
+    assert.equal(undoBtn().props.disabled, true)
+    assert.equal(redoBtn().props.disabled, true)
+    assert.equal(workflow().props.sequences.click.length, 0)
+  } finally {
+    act(() => view.unmount())
+  }
+})
+
+test('discovery help troubleshoot button opens ConnectionTroubleshootPage in DeviceHub and fallback modal in guide mode', async () => {
+  const modal = { showModal() {}, close() {} }
+  const clipboardWrites = []
+  const diagnoseCalls = []
+  const sampleReport = {
+    platform: 'windows',
+    checkedAtMs: 1794711000000,
+    summaryKind: 'irk_conflict',
+    headline: '检测到蓝牙配对被拦截：0C:E2:90:2E:27:4C 可能发生 IRK 身份密钥冲突',
+    detail: 'Windows 日志记录了最近的 蓝牙 IRK 身份密钥冲突 (BTHUSB 事件 35)。',
+    bluetoothAdapters: [
+      {
+        name: 'Realtek Bluetooth Adapter',
+        instanceId: 'USB\\VID_0BDA&PID_0852\\1',
+        status: 'OK',
+        problemCode: null,
+        leSupported: true,
+      },
+    ],
+    pairingFailures: [
+      {
+        timestampIso: '2026-11-15T02:48:28.9417738Z',
+        timestampMs: 1794710908941,
+        provider: 'BTHUSB',
+        eventId: 35,
+        kind: 'irk_collision',
+        targetAddress: '0C:E2:90:2E:27:4C',
+        errorCodeHex: '0x80090003 (NTE_BAD_KEY)',
+        title: '蓝牙 IRK 身份密钥冲突 (BTHUSB 事件 35)',
+        explanation: '新设备与已配对设备返回相同的 IRK 身份密钥。',
+        resolvedNow: false,
+        matchingChipSignature: '005D;8762',
+      },
+      ...Array.from({ length: 7 }, (_, i) => ({
+        timestampIso: `2026-11-15T01:0${i}:00Z`,
+        timestampMs: 1794700000000 - i * 60000,
+        provider: 'DeviceAssociationService',
+        eventId: 3501,
+        kind: 'pairing_failed',
+        targetAddress: `AA:BB:CC:DD:EE:0${i + 1}`,
+        errorCodeHex: `0x8007000${i + 1}`,
+        title: `历史配对记录 #${i + 2}`,
+        explanation: `历史事件说明 #${i + 2}`,
+        resolvedNow: true,
+        matchingChipSignature: null,
+      })),
+    ],
+    pairedDevices: [
+      {
+        address: '0C:F3:CE:7F:24:1E',
+        name: 'YYYKQ',
+        vidHex: '0x0416',
+        pidHex: '0x0300',
+        chipSignature: '005D;8762',
+        chipVendorLabel: 'Realtek (005D;8762)',
+        lastConnectedMs: 1794600000000,
+        lastSeenMs: 1794600000000,
+        present: true,
+        boundToQuarbor: true,
+        recoveryActive: false,
+        supportedKind: 'cmiotA15',
+        suspectReason: '与配对失败设备芯片指纹相同 (005D;8762)',
+      },
+    ],
+    warnings: [],
+  }
+
+  const troubleshootMod = compile('src/devices/integration/ConnectionTroubleshootPage.tsx', {
+    '@tauri-apps/api/core': {
+      invoke: async cmd => {
+        diagnoseCalls.push(cmd)
+        return sampleReport
+      },
+    },
+    '../../clipboard': {
+      writeClipboardText: async content => {
+        clipboardWrites.push(content)
+      },
+    },
+    './model': model,
+  })
+  const { DeviceHub: TestHub, DeviceDiscoverySection: TestDiscovery } = compile('src/devices/integration/DeviceHub.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    './InstanceWorkspace': { InstanceWorkspace: props => React.createElement('instance-workspace', props) },
+    './IntegrationControls': controls,
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    './model': model,
+    './ConnectionTroubleshootPage': troubleshootMod,
+  }, {
+    window: new EventTarget(),
+  })
+
+  // 1. Inside DeviceHub: clicking 设备无法连接排查 switches into full troubleshoot page and back returns cleanly.
+  let toasts = []
+  let hubView
+  const hubProps = {
+    selectedInstanceId: null,
+    onSelectInstance() {},
+    controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
+    native: true,
+    platform: 'windows',
+    permissions: {},
+    onOpenBluetoothSettings() {},
+    onOpenDeviceManager() {},
+    onOpenLogs() {},
+    onToast: msg => toasts.push(msg),
+  }
+  await act(async () => {
+    hubView = Renderer.create(React.createElement(TestHub, hubProps), {
+      createNodeMock: node => (node.type === 'dialog' ? modal : null),
+    })
+  })
+  try {
+    const helpBtn = hubView.root.findByProps({ className: 'managed-discovery-help' })
+    act(() => helpBtn.props.onClick({ preventDefault() {}, stopPropagation() {} }))
+    const dialog = hubView.root.findByType('dialog')
+    const troubleshootBtn = dialog.findAllByType('button').find(b => text(b) === '设备无法连接排查')
+    assert.ok(troubleshootBtn)
+    await act(async () => {
+      troubleshootBtn.props.onClick()
+      await Promise.resolve()
+    })
+    assert.equal(hubView.root.findAllByType('dialog').length, 0, 'help dialog closes after opening troubleshoot page')
+    const page = hubView.root.findByProps({ 'aria-label': '设备无法连接排查' })
+    const content = text(page)
+    assert.ok(content.includes('0C:E2:90:2E:27:4C'))
+    assert.ok(content.includes('YYYKQ'))
+    assert.ok(content.includes('0C:F3:CE:7F:24:1E'))
+    assert.ok(content.includes('恢复原驱动'))
+    assert.ok(content.includes('Realtek Bluetooth Adapter'))
+    assert.ok(content.includes('0x80090003 (NTE_BAD_KEY)'))
+    assert.deepEqual(diagnoseCalls, ['diagnose_connection_issues'])
+
+    // Verify independent scroll containers keep headers/actions fixed and do not truncate >6 failure records.
+    const summaryScroll = page.findByProps({ className: 'troubleshoot-summary-scroll' })
+    assert.ok(text(summaryScroll).includes('YYYKQ'))
+    assert.ok(page.findByProps({ className: 'troubleshoot-actions-row' }))
+
+    for (const cardClass of [
+      'troubleshoot-card troubleshoot-card-devices',
+      'troubleshoot-card troubleshoot-card-adapters',
+      'troubleshoot-card troubleshoot-card-failures',
+      'troubleshoot-card troubleshoot-card-checklist',
+    ]) {
+      const card = page.findByProps({ className: cardClass })
+      const titleNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-title')
+      const bodyNode = card.children.find(child => child && typeof child === 'object' && child.props?.className === 'troubleshoot-card-body')
+      assert.ok(titleNode, `${cardClass} keeps fixed card title outside scroll body`)
+      assert.ok(bodyNode, `${cardClass} provides independent .troubleshoot-card-body scroll container`)
+    }
+    const failuresBody = page.findByProps({ className: 'troubleshoot-card troubleshoot-card-failures' }).findByProps({
+      className: 'troubleshoot-card-body',
+    })
+    assert.ok(text(failuresBody).includes('历史配对记录 #8'), 'all >6 failure records render inside independent scroll container')
+
+    const copyBtn = page.findAllByType('button').find(b => text(b).includes('复制排查信息'))
+    assert.ok(copyBtn)
+    await act(async () => {
+      await copyBtn.props.onClick()
+    })
+    assert.equal(clipboardWrites.length, 1)
+    assert.ok(clipboardWrites[0].includes('0C:F3:CE:7F:24:1E'))
+    assert.ok(clipboardWrites[0].includes('005D;8762'))
+    assert.equal(toasts.at(-1), '已复制设备排查信息')
+
+    const backBtn = page.findByProps({ className: 'device-workspace-back' })
+    act(() => backBtn.props.onClick())
+    assert.equal(hubView.root.findAllByProps({ 'aria-label': '设备无法连接排查' }).length, 0)
+  } finally {
+    act(() => hubView.unmount())
+  }
+
+  // 2. Inside standalone DeviceDiscoverySection (e.g. UserGuideDialog) in browser preview: opens fallback modal cleanly.
+  let guideView
+  await act(async () => {
+    guideView = Renderer.create(
+      React.createElement(TestDiscovery, {
+        guide: true,
+        controller: { snapshot: model.emptySnapshot(), error: '', busy: false },
+        native: false,
+        platform: 'windows',
+        permissions: {},
+        onOpenBluetoothSettings() {},
+        onOpenDeviceManager() {},
+        onIntegrated() {},
+      }),
+      { createNodeMock: node => (node.type === 'dialog' ? modal : null) },
+    )
+  })
+  try {
+    const helpBtn = guideView.root.findByProps({ className: 'managed-discovery-help' })
+    act(() => helpBtn.props.onClick({ preventDefault() {}, stopPropagation() {} }))
+    const helpDialog = guideView.root.findByType('dialog')
+    const troubleshootBtn = helpDialog.findAllByType('button').find(b => text(b) === '设备无法连接排查')
+    await act(async () => {
+      troubleshootBtn.props.onClick()
+      await Promise.resolve()
+    })
+    const modalDialog = guideView.root.findByProps({ className: 'troubleshoot-dialog' })
+    assert.ok(text(modalDialog).includes('浏览器预览模式无法读取本机蓝牙日志与驱动信息'))
+    const closeBtn = modalDialog.findByProps({ className: 'device-workspace-back' })
+    act(() => closeBtn.props.onClick())
+    assert.equal(guideView.root.findAllByProps({ className: 'troubleshoot-dialog' }).length, 0)
+  } finally {
+    act(() => guideView.unmount())
+  }
+})
+
+test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows driver notices and edits per-profile and per-device OLED screen settings', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  const previewCalls = []
+  const screenEditorMod = compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+    '@tauri-apps/api/core': {
+      invoke: async (cmd, args) => {
+        previewCalls.push([cmd, args])
+        const frame = new Array(512).fill(0)
+        frame[0] = 0b1010_0000
+        frame[16 * 31 + 15] = 0b0000_0001
+        return frame
+      },
+    },
+    '../integration/model': model,
+  })
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 0, 0), true)
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 1, 0), false)
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 2, 0), true)
+
+  const RemoteControl = () => null
+  const WorkflowAxonkey = ({ header }) => header
+  const ApplicationProfileToolbar = () => null
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
+    '../../telemetry': { reportTencentEvent() {} },
+    '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../shared/RemoteControl': { RemoteControl },
+    '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar },
+    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': screenEditorMod,
+    './IntegrationControls': controls,
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  })
+
+  let instance = {
+    ...model.newInstance('kivoK18Lite', null),
+    id: 'kivo-one',
+    profiles: [
+      {
+        id: 'p1',
+        name: '默认配置',
+        behaviors: {
+          'kivo.k18Lite.k01': {
+            click: [{ id: 's1', type: 'key', enabled: true, key: 'Enter' }],
+            doubleClick: [{ id: 's2', type: 'delay', enabled: true, ms: 50 }],
+            longPress: [],
+          },
+        },
+      },
+      { id: 'p2', name: '剪辑配置', behaviors: {} },
+    ],
+    activeProfileId: 'p1',
+    applicationProfiles: [
+      { application: { id: 'com.apple.FinalCut', name: 'Final Cut Pro', path: '/Applications/Final Cut Pro.app' }, profileId: 'p2' },
+    ],
+  }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [instance]
+  snapshot.runtime['kivo-one'] = { state: 'driverMissing', driverState: 'missing', driverInstalled: false }
+  let view
+  const render = () =>
+    React.createElement(InstanceWorkspace, {
+      instance,
+      controller: {
+        snapshot,
+        refreshInformation: async () => {},
+        toggleRecording: async () => {},
+        update: async (_id, change) => {
+          instance = change(instance)
+          snapshot.store.instances = [instance]
+          return snapshot
+        },
+      },
+      native: true,
+      platform: 'windows',
+      permissions: {},
+      onPermissions() {},
+      onBack() {},
+      onBind() {},
+      onUnbindDevice: async () => {},
+      onRemoveDevice: async () => {},
+      onOpenAudioCalibration() {},
+      onOpenAudioDriver() {},
+      driverAction: null,
+      onInstallDriver() {},
+      batteryLevel: null,
+    })
+
+  act(() => {
+    view = Renderer.create(render())
+  })
+  try {
+    const rootDiv = view.root.find(node => node.type === 'div' && node.props.className?.includes('managed-instance-workspace'))
+    assert.match(rootDiv.props.className, /\bis-controller\b/)
+    assert.equal(view.root.findAllByProps({ className: 'remote-stage managed-controller-stage' }).length, 1)
+    assert.equal(view.root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    assert.ok(view.root.findByType(RemoteControl).props.screenRegion)
+
+    const triggerGroup = view.root.findByProps({ className: 'managed-workflow-triggers' })
+    const triggerBtns = triggerGroup.findAllByType('button')
+    assert.deepEqual(triggerBtns.map(text), ['单击1', '双击1', '长按0'])
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'click')
+    act(() => triggerBtns[1].props.onClick())
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'doubleClick')
+
+    // Click OLED screen region -> switches right panel to KivoScreenEditor
+    act(() => view.root.findByType(RemoteControl).props.onSelect('__screen__'))
+    assert.equal(view.root.findAllByType(WorkflowAxonkey).length, 0)
+    const editor = () => view.root.findByProps({ className: 'kivo-screen-editor' })
+    assert.equal(
+      editor().findByProps({ className: 'kivo-oled-preview' }).props['aria-label'],
+      'OLED 屏幕预览：Kivo K18 Lite / 默认配置',
+    )
+    await act(async () => {
+      t.mock.timers.tick(80)
+      await Promise.resolve()
+    })
+    assert.deepEqual(structuredClone(previewCalls.at(-1)), [
+      'render_kivo_oled_preview',
+      { line1: 'Kivo K18 Lite', line2: '默认配置' },
+    ])
+
+    // Switch to custom mode and type per-profile lines
+    const radios = () => editor().findAllByProps({ role: 'radio' })
+    await act(async () => radios()[1].props.onClick())
+    act(() => view.update(render()))
+    const textInputs = () => editor().findAll(node => node.type === 'input' && node.props.type === 'text')
+    assert.equal(textInputs().length, 2)
+    await act(async () => {
+      textInputs()[0].props.onCompositionStart()
+      textInputs()[0].props.onChange({ target: { value: 'kai' }, nativeEvent: { isComposing: true } })
+      textInputs()[0].props.onChange({ target: { value: 'kaifa' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[0].props.value, 'kaifa')
+    assert.equal(instance.profiles[0].display.line1, '')
+    await act(async () => {
+      textInputs()[0].props.onCompositionEnd({ currentTarget: { value: '开发模式' } })
+      textInputs()[0].props.onChange({ target: { value: '开发模式' }, nativeEvent: { isComposing: false } })
+    })
+    act(() => view.update(render()))
+    await act(async () => {
+      textInputs()[1].props.onCompositionStart()
+      textInputs()[1].props.onChange({ target: { value: 'zhongwen' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[1].props.value, 'zhongwen')
+    assert.equal(instance.profiles[0].display.line2, '')
+    await act(async () => {
+      textInputs()[1].props.onCompositionEnd({ currentTarget: { value: '中文屏幕' } })
+    })
+    act(() => view.update(render()))
+    assert.deepEqual(structuredClone(instance.profiles[0].display), {
+      mode: 'custom',
+      line1: '开发模式',
+      line2: '中文屏幕',
+    })
+    assert.equal(instance.profiles[1].display, undefined)
+
+    // Selecting an ApplicationProfile previews that app name + its profile name in auto mode
+    act(() => view.root.findByType(ApplicationProfileToolbar).props.onSelectApplication('com.apple.FinalCut'))
+    assert.equal(
+      editor().findByProps({ className: 'kivo-oled-preview' }).props['aria-label'],
+      'OLED 屏幕预览：Final Cut Pro / 剪辑配置',
+    )
+
+    // Device-level display settings update brightness, sleep timeout (0 = 从不), and toast switches
+    const range = editor().find(node => node.type === 'input' && node.props.type === 'range')
+    await act(async () => range.props.onChange({ target: { value: '65' } }))
+    act(() => view.update(render()))
+    const sleepSelect = editor().findByType('select')
+    await act(async () => sleepSelect.props.onChange({ target: { value: '0' } }))
+    act(() => view.update(render()))
+    const checkboxes = () => editor().findAll(node => node.type === 'input' && node.props.type === 'checkbox')
+    await act(async () => checkboxes()[0].props.onChange({ target: { checked: false } }))
+    act(() => view.update(render()))
+    assert.deepEqual(structuredClone(instance.display), {
+      brightness: 65,
+      sleepTimeoutSec: 0,
+      showKeyToast: false,
+      showProfileToast: true,
+    })
+
+    // Selecting any keycap returns immediately to WorkflowAxonkey
+    act(() => view.root.findByType(RemoteControl).props.onSelect('kivo.k18Lite.k02'))
+    assert.equal(view.root.findAllByProps({ className: 'kivo-screen-editor' }).length, 0)
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.button.id, 'kivo.k18Lite.k02')
+  } finally {
+    act(() => view.unmount())
+  }
 })

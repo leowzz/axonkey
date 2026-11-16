@@ -15,13 +15,16 @@ import { BatteryDebugControls } from './BatteryIndicator'
 import { BehaviorEditor } from './BehaviorEditor'
 import { DeviceStatusCard } from './DeviceRail'
 import type { DeviceStatus } from './DeviceRail'
-import { DeviceWorkspaceHeader } from '../devices/shared/DeviceWorkspaceHeader'
+import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../devices/shared/DeviceWorkspaceHeader'
 import { MappingKeyGrid, MappingTriggerSelector } from './MappingComponents'
 import { MouseInputModel, MouseControlPicker, MouseTriggerSelector } from './MouseMapping'
 
 export type MappingPageProps = {
   debugMode: boolean
   selectedDeviceId: DeviceId
+  activeDeviceId?: string
+  deviceOptions?: WorkspaceDeviceOption[]
+  onSelectDevice?: (id: string) => void
   onBackToDevices: () => void
   onOpenSettings: () => void
   profileControls: ReactNode
@@ -54,6 +57,9 @@ export type MappingPageProps = {
 export function MappingPage({
   debugMode,
   selectedDeviceId,
+  activeDeviceId,
+  deviceOptions,
+  onSelectDevice,
   onBackToDevices,
   onOpenSettings,
   profileControls,
@@ -82,6 +88,9 @@ export function MappingPage({
           deviceName={
             selectedDeviceId === 'mouse' ? '系统鼠标' : devices.find(device => device.id === selectedDeviceId)!.name
           }
+          activeDeviceId={activeDeviceId}
+          deviceOptions={deviceOptions}
+          onSelectDevice={onSelectDevice}
           profileControls={profileControls}
           onBackToDevices={onBackToDevices}
           onOpenSettings={onOpenSettings}
@@ -102,13 +111,12 @@ export function MappingPage({
               <div className="remote-stage">
                 <div className="remote-art">
                   <RemoteControl
-                    buttons={editableButtons}
                     activeId={activeId}
                     pressedId={pressedId}
                     mappedIds={editableButtons
                       .filter(button => Object.values(behaviors[button.id]).some(list => list.length > 0))
                       .map(button => button.id)}
-                    onSelect={id => selectBehaviorTarget(id, 'click')}
+                    onSelect={id => selectBehaviorTarget(id as InputId, 'click')}
                     remoteView={remoteView}
                   />
                 </div>

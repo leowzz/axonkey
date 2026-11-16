@@ -15,6 +15,8 @@ export type WorkflowToolboxPalette = {
   groups: ToolboxGroupConfiguration[]
 }
 
+const builtInSourceLabel = '内置'
+
 const categoryCodes: Record<string, string> = {
   控制: 'control',
   键盘: 'keyboard',
@@ -37,7 +39,7 @@ export function WorkflowToolbox({
   onRemoveSavedSequence,
   savedError,
 }: {
-  api: DesignerApi
+  api: DesignerApi | null
   platform?: Platform
   palettes: WorkflowToolboxPalette[]
   iconUrls: Record<string, string>
@@ -78,6 +80,13 @@ export function WorkflowToolbox({
       .filter(palette => palette.name !== '已保存')
       .flatMap(palette => palette.groups.flatMap(group => group.steps)),
   )
+  const canLoadMore = Boolean(cloudView && cloud.nextCursor && !cloud.loading && !cloud.error)
+  useEffect(() => {
+    const list = listRef.current
+    if (canLoadMore && list && list.clientHeight > 0 && list.scrollHeight - list.scrollTop - list.clientHeight <= 72) {
+      void cloud.more()
+    }
+  }, [canLoadMore, cloud.steps.length, cloud.nextCursor, filter])
   const recommendations = useLibraryRecommendations(
     account?.client,
     account?.userId,
@@ -85,7 +94,13 @@ export function WorkflowToolbox({
     platform,
   )
   const localFallback = !!cloudView && !cloud.steps.length && (cloudView === 'recommended' || !!cloud.error)
-  const sourceLabel = mine ? '我的' : cloudView === 'recommended' ? '推荐' : cloudView === 'community' ? '社区' : '基础'
+  const sourceLabel = mine
+    ? '我的'
+    : cloudView === 'recommended'
+      ? '推荐'
+      : cloudView === 'community'
+        ? '社区'
+        : builtInSourceLabel
   const categories = palettes
     .filter(palette => palette.name !== '已保存')
     .flatMap(palette =>
@@ -141,12 +156,12 @@ export function WorkflowToolbox({
         {(account
           ? [
               ['recommended', '推荐'],
-              ['all', '基础'],
+              ['all', builtInSourceLabel],
               ['community', '社区'],
               ['已保存/已保存', '我的'],
             ]
           : [
-              ['all', '基础'],
+              ['all', builtInSourceLabel],
               ['已保存/已保存', '我的'],
             ]
         ).map(([id, label]) => (
@@ -208,10 +223,20 @@ export function WorkflowToolbox({
           ))}
         </nav>
       )}
-      <div ref={listRef} className="workflow-toolbox-list" aria-label={filter ? '行为搜索结果' : `${sourceLabel}行为`}>
+      <div
+        ref={listRef}
+        className="workflow-toolbox-list"
+        aria-label={filter ? '行为搜索结果' : `${sourceLabel}行为`}
+        onScroll={event => {
+          const list = event.currentTarget
+          if (canLoadMore && list.scrollHeight - list.scrollTop - list.clientHeight <= 72) {
+            void cloud.more()
+          }
+        }}
+      >
         {cloudView && (
           <div className="workflow-library-feedback">
-            {cloud.loading && <span role="status">加载中…</span>}
+            {cloud.loading && !cloud.steps.length && <span role="status">加载中…</span>}
             {cloud.error && (
               <span role="alert">
                 {cloud.error}，{cloud.steps.length ? '当前列表仍可使用' : '可使用本地行为'}{' '}
@@ -251,14 +276,14 @@ export function WorkflowToolbox({
                           dragOrigin.current = { x: event.clientX, y: event.clientY }
                           event.preventDefault()
                           event.stopPropagation()
-                          api.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
+                          api?.toolbox.tryDrag(new Vector(event.clientX, event.clientY), step)
                         }}
                         onTouchStart={event => {
                           if (event.touches.length !== 1) return
                           event.stopPropagation()
                           const touch = event.touches[0]
                           dragOrigin.current = { x: touch.clientX, y: touch.clientY }
-                          api.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
+                          api?.toolbox.tryDrag(new Vector(touch.clientX, touch.clientY), step)
                         }}
                         onClick={event => {
                           if (
@@ -268,7 +293,10 @@ export function WorkflowToolbox({
                             setPreview(step)
                         }}
                       >
-                        <span className="sqd-toolbox-item-icon">
+                        <span
+                          className="sqd-toolbox-item-icon"
+                          data-keycap={iconUrls[step.type]?.includes('data-keycap') || undefined}
+                        >
                           <img
                             className="sqd-toolbox-item-icon-image"
                             src={iconUrls[step.type]}
@@ -342,15 +370,10 @@ export function WorkflowToolbox({
             )}
           </>
         )}
-        {cloudView && cloud.nextCursor && (
-          <button
-            type="button"
-            className="workflow-library-more"
-            disabled={cloud.loading}
-            onClick={() => void cloud.more()}
-          >
-            加载更多
-          </button>
+        {cloudView && cloud.steps.length > 0 && cloud.loading && (
+          <div className="workflow-library-loading" role="status">
+            加载中…
+          </div>
         )}
       </div>
       {sharing &&
@@ -377,6 +400,10 @@ export function WorkflowToolbox({
             className="behavior-dialog workflow-library-dialog"
             aria-labelledby={previewTitleId}
             onCancel={() => setPreview(null)}
+            onClose={() => setPreview(null)}
+            onClick={event => {
+              if (event.target === event.currentTarget) setPreview(null)
+            }}
           >
             <header className="behavior-dialog-head">
               <h2 id={previewTitleId}>{preview.name}</h2>

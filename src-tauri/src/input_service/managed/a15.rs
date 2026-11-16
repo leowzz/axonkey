@@ -2,9 +2,8 @@ use super::*;
 use crate::audio_service::AudioServiceManager;
 use crate::devices::cmiot_a15::HidSession;
 use crate::input_service::{
-    macos::{MacKey, RemoteOutput},
-    remote_actions::RemoteActions,
-    NativeSettings,
+    macos::{MacKey, RemoteActionGuard, RemoteOutput},
+    remote_actions::{Output, RemoteActions},
 };
 
 pub(super) struct A15Reader {
@@ -16,41 +15,23 @@ pub(super) struct A15Reader {
     app: Option<tauri::AppHandle>,
     instance_id: String,
     switch: Box<dyn Fn(ProfileDirection, bool)>,
-    is_current: Box<dyn Fn() -> bool>,
+    is_current: RemoteActionGuard,
 }
 
 impl A15Reader {
     pub(super) fn open(
         device: HidDevice,
-        instance: &Instance,
         shared: &Arc<Shared>,
-        cancel: &Arc<AtomicBool>,
+        config: &Arc<ReaderConfig>,
     ) -> Self {
-        let settings = NativeSettings {
-            enabled: true,
-            behaviors: active_mappings(instance),
-            cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
-            ..Default::default()
-        };
-        let mut session = if instance.kind == "obeRcuR5" {
-            HidSession::with_obe_decoder(crate::devices::obe_rcu_r5::decode)
-        } else if instance.kind == "xmBt29" {
-            HidSession::with_decoder(crate::devices::xm_bt_29::decode)
-        } else if instance.kind == "tclRc802a" {
-            HidSession::with_decoder(crate::devices::tcl_rc802a::decode)
-        } else if instance.kind == "tclRc902n" {
-            HidSession::with_decoder(crate::devices::tcl_rc902n::decode)
-        } else {
-            HidSession::default()
-        };
+        let instance = &config.instance;
+        let settings = input_settings(instance);
+        let mut session = HidSession::for_kind(&instance.kind);
         session.start(instance.cmiot_a15_recording_mode);
         let mut actions = RemoteActions::default();
         actions.synchronize(1, true);
         let switch_shared = shared.clone();
         let id = instance.id.clone();
-        let current_shared = shared.clone();
-        let expected = instance.clone();
-        let current_cancel = cancel.clone();
         Self {
             device,
             session,
@@ -62,10 +43,34 @@ impl A15Reader {
             switch: Box::new(move |direction, wrap| {
                 switch_profile(&switch_shared, &id, direction, wrap)
             }),
-            is_current: Box::new(move || {
-                actions_current(&current_shared, &expected, &current_cancel)
-            }),
+            is_current: action_guard(shared, config),
         }
+    }
+
+    pub(super) fn update_settings(
+        &mut self,
+        settings: NativeSettings,
+        is_current: RemoteActionGuard,
+    ) -> Result<(), String> {
+        if self.settings.cmiot_a15_recording_mode != settings.cmiot_a15_recording_mode {
+            self.session
+                .set_recording_mode(settings.cmiot_a15_recording_mode, |report| {
+                    send(&self.device, report)
+                })?;
+        }
+        if self.settings.remote_settings_changed(&settings) {
+            self.cancel_actions();
+        }
+        self.settings = settings;
+        self.is_current = is_current;
+        Ok(())
+    }
+
+    fn cancel_actions(&mut self) {
+        self.actions.cancel();
+        self.actions.tick(Instant::now(), |output| {
+            self.output.emit(output, &self.instance_id, &*self.switch)
+        });
     }
 
     pub(super) fn recording(&self) -> bool {
@@ -88,6 +93,7 @@ impl A15Reader {
 
     pub(super) fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
         if !(self.is_current)() {
+            self.cancel_actions();
             return Ok(0);
         }
         let len = self
@@ -111,7 +117,7 @@ impl A15Reader {
             }
         }
         self.actions.tick(Instant::now(), |output| {
-            if (self.is_current)() {
+            if matches!(output, Output::Key(_, false)) || (self.is_current)() {
                 self.output.emit(output, &self.instance_id, &*self.switch);
             }
         });
@@ -149,10 +155,7 @@ impl Drop for A15Reader {
         if let Err(error) = self.session.stop(|report| send(&self.device, report)) {
             log::warn!(target: "axonkey::audio", "Cannot stop A15 recording: {error}");
         }
-        self.actions.cancel();
-        self.actions.tick(Instant::now(), |output| {
-            self.output.emit(output, &self.instance_id, &*self.switch)
-        });
+        self.cancel_actions();
         if let Some(app) = &self.app {
             app.state::<AudioServiceManager>().set_a15_input_state(
                 Some(&self.instance_id),

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Axonkey 设备 SVG"
+  short_description: "从实拍照片还原设备按键区与侧边按钮，生成带精确热区的待接入 SVG 草稿"
+  default_prompt: "使用 $axonkey-device-svg 根据设备照片制作 SVG，保留真实几何与热区，实际按键值留待后续采集。"

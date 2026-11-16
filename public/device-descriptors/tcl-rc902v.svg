@@ -1,0 +1,194 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" viewBox="0 0 328 1152" data-ak-schema="axonkey.device/1" data-ak-device="tcl-rc902v" data-ak-revision="2" data-ak-status="active">
+  <title>TCL RC902V 正面按键区</title>
+  <desc>TCL RC902V 正面按键，使用已采集的 HID 报告映射与 Google ATVV BLE 语音（按住或点击启停）。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="tcl-rc902v" vendor="TCL" model="RC902V" revision="2" display-name="TCL RC902V" status="active">
+      <ak:identity>
+        <ak:match transport="bluetooth-hid" vid="0x010417" pid="0x0304" service="00001812-0000-1000-8000-00805F9B34FB" windows-prefix="BTHLEDEVICE" information-required="true" software-contains="RC902V" />
+      </ak:identity>
+      <ak:reports>
+        <!-- Captured bytes define this layout; HID Usage Page remains unverified. -->
+        <ak:report id="captured-buttons" direction="input" report-id="0x03"
+                   length="3" encoding="bit-field" prefix="0x03"
+                   state-group="captured-buttons" />
+        <ak:report id="voice-audio" direction="input"
+                   encoding="gatt-stream" transport="bluetooth-gatt"
+                   engine="tcl-rc902v-atvv" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="tcl-rc902v.mute" label="静音" short="静音" icon="mute" kind="button" order="0" target="#key-mute" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00E2"/><ak:hid-capture version="1" press="03 E2 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.bookmark" label="书签图标键" short="书签" icon="center" kind="button" order="2" target="#key-bookmark" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0059"/><ak:hid-capture version="1" press="03 59 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.assistant" label="语音键（A）" short="语音" icon="mic" kind="button" order="3" target="#key-assistant" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0221"/><ak:hid-capture version="1" press="03 21 02" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.settings" label="设置" short="设置" icon="settings" kind="button" order="4" target="#key-settings" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0055"/><ak:hid-capture version="1" press="03 55 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.up" label="上" short="上" icon="up" kind="button" order="5" target="#key-up" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0042"/><ak:hid-capture version="1" press="03 42 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.right" label="右" short="右" icon="right" kind="button" order="6" target="#key-right" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0045"/><ak:hid-capture version="1" press="03 45 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.down" label="下" short="下" icon="down" kind="button" order="7" target="#key-down" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0043"/><ak:hid-capture version="1" press="03 43 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.left" label="左" short="左" icon="left" kind="button" order="8" target="#key-left" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0044"/><ak:hid-capture version="1" press="03 44 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.confirm" label="确认" short="确认" icon="center" kind="button" order="9" target="#key-confirm" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0041"/><ak:hid-capture version="1" press="03 41 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.back" label="返回" short="返回" icon="back" kind="button" order="10" target="#key-back" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0224"/><ak:hid-capture version="1" press="03 24 02" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.home" label="主页" short="主页" icon="home" kind="button" order="11" target="#key-home" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0223"/><ak:hid-capture version="1" press="03 23 02" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.tv" label="电视图标键" short="电视" icon="tv" kind="button" order="12" target="#key-tv" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x005B"/><ak:hid-capture version="1" press="03 5B 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.input" label="信号源" short="信号源" icon="center" kind="button" order="13" target="#key-input" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0049"/><ak:hid-capture version="1" press="03 49 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.volumeUp" label="音量加" short="音量+" icon="volumeUp" kind="button" order="14" target="#key-volumeUp" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00E9"/><ak:hid-capture version="1" press="03 E9 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.channelUp" label="频道加（P+）" short="P+" icon="up" kind="button" order="15" target="#key-channelUp" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x009C"/><ak:hid-capture version="1" press="03 9C 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.menu" label="菜单" short="菜单" icon="menu" kind="button" order="16" target="#key-menu" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0050"/><ak:hid-capture version="1" press="03 50 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.volumeDown" label="音量减" short="音量−" icon="volumeDown" kind="button" order="17" target="#key-volumeDown" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x00EA"/><ak:hid-capture version="1" press="03 EA 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.channelDown" label="频道减（P−）" short="P−" icon="down" kind="button" order="18" target="#key-channelDown" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x009D"/><ak:hid-capture version="1" press="03 9D 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.layers" label="叠层图标键" short="叠层" icon="center" kind="button" order="19" target="#key-layers" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x003D"/><ak:hid-capture version="1" press="03 3D 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.keypad" label="键盘和彩色点图标键" short="键盘" icon="center" kind="button" order="20" target="#key-keypad" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0052"/><ak:hid-capture version="1" press="03 52 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.tiles" label="方格图标键" short="方格" icon="center" kind="button" order="21" target="#key-tiles" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x003A"/><ak:hid-capture version="1" press="03 3A 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.netflix" label="Netflix" short="Netflix" icon="center" kind="button" order="22" target="#key-netflix" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0051"/><ak:hid-capture version="1" press="03 51 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.primeVideo" label="Prime Video" short="Prime Video" icon="center" kind="button" order="23" target="#key-primeVideo" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x005F"/><ak:hid-capture version="1" press="03 5F 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.guard" label="Guard" short="Guard" icon="center" kind="button" order="24" target="#key-guard" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x003F"/><ak:hid-capture version="1" press="03 3F 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.media" label="Media" short="Media" icon="center" kind="button" order="25" target="#key-media" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0058"/><ak:hid-capture version="1" press="03 58 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.youtube" label="YouTube" short="YouTube" icon="center" kind="button" order="26" target="#key-youtube" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0057"/><ak:hid-capture version="1" press="03 57 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+        <ak:input id="tcl-rc902v.tclChannel" label="TCL Channel" short="TCL Channel" icon="center" kind="button" order="27" target="#key-tclChannel" original="false" binding="captured"><ak:source report="captured-buttons" offset="1" bit="0" width="16" equals="0x0053"/><ak:hid-capture version="1" press="03 53 00" press-length="3" release="03 00 00" release-length="3"/></ak:input>
+      </ak:inputs>
+      <ak:capabilities>
+        <ak:voice id="voice" trigger-key="tcl-rc902v.assistant"
+                  transport="gatt"
+                  service="AB5E0001-5A21-4F05-BC7D-AF01F617B664"
+                  transmit="AB5E0002-5A21-4F05-BC7D-AF01F617B664"
+                  audio="AB5E0003-5A21-4F05-BC7D-AF01F617B664"
+                  control="AB5E0004-5A21-4F05-BC7D-AF01F617B664"
+                  engine="tcl-rc902v-atvv" trigger-modes="hold click"
+                  sample-rate="16000" required="false" />
+      </ak:capabilities>
+    </ak:device>
+  </metadata>
+  <g data-ak-view="front" aria-label="正面按键区">
+    <!-- 底边是按键区裁切边界，不表示实物机身底端。 -->
+    <path d="M 20 1132 V 112 Q 20 20 112 20 H 216 Q 308 20 308 112 V 1132 Z" fill="#292f35"/>
+    <g id="key-mute" data-ak-key="tcl-rc902v.mute" data-ak-role="input" role="button" tabindex="0" aria-label="静音">
+      <path d="M 45 118 A 35 35 0 1 0 115 118 A 35 35 0 1 0 45 118 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 68 112 H 74 L 82 105 V 131 L 74 124 H 68 Z M 67 104 L 91 132" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <circle cx="164" cy="118" r="4" fill="#0b1014" aria-label="顶部小孔（非输入）"/>
+    <g id="key-bookmark" data-ak-key="tcl-rc902v.bookmark" data-ak-role="input" role="button" tabindex="0" aria-label="书签图标键">
+      <path d="M 45 208 A 35 35 0 1 0 115 208 A 35 35 0 1 0 45 208 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 71 194 H 89 V 222 L 80 216 L 71 222 Z" fill="#c6d1d5"/>
+    </g>
+    <g id="key-assistant" data-ak-key="tcl-rc902v.assistant" data-ak-role="input" role="button" tabindex="0" aria-label="语音键（A）">
+      <path d="M 129 208 A 35 35 0 1 0 199 208 A 35 35 0 1 0 129 208 Z" fill="#c9d1d5" stroke="#101418" stroke-width="2"/>
+      <text x="164" y="216.75" text-anchor="middle" fill="#249bc8" font-family="sans-serif" font-size="25" font-weight="600">A</text>
+    </g>
+    <g id="key-settings" data-ak-key="tcl-rc902v.settings" data-ak-role="input" role="button" tabindex="0" aria-label="设置">
+      <path d="M 215 208 A 35 35 0 1 0 285 208 A 35 35 0 1 0 215 208 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 245 193 H 255 L 257 198 L 263 198 L 266 204 L 262 209 L 264 215 L 258 220 L 253 217 L 247 221 L 241 217 L 241 211 L 236 207 L 239 200 L 245 200 Z" fill="#c6d1d5"/><circle cx="251" cy="207" r="5" fill="#23282e"/>
+    </g>
+    <circle cx="164" cy="384" r="120" fill="#c9d1d5" stroke="#101418" stroke-width="2"/>
+    <g id="key-up" data-ak-key="tcl-rc902v.up" data-ak-role="input" role="button" tabindex="0" aria-label="上">
+      <path d="M 79.1472 299.1472 A 120 120 0 0 1 248.8528 299.1472 L 200.0624 347.9376 A 51 51 0 0 0 127.9376 347.9376 Z" fill="transparent"/>
+    </g>
+    <g id="key-right" data-ak-key="tcl-rc902v.right" data-ak-role="input" role="button" tabindex="0" aria-label="右">
+      <path d="M 248.8528 299.1472 A 120 120 0 0 1 248.8528 468.8528 L 200.0624 420.0624 A 51 51 0 0 0 200.0624 347.9376 Z" fill="transparent"/>
+    </g>
+    <g id="key-down" data-ak-key="tcl-rc902v.down" data-ak-role="input" role="button" tabindex="0" aria-label="下">
+      <path d="M 248.8528 468.8528 A 120 120 0 0 1 79.1472 468.8528 L 127.9376 420.0624 A 51 51 0 0 0 200.0624 420.0624 Z" fill="transparent"/>
+    </g>
+    <g id="key-left" data-ak-key="tcl-rc902v.left" data-ak-role="input" role="button" tabindex="0" aria-label="左">
+      <path d="M 79.1472 468.8528 A 120 120 0 0 1 79.1472 299.1472 L 127.9376 347.9376 A 51 51 0 0 0 127.9376 420.0624 Z" fill="transparent"/>
+    </g>
+    <g id="key-confirm" data-ak-key="tcl-rc902v.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认">
+      <path d="M 113 384 A 51 51 0 1 0 215 384 A 51 51 0 1 0 113 384 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      
+    </g>
+    <g id="key-back" data-ak-key="tcl-rc902v.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回">
+      <path d="M 45 559 A 35 35 0 1 0 115 559 A 35 35 0 1 0 45 559 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 90 559 H 71 M 79 550 L 70 559 L 79 568" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-home" data-ak-key="tcl-rc902v.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页">
+      <path d="M 129 559 A 35 35 0 1 0 199 559 A 35 35 0 1 0 129 559 Z" fill="#c9d1d5" stroke="#101418" stroke-width="2"/>
+      <path d="M 154 556 L 164 547 L 174 556 V 569 H 168 V 560 H 161 V 569 H 154 Z" fill="#14191d"/>
+    </g>
+    <g id="key-tv" data-ak-key="tcl-rc902v.tv" data-ak-role="input" role="button" tabindex="0" aria-label="电视图标键">
+      <path d="M 215 559 A 35 35 0 1 0 285 559 A 35 35 0 1 0 215 559 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 241 546 L 250 552 L 258 546 M 240 554 H 260 V 568 H 240 Z" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-input" data-ak-key="tcl-rc902v.input" data-ak-role="input" role="button" tabindex="0" aria-label="信号源">
+      <path d="M 45 649 A 35 35 0 1 0 115 649 A 35 35 0 1 0 45 649 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 73 640 H 91 V 659 H 73 Z M 67 649 H 84 M 79 644 L 84 649 L 79 654" fill="none" stroke="#c6d1d5" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <rect x="129" y="614" width="70" height="160" rx="35" fill="#23282e" stroke="#101418" stroke-width="2"/>
+    <g id="key-volumeUp" data-ak-key="tcl-rc902v.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 129 694 V 649 A 35 35 0 0 1 199 649 V 694 Z" fill="transparent"/><path d="M 154 649 H 174 M 164 639 V 659" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-channelUp" data-ak-key="tcl-rc902v.channelUp" data-ak-role="input" role="button" tabindex="0" aria-label="频道加（P+）">
+      <path d="M 215 649 A 35 35 0 1 0 285 649 A 35 35 0 1 0 215 649 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <text x="250" y="656.35" text-anchor="middle" fill="#c6d1d5" font-family="sans-serif" font-size="21" font-weight="600">P+</text>
+    </g>
+    <g id="key-menu" data-ak-key="tcl-rc902v.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单">
+      <path d="M 45 739 A 35 35 0 1 0 115 739 A 35 35 0 1 0 45 739 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 71 732 H 89 M 71 739 H 89 M 71 746 H 89" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-volumeDown" data-ak-key="tcl-rc902v.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 129 694 H 199 V 739 A 35 35 0 0 1 129 739 Z" fill="transparent"/><path d="M 154 739 H 174" fill="none" stroke="#c6d1d5" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-channelDown" data-ak-key="tcl-rc902v.channelDown" data-ak-role="input" role="button" tabindex="0" aria-label="频道减（P−）">
+      <path d="M 215 739 A 35 35 0 1 0 285 739 A 35 35 0 1 0 215 739 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <text x="250" y="746.35" text-anchor="middle" fill="#c6d1d5" font-family="sans-serif" font-size="21" font-weight="600">P−</text>
+    </g>
+    <g id="key-layers" data-ak-key="tcl-rc902v.layers" data-ak-role="input" role="button" tabindex="0" aria-label="叠层图标键">
+      <path d="M 45 829 A 35 35 0 1 0 115 829 A 35 35 0 1 0 45 829 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 68 826 L 80 818 L 92 826 L 80 833 Z" fill="none" stroke="#00b5d8" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M 68 837 L 80 844 L 92 837" fill="none" stroke="#c6d1d5" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-keypad" data-ak-key="tcl-rc902v.keypad" data-ak-role="input" role="button" tabindex="0" aria-label="键盘和彩色点图标键">
+      <path d="M 129 829 A 35 35 0 1 0 199 829 A 35 35 0 1 0 129 829 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 153 816 H 175 V 835 H 153 Z" fill="none" stroke="#c6d1d5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M 157 820 H 159 V 823 H 157 Z M 163 820 H 165 V 823 H 163 Z M 169 820 H 171 V 823 H 169 Z M 159 825 H 161 V 828 H 159 Z M 165 825 H 167 V 828 H 165 Z M 160 830 H 168" fill="#c6d1d5" stroke="#c6d1d5" stroke-width="1"/><circle cx="154" cy="841" r="2.5" fill="#ed4055"/><circle cx="161" cy="841" r="2.5" fill="#41b862"/><circle cx="168" cy="841" r="2.5" fill="#f1c842"/><circle cx="175" cy="841" r="2.5" fill="#24a9dd"/>
+    </g>
+    <g id="key-tiles" data-ak-key="tcl-rc902v.tiles" data-ak-role="input" role="button" tabindex="0" aria-label="方格图标键">
+      <path d="M 215 829 A 35 35 0 1 0 285 829 A 35 35 0 1 0 215 829 Z" fill="#23282e" stroke="#101418" stroke-width="2"/>
+      <path d="M 240 817 H 249 V 826 H 240 Z M 254 817 H 263 V 826 H 254 Z M 240 831 H 249 V 840 H 240 Z" fill="none" stroke="#e45c6e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M 254 832 H 263 M 254 838 H 260" fill="none" stroke="#e5b956" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <rect x="44" y="883" width="240" height="62" rx="31" fill="#f0f0e9" stroke="#13181d" stroke-width="2"/>
+    <g id="key-netflix" data-ak-key="tcl-rc902v.netflix" data-ak-role="input" role="button" tabindex="0" aria-label="Netflix">
+      <path d="M 164 883 V 945 H 75 A 31 31 0 0 1 75 883 Z" fill="transparent"/><text x="104" y="923.8" text-anchor="middle" fill="#e3233c" font-family="sans-serif" font-size="28" font-weight="600">N</text>
+    </g>
+    <g id="key-primeVideo" data-ak-key="tcl-rc902v.primeVideo" data-ak-role="input" role="button" tabindex="0" aria-label="Prime Video">
+      <path d="M 164 883 H 253 A 31 31 0 0 1 253 945 H 164 Z" fill="transparent"/><text x="224" y="923.8" text-anchor="middle" fill="#273744" font-family="sans-serif" font-size="28" font-weight="600">P</text>
+    </g>
+    <rect x="44" y="966" width="240" height="62" rx="31" fill="#f0f0e9" stroke="#13181d" stroke-width="2"/>
+    <g id="key-guard" data-ak-key="tcl-rc902v.guard" data-ak-role="input" role="button" tabindex="0" aria-label="Guard">
+      <path d="M 164 966 V 1028 H 75 A 31 31 0 0 1 75 966 Z" fill="transparent"/><text x="104" y="1006.8" text-anchor="middle" fill="#42b95f" font-family="sans-serif" font-size="28" font-weight="600">G</text>
+    </g>
+    <g id="key-media" data-ak-key="tcl-rc902v.media" data-ak-role="input" role="button" tabindex="0" aria-label="Media">
+      <path d="M 164 966 H 253 A 31 31 0 0 1 253 1028 H 164 Z" fill="transparent"/><text x="224" y="1006.8" text-anchor="middle" fill="#5568af" font-family="sans-serif" font-size="28" font-weight="600">M</text>
+    </g>
+    <rect x="44" y="1049" width="240" height="62" rx="31" fill="#f0f0e9" stroke="#13181d" stroke-width="2"/>
+    <g id="key-youtube" data-ak-key="tcl-rc902v.youtube" data-ak-role="input" role="button" tabindex="0" aria-label="YouTube">
+      <path d="M 164 1049 V 1111 H 75 A 31 31 0 0 1 75 1049 Z" fill="transparent"/><text x="104" y="1089.8" text-anchor="middle" fill="#ef2036" font-family="sans-serif" font-size="28" font-weight="600">Y</text>
+    </g>
+    <g id="key-tclChannel" data-ak-key="tcl-rc902v.tclChannel" data-ak-role="input" role="button" tabindex="0" aria-label="TCL Channel">
+      <path d="M 164 1049 H 253 A 31 31 0 0 1 253 1111 H 164 Z" fill="transparent"/><text x="224" y="1089.8" text-anchor="middle" fill="#e3233c" font-family="sans-serif" font-size="28" font-weight="600">T</text>
+    </g>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="tcl-rc902v.mute" data-ak-anchor="80 118" d="M 45 118 A 35 35 0 1 0 115 118 A 35 35 0 1 0 45 118 Z"/>
+    <path data-ak-region="tcl-rc902v.bookmark" data-ak-anchor="80 208" d="M 45 208 A 35 35 0 1 0 115 208 A 35 35 0 1 0 45 208 Z"/>
+    <path data-ak-region="tcl-rc902v.assistant" data-ak-anchor="164 208" d="M 129 208 A 35 35 0 1 0 199 208 A 35 35 0 1 0 129 208 Z"/>
+    <path data-ak-region="tcl-rc902v.settings" data-ak-anchor="250 208" d="M 215 208 A 35 35 0 1 0 285 208 A 35 35 0 1 0 215 208 Z"/>
+    <path data-ak-region="tcl-rc902v.up" data-ak-anchor="164 298" d="M 79.1472 299.1472 A 120 120 0 0 1 248.8528 299.1472 L 200.0624 347.9376 A 51 51 0 0 0 127.9376 347.9376 Z"/>
+    <path data-ak-region="tcl-rc902v.right" data-ak-anchor="250 384" d="M 248.8528 299.1472 A 120 120 0 0 1 248.8528 468.8528 L 200.0624 420.0624 A 51 51 0 0 0 200.0624 347.9376 Z"/>
+    <path data-ak-region="tcl-rc902v.down" data-ak-anchor="164 470" d="M 248.8528 468.8528 A 120 120 0 0 1 79.1472 468.8528 L 127.9376 420.0624 A 51 51 0 0 0 200.0624 420.0624 Z"/>
+    <path data-ak-region="tcl-rc902v.left" data-ak-anchor="78 384" d="M 79.1472 468.8528 A 120 120 0 0 1 79.1472 299.1472 L 127.9376 347.9376 A 51 51 0 0 0 127.9376 420.0624 Z"/>
+    <path data-ak-region="tcl-rc902v.confirm" data-ak-anchor="164 384" d="M 113 384 A 51 51 0 1 0 215 384 A 51 51 0 1 0 113 384 Z"/>
+    <path data-ak-region="tcl-rc902v.back" data-ak-anchor="80 559" d="M 45 559 A 35 35 0 1 0 115 559 A 35 35 0 1 0 45 559 Z"/>
+    <path data-ak-region="tcl-rc902v.home" data-ak-anchor="164 559" d="M 129 559 A 35 35 0 1 0 199 559 A 35 35 0 1 0 129 559 Z"/>
+    <path data-ak-region="tcl-rc902v.tv" data-ak-anchor="250 559" d="M 215 559 A 35 35 0 1 0 285 559 A 35 35 0 1 0 215 559 Z"/>
+    <path data-ak-region="tcl-rc902v.input" data-ak-anchor="80 649" d="M 45 649 A 35 35 0 1 0 115 649 A 35 35 0 1 0 45 649 Z"/>
+    <path data-ak-region="tcl-rc902v.volumeUp" data-ak-anchor="164 649" d="M 129 694 V 649 A 35 35 0 0 1 199 649 V 694 Z"/>
+    <path data-ak-region="tcl-rc902v.channelUp" data-ak-anchor="250 649" d="M 215 649 A 35 35 0 1 0 285 649 A 35 35 0 1 0 215 649 Z"/>
+    <path data-ak-region="tcl-rc902v.menu" data-ak-anchor="80 739" d="M 45 739 A 35 35 0 1 0 115 739 A 35 35 0 1 0 45 739 Z"/>
+    <path data-ak-region="tcl-rc902v.volumeDown" data-ak-anchor="164 739" d="M 129 694 H 199 V 739 A 35 35 0 0 1 129 739 Z"/>
+    <path data-ak-region="tcl-rc902v.channelDown" data-ak-anchor="250 739" d="M 215 739 A 35 35 0 1 0 285 739 A 35 35 0 1 0 215 739 Z"/>
+    <path data-ak-region="tcl-rc902v.layers" data-ak-anchor="80 829" d="M 45 829 A 35 35 0 1 0 115 829 A 35 35 0 1 0 45 829 Z"/>
+    <path data-ak-region="tcl-rc902v.keypad" data-ak-anchor="164 829" d="M 129 829 A 35 35 0 1 0 199 829 A 35 35 0 1 0 129 829 Z"/>
+    <path data-ak-region="tcl-rc902v.tiles" data-ak-anchor="250 829" d="M 215 829 A 35 35 0 1 0 285 829 A 35 35 0 1 0 215 829 Z"/>
+    <path data-ak-region="tcl-rc902v.netflix" data-ak-anchor="104 914" d="M 164 883 V 945 H 75 A 31 31 0 0 1 75 883 Z"/>
+    <path data-ak-region="tcl-rc902v.primeVideo" data-ak-anchor="224 914" d="M 164 883 H 253 A 31 31 0 0 1 253 945 H 164 Z"/>
+    <path data-ak-region="tcl-rc902v.guard" data-ak-anchor="104 997" d="M 164 966 V 1028 H 75 A 31 31 0 0 1 75 966 Z"/>
+    <path data-ak-region="tcl-rc902v.media" data-ak-anchor="224 997" d="M 164 966 H 253 A 31 31 0 0 1 253 1028 H 164 Z"/>
+    <path data-ak-region="tcl-rc902v.youtube" data-ak-anchor="104 1080" d="M 164 1049 V 1111 H 75 A 31 31 0 0 1 75 1049 Z"/>
+    <path data-ak-region="tcl-rc902v.tclChannel" data-ak-anchor="224 1080" d="M 164 1049 H 253 A 31 31 0 0 1 253 1111 H 164 Z"/>
+  </g>
+</svg>

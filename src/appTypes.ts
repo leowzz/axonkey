@@ -1,5 +1,6 @@
 import type { Behavior, BehaviorMap, ButtonId, InputId } from './behaviorModel'
 import type { DeviceId } from './devices/index.ts'
+import type { MacosShortcutPreset } from './macosShortcutPresets.ts'
 
 export type MappingInput<Id extends string = InputId> = {
   id: Id
@@ -12,8 +13,8 @@ export type MappingInput<Id extends string = InputId> = {
   originalLabel?: string
 }
 
-export type RemoteButton = {
-  id: ButtonId
+export type RemoteButton<Id extends string = ButtonId> = {
+  id: Id
   label: string
   short: string
   side: 'left' | 'right'
@@ -121,6 +122,7 @@ export type AudioProbe = {
 }
 
 export type CommonBehaviorPreset =
+  | MacosShortcutPreset
   | 'wheelUp'
   | 'wheelDown'
   | 'wheelLeft'

@@ -115,6 +115,57 @@ test('device workspace header groups back with the device name and keeps profile
   act(() => view.unmount())
 })
 
+test('device workspace header renders a top-left device switcher dropdown when device options are provided', () => {
+  const switched = []
+  const options = [
+    { id: 'a15-one', name: 'CMIOT-A15', artwork: '/a15.svg' },
+    { id: 'rc003-one', name: '小米遥控器', artwork: '/rc003.svg' },
+    { id: 'system-mouse', name: '系统鼠标', artwork: '/mouse-device.svg' },
+  ]
+  let view
+  function Harness() {
+    const [activeId, setActiveId] = React.useState('a15-one')
+    const current = options.find(item => item.id === activeId)
+    return React.createElement(DeviceWorkspaceHeader, {
+      deviceName: current.name,
+      activeDeviceId: activeId,
+      deviceOptions: options,
+      onSelectDevice: id => { switched.push(id); setActiveId(id) },
+      onBackToDevices() {},
+      profileControls: null,
+    })
+  }
+  act(() => { view = Renderer.create(React.createElement(Harness)) })
+  try {
+    assert.equal(view.root.findAllByType('h1').length, 0)
+    const trigger = () => view.root.findByProps({ className: 'device-workspace-switcher-trigger' })
+    assert.equal(trigger().props['aria-expanded'], false)
+    assert.equal(trigger().props['aria-label'], '切换设备，当前为CMIOT-A15')
+
+    let prevented = false
+    act(() => trigger().props.onKeyDown({ key: 'ArrowDown', preventDefault() { prevented = true } }))
+    assert.equal(prevented, true)
+    assert.equal(trigger().props['aria-expanded'], true)
+
+    const items = () => view.root.findAllByProps({ role: 'option' })
+    assert.deepEqual(items().map(text), ['CMIOT-A15', '小米遥控器', '系统鼠标'])
+    assert.deepEqual(items().map(node => node.props['aria-selected']), [true, false, false])
+
+    // Clicking the already active device closes the popover without firing onSelectDevice.
+    act(() => items()[0].props.onClick())
+    assert.equal(switched.length, 0)
+    assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
+
+    act(() => trigger().props.onClick())
+    act(() => items()[2].props.onClick())
+    assert.deepEqual(switched, ['system-mouse'])
+    assert.equal(trigger().props['aria-label'], '切换设备，当前为系统鼠标')
+    assert.equal(view.root.findAllByProps({ role: 'listbox' }).length, 0)
+  } finally {
+    act(() => view.unmount())
+  }
+})
+
 test('mouse model, input picker and scope preserve selection and expose supported triggers', () => {
   const behaviors = createDefaultBehaviorMap()
   behaviors['mouse.global.buttonForward'] = {click:[],doubleClick:[createBehavior({type:'key',key:'Enter'})],longPress:[]}

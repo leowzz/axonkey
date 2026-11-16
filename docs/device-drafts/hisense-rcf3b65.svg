@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ak="urn:axonkey:device:1" width="440" height="1160" viewBox="0 0 440 1160" data-ak-schema="axonkey.device/1" data-ak-device="hisense-rcf3b65" data-ak-revision="2" data-ak-status="draft" role="img" aria-labelledby="device-title device-description">
+  <title id="device-title">Hisense RCF3B65 正面按键区</title>
+  <desc id="device-description">Hisense RCF3B65 语音遥控器正面按键区与精确热区；已保存十八键原始 HID 按下与抬起采集并建立九字节报文映射，HID Usage Page、设备身份接入与音频协议仍待确认。</desc>
+  <metadata>
+    <ak:device schema="axonkey.device/1" id="hisense-rcf3b65" vendor="Hisense" model="RCF3B65" revision="2" display-name="Hisense RCF3B65" status="draft">
+      <ak:pending-identity hardware-id="DEV_VID&amp;01109B_PID&amp;3837" vid="0x01109B" pid="0x3837"/>
+      <ak:reports>
+        <!-- Captured bytes define these layouts; HID Usage Page remains unverified. -->
+        <ak:report id="captured-buttons" direction="input" report-id="0x01" length="9" encoding="bit-field" prefix="0x01 0x00 0x00" state-group="captured-buttons" />
+        <ak:report id="captured-pointer" direction="input" report-id="0x6F" length="9" encoding="bit-field" prefix="0x6F 0x6A" state-group="captured-pointer" />
+      </ak:reports>
+      <ak:inputs>
+        <ak:input id="hisense-rcf3b65.power" label="电源键" short="电源" icon="power" kind="button" order="0" target="#key-power" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 66 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x66"/></ak:input>
+        <ak:input id="hisense-rcf3b65.input" label="信号源" short="信号源" icon="tv" kind="button" order="1" target="#key-input" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 BB 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xBB"/></ak:input>
+        <ak:input id="hisense-rcf3b65.ai" label="AI 键" short="AI" icon="center" kind="button" order="2" target="#key-ai" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 A5 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xA5"/></ak:input>
+        <ak:input id="hisense-rcf3b65.pointer" label="指向键" short="指向" icon="locate" kind="button" order="3" target="#key-pointer" original="false" binding="captured"><ak:hid-capture version="1" press="6F 6A 01 00 00 00 00 00 00" press-length="9" release="6F 6A 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-pointer" offset="2" bit="0" width="8" equals="0x01"/></ak:input>
+        <ak:input id="hisense-rcf3b65.tv" label="看电视" short="看电视" icon="tv" kind="button" order="4" target="#key-tv" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 B0 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xB0"/></ak:input>
+        <ak:input id="hisense-rcf3b65.shortcut" label="快捷键" short="快捷" icon="center" kind="button" order="5" target="#key-shortcut" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 94 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x94"/></ak:input>
+        <ak:input id="hisense-rcf3b65.up" label="方向上" short="上" icon="up" kind="button" order="6" target="#key-up" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 52 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x52"/></ak:input>
+        <ak:input id="hisense-rcf3b65.right" label="方向右" short="右" icon="right" kind="button" order="7" target="#key-right" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 4F 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x4F"/></ak:input>
+        <ak:input id="hisense-rcf3b65.down" label="方向下" short="下" icon="down" kind="button" order="8" target="#key-down" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 51 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x51"/></ak:input>
+        <ak:input id="hisense-rcf3b65.left" label="方向左" short="左" icon="left" kind="button" order="9" target="#key-left" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 50 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x50"/></ak:input>
+        <ak:input id="hisense-rcf3b65.confirm" label="确认键" short="确认" icon="center" kind="button" order="10" target="#key-confirm" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 28 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x28"/></ak:input>
+        <ak:input id="hisense-rcf3b65.back" label="返回键" short="返回" icon="back" kind="button" order="11" target="#key-back" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 71 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x71"/></ak:input>
+        <ak:input id="hisense-rcf3b65.voice" label="语音键" short="语音" icon="mic" kind="button" order="12" target="#key-voice" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 DF 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xDF"/></ak:input>
+        <ak:input id="hisense-rcf3b65.home" label="主页键" short="主页" icon="home" kind="button" order="13" target="#key-home" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 E3 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xE3"/></ak:input>
+        <ak:input id="hisense-rcf3b65.settings" label="设置键" short="设置" icon="settings" kind="button" order="14" target="#key-settings" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 EF 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0xEF"/></ak:input>
+        <ak:input id="hisense-rcf3b65.menu" label="菜单键" short="菜单" icon="menu" kind="button" order="15" target="#key-menu" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 72 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x72"/></ak:input>
+        <ak:input id="hisense-rcf3b65.volumeDown" label="音量减" short="音量 -" icon="volumeDown" kind="button" order="16" target="#key-volumeDown" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 81 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x81"/></ak:input>
+        <ak:input id="hisense-rcf3b65.volumeUp" label="音量加" short="音量 +" icon="volumeUp" kind="button" order="17" target="#key-volumeUp" original="false" binding="captured"><ak:hid-capture version="1" press="01 00 00 80 00 00 00 00 00" press-length="9" release="01 00 00 00 00 00 00 00 00" release-length="9"/><ak:source report="captured-buttons" offset="3" bit="0" width="8" equals="0x80"/></ak:input>
+      </ak:inputs>
+    </ak:device>
+  </metadata>
+  <g data-ak-view="front" aria-label="正面按键区">
+    <!-- 底边是可见按键区裁切边界，不表示实物机身底端。 -->
+    <path d="M 36 24 Q 220 15 404 24 L 410 34 H 30 Z" fill="#1e2023" aria-hidden="true"/>
+    <path d="M 20 1140 V 42 Q 20 23 42 22 Q 220 16 398 22 Q 420 23 420 42 V 1140 Z" fill="#c2c4c0" stroke="#969994" stroke-width="2"/>
+    <circle cx="333" cy="134" r="4.2" fill="#232528" aria-label="麦克风孔（非按键）"/>
+    <path d="M 333 108 V 114 M 329.5 112 A 3.5 3.5 0 0 0 336.5 112 M 333 115.5 V 118.5" fill="none" stroke="#eef0ed" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"/>
+    <text x="107" y="279" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="500" fill="#f1f2f0" aria-hidden="true">信号源</text>
+    <text x="333" y="279" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="500" fill="#f1f2f0" aria-hidden="true">指向</text>
+    <text x="107" y="400" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="500" fill="#f1f2f0" aria-hidden="true">看电视</text>
+    <text x="333" y="400" text-anchor="middle" font-family="sans-serif" font-size="19" font-weight="500" fill="#f1f2f0" aria-hidden="true">快捷</text>
+
+    <g id="key-power" data-ak-key="hisense-rcf3b65.power" data-ak-role="input" role="button" tabindex="0" aria-label="电源键">
+      <path d="M 179 151 A 41 41 0 1 0 261 151 A 41 41 0 1 0 179 151 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 210.5 141.5 A 14 14 0 1 0 229.5 141.5 M 220 134 V 150" fill="none" stroke="#f6f7f5" stroke-width="2.8" stroke-linecap="round"/>
+    </g>
+    <g id="key-input" data-ak-key="hisense-rcf3b65.input" data-ak-role="input" role="button" tabindex="0" aria-label="信号源">
+      <path d="M 66 212 A 41 41 0 1 0 148 212 A 41 41 0 1 0 66 212 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 98 203 V 198 H 121 V 226 H 98 V 221 M 92 212 H 113 M 107 206 L 113 212 L 107 218" fill="none" stroke="#f6f7f5" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-ai" data-ak-key="hisense-rcf3b65.ai" data-ak-role="input" role="button" tabindex="0" aria-label="AI 键">
+      <path d="M 173 272 A 47 47 0 1 0 267 272 A 47 47 0 1 0 173 272 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <text x="220" y="282" text-anchor="middle" font-family="sans-serif" font-size="29" font-weight="600" fill="#f6f7f5">AI</text>
+    </g>
+    <g id="key-pointer" data-ak-key="hisense-rcf3b65.pointer" data-ak-role="input" role="button" tabindex="0" aria-label="指向键">
+      <path d="M 292 212 A 41 41 0 1 0 374 212 A 41 41 0 1 0 292 212 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 346 212 A 13.5 13.5 0 1 0 332 225.5" fill="none" stroke="#f6f7f5" stroke-width="2.7" stroke-linecap="round"/>
+      <path d="M 336 213 L 348 217 L 342 220 L 339 226 Z" fill="none" stroke="#f6f7f5" stroke-width="2.4" stroke-linejoin="round"/>
+    </g>
+    <g id="key-tv" data-ak-key="hisense-rcf3b65.tv" data-ak-role="input" role="button" tabindex="0" aria-label="看电视">
+      <path d="M 66 334 A 41 41 0 1 0 148 334 A 41 41 0 1 0 66 334 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 100 318 L 107 325 L 114 318 M 92 325 H 122 V 346 H 92 Z" fill="none" stroke="#f6f7f5" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-shortcut" data-ak-key="hisense-rcf3b65.shortcut" data-ak-role="input" role="button" tabindex="0" aria-label="快捷键">
+      <path d="M 292 334 A 41 41 0 1 0 374 334 A 41 41 0 1 0 292 334 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 346 322 L 319 333 L 331 337 L 336 348 Z M 346 322 L 331 337" fill="none" stroke="#f6f7f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <circle cx="220" cy="549" r="162" fill="#d3c5aa" stroke="#59544b" stroke-width="2.5"/>
+    <g id="key-up" data-ak-key="hisense-rcf3b65.up" data-ak-role="input" role="button" tabindex="0" aria-label="方向上">
+      <path d="M 105.7929 434.1056 A 162 162 0 0 1 334.2071 434.1056 L 287.3258 481.269 A 95.5 95.5 0 0 0 152.6742 481.269 Z" fill="transparent"/>
+    </g>
+    <g id="key-right" data-ak-key="hisense-rcf3b65.right" data-ak-role="input" role="button" tabindex="0" aria-label="方向右">
+      <path d="M 334.8944 434.7929 A 162 162 0 0 1 334.8944 663.2071 L 287.731 616.3258 A 95.5 95.5 0 0 0 287.731 481.6742 Z" fill="transparent"/>
+    </g>
+    <g id="key-down" data-ak-key="hisense-rcf3b65.down" data-ak-role="input" role="button" tabindex="0" aria-label="方向下">
+      <path d="M 334.2071 663.8944 A 162 162 0 0 1 105.7929 663.8944 L 152.6742 616.731 A 95.5 95.5 0 0 0 287.3258 616.731 Z" fill="transparent"/>
+    </g>
+    <g id="key-left" data-ak-key="hisense-rcf3b65.left" data-ak-role="input" role="button" tabindex="0" aria-label="方向左">
+      <path d="M 105.1056 663.2071 A 162 162 0 0 1 105.1056 434.7929 L 152.269 481.6742 A 95.5 95.5 0 0 0 152.269 616.3258 Z" fill="transparent"/>
+    </g>
+    <g id="key-confirm" data-ak-key="hisense-rcf3b65.confirm" data-ak-role="input" role="button" tabindex="0" aria-label="确认键">
+      <path d="M 125 549 A 95 95 0 1 0 315 549 A 95 95 0 1 0 125 549 Z" fill="#c3c5c1" stroke="#5b5e59" stroke-width="2.2"/>
+    </g>
+
+    <g id="key-back" data-ak-key="hisense-rcf3b65.back" data-ak-role="input" role="button" tabindex="0" aria-label="返回键">
+      <path d="M 69 760 A 40 40 0 1 0 149 760 A 40 40 0 1 0 69 760 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 106 746 L 98 753 L 106 760 M 99 753 H 114 A 9.5 9.5 0 0 1 114 772 H 102" fill="none" stroke="#f6f7f5" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-voice" data-ak-key="hisense-rcf3b65.voice" data-ak-role="input" role="button" tabindex="0" aria-label="语音键">
+      <path d="M 176 816 A 44 44 0 1 0 264 816 A 44 44 0 1 0 176 816 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <rect x="214" y="800" width="12" height="20" rx="6" fill="none" stroke="#f6f7f5" stroke-width="2.7"/>
+      <path d="M 209 813 A 11 11 0 0 0 231 813 M 220 824 V 831" fill="none" stroke="#f6f7f5" stroke-width="2.7" stroke-linecap="round"/>
+    </g>
+    <g id="key-home" data-ak-key="hisense-rcf3b65.home" data-ak-role="input" role="button" tabindex="0" aria-label="主页键">
+      <path d="M 291 760 A 40 40 0 1 0 371 760 A 40 40 0 1 0 291 760 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 317 759 L 331 746 L 345 759 M 321 756 V 773 H 328 V 764 H 334 V 773 H 341 V 756" fill="none" stroke="#f6f7f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="key-settings" data-ak-key="hisense-rcf3b65.settings" data-ak-role="input" role="button" tabindex="0" aria-label="设置键">
+      <path d="M 69 882 A 40 40 0 1 0 149 882 A 40 40 0 1 0 69 882 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <path d="M 123.58 879.49 L 123.58 884.51 L 120.11 885.33 L 119.21 887.51 L 121.09 890.53 L 117.53 894.09 L 114.51 892.21 L 112.33 893.11 L 111.51 896.58 L 106.49 896.58 L 105.67 893.11 L 103.49 892.21 L 100.47 894.09 L 96.91 890.53 L 98.79 887.51 L 97.89 885.33 L 94.42 884.51 L 94.42 879.49 L 97.89 878.67 L 98.79 876.49 L 96.91 873.47 L 100.47 869.91 L 103.49 871.79 L 105.67 870.89 L 106.49 867.42 L 111.51 867.42 L 112.33 870.89 L 114.51 871.79 L 117.53 869.91 L 121.09 873.47 L 119.21 876.49 L 120.11 878.67 Z" fill="none" stroke="#f6f7f5" stroke-width="2.3" stroke-linejoin="round"/>
+      <circle cx="109" cy="882" r="5.5" fill="none" stroke="#f6f7f5" stroke-width="2.3"/>
+    </g>
+    <g id="key-menu" data-ak-key="hisense-rcf3b65.menu" data-ak-role="input" role="button" tabindex="0" aria-label="菜单键">
+      <path d="M 291 882 A 40 40 0 1 0 371 882 A 40 40 0 1 0 291 882 Z" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+      <rect x="317" y="868" width="28" height="28" rx="4" fill="none" stroke="#f6f7f5" stroke-width="2.5"/>
+      <path d="M 323 876 H 339 M 323 882 H 339 M 323 888 H 339" fill="none" stroke="#f6f7f5" stroke-width="2.5" stroke-linecap="round"/>
+    </g>
+
+    <rect x="69" y="963" width="302" height="80" rx="40" fill="#b5b7b2" stroke="#5b5e59" stroke-width="2"/>
+    <g id="key-volumeDown" data-ak-key="hisense-rcf3b65.volumeDown" data-ak-role="input" role="button" tabindex="0" aria-label="音量减">
+      <path d="M 219.75 963 V 1043 H 109 A 40 40 0 0 1 109 963 Z" fill="transparent"/>
+      <path d="M 94 1003 H 124" fill="none" stroke="#f6f7f5" stroke-width="3" stroke-linecap="round"/>
+    </g>
+    <g id="key-volumeUp" data-ak-key="hisense-rcf3b65.volumeUp" data-ak-role="input" role="button" tabindex="0" aria-label="音量加">
+      <path d="M 220.25 963 H 331 A 40 40 0 0 1 331 1043 H 220.25 Z" fill="transparent"/>
+      <path d="M 316 1003 H 346 M 331 988 V 1018" fill="none" stroke="#f6f7f5" stroke-width="3" stroke-linecap="round"/>
+    </g>
+  </g>
+  <g data-ak-regions="true" fill="transparent" pointer-events="none">
+    <path data-ak-region="hisense-rcf3b65.power" data-ak-anchor="220 151" d="M 179 151 A 41 41 0 1 0 261 151 A 41 41 0 1 0 179 151 Z"/>
+    <path data-ak-region="hisense-rcf3b65.input" data-ak-anchor="107 212" d="M 66 212 A 41 41 0 1 0 148 212 A 41 41 0 1 0 66 212 Z"/>
+    <path data-ak-region="hisense-rcf3b65.ai" data-ak-anchor="220 272" d="M 173 272 A 47 47 0 1 0 267 272 A 47 47 0 1 0 173 272 Z"/>
+    <path data-ak-region="hisense-rcf3b65.pointer" data-ak-anchor="333 212" d="M 292 212 A 41 41 0 1 0 374 212 A 41 41 0 1 0 292 212 Z"/>
+    <path data-ak-region="hisense-rcf3b65.tv" data-ak-anchor="107 334" d="M 66 334 A 41 41 0 1 0 148 334 A 41 41 0 1 0 66 334 Z"/>
+    <path data-ak-region="hisense-rcf3b65.shortcut" data-ak-anchor="333 334" d="M 292 334 A 41 41 0 1 0 374 334 A 41 41 0 1 0 292 334 Z"/>
+    <path data-ak-region="hisense-rcf3b65.up" data-ak-anchor="220 420" d="M 105.7929 434.1056 A 162 162 0 0 1 334.2071 434.1056 L 287.3258 481.269 A 95.5 95.5 0 0 0 152.6742 481.269 Z"/>
+    <path data-ak-region="hisense-rcf3b65.right" data-ak-anchor="349 549" d="M 334.8944 434.7929 A 162 162 0 0 1 334.8944 663.2071 L 287.731 616.3258 A 95.5 95.5 0 0 0 287.731 481.6742 Z"/>
+    <path data-ak-region="hisense-rcf3b65.down" data-ak-anchor="220 678" d="M 334.2071 663.8944 A 162 162 0 0 1 105.7929 663.8944 L 152.6742 616.731 A 95.5 95.5 0 0 0 287.3258 616.731 Z"/>
+    <path data-ak-region="hisense-rcf3b65.left" data-ak-anchor="91 549" d="M 105.1056 663.2071 A 162 162 0 0 1 105.1056 434.7929 L 152.269 481.6742 A 95.5 95.5 0 0 0 152.269 616.3258 Z"/>
+    <path data-ak-region="hisense-rcf3b65.confirm" data-ak-anchor="220 549" d="M 125 549 A 95 95 0 1 0 315 549 A 95 95 0 1 0 125 549 Z"/>
+    <path data-ak-region="hisense-rcf3b65.back" data-ak-anchor="109 760" d="M 69 760 A 40 40 0 1 0 149 760 A 40 40 0 1 0 69 760 Z"/>
+    <path data-ak-region="hisense-rcf3b65.voice" data-ak-anchor="220 816" d="M 176 816 A 44 44 0 1 0 264 816 A 44 44 0 1 0 176 816 Z"/>
+    <path data-ak-region="hisense-rcf3b65.home" data-ak-anchor="331 760" d="M 291 760 A 40 40 0 1 0 371 760 A 40 40 0 1 0 291 760 Z"/>
+    <path data-ak-region="hisense-rcf3b65.settings" data-ak-anchor="109 882" d="M 69 882 A 40 40 0 1 0 149 882 A 40 40 0 1 0 69 882 Z"/>
+    <path data-ak-region="hisense-rcf3b65.menu" data-ak-anchor="331 882" d="M 291 882 A 40 40 0 1 0 371 882 A 40 40 0 1 0 291 882 Z"/>
+    <path data-ak-region="hisense-rcf3b65.volumeDown" data-ak-anchor="125 1003" d="M 219.75 963 V 1043 H 109 A 40 40 0 0 1 109 963 Z"/>
+    <path data-ak-region="hisense-rcf3b65.volumeUp" data-ak-anchor="315 1003" d="M 220.25 963 H 331 A 40 40 0 0 1 331 1043 H 220.25 Z"/>
+  </g>
+</svg>

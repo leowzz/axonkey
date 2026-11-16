@@ -1,14 +1,6 @@
-import type { RemoteView } from '../types.ts'
-import { xmBt29RemoteButtons } from './buttons.ts'
-import { xmBt29RemoteKeyRegions, xmBt29RemoteViewBox } from './geometry.ts'
+import { createDescriptorView, type DescriptorInputId } from '../shared/descriptorSvg.ts'
 
-export { xmBt29RemoteButtonIds, xmBt29RemoteButtons } from './buttons.ts'
-export { xmBt29RemoteKeyRegions, xmBt29RemoteViewBox } from './geometry.ts'
-
-export const xmBt29RemoteView: RemoteView = {
-  buttons: xmBt29RemoteButtons,
-  viewBox: xmBt29RemoteViewBox,
-  keyRegions: xmBt29RemoteKeyRegions,
-  artworkUrl: '/xm-bt-29-remote-keymap.svg',
-  ariaLabel: '移动遥控器 XM-BT-29 按键',
-}
+export type XmBt29RemoteButtonId = DescriptorInputId<'xm-bt-29'>
+export const xmBt29RemoteView = createDescriptorView('xm-bt-29')
+export const xmBt29RemoteButtons = xmBt29RemoteView.buttons
+export const xmBt29RemoteButtonIds = xmBt29RemoteButtons.map(button => button.id)

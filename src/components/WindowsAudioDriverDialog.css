@@ -3,15 +3,16 @@
   max-height: calc(100dvh - 48px);
   padding: 0;
   overflow-y: auto;
-  border: 1px solid #dbe4ed;
-  border-radius: 10px;
-  color: #344d61;
-  background: #f7f9fb;
-  box-shadow: 0 18px 56px rgb(30 50 70 / 18%);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: var(--shadow-popover);
   overscroll-behavior: contain;
 }
 .windows-audio-driver-dialog::backdrop {
-  background: rgb(29 33 38 / 42%);
+  background: rgb(15 23 42 / 36%);
+  backdrop-filter: blur(2px);
 }
 :root:has(.windows-audio-driver-dialog[open]),
 body:has(.windows-audio-driver-dialog[open]),
@@ -32,5 +33,5 @@ body:has(.windows-audio-driver-dialog[open]),
   overflow-wrap: anywhere;
 }
 .windows-audio-driver-routing {
-  color: #657c8e;
+  color: var(--muted);
 }

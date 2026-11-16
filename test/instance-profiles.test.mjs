@@ -1,6 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { updateInstanceSequence, applyInstanceProfileSwitch, removeInstanceProfileSwitch, addInstanceProfile } from '../src/devices/integration/instanceProfiles.ts'
+import {
+  updateInstanceSequence,
+  applyInstanceProfileSwitch,
+  removeInstanceProfileSwitch,
+  addInstanceProfile,
+  createInstanceBehaviorHistory,
+  instanceBehaviorHistoryReducer,
+  replaceInstanceProfileBehaviors,
+} from '../src/devices/integration/instanceProfiles.ts'
 
 const empty = () => ({ click: [], doubleClick: [], longPress: [] })
 const action = { id: 'a', type: 'delay', enabled: true, ms: 50 }
@@ -34,4 +42,82 @@ test('switch gestures survive new and duplicated profiles, and removal covers on
   assert.ok(cleared.profiles.every(p => p.behaviors.power.longPress.length === 0))
   assert.equal(cleared.profiles[0].behaviors.power.click[0].type, 'delay')
   assert.equal(switched.profiles[0].behaviors.power.longPress.length, 1)
+})
+
+test('instance behavior history supports undo, redo, canonical sync and profile isolation', () => {
+  const stepA = { id: 'step-a', type: 'key', enabled: true, key: 'Space' }
+  const stepB = { id: 'step-b', type: 'delay', enabled: true, ms: 80 }
+  let history = createInstanceBehaviorHistory('work', {})
+
+  assert.strictEqual(instanceBehaviorHistoryReducer(history, { type: 'change', inputId: 'power', sequences: empty() }), history)
+
+  history = instanceBehaviorHistoryReducer(history, { type: 'change', inputId: 'power', sequences: { ...empty(), click: [stepA] } })
+  history = instanceBehaviorHistoryReducer(history, { type: 'change', inputId: 'voice', sequences: { ...empty(), longPress: [stepB] } })
+  assert.equal(history.past.length, 2)
+  assert.equal(history.future.length, 0)
+
+  const reorderedFromBackend = {
+    voice: { click: [], doubleClick: [], longPress: [{ enabled: true, id: 'step-b', ms: 80, type: 'delay' }] },
+    power: { click: [{ enabled: true, id: 'step-a', key: 'Space', type: 'key' }], doubleClick: [], longPress: [] },
+    home: empty(),
+  }
+  assert.strictEqual(
+    instanceBehaviorHistoryReducer(history, { type: 'sync', profileId: 'work', present: reorderedFromBackend }),
+    history,
+    'backend key-sorted poll snapshots preserve undo and redo stacks',
+  )
+
+  history = instanceBehaviorHistoryReducer(history, { type: 'undo' })
+  assert.equal(history.past.length, 1)
+  assert.equal(history.future.length, 1)
+  assert.equal(history.present.voice, undefined)
+  assert.equal(history.present.power.click[0].key, 'Space')
+
+  const updatedInstance = replaceInstanceProfileBehaviors(
+    { ...initial(), profiles: profiles(), activeProfileId: 'work' },
+    'work',
+    history.present,
+  )
+  assert.equal(updatedInstance.profiles[0].behaviors.power.click[0].key, 'Space')
+  assert.deepEqual(updatedInstance.profiles[1], profiles()[1])
+
+  history = instanceBehaviorHistoryReducer(history, { type: 'redo' })
+  assert.equal(history.present.voice.longPress[0].ms, 80)
+
+  const switchedProfile = instanceBehaviorHistoryReducer(history, {
+    type: 'sync',
+    profileId: 'media',
+    present: { home: { ...empty(), click: [stepA] } },
+  })
+  assert.equal(switchedProfile.profileId, 'media')
+  assert.equal(switchedProfile.past.length, 0)
+  assert.equal(switchedProfile.future.length, 0)
+  assert.strictEqual(instanceBehaviorHistoryReducer(switchedProfile, { type: 'undo' }), switchedProfile)
+})
+
+test('duplicating a profile clones custom OLED display content while new blank profiles reset to auto', () => {
+  const source = {
+    ...initial(),
+    kind: 'kivoK18Lite',
+    profiles: [
+      {
+        id: 'work',
+        name: '剪辑',
+        behaviors: {},
+        display: { mode: 'custom', line1: '剪辑工作流', line2: 'Final Cut' },
+      },
+    ],
+    activeProfileId: 'work',
+  }
+  const duplicated = addInstanceProfile(source, true)
+  assert.deepEqual(duplicated.profiles.at(-1).display, {
+    mode: 'custom',
+    line1: '剪辑工作流',
+    line2: 'Final Cut',
+  })
+  duplicated.profiles.at(-1).display.line1 = '已修改'
+  assert.equal(source.profiles[0].display.line1, '剪辑工作流')
+
+  const blank = addInstanceProfile(source, false)
+  assert.equal(blank.profiles.at(-1).display, undefined)
 })

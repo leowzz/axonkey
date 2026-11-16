@@ -1,7 +1,5 @@
-import { cmiotA15RemoteButtonIds, cmiotA15RemoteView } from '../cmiot-a15-remote/view.ts'
+import { createDescriptorView } from '../shared/descriptorSvg.ts'
 
-// RC-313 currently uses the same artwork and button layout as CMIOT-A15.
-export const rc313RemoteButtonIds = cmiotA15RemoteButtonIds
-export const rc313RemoteView = cmiotA15RemoteView
-
-export { cmiotA15RemoteButtons as rc313RemoteButtons } from '../cmiot-a15-remote/view.ts'
+export const rc313RemoteView = createDescriptorView('rc313')
+export const rc313RemoteButtons = rc313RemoteView.buttons
+export const rc313RemoteButtonIds = rc313RemoteButtons.map(button => button.id)

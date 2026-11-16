@@ -4,15 +4,15 @@ mod a15;
 mod app_profiles;
 mod device_info;
 mod gesture;
-mod paired;
+mod hold;
+pub(crate) mod paired;
 #[cfg(target_os = "macos")]
 mod remote;
+#[cfg(test)]
 mod report;
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 use super::windows::ManagedQuarborChannel;
-#[cfg(all(windows, not(test)))]
-use super::NativeSettings;
-use super::{NativeBehavior, ProfileDirection, TriggerBehaviors};
+use super::{NativeBehavior, NativeSettings, ProfileDirection, TriggerBehaviors};
 use app_profiles::{application_binding, effective_instance, ApplicationProfile};
 use gesture::Gestures;
 use hidapi::{HidApi, HidDevice};
@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    ffi::{CStr, CString},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,28 +34,91 @@ use tauri::Emitter;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use tauri::Manager;
 
-fn is_mobile_remote_hardware(device: &Discovered) -> bool {
-    device.vendor_id == 0x0416 && device.product_id == 0x0300
-}
-
 fn device_kind_matches(device: &Discovered, kind: &str) -> bool {
-    if kind == "tclRc802a" {
-        return crate::devices::tcl_rc802a::matches_information(
+    if crate::devices::descriptor_registry::requires_information(kind) {
+        return crate::devices::descriptor_registry::matches_information(
+            kind,
             device.vendor_id,
             device.product_id,
             device.device_info.model_number.as_deref(),
             device.device_info.manufacturer.as_deref(),
-        );
-    }
-    if kind == "tclRc902n" {
-        return crate::devices::tcl_rc902n::matches_information(
-            device.vendor_id,
-            device.product_id,
             device.device_info.software_revision.as_deref(),
         );
     }
     device.kind == kind
-        || (is_mobile_remote_hardware(device) && matches!(kind, "cmiotA15" | "xmBt29" | "rc313"))
+        || crate::devices::descriptor_registry::matches_hardware(
+            kind,
+            device.vendor_id,
+            device.product_id,
+            None,
+            None,
+        )
+}
+
+fn uses_hid_voice(kind: &str) -> bool {
+    matches!(
+        crate::devices::descriptor_registry::voice_engine(kind),
+        Some("cmiot-a15.g7221" | "obe-rcu-r5.sbc" | "tcl-rc802a.ico")
+    )
+}
+
+fn uses_vendor_usb_hid(kind: &str) -> bool {
+    crate::devices::descriptor_registry::uses_vendor_usb_hid(kind)
+}
+
+const fn default_display_brightness() -> u8 {
+    100
+}
+
+const fn default_display_sleep_timeout_sec() -> u32 {
+    180
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ProfileDisplayMode {
+    #[default]
+    Auto,
+    Custom,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileDisplayConfig {
+    #[serde(default)]
+    pub mode: ProfileDisplayMode,
+    #[serde(default)]
+    pub line1: String,
+    #[serde(default)]
+    pub line2: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceDisplaySettings {
+    #[serde(default = "default_display_brightness")]
+    pub brightness: u8,
+    #[serde(default = "default_display_sleep_timeout_sec")]
+    pub sleep_timeout_sec: u32,
+    #[serde(default = "default_true")]
+    pub show_key_toast: bool,
+    #[serde(default = "default_true")]
+    pub show_profile_toast: bool,
+}
+
+impl Default for DeviceDisplaySettings {
+    fn default() -> Self {
+        Self {
+            brightness: default_display_brightness(),
+            sleep_timeout_sec: default_display_sleep_timeout_sec(),
+            show_key_toast: true,
+            show_profile_toast: true,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -63,6 +127,8 @@ pub struct Profile {
     pub id: String,
     pub name: String,
     pub behaviors: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<ProfileDisplayConfig>,
 }
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +158,8 @@ pub struct Instance {
     pub app_profile_switching: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub application_profiles: Vec<ApplicationProfile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<DeviceDisplaySettings>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -158,16 +226,19 @@ struct QuarborRegistration {
     settings: NativeSettings,
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 struct QuarborRegistry {
+    #[cfg(not(test))]
     app: tauri::AppHandle,
+    #[cfg(not(test))]
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
     channels: Mutex<BTreeMap<String, (String, ManagedQuarborChannel)>>,
     gate: Arc<AtomicBool>,
 }
 
-#[cfg(all(windows, not(test)))]
+#[cfg(windows)]
 impl QuarborRegistry {
+    #[cfg(not(test))]
     fn new(app: tauri::AppHandle, emit: Arc<dyn Fn(InputEvent) + Send + Sync>) -> Self {
         Self {
             app,
@@ -177,6 +248,15 @@ impl QuarborRegistry {
         }
     }
 
+    #[cfg(test)]
+    fn new_for_test() -> Self {
+        Self {
+            channels: Mutex::new(BTreeMap::new()),
+            gate: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    #[cfg(not(test))]
     fn sync(&self, registrations: &BTreeMap<String, QuarborRegistration>) {
         let Ok(mut channels) = self.channels.lock() else {
             return;
@@ -245,6 +325,20 @@ impl QuarborRegistry {
         }
     }
 
+    fn pause(&self) {
+        self.gate.store(true, Ordering::Release);
+        if let Ok(mut channels) = self.channels.lock() {
+            self.gate.store(true, Ordering::Release);
+            // Dropping a channel joins its worker and releases the driver handle.
+            channels.clear();
+        }
+    }
+
+    fn resume(&self) {
+        self.gate.store(false, Ordering::Release);
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
     fn status(&self, id: &str) -> Option<super::InputServiceStatus> {
         self.channels
             .lock()
@@ -261,13 +355,15 @@ enum RecordingRequest {
 struct Shared {
     app: Mutex<Option<tauri::AppHandle>>,
     snapshot: Mutex<Snapshot>,
+    battery_cache: Mutex<device_info::BatteryCache>,
     information_requests: Mutex<HashSet<String>>,
     recording_requests: Mutex<Vec<(String, RecordingRequest, SyncSender<Result<bool, String>>)>>,
     path: PathBuf,
     stop: AtomicBool,
     enabled: AtomicBool,
     emit: Arc<dyn Fn(InputEvent) + Send + Sync>,
-    #[cfg(all(windows, not(test)))]
+    holds: Arc<hold::ManagedHolds>,
+    #[cfg(windows)]
     quarbor: Option<Arc<QuarborRegistry>>,
     legacy_remote: Box<dyn Fn(bool) -> bool + Send + Sync>,
 }
@@ -307,12 +403,29 @@ fn load(path: &std::path::Path) -> Result<Store, String> {
     }
     validate(&store)?;
     for instance in &mut store.instances {
-        normalize_recording_mode(instance);
+        normalize_instance(instance);
     }
     Ok(store)
 }
-fn normalize_recording_mode(instance: &mut Instance) {
-    if matches!(instance.kind.as_str(), "xmBt29" | "rc313" | "obeRcuR5") {
+fn normalize_instance(instance: &mut Instance) {
+    for profile in &mut instance.profiles {
+        let behaviors = profile
+            .behaviors
+            .as_object_mut()
+            .expect("validated profile is an object");
+        *behaviors = std::mem::take(behaviors)
+            .into_iter()
+            .map(|(input, behavior)| {
+                let key = crate::devices::descriptor_registry::profile_key(&instance.kind, &input)
+                    .expect("validated profile input has a descriptor key");
+                (if key == input { input } else { key.to_string() }, behavior)
+            })
+            .collect();
+    }
+    let modes = crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
+        .and_then(|descriptor| descriptor.voices.first())
+        .and_then(|voice| voice.attributes.get("trigger-modes"));
+    if modes.is_some_and(|modes| !modes.split_whitespace().any(|mode| mode == "click")) {
         instance.cmiot_a15_recording_mode =
             crate::devices::cmiot_a15::recording::RecordingMode::Hold;
     }
@@ -359,18 +472,7 @@ fn validate(store: &Store) -> Result<(), String> {
         if !ids.insert(&instance.id) || instance.id.is_empty() {
             return Err("设备实例 ID 重复或为空".into());
         }
-        if ![
-            "xboxBluetooth",
-            "rc003",
-            "cmiotA15",
-            "xmBt29",
-            "rc313",
-            "obeRcuR5",
-            "tclRc802a",
-            "tclRc902n",
-        ]
-        .contains(&instance.kind.as_str())
-        {
+        if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_none() {
             return Err("未知设备支持包".into());
         }
         if instance.name.trim().is_empty() || instance.name.len() > 200 {
@@ -395,6 +497,14 @@ fn validate(store: &Store) -> Result<(), String> {
         {
             return Err("设备配置文件无效".into());
         }
+        if let Some(display) = &instance.display {
+            if display.brightness > 100 {
+                return Err("屏幕亮度超出有效范围".into());
+            }
+            if display.sleep_timeout_sec != 0 && !(15..=3600).contains(&display.sleep_timeout_sec) {
+                return Err("自动息屏时间超出有效范围".into());
+            }
+        }
         let mut profiles = HashSet::new();
         app_profiles::validate(instance)?;
         for profile in &instance.profiles {
@@ -403,6 +513,11 @@ fn validate(store: &Store) -> Result<(), String> {
                 || profile.name.trim().is_empty()
             {
                 return Err("配置文件名称或 ID 无效".into());
+            }
+            if let Some(cfg) = &profile.display {
+                if cfg.line1.chars().count() > 64 || cfg.line2.chars().count() > 64 {
+                    return Err("屏幕自定义文本过长".into());
+                }
             }
             let maps: HashMap<String, TriggerBehaviors> =
                 serde_json::from_value(profile.behaviors.clone())
@@ -417,73 +532,23 @@ fn validate(store: &Store) -> Result<(), String> {
                 behaviors: maps.clone(),
                 ..Default::default()
             })?;
+            let mut inputs = HashSet::new();
             for (input, mapping) in &maps {
-                let valid = if instance.kind == "xboxBluetooth" {
-                    super_input_ids().contains(&input.as_str())
-                } else if instance.kind == "rc003" {
-                    [
-                        "power",
-                        "voice",
-                        "up",
-                        "down",
-                        "left",
-                        "right",
-                        "confirm",
-                        "home",
-                        "menu",
-                        "tv",
-                        "back",
-                        "volumeUp",
-                        "volumeDown",
-                    ]
-                    .contains(&input.as_str())
-                } else if instance.kind == "obeRcuR5" {
-                    crate::devices::obe_rcu_r5::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else if instance.kind == "xmBt29" {
-                    crate::devices::xm_bt_29::BUTTONS
-                        .iter()
-                        .any(|&(_, _, id)| id == input)
-                } else {
-                    input.starts_with("cmiotA15.")
-                };
-                if !valid || mapping.iter().count() > 256 {
+                let Some(key) =
+                    crate::devices::descriptor_registry::profile_key(&instance.kind, input)
+                else {
                     return Err(format!("设备不支持此输入或序列过长：{input}"));
+                };
+                if mapping.iter().count() > 256 {
+                    return Err(format!("设备不支持此输入或序列过长：{input}"));
+                }
+                if !inputs.insert(key) {
+                    return Err(format!("同一输入重复配置：{input}"));
                 }
             }
         }
     }
     Ok(())
-}
-fn super_input_ids() -> &'static [&'static str] {
-    &[
-        "xbox.a",
-        "xbox.b",
-        "xbox.x",
-        "xbox.y",
-        "xbox.lb",
-        "xbox.rb",
-        "xbox.lt",
-        "xbox.rt",
-        "xbox.view",
-        "xbox.menu",
-        "xbox.guide",
-        "xbox.ls",
-        "xbox.rs",
-        "xbox.dpad.up",
-        "xbox.dpad.down",
-        "xbox.dpad.left",
-        "xbox.dpad.right",
-        "xbox.ls.up",
-        "xbox.ls.down",
-        "xbox.ls.left",
-        "xbox.ls.right",
-        "xbox.rs.up",
-        "xbox.rs.down",
-        "xbox.rs.left",
-        "xbox.rs.right",
-    ]
 }
 impl DeviceManager {
     pub fn start(app: tauri::AppHandle, path: PathBuf) -> Self {
@@ -554,6 +619,7 @@ impl DeviceManager {
         };
         let shared = Arc::new(Shared {
             app: Mutex::new(quarbor.as_ref().map(|registry| registry.app.clone())),
+            battery_cache: Mutex::new(device_info::BatteryCache::load(&path)),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
@@ -568,6 +634,7 @@ impl DeviceManager {
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
             emit,
+            holds: Arc::new(hold::ManagedHolds::default()),
             legacy_remote,
             quarbor,
         });
@@ -585,6 +652,7 @@ impl DeviceManager {
         };
         let shared = Arc::new(Shared {
             app: Mutex::new(None),
+            battery_cache: Mutex::new(device_info::BatteryCache::load(&path)),
             information_requests: Mutex::new(HashSet::new()),
             recording_requests: Mutex::new(Vec::new()),
             snapshot: Mutex::new(Snapshot {
@@ -599,6 +667,9 @@ impl DeviceManager {
             stop: AtomicBool::new(false),
             enabled: AtomicBool::new(false),
             emit,
+            holds: Arc::new(hold::ManagedHolds::default()),
+            #[cfg(windows)]
+            quarbor: Some(Arc::new(QuarborRegistry::new_for_test())),
             legacy_remote,
         });
         Self::spawn(shared)
@@ -674,11 +745,8 @@ impl DeviceManager {
             .iter()
             .find(|item| item.id == instance_id)
             .ok_or("设备已被移除")?;
-        if !matches!(
-            instance.kind.as_str(),
-            "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-        ) {
-            return Err("此设备不支持手动控制录音".into());
+        if !uses_hid_voice(&instance.kind) {
+            return Err("仅 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 支持手动控制录音".into());
         }
         if !self.shared.enabled.load(Ordering::Acquire)
             || !instance.enabled
@@ -688,32 +756,31 @@ impl DeviceManager {
                 .get(instance_id)
                 .is_some_and(|status| status.state == "exclusive")
         {
-            return Err("请先连接并启用此设备".into());
+            return Err("请先连接并启用 CMIOT A15 / XM-BT-29 / RC-313 / OBE_RCU_R5 设备".into());
         }
         Ok(())
     }
 
     #[cfg(windows)]
     pub fn pause_for_driver_migration(&self) {
-        #[cfg(not(test))]
         if let Some(registry) = &self.shared.quarbor {
-            let mut channels = registry.channels.lock().unwrap();
-            registry.gate.store(true, Ordering::Release);
-            // Dropping a channel joins its worker and releases the driver handle.
-            channels.clear();
+            registry.pause();
         }
     }
     #[cfg(windows)]
     pub fn resume_after_driver_migration(&self) {
-        #[cfg(not(test))]
         if let Some(registry) = &self.shared.quarbor {
-            registry.gate.store(false, Ordering::Release);
+            registry.resume();
         }
     }
     pub fn shutdown(&self) {
         self.shared.stop.store(true, Ordering::Release);
         if let Some(worker) = self.worker.lock().unwrap().take() {
             let _ = worker.join();
+        }
+        #[cfg(windows)]
+        if let Some(registry) = &self.shared.quarbor {
+            registry.pause();
         }
     }
     pub(crate) fn switch_instance_profile(
@@ -772,7 +839,6 @@ impl DeviceManager {
                 }
             }
         }
-        normalize_recording_mode(&mut instance);
         if instance.binding.is_none() {
             instance.binding_quality = None;
             instance.binding_pairing_id = None;
@@ -783,12 +849,20 @@ impl DeviceManager {
             instance.id = unique_id();
         }
         let mut next = snapshot.store.clone();
-        if let Some(current) = next.instances.iter_mut().find(|i| i.id == instance.id) {
+        let index = if let Some((index, current)) = next
+            .instances
+            .iter_mut()
+            .enumerate()
+            .find(|(_, i)| i.id == instance.id)
+        {
             *current = instance;
+            index
         } else {
             next.instances.push(instance);
-        }
+            next.instances.len() - 1
+        };
         validate(&next)?;
+        normalize_instance(&mut next.instances[index]);
         next.revision += 1;
         save(&self.shared.path, &next)?;
         snapshot.store = next;
@@ -806,17 +880,9 @@ impl DeviceManager {
             .iter_mut()
             .find(|instance| instance.id == instance_id)
             .ok_or("未找到要更新驱动状态的设备实例")?;
-        if !matches!(
-            instance.kind.as_str(),
-            "rc003"
-                | "cmiotA15"
-                | "xmBt29"
-                | "rc313"
-                | "obeRcuR5"
-                | "tclRc802a"
-                | "tclRc902n"
-                | "xboxBluetooth"
-        ) {
+        if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_none()
+            || uses_vendor_usb_hid(&instance.kind)
+        {
             return Err("此设备不支持 Quarbor 按键驱动".into());
         }
         if instance.quarbor_target.as_deref() != Some(target) {
@@ -902,28 +968,204 @@ impl DeviceManager {
 }
 impl Drop for DeviceManager {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Release);
-        if let Some(worker) = self.worker.lock().unwrap().take() {
-            let _ = worker.join();
+        self.shutdown();
+    }
+}
+
+fn oled_idle_lines(
+    raw: &Instance,
+    effective: &Instance,
+    app_id: Option<&str>,
+) -> (String, String) {
+    let active_profile = effective
+        .profiles
+        .iter()
+        .find(|p| p.id == effective.active_profile_id);
+    if let Some(cfg) = active_profile
+        .and_then(|p| p.display.as_ref())
+        .filter(|cfg| cfg.mode == ProfileDisplayMode::Custom)
+    {
+        return (cfg.line1.clone(), cfg.line2.clone());
+    }
+    let top = application_binding(raw, app_id)
+        .map(|index| raw.application_profiles[index].application.name.clone())
+        .unwrap_or_else(|| effective.name.clone());
+    let bottom = active_profile.map(|p| p.name.clone()).unwrap_or_default();
+    (top, bottom)
+}
+
+struct Reader {
+    config: Arc<ReaderConfig>,
+    holds: Arc<hold::ManagedHolds>,
+    oled: Option<crate::devices::kivo_k18_lite::DisplayController>,
+    path: CString,
+    device: InputReader,
+    descriptor: &'static crate::devices::device_descriptor::DeviceDescriptor,
+    engine: crate::devices::engine::DescriptorEngine,
+    gestures: Gestures,
+    maps: HashMap<String, TriggerBehaviors>,
+    actions: SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)>,
+    reports: u64,
+}
+impl Reader {
+    fn update_config(
+        &mut self,
+        shared: &Arc<Shared>,
+        instance: &Instance,
+        idle_lines: Option<&(String, String)>,
+    ) -> bool {
+        if let Some(oled) = &self.oled {
+            oled.set_settings(instance.display.clone().unwrap_or_default());
+            if let Some((top, bottom)) = idle_lines {
+                oled.set_idle(top.clone(), bottom.clone());
+            }
+        }
+        if &self.config.instance == instance {
+            return true;
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = shared;
+        let profile_changed = self.config.instance.active_profile_id != instance.active_profile_id;
+        let config = Arc::new(ReaderConfig::new(instance));
+        let settings = input_settings(instance);
+        match &mut self.device {
+            #[cfg(target_os = "macos")]
+            InputReader::Remote(device) => {
+                if !device.update_settings(settings, action_guard(shared, &config)) {
+                    return false;
+                }
+            }
+            #[cfg(target_os = "macos")]
+            InputReader::A15(device) => {
+                if let Err(error) = device.update_settings(settings, action_guard(shared, &config))
+                {
+                    log::warn!(target: "axonkey::devices", "Instance {}: {error}", instance.id);
+                    return false;
+                }
+            }
+            InputReader::Hid(_) => {
+                if self.maps != settings.behaviors || profile_changed {
+                    self.gestures = Gestures::default();
+                    self.holds.release_instance(&instance.id);
+                    self.maps = settings.behaviors;
+                }
+            }
+            #[cfg(test)]
+            InputReader::Test => {
+                if self.maps != settings.behaviors || profile_changed {
+                    self.gestures = Gestures::default();
+                    self.holds.release_instance(&instance.id);
+                    self.maps = settings.behaviors;
+                }
+            }
+        }
+        if profile_changed {
+            if let Some(oled) = &self.oled {
+                if let Some(profile) = instance
+                    .profiles
+                    .iter()
+                    .find(|p| p.id == instance.active_profile_id)
+                {
+                    oled.show_profile_toast("切换配置".into(), profile.name.clone());
+                }
+            }
+        }
+        self.config.cancel.store(true, Ordering::Release);
+        self.config = config;
+        true
+    }
+
+    fn handle_local_edge(
+        &mut self,
+        key: &str,
+        down: bool,
+        now: u64,
+        sequence: &mut Vec<gesture::Execution>,
+    ) {
+        let empty_mapping = TriggerBehaviors::default();
+        let mapping = self.maps.get(key).unwrap_or(&empty_mapping);
+        match self
+            .holds
+            .try_edge(&self.config.instance.id, key, down, mapping)
+        {
+            hold::HoldOutcome::Handled { triggered_summary } => {
+                if let (Some(oled), Some(summary)) = (&self.oled, triggered_summary) {
+                    let label =
+                        crate::devices::kivo_k18_lite::input_short_label(self.descriptor, key);
+                    oled.show_key_toast(format!("{label} 按住"), summary);
+                }
+            }
+            hold::HoldOutcome::PassToGestures => {
+                if has_gesture_or_actionable_click(mapping) {
+                    sequence.extend(self.gestures.edge(key, down, now, mapping));
+                } else if down {
+                    if let Some(oled) = &self.oled {
+                        let label =
+                            crate::devices::kivo_k18_lite::input_short_label(self.descriptor, key);
+                        let summary =
+                            crate::devices::kivo_k18_lite::summarize_trigger_behaviors(&mapping.click);
+                        oled.show_key_toast(format!("{label} 按下"), summary);
+                    }
+                }
+            }
+        }
+    }
+
+    fn flush_oled_toasts(&self, sequence: &[gesture::Execution]) {
+        let Some(oled) = &self.oled else {
+            return;
+        };
+        for exec in sequence {
+            let label =
+                crate::devices::kivo_k18_lite::input_short_label(self.descriptor, &exec.input);
+            let summary =
+                crate::devices::kivo_k18_lite::summarize_trigger_behaviors(&exec.behaviors);
+            oled.show_key_toast(format!("{} {}", label, exec.trigger.label()), summary);
         }
     }
 }
 
-struct Reader {
-    config: Instance,
-    device: InputReader,
-    values: BTreeMap<String, f64>,
-    down: HashSet<String>,
-    gestures: Gestures,
-    maps: HashMap<String, TriggerBehaviors>,
-    actions: SyncSender<Vec<gesture::Execution>>,
-    cancel: Arc<AtomicBool>,
-    reports: u64,
+fn has_gesture_or_actionable_click(mapping: &TriggerBehaviors) -> bool {
+    mapping.double_click.iter().any(NativeBehavior::enabled)
+        || mapping.long_press.iter().any(NativeBehavior::enabled)
+        || crate::devices::kivo_k18_lite::summarize_behaviors(&mapping.click).is_some()
 }
 impl Drop for Reader {
     fn drop(&mut self) {
-        self.cancel.store(true, Ordering::Release);
+        self.config.cancel.store(true, Ordering::Release);
+        self.holds.release_instance(&self.config.instance.id);
+        if let (Some(oled), InputReader::Hid(device)) = (self.oled.take(), &self.device) {
+            oled.shutdown_and_release(device);
+        }
     }
+}
+
+struct ReaderConfig {
+    instance: Instance,
+    cancel: AtomicBool,
+}
+
+impl ReaderConfig {
+    fn new(instance: &Instance) -> Self {
+        Self {
+            instance: instance.clone(),
+            cancel: AtomicBool::new(false),
+        }
+    }
+
+    fn is_current(&self, shared: &Shared) -> bool {
+        actions_current(shared, &self.instance, &self.cancel)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn action_guard(
+    shared: &Arc<Shared>,
+    config: &Arc<ReaderConfig>,
+) -> super::macos::RemoteActionGuard {
+    let shared = shared.clone();
+    let config = config.clone();
+    Box::new(move || config.is_current(&shared))
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -946,6 +1188,8 @@ enum InputReader {
     Hid(HidDevice),
     #[cfg(target_os = "macos")]
     Remote(remote::RemoteReader),
+    #[cfg(test)]
+    Test,
 }
 impl InputReader {
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, String> {
@@ -955,6 +1199,8 @@ impl InputReader {
             Self::Hid(device) => device.read(buffer).map_err(|e| e.to_string()),
             #[cfg(target_os = "macos")]
             Self::Remote(device) => device.read(buffer),
+            #[cfg(test)]
+            Self::Test => Ok(0),
         }
     }
 }
@@ -967,13 +1213,22 @@ fn active_mappings(instance: &Instance) -> HashMap<String, TriggerBehaviors> {
         .unwrap_or_default()
 }
 
+fn input_settings(instance: &Instance) -> NativeSettings {
+    NativeSettings {
+        enabled: true,
+        behaviors: active_mappings(instance),
+        cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
+        ..Default::default()
+    }
+}
+
 fn open_reader(
     api: &HidApi,
-    path: &std::ffi::CStr,
-    instance: &Instance,
+    path: &CStr,
     shared: &Arc<Shared>,
-    cancel: &Arc<AtomicBool>,
+    config: &Arc<ReaderConfig>,
 ) -> Result<InputReader, String> {
+    let instance = &config.instance;
     #[cfg(target_os = "macos")]
     if instance.kind == "rc003" {
         let serial = api
@@ -982,54 +1237,44 @@ fn open_reader(
             .and_then(|info| info.serial_number())
             .filter(|s| !s.is_empty())
             .ok_or("此遥控器没有稳定标识，无法按实例拦截")?;
-        let settings = super::NativeSettings {
-            enabled: true,
-            behaviors: active_mappings(instance),
-            ..super::NativeSettings::default()
-        };
-        let current_shared = shared.clone();
-        let expected = instance.clone();
-        let current_cancel = cancel.clone();
         let switch_shared = shared.clone();
         let id = instance.id.clone();
         return remote::RemoteReader::open(
             serial,
             &instance.id,
-            settings,
-            Box::new(move || actions_current(&current_shared, &expected, &current_cancel)),
+            input_settings(instance),
+            action_guard(shared, config),
             Box::new(move |direction, wrap| switch_profile(&switch_shared, &id, direction, wrap)),
         )
         .map(InputReader::Remote);
     }
     #[cfg(not(target_os = "macos"))]
-    let _ = (shared, cancel);
+    let _ = shared;
     #[cfg(windows)]
     if instance.kind == "rc003" {
         return Err("Windows RC003 的按实例驱动适配尚未接入；可继续使用原遥控器工作区".into());
     }
     #[cfg(target_os = "macos")]
-    if matches!(
-        instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-    ) && !super::InputService::input_monitoring_granted()
-    {
+    if uses_hid_voice(&instance.kind) && !super::InputService::input_monitoring_granted() {
         return Err("请先授予输入监控权限，再连接 A15".into());
     }
-    let device = open(api, path)?;
+    let device = open_device(api, path, uses_vendor_usb_hid(&instance.kind))?;
     device.set_blocking_mode(false).map_err(|e| e.to_string())?;
     #[cfg(target_os = "macos")]
-    if matches!(
-        instance.kind.as_str(),
-        "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-    ) {
+    if uses_hid_voice(&instance.kind) {
         return Ok(InputReader::A15(a15::A15Reader::open(
-            device, instance, shared, cancel,
+            device, shared, config,
         )));
     }
     Ok(InputReader::Hid(device))
 }
 
+#[cfg(test)]
 fn open(api: &HidApi, path: &std::ffi::CStr) -> Result<HidDevice, String> {
+    open_device(api, path, false)
+}
+
+fn open_device(api: &HidApi, path: &std::ffi::CStr, allow_shared: bool) -> Result<HidDevice, String> {
     // Serialize the process-global macOS open mode across managers and diagnostics.
     static OPEN: Mutex<()> = Mutex::new(());
     let _open = OPEN.lock().unwrap();
@@ -1048,27 +1293,28 @@ fn open(api: &HidApi, path: &std::ffi::CStr) -> Result<HidDevice, String> {
         }
         hid_darwin_set_open_exclusive(0);
     }
+    #[cfg(target_os = "macos")]
+    if result.is_err() && allow_shared {
+        return api.open_path(path).map_err(|e| e.to_string());
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = allow_shared;
     result
 }
 fn supported(info: &hidapi::DeviceInfo) -> Option<&'static str> {
-    match (
-        info.vendor_id(),
-        info.product_id(),
-        info.usage_page(),
-        info.usage(),
-    ) {
-        (0x045e, 0x02e0, 1, 5) => Some("xboxBluetooth"),
-        (0x2717, 0x32b8, 1, 6) => Some("rc003"),
-        #[cfg(target_os = "macos")]
-        (0x0416, 0x0300, 1, 6) => Some("cmiotA15"),
-        #[cfg(target_os = "macos")]
-        (0x1d5a, 0xc081, 1, 6) => Some("obeRcuR5"),
-        #[cfg(target_os = "macos")]
-        (0x0416, 0x0301, 1, 6) => Some("tclRc802a"),
-        #[cfg(target_os = "macos")]
-        (0x0417, 0x0304, 1, 6) => Some("tclRc902n"),
-        _ => None,
-    }
+    crate::devices::descriptor_registry::KINDS
+        .iter()
+        .copied()
+        .filter(|kind| cfg!(target_os = "macos") || !uses_hid_voice(kind))
+        .find(|kind| {
+            crate::devices::descriptor_registry::matches_hardware(
+                kind,
+                info.vendor_id(),
+                info.product_id(),
+                Some(info.usage_page()),
+                Some(info.usage()),
+            )
+        })
 }
 // hidapi's macOS manager is process-global and is scheduled on its creator's
 // CFRunLoop. Close it before that worker thread exits, otherwise a later manager
@@ -1117,10 +1363,8 @@ fn remember_pairing_ids(
                 changed = true;
             }
         }
-        if matches!(
-            instance.kind.as_str(),
-            "rc003" | "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-        ) && instance.voice_target.is_none()
+        if crate::devices::descriptor_registry::voice_engine(&instance.kind).is_some()
+            && instance.voice_target.is_none()
         {
             if let Some(device) = discovered.iter().find(|d| {
                 Some(&d.id) == instance.binding.as_ref()
@@ -1167,13 +1411,12 @@ pub(crate) fn driver_target(
     discovered: &[Discovered],
     devices: &[crate::quarbor_installer::Device],
 ) -> Option<(String, bool)> {
-    if instance.binding.is_none() {
+    if instance.binding.is_none() || uses_vendor_usb_hid(&instance.kind) {
         return None;
     }
-    if matches!(instance.kind.as_str(), "tclRc802a" | "tclRc902n")
+    if crate::devices::descriptor_registry::requires_information(&instance.kind)
         && !discovered.iter().any(|device| {
             Some(&device.id) == instance.binding.as_ref()
-                && device.identity_quality != "ambiguous"
                 && device_kind_matches(device, &instance.kind)
         })
     {
@@ -1237,19 +1480,16 @@ fn merge_driver_devices(
     pairing_bindings: &HashMap<String, String>,
 ) {
     for device in devices {
-        let (kind, vendor_id, product_id) = if device.matches_kind("cmiotA15") {
-            ("cmiotA15", 0x0416, 0x0300)
-        } else if device.matches_kind("obeRcuR5") {
-            ("obeRcuR5", 0x1d5a, 0xc081)
-        } else if device.matches_kind("tclRc802a") {
-            ("tclRc802a", 0x0416, 0x0301)
-        } else if device.matches_kind("tclRc902n") {
-            ("tclRc902n", 0x0417, 0x0304)
-        } else if device.matches_kind("xboxBluetooth") {
-            ("xboxBluetooth", 0x045e, 0x02e0)
-        } else if device.is_rc003() {
-            ("rc003", 0x2717, 0x32b8)
-        } else {
+        let Some(kind) = crate::devices::descriptor_registry::KINDS
+            .iter()
+            .copied()
+            .find(|kind| !uses_vendor_usb_hid(kind) && device.matches_kind(kind))
+        else {
+            continue;
+        };
+        let Some((vendor_id, product_id)) =
+            crate::devices::descriptor_registry::primary_hardware(kind)
+        else {
             continue;
         };
         let Some(address) = device
@@ -1306,6 +1546,7 @@ fn run(shared: Arc<Shared>) {
     let mut readers: HashMap<String, Reader> = HashMap::new();
     let mut failures: HashMap<String, (Instance, String)> = HashMap::new();
     let mut configs = Vec::new();
+    let mut idle_labels: HashMap<String, (String, String)> = HashMap::new();
     let mut config_revision = (u64::MAX, u64::MAX);
     #[cfg(all(windows, not(test)))]
     let mut driver_devices = Vec::new();
@@ -1316,7 +1557,6 @@ fn run(shared: Arc<Shared>) {
     let mut next_event = Instant::now();
     let mut next_usage = Instant::now();
     let mut voice_sessions = HashMap::<String, String>::new();
-    let mut dirty = HashSet::new();
     // OS Bluetooth inventory queries can be slow. Keep them off the HID read loop.
     let (pair_tx, pair_rx) = sync_channel(1);
     let pair_shared = shared.clone();
@@ -1481,22 +1721,54 @@ fn run(shared: Arc<Shared>) {
                 snapshot.scan_error = driver_error;
             }
             if hid_ok {
-                device_info::retain_readings(&mut discovered, &snapshot.discovered);
+                device_info::retain_readings(
+                    &mut discovered,
+                    &snapshot.discovered,
+                    &shared.battery_cache.lock().unwrap(),
+                );
                 remember_pairing_ids(&mut snapshot, &discovered, &shared.path);
                 snapshot.discovered = discovered;
             }
         }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        let mut audio_targets = None;
         {
             let (generation, app_id) = crate::foreground::context();
             let snapshot = shared.snapshot.lock().unwrap();
             if config_revision != (snapshot.store.revision, generation) {
                 config_revision = (snapshot.store.revision, generation);
+                idle_labels.clear();
                 configs = snapshot
                     .store
                     .instances
                     .iter()
-                    .map(|instance| effective_instance(instance, app_id.as_deref()).into_owned())
+                    .map(|instance| {
+                        let effective = effective_instance(instance, app_id.as_deref()).into_owned();
+                        idle_labels.insert(
+                            effective.id.clone(),
+                            oled_idle_lines(instance, &effective, app_id.as_deref()),
+                        );
+                        effective
+                    })
                     .collect();
+                #[cfg(any(target_os = "macos", target_os = "windows"))]
+                {
+                    audio_targets = Some(crate::audio_targets(&snapshot));
+                }
+            }
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if scanning && audio_targets.is_none() {
+                audio_targets = Some(crate::audio_targets(&snapshot));
+            }
+        }
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        if let Some(targets) = audio_targets {
+            let app = shared.app.lock().unwrap().clone();
+            if let Some(audio) = app
+                .as_ref()
+                .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+            {
+                audio.sync_instances(&targets);
             }
         }
         failures.retain(|id, _| configs.iter().any(|i| &i.id == id));
@@ -1507,17 +1779,10 @@ fn run(shared: Arc<Shared>) {
         if shared.quarbor.is_some() {
             let snapshot = shared.snapshot.lock().unwrap();
             for instance in &configs {
-                if !matches!(
-                    instance.kind.as_str(),
-                    "rc003"
-                        | "cmiotA15"
-                        | "xmBt29"
-                        | "rc313"
-                        | "obeRcuR5"
-                        | "tclRc802a"
-                        | "tclRc902n"
-                        | "xboxBluetooth"
-                ) {
+                if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind)
+                    .is_none()
+                    || uses_vendor_usb_hid(&instance.kind)
+                {
                     continue;
                 }
                 let matched =
@@ -1537,20 +1802,7 @@ fn run(shared: Arc<Shared>) {
                 let Some((Some(target), true)) = driver_matches.get(&instance.id) else {
                     continue;
                 };
-                if !matches!(
-                    instance.kind.as_str(),
-                    "rc003"
-                        | "cmiotA15"
-                        | "xmBt29"
-                        | "rc313"
-                        | "obeRcuR5"
-                        | "tclRc802a"
-                        | "tclRc902n"
-                        | "xboxBluetooth"
-                ) || instance.binding.is_none()
-                    || !instance.enabled
-                    || !enabled
-                {
+                if instance.binding.is_none() || !instance.enabled || !enabled {
                     continue;
                 }
                 registrations.insert(
@@ -1558,28 +1810,47 @@ fn run(shared: Arc<Shared>) {
                     QuarborRegistration {
                         target: target.clone(),
                         kind: instance.kind.clone(),
-                        settings: super::NativeSettings {
-                            enabled: true,
-                            behaviors: active_mappings(instance),
-                            cmiot_a15_recording_mode: instance.cmiot_a15_recording_mode,
-                            ..Default::default()
-                        },
+                        settings: input_settings(instance),
                     },
                 );
             }
             registry.sync(&registrations);
         }
+        let information_matches: HashSet<_> = {
+            let snapshot = shared.snapshot.lock().unwrap();
+            configs
+                .iter()
+                .filter(|instance| {
+                    !crate::devices::descriptor_registry::requires_information(&instance.kind)
+                        || snapshot.discovered.iter().any(|device| {
+                            Some(&device.id) == instance.binding.as_ref()
+                                && device_kind_matches(device, &instance.kind)
+                        })
+                })
+                .map(|instance| instance.id.clone())
+                .collect()
+        };
         readers.retain(|id, reader| {
             let keep = enabled
-                && configs.iter().any(|i| {
-                    i == &reader.config
-                        && i.enabled
-                        && i.binding.as_ref().is_some_and(|b| paths.contains_key(b))
-                        && shared.snapshot.lock().unwrap().discovered.iter().any(|d| {
-                            Some(&d.id) == i.binding.as_ref() && device_kind_matches(d, &i.kind)
-                        })
+                && information_matches.contains(id)
+                && configs.iter().any(|instance| {
+                    &instance.id == id
+                        && instance.enabled
+                        && instance.kind == reader.config.instance.kind
+                        && instance.binding == reader.config.instance.binding
+                        && instance.binding.as_ref().and_then(|b| paths.get(b))
+                            == Some(&reader.path)
+                        && reader.update_config(&shared, instance, idle_labels.get(id))
                 });
             if !keep {
+                if reader
+                    .descriptor
+                    .voices
+                    .iter()
+                    .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                {
+                    notify_rc902_voice_key_edge(&shared, id, false);
+                }
                 emit(&shared, id, BTreeMap::new(), vec![]);
             }
             keep
@@ -1592,24 +1863,14 @@ fn run(shared: Arc<Shared>) {
         let mut statuses = BTreeMap::new();
         for instance in &configs {
             let mut status = RuntimeStatus::default();
-            let path = instance.binding.as_ref().and_then(|id| {
-                shared
-                    .snapshot
-                    .lock()
-                    .unwrap()
-                    .discovered
-                    .iter()
-                    .any(|d| &d.id == id && device_kind_matches(d, &instance.kind))
-                    .then(|| paths.get(id))
-                    .flatten()
-            });
+            let path = instance
+                .binding
+                .as_ref()
+                .and_then(|id| paths.get(id))
+                .filter(|_| information_matches.contains(&instance.id));
             status.state = if !enabled || !instance.enabled {
                 "paused"
-            } else if matches!(
-                instance.kind.as_str(),
-                "cmiotA15" | "xmBt29" | "rc313" | "obeRcuR5" | "tclRc802a" | "tclRc902n"
-            ) && !cfg!(any(windows, target_os = "macos"))
-            {
+            } else if uses_hid_voice(&instance.kind) && !cfg!(any(windows, target_os = "macos")) {
                 "unsupported"
             } else if instance.binding.is_none() {
                 "unbound"
@@ -1624,17 +1885,9 @@ fn run(shared: Arc<Shared>) {
             }
             .into();
             #[cfg(all(windows, not(test)))]
-            if matches!(
-                instance.kind.as_str(),
-                "rc003"
-                    | "cmiotA15"
-                    | "xmBt29"
-                    | "rc313"
-                    | "obeRcuR5"
-                    | "tclRc802a"
-                    | "tclRc902n"
-                    | "xboxBluetooth"
-            ) {
+            if crate::devices::descriptor_registry::descriptor_for_kind(&instance.kind).is_some()
+                && !uses_vendor_usb_hid(&instance.kind)
+            {
                 let (target, installed) = driver_matches
                     .get(&instance.id)
                     .cloned()
@@ -1673,7 +1926,9 @@ fn run(shared: Arc<Shared>) {
                 statuses.insert(instance.id.clone(), status);
                 continue;
             }
-            if status.state == "opening" && !cfg!(target_os = "macos") && instance.kind != "rc003" {
+            let direct_hid =
+                cfg!(target_os = "macos") || (cfg!(windows) && uses_vendor_usb_hid(&instance.kind));
+            if status.state == "opening" && !direct_hid && instance.kind != "rc003" {
                 status.state = "unsupported".into();
                 status.error = Some("当前平台尚未支持此设备的独占拦截".into());
             }
@@ -1682,7 +1937,7 @@ fn run(shared: Arc<Shared>) {
                 continue;
             }
             if status.state == "opening"
-                && (cfg!(target_os = "macos") || instance.kind != "rc003")
+                && (direct_hid || instance.kind != "rc003")
                 && !readers.contains_key(&instance.id)
             {
                 // Retry an open error on the next scan, not on every 8 ms tick.
@@ -1691,127 +1946,60 @@ fn run(shared: Arc<Shared>) {
                         .get(&instance.id)
                         .is_some_and(|(failed, _)| failed == instance);
                 if retry {
-                    let cancel = Arc::new(AtomicBool::new(false));
-                    match open_reader(&api, path.unwrap(), instance, &shared, &cancel) {
+                    let config = Arc::new(ReaderConfig::new(instance));
+                    let path = path.unwrap();
+                    match open_reader(&api, path, &shared, &config) {
                         Ok(device) => {
                             failures.remove(&instance.id);
                             // macOS remote adapters execute their own actions; reports here
                             // only update the instance UI.
                             let maps = if cfg!(target_os = "macos")
-                                && matches!(
-                                    instance.kind.as_str(),
-                                    "rc003"
-                                        | "cmiotA15"
-                                        | "xmBt29"
-                                        | "rc313"
-                                        | "obeRcuR5"
-                                        | "tclRc802a"
-                                        | "tclRc902n"
-                                ) {
+                                && (instance.kind == "rc003" || uses_hid_voice(&instance.kind))
+                            {
                                 HashMap::new()
                             } else {
                                 active_mappings(instance)
                             };
-                            let (tx, rx) = sync_channel::<Vec<gesture::Execution>>(32);
-                            let action_shared = shared.clone();
-                            let action_cancel = cancel.clone();
-                            let id = instance.id.clone();
-                            let expected = instance.clone();
-                            thread::spawn(move || {
-                                while let Ok(sequence) = rx.recv() {
-                                    for execution in sequence {
-                                        if actions_current(
-                                            &action_shared,
-                                            &expected,
-                                            &action_cancel,
-                                        ) && execution.behaviors.iter().any(|behavior| {
-                                            behavior.enabled()
-                                                && !matches!(
-                                                    behavior,
-                                                    NativeBehavior::Disabled { .. }
-                                                )
-                                        }) {
-                                            crate::library_usage::record_trigger(
-                                                &format!("{}:{}", id, execution.input),
-                                                &execution.sources,
-                                            );
-                                        }
-                                        for behavior in execution.behaviors {
-                                            if !actions_current(
-                                                &action_shared,
-                                                &expected,
-                                                &action_cancel,
-                                            ) {
-                                                break;
-                                            }
-                                            if !behavior.enabled() {
-                                                continue;
-                                            }
-                                            match behavior {
-                                                NativeBehavior::Delay { ms, .. } => {
-                                                    let until = Instant::now()
-                                                        + Duration::from_millis(ms.min(300_000));
-                                                    while Instant::now() < until
-                                                        && actions_current(
-                                                            &action_shared,
-                                                            &expected,
-                                                            &action_cancel,
-                                                        )
-                                                    {
-                                                        thread::sleep(Duration::from_millis(10));
-                                                    }
-                                                }
-                                                NativeBehavior::SwitchProfile {
-                                                    direction,
-                                                    wrap,
-                                                    ..
-                                                } => {
-                                                    switch_profile(
-                                                        &action_shared,
-                                                        &id,
-                                                        direction,
-                                                        wrap,
-                                                    );
-                                                    break;
-                                                }
-                                                _ => {
-                                                    static OUTPUT: Mutex<()> = Mutex::new(());
-                                                    let _output = OUTPUT.lock().unwrap();
-                                                    if !actions_current(
-                                                        &action_shared,
-                                                        &expected,
-                                                        &action_cancel,
-                                                    ) {
-                                                        break;
-                                                    }
-                                                    #[cfg(target_os = "macos")]
-                                                    if super::InputService::accessibility_granted()
-                                                    {
-                                                        super::macos::execute_behaviors(&[
-                                                            behavior,
-                                                        ]);
-                                                    }
-                                                    #[cfg(windows)]
-                                                    super::windows::execute_mouse_behavior(
-                                                        &behavior, 10,
-                                                    );
-                                                }
-                                            }
-                                        }
+                            let descriptor =
+                                crate::devices::descriptor_registry::descriptor_for_kind(
+                                    &instance.kind,
+                                )
+                                .expect("validated device kind has a descriptor");
+                            let mut engine = crate::devices::engine::DescriptorEngine::default();
+                            let oled = match (&device, instance.kind.as_str()) {
+                                (InputReader::Hid(hid), crate::devices::kivo_k18_lite::KIND) => {
+                                    if let Some(initial) =
+                                        crate::devices::kivo_k18_lite::probe_initial_input_report(hid)
+                                    {
+                                        let _ = engine.accept(descriptor, &initial);
                                     }
+                                    let (top, bottom) = idle_labels
+                                        .get(&instance.id)
+                                        .cloned()
+                                        .unwrap_or_else(|| oled_idle_lines(instance, instance, None));
+                                    crate::devices::kivo_k18_lite::DisplayController::open(
+                                        hid,
+                                        top,
+                                        bottom,
+                                        instance.display.clone().unwrap_or_default(),
+                                    )
                                 }
-                            });
+                                _ => None,
+                            };
+                            let actions = spawn_action_worker(shared.clone(), instance.id.clone());
                             readers.insert(
                                 instance.id.clone(),
                                 Reader {
-                                    config: instance.clone(),
+                                    config,
+                                    holds: Arc::clone(&shared.holds),
+                                    oled,
+                                    path: path.clone(),
                                     device,
-                                    values: BTreeMap::new(),
-                                    down: HashSet::new(),
+                                    descriptor,
+                                    engine,
                                     gestures: Gestures::default(),
                                     maps,
-                                    actions: tx,
-                                    cancel,
+                                    actions,
                                     reports: 0,
                                 },
                             );
@@ -1832,6 +2020,8 @@ fn run(shared: Arc<Shared>) {
                 let now = start.elapsed().as_millis() as u64;
                 let mut sequence = reader.gestures.tick(now, &reader.maps);
                 let mut failed = false;
+                let execute_locally = !(cfg!(target_os = "macos")
+                    && (instance.kind == "rc003" || uses_hid_voice(&instance.kind)));
                 // Bound work per device so a busy controller cannot starve another instance.
                 for _ in 0..32 {
                     let mut buffer = [0u8; 256];
@@ -1839,38 +2029,32 @@ fn run(shared: Arc<Shared>) {
                         Ok(0) => break,
                         Ok(len) => {
                             reader.reports += 1;
-                            if let Some(values) = report::decode(&instance.kind, &buffer[..len]) {
-                                for (id, value) in values {
-                                    let was_down = reader.down.contains(&id);
-                                    let down = report::pressed(value, was_down);
-                                    if reader
-                                        .values
-                                        .get(&id)
-                                        .is_none_or(|v| (v - value).abs() > 0.005)
-                                    {
-                                        dirty.insert(instance.id.clone());
-                                    }
-                                    reader.values.insert(id.clone(), value);
-                                    if down != was_down {
-                                        if down {
-                                            reader.down.insert(id.clone());
-                                        } else {
-                                            reader.down.remove(&id);
-                                        }
-                                        sequence.extend(
-                                            reader.gestures.edge(
-                                                &id,
-                                                down,
-                                                now,
-                                                reader
-                                                    .maps
-                                                    .get(&id)
-                                                    .unwrap_or(&TriggerBehaviors::default()),
-                                            ),
-                                        );
-                                        dirty.insert(instance.id.clone());
-                                    }
+                            if accept_direct_pointer_report(&instance.kind, &buffer[..len]) {
+                                continue;
+                            }
+                            let edges = reader.engine.accept(reader.descriptor, &buffer[..len]);
+                            if !edges.is_empty() {
+                                if let Some(oled) = &reader.oled {
+                                    oled.record_activity();
                                 }
+                            }
+                            for (id, down) in edges {
+                                if reader.descriptor.voices.iter().any(|voice| {
+                                    voice.engine == "tcl-rc902v-atvv" && voice.trigger_key == id
+                                }) {
+                                    notify_rc902_voice_key_edge(&shared, &instance.id, down);
+                                }
+                                let key = reader
+                                    .descriptor
+                                    .inputs
+                                    .iter()
+                                    .find(|input| input.id == id)
+                                    .map(crate::devices::descriptor_registry::input_key)
+                                    .unwrap_or(&id);
+                                if !execute_locally {
+                                    continue;
+                                }
+                                reader.handle_local_edge(key, down, now, &mut sequence);
                             }
                         }
                         Err(error) => {
@@ -1888,10 +2072,35 @@ fn run(shared: Arc<Shared>) {
                     status.recording = device.recording();
                 }
                 status.reports = reader.reports;
-                if !failed && !sequence.is_empty() && reader.actions.try_send(sequence).is_err() {
+                if !failed {
+                    reader.flush_oled_toasts(&sequence);
+                    if let Some(oled) = &reader.oled {
+                        if let InputReader::Hid(hid) = &reader.device {
+                            oled.drain_to(hid);
+                        }
+                    }
+                }
+                if !failed
+                    && !sequence.is_empty()
+                    && reader
+                        .actions
+                        .try_send((reader.config.clone(), sequence))
+                        .is_err()
+                {
                     status.error = Some("动作队列已满，已丢弃本次动作".into());
                 }
                 if failed {
+                    if reader
+                        .descriptor
+                        .voices
+                        .iter()
+                        .any(|voice| voice.engine == "tcl-rc902v-atvv")
+                    {
+                        notify_rc902_voice_key_edge(&shared, &instance.id, false);
+                    }
+                    if let Some(mut oled) = reader.oled.take() {
+                        oled.abandon();
+                    }
                     readers.remove(&instance.id);
                     emit(&shared, &instance.id, BTreeMap::new(), vec![]);
                 }
@@ -1946,7 +2155,12 @@ fn run(shared: Arc<Shared>) {
                     .get(&instance.id)
                     .is_some_and(|status| status.recording);
                 #[cfg(any(target_os = "macos", target_os = "windows"))]
-                if instance.kind == "rc003" && enabled && instance.enabled {
+                if matches!(
+                    crate::devices::descriptor_registry::voice_engine(&instance.kind),
+                    Some("rc003-atvv" | "tcl-rc902v-atvv")
+                ) && enabled
+                    && instance.enabled
+                {
                     let app = shared.app.lock().unwrap();
                     active = app
                         .as_ref()
@@ -1995,13 +2209,26 @@ fn run(shared: Arc<Shared>) {
         }
         if Instant::now() >= next_event {
             next_event = Instant::now() + Duration::from_millis(40);
-            for id in dirty.drain() {
-                if let Some(reader) = readers.get(&id) {
+            for (id, reader) in &mut readers {
+                if let Some((values, down)) = reader.engine.take_update() {
+                    let key = |id: String| {
+                        reader
+                            .descriptor
+                            .inputs
+                            .iter()
+                            .find(|input| input.id == id)
+                            .map(crate::devices::descriptor_registry::input_key)
+                            .unwrap_or(&id)
+                            .to_string()
+                    };
                     emit(
                         &shared,
-                        &id,
-                        reader.values.clone(),
-                        reader.down.iter().cloned().collect(),
+                        id,
+                        values
+                            .into_iter()
+                            .map(|(id, value)| (key(id), value))
+                            .collect(),
+                        down.into_iter().map(key).collect(),
                     );
                 }
             }
@@ -2009,6 +2236,10 @@ fn run(shared: Arc<Shared>) {
         thread::sleep(Duration::from_millis(8));
     }
     drop(readers);
+    #[cfg(windows)]
+    if let Some(registry) = &shared.quarbor {
+        registry.pause();
+    }
     sync_voice_sessions(&mut voice_sessions, HashMap::new());
     (shared.legacy_remote)(false);
 }
@@ -2041,6 +2272,98 @@ fn sync_voice_sessions(previous: &mut HashMap<String, String>, current: HashMap<
     *previous = current;
 }
 
+fn notify_rc902_voice_key_edge(shared: &Shared, instance_id: &str, pressed: bool) {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let app = shared.app.lock().unwrap();
+        if let Some(audio) = app
+            .as_ref()
+            .and_then(|app| app.try_state::<crate::audio_service::AudioServiceManager>())
+        {
+            audio.handle_voice_key_edge(Some(instance_id), pressed);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = (shared, instance_id, pressed);
+}
+
+fn accept_direct_pointer_report(kind: &str, bytes: &[u8]) -> bool {
+    if kind != crate::devices::hisense_rcf3b65::KIND {
+        return false;
+    }
+    let Some(position) = crate::devices::hisense_rcf3b65::parse_pointer_report(bytes) else {
+        return false;
+    };
+    #[cfg(target_os = "macos")]
+    if super::InputService::accessibility_granted() {
+        super::macos::post_absolute_cursor_move(position.x, position.y);
+    }
+    #[cfg(windows)]
+    super::windows::send_absolute_mouse_move(position.x, position.y);
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let _ = position;
+    true
+}
+
+fn spawn_action_worker(
+    shared: Arc<Shared>,
+    id: String,
+) -> SyncSender<(Arc<ReaderConfig>, Vec<gesture::Execution>)> {
+    let (tx, rx) = sync_channel::<(Arc<ReaderConfig>, Vec<gesture::Execution>)>(32);
+    thread::spawn(move || {
+        while let Ok((config, sequence)) = rx.recv() {
+            let is_current = || config.is_current(&shared);
+            for execution in sequence {
+                if is_current()
+                    && execution.behaviors.iter().any(|behavior| {
+                        behavior.enabled() && !matches!(behavior, NativeBehavior::Disabled { .. })
+                    })
+                {
+                    crate::library_usage::record_trigger(
+                        &format!("{}:{}", id, execution.input),
+                        &execution.sources,
+                    );
+                }
+                for behavior in execution.behaviors {
+                    if !is_current() {
+                        break;
+                    }
+                    if !behavior.enabled() {
+                        continue;
+                    }
+                    match behavior {
+                        NativeBehavior::Delay { ms, .. } => {
+                            let until = Instant::now() + Duration::from_millis(ms.min(300_000));
+                            while Instant::now() < until && is_current() {
+                                thread::sleep(Duration::from_millis(10));
+                            }
+                        }
+                        NativeBehavior::SwitchProfile {
+                            direction, wrap, ..
+                        } => {
+                            switch_profile(&shared, &id, direction, wrap);
+                            break;
+                        }
+                        _ => {
+                            let _output = hold::output_lock();
+                            if !is_current() {
+                                break;
+                            }
+                            #[cfg(target_os = "macos")]
+                            if super::InputService::accessibility_granted() {
+                                super::macos::execute_behaviors(&[behavior]);
+                            }
+                            #[cfg(windows)]
+                            super::windows::execute_mouse_behavior(&behavior, 10);
+                        }
+                    }
+                }
+            }
+        }
+    });
+    tx
+}
+
 fn actions_current(shared: &Shared, expected: &Instance, cancel: &AtomicBool) -> bool {
     let (_, app_id) = crate::foreground::context();
     !cancel.load(Ordering::Acquire)
@@ -2062,6 +2385,7 @@ fn switch_profile(shared: &Shared, id: &str, direction: ProfileDirection, wrap: 
     let Some((device, from, to)) = save_profile_switch(shared, id, direction, wrap) else {
         return;
     };
+    shared.holds.release_instance(id);
     if let Some(app) = shared.app.lock().unwrap().as_ref() {
         if let Err(error) = crate::profile_switch_overlay::show(app, device, from, to) {
             log::warn!(target: "axonkey::profile_overlay", "Cannot show device profile notification: {error}");
@@ -2185,11 +2509,120 @@ mod tests {
                 id: "default".into(),
                 name: "默认".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             }],
             active_profile_id: "default".into(),
             app_profile_switching: false,
             application_profiles: vec![],
+            display: None,
         }
+    }
+
+    #[test]
+    fn stable_profile_ids_use_existing_aliases_and_duplicate_inputs_are_rejected() {
+        let mut remote = instance("remote", "physical");
+        remote.kind = "rc003".into();
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"id": "keep-action", "type": "key", "key": "A", "enabled": false}],
+            "metadata": {"label": "keep", "values": [1, true, null]}
+        });
+        let back =
+            serde_json::json!({"click": [{"type": "key", "key": "B"}], "extra": "unchanged"});
+        remote.profiles[0].behaviors = serde_json::json!({
+            (up.id.clone()): payload.clone(),
+            "back": back.clone()
+        });
+        let mut store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        validate(&store).unwrap();
+        normalize_instance(&mut store.instances[0]);
+        let behaviors = &store.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert_eq!(behaviors["back"], back);
+        assert!(behaviors.get(&up.id).is_none());
+        let mappings = active_mappings(&store.instances[0]);
+        assert!(mappings.contains_key("up"));
+        assert!(mappings.contains_key("back"));
+        assert!(!mappings.contains_key(&up.id));
+        store.instances[0].profiles[0].behaviors = serde_json::json!({
+            (up.id.clone()): {"click": [{"type": "key", "key": "A"}]},
+            "up": {"click": [{"type": "key", "key": "B"}]}
+        });
+        let duplicate = store.instances[0].profiles[0].behaviors.clone();
+        assert!(validate(&store).unwrap_err().contains("同一输入重复配置"));
+        assert_eq!(store.instances[0].profiles[0].behaviors, duplicate);
+    }
+
+    #[test]
+    fn load_normalizes_profile_keys_and_preserves_behavior_values_when_saved() {
+        let path = std::env::temp_dir().join(format!("axonkey-profile-keys-{}.json", unique_id()));
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload = serde_json::json!({
+            "click": [{"type": "key", "key": "A", "libraryItemId": "00000000-0000-0000-0000-000000000001"}],
+            "metadata": {"keep": [1, false, "text"]}
+        });
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let store = Store {
+            instances: vec![remote],
+            ..Default::default()
+        };
+        std::fs::write(&path, serde_json::to_vec(&store).unwrap()).unwrap();
+        let loaded = load(&path).unwrap();
+        let behaviors = &loaded.instances[0].profiles[0].behaviors;
+        assert_eq!(behaviors["up"], payload);
+        assert!(behaviors.get(&up.id).is_none());
+        save(&path, &loaded).unwrap();
+        let saved: Store = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.instances[0].profiles[0].behaviors, *behaviors);
+        std::fs::remove_file(&path).unwrap();
+        std::fs::remove_file(path.with_extension("bak")).unwrap();
+    }
+
+    #[test]
+    fn put_returns_and_persists_normalized_profile_keys() {
+        let manager = offline_manager(vec![]);
+        let mut remote = instance("remote", "");
+        remote.kind = "rc003".into();
+        remote.binding = None;
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind(&remote.kind).unwrap();
+        let up = descriptor
+            .inputs
+            .iter()
+            .find(|input| crate::devices::descriptor_registry::input_key(input) == "up")
+            .unwrap();
+        let payload =
+            serde_json::json!({"click": [{"type": "key", "key": "A"}], "metadata": [1, true]});
+        remote.profiles[0].behaviors = serde_json::json!({(up.id.clone()): payload.clone()});
+        let saved = manager.put(0, remote).unwrap();
+        assert_eq!(
+            saved.store.instances[0].profiles[0].behaviors,
+            serde_json::json!({"up": payload})
+        );
+        assert_eq!(
+            load(&manager.shared.path).unwrap().instances[0].profiles[0].behaviors,
+            saved.store.instances[0].profiles[0].behaviors
+        );
+        std::fs::remove_file(&manager.shared.path).unwrap();
+        std::fs::remove_file(manager.shared.path.with_extension("bak")).ok();
     }
     #[test]
     fn reorder_instances_persists_the_requested_order() {
@@ -2514,10 +2947,11 @@ mod tests {
         .is_ok());
     }
 
-    fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
+    pub(super) fn offline_manager(instances: Vec<Instance>) -> DeviceManager {
         DeviceManager {
             shared: Arc::new(Shared {
                 app: Mutex::new(None),
+                battery_cache: Mutex::default(),
                 information_requests: Mutex::new(HashSet::new()),
                 recording_requests: Mutex::new(Vec::new()),
                 snapshot: Mutex::new(Snapshot {
@@ -2535,11 +2969,101 @@ mod tests {
                 stop: AtomicBool::new(false),
                 enabled: AtomicBool::new(true),
                 emit: Arc::new(|_| {}),
+                holds: Arc::new(hold::ManagedHolds::default()),
                 legacy_remote: Box::new(|_| true),
-                #[cfg(all(windows, not(test)))]
-                quarbor: None,
+                #[cfg(windows)]
+                quarbor: Some(Arc::new(QuarborRegistry::new_for_test())),
             }),
             worker: Mutex::new(None),
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn tcl_information_controls_binding_and_saved_driver_targets() {
+        for (kind, vendor, product, model, manufacturer, software) in [
+            (
+                "tclRc802a",
+                0x0416,
+                0x0301,
+                Some("BT_RC802A"),
+                Some("TCL"),
+                None,
+            ),
+            (
+                "tclRc902n",
+                0x0417,
+                0x0304,
+                None,
+                None,
+                Some("TCL_RC902N_v1"),
+            ),
+            (
+                "tclRc902v",
+                0x0417,
+                0x0304,
+                None,
+                None,
+                Some("TCL_RC902V_v1"),
+            ),
+        ] {
+            let devices = vec![crate::quarbor_installer::Device {
+                instance_id: format!(
+                    r"BTHLEDEVICE\{{00001812-0000-1000-8000-00805F9B34FB}}_DEV_VID&01{vendor:04X}_PID&{product:04X}_AABBCCDDEEFF\instance"
+                ),
+                hardware_id: String::new(),
+                bluetooth_address: None,
+                name: "TCL".into(),
+                present: true,
+                bound: true,
+                recovery_active: false,
+                inf: String::new(),
+                section: String::new(),
+            }];
+            let mut discovered = vec![];
+            merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
+            assert_eq!(discovered.len(), 1);
+            discovered[0].device_info.detected_kind = Some(kind.into());
+            let mut remote = instance("remote", &discovered[0].id);
+            remote.kind = kind.into();
+            remote.quarbor_target = Some(devices[0].instance_id.clone());
+            remote.voice_target = discovered[0].bluetooth_address.clone();
+            assert!(!device_kind_matches(&discovered[0], kind));
+            assert!(driver_target(&remote, &[remote.clone()], &discovered, &devices).is_none());
+            let manager = offline_manager(vec![]);
+            manager.shared.snapshot.lock().unwrap().discovered = discovered.clone();
+            assert!(manager.put(0, remote.clone()).is_err());
+            let mut info = device_info::DeviceInformation {
+                status: "ready".into(),
+                model_number: model.map(str::to_owned),
+                manufacturer: manufacturer.map(str::to_owned),
+                software_revision: software.map(str::to_owned),
+                ..Default::default()
+            };
+            device_info::apply_information(&manager.shared, &discovered[0], info.clone());
+            let snapshot = manager.snapshot();
+            assert_eq!(snapshot.discovered[0].kind, kind);
+            assert_eq!(
+                snapshot.discovered[0].device_info.detected_kind.as_deref(),
+                Some(kind)
+            );
+            assert!(manager.put(0, remote.clone()).is_ok());
+            assert_eq!(
+                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices),
+                Some((devices[0].instance_id.clone(), true))
+            );
+            info.model_number = Some("other".into());
+            info.manufacturer = Some("other".into());
+            info.software_revision = Some("other".into());
+            device_info::apply_information(&manager.shared, &snapshot.discovered[0], info);
+            assert!(driver_target(
+                &remote,
+                &[remote.clone()],
+                &manager.snapshot().discovered,
+                &devices
+            )
+            .is_none());
+            let _ = std::fs::remove_file(&manager.shared.path);
         }
     }
     #[test]
@@ -2631,94 +3155,6 @@ mod tests {
             driver_target(&wrong_model, &[wrong_model.clone()], &discovered, &devices),
             None
         );
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn tcl_binding_and_driver_resolution_require_device_information() {
-        for (kind, vendor, product, instance_id, info) in [
-            (
-                "tclRc802a",
-                0x0416,
-                0x0301,
-                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010416_PID&0301_REV&0000_AABBCCDDEEFF\8&1234&0&001F",
-                device_info::DeviceInformation {
-                    model_number: Some("BT_RC802A_1.0".into()),
-                    manufacturer: Some("TCL Electronics".into()),
-                    ..Default::default()
-                },
-            ),
-            (
-                "tclRc902n",
-                0x0417,
-                0x0304,
-                r"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&010417_PID&0304_REV&0000_AABBCCDDEEFF\8&1234&0&001F",
-                device_info::DeviceInformation {
-                    software_revision: Some("TCL_RC902N_1.0".into()),
-                    ..Default::default()
-                },
-            ),
-        ] {
-            let devices = vec![crate::quarbor_installer::Device {
-                instance_id: instance_id.into(),
-                hardware_id: String::new(),
-                bluetooth_address: None,
-                name: kind.into(),
-                present: true,
-                bound: true,
-                recovery_active: false,
-                inf: String::new(),
-                section: String::new(),
-            }];
-            let mut discovered = vec![];
-            paired::merge(
-                &mut discovered,
-                &[paired::Device {
-                    address: "AABBCCDDEEFF".into(),
-                    name: kind.into(),
-                    vendor_id: vendor,
-                    product_id: product,
-                }],
-                &HashSet::new(),
-                &HashMap::new(),
-            );
-            merge_driver_devices(&mut discovered, &devices, &HashSet::new(), &HashMap::new());
-            assert_eq!(discovered.len(), 1);
-            assert_eq!(discovered[0].kind, kind);
-            assert!(discovered[0].connected);
-
-            let manager = offline_manager(vec![]);
-            let mut remote = instance("tcl", &discovered[0].id);
-            remote.kind = kind.into();
-            remote.quarbor_target = Some(instance_id.into());
-            remote.voice_target = discovered[0].bluetooth_address.clone();
-            manager.shared.snapshot.lock().unwrap().discovered = discovered.clone();
-            assert!(manager.put(0, remote.clone()).is_err());
-            assert!(driver_target(&remote, &[remote.clone()], &discovered, &devices).is_none());
-
-            device_info::apply_information(&manager.shared, &discovered[0], info);
-            let snapshot = manager.put(0, remote.clone()).unwrap();
-            assert_eq!(
-                snapshot.discovered[0].device_info.detected_kind.as_deref(),
-                Some(kind)
-            );
-            assert_eq!(
-                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices),
-                Some((instance_id.into(), true))
-            );
-
-            device_info::apply_information(
-                &manager.shared,
-                &snapshot.discovered[0],
-                Default::default(),
-            );
-            let snapshot = manager.snapshot();
-            assert!(
-                driver_target(&remote, &[remote.clone()], &snapshot.discovered, &devices).is_none()
-            );
-            let _ = std::fs::remove_file(&manager.shared.path);
-            let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
-        }
     }
 
     #[cfg(windows)]
@@ -2911,7 +3347,7 @@ mod tests {
 
     #[test]
     fn hold_recording_modes_are_always_saved_as_hold() {
-        for kind in ["xmBt29", "rc313", "obeRcuR5"] {
+        for kind in ["xmBt29", "rc313", "obeRcuR5", "tclRc802a"] {
             let mut remote = instance(kind, "unused");
             remote.kind = kind.into();
             remote.binding = None;
@@ -2935,6 +3371,7 @@ mod tests {
             ("xmBt29", RecordingMode::Click),
             ("rc313", RecordingMode::Click),
             ("obeRcuR5", RecordingMode::Click),
+            ("tclRc802a", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Click),
             ("cmiotA15", RecordingMode::Hold),
         ]
@@ -2961,6 +3398,7 @@ mod tests {
                 RecordingMode::Hold,
                 RecordingMode::Hold,
                 RecordingMode::Hold,
+                RecordingMode::Hold,
                 RecordingMode::Click,
                 RecordingMode::Hold
             ]
@@ -2981,7 +3419,7 @@ mod tests {
         assert!(manager
             .toggle_recording("controller")
             .unwrap_err()
-            .contains("不支持手动控制录音"));
+            .contains("仅 CMIOT A15"));
         assert!(manager.toggle_recording("a15").is_err());
         manager.set_enabled(true);
         manager.shared.snapshot.lock().unwrap().runtime.insert(
@@ -2991,10 +3429,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        for kind in ["cmiotA15", "tclRc802a", "tclRc902n"] {
-            manager.shared.snapshot.lock().unwrap().store.instances[0].kind = kind.into();
-            assert!(manager.validate_recording_target("a15").is_ok());
-        }
+        assert!(manager.validate_recording_target("a15").is_ok());
         manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = false;
         assert!(manager.toggle_recording("a15").is_err());
         manager.shared.snapshot.lock().unwrap().store.instances[0].enabled = true;
@@ -3035,10 +3470,8 @@ mod tests {
         let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
     }
 
-    #[test]
-    fn information_refresh_queues_only_the_selected_connected_remote() {
-        let manager = offline_manager(vec![]);
-        let device = |id: &str| Discovered {
+    pub(super) fn information_remote(id: &str, address: &str) -> Discovered {
+        Discovered {
             id: id.into(),
             kind: "cmiotA15".into(),
             name: "remote".into(),
@@ -3049,15 +3482,24 @@ mod tests {
             connected: true,
             paired: true,
             pairing_id: None,
-            bluetooth_address: Some(id.into()),
+            bluetooth_address: Some(address.into()),
             hid_instance_id: None,
-            device_info: device_info::DeviceInformation {
-                status: "ready".into(),
-                battery_level: Some(54),
-                ..Default::default()
-            },
-        };
-        manager.shared.snapshot.lock().unwrap().discovered = vec![device("one"), device("two")];
+            device_info: Default::default(),
+        }
+    }
+
+    #[test]
+    fn information_refresh_queues_only_the_selected_connected_remote() {
+        let manager = offline_manager(vec![]);
+        let mut devices = [
+            information_remote("one", "AA:BB:CC:DD:EE:01"),
+            information_remote("two", "AA:BB:CC:DD:EE:02"),
+        ];
+        for device in &mut devices {
+            device.device_info.status = "ready".into();
+            device.device_info.battery_level = Some(54);
+        }
+        manager.shared.snapshot.lock().unwrap().discovered = devices.into();
         let snapshot = manager.refresh_information("one").unwrap();
         assert_eq!(snapshot.discovered[0].device_info.status, "pending");
         assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(54));
@@ -3071,6 +3513,65 @@ mod tests {
         manager.shared.snapshot.lock().unwrap().discovered[1].connected = false;
         assert!(manager.refresh_information("two").is_err());
         assert_eq!(manager.shared.information_requests.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn last_battery_survives_failed_reads_and_is_restored_on_reconnect_and_restart() {
+        let manager = offline_manager(vec![]);
+        let remote = information_remote("one", "AA:BB:CC:DD:EE:01");
+        let shared = &manager.shared;
+        shared.snapshot.lock().unwrap().discovered = vec![remote.clone()];
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                battery_level: Some(54),
+                ..Default::default()
+            },
+        );
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                status: "retrying".into(),
+                error: Some("设备信息读取超时".into()),
+                ..Default::default()
+            },
+        );
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.discovered[0].device_info.battery_level, Some(54));
+        assert_eq!(snapshot.discovered[0].device_info.status, "retrying");
+
+        let mut offline = remote.clone();
+        offline.connected = false;
+        let mut discovered = [offline];
+        let cache = shared.battery_cache.lock().unwrap();
+        device_info::retain_readings(&mut discovered, &snapshot.discovered, &cache);
+        assert_eq!(discovered[0].device_info.battery_level, None);
+        let mut reconnected = [remote.clone()];
+        device_info::retain_readings(&mut reconnected, &discovered, &cache);
+        assert_eq!(reconnected[0].device_info.battery_level, Some(54));
+        drop(cache);
+
+        device_info::apply_information(
+            shared,
+            &remote,
+            device_info::DeviceInformation {
+                battery_level: Some(0),
+                ..Default::default()
+            },
+        );
+        let reloaded = device_info::BatteryCache::load(&shared.path);
+        let other = information_remote("two", "AA:BB:CC:DD:EE:02");
+        let mut ambiguous = remote.clone();
+        ambiguous.identity_quality = "ambiguous".into();
+        let mut restarted = [remote, other, ambiguous];
+        device_info::retain_readings(&mut restarted, &[], &reloaded);
+        assert_eq!(restarted[0].device_info.battery_level, Some(0));
+        assert_eq!(restarted[0].device_info.status, "pending");
+        assert_eq!(restarted[1].device_info.battery_level, None);
+        assert_eq!(restarted[2].device_info.battery_level, None);
+        std::fs::remove_file(shared.path.with_extension("battery.json")).unwrap();
     }
 
     #[test]
@@ -3211,6 +3712,7 @@ mod tests {
             id: "game".into(),
             name: "游戏".into(),
             behaviors: serde_json::json!({}),
+            display: None,
         });
         let manager = offline_manager(vec![device]);
         let shared = &manager.shared;
@@ -3259,11 +3761,13 @@ mod tests {
                 id: "browser".into(),
                 name: "浏览器".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             },
             Profile {
                 id: "editor".into(),
                 name: "编辑器".into(),
                 behaviors: serde_json::json!({}),
+                display: None,
             },
         ]);
         first.app_profile_switching = true;
@@ -3470,6 +3974,574 @@ mod tests {
         std::fs::write(&path, "invalid").unwrap();
         assert!(load(&path).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "invalid");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn hisense_rcf3b65_direct_pointer_reports_bypass_button_decoding() {
+        assert!(accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "hisenseRcf3b65",
+            &[0x01, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00]
+        ));
+        assert!(!accept_direct_pointer_report(
+            "tclRc802a",
+            &[0x3f, 0x10, 0x90, 0x63, 0x27, 0x0d, 0x00, 0x00, 0x00]
+        ));
+    }
+
+    #[test]
+    fn kivo_k18_lite_supports_multiple_serial_bindings_rejects_quarbor_and_computes_oled_idle_lines()
+    {
+        let discovered = [
+            Discovered {
+                id: digest("kivoK18Lite:11914:40984:E6614103E7000001"),
+                kind: "kivoK18Lite".into(),
+                name: "Kivo K18 Lite".into(),
+                transport: "Usb".into(),
+                identity_quality: "serial".into(),
+                vendor_id: 0x2e8a,
+                product_id: 0xa018,
+                connected: true,
+                paired: false,
+                device_info: Default::default(),
+                pairing_id: None,
+                bluetooth_address: None,
+                hid_instance_id: None,
+            },
+            Discovered {
+                id: digest("kivoK18Lite:11914:40984:E6614103E7000002"),
+                kind: "kivoK18Lite".into(),
+                name: "Kivo K18 Lite".into(),
+                transport: "Usb".into(),
+                identity_quality: "serial".into(),
+                vendor_id: 0x2e8a,
+                product_id: 0xa018,
+                connected: true,
+                paired: false,
+                device_info: Default::default(),
+                pairing_id: None,
+                bluetooth_address: None,
+                hid_instance_id: None,
+            },
+        ];
+        assert_ne!(discovered[0].id, discovered[1].id);
+        let manager = offline_manager(vec![]);
+        manager.shared.snapshot.lock().unwrap().discovered = discovered.to_vec();
+
+        let mut left = instance("left-pad", &discovered[0].id);
+        left.kind = "kivoK18Lite".into();
+        left.name = "左侧键盘".into();
+        left.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k01": {"click": [{"type": "key", "key": "Ctrl"}]},
+            "kivo.k18Lite.k18": {"click": [{"type": "shortcut", "keys": ["Ctrl", "Win", "A"]}]}
+        });
+        left.profiles.push(Profile {
+            id: "term".into(),
+            name: "悬浮终端".into(),
+            behaviors: serde_json::json!({}),
+            display: None,
+        });
+        left.app_profile_switching = true;
+        left.application_profiles.push(ApplicationProfile {
+            application: crate::foreground::Application {
+                id: "com.mitchellh.ghostty".into(),
+                name: "Ghostty".into(),
+                path: "/Applications/Ghostty.app".into(),
+            },
+            profile_id: "term".into(),
+        });
+
+        let mut right = instance("right-pad", &discovered[1].id);
+        right.kind = "kivoK18Lite".into();
+        right.name = "右侧键盘".into();
+
+        let snap = manager.put(0, left.clone()).unwrap();
+        let snap = manager.put(snap.store.revision, right).unwrap();
+        assert_eq!(snap.store.instances.len(), 2);
+        assert!(manager
+            .remember_quarbor_target("left-pad", "HID\\VID_2E8A&PID_A018\\1")
+            .is_err());
+
+        let eff_unmatched = effective_instance(&left, Some("other"));
+        assert_eq!(
+            oled_idle_lines(&left, &eff_unmatched, Some("other")),
+            ("左侧键盘".into(), "默认".into())
+        );
+        let eff_matched = effective_instance(&left, Some("com.mitchellh.ghostty"));
+        assert_eq!(
+            oled_idle_lines(&left, &eff_matched, Some("com.mitchellh.ghostty")),
+            ("Ghostty".into(), "悬浮终端".into())
+        );
+
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn display_config_round_trips_backwards_compatibly_validates_bounds_and_switches_with_app_profiles()
+    {
+        let path = std::env::temp_dir().join(format!("axonkey-k18-display-{}.json", unique_id()));
+
+        // 1) Legacy store without `Instance.display` or `Profile.display` loads cleanly and omits both on save.
+        let mut legacy = instance("k18", "physical-k18");
+        legacy.kind = "kivoK18Lite".into();
+        legacy.name = "Kivo K18 Lite".into();
+        let legacy_store = Store {
+            revision: 1,
+            instances: vec![legacy],
+            ..Store::default()
+        };
+        save(&path, &legacy_store).unwrap();
+        let raw_json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(raw_json["instances"][0].get("display").is_none());
+        assert!(raw_json["instances"][0]["profiles"][0]
+            .get("display")
+            .is_none());
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.instances[0].display, None);
+        assert_eq!(loaded.instances[0].profiles[0].display, None);
+
+        // Partial JSON objects fill exact contract defaults (`camelCase`).
+        let partial_settings: DeviceDisplaySettings = serde_json::from_value(serde_json::json!({}))
+            .expect("empty DeviceDisplaySettings uses defaults");
+        assert_eq!(
+            partial_settings,
+            DeviceDisplaySettings {
+                brightness: 100,
+                sleep_timeout_sec: 180,
+                show_key_toast: true,
+                show_profile_toast: true,
+            }
+        );
+        let partial_profile_display: ProfileDisplayConfig =
+            serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(
+            partial_profile_display,
+            ProfileDisplayConfig {
+                mode: ProfileDisplayMode::Auto,
+                line1: String::new(),
+                line2: String::new(),
+            }
+        );
+
+        // 2) Validation bounds on `Profile.display` and `Instance.display`.
+        let mut store = loaded;
+        let cjk_64 = "屏".repeat(64);
+        let cjk_65 = "屏".repeat(65);
+        store.instances[0].profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Custom,
+            line1: cjk_64.clone(),
+            line2: cjk_64,
+        });
+        assert!(validate(&store).is_ok());
+
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line1 = cjk_65.clone();
+        assert_eq!(validate(&store).unwrap_err(), "屏幕自定义文本过长");
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line1 = "OK".into();
+        store.instances[0].profiles[0]
+            .display
+            .as_mut()
+            .unwrap()
+            .line2 = cjk_65;
+        assert_eq!(validate(&store).unwrap_err(), "屏幕自定义文本过长");
+        store.instances[0].profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Auto,
+            line1: "Ignored Top".into(),
+            line2: "Ignored Bottom".into(),
+        });
+
+        for valid_timeout in [0, 15, 180, 3600] {
+            store.instances[0].display = Some(DeviceDisplaySettings {
+                brightness: 100,
+                sleep_timeout_sec: valid_timeout,
+                show_key_toast: true,
+                show_profile_toast: false,
+            });
+            assert!(validate(&store).is_ok(), "timeout {valid_timeout}");
+        }
+        store.instances[0].display = Some(DeviceDisplaySettings {
+            brightness: 101,
+            ..DeviceDisplaySettings::default()
+        });
+        assert!(validate(&store).is_err());
+        for invalid_timeout in [1, 14, 3601] {
+            store.instances[0].display = Some(DeviceDisplaySettings {
+                brightness: 80,
+                sleep_timeout_sec: invalid_timeout,
+                show_key_toast: true,
+                show_profile_toast: true,
+            });
+            assert!(
+                validate(&store).is_err(),
+                "invalid timeout {invalid_timeout}"
+            );
+        }
+
+        // 3) `ProfileDisplayMode::Auto` vs `Custom` across `ApplicationProfile` switching + round-trip save/load.
+        let dev = &mut store.instances[0];
+        dev.display = Some(DeviceDisplaySettings {
+            brightness: 75,
+            sleep_timeout_sec: 300,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        dev.profiles.push(Profile {
+            id: "code".into(),
+            name: "编程配置".into(),
+            behaviors: serde_json::json!({}),
+            display: Some(ProfileDisplayConfig {
+                mode: ProfileDisplayMode::Custom,
+                line1: "BUILD MODE".into(),
+                line2: "Rust / Tauri".into(),
+            }),
+        });
+        dev.app_profile_switching = true;
+        dev.application_profiles.push(ApplicationProfile {
+            application: crate::foreground::Application {
+                id: "com.microsoft.VSCode".into(),
+                name: "VS Code".into(),
+                path: "/Applications/Visual Studio Code.app".into(),
+            },
+            profile_id: "code".into(),
+        });
+        save(&path, &store).unwrap();
+        let reloaded = load(&path).unwrap();
+        assert!(reloaded.instances[0] == store.instances[0]);
+
+        let raw = &reloaded.instances[0];
+        // Global profile `"default"` has `mode: Auto` -> returns (instance name, profile name) even if line1/line2 are non-empty.
+        let eff_global = effective_instance(raw, Some("com.apple.Safari"));
+        assert_eq!(
+            oled_idle_lines(raw, &eff_global, Some("com.apple.Safari")),
+            ("Kivo K18 Lite".into(), "默认".into())
+        );
+        // Switching foreground app to VS Code activates `"code"` (`mode: Custom`) -> returns custom lines.
+        let eff_vscode = effective_instance(raw, Some("com.microsoft.VSCode"));
+        assert_eq!(
+            oled_idle_lines(raw, &eff_vscode, Some("com.microsoft.VSCode")),
+            ("BUILD MODE".into(), "Rust / Tauri".into())
+        );
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("bak"));
+    }
+
+    #[test]
+    fn reader_update_config_updates_oled_settings_without_resetting_gestures_or_holds() {
+        let _hold_guard = hold::test_platform_hold_lock();
+        #[cfg(target_os = "macos")]
+        super::super::macos::clear_managed_held_keys_for_test();
+
+        let mut dev = instance("k18-live", "physical-k18");
+        dev.kind = "kivoK18Lite".into();
+        dev.name = "Kivo K18 Lite".into();
+        dev.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k01": {"click": [{"type": "key", "key": "Ctrl"}]},
+            "kivo.k18Lite.k02": {
+                "click": [{"type": "key", "key": "A"}],
+                "doubleClick": [{"type": "paste", "text": "double"}]
+            }
+        });
+        dev.profiles.push(Profile {
+            id: "alt".into(),
+            name: "备用".into(),
+            behaviors: serde_json::json!({}),
+            display: None,
+        });
+
+        let manager = offline_manager(vec![dev.clone()]);
+        let oled = crate::devices::kivo_k18_lite::DisplayController::start_worker(
+            "Kivo K18 Lite".into(),
+            "默认".into(),
+            DeviceDisplaySettings::default(),
+            Duration::from_millis(80),
+            Duration::from_secs(1),
+        );
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("kivoK18Lite")
+            .expect("kivoK18Lite descriptor");
+        let (actions, _rx) = sync_channel(4);
+        let maps = active_mappings(&dev);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(&dev)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: Some(oled),
+            path: CString::new("test-k18").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps,
+            actions,
+            reports: 0,
+        };
+
+        // Drain initial lease + idle chunks.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut drained = 0usize;
+        while drained < 11 {
+            drained += reader
+                .oled
+                .as_ref()
+                .unwrap()
+                .drain_queued_packets_for_test()
+                .len();
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+
+        // Hold K01 (Ctrl) and start the first tap of a double-click on K02.
+        let k01_map = reader.maps.get("kivo.k18Lite.k01").unwrap().clone();
+        let k02_map = reader.maps.get("kivo.k18Lite.k02").unwrap().clone();
+        assert!(matches!(
+            reader
+                .holds
+                .try_edge(&dev.id, "kivo.k18Lite.k01", true, &k01_map),
+            hold::HoldOutcome::Handled { .. }
+        ));
+        assert!(reader.holds.has_leases_for_test(&dev.id));
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", true, 10, &k02_map)
+            .is_empty());
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", false, 30, &k02_map)
+            .is_empty());
+
+        // Changing `Instance.display` + `Profile.display` updates OLED brightness & custom lines WITHOUT resetting holds or gestures!
+        let mut display_updated = dev.clone();
+        display_updated.display = Some(DeviceDisplaySettings {
+            brightness: 42,
+            sleep_timeout_sec: 60,
+            show_key_toast: false,
+            show_profile_toast: true,
+        });
+        display_updated.profiles[0].display = Some(ProfileDisplayConfig {
+            mode: ProfileDisplayMode::Custom,
+            line1: "CUSTOM TOP".into(),
+            line2: "CUSTOM SUB".into(),
+        });
+        let next_idle = oled_idle_lines(&display_updated, &display_updated, None);
+        assert!(reader.update_config(&manager.shared, &display_updated, Some(&next_idle)));
+
+        assert!(
+            reader.holds.has_leases_for_test(&dev.id),
+            "updating display settings must keep active hold leases"
+        );
+        // Second tap completes the in-progress double-click rather than restarting as a first tap!
+        assert!(reader
+            .gestures
+            .edge("kivo.k18Lite.k02", true, 90, &k02_map)
+            .is_empty());
+        let completed = reader.gestures.edge("kivo.k18Lite.k02", false, 110, &k02_map);
+        assert_eq!(completed.len(), 1);
+        assert_eq!(completed[0].trigger, gesture::TriggerKind::DoubleClick);
+
+        // Verify OLED received brightness=42 control lease.
+        let mut packets = Vec::new();
+        while packets.len() < 11 {
+            packets.extend(
+                reader
+                    .oled
+                    .as_ref()
+                    .unwrap()
+                    .drain_queued_packets_for_test(),
+            );
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(&packets[0][..6], &[0x02, 0x01, 1, 5, 42, 0]);
+
+        // Switching `active_profile_id` DOES release holds and reset gestures.
+        let mut switched = display_updated.clone();
+        switched.active_profile_id = "alt".into();
+        let alt_idle = oled_idle_lines(&switched, &switched, None);
+        assert!(reader.update_config(&manager.shared, &switched, Some(&alt_idle)));
+        assert!(!reader.holds.has_leases_for_test(&dev.id));
+
+        #[cfg(target_os = "macos")]
+        super::super::macos::clear_managed_held_keys_for_test();
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[test]
+    fn unconfigured_and_disabled_k18_keys_still_trigger_oled_toasts() {
+        let mut dev = instance("k18-toast", "physical-k18-toast");
+        dev.kind = "kivoK18Lite".into();
+        dev.name = "Kivo K18 Lite".into();
+        dev.profiles[0].behaviors = serde_json::json!({
+            "kivo.k18Lite.k06": {"click": [{"type": "disabled"}]},
+            "kivo.k18Lite.k07": {"doubleClick": [{"type": "key", "key": "B"}]}
+        });
+
+        let manager = offline_manager(vec![dev.clone()]);
+        let oled = crate::devices::kivo_k18_lite::DisplayController::start_worker(
+            "Kivo K18 Lite".into(),
+            "默认".into(),
+            DeviceDisplaySettings::default(),
+            Duration::from_secs(5),
+            Duration::from_secs(1),
+        );
+        let descriptor = crate::devices::descriptor_registry::descriptor_for_kind("kivoK18Lite")
+            .expect("kivoK18Lite descriptor");
+        let (actions, _rx) = sync_channel(4);
+        let maps = active_mappings(&dev);
+        let mut reader = Reader {
+            config: Arc::new(ReaderConfig::new(&dev)),
+            holds: Arc::clone(&manager.shared.holds),
+            oled: Some(oled),
+            path: CString::new("test-k18-toast").unwrap(),
+            device: InputReader::Test,
+            descriptor,
+            engine: crate::devices::engine::DescriptorEngine::default(),
+            gestures: Gestures::default(),
+            maps,
+            actions,
+            reports: 0,
+        };
+
+        let drain_frame = |reader: &Reader, skip_initial_lease: bool| -> [u8; 512] {
+            let need = if skip_initial_lease { 11 } else { 10 };
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut packets = Vec::new();
+            while packets.len() < need {
+                packets.extend(
+                    reader
+                        .oled
+                        .as_ref()
+                        .unwrap()
+                        .drain_queued_packets_for_test(),
+                );
+                assert!(Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(5));
+            }
+            let chunks = if skip_initial_lease {
+                &packets[1..11]
+            } else {
+                &packets[..10]
+            };
+            let mut fb = [0u8; 512];
+            for pkt in chunks {
+                let off = u16::from_le_bytes([pkt[4], pkt[5]]) as usize;
+                let len = pkt[6] as usize;
+                fb[off..off + len].copy_from_slice(&pkt[7..7 + len]);
+            }
+            fb
+        };
+
+        // Drain initial lease + idle frame.
+        let _ = drain_frame(&reader, true);
+
+        // 1) Completely unconfigured key K05 shows immediate press toast without queuing empty gestures.
+        let mut sequence = Vec::new();
+        reader.handle_local_edge("kivo.k18Lite.k05", true, 10, &mut sequence);
+        reader.flush_oled_toasts(&sequence);
+        assert!(sequence.is_empty());
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K05 按下", "未配置行为")
+        );
+        reader.handle_local_edge("kivo.k18Lite.k05", false, 30, &mut sequence);
+        assert!(sequence.is_empty());
+
+        // 2) Explicitly disabled key K06 shows disabled toast on press.
+        reader.handle_local_edge("kivo.k18Lite.k06", true, 40, &mut sequence);
+        reader.flush_oled_toasts(&sequence);
+        assert!(sequence.is_empty());
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K06 按下", "已禁用")
+        );
+        reader.handle_local_edge("kivo.k18Lite.k06", false, 60, &mut sequence);
+
+        // 3) Key K07 with doubleClick only: single-click resolves to "K07 单击 / 未配置行为",
+        //    while double-click resolves to "K07 双击 / B".
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 100, &mut sequence);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 120, &mut sequence);
+        assert!(sequence.is_empty());
+        let mut single_seq = reader.gestures.tick(450, &reader.maps);
+        reader.flush_oled_toasts(&single_seq);
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K07 单击", "未配置行为")
+        );
+        single_seq.clear();
+
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 500, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 520, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", true, 580, &mut single_seq);
+        reader.handle_local_edge("kivo.k18Lite.k07", false, 600, &mut single_seq);
+        reader.flush_oled_toasts(&single_seq);
+        assert_eq!(
+            drain_frame(&reader, false),
+            crate::devices::kivo_k18_lite::font::render_two_lines_128x32("K07 双击", "B")
+        );
+
+        let _ = std::fs::remove_file(&manager.shared.path);
+        let _ = std::fs::remove_file(manager.shared.path.with_extension("bak"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn shutdown_pauses_quarbor_registry_and_releases_channel_inputs() {
+        let path =
+            std::env::temp_dir().join(format!("axonkey-quarbor-shutdown-{}.json", unique_id()));
+        for live_worker in [true, false] {
+            let manager = if live_worker {
+                DeviceManager::start_with_emitter(path.clone(), Box::new(|_| {}))
+            } else {
+                offline_manager(vec![])
+            };
+            let registry = manager.shared.quarbor.as_ref().unwrap().clone();
+            let released_batches = Arc::new(Mutex::new(Vec::new()));
+            let descriptor_updates = Arc::new(Mutex::new(Vec::new()));
+            let updates = Arc::clone(&descriptor_updates);
+            let channel = ManagedQuarborChannel::start_for_test(
+                Arc::clone(&registry.gate),
+                Arc::clone(&released_batches),
+                Arc::new(move |values, pressed| {
+                    updates.lock().unwrap().push((values, pressed));
+                }),
+            );
+            registry
+                .channels
+                .lock()
+                .unwrap()
+                .insert("test-quarbor".into(), ("target".into(), channel));
+
+            manager.shutdown();
+
+            assert!(registry.gate.load(Ordering::Acquire));
+            assert!(registry.channels.lock().unwrap().is_empty());
+            assert_eq!(
+                *released_batches.lock().unwrap(),
+                vec![vec![(0x41, 2)]],
+                "shutdown must join Quarbor channels and release held virtual keys"
+            );
+            assert!(
+                descriptor_updates
+                    .lock()
+                    .unwrap()
+                    .last()
+                    .is_some_and(|(_, pressed)| pressed.is_empty()),
+                "shutdown must publish cleared descriptor input state"
+            );
+        }
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(path.with_extension("bak"));
     }

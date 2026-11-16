@@ -9,6 +9,7 @@ import vm from 'node:vm'
 import ts from 'typescript'
 import React from 'react'
 import Renderer, { act } from 'react-test-renderer'
+import * as reiconReact from 'reicon-react'
 
 const chrome = { id: 'macos:com.google.Chrome', name: 'Chrome', path: '/Applications/Google Chrome.app' }
 const code = { id: 'macos:com.microsoft.VSCode', name: 'VS Code', path: '/Applications/Visual Studio Code.app' }
@@ -92,7 +93,7 @@ function compile(path, imports = {}, globals = {}) {
   vm.runInNewContext(source, {
     module, exports: module.exports, document: { body: {}, activeElement: null, addEventListener() {}, removeEventListener() {} },
     HTMLElement: class {}, ...globals,
-    require: name => imports[name] ?? (name.endsWith('.css') ? {} : require(name)),
+    require: name => imports[name] ?? (name === 'reicon-react' ? reiconReact : name.endsWith('.css') ? {} : require(name)),
   })
   return module.exports
 }
@@ -114,16 +115,38 @@ test('adding an app creates an independent editable copy and preserves the globa
   assert.equal(copied.appProfileSwitching, false)
 })
 
-test('toolbar selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
+test('toolbar loads application icons automatically, selects recent apps directly, toggles automatic switching and adds manual apps in one step', async () => {
+  const iconRequests = []
+  const iconsById = {
+    [chrome.id]: 'data:image/png;base64,iVBORw0KGgoChrome',
+    [code.id]: 'data:image/png;base64,iVBORw0KGgoCode',
+  }
   const { SelectControl } = compile('src/components/SelectControl.tsx')
   const { ProfileManager } = compile('src/components/ProfileManager.tsx', { './SelectControl': { SelectControl } })
-  const { ApplicationProfileToolbar } = compile('src/components/ApplicationProfileToolbar.tsx', {
+  const toolbarModule = compile('src/components/ApplicationProfileToolbar.tsx', {
     'react-dom': { createPortal: node => node },
-    '@tauri-apps/api/core': { invoke: async (command, { path }) => { assert.equal(command, 'resolve_application_path'); if (path === code.path) return code; throw new Error('请选择有效的应用') } },
+    '@tauri-apps/api/core': {
+      invoke: async (command, args) => {
+        if (command === 'application_icons') {
+          iconRequests.push(args.applications)
+          return Object.fromEntries(args.applications.flatMap(({ id }) => (iconsById[id] ? [[id, iconsById[id]]] : [])))
+        }
+        assert.equal(command, 'resolve_application_path')
+        if (args.path === code.path) return code
+        throw new Error('请选择有效的应用')
+      },
+    },
     '@tauri-apps/plugin-dialog': { open: async () => code.path },
     '../devices/integration/instanceProfiles': { addApplicationForEditing },
-    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null }, './SelectControl': { SelectControl },
+    './ProfileManager': { ProfileManager }, './SettingsHelp': { SettingsHelp: () => null },
   })
+  const { ApplicationProfileToolbar } = toolbarModule
+  const { MouseApplicationProfileToolbar } = compile('src/components/MouseApplicationProfileToolbar.tsx', {
+    './ApplicationProfileToolbar': toolbarModule,
+    './ProfileManager': { ProfileManager },
+    './SettingsHelp': { SettingsHelp: () => null },
+  })
+  const nodeText = node => typeof node === 'string' ? node : (node?.children ?? []).map(nodeText).join('')
   let current, selected, view
   const switched = []
   function Harness() {
@@ -137,30 +160,81 @@ test('toolbar selects recent apps directly, toggles automatic switching and adds
       onSwitchProfile: id => switched.push(id), onCreateProfile() {}, onDuplicateProfile() {}, onRenameProfile() {}, onDeleteProfile() {},
     })
   }
-  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({ showModal() {}, close() {} }) }) })
+  await act(async () => { view = Renderer.create(React.createElement(Harness), { createNodeMock: () => ({ showModal() {}, close() {}, contains: () => false, focus() {} }) }) })
   try {
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: chrome.id } }))
+    assert.deepEqual(JSON.parse(JSON.stringify(iconRequests)), [[{ id: chrome.id, path: chrome.path }]])
+    const trigger = () => view.root.findByProps({ 'aria-label': '编辑应用' })
+    await act(async () => trigger().props.onClick())
+    const chromeOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes('Chrome'))
+    assert.equal(chromeOption.findByType('img').props.src, iconsById[chrome.id])
+    await act(async () => chromeOption.props.onClick())
     assert.equal(selected, chrome.id)
+    assert.equal(trigger().findByType('img').props.src, iconsById[chrome.id])
     assert.equal(current.activeProfileId, 'global')
     assert.equal(current.applicationProfiles[0].profileId, current.profiles.at(-1).id)
+    assert.equal(iconRequests.length, 1, 'polling or moving an app to bindings must not re-fetch cached icons')
+
     await act(async () => view.root.findByProps({ 'aria-label': '配置' }).props.onChange({ target: { value: 'editor' } }))
     assert.deepEqual(switched, ['editor'])
     await act(async () => view.root.findByProps({ role: 'switch' }).props.onClick())
     assert.equal(current.appProfileSwitching, false)
     assert.equal(selected, chrome.id)
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: '__add_application__' } }))
+
+    await act(async () => trigger().props.onClick())
+    await act(async () => view.root.findByProps({ className: 'application-select-action' }).props.onClick())
     await act(async () => view.root.findByProps({ id: 'application-add-path' }).props.onChange({ target: { value: 'invalid' } }))
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }))
     assert.match(view.root.findByProps({ role: 'alert' }).children.join(''), /请选择有效的应用/)
     await act(async () => view.root.findByProps({ 'aria-label': '选择应用文件' }).props.onClick())
     assert.equal(selected, code.id)
+    assert.equal(trigger().findByType('img').props.src, iconsById[code.id])
+    assert.deepEqual(JSON.parse(JSON.stringify(iconRequests)), [
+      [{ id: chrome.id, path: chrome.path }],
+      [{ id: code.id, path: code.path }],
+    ])
     assert.equal(current.applicationProfiles.length, 2)
     assert.equal(current.appProfileSwitching, false)
     assert.equal(view.root.findAllByType('dialog').length, 0, 'file selection immediately adds and opens the app')
-    await act(async () => view.root.findByProps({ 'aria-label': '编辑应用' }).props.onChange({ target: { value: '' } }))
+
+    await act(async () => trigger().props.onClick())
+    const globalOption = view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node) === '全局')
+    await act(async () => globalOption.props.onClick())
     assert.equal(selected, '')
+    assert.equal(trigger().findAllByType('img').length, 0)
     assert.equal(current.activeProfileId, 'global')
   } finally { await act(async () => view.unmount()) }
+
+  let mouseView
+  await act(async () => {
+    mouseView = Renderer.create(React.createElement(MouseApplicationProfileToolbar, {
+      profiles: [
+        { id: 'default', name: '默认配置', deviceId: 'mouse', behaviors: {}, applicationIds: [] },
+        { id: 'browser', name: '浏览器', deviceId: 'mouse', behaviors: {}, applicationIds: [chrome.id] },
+      ],
+      activeProfileId: 'browser',
+      applications: { supported: true, current: null, recent: [{ application: chrome, lastUsedAt: 1 }], error: null },
+      editingApplicationId: chrome.id,
+      autoSwitching: true,
+      native: true,
+      platform: 'macos',
+      onSelectApplication() {},
+      onAddApplication() {},
+      onSwitchProfile() {},
+      onToggle() {},
+      onCreate() {},
+      onDuplicate() {},
+      onRename() {},
+      onDelete() {},
+    }))
+  })
+  try {
+    const mouseTrigger = mouseView.root.findByProps({ 'aria-label': '编辑应用' })
+    assert.equal(mouseTrigger.findByType('img').props.src, iconsById[chrome.id])
+    await act(async () => mouseTrigger.props.onClick())
+    const boundOption = mouseView.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes('Chrome'))
+    assert.ok(nodeText(boundOption).includes('浏览器'))
+    assert.equal(boundOption.findByType('img').props.src, iconsById[chrome.id])
+  } finally { await act(async () => mouseView.unmount()) }
 })
 
 test('workspace edits the explicitly selected app while paused and does not follow foreground changes', async () => {
@@ -180,14 +254,16 @@ test('workspace edits the explicitly selected app while paused and does not foll
     '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: nullComponent },
     '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: nullComponent },
     '../../components/SettingsHelp': { SettingsHelp: nullComponent }, '../../components/BatteryIndicator': { BatteryIndicator: nullComponent },
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
     '../../components/DeviceRail': { DeviceRecordingStatus: nullComponent },
     '../../telemetry': { reportTencentEvent() {} }, '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
     '../../components/workflowSplitLayout': { defaultWorkflowSplitRatio: .54 },
     '../../components/WorkflowAxonkey': { WorkflowAxonkey: props => React.createElement('workflow', props) },
     '../shared/DeviceSettingsDrawer': { DeviceSettingsDrawer: nullComponent },
     '../shared/DeviceWorkspaceHeader': { DeviceWorkspaceHeader: props => React.createElement('header', null, props.profileControls) },
-    './IntegrationControls': { DeviceBindingPicker: nullComponent }, '../xbox-controller/ControllerDiagram': { ControllerDiagram: nullComponent },
-    './model': { packageFor: () => ({ inputs: [{ id: 'voice', label: '语音键', icon: 'mic' }] }), emptyTriggers: () => ({ click: [], doubleClick: [], longPress: [] }), instanceStatusLabel: () => 'preview' },
+    '../kivo-k18-lite/KivoScreenEditor': { KivoScreenEditor: nullComponent },
+    './IntegrationControls': { DeviceBindingPicker: nullComponent },
+    './model': require('../src/devices/integration/model.ts'),
   })
   let current, view
   function Harness() {
@@ -228,4 +304,159 @@ test('workspace edits the explicitly selected app while paused and does not foll
     assert.equal(toolbar().props.profileId, 'global')
     assert.equal(workflow().props.sequences.click[0].ms, 100)
   } finally { await act(async () => view.unmount()) }
+})
+
+test('windows toolbar keeps loading added and recent icons across StrictMode remounts, polling re-renders, transient failures and image decode errors', async () => {
+  const nebulume = {
+    id: 'windows:c:\\users\\leo\\appdata\\local\\lumen\\nebulume.exe',
+    name: 'nebulume',
+    path: 'C:\\Users\\leo\\AppData\\Local\\Lumen\\nebulume.exe',
+  }
+  const explorer = {
+    id: 'windows:c:\\windows\\explorer.exe',
+    name: 'explorer',
+    path: 'C:\\Windows\\explorer.exe',
+  }
+  const chatgpt = {
+    id: 'windows:c:\\program files\\windowsapps\\openai.codex\\app\\chatgpt.exe',
+    name: 'ChatGPT',
+    path: 'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\ChatGPT.exe',
+  }
+  const broken = {
+    id: 'windows:c:\\app\\broken.exe',
+    name: 'broken',
+    path: 'C:\\app\\broken.exe',
+  }
+  const iconsById = {
+    [nebulume.id]: 'data:image/png;base64,iVBORw0KGgoNebulume',
+    [explorer.id]: 'data:image/png;base64,iVBORw0KGgoExplorer',
+    [chatgpt.id]: 'data:image/png;base64,iVBORw0KGgoChatGPT',
+    [broken.id]: 'data:image/png;base64,corrupt',
+  }
+  const pendingCalls = []
+  let failOnce = false
+  const { SelectControl } = compile('src/components/SelectControl.tsx')
+  const { ProfileManager } = compile('src/components/ProfileManager.tsx', { './SelectControl': { SelectControl } })
+  const toolbarModule = compile('src/components/ApplicationProfileToolbar.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/core': {
+      invoke: (command, args) => {
+        assert.equal(command, 'application_icons')
+        if (failOnce) {
+          failOnce = false
+          return Promise.reject(new Error('temporary IPC error'))
+        }
+        return new Promise(resolve => {
+          pendingCalls.push({
+            applications: args.applications,
+            resolve: () =>
+              resolve(
+                Object.fromEntries(
+                  args.applications.flatMap(({ id }) => (iconsById[id] ? [[id, iconsById[id]]] : [])),
+                ),
+              ),
+          })
+        })
+      },
+    },
+    '@tauri-apps/plugin-dialog': { open: async () => null },
+    '../devices/integration/instanceProfiles': { addApplicationForEditing },
+    './ProfileManager': { ProfileManager },
+    './SettingsHelp': { SettingsHelp: () => null },
+  })
+  const { ApplicationProfileToolbar } = toolbarModule
+  const nodeText = node => (typeof node === 'string' ? node : (node?.children ?? []).map(nodeText).join(''))
+
+  let rerenderTick = () => {}
+  let setRecentApps = () => {}
+  let setEditingId = () => {}
+  const initialInstance = addApplicationForEditing(instance(), { ...nebulume, path: '' })
+  function StrictPollingHarness() {
+    const [, setTick] = React.useState(0)
+    const [recent, updateRecent] = React.useState([])
+    const [editingId, updateEditingId] = React.useState(nebulume.id)
+    rerenderTick = () => setTick(n => n + 1)
+    setRecentApps = updateRecent
+    setEditingId = updateEditingId
+    return React.createElement(
+      React.StrictMode,
+      null,
+      React.createElement(ApplicationProfileToolbar, {
+        instance: initialInstance,
+        editingApplicationId: editingId,
+        profileId: initialInstance.applicationProfiles[0].profileId,
+        applications: { supported: true, current: null, recent, error: null },
+        native: true,
+        platform: 'windows',
+        onUpdate: async () => {},
+        onSelectApplication: updateEditingId,
+        onSwitchProfile() {},
+        onCreateProfile() {},
+        onDuplicateProfile() {},
+        onRenameProfile() {},
+        onDeleteProfile() {},
+      }),
+    )
+  }
+
+  let view
+  await act(async () => {
+    view = Renderer.create(React.createElement(StrictPollingHarness), {
+      createNodeMock: () => ({ showModal() {}, close() {}, contains: () => false, focus() {} }),
+    })
+  })
+  try {
+    // Saved binding without cached icon or path only sends one IPC request even under StrictMode
+    assert.equal(pendingCalls.length, 1)
+    assert.deepEqual(JSON.parse(JSON.stringify(pendingCalls[0].applications)), [{ id: nebulume.id, path: '' }])
+
+    // Foreground poll arrives and multiple workspace polls re-render while both IPC batches are still in flight
+    await act(async () => {
+      setRecentApps([
+        { application: explorer, lastUsedAt: 3 },
+        { application: chatgpt, lastUsedAt: 2 },
+      ])
+    })
+    await act(async () => rerenderTick())
+    await act(async () => rerenderTick())
+    assert.equal(pendingCalls.length, 2, 'polling re-renders must not duplicate in-flight icon requests')
+
+    // Resolve both batches after parent re-renders occurred
+    await act(async () => {
+      for (const call of pendingCalls.splice(0)) call.resolve()
+    })
+
+    const trigger = () => view.root.findByProps({ 'aria-label': '编辑应用' })
+    assert.equal(trigger().findByType('img').props.src, iconsById[nebulume.id])
+
+    await act(async () => trigger().props.onClick())
+    const optionFor = label =>
+      view.root.findAllByProps({ role: 'option' }).find(node => nodeText(node).includes(label))
+    assert.equal(optionFor('nebulume').findByType('img').props.src, iconsById[nebulume.id])
+    assert.equal(optionFor('explorer').findByType('img').props.src, iconsById[explorer.id])
+    assert.equal(optionFor('ChatGPT').findByType('img').props.src, iconsById[chatgpt.id])
+
+    // Transient failure cleans up in-flight key so next poll retries, and broken image falls back cleanly
+    failOnce = true
+    await act(async () => {
+      setRecentApps([
+        { application: explorer, lastUsedAt: 3 },
+        { application: broken, lastUsedAt: 4 },
+      ])
+    })
+    assert.equal(pendingCalls.length, 0)
+    await act(async () => rerenderTick())
+    assert.equal(pendingCalls.length, 1)
+    await act(async () => pendingCalls.pop().resolve())
+
+    const brokenImg = optionFor('broken').findByType('img')
+    assert.equal(brokenImg.props.src, iconsById[broken.id])
+    await act(async () => brokenImg.props.onError())
+    assert.equal(optionFor('broken').findAllByType('img').length, 0)
+
+    await act(async () => setEditingId(''))
+    assert.equal(trigger().findAllByType('img').length, 0)
+  } finally {
+    await act(async () => view.unmount())
+  }
 })

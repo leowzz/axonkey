@@ -2,60 +2,23 @@ use std::collections::BTreeMap;
 
 /// Values are normalized before gesture handling; separate reports update only their own controls.
 pub(super) fn decode(kind: &str, report: &[u8]) -> Option<BTreeMap<String, f64>> {
-    let mut values = BTreeMap::new();
-    if kind == "xboxBluetooth" {
-        return crate::devices::xbox::decode(report).map(|values| {
-            values
-                .into_iter()
-                .map(|(key, value)| (key.to_string(), value))
-                .collect()
-        });
-    } else if kind == "rc003" {
-        return crate::devices::xiaomi_remote::input::decode(report);
-    } else if matches!(kind, "cmiotA15" | "obeRcuR5" | "tclRc802a" | "tclRc902n") {
-        let (report_id, down, buttons) = if kind == "obeRcuR5" {
-            let (id, down) = crate::devices::obe_rcu_r5::decode(report)?;
-            (id, down, crate::devices::obe_rcu_r5::BUTTONS)
-        } else if kind == "tclRc802a" {
-            let (id, down) = crate::devices::tcl_rc802a::decode(report)?;
-            (id, down, crate::devices::tcl_rc802a::BUTTONS)
-        } else if kind == "tclRc902n" {
-            let (id, down) = crate::devices::tcl_rc902n::decode(report)?;
-            (id, down, crate::devices::tcl_rc902n::BUTTONS)
-        } else {
-            let (id, down) = crate::devices::cmiot_a15::decode(report)?;
-            (id, down, crate::devices::cmiot_a15::BUTTONS)
-        };
-        for &(id, _, button) in buttons {
-            if id == report_id {
-                values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
-            }
-        }
-    } else if matches!(kind, "xmBt29" | "rc313") {
-        let (report_id, down) = if kind == "xmBt29" {
-            crate::devices::xm_bt_29::decode(report)?
-        } else {
-            crate::devices::rc_313::decode(report)?
-        };
-        let buttons = if kind == "xmBt29" {
-            crate::devices::xm_bt_29::BUTTONS
-        } else {
-            crate::devices::rc_313::BUTTONS
-        };
-        for &(id, _, button) in buttons {
-            if id == report_id {
-                values.insert(button.into(), if down.contains(button) { 1. } else { 0. });
-            }
-        }
-    } else {
-        return None;
-    }
-    Some(values)
-}
-
-pub(super) fn pressed(value: f64, was_pressed: bool) -> bool {
-    // Fixed hysteresis: crossing 55% presses; dropping below 35% releases.
-    value >= if was_pressed { 0.35 } else { 0.55 }
+    let descriptor = crate::devices::descriptor_registry::descriptor_for_kind(kind)?;
+    let values = crate::devices::engine::decode_descriptor(descriptor, report)?;
+    Some(
+        values
+            .into_iter()
+            .map(|(id, value)| {
+                let key = descriptor
+                    .inputs
+                    .iter()
+                    .find(|input| input.id == id)
+                    .map(crate::devices::descriptor_registry::input_key)
+                    .unwrap_or(&id)
+                    .to_string();
+                (key, value)
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -86,7 +49,7 @@ mod tests {
                 0.
             );
             assert_eq!(
-                crate::devices::obe_rcu_r5::original_usage(button),
+                crate::devices::descriptor_registry::original_usage("obeRcuR5", button),
                 Some((7, u16::from(usage)))
             );
         }
@@ -165,6 +128,11 @@ mod tests {
     }
     #[test]
     fn analog_hysteresis_avoids_chatter() {
+        let descriptor =
+            crate::devices::descriptor_registry::descriptor_for_kind("xboxBluetooth").unwrap();
+        let pressed = |value, was_down| {
+            crate::devices::engine::pressed(descriptor, "xbox.lt", value, was_down)
+        };
         assert!(!pressed(0.5, false));
         assert!(pressed(0.6, false));
         assert!(pressed(0.5, true));
@@ -177,5 +145,60 @@ mod tests {
             1.
         );
         assert_eq!(decode("rc003", &[1, 0, 0, 0, 0, 0, 0]).unwrap()["up"], 0.);
+    }
+
+    #[test]
+    fn every_bundled_kind_decodes_through_the_descriptor_path() {
+        let samples = [
+            ("rc003", vec![1, 0x52, 0, 0, 0, 0, 0], "up"),
+            (
+                "cmiotA15",
+                vec![1, 0, 0, 0x52, 0, 0, 0, 0, 0],
+                "cmiotA15.up",
+            ),
+            ("xmBt29", vec![1, 0, 0, 0x1e], "xmBt29.digit1"),
+            (
+                "rc313",
+                vec![1, 0, 0, 0x4e, 0, 0, 0, 0, 0],
+                "cmiotA15.channelDown",
+            ),
+            (
+                "obeRcuR5",
+                vec![1, 0, 0, 0x73, 0, 0, 0, 0, 0],
+                "obeRcuR5.voice",
+            ),
+            (
+                "tclRc802a",
+                vec![1, 0, 0, 0x28, 0, 0, 0, 0, 0],
+                "tcl-rc802a.confirm",
+            ),
+            ("tclRc902n", vec![3, 0x42, 0], "tcl-rc902n.up"),
+            ("tclRc902v", vec![3, 0x41, 0], "tcl-rc902v.confirm"),
+            (
+                "hisenseRcf3b65",
+                vec![1, 0, 0, 0xdf, 0, 0, 0, 0, 0],
+                "hisense-rcf3b65.voice",
+            ),
+            (
+                "hisenseRcf3b65",
+                vec![0x6f, 0x6a, 0x01, 0, 0, 0, 0, 0, 0],
+                "hisense-rcf3b65.pointer",
+            ),
+            (
+                "phicommDb1R",
+                vec![1, 0, 0, 0x3e, 0, 0, 0, 0, 0],
+                "phicomm-db1-r.voice",
+            ),
+            ("phicommDb1R", vec![2, 0x24, 0x02], "phicomm-db1-r.back"),
+            (
+                "xboxBluetooth",
+                vec![1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0],
+                "xbox.a",
+            ),
+        ];
+        for (kind, report, key) in samples {
+            let values = decode(kind, &report).expect("bundled descriptor should decode");
+            assert_eq!(values.get(key), Some(&1.0), "{kind} did not decode {key}");
+        }
     }
 }

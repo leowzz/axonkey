@@ -1,27 +1,4 @@
-export const xboxInputs = [
-  ['a', 'A 键'],
-  ['b', 'B 键'],
-  ['x', 'X 键'],
-  ['y', 'Y 键'],
-  ['lb', 'LB 左肩键'],
-  ['rb', 'RB 右肩键'],
-  ['lt', 'LT 左扳机'],
-  ['rt', 'RT 右扳机'],
-  ['view', 'View 视图键'],
-  ['menu', 'Menu 菜单键'],
-  ['guide', '主键'],
-  ['ls', 'LS 左摇杆按下'],
-  ['rs', 'RS 右摇杆按下'],
-  ['dpad.up', '方向键向上'],
-  ['dpad.down', '方向键向下'],
-  ['dpad.left', '方向键向左'],
-  ['dpad.right', '方向键向右'],
-  ['ls.up', '左摇杆向上'],
-  ['ls.down', '左摇杆向下'],
-  ['ls.left', '左摇杆向左'],
-  ['ls.right', '左摇杆向右'],
-  ['rs.up', '右摇杆向上'],
-  ['rs.down', '右摇杆向下'],
-  ['rs.left', '右摇杆向左'],
-  ['rs.right', '右摇杆向右'],
-].map(([id, label]) => ({ id: `xbox.${id}`, label, icon: 'center' as const }))
+import { createDescriptorView } from '../shared/descriptorSvg.ts'
+
+export const xboxRemoteView = createDescriptorView('xbox')
+export const xboxInputs = xboxRemoteView.buttons
