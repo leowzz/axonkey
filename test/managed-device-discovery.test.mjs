@@ -41,6 +41,7 @@ const modelImports = {
   '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
   '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
   '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+  '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -438,15 +439,16 @@ test('mobile model identity matching retains captured software and hardware beha
 })
 
 test('bundled capabilities retain recording defaults and platform support for all supported devices', () => {
-  for (const [kind, mode, hidVoice] of [
+  for (const [kind, mode, hidVoice, windowsDriver = true] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
     ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
     ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
     ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
+    ['kivoK18Lite', 'click', false, false],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
-    assert.equal(model.supportsWindowsDriver(kind), true)
+    assert.equal(model.supportsWindowsDriver(kind), windowsDriver)
   }
 })
 
@@ -865,6 +867,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
       ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
       ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
+      ['kivoK18Lite', false, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -875,7 +878,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[1].root.findAllByProps({ className: 'managed-audio-calibration' }).length, Number(voiceCalibration))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
-      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
+      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, Number(model.supportsWindowsDriver(kind)))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     }
     act(() => {

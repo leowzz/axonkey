@@ -53,6 +53,7 @@ export type DeviceKind =
   | 'tclRc902v'
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
+  | 'kivoK18Lite'
 
 export type DeviceSupportPackage = {
   kind: DeviceKind

@@ -8,10 +8,10 @@ import {
 } from '../scripts/generate-device-descriptors.mjs'
 import { deviceDescriptors } from '../src/devices/generatedDescriptors.ts'
 
-test('the committed device index is generated from all eleven protocol SVGs', () => {
+test('the committed device index is generated from all twelve protocol SVGs', () => {
   generateDeviceDescriptors({ check: true })
   assert.deepEqual(deviceDescriptors, readBundledDescriptors())
-  assert.equal(Object.keys(deviceDescriptors).length, 11)
+  assert.equal(Object.keys(deviceDescriptors).length, 12)
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.equal(new Set(descriptor.inputs.map(input => input.id)).size, descriptor.inputs.length)
     for (const input of descriptor.inputs) {
@@ -74,11 +74,44 @@ test('voice capabilities and analog trigger settings are generated from the SVG 
   assert.equal(deviceDescriptors.xbox.voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].voice, null)
   assert.equal(deviceDescriptors['phicomm-db1-r'].voice, null)
+  assert.equal(deviceDescriptors['kivo-k18-lite'].voice, null)
   assert.equal(deviceDescriptors['hisense-rcf3b65'].inputs.length, 18)
   assert.equal(deviceDescriptors['phicomm-db1-r'].inputs.length, 12)
+  assert.equal(deviceDescriptors['kivo-k18-lite'].inputs.length, 18)
+  assert.deepEqual(deviceDescriptors['kivo-k18-lite'].identities, [
+    {
+      vendorIds: [0x2e8a],
+      productIds: [0xa018],
+      softwareContains: '',
+      softwareFallback: false,
+      windowsPrefix: '',
+      informationRequired: false,
+      modelContains: '',
+      manufacturerContains: '',
+    },
+  ])
+  assert.deepEqual(
+    deviceDescriptors['kivo-k18-lite'].inputs.map(input => ({
+      id: input.id,
+      stableId: input.stableId,
+      label: input.label,
+      short: input.short,
+    })),
+    Array.from({ length: 18 }, (_, index) => {
+      const code = String(index + 1).padStart(2, '0')
+      return {
+        id: `kivo.k18Lite.k${code}`,
+        stableId: `kivo.k18Lite.k${code}`,
+        label: `K${code}`,
+        short: `K${code}`,
+      }
+    }),
+  )
   for (const descriptor of Object.values(deviceDescriptors)) {
     assert.ok(descriptor.identities.length >= 1, `${descriptor.id} must declare runtime identity`)
-    assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
+    if (descriptor.id !== 'kivo.k18Lite') {
+      assert.ok(descriptor.identities.every(identity => identity.windowsPrefix))
+    }
   }
   assert.deepEqual(
     deviceDescriptors.xbox.inputs
