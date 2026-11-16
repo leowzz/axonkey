@@ -30,6 +30,7 @@ import {
   packageFor,
   resetRuntimeSupportPackages,
   supportPackages,
+  usesSingleLaneWorkspace,
 } from '../src/devices/integration/model.ts'
 import { createDescriptorView, parseRuntimeDescriptorSvg } from '../src/devices/shared/descriptorSvg.ts'
 import { externalUrlHostname, normalizeExternalHttpUrl, openExternalUrl } from '../src/openExternalUrl.ts'
@@ -404,7 +405,7 @@ test('loadDeviceModelCatalog honors cloud cache_ttl_seconds (3600s, 0s, clamped 
   }
 })
 
-test('parseRuntimeDescriptorSvg matches all 11 bundled SVGs and strictly rejects unsafe or malformed cloud SVGs without breaking built-in models', () => {
+test('parseRuntimeDescriptorSvg matches all 12 bundled SVGs and strictly rejects unsafe or malformed cloud SVGs without breaking built-in models', () => {
   try {
     // 1. Every official bundled SVG parses with identical geometry, buttons, voice, and identities
     for (const file of readdirSync('public/device-descriptors').filter(name => name.endsWith('.svg'))) {
@@ -473,7 +474,45 @@ test('parseRuntimeDescriptorSvg matches all 11 bundled SVGs and strictly rejects
     ])
     assert.equal(packageFor('rc003').artwork, bundledRc003.artwork)
     assert.equal(packageFor('rc003').remoteView, bundledRc003.remoteView)
-    assert.equal(getSupportPackages().length, 11)
+    assert.equal(getSupportPackages().length, 12)
+
+    // 3b. Built-in kivoK18Lite and xboxBluetooth preserve single-lane workspaceLayout & OLED screenRegion when overlaid from cloud SVG
+    const kivoSvg = readFileSync('public/device-descriptors/kivo-k18-lite.svg', 'utf8')
+    const xboxSvg = readFileSync('public/device-descriptors/xbox.svg', 'utf8')
+    const bundledKivo = bundledSupportPackages.find(p => p.kind === 'kivoK18Lite')
+    activateCatalogDeviceDescriptors([
+      {
+        id: 'm-kivo',
+        code: 'kivoK18Lite',
+        name: 'Kivo K18 Lite',
+        model: 'K18 Lite',
+        brand_id: 'b-kivo',
+        brand_name: 'Kivo',
+        description: '',
+        tags: [],
+        links: [],
+        svg: kivoSvg,
+      },
+      {
+        id: 'm-xbox',
+        code: 'xboxBluetooth',
+        name: 'Xbox 无线控制器',
+        model: 'Xbox Wireless Controller',
+        brand_id: 'b-xbox',
+        brand_name: '微软 Xbox',
+        description: '',
+        tags: [],
+        links: [],
+        svg: xboxSvg,
+      },
+    ])
+    const hydratedKivo = packageFor('kivoK18Lite')
+    assert.ok(hydratedKivo.artwork.startsWith('data:image/svg+xml;charset=utf-8,'))
+    assert.equal(hydratedKivo.workspaceLayout, 'single-lane')
+    assert.equal(usesSingleLaneWorkspace('kivoK18Lite'), true)
+    assert.deepEqual(hydratedKivo.screenRegion, bundledKivo.screenRegion)
+    assert.equal(hydratedKivo.inputs.length, 18)
+    assert.equal(usesSingleLaneWorkspace('xboxBluetooth'), true)
 
     // 4. Unknown cloud kind before hydration returns a safe non-crashing placeholder package
     const placeholder = packageFor('notYetLoadedCloudKind')
@@ -679,6 +718,7 @@ function createUiHarness({ native = false, storage, invokeImpl } = {}) {
     '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
     '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
     '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+    '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
     '../xbox-controller/index.ts': xboxDefinition,
   })
   const catalogMod = compile('src/cloud/deviceModelCatalog.ts', {
@@ -1028,7 +1068,7 @@ test('IntegrationDialog Scheme A hydrates offline bundled catalog, upgrades to c
       view.root
         .findByProps({ className: 'managed-catalog-list-pane' })
         .findAll(node => node.type === 'button' && node.props.className === 'managed-package')
-    assert.equal(packageCards().length, 12, '11 bundled + 1 dynamic cloud model')
+    assert.equal(packageCards().length, 13, '12 bundled + 1 dynamic cloud model')
 
     act(() => {
       brandGroup

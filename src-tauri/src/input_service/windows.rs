@@ -2017,7 +2017,6 @@ fn hid_key_for_virtual_key(key: u16) -> Option<super::remote_actions::HidKey> {
     Some(super::remote_actions::HidKey { page, usage })
 }
 
-#[cfg(windows)]
 fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
     (1..=255)
         .filter(|virtual_key| !matches!(virtual_key, 0x10..=0x12))
@@ -2032,7 +2031,6 @@ fn virtual_key_for_hid(key: super::remote_actions::HidKey) -> Option<u16> {
         })
 }
 
-#[cfg(windows)]
 fn send_remote_virtual_key(key: u16, down: bool) -> std::io::Result<()> {
     let mut input = virtual_key_input(key);
     if !down {
@@ -2047,6 +2045,28 @@ fn send_remote_virtual_key(key: u16, down: bool) -> std::io::Result<()> {
         "SendInput virtual key {key:#04X} {} failed",
         if down { "down" } else { "up" }
     )))
+}
+
+pub(super) fn managed_hold_chord(behavior: &NativeBehavior) -> Option<Vec<u16>> {
+    let mut chord = Vec::new();
+    for hid_key in behavior_hid_chord(behavior)? {
+        let vk = virtual_key_for_hid(hid_key)?;
+        if !chord.contains(&vk) {
+            chord.push(vk);
+        }
+    }
+    (!chord.is_empty()).then_some(chord)
+}
+
+pub(super) fn send_managed_held_key(key: u16, down: bool) {
+    if let Err(error) = send_remote_virtual_key(key, down) {
+        log::warn!(target: "axonkey::input", "{error}");
+    }
+}
+
+#[cfg(test)]
+pub(super) fn take_test_keyboard_batches() -> Vec<Vec<(u16, u32)>> {
+    MOUSE_KEY_BATCHES.with(|batches| std::mem::take(&mut *batches.borrow_mut()))
 }
 
 /// Convert the existing key names into USB HID usages, never scan codes or
@@ -2099,10 +2119,10 @@ fn virtual_key_for_name(value: &str) -> Option<u16> {
         "LSHIFT" => 0xa0,
         "RSHIFT" => 0xa1,
         "ALT" => 0x12,
-        "LALT" => 0xa4,
-        "RALT" => 0xa5,
-        "WIN" | "LWIN" => 0x5b,
-        "RWIN" => 0x5c,
+        "LALT" | "OPTION" | "LOPTION" => 0xa4,
+        "RALT" | "ROPTION" => 0xa5,
+        "WIN" | "LWIN" | "CMD" | "COMMAND" => 0x5b,
+        "RWIN" | "RCMD" | "RCOMMAND" => 0x5c,
         "ESC" | "ESCAPE" => 0x1b,
         "ENTER" | "RETURN" => 0x0d,
         "SPACE" => 0x20,

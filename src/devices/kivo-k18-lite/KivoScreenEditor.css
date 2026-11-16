@@ -1,0 +1,151 @@
+.kivo-screen-editor {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+  margin: 12px 14px;
+  padding: 18px 22px 22px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 82%);
+  box-shadow: var(--shadow-card);
+}
+
+.macos-vibrancy .kivo-screen-editor {
+  border-color: rgb(24 28 36 / 9%);
+  background: rgb(255 255 255 / 44%);
+}
+
+.kivo-screen-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 26px;
+}
+
+.kivo-screen-editor-head h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.2px;
+}
+
+.kivo-oled-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  width: min(100%, 440px);
+  padding: 12px 14px;
+  box-sizing: border-box;
+  border: 1px solid #263244;
+  border-radius: 11px;
+  background: linear-gradient(180deg, #151d28 0%, #0a0f16 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 7%),
+    0 6px 16px rgb(15 23 42 / 14%);
+}
+
+.kivo-oled-preview-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 4 / 1;
+  border: 1px solid #1b2636;
+  border-radius: 4px;
+  background: #05080d;
+  image-rendering: pixelated;
+}
+
+.kivo-screen-editor .settings-form-fields {
+  padding: 0;
+  gap: 16px;
+}
+
+.kivo-screen-editor .settings-form-row {
+  grid-template-columns: 88px minmax(0, 1fr);
+}
+
+.kivo-screen-mode-tabs {
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgb(24 28 36 / 6%);
+}
+
+.kivo-screen-mode-tabs button {
+  min-height: 28px;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink-secondary);
+  background: transparent;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.kivo-screen-mode-tabs button:not([aria-checked='true']):hover {
+  color: var(--ink);
+}
+
+.kivo-screen-mode-tabs button[aria-checked='true'] {
+  color: var(--blue);
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 8%);
+  font-weight: 600;
+}
+
+.kivo-screen-text-input {
+  width: min(100%, 320px);
+  height: 32px;
+  padding: 5px 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--ink);
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 3%);
+  font: inherit;
+  font-size: 13px;
+  transition:
+    border-color 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.kivo-screen-text-input:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(0 102 255 / 11%);
+}
+
+.kivo-screen-select {
+  width: 132px;
+}
+
+.kivo-screen-checkboxes {
+  gap: 16px;
+}
+
+@media (max-height: 720px) {
+  .kivo-screen-editor {
+    gap: 14px;
+    margin: 8px 12px;
+    padding: 14px 18px 16px;
+  }
+  .kivo-screen-editor .settings-form-fields {
+    gap: 12px;
+  }
+}

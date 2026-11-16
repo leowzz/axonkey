@@ -718,3 +718,193 @@ test('mouse application mappings restore with the selected profile and switch st
   assert.deepEqual(restored.applicationIds, mouse.applicationIds)
   assert.deepEqual(result.backup.applicationProfileSwitching, { mouse: false })
 })
+
+test('Kivo K18 Lite display settings trigger cloud snapshot, bump profile versions, round-trip restore, and validate Relay bounds', async () => {
+  stored.clear()
+  const { annotateSnapshot } = await import('../src/cloud/cloudMetadata.ts')
+  const backup = initialBackup(createEmptyBehaviorMap())
+
+  // 1. Untouched Kivo K18 Lite (no display or default display + auto empty lines + no behaviors) does not create empty cloud documents
+  const untouched = {
+    id: 'k18-untouched',
+    kind: 'kivoK18Lite',
+    name: 'Kivo K18 Lite',
+    binding: 'usb-serial-1',
+    enabled: true,
+    activeProfileId: 'default',
+    display: { brightness: 100, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true },
+    profiles: [
+      { id: 'default', name: '默认配置', behaviors: {}, display: { mode: 'auto', line1: '', line2: '' } },
+    ],
+  }
+  assert.equal(createCloudSnapshot(backup, [untouched]).documents.length, 0)
+
+  // 2. Custom device display (even without key mappings) or custom profile display triggers cloud snapshot
+  const deviceDisplayOnly = {
+    ...structuredClone(untouched),
+    id: 'k18-bright',
+    display: { brightness: 65, sleepTimeoutSec: 0, showKeyToast: false, showProfileToast: true },
+  }
+  const snapDeviceDisplay = createCloudSnapshot(backup, [deviceDisplayOnly])
+  assert.equal(snapDeviceDisplay.documents.length, 1)
+  assert.deepEqual(snapDeviceDisplay.documents[0].config.display, {
+    brightness: 65,
+    sleepTimeoutSec: 0,
+    showKeyToast: false,
+    showProfileToast: true,
+  })
+
+  const profileDisplayOnly = {
+    ...structuredClone(untouched),
+    id: 'k18-profile-oled',
+    display: undefined,
+    profiles: [
+      {
+        id: 'default',
+        name: '剪辑方案',
+        behaviors: {},
+        display: { mode: 'custom', line1: 'DaVinci Resolve', line2: '时间线快剪' },
+      },
+    ],
+  }
+  const snapProfileDisplay = createCloudSnapshot(backup, [profileDisplayOnly])
+  assert.equal(snapProfileDisplay.documents.length, 1)
+  assert.equal('display' in snapProfileDisplay.documents[0].config, false)
+  assert.deepEqual(snapProfileDisplay.documents[0].config.profiles[0].display, {
+    mode: 'custom',
+    line1: 'DaVinci Resolve',
+    line2: '时间线快剪',
+  })
+
+  // 3. annotateSnapshot bumps app_version when profile.display changes and uploads cleanly
+  const firstAnnotated = annotateSnapshot(snapProfileDisplay, source, '1.9.9')
+  assert.equal(firstAnnotated.documents[0].config.profiles[0].app_version, '1.9.9')
+  assert.equal(annotateSnapshot(snapProfileDisplay, source, '1.10.0').documents[0].config.profiles[0].app_version, '1.9.9')
+  profileDisplayOnly.profiles[0].display.line2 = '调色面板'
+  const updatedSnap = createCloudSnapshot(backup, [profileDisplayOnly])
+  assert.equal(annotateSnapshot(updatedSnap, source, '1.10.0').documents[0].config.profiles[0].app_version, '1.10.0')
+
+  // 4. Full Kivo K18 Lite round-trip restore to new instance & existing bound instance (including 64-CJK and 64-emoji rune bounds)
+  const cjk64 = '屏'.repeat(64)
+  const emoji64 = '🎹'.repeat(64)
+  const fullKivo = {
+    id: 'k18-full',
+    kind: 'kivoK18Lite',
+    name: '桌面宏键盘',
+    binding: 'usb-serial-full',
+    enabled: true,
+    activeProfileId: 'code',
+    display: { brightness: 80, sleepTimeoutSec: 300, showKeyToast: true, showProfileToast: false },
+    profiles: [
+      {
+        id: 'code',
+        name: '编程模式',
+        behaviors: {
+          'kivo.k18Lite.k01': {
+            click: [createBehavior({ type: 'key', key: 'Ctrl', id: 'k18-ctrl' })],
+            doubleClick: [],
+            longPress: [],
+          },
+        },
+        display: { mode: 'custom', line1: cjk64, line2: emoji64 },
+      },
+      {
+        id: 'auto-prof',
+        name: '自动标题',
+        behaviors: {},
+        display: { mode: 'auto', line1: '保留草稿', line2: '' },
+      },
+    ],
+  }
+  const kivoSnap = createCloudSnapshot(backup, [fullKivo])
+  const cloudDoc = {
+    ...remote(),
+    id: 'doc-k18',
+    model_id: 'model-kivo',
+    config: {
+      ...kivoSnap.documents[0].config,
+      profiles: kivoSnap.documents[0].config.profiles.map(p => ({ ...p, app_version: '1.9.9' })),
+    },
+  }
+  const cloud = {
+    models: [{ id: 'model-kivo', code: 'kivoK18Lite' }],
+    documents: [cloudDoc],
+    settings: null,
+  }
+
+  // Restore into a brand-new local K18 instance
+  const restoredNew = prepareCloudRestore(cloud, backup, [], {
+    devices: [{ documentId: 'doc-k18', profileIds: ['code', 'auto-prof'], targetId: 'new:k18-restored' }],
+    settings: false,
+    savedBehaviors: false,
+  })
+  assert.equal(restoredNew.instances.length, 1)
+  assert.equal(restoredNew.instances[0].kind, 'kivoK18Lite')
+  assert.deepEqual(restoredNew.instances[0].display, fullKivo.display)
+  assert.deepEqual(restoredNew.instances[0].profiles[0].display, { mode: 'custom', line1: cjk64, line2: emoji64 })
+  assert.deepEqual(restoredNew.instances[0].profiles[1].display, { mode: 'auto', line1: '保留草稿', line2: '' })
+
+  // Restore into an existing bound local K18 instance without local display settings -> adopts cloud display settings
+  const existingBound = {
+    id: 'k18-local-bound',
+    kind: 'kivoK18Lite',
+    name: '本机 K18',
+    binding: 'usb-local-serial',
+    enabled: true,
+    activeProfileId: 'local-default',
+    profiles: [{ id: 'local-default', name: '默认配置', behaviors: {} }],
+  }
+  const restoredExisting = prepareCloudRestore(cloud, backup, [existingBound], {
+    devices: [{ documentId: 'doc-k18', profileIds: ['code'], targetId: 'k18-local-bound' }],
+    settings: false,
+    savedBehaviors: false,
+  })
+  assert.equal(restoredExisting.instances[0].binding, 'usb-local-serial')
+  assert.deepEqual(restoredExisting.instances[0].display, fullKivo.display)
+  assert.equal(restoredExisting.instances[0].profiles.length, 2)
+  assert.deepEqual(restoredExisting.instances[0].profiles[1].display, { mode: 'custom', line1: cjk64, line2: emoji64 })
+
+  // 5. Reject out-of-range or malformed display payloads matching Relay ValidateConfigV2
+  const invalidConfigs = [
+    { ...cloudDoc.config, display: { brightness: -1, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 101, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 50.5, sleepTimeoutSec: 180, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 1, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 14, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 3601, showKeyToast: true, showProfileToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 60, showKeyToast: true } },
+    { ...cloudDoc.config, display: { brightness: 80, sleepTimeoutSec: 60, showKeyToast: true, showProfileToast: true, extra: 1 } },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'manual', line1: 'a', line2: 'b' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: '屏'.repeat(65), line2: '' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: '', line2: '🎹'.repeat(65) } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: 'bad\nline', line2: '' } }],
+    },
+    {
+      ...cloudDoc.config,
+      profiles: [{ ...cloudDoc.config.profiles[0], display: { mode: 'custom', line1: 'a', line2: 'b', unknown: true } }],
+    },
+  ]
+  for (const badConfig of invalidConfigs) {
+    assert.throws(
+      () =>
+        prepareCloudRestore(
+          { ...cloud, documents: [{ ...cloudDoc, config: badConfig }] },
+          backup,
+          [],
+          { devices: [{ documentId: 'doc-k18', profileIds: ['code'], targetId: 'new:bad' }], settings: false, savedBehaviors: false },
+        ),
+      /不支持或不完整/,
+    )
+  }
+})

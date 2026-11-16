@@ -24,10 +24,12 @@ import { defaultWorkflowSplitRatio } from '../../components/workflowSplitLayout'
 import { WorkflowAxonkey } from '../../components/WorkflowAxonkey'
 import { DeviceSettingsDrawer } from '../shared/DeviceSettingsDrawer'
 import { DeviceWorkspaceHeader, type WorkspaceDeviceOption } from '../shared/DeviceWorkspaceHeader'
+import { KivoScreenEditor } from '../kivo-k18-lite/KivoScreenEditor'
 import { DeviceBindingPicker } from './IntegrationControls'
 import {
   defaultRecordingMode,
   deviceMatchesKind,
+  deviceScreenSelectionId,
   emptyTriggers,
   getSupportPackages,
   instanceState,
@@ -37,6 +39,7 @@ import {
   supportsWindowsDriver,
   supportsDeviceInformation,
   usesHidVoice,
+  usesSingleLaneWorkspace,
 } from './model'
 import type { DeviceInstance, DiscoveredDevice } from './model'
 import type { DeviceController } from './useDeviceInstances'
@@ -93,26 +96,29 @@ export function InstanceWorkspace({
 }: Props) {
   useSyncExternalStore(subscribeSupportPackages, getSupportPackages, getSupportPackages)
   const pkg = packageFor(instance.kind)
+  const singleLaneWorkspace = usesSingleLaneWorkspace(instance.kind)
   const voice = pkg.remoteView?.voice
   const voiceModes = voice?.triggerModes ?? []
   const analogInputs = pkg.remoteView?.buttons.filter(button => button.kind === 'trigger') ?? []
   const [splitRatio, setSplitRatio] = useState(defaultWorkflowSplitRatio)
   const [selected, setSelected] = useState<string>(() =>
-    getStoredDeviceInput(
-      instance.id,
-      pkg.inputs.map(input => input.id),
-    ),
+    getStoredDeviceInput(instance.id, [
+      ...pkg.inputs.map(input => input.id),
+      ...(pkg.screenRegion ? [deviceScreenSelectionId] : []),
+    ]),
   )
+  const isScreenSelected = Boolean(pkg.screenRegion && selected === deviceScreenSelectionId)
   useEffect(() => {
+    if (isScreenSelected) return
     if (pkg.inputs.length > 0 && !pkg.inputs.some(input => input.id === selected)) {
       setSelected(
-        getStoredDeviceInput(
-          instance.id,
-          pkg.inputs.map(input => input.id),
-        ),
+        getStoredDeviceInput(instance.id, [
+          ...pkg.inputs.map(input => input.id),
+          ...(pkg.screenRegion ? [deviceScreenSelectionId] : []),
+        ]),
       )
     }
-  }, [instance.id, pkg.inputs, selected])
+  }, [instance.id, isScreenSelected, pkg.inputs, pkg.screenRegion, selected])
   const selectInput = (inputId: string) => {
     setSelected(inputId)
     storeDeviceInput(instance.id, inputId)
@@ -373,7 +379,7 @@ export function InstanceWorkspace({
     !instance.hideDriverMissingReminder && !driverNoticeDismissed && (driverMissing || !!driverErrorDetail)
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return
-    if (settings || pendingSwitch || pendingDeletion || showDriverNotice) return
+    if (settings || pendingSwitch || pendingDeletion || showDriverNotice || isScreenSelected) return
     const handleHistoryShortcut = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || (!event.metaKey && !event.ctrlKey)) return
       const target = event.target
@@ -403,6 +409,7 @@ export function InstanceWorkspace({
   }, [
     canRedo,
     canUndo,
+    isScreenSelected,
     pendingDeletion,
     pendingSwitch,
     redoBehaviorChange,
@@ -424,7 +431,7 @@ export function InstanceWorkspace({
   return (
     <div
       ref={workspaceRef}
-      className={`mapping-page mapping-flow-page managed-instance-workspace ${instance.kind === 'xboxBluetooth' ? 'is-controller' : ''}`}
+      className={`mapping-page mapping-flow-page managed-instance-workspace ${singleLaneWorkspace ? 'is-controller' : ''}`}
     >
       <div className="mapping-workbench">
         <DeviceWorkspaceHeader
@@ -572,7 +579,7 @@ export function InstanceWorkspace({
               <span />
             </button>
           </section>
-          <div className={`remote-stage ${instance.kind === 'xboxBluetooth' ? 'managed-controller-stage' : ''}`}>
+          <div className={`remote-stage ${singleLaneWorkspace ? 'managed-controller-stage' : ''}`}>
             <div className="remote-art">
               <RemoteControl
                 activeId={selected}
@@ -580,6 +587,7 @@ export function InstanceWorkspace({
                 mappedIds={mapped}
                 onSelect={selectInput}
                 remoteView={pkg.remoteView}
+                screenRegion={pkg.screenRegion}
               />
             </div>
           </div>
@@ -637,61 +645,71 @@ export function InstanceWorkspace({
               权限。<button onClick={onPermissions}>前往授权</button>
             </p>
           )}
-          <WorkflowAxonkey
-            header={
-              <section className="key-picker">
-                <div className="key-picker-head">
-                  <div className="key-picker-heading">
-                    <h2>{selectedInput.label}</h2>
-                    {selectedInput.icon === 'mic' && (
-                      <span
-                        className="key-picker-voice-guidance"
-                        title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
-                      >
-                        要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
-                      </span>
-                    )}
+          {isScreenSelected ? (
+            <KivoScreenEditor
+              instance={instance}
+              profile={profile}
+              applicationName={applicationProfile?.application.name}
+              native={native}
+              onUpdate={update}
+            />
+          ) : (
+            <WorkflowAxonkey
+              header={
+                <section className="key-picker">
+                  <div className="key-picker-head">
+                    <div className="key-picker-heading">
+                      <h2>{selectedInput.label}</h2>
+                      {selectedInput.icon === 'mic' && (
+                        <span
+                          className="key-picker-voice-guidance"
+                          title="要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空。这样按下即保持、松开即释放；「长按」表示按住一段时间后触发行为。"
+                        >
+                          要按住说话，请将语音快捷键配在「单击」，「双击」「长按」留空
+                        </span>
+                      )}
+                    </div>
+                    <div className="key-picker-actions">
+                      <BehaviorHistoryActions
+                        canUndo={canUndo}
+                        canRedo={canRedo}
+                        onUndo={undoBehaviorChange}
+                        onRedo={redoBehaviorChange}
+                      />
+                    </div>
                   </div>
-                  <div className="key-picker-actions">
-                    <BehaviorHistoryActions
-                      canUndo={canUndo}
-                      canRedo={canRedo}
-                      onUndo={undoBehaviorChange}
-                      onRedo={redoBehaviorChange}
-                    />
-                  </div>
-                </div>
-                {instance.kind === 'xboxBluetooth' && (
-                  <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
-                    {triggerTypes.map(trigger => (
-                      <button
-                        type="button"
-                        key={trigger}
-                        className={`workflow-trigger-${trigger}`}
-                        aria-pressed={controllerTrigger === trigger}
-                        onClick={() => setControllerTrigger(trigger)}
-                      >
-                        {triggerLabels[trigger]}
-                        <span>{activeBehaviors[selected]?.[trigger].length ?? 0}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </section>
-            }
-            splitRatio={splitRatio}
-            onSplitRatioChange={setSplitRatio}
-            platform={platform}
-            button={selectedInput}
-            sequences={activeBehaviors[selected] ?? emptyTriggers()}
-            activeTrigger={instance.kind === 'xboxBluetooth' ? controllerTrigger : undefined}
-            onChange={changeSequence}
-            onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
-              setPendingSwitch({ inputId, trigger, behavior, additionItemId })
-            }
-            toolboxCategory={toolboxCategory}
-            onToolboxCategoryChange={setToolboxCategory}
-          />
+                  {singleLaneWorkspace && (
+                    <div className="managed-workflow-triggers" role="group" aria-label="触发方式">
+                      {triggerTypes.map(trigger => (
+                        <button
+                          type="button"
+                          key={trigger}
+                          className={`workflow-trigger-${trigger}`}
+                          aria-pressed={controllerTrigger === trigger}
+                          onClick={() => setControllerTrigger(trigger)}
+                        >
+                          {triggerLabels[trigger]}
+                          <span>{activeBehaviors[selected]?.[trigger].length ?? 0}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              }
+              splitRatio={splitRatio}
+              onSplitRatioChange={setSplitRatio}
+              platform={platform}
+              button={selectedInput}
+              sequences={activeBehaviors[selected] ?? emptyTriggers()}
+              activeTrigger={singleLaneWorkspace ? controllerTrigger : undefined}
+              onChange={changeSequence}
+              onRequestProfileSwitch={(inputId, trigger, behavior, additionItemId) =>
+                setPendingSwitch({ inputId, trigger, behavior, additionItemId })
+              }
+              toolboxCategory={toolboxCategory}
+              onToolboxCategoryChange={setToolboxCategory}
+            />
+          )}
         </section>
       </div>
       {settings && (

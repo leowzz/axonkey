@@ -53,6 +53,14 @@ export type BuiltinDeviceKind =
   | 'tclRc902v'
   | 'hisenseRcf3b65'
   | 'phicommDb1R'
+  | 'kivoK18Lite'
+
+export type WorkspaceLayout = 'multi-lane' | 'single-lane'
+
+export type DeviceScreenRegion = {
+  label: string
+  path: string
+}
 
 export type DeviceKind = BuiltinDeviceKind | (string & {})
 
@@ -63,6 +71,8 @@ export type DeviceSupportPackage = {
   artwork: string
   inputs: readonly MappingInput<string>[]
   remoteView?: RemoteView
+  workspaceLayout?: WorkspaceLayout
+  screenRegion?: DeviceScreenRegion
 }
 
 export type DeviceSettingsPageProps = {

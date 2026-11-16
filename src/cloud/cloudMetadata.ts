@@ -18,9 +18,18 @@ export type ProfileMetadata = {
 }
 const metadataKey = 'axonkey.cloud-profile-metadata.v1'
 const installationKey = 'axonkey.cloud-installation.v1'
-type ProfileContent = { id: string; name: string; behaviors: unknown }
+type ProfileContent = {
+  id: string
+  name: string
+  behaviors: unknown
+  display?: { mode: 'auto' | 'custom'; line1: string; line2: string }
+}
 export function profileContent(profile: ProfileContent): string {
-  return fingerprint({ name: profile.name, behaviors: profile.behaviors })
+  return fingerprint({
+    name: profile.name,
+    behaviors: profile.behaviors,
+    ...(profile.display === undefined ? {} : { display: profile.display }),
+  })
 }
 export function readProfileMetadata(): Record<string, ProfileMetadata> {
   return JSON.parse(localStorage.getItem(metadataKey) ?? '{}')

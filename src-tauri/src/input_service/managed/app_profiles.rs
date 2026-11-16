@@ -70,6 +70,7 @@ mod tests {
             id: "browser".into(),
             name: "浏览器".into(),
             behaviors: serde_json::json!({"xbox.a": {"click": [{"type": "key", "key": "A"}]}}),
+            display: None,
         });
         first.application_profiles.push(ApplicationProfile {
             application: Application {

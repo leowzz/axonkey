@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { xiaomiRemoteView } from '../xiaomi-remote/view.ts'
-import type { RemoteView } from '../types.ts'
+import type { DeviceScreenRegion, RemoteView } from '../types.ts'
+
+export const deviceScreenSelectionId = '__screen__'
 
 type Props = {
   activeId: string
@@ -9,6 +11,7 @@ type Props = {
   mappedIds: readonly string[]
   onSelect: (id: string) => void
   remoteView?: RemoteView
+  screenRegion?: DeviceScreenRegion
 }
 
 const hintDismissedKey = 'axonkey.remote-interaction-hint.v1'
@@ -20,6 +23,7 @@ export function RemoteControl({
   mappedIds,
   onSelect,
   remoteView = xiaomiRemoteView,
+  screenRegion,
 }: Props) {
   const [keyboardPressedId, setKeyboardPressedId] = useState<string | null>(null)
   const [pointerPressedId, setPointerPressedId] = useState<string | null>(null)
@@ -92,6 +96,53 @@ export function RemoteControl({
           aria-hidden="true"
           pointerEvents="none"
         />
+        {screenRegion && (
+          <g
+            data-remote-key={deviceScreenSelectionId}
+            data-remote-screen="true"
+            role="button"
+            tabIndex={0}
+            aria-label={screenRegion.label}
+            aria-pressed={activeId === deviceScreenSelectionId}
+            className={`remote-key remote-screen-region${activeId === deviceScreenSelectionId ? ' selected' : ''}${keyboardPressedId === deviceScreenSelectionId ? ' keyboard-pressed' : ''}${pointerPressedId === deviceScreenSelectionId ? ' pointer-pressed' : ''}`}
+            onClick={() => selectKey(deviceScreenSelectionId)}
+            onPointerDown={event => {
+              if (event.button === 0 && event.isPrimary) setPointerPressedId(deviceScreenSelectionId)
+            }}
+            onPointerUp={() => setPointerPressedId(null)}
+            onPointerCancel={() => setPointerPressedId(null)}
+            onPointerLeave={() => setPointerPressedId(null)}
+            onBlur={() => {
+              spaceKeyRef.current = null
+              setKeyboardPressedId(null)
+            }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              event.stopPropagation()
+              if (event.repeat) return
+              setKeyboardPressedId(deviceScreenSelectionId)
+              if (event.key === 'Enter') selectKey(deviceScreenSelectionId)
+              else {
+                spaceKeyRef.current = deviceScreenSelectionId
+              }
+            }}
+            onKeyUp={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return
+              event.preventDefault()
+              event.stopPropagation()
+              const activate = event.key === ' ' && spaceKeyRef.current === deviceScreenSelectionId
+              spaceKeyRef.current = null
+              setKeyboardPressedId(null)
+              if (activate) selectKey(deviceScreenSelectionId)
+            }}
+          >
+            <title>{screenRegion.label}</title>
+            <path className="remote-key-halo" d={screenRegion.path} aria-hidden="true" />
+            <path className="remote-key-outline" d={screenRegion.path} aria-hidden="true" />
+            <path className="remote-key-surface" d={screenRegion.path} aria-hidden="true" />
+          </g>
+        )}
         {remoteView.buttons.map(button => (
           <g
             key={button.id}

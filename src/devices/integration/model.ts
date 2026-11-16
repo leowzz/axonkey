@@ -12,9 +12,39 @@ import { tclRc902nSupportPackage } from '../tcl-rc902n-remote/definition.ts'
 import { tclRc902vSupportPackage } from '../tcl-rc902v-remote/definition.ts'
 import { hisenseRcf3b65SupportPackage } from '../hisense-rcf3b65-remote/definition.ts'
 import { phicommDb1RSupportPackage } from '../phicomm-db1-r-remote/definition.ts'
+import { kivoK18LiteSupportPackage } from '../kivo-k18-lite/definition.ts'
 
 export type { BuiltinDeviceKind, DeviceKind } from '../types.ts'
-export type InstanceProfile = { id: string; name: string; behaviors: Record<string, TriggerBehaviors> }
+export const deviceScreenSelectionId = '__screen__'
+export type ProfileDisplayMode = 'auto' | 'custom'
+export type ProfileDisplayConfig = {
+  mode: ProfileDisplayMode
+  line1: string
+  line2: string
+}
+export type DeviceDisplaySettings = {
+  brightness: number
+  sleepTimeoutSec: number
+  showKeyToast: boolean
+  showProfileToast: boolean
+}
+export const defaultProfileDisplay: ProfileDisplayConfig = {
+  mode: 'auto',
+  line1: '',
+  line2: '',
+}
+export const defaultDeviceDisplaySettings: DeviceDisplaySettings = {
+  brightness: 100,
+  sleepTimeoutSec: 180,
+  showKeyToast: true,
+  showProfileToast: true,
+}
+export type InstanceProfile = {
+  id: string
+  name: string
+  behaviors: Record<string, TriggerBehaviors>
+  display?: ProfileDisplayConfig
+}
 export type DeviceInstance = {
   id: string
   kind: DeviceKind
@@ -26,6 +56,7 @@ export type DeviceInstance = {
   cmiotA15RecordingMode?: 'hold' | 'click'
   quarborTarget?: string | null
   hideDriverMissingReminder?: boolean
+  display?: DeviceDisplaySettings
   enabled: boolean
   profiles: InstanceProfile[]
   activeProfileId: string
@@ -91,6 +122,7 @@ export const bundledSupportPackages: readonly DeviceSupportPackage[] = Object.fr
   tclRc902vSupportPackage,
   hisenseRcf3b65SupportPackage,
   phicommDb1RSupportPackage,
+  kivoK18LiteSupportPackage,
   xboxSupportPackage,
 ])
 
@@ -135,7 +167,19 @@ export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackag
     if (!kind || kind === 'mouse') continue
     overlayByKind.set(kind, pkg)
   }
-  const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => overlayByKind.get(pkg.kind) ?? pkg)
+  const next: DeviceSupportPackage[] = bundledSupportPackages.map(pkg => {
+    const overlay = overlayByKind.get(pkg.kind)
+    if (!overlay) return pkg
+    return {
+      ...overlay,
+      ...(overlay.workspaceLayout === undefined && pkg.workspaceLayout !== undefined
+        ? { workspaceLayout: pkg.workspaceLayout }
+        : {}),
+      ...(overlay.screenRegion === undefined && pkg.screenRegion !== undefined
+        ? { screenRegion: pkg.screenRegion }
+        : {}),
+    }
+  })
   for (const [kind, pkg] of overlayByKind) {
     if (!builtinKindSet.has(kind)) next.push(pkg)
   }
@@ -148,7 +192,10 @@ export function setRuntimeSupportPackages(overlays: readonly DeviceSupportPackag
         prev.name === pkg.name &&
         prev.model === pkg.model &&
         prev.artwork === pkg.artwork &&
-        prev.inputs.length === pkg.inputs.length
+        prev.inputs.length === pkg.inputs.length &&
+        prev.workspaceLayout === pkg.workspaceLayout &&
+        prev.screenRegion?.label === pkg.screenRegion?.label &&
+        prev.screenRegion?.path === pkg.screenRegion?.path
       )
     })
   if (unchanged) return false
@@ -229,6 +276,9 @@ function placeholderPackageFor(kind: DeviceKind): DeviceSupportPackage {
 export const packageFor = (kind: DeviceKind): DeviceSupportPackage =>
   mutableSupportPackages.find(p => p.kind === kind) ?? placeholderPackageFor(kind)
 
+export function usesSingleLaneWorkspace(kind: DeviceKind | undefined) {
+  return kind !== undefined && packageFor(kind).workspaceLayout === 'single-lane'
+}
 export function usesHidVoice(kind: DeviceKind | undefined) {
   const engine = kind && packageFor(kind).remoteView?.voice?.engine
   return engine === 'cmiot-a15.g7221' || engine === 'obe-rcu-r5.sbc' || engine === 'tcl-rc802a.ico'

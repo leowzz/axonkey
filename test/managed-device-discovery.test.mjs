@@ -41,6 +41,7 @@ const modelImports = {
   '../tcl-rc902v-remote/definition.ts': require('../src/devices/tcl-rc902v-remote/definition.ts'),
   '../hisense-rcf3b65-remote/definition.ts': require('../src/devices/hisense-rcf3b65-remote/definition.ts'),
   '../phicomm-db1-r-remote/definition.ts': require('../src/devices/phicomm-db1-r-remote/definition.ts'),
+  '../kivo-k18-lite/definition.ts': require('../src/devices/kivo-k18-lite/definition.ts'),
   '../xbox-controller/index.ts': xboxDefinition,
 }
 const model = compile('src/devices/integration/model.ts', modelImports)
@@ -448,15 +449,17 @@ test('mobile model identity matching retains captured software and hardware beha
 })
 
 test('bundled capabilities retain recording defaults and platform support for all supported devices', () => {
-  for (const [kind, mode, hidVoice] of [
+  for (const [kind, mode, hidVoice, windowsDriver = true, singleLane = false] of [
     ['rc003', 'click', false], ['cmiotA15', 'click', true], ['xmBt29', 'hold', true],
-    ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false],
+    ['rc313', 'hold', true], ['obeRcuR5', 'hold', true], ['xboxBluetooth', 'click', false, true, true],
     ['tclRc802a', 'hold', true], ['tclRc902n', 'click', false], ['tclRc902v', 'click', false],
     ['hisenseRcf3b65', 'click', false], ['phicommDb1R', 'click', false],
+    ['kivoK18Lite', 'click', false, false, true],
   ]) {
     assert.equal(model.newInstance(kind, null).cmiotA15RecordingMode, mode)
     assert.equal(model.usesHidVoice(kind), hidVoice)
-    assert.equal(model.supportsWindowsDriver(kind), true)
+    assert.equal(model.supportsWindowsDriver(kind), windowsDriver)
+    assert.equal(model.usesSingleLaneWorkspace(kind), singleLane)
   }
 })
 
@@ -638,6 +641,9 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
       'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+      '../integration/model': model,
     }),
     './IntegrationControls': controls,
     './model': model,
@@ -875,6 +881,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       ['rc313', true, true, false, true], ['obeRcuR5', true, false, false, true], ['xboxBluetooth', false, false, false, false],
       ['tclRc802a', true, false, false, true], ['tclRc902n', true, false, true, true], ['tclRc902v', true, false, true, true],
       ['hisenseRcf3b65', true, false, false, false], ['phicommDb1R', true, false, false, false],
+      ['kivoK18Lite', false, false, false, false],
     ]) {
       act(() => {
         instances[1] = { ...instances[1], kind }
@@ -885,7 +892,7 @@ test('A15 workspace scopes driver actions, recording mode and input feedback to 
       assert.equal(views[1].root.findAllByProps({ className: 'managed-audio-calibration' }).length, Number(voiceCalibration))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
       assert.equal(views[1].root.findAllByType('select').length, Number(recordingModes))
-      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, 1)
+      assert.equal(views[1].root.findAllByProps({ className: 'settings-form-row managed-driver-status-row' }).length, Number(model.supportsWindowsDriver(kind)))
       act(() => views[1].root.findByProps({ className: 'device-workspace-settings' }).props.onClick())
     }
     act(() => {
@@ -1161,6 +1168,9 @@ test('managed device workspace renders undo/redo header actions, handles shortcu
     '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
     '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
       'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+      '../integration/model': model,
     }),
     './IntegrationControls': controls,
     './model': model,
@@ -1524,5 +1534,216 @@ test('discovery help troubleshoot button opens ConnectionTroubleshootPage in Dev
     assert.equal(guideView.root.findAllByProps({ className: 'troubleshoot-dialog' }).length, 0)
   } finally {
     act(() => guideView.unmount())
+  }
+})
+
+test('Kivo K18 Lite workspace uses wide single-lane trigger tabs without Windows driver notices and edits per-profile and per-device OLED screen settings', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  const previewCalls = []
+  const screenEditorMod = compile('src/devices/kivo-k18-lite/KivoScreenEditor.tsx', {
+    '@tauri-apps/api/core': {
+      invoke: async (cmd, args) => {
+        previewCalls.push([cmd, args])
+        const frame = new Array(512).fill(0)
+        frame[0] = 0b1010_0000
+        frame[16 * 31 + 15] = 0b0000_0001
+        return frame
+      },
+    },
+    '../integration/model': model,
+  })
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 0, 0), true)
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 1, 0), false)
+  assert.equal(screenEditorMod.decodeOled1bppPixel([0b1010_0000, ...new Array(511).fill(0)], 2, 0), true)
+
+  const RemoteControl = () => null
+  const WorkflowAxonkey = ({ header }) => header
+  const ApplicationProfileToolbar = () => null
+  const { InstanceWorkspace } = compile('src/devices/integration/InstanceWorkspace.tsx', {
+    'react-dom': { createPortal: node => node },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    '../../behaviorModel': require('../src/behaviorModel.ts'),
+    '../../appConfig': { triggerLabels: { click: '单击', doubleClick: '双击', longPress: '长按' } },
+    '../../deviceInputSelection': require('../src/deviceInputSelection.ts'),
+    '../../telemetry': { reportTencentEvent() {} },
+    '../../cloud/libraryUsage': { recordLibraryAdditions() {} },
+    '../../profileNavigation': require('../src/profileNavigation.ts'),
+    '../shared/RemoteControl': { RemoteControl },
+    '../../components/ApplicationProfileToolbar': { ApplicationProfileToolbar },
+    '../../useForegroundApplications': { useForegroundApplications: () => ({ current: null, recent: [], supported: true, error: null }) },
+    './applicationProfiles': require('../src/devices/integration/applicationProfiles.ts'),
+    '../../components/ProfileSwitchConfirmDialog': { ProfileSwitchConfirmDialog: () => null },
+    '../../components/ProfileSwitchDeleteDialog': { ProfileSwitchDeleteDialog: () => null },
+    '../../components/SettingsHelp': { SettingsHelp: () => null },
+    '../../components/BatteryIndicator': battery,
+    '../../components/BehaviorHistoryActions': compile('src/components/BehaviorHistoryActions.tsx'),
+    '../../components/DeviceRail': compile('src/components/DeviceRail.tsx'),
+    '../../components/WorkflowAxonkey': { WorkflowAxonkey },
+    '../../components/workflowSplitLayout': require('../src/components/workflowSplitLayout.ts'),
+    '../shared/DeviceWorkspaceHeader': compile('src/devices/shared/DeviceWorkspaceHeader.tsx'),
+    '../shared/DeviceSettingsDrawer': compile('src/devices/shared/DeviceSettingsDrawer.tsx', {
+      'react-dom': { createPortal: node => node },
+    }),
+    '../kivo-k18-lite/KivoScreenEditor': screenEditorMod,
+    './IntegrationControls': controls,
+    './model': model,
+    './instanceProfiles': require('../src/devices/integration/instanceProfiles.ts'),
+  })
+
+  let instance = {
+    ...model.newInstance('kivoK18Lite', null),
+    id: 'kivo-one',
+    profiles: [
+      {
+        id: 'p1',
+        name: '默认配置',
+        behaviors: {
+          'kivo.k18Lite.k01': {
+            click: [{ id: 's1', type: 'key', enabled: true, key: 'Enter' }],
+            doubleClick: [{ id: 's2', type: 'delay', enabled: true, ms: 50 }],
+            longPress: [],
+          },
+        },
+      },
+      { id: 'p2', name: '剪辑配置', behaviors: {} },
+    ],
+    activeProfileId: 'p1',
+    applicationProfiles: [
+      { application: { id: 'com.apple.FinalCut', name: 'Final Cut Pro', path: '/Applications/Final Cut Pro.app' }, profileId: 'p2' },
+    ],
+  }
+  const snapshot = model.emptySnapshot()
+  snapshot.store.instances = [instance]
+  snapshot.runtime['kivo-one'] = { state: 'driverMissing', driverState: 'missing', driverInstalled: false }
+  let view
+  const render = () =>
+    React.createElement(InstanceWorkspace, {
+      instance,
+      controller: {
+        snapshot,
+        refreshInformation: async () => {},
+        toggleRecording: async () => {},
+        update: async (_id, change) => {
+          instance = change(instance)
+          snapshot.store.instances = [instance]
+          return snapshot
+        },
+      },
+      native: true,
+      platform: 'windows',
+      permissions: {},
+      onPermissions() {},
+      onBack() {},
+      onBind() {},
+      onUnbindDevice: async () => {},
+      onRemoveDevice: async () => {},
+      onOpenAudioCalibration() {},
+      onOpenAudioDriver() {},
+      driverAction: null,
+      onInstallDriver() {},
+      batteryLevel: null,
+    })
+
+  act(() => {
+    view = Renderer.create(render())
+  })
+  try {
+    const rootDiv = view.root.find(node => node.type === 'div' && node.props.className?.includes('managed-instance-workspace'))
+    assert.match(rootDiv.props.className, /\bis-controller\b/)
+    assert.equal(view.root.findAllByProps({ className: 'remote-stage managed-controller-stage' }).length, 1)
+    assert.equal(view.root.findAllByProps({ className: 'managed-driver-notice' }).length, 0)
+    assert.ok(view.root.findByType(RemoteControl).props.screenRegion)
+
+    const triggerGroup = view.root.findByProps({ className: 'managed-workflow-triggers' })
+    const triggerBtns = triggerGroup.findAllByType('button')
+    assert.deepEqual(triggerBtns.map(text), ['单击1', '双击1', '长按0'])
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'click')
+    act(() => triggerBtns[1].props.onClick())
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.activeTrigger, 'doubleClick')
+
+    // Click OLED screen region -> switches right panel to KivoScreenEditor
+    act(() => view.root.findByType(RemoteControl).props.onSelect('__screen__'))
+    assert.equal(view.root.findAllByType(WorkflowAxonkey).length, 0)
+    const editor = () => view.root.findByProps({ className: 'kivo-screen-editor' })
+    assert.equal(
+      editor().findByProps({ className: 'kivo-oled-preview' }).props['aria-label'],
+      'OLED 屏幕预览：Kivo K18 Lite / 默认配置',
+    )
+    await act(async () => {
+      t.mock.timers.tick(80)
+      await Promise.resolve()
+    })
+    assert.deepEqual(structuredClone(previewCalls.at(-1)), [
+      'render_kivo_oled_preview',
+      { line1: 'Kivo K18 Lite', line2: '默认配置' },
+    ])
+
+    // Switch to custom mode and type per-profile lines
+    const radios = () => editor().findAllByProps({ role: 'radio' })
+    await act(async () => radios()[1].props.onClick())
+    act(() => view.update(render()))
+    const textInputs = () => editor().findAll(node => node.type === 'input' && node.props.type === 'text')
+    assert.equal(textInputs().length, 2)
+    await act(async () => {
+      textInputs()[0].props.onCompositionStart()
+      textInputs()[0].props.onChange({ target: { value: 'kai' }, nativeEvent: { isComposing: true } })
+      textInputs()[0].props.onChange({ target: { value: 'kaifa' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[0].props.value, 'kaifa')
+    assert.equal(instance.profiles[0].display.line1, '')
+    await act(async () => {
+      textInputs()[0].props.onCompositionEnd({ currentTarget: { value: '开发模式' } })
+      textInputs()[0].props.onChange({ target: { value: '开发模式' }, nativeEvent: { isComposing: false } })
+    })
+    act(() => view.update(render()))
+    await act(async () => {
+      textInputs()[1].props.onCompositionStart()
+      textInputs()[1].props.onChange({ target: { value: 'zhongwen' }, nativeEvent: { isComposing: true } })
+    })
+    act(() => view.update(render()))
+    assert.equal(textInputs()[1].props.value, 'zhongwen')
+    assert.equal(instance.profiles[0].display.line2, '')
+    await act(async () => {
+      textInputs()[1].props.onCompositionEnd({ currentTarget: { value: '中文屏幕' } })
+    })
+    act(() => view.update(render()))
+    assert.deepEqual(structuredClone(instance.profiles[0].display), {
+      mode: 'custom',
+      line1: '开发模式',
+      line2: '中文屏幕',
+    })
+    assert.equal(instance.profiles[1].display, undefined)
+
+    // Selecting an ApplicationProfile previews that app name + its profile name in auto mode
+    act(() => view.root.findByType(ApplicationProfileToolbar).props.onSelectApplication('com.apple.FinalCut'))
+    assert.equal(
+      editor().findByProps({ className: 'kivo-oled-preview' }).props['aria-label'],
+      'OLED 屏幕预览：Final Cut Pro / 剪辑配置',
+    )
+
+    // Device-level display settings update brightness, sleep timeout (0 = 从不), and toast switches
+    const range = editor().find(node => node.type === 'input' && node.props.type === 'range')
+    await act(async () => range.props.onChange({ target: { value: '65' } }))
+    act(() => view.update(render()))
+    const sleepSelect = editor().findByType('select')
+    await act(async () => sleepSelect.props.onChange({ target: { value: '0' } }))
+    act(() => view.update(render()))
+    const checkboxes = () => editor().findAll(node => node.type === 'input' && node.props.type === 'checkbox')
+    await act(async () => checkboxes()[0].props.onChange({ target: { checked: false } }))
+    act(() => view.update(render()))
+    assert.deepEqual(structuredClone(instance.display), {
+      brightness: 65,
+      sleepTimeoutSec: 0,
+      showKeyToast: false,
+      showProfileToast: true,
+    })
+
+    // Selecting any keycap returns immediately to WorkflowAxonkey
+    act(() => view.root.findByType(RemoteControl).props.onSelect('kivo.k18Lite.k02'))
+    assert.equal(view.root.findAllByProps({ className: 'kivo-screen-editor' }).length, 0)
+    assert.equal(view.root.findByType(WorkflowAxonkey).props.button.id, 'kivo.k18Lite.k02')
+  } finally {
+    act(() => view.unmount())
   }
 })

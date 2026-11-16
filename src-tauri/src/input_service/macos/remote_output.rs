@@ -54,7 +54,9 @@ impl RemoteOutput {
                 let flags = self
                     .held
                     .iter()
-                    .fold(0, |flags, key| flags | key.modifier_flag());
+                    .fold(managed_held_modifier_flags(), |flags, key| {
+                        flags | key.modifier_flag()
+                    });
                 post_key(key, down, flags, false);
                 return;
             }
@@ -103,7 +105,9 @@ impl RemoteOutput {
                 let flags = self
                     .held
                     .iter()
-                    .fold(0, |flags, key| flags | key.modifier_flag());
+                    .fold(managed_held_modifier_flags(), |flags, key| {
+                        flags | key.modifier_flag()
+                    });
                 post_key(*key, true, flags, true);
             }
             self.repeat_due = Some(now + Duration::from_millis(50));
